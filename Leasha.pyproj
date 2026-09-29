@@ -231,6 +231,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
+    <Compile Include="app\index\file_watch.py" />
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\live_progress.py" />
@@ -619,6 +620,7 @@
     <Compile Include="tests\unit\test_feeder_thread.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
+    <Compile Include="tests\unit\test_file_watch.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
     <Compile Include="tests\unit\test_filter_offers.py" />
@@ -627,6 +629,7 @@
     <Compile Include="tests\unit\test_first_contact_box.py" />
     <Compile Include="tests\unit\test_florence_tagger.py" />
     <Compile Include="tests\unit\test_folding.py" />
+    <Compile Include="tests\unit\test_force_skip_button.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fts_bulk_recovery.py" />

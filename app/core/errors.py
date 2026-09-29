@@ -517,6 +517,24 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # Work order 0z lane B. A reader that stops making progress on one file -
+    # a damaged PDF, a corrupt 3GB zip, a mailbox that stops yielding
+    # messages - is ended (or left behind) and the file skipped, so it holds
+    # one reader for minutes rather than the run for ever. Also what the
+    # Indexing page's Force skip records, with `reason` naming the person.
+    # `took` and `reason` are worded by `app/index/file_watch.py`.
+    "ERR_FILE_TIMEOUT": _Spec(
+        message="'{path}' was skipped after {took}: {reason}.",
+        suggestion=(
+            "Everything else carried on and is indexed. Try opening the file in "
+            "its usual program - it may be damaged. If it opens and is simply "
+            "very large, raise 'Time limit per file' (or, for a mailbox or zip, "
+            "'Skip a mailbox or archive after no progress for') on the "
+            "Indexing page's Tuning shelf. The "
+            "file is read again the next time it changes."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     # Offline Media catalogues a *volume*, whose identity is the drive's own
     # GUID (or a share's UNC name) - a folder has neither, and a drive letter is
     # never stored. Said in words, with the way out, instead of the

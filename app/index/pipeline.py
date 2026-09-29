@@ -96,6 +96,15 @@ from app.index.live_progress import (
     STAGES,  # noqa: F401 - re-exported: `pipeline.STAGES` is the one ordered list
     WorkerBoard,
 )
+from app.index.file_watch import (
+    GRACE_S,
+    ORPHANED,
+    FileCancelled,
+    FileTimedOut,
+    FileWatch,
+    Watchdog,
+    limit_kind,
+)
 from app.index.phash import PhashComputer
 from app.index.read_process import ReaderProcess, reads_in_process
 from app.index.resources import (
@@ -761,6 +770,15 @@ class PipelineConfig:
     #: other file is read on the thread as before. Off by default: the
     #: "Read files in separate processes" switch on the Indexing page.
     read_processes: bool = False
+    #: Work order 0z lane B: the time limits (`app/index/file_watch.py`).
+    #: Seconds a text or code file may take to read; other single documents
+    #: get `file_watch.LONG_FACTOR` times this. 0 is no limit. The Indexing
+    #: page's "Time limit per file" (`INDEX_FILE_TIME_LIMIT_S`).
+    file_time_limit_s: int = 120
+    #: Seconds a mailbox or archive may go with nothing new read before it is
+    #: skipped. Never a limit on its total time. 0 is no limit.
+    #: `INDEX_STALL_LIMIT_S`.
+    stall_limit_s: int = 600
     #: Which pass this is. See `OCR_MODES` and `_ocr_gate`.
     #:
     #: **OCR is the schedule, not a feature.** At 3.6 seconds a page, 100,000
@@ -1253,6 +1271,13 @@ class Pipeline:
         #: they were started. Only the consumer thread ever appends to this,
         #: from `_maybe_grow_workers`, so no lock guards it.
         self._dynamic_workers: list[threading.Thread] = []
+        #: 0z lane B: threads started in place of one left stuck in a reader.
+        self._replacement_workers: list[threading.Thread] = []
+        #: 0z lane B: the thread idents of those stuck threads.
+        self._left_behind: set[int] = set()
+        #: 0z lane B: the per-file time limits and Force skip, for the run
+        #: in progress. None between runs.
+        self._watchdog: Optional[Watchdog] = None
         #: §6g. Set for as long as the feeder thread is actually inside
         #: `_embed_pending` - not merely "has a batch queued" - so growth can
         #: tell "the model is chewing through a batch right now" from "a
@@ -1556,6 +1581,8 @@ class Pipeline:
         self._feeder_errors = []
         # §6g: same reason - a second run starts back at the static count.
         self._dynamic_workers = []
+        self._replacement_workers = []
+        self._left_behind = set()
         self._embedding_now.clear()
         self._last_growth = 0.0
         # Work order 202626270509, item 1b: same reason - a fresh run rebuilds
@@ -1682,6 +1709,13 @@ class Pipeline:
                                   name="feeder", daemon=True)
         self._feeder_thread = feeder
 
+        # 0z lane B: before the workers, so each can register its file watch.
+        self._watchdog = Watchdog(
+            file_limit_s=self.config.file_time_limit_s,
+            stall_limit_s=self.config.stall_limit_s,
+            on_orphan=lambda watch: self._replace_worker(watch, work, results))
+        self._watchdog.start()
+
         producer.start()
         for worker in workers:
             worker.start()
@@ -1706,15 +1740,30 @@ class Pipeline:
             # 0x 5d: and give back the page cache `_consume` asked for.
             self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
+            # 0z lane B: nothing is timed out or replaced once the run is ending.
+            watchdog, self._watchdog = self._watchdog, None
+            if watchdog is not None:
+                watchdog.stop()
             _drain(work)
             _drain(results)
             producer.join(timeout=5)
+            # 0z lane B: a thread left stuck in native code is not waited for -
+            # five seconds each, for a thread known not to be coming back.
+            left_behind = set(self._left_behind)
             for worker in workers:
-                worker.join(timeout=5)
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
             # §6g: whatever `_maybe_grow_workers` started, this run also ends -
             # the static workers above are not the only ones reading `work`.
             for worker in self._dynamic_workers:
-                worker.join(timeout=5)
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
+            # 0z lane B: replacements for threads left stuck in a reader. The
+            # stuck threads themselves are not joined: they are daemons, held
+            # in native code, and waiting for them is what they were left for.
+            for worker in self._replacement_workers:
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
             # **After** the extraction threads, never before: `_consume`'s own
             # final flush (`_feed_sync`) already waited for every batch it
             # handed off, whether it returned normally, was stopped, or
@@ -2781,7 +2830,7 @@ class Pipeline:
         consumer's loop); an abnormal one sends its own, and the reason is logged.
         """
         clean = False
-        board = slot = None
+        board = slot = watchdog = None
         try:
             # 0x 3c: this thread's own line on the page, and the list its
             # readers write their position into (`app.extract.progress.attach`).
@@ -2808,6 +2857,15 @@ class Pipeline:
                     low_priority=bool(self.config.resolved_limits().low_priority))
                 reader.start()
                 self._worker_slots().reader = reader
+            # 0z lane B: this thread's file watch - the time limits and Force
+            # skip. Asked for with `getattr` like the board above: a pipeline a
+            # test built without `run()` has no watchdog, and reads unwatched.
+            watchdog = getattr(self, "_watchdog", None)
+            if watchdog is not None:
+                watch = FileWatch(slot=slot,
+                                  reader=getattr(self._worker_slots(), "reader", None))
+                self._worker_slots().watch = watch
+                watchdog.add(watch)
             self._extract_worker_loop(work, results)
             clean = True
         except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
@@ -2816,6 +2874,11 @@ class Pipeline:
                       type(exc).__name__, exc)
             raise
         finally:
+            watch = getattr(self._worker_slots(), "watch", None)
+            if watch is not None:
+                self._worker_slots().watch = None
+                if watchdog is not None:
+                    watchdog.remove(watch)
             if slot is not None and board is not None:
                 board.close_slot(slot)
                 reader_progress.detach()
@@ -2843,6 +2906,8 @@ class Pipeline:
 
     def _extract_worker_loop(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
         slot = getattr(self._worker_slots(), "slot", None)
+        #: 0z lane B: None when the run has no watchdog (a bare test pipeline).
+        watch = getattr(self._worker_slots(), "watch", None)
         while True:
             try:
                 _priority, _sequence, candidate, digest = work.get(timeout=0.25)
@@ -2904,7 +2969,12 @@ class Pipeline:
             self._stats_ref.current_item = 0
             if slot is not None:
                 slot.begin(candidate.path)       # 0x 3c: once per file
+            if watch is not None:
+                watch.begin(candidate, digest, limit_kind(candidate.path))
             stream = None
+            #: 0z lane B: set when the watchdog gave up on this thread and
+            #: started another in its place - this one leaves after this file.
+            replaced = False
             try:
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
@@ -2920,9 +2990,20 @@ class Pipeline:
                 while True:
                     started = time.perf_counter()
                     try:
-                        item = next(stream)
-                    except StopIteration:
-                        break
+                        # 0z lane B: the reader's time, bracketed for the
+                        # watchdog. `enter` refuses a file already cancelled;
+                        # `leave` raises `FileCancelled` if it was cancelled
+                        # while the reader worked.
+                        if watch is not None:
+                            watch.enter()
+                        try:
+                            item = next(stream)
+                        except StopIteration:
+                            if watch is not None:
+                                watch.leave(finished=True)
+                            break
+                        if watch is not None:
+                            watch.leave()
                     finally:
                         self._clock.add_worker(
                             "extract", time.perf_counter() - started)
@@ -2936,10 +3017,38 @@ class Pipeline:
             except BaseException as exc:        # noqa: BLE001 - never let a worker die silently
                 # `BaseException`, not `Exception`: one file that raises
                 # `SystemExit` or the like must cost that file, not the worker.
-                self._offer(results, _Extracted(
-                    candidate=candidate, content_hash=digest,
-                    error=to_app_error(exc, "index.pipeline", path=str(candidate.path)),
-                ))
+                #
+                # 0z lane B: first ask the watch whether this was a time limit
+                # or a Force skip, which is recorded as `ERR_FILE_TIMEOUT`
+                # instead of whatever the reader raised on the way out (a
+                # reader process that was ended says "ended unexpectedly").
+                # Retried once: an exception raised into this thread by the
+                # watchdog can arrive at the first line of `settle` itself,
+                # which then clears anything still pending.
+                verdict = None
+                if watch is not None:
+                    try:
+                        verdict = watch.settle()
+                    except FileTimedOut:
+                        verdict = watch.settle()
+                if verdict is ORPHANED:
+                    # Recorded by the watchdog, and another thread has taken
+                    # this one's place: nothing to offer, and no more work.
+                    replaced = True
+                elif verdict is not None:
+                    self._record(KIND_WARNING, verdict.message, detail="timed_out")
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=digest, error=verdict))
+                else:
+                    if isinstance(exc, (FileCancelled, FileTimedOut)):
+                        # Cancelled with no verdict cannot happen; recorded as
+                        # a plain failure rather than lost if it ever does.
+                        exc = RuntimeError("the read was cancelled")
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=digest,
+                        error=to_app_error(exc, "index.pipeline",
+                                           path=str(candidate.path)),
+                    ))
             finally:
                 # Closed here rather than left for the garbage collector: a
                 # file abandoned part-way (Stop, Pause) must let go of what it
@@ -2950,11 +3059,18 @@ class Pipeline:
                         stream.close()
                     except Exception:           # noqa: BLE001 - already reported above
                         pass
+                if watch is not None:
+                    watch.end()
                 self._stats_ref.current = ""
                 self._stats_ref.current_item = 0
                 if slot is not None:
                     slot.end()
                 work.task_done()
+            if replaced:
+                self._log.info(
+                    "a reader that was replaced after being stuck on {} has "
+                    "come back; it ends here", candidate.path.name)
+                return
 
     def _maybe_grow_workers(
         self, work: "queue.PriorityQueue[Any]", results: queue.Queue,
@@ -3030,6 +3146,58 @@ class Pipeline:
             "raised extraction workers to {} (ceiling {}) - most of the run "
             "has been spent waiting for files to be read",
             total + 1, self.config.worker_ceiling)
+
+    def _replace_worker(self, watch: FileWatch, work: "queue.PriorityQueue[Any]",
+                        results: queue.Queue) -> None:
+        r"""0z lane B: a thread stuck in a reader is left behind and replaced.
+
+        Called by the watchdog (`file_watch.Watchdog`, on its own thread) when
+        a thread told to let go of a timed-out or force-skipped file did not
+        within `file_watch.GRACE_S` - it is inside native code, where nothing
+        in Python can reach it. The file is recorded here, from the watch, and
+        a new thread takes the stuck one's place, so the run keeps its number
+        of readers.
+
+        **No new `_STOP` marker.** The stuck thread will never take the one
+        `_produce` queued for it (if it ever comes back, it ends without
+        taking work - see `_extract_worker_loop`), so its replacement takes
+        that one, and `_consume`'s count of expected markers is unchanged.
+        """
+        candidate, error = watch.candidate, watch.cancel
+        self._left_behind.add(watch.thread_id)
+        if candidate is not None and error is not None:
+            self._record(KIND_WARNING, error.message, detail="timed_out")
+            self._offer(results, _Extracted(
+                candidate=candidate, content_hash=watch.digest, error=error))
+        board = getattr(getattr(self, "_stats_ref", None), "board", None)
+        if board is not None and watch.slot is not None:
+            board.close_slot(watch.slot)
+        self._log.warning(
+            "a reader did not let go of {} within {:.0f}s of being told to (it is "
+            "inside native code, which cannot be interrupted); it is left behind "
+            "and another reader takes its place",
+            getattr(getattr(candidate, "path", None), "name", candidate),
+            GRACE_S)
+        if self._stop.is_set():
+            return
+        worker = threading.Thread(
+            target=self._background(self._extract_worker), args=(work, results),
+            name=f"extract-replacement-{len(self._replacement_workers) + 1}",
+            daemon=True)
+        self._replacement_workers.append(worker)
+        worker.start()
+
+    def force_skip(self, slot_id: Any) -> bool:
+        """The Indexing page's Force skip: skip reader `slot_id`'s current file.
+
+        Safe from the UI thread: it only marks the file, and the watchdog acts
+        on it within `file_watch.TICK_S`. False when no run is going or that
+        reader has no file open.
+        """
+        watchdog = getattr(self, "_watchdog", None)
+        if watchdog is None:
+            return False
+        return watchdog.request_skip(slot_id)
 
     def _offer_stop_token(self, work: "queue.PriorityQueue[Any]") -> bool:
         r"""Enqueue one more `_STOP` marker for a worker about to start.

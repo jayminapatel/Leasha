@@ -355,6 +355,23 @@ class ChildIndexRun:
             self._paused = False
         self._send("resume")
 
+    def force_skip(self, slot_id: Any) -> bool:
+        """Work order 0z lane B: Force skip reader `slot_id`'s current file.
+
+        `skip <reader>` on the child's standard input; the child's
+        `Pipeline.force_skip` does the rest. True when the line was sent - the
+        child alone knows whether that reader still had a file, and the next
+        progress tick shows it either way.
+        """
+        try:
+            number = int(str(slot_id).strip())
+        except (TypeError, ValueError):
+            return False
+        if not self.running:
+            return False
+        self._send(f"skip {number}")
+        return True
+
     def _send(self, word: str) -> None:
         """One command line to the child. **Never raises and never waits.**
 

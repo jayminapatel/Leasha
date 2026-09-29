@@ -203,6 +203,10 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         # 0x §5b: "Read files in separate processes". The window's child
         # indexer runs through here too, so it honours the same switch.
         read_processes=bool(getattr(settings, "index_read_processes", False)),
+        # 0z lane B: the time limits, from the same settings - the window's
+        # child indexer runs through here, so it honours them too.
+        file_time_limit_s=int(getattr(settings, "index_file_time_limit_s", 120)),
+        stall_limit_s=int(getattr(settings, "index_stall_limit_s", 600)),
         caption_trickle_enabled=settings.caption_trickle_enabled,
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,
@@ -231,6 +235,9 @@ class _EventSession:
     * **In**, on standard input: one command a line - `pause`, `resume`,
       `stop` - read by a thread of its own, so a command is acted on at once
       whatever the run is doing.
+    * 0z lane B: and `skip <reader>`, the Indexing page's Force skip for that
+      reader's current file (`Pipeline.force_skip`). Not kept for later like
+      the other three: before the run is live there is no file to skip.
 
     **Commands can arrive before there is a run to give them to** - the
     person presses Pause while the settings are still loading. They are kept,
@@ -289,8 +296,20 @@ class _EventSession:
 
     def command(self, word: str) -> None:
         """Act on one command from the window. Unknown words are ignored."""
-        from app.index.run_events import COMMAND_PAUSE, COMMAND_RESUME, COMMAND_STOP
+        from app.index.run_events import (
+            COMMAND_PAUSE,
+            COMMAND_RESUME,
+            COMMAND_SKIP,
+            COMMAND_STOP,
+        )
 
+        if word.startswith(COMMAND_SKIP + " "):
+            with self._lock:
+                pipeline = self._pipeline if self._live else None
+            force_skip = getattr(pipeline, "force_skip", None)
+            if force_skip is not None:
+                force_skip(word.split()[1])
+            return
         with self._lock:
             pipeline = self._pipeline if self._live else None
             if word == COMMAND_STOP:
