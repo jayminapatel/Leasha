@@ -1218,6 +1218,10 @@ class Pipeline:
         self._plans: tuple[Any, ...] = ()
         #: Monotonic marks for the daily summary line. Set in `run`.
         self._run_started = 0.0
+        #: The same moment on `time.perf_counter`, for the walk and sort
+        #: timings: `monotonic` ticks every ~15ms on Windows, so a short scan
+        #: measured on it read 0s and was left out of the report (2026-09-29).
+        self._run_started_pc = 0.0
         #: Wall-clock start, and who started it. `_run_started` is monotonic -
         #: correct for measuring elapsed time and meaningless to another
         #: process, which needs a clock it can format as "since 14:02".
@@ -1587,6 +1591,7 @@ class Pipeline:
         self._archive_resumed = {}
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
+        self._run_started_pc = time.perf_counter()
         # The first mid-run cursor write waits a full interval, like the rest.
         self._last_resume_persist = self._run_started
         self._run_started_wall = time.time()
@@ -2189,7 +2194,7 @@ class Pipeline:
                 # a network share is a fact about the corpus that no other
                 # number in the report shows.
                 self._clock.add_worker(
-                    "walk", time.monotonic() - self._run_started)
+                    "walk", time.perf_counter() - self._run_started_pc)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
 
@@ -2206,11 +2211,11 @@ class Pipeline:
         answer was already final.
         """
         stats.walk_complete = True
-        self._clock.add_worker("walk", time.monotonic() - self._run_started)
-        sorting_from = time.monotonic()
+        self._clock.add_worker("walk", time.perf_counter() - self._run_started_pc)
+        sorting_from = time.perf_counter()
         entries = worklist.sorted()
         first = next(entries, None)             # the sort itself happens here
-        self._clock.add_worker("sort", time.monotonic() - sorting_from)
+        self._clock.add_worker("sort", time.perf_counter() - sorting_from)
         self._log.info(
             "scan finished: {:,} file(s) found, {:,} to read, newest first{}",
             stats.seen, len(worklist), " (sorted on disk)" if worklist.spilled else "")
