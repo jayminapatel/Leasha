@@ -161,6 +161,7 @@
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
     <Compile Include="app\core\osbridge\programs.py" />
+    <Compile Include="app\core\osbridge\stdio.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
@@ -471,6 +472,7 @@
     <Compile Include="app\ui\window_state.py" />
     <Compile Include="app\ui\workers.py" />
     <Compile Include="doctor.py" />
+    <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
     <Compile Include="scripts\run_suite.py" />
     <Compile Include="scripts\stage.py" />
@@ -542,6 +544,7 @@
     <Compile Include="tests\unit\test_chat_wiring.py" />
     <Compile Include="tests\unit\test_chat_wiring_qt.py" />
     <Compile Include="tests\unit\test_child_run.py" />
+    <Compile Include="tests\unit\test_child_stdin.py" />
     <Compile Include="tests\unit\test_chunk_index_trigger.py" />
     <Compile Include="tests\unit\test_chunker.py" />
     <Compile Include="tests\unit\test_cli_expands_slashes.py" />

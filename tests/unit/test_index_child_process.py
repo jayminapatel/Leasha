@@ -113,7 +113,8 @@ def _finish(run: ChildIndexRun, seen: list, timeout: float = 300.0):
             f"the child run did not finish in {timeout:.0f}s; last phase "
             f"{getattr(last, 'phase', None)!r}, paused because "
             f"{getattr(last, 'pause_reason', '')!r}, "
-            f"{getattr(last, 'indexed', 0)} of {FILES} indexed")
+            f"{getattr(last, 'indexed', 0)} of {FILES} indexed\n"
+            f"child stderr:\n{_tail(run.stderr_path, 40) if run.stderr_path else '(none)'}")
     if "error" in outcome:
         raise outcome["error"]
     return outcome["stats"]
@@ -267,9 +268,35 @@ def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(tmp_path) -
     the same corpus through `ChildIndexRun` and says so in its report."""
     from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
 
-    report = run_pipeline_bench(BenchOptions(
-        corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
-        child_process=True, full_speed=True, work_dir=tmp_path / "work"))
+    import threading
+
+    # 2026-09-29: bounded, like `_finish`. On Windows CI this call waited out
+    # the suite's ten-minute limit, and pytest was ended before it could print
+    # why the four tests above had failed.
+    got: dict = {}
+
+    def bench() -> None:
+        try:
+            got["report"] = run_pipeline_bench(BenchOptions(
+                corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
+                child_process=True, full_speed=True, work_dir=tmp_path / "work"))
+        except BaseException as exc:            # noqa: BLE001 - raised below
+            got["error"] = exc
+
+    thread = threading.Thread(target=bench, daemon=True)
+    thread.start()
+    thread.join(300)
+    if thread.is_alive():
+        from app.index.child_run import live_children
+
+        logs = sorted((tmp_path / "work").rglob("*.log"))
+        for run in live_children():
+            run.shutdown(grace_s=5)
+        pytest.fail("the benchmark's child run did not finish in 300s\n" + "\n".join(
+            f"{log.name}:\n{_tail(log, 40)}" for log in logs))
+    if "error" in got:
+        raise got["error"]
+    report = got["report"]
     results = report["results"]
     assert results["documents"] == results["expected_documents"]
     assert "CHILD process" in report["conditions"]["pipeline"]["entry"]
