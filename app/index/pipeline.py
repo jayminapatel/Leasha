@@ -86,6 +86,7 @@ from app.index.activity import (
 )
 from app.index.clip_embedder import ClipImageEmbedder
 from app.index.held_archives import HeldArchives
+from app.index.image_book import PersistentImageBook
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
@@ -435,6 +436,11 @@ class IndexStats:
     #: "412 decks are mostly images" - the input to the Office OCR decision -
     #: a question nobody could answer without grepping.
     warned_by_code: dict[str, int] = field(default_factory=dict)
+    #: Order 0z lane D. Pictures attached to mail that the junk-image filter
+    #: left unread, per reason (`junk_images.REASONS`: decorative, repeated,
+    #: few_words). Each was also one `Skipped` in its archive's counts line;
+    #: this is the run's total, for the Indexing page.
+    pictures_not_read: dict[str, int] = field(default_factory=dict)
     #: Vectors actually written this run, against `chunks` written.
     #:
     #: **The number whose absence hid the embedding gap for weeks.** A run that
@@ -687,6 +693,7 @@ class IndexStats:
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
             "warned_by_code": dict(self.warned_by_code),
+            "pictures_not_read": dict(self.pictures_not_read),
             "ocr_mode": self.ocr_mode,
             "stopped_early": self.stopped_early.code if self.stopped_early else None,
             # §6a. Omitted entirely when nothing was measured, so a run too
@@ -792,6 +799,10 @@ class PipelineConfig:
     #: `images` picks up exactly that queue. Search becomes useful after the
     #: first, in a day or two rather than a fortnight.
     ocr_mode: str = "both"
+    #: Order 0z lane D: leave signature logos, social icons, tracking pixels
+    #: and dividers attached to mail unread (`app/extract/junk_images.py`).
+    #: From `INDEX_JUNK_IMAGE_FILTER`; on by default.
+    junk_images: bool = True
     #: Honour the Live/Archive mode on each root. Off for a run that must see
     #: everything whatever the modes say - `--recheck-archives` sets `recheck`
     #: instead, which walks the archives *and* refreshes their records.
@@ -1626,6 +1637,8 @@ class Pipeline:
         self._pending_frames = {}
         # Order 0z lane C: the held-pictures list is read afresh each run.
         self.__dict__.pop("_held_archive_book", None)
+        # Order 0z lane D: so is the junk-image book.
+        self.__dict__.pop("_image_book_store", None)
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -1901,6 +1914,8 @@ class Pipeline:
         # Order 0z lane C: archives whose attached pictures wait for the
         # pictures pass. Written here, on the run's own thread, never by a worker.
         self._held_archives().save()
+        # Order 0z lane D: what this run learnt about pictures in mail.
+        self._image_book().save()
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
@@ -3287,7 +3302,9 @@ class Pipeline:
         remembers held pictures but never forgets any, and logs nothing.
         """
         with reader_reading.reading(
-                images=reader_reading.images_for_ocr_mode(self.config.ocr_mode)) as policy:
+                images=reader_reading.images_for_ocr_mode(self.config.ocr_mode),
+                junk=(self._image_book()
+                      if getattr(self.config, "junk_images", True) else False)) as policy:
             finished = False
             try:
                 yield from self._read_stream(candidate, digest)
@@ -3301,11 +3318,39 @@ class Pipeline:
             self._held_archives().note(
                 candidate.path, held=policy.held, finished=finished,
                 pass_=self.config.ocr_mode)
+            if policy.not_read:
+                # Order 0z lane D. Counted whether or not the read finished:
+                # these pictures were left unread either way.
+                with self._not_read_lock:
+                    total = self._stats_ref.pictures_not_read
+                    for reason, n in policy.not_read.items():
+                        total[reason] = total.get(reason, 0) + int(n)
             if finished and policy.counts:
+                # "Skipped:decorative=24" beside "Skipped=30": the presenter
+                # shows why, in brackets after the word (order 0z lane D).
+                counts = dict(policy.counts)
+                for reason, n in policy.not_read.items():
+                    counts[f"{reader_progress.STATUS_SKIPPED}:{reason}"] = n
                 self._record(KIND_ARCHIVE_COUNTS, candidate.path.name,
-                             detail=encode_counts(policy.counts))
+                             detail=encode_counts(counts))
         except Exception as exc:                        # noqa: BLE001 - bookkeeping only
             self._log.debug("could not note {}: {}", candidate.path.name, exc)
+
+    def _image_book(self) -> PersistentImageBook:
+        """This run's junk-image book, made on first use; loads nothing until a
+        reader asks for its contents."""
+        book = self.__dict__.get("_image_book_store")
+        if book is None:
+            book = self.__dict__.setdefault("_image_book_store",
+                                            PersistentImageBook(self.store))
+        return book
+
+    @property
+    def _not_read_lock(self) -> threading.Lock:
+        lock = self.__dict__.get("_not_read_lock_obj")
+        if lock is None:
+            lock = self.__dict__.setdefault("_not_read_lock_obj", threading.Lock())
+        return lock
 
     def _held_archives(self) -> HeldArchives:
         """This run's `HeldArchives`, made on first use (bare test pipelines have none)."""

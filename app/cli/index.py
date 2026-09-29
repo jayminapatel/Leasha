@@ -192,6 +192,7 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
         # hatch that ignores the modes entirely without touching the records.
         ocr_mode=ocr_mode,
+        junk_images=bool(getattr(settings, "index_junk_image_filter", True)),
         archives=archives,
         recheck_archives=recheck_archives,
         recheck_days=settings.archive_recheck_days,

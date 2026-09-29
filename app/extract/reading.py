@@ -24,6 +24,13 @@ container reader that can act on it asks:
 Only `pst_libpff` asks today. A reader that never asks behaves exactly as it
 did before this module existed.
 
+**The junk-image filter rides here too** (order 0z lane D,
+`app.extract.junk_images`). `Reading.junk` is the book of picture hashes the
+filter consults - the pipeline's, spanning every archive and run, or a fresh
+one per read for a caller outside it - or `None` when the filter is switched
+off (`INDEX_JUNK_IMAGE_FILTER`). `Reading.not_read` counts the pictures it
+left unread, by reason, for the pipeline to show.
+
 **Per thread, captured when entered**, for the same reason as
 `app.extract.progress.enter`: the pipeline's stream is a generator, and a
 generator abandoned part-way may be closed on another thread. The stack is
@@ -34,7 +41,7 @@ from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
-from typing import Iterator
+from typing import Any, Iterator, Optional
 
 __all__ = [
     "IMAGES_HOLD",
@@ -60,14 +67,35 @@ class Reading:
     * `counts` - the reader's per-item status counts for the file (the same
       words as its progress frame's `counts`), copied here when the read ends
       so the pipeline can log them after the frame has closed.
+    * `junk` - the junk-image filter's `ImageBook`, or `None` when the filter
+      is off (order 0z lane D).
+    * `not_read` - pictures the filter left unread, per `junk_images.REASONS`
+      code. Each is also one `Skipped` in `counts`.
     """
 
-    __slots__ = ("images", "held", "counts")
+    __slots__ = ("images", "held", "counts", "junk", "not_read")
 
-    def __init__(self, images: str = IMAGES_READ) -> None:
+    def __init__(self, images: str = IMAGES_READ, junk: Any = True) -> None:
         self.images = images
         self.held = 0
         self.counts: dict[str, int] = {}
+        self.junk: Optional[Any] = _book(junk)
+        self.not_read: dict[str, int] = {}
+
+    def left_unread(self, reason: str) -> None:
+        """One picture was not read (or its text not kept) for `reason`."""
+        self.not_read[reason] = self.not_read.get(reason, 0) + 1
+
+
+def _book(junk: Any) -> Optional[Any]:
+    """`True` -> a fresh book; `False`/`None` -> the filter off; a book -> that book."""
+    if junk is True:
+        from app.extract.junk_images import ImageBook
+
+        return ImageBook()
+    if junk is False or junk is None:
+        return None
+    return junk
 
 
 _local = threading.local()
@@ -91,10 +119,14 @@ def current() -> Reading:
 
 
 @contextmanager
-def reading(*, images: str = IMAGES_READ) -> Iterator[Reading]:
-    """Ask readers on this thread to treat pictures as `images`, until the block ends."""
+def reading(*, images: str = IMAGES_READ, junk: Any = True) -> Iterator[Reading]:
+    """Ask readers on this thread to treat pictures as `images`, until the block ends.
+
+    `junk`: the junk-image filter's book (`junk_images.ImageBook`), `True` for
+    a fresh one, or `False` to switch the filter off.
+    """
     stack = _stack()
-    entry = Reading(images)
+    entry = Reading(images, junk)
     stack.append(entry)
     try:
         yield entry

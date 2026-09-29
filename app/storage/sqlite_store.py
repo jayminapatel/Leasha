@@ -3677,7 +3677,7 @@ class SqliteStore:
             try:
                 for table in ("entity_mentions", "entity_edges", "entities",
                               "search_hits", "searches", "files",
-                              "files_fts", "repos"):
+                              "files_fts", "repos", "image_hashes"):
                     try:
                         conn.execute(f"DELETE FROM {table}")
                     except sqlite3.OperationalError:
@@ -4576,6 +4576,34 @@ class SqliteStore:
                 "updated_at = excluded.updated_at",
                 [(key, str(value), now) for key, value in values.items()],
             )
+
+    def image_hashes(self) -> list[tuple[str, int, Optional[int], Optional[str], int, int]]:
+        """Every row of the junk-image filter's book (schema v29), as plain tuples.
+
+        `(hash, seen, words, phash, width, height)`. Read once per run, the
+        first time a picture inside a mail archive is met. Order 0z lane D.
+        """
+        rows = self.conn.execute(
+            "SELECT hash, seen, words, phash, width, height FROM image_hashes").fetchall()
+        return [(str(r[0]), int(r[1] or 0), None if r[2] is None else int(r[2]),
+                 r[3], int(r[4] or 0), int(r[5] or 0)) for r in rows]
+
+    def save_image_hashes(
+        self, rows: list[tuple[str, int, Optional[int], Optional[str], int, int]],
+    ) -> None:
+        """Write rows of the book, replacing what was there. One transaction."""
+        if not rows:
+            return
+        now = int(time.time())
+        with self.write() as conn:
+            conn.executemany(
+                "INSERT INTO image_hashes (hash, seen, words, phash, width, height, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(hash) DO UPDATE SET seen = excluded.seen, "
+                "words = excluded.words, phash = excluded.phash, "
+                "width = excluded.width, height = excluded.height, "
+                "updated_at = excluded.updated_at",
+                [(*row, now) for row in rows])
 
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM index_state WHERE key = ?", (key,)).fetchone()

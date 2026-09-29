@@ -39,7 +39,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
-from app.extract import progress, reading
+from app.extract import junk_images, progress, reading
 from app.extract.base import Document, SourceKind, looks_locked, with_closing_warning
 from app.extract.email_files import build_email_document, html_to_text
 
@@ -975,17 +975,38 @@ def _each_attachment(
             continue
 
         digest = _hash_bytes(data)
+        # Order 0z lane D: the junk-image filter, pictures only. Every sighting
+        # counts towards "seen five times", a duplicate within this archive too.
+        book = policy.junk if is_picture else None
+        if book is not None:
+            book.saw(digest)
         if digest in seen_hashes:
             report.status(progress.STATUS_DUPLICATE)
             continue          # the same bytes are already indexed somewhere
         seen_hashes.add(digest)
+
+        screened: Optional[junk_images.Screened] = None
+        if book is not None:
+            screened = junk_images.screen(
+                book, digest, data, inline=junk_images.is_inline(attachment))
+            if screened.reason:
+                _not_read(report, policy, name, message_key, screened.reason)
+                continue
 
         target: Optional[Path] = None
         produced = False
         try:
             target = scratch.write(name, data)
             del data
-            for document in extract_path(target):
+            documents: Iterable[Document] = extract_path(target)
+            if book is not None:
+                # D3 needs every word before any is indexed; a picture is one
+                # document, so holding it costs nothing.
+                documents, why = junk_images.settle(book, digest, list(documents), screened)
+                if why:
+                    _not_read(report, policy, name, message_key, why)
+                    continue
+            for document in documents:
                 document.virtual_path = f"{message_key}/attachments/{name}"
                 document.source_kind = SourceKind.PST_MESSAGE
                 document.meta.setdefault("attachment_of", message_key)
@@ -998,6 +1019,8 @@ def _each_attachment(
             # An unreadable attachment is a skip, never the end of the run.
             # No text, or a type turned down, is not damage: Skipped, at debug.
             if exc.error.code in ("ERR_NO_TEXT_LAYER", "ERR_UNSUPPORTED_TYPE"):
+                if book is not None and exc.error.code == "ERR_NO_TEXT_LAYER":
+                    junk_images.settle(book, digest, [], screened)   # no words: D1
                 report.status(progress.STATUS_SKIPPED)
                 _log.debug("attachment '{}' on {}: {}", name, message_key, exc.error.code)
                 continue
@@ -1013,6 +1036,19 @@ def _each_attachment(
                 except OSError:
                     pass
         report.status(progress.STATUS_INDEXED if produced else progress.STATUS_SKIPPED)
+
+
+def _not_read(report: _Report, policy: reading.Reading, name: str, message_key: str,
+              reason: str) -> None:
+    """A picture the junk-image filter left out: `Skipped`, counted by reason.
+
+    Its name stays on the message (`attachment_names`), so it is still found by
+    name - which is all a signature logo was ever going to be found by.
+    """
+    report.status(progress.STATUS_SKIPPED)
+    policy.left_unread(reason)
+    _log.debug("attachment '{}' on {}: {}", name, message_key,
+               junk_images.REASON_TEXT.get(reason, reason))
 
 
 # ---------------------------------------------------------------------------

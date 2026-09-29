@@ -756,6 +756,8 @@ class IndexController(QObject):
                 min_free_gb=self._w._settings.min_free_gb,
                 required_free_gb=int(getattr(self._w._settings, "required_free_gb", 0)),
                 ocr_mode=self._w._ocr_mode_for_run(),
+                junk_images=bool(getattr(
+                    self._w._settings, "index_junk_image_filter", True)),
                 embed_batch=tuned.embed_batch,
                 dedup_chunks=bool(getattr(self._w._settings, "embed_dedup", True)),
                 two_phase=bool(getattr(self._w._settings, "index_two_phase", True)),
