@@ -435,6 +435,7 @@
     <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\rail.py" />
     <Compile Include="app\ui\widgets\repo_health_note.py" />
+    <Compile Include="app\ui\widgets\repo_ignore.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
     <Compile Include="app\ui\widgets\restart_note.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
@@ -558,6 +559,7 @@
     <Compile Include="tests\unit\test_close_waits_for_index_run.py" />
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
+    <Compile Include="tests\unit\test_code_fixes_0y.py" />
     <Compile Include="tests\unit\test_code_route.py" />
     <Compile Include="tests\unit\test_code_types.py" />
     <Compile Include="tests\unit\test_code_view.py" />

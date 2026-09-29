@@ -3856,6 +3856,58 @@ class SqliteStore:
         self.set_state(self.IGNORED_REPOS_KEY, "\n".join(kept))
         return True
 
+    def repo_undo_record(self, root_path: str) -> Optional[dict[str, Any]]:
+        r"""Everything `restore_repo` needs to put a repository back exactly.
+
+        Order 0y §1c. Read *before* `forget_repo`, by the window's "Ignore this
+        repository", so its Undo is immediate and exact: the same name, kind
+        and files, with no index run in between. `app.cli repos --remember`
+        stays what it was (the next run re-adopts the folder); a person who
+        clicked the wrong row deserves the row back now. None when the root is
+        not a known repository.
+        """
+        root = str(root_path or "").rstrip("\\/")
+        if not root:
+            return None
+        row = self.conn.execute(
+            "SELECT id, root_path, name, kind FROM repos WHERE root_path = ? COLLATE NOCASE",
+            (root,),
+        ).fetchone()
+        if row is None:
+            return None
+        ids = [int(r[0]) for r in self.conn.execute(
+            "SELECT id FROM files WHERE repo_id = ?", (int(row["id"]),))]
+        return {"root_path": str(row["root_path"]), "name": str(row["name"]),
+                "kind": str(row["kind"]), "file_ids": ids}
+
+    def restore_repo(self, record: dict[str, Any]) -> int:
+        """Undo "Ignore this repository". Returns how many files came back.
+
+        Stops ignoring the root, registers it again, and gives back exactly the
+        files it held - only those still unattributed, so a file some other
+        repository has claimed since is left alone. The index generation is
+        bumped for the same reason `forget_repo` bumps it.
+        """
+        root = str(record.get("root_path") or "")
+        if not root:
+            return 0
+        self.unignore_repo_root(root)
+        repo_id = self.upsert_repo(root, kind=str(record.get("kind") or "work"),
+                                   name=str(record.get("name") or "") or None)
+        ids = [int(i) for i in record.get("file_ids") or ()]
+        restored = 0
+        with self.write() as conn:
+            for start in range(0, len(ids), 500):
+                part = ids[start:start + 500]
+                marks = ",".join("?" * len(part))
+                restored += conn.execute(
+                    f"UPDATE files SET repo_id = ? WHERE id IN ({marks}) AND repo_id IS NULL",
+                    (repo_id, *part),
+                ).rowcount or 0
+            self._bump_generation(conn)
+        _log.info("restored repository {} with {} file(s)", root, restored)
+        return int(restored)
+
     def prune_repos(self, alive: Sequence[str]) -> list[str]:
         r"""Remove repositories whose root is no longer one. Returns their roots.
 

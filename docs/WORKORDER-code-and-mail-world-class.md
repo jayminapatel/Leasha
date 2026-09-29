@@ -1,6 +1,6 @@
 # Work order (One thread): the Code tab and the mail preview, world class
 
-**Doc version:** 1.0 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
 **Created:** 2026-09-27 · **Layer:** L1/L4/L5 - `app/search/gitsearch.py`, `app/search/gitquery.py`, `app/ui/code_view.py`, `app/ui/widgets/code_results.py`, `app/ui/widgets/git_tree.py`, `app/ui/presenter/code.py`, `app/ui/preview_loader.py`, `app/ui/mail_view.py`, `app/storage/sqlite_store.py`
 **Thread:** One thread, in small PRs, each merged by the owner
 **Status:** RELEASED *(owner, 2026-09-27: "design it ... and build straight away")*
@@ -52,17 +52,27 @@ surface feel finished, to the people who use it.
 
 ## 1. Fixes first (small, no design question)
 
-- [ ] **1a** **git flashes a console window on Windows.** `gitsearch._run` calls `subprocess.run`
+> **2026-09-27, §1 built.** 1a: `osbridge.hidden_console_flags()` (`CREATE_NO_WINDOW` on Windows,
+> 0 elsewhere), used by `gitsearch._run`, the one place git is started. 1b: `gitsearch.StopFlag`;
+> `_run` waits in 0.1 s steps and ends git when the flag is flipped (measured: well under the 0.5 s
+> budget); the button reads "Stop" while a search runs and Esc does the same; a newer search stops the
+> older one; the result says "History search stopped". 1c: the row menu's "Ignore this repository"
+> (`widgets/repo_ignore.py`) asks once, forgets on a worker, and offers Undo in a note under the
+> summary; Undo is `SqliteStore.restore_repo` with the record `repo_undo_record` read beforehand -
+> exact and immediate, never taking back a file another repository has claimed since. 1d was done in
+> the design PR. Tests: `tests/unit/test_code_fixes_0y.py` (11).
+
+- [x] **1a** **git flashes a console window on Windows.** `gitsearch._run` calls `subprocess.run`
       with no `creationflags`; the window runs under `pythonw.exe`, so every history search, branch
       listing and `/author` value lookup opens and closes a black console window. Fix: one
       `osbridge` helper, `hidden_console_flags()`, used by every git call.
-- [ ] **1b** **A history search cannot be stopped.** It runs up to 120 s with no way out. Esc in
+- [x] **1b** **A history search cannot be stopped.** It runs up to 120 s with no way out. Esc in
       the box, or the same button (which reads "Stop" while it runs), ends the git process at once.
       A newer search also ends the older one.
-- [ ] **1c** **"Ignore this repository" on the row menu** (081149 §2 item 1, built only as
+- [x] **1c** **"Ignore this repository" on the row menu** (081149 §2 item 1, built only as
       `app.cli repos --forget`). The row menu offers it for any row in a repository, says what it
       does in the confirmation, and a note under the list offers "Undo" until the next search.
-- [ ] **1d** The register and `WORKORDER-CONVENTIONS.md` rows for 081149 and 081801 are corrected
+- [x] **1d** The register and `WORKORDER-CONVENTIONS.md` rows for 081149 and 081801 are corrected
       with dated notes (both still read as not built).
 
 ## 2. Code: search inside the code as you type

@@ -179,6 +179,11 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       A large real `.pst` must **not** be cut off while its message count moves. UNCONFIRMED on
       Windows: whether a hung Outlook (COM) read lets go when interrupted, or is left behind and
       replaced - the log line "did not let go ... left behind" says which.
+- [ ] **Code tab fixes (order 0y §1).** Run a history search (`/repo <name> something /history`):
+      no black console window flashes up. Start one on a large repository and press Esc (or the
+      button, which reads "Stop"): it ends at once and says "History search stopped". Right-click a
+      file in a repository › "Ignore this repository": its files leave the Code list and stay
+      searchable elsewhere; "Undo" in the note brings them straight back.
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
