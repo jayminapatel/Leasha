@@ -117,13 +117,20 @@ def test_on_windows_case_sensitive_is_false_and_never_touches_the_disk(
     def forbidden(*_args, **_kwargs):
         raise AssertionError("the disk was asked on Windows")
 
-    monkeypatch.setattr(pathnames.os, "scandir", forbidden)
-    monkeypatch.setattr(pathnames.os, "lstat", forbidden)
-    monkeypatch.setattr(pathnames.os.path, "isdir", forbidden)
-    assert case_sensitive(tmp_path) is False
-    assert case_sensitive(r"D:\Anything") is False
-    # And a key under that folder is still just lower-cased.
-    assert path_key(tmp_path / "Report.TXT") == str(tmp_path / "Report.TXT").lower()
+    # `pathnames.os` is the one shared `os` module, so these three are replaced
+    # for everything, pytest included. They are put back inside the test, before
+    # `tmp_path` is removed: on Windows `shutil.rmtree` calls `os.lstat` and
+    # `os.scandir` and lets anything but an `OSError` through, which turned this
+    # passing test into an ERROR at teardown on the Windows CI (2026-09-29).
+    with monkeypatch.context() as disk:
+        disk.setattr(pathnames.os, "scandir", forbidden)
+        disk.setattr(pathnames.os, "lstat", forbidden)
+        disk.setattr(pathnames.os.path, "isdir", forbidden)
+        assert case_sensitive(tmp_path) is False
+        assert case_sensitive(r"D:\Anything") is False
+        # And a key under that folder is still just lower-cased.
+        key = path_key(tmp_path / "Report.TXT")
+    assert key == str(tmp_path / "Report.TXT").lower()
 
 
 def test_on_windows_the_separator_is_always_a_backslash(monkeypatch):
@@ -175,6 +182,30 @@ def test_the_federated_search_uses_the_system_separator_on_a_mac(monkeypatch):
 # Mac and Linux: letter case, probed per folder
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def here(tmp_path):
+    """`tmp_path` as a path a Mac or Linux could have written: relative to it.
+
+    On Windows `tmp_path` is `D:\\a\\...`, and a Windows-shaped path takes the
+    Windows rule (case ignored, no probe) whatever `sys.platform` says - which
+    is right, and is what made the probe tests below pass or fail on the Windows
+    CI without ever reaching the probe (2026-09-29). A relative path is shaped
+    like no system in particular, so working inside `tmp_path` makes the Mac and
+    Linux branches run on every machine, against a real folder. On Linux it
+    changes nothing that is checked.
+
+    A fixture of its own, not `monkeypatch.chdir`, so the old folder is back
+    before `tmp_path` is removed: Windows will not delete the folder a process
+    is standing in.
+    """
+    before = os.getcwd()
+    os.chdir(tmp_path)
+    try:
+        yield Path(".")
+    finally:
+        os.chdir(before)
+
+
 def _disk_respects_case(folder: Path) -> bool:
     """Does the disk under `folder` keep `x` and `X` apart? Asked directly."""
     (folder / "caseprobe").write_text("a", encoding="utf-8")
@@ -212,10 +243,12 @@ def test_the_probe_sees_case_sensitivity_with_only_one_spelling_present(
     assert case_sensitive(tmp_path) is True
 
 
-def test_the_probe_reports_a_folder_that_ignores_case(monkeypatch, tmp_path):
+def test_the_probe_reports_a_folder_that_ignores_case(monkeypatch, here):
     """Faked: the swapped spelling finds the *same* file, as on APFS or NTFS."""
     monkeypatch.setattr(sys, "platform", "darwin")
-    (tmp_path / "Report.txt").write_text("x", encoding="utf-8")
+    folder = here / "Docs"
+    folder.mkdir()
+    (folder / "Report.txt").write_text("x", encoding="utf-8")
     real_lstat = os.lstat
 
     def insensitive_lstat(path, *args, **kwargs):
@@ -228,7 +261,8 @@ def test_the_probe_reports_a_folder_that_ignores_case(monkeypatch, tmp_path):
         return real_lstat(path)
 
     monkeypatch.setattr(pathnames.os, "lstat", insensitive_lstat)
-    assert case_sensitive(tmp_path) is False
+    assert case_sensitive(folder) is False
+    assert pathnames._CASE_BY_ROOT == {str(folder): False}   # probed, not assumed
 
 
 def test_an_empty_folder_is_probed_through_its_own_name(monkeypatch, tmp_path):
@@ -242,19 +276,19 @@ def test_an_empty_folder_is_probed_through_its_own_name(monkeypatch, tmp_path):
 
 @pytest.mark.parametrize("platform, expected", [("darwin", False), ("linux", True)])
 def test_a_folder_that_cannot_be_probed_gets_the_system_default(
-        monkeypatch, tmp_path, platform, expected):
+        monkeypatch, here, platform, expected):
     """Nothing with a letter in it to swap: APFS's default on a Mac, ext4's on Linux."""
     monkeypatch.setattr(sys, "platform", platform)
-    folder = tmp_path / "123"
+    folder = here / "123"
     folder.mkdir()
     (folder / "456.789").write_text("x", encoding="utf-8")
     assert case_sensitive(folder) is expected
 
 
-def test_a_missing_folder_is_not_remembered(monkeypatch, tmp_path):
+def test_a_missing_folder_is_not_remembered(monkeypatch, here):
     """A drive plugged in later must be probed properly, not given a stale guess."""
     monkeypatch.setattr(sys, "platform", "linux")
-    later = tmp_path / "Later"
+    later = here / "Later"
     case_sensitive(later)
     assert str(later) not in pathnames._CASE_BY_ROOT
     later.mkdir()
@@ -263,15 +297,17 @@ def test_a_missing_folder_is_not_remembered(monkeypatch, tmp_path):
     assert str(later) in pathnames._CASE_BY_ROOT
 
 
-def test_the_answer_is_remembered_and_the_disk_asked_once(monkeypatch, tmp_path):
+def test_the_answer_is_remembered_and_the_disk_asked_once(monkeypatch, here):
     monkeypatch.setattr(sys, "platform", "linux")
-    (tmp_path / "File.txt").write_text("x", encoding="utf-8")
+    folder = here / "Docs"
+    folder.mkdir()
+    (folder / "File.txt").write_text("x", encoding="utf-8")
     calls = []
     real = pathnames._probe
     monkeypatch.setattr(pathnames, "_probe", lambda root: calls.append(root) or real(root))
-    case_sensitive(tmp_path)
-    case_sensitive(tmp_path)
-    case_sensitive(str(tmp_path) + "/")
+    case_sensitive(folder)
+    case_sensitive(folder)
+    case_sensitive(str(folder) + "/")
     assert len(calls) == 1
 
 

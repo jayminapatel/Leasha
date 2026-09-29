@@ -94,10 +94,17 @@ def separator_for(path: Any) -> str:
       `is_windows_shaped`), so a `D:\...` path keeps looking like one;
       otherwise this system's own separator, `os.sep`, which is `/` on a Mac
       and on Linux.
+
+    Written as a literal `/` rather than read from `os.sep`: on every system that
+    reaches that line the two are the same character, and the literal keeps the
+    answer tied to `is_windows()` alone. Reading `os.sep` split the decision
+    between two sources, so a test that set `sys.platform` to `"darwin"` on the
+    Windows CI machine got `/Users/me/repo\src\b.cs` - the Mac branch chosen,
+    Windows' separator used (found 2026-09-29).
     """
     if is_windows() or is_windows_shaped(path):
         return "\\"
-    return os.sep
+    return "/"
 
 
 def join_under(root: Any, relative: str) -> str:

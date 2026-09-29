@@ -202,10 +202,37 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
     real_rmtree = bench.shutil.rmtree
 
     def spy(path, *args, **kwargs):
-        held.extend(f.path for f in psutil.Process().open_files()
-                    if Path(f.path).is_relative_to(work))
+        # **Only the removal of `work` itself is the moment in question.**
+        # `bench.shutil` is the one `shutil` module, so this patch sees every
+        # `rmtree` in the process - including the archive reader's
+        # `TemporaryDirectory` for each zip member, which the python.org
+        # build's `tempfile` routes through `shutil.rmtree` (Debian's binds
+        # its own copy at import, which is why Linux never saw them). Those
+        # run mid-index, with the database and logs rightly open, and on
+        # the Windows CI they filled this list with 14 x 5 "leaks" that were
+        # nothing of the kind (2026-09-29).
+        if Path(path) == work:
+            held.extend(f.path for f in psutil.Process().open_files()
+                        if Path(f.path).is_relative_to(work))
         return real_rmtree(path, *args, **kwargs)
 
+    # **A handle this process may not even look at must not end the check.**
+    # psutil lists the open files and then asks the disk whether each is a
+    # file; one it may not ask about raises, and the whole list is lost. On the
+    # Windows CI that was `C:\\$Extend\\$Deleted\\...` - a file some earlier
+    # test deleted while it was still open, which NTFS parks there until the
+    # handle closes - and psutil.AccessDenied failed this test before it had
+    # looked at `work` at all (2026-09-29). Such a path is counted as held only
+    # if it is inside `work`, so nothing the check is for can slip past it.
+    real_isfile = psutil._psplatform.isfile_strict
+
+    def isfile_or_ours(path):
+        try:
+            return real_isfile(path)
+        except PermissionError:
+            return Path(path).is_relative_to(work)
+
+    monkeypatch.setattr(psutil._psplatform, "isfile_strict", isfile_or_ours)
     monkeypatch.setattr(bench.shutil, "rmtree", spy)
     run_pipeline_bench(BenchOptions(
         corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
