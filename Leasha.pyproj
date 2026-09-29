@@ -1021,6 +1021,7 @@
     <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\PARKED-IDEAS.md" />
     <Content Include="docs\PROJECT_INSTRUCTIONS.md" />
+    <Content Include="docs\REFERENCE-model-backends.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
     <Content Include="docs\REVIEW-2026-08-26.md" />
     <Content Include="docs\SESSION-2026-09-04-0q-results-handoff.md" />
