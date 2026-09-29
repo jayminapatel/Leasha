@@ -57,7 +57,7 @@ from typing import Any, Callable, Optional, TextIO
 from app.core.logging import logger
 
 __all__ = [
-    "COMMANDS", "COMMAND_PAUSE", "COMMAND_RESUME", "COMMAND_STOP",
+    "COMMANDS", "COMMAND_PAUSE", "COMMAND_RESUME", "COMMAND_SKIP", "COMMAND_STOP",
     "EVENT_FINISHED", "EVENT_HEARTBEAT", "EVENT_HELLO", "EVENT_PROGRESS",
     "EventWriter", "HEARTBEAT_S", "PROGRESS_MIN_S", "PROTOCOL",
     "StatsRebuilder", "encode_stats", "event_line", "from_json_safe", "parse_command",
@@ -79,6 +79,10 @@ COMMAND_PAUSE = "pause"
 COMMAND_RESUME = "resume"
 COMMAND_STOP = "stop"
 COMMANDS = frozenset({COMMAND_PAUSE, COMMAND_RESUME, COMMAND_STOP})
+#: Work order 0z lane B: the Indexing page's Force skip, as `skip <reader>` -
+#: the one command with an argument, the reader's number as the page shows it
+#: ("Reader 2"). Kept out of `COMMANDS`, whose three words stand alone.
+COMMAND_SKIP = "skip"
 
 #: Seconds between heartbeats. The order asks for at least one a second; half
 #: a second leaves room for a busy machine to be late without the window ever
@@ -251,9 +255,18 @@ def parse_line(text: Any) -> Optional[dict[str, Any]]:
 
 
 def parse_command(text: Any) -> Optional[str]:
-    """One line from the window, as a known command word - or None."""
+    """One line from the window, as a known command word - or None.
+
+    `skip <reader>` comes back as `"skip 2"`, normalised; a `skip` without a
+    whole-number reader is not a command.
+    """
     word = str(text or "").strip().lower()
-    return word if word in COMMANDS else None
+    if word in COMMANDS:
+        return word
+    parts = word.split()
+    if len(parts) == 2 and parts[0] == COMMAND_SKIP and parts[1].isdigit():
+        return f"{COMMAND_SKIP} {int(parts[1])}"
+    return None
 
 
 # ---------------------------------------------------------------------------

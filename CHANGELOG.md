@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One stuck file no longer holds a reader for the rest of the run
+
+- A file whose reader stops making progress is now skipped (`ERR_FILE_TIMEOUT`, "'report.pdf' was
+  skipped after 20 min 3 s: ...") and the run carries on. Two new settings on Indexing › Tuning ›
+  Coverage: "Time limit per file" (120 s for text and code; PDFs, Office files and other documents get
+  ten times this) and "Skip a mailbox or archive after no progress for" (600 s). A `.pst`, `.mbox`,
+  `.olm` or `.zip` has no total limit - a large one can rightly take hours - and is skipped only when
+  nothing new has been read from it for that long, keeping the messages already read. Videos and
+  recordings have no limit. 0 switches either limit off. A timed-out file is settled like any other
+  skip, and read again when it changes.
+- With "Read files in separate processes" on, the stuck reader's process is ended and a fresh one
+  reads the next file. In the main process, a reader stuck in Python code is interrupted and the same
+  reader carries on; one stuck inside native code (a network read that never returns) cannot be
+  interrupted by anything in Python, so it is left behind and a replacement reader takes its place.
+- Each busy reader on the Indexing page has a "Force skip reader N" button that does the same for its
+  current file straight away, recorded as skipped by you. It works with "Index in a separate process"
+  too (a `skip <reader>` command to the indexing process).
 
 ### Indexing can read files in separate processes
 
