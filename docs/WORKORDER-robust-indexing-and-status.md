@@ -1,6 +1,6 @@
 # Work order (One thread, with helpers): robust indexing, one status everywhere, and PST that keeps going
 
-**Doc version:** 1.0 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 **Created:** 2026-09-29 · **Layer:** L2/L3/L5 - `app/index/`, `app/extract/pst_libpff.py`, `app/core/`, `app/ui/`
 **Thread:** A coordinating thread with helper threads in worktrees, one PR per lane, each merged by the owner
 **Status:** RELEASED *(owner, 2026-09-29: "build it all")*
@@ -58,11 +58,20 @@ at the end.
 
 ## Lane D - the junk-image filter (after C)
 
+> **2026-09-29, decided (owner: "you decide"; built in PR #31).** "Duplicate attachments are
+> not indexed twice" stays **within one archive**, as before. Across archives it could lose an
+> attachment when the archive holding its first copy is re-read or deleted, and the saving is small
+> next to D1's. Revisit only with a way to move the kept copy when its archive goes.
+
 - [ ] **D1** One hash list for images across every archive and run: an image seen five or more times
       that gave fewer than three words is not read again, and duplicate attachments are not indexed
       twice.
 - [ ] **D2** Inline, hidden or `cid:` attachments that are also tiny or divider-shaped are recorded by
       name only, with a reason ("decorative image, not read") and a count on the Indexing page.
+> **2026-09-29, owner decision.** D3 applies to photos too: short text such as a sign in a photo
+> is not kept. Asked because the Enron sample lost one real sign ("ASTEL Heaven") to D3; answer "no"
+> to keeping it.
+
 - [ ] **D3** Fewer than three words after OCR: the text is not indexed and the hash joins D1.
 - [ ] **D4** Near-identical logos, by perceptual hash (`app/index/phash.py`).
 - [ ] **D5** A setting to switch the filter off.
