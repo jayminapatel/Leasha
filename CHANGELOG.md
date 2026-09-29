@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.33 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,45 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Indexing speed: pictures and scanned pages, measured (2026-09-29)
+
+Measured on Linux (4 logical CPUs, shared with other work, so every figure is the best of
+several runs), RapidOCR on the processor, the text embedder FAKE (no model could be
+downloaded here): a generated corpus of 250 documents (60 text PDFs, 20 scanned PDFs, DOCX,
+XLSX, PPTX, TXT, MD, HTML) and 220 pictures (12 MP photographs, 2 MP photographs, icons,
+logos, screenshots and photographed pages).
+
+- **Reading ordinary documents was already fast, and is unchanged.** 230 documents with a
+  text layer took 1.2 s to extract on one thread, and the whole text pass 3.1 s. Nothing
+  there was worth changing.
+- **A picture is decoded and searched for text once, not twice.** The OCR ladder's detection
+  probe asked the engine for detection alone and then, if it found anything, ran the whole
+  engine again. RapidOCR already stops after detection when there is nothing to read, so the
+  probe never saved time and cost a second decode and detection on every photograph where it
+  found something. The probe now makes the one full call and keeps its answer; the ladder
+  and its setting are unchanged. Photographs without names a camera gives: 1.2-1.9 s down to
+  0.7-0.9 s each.
+- **Large JPEGs are decoded at the size OCR uses.** A 12 MP photograph was decoded at full
+  size and then shrunk to 2,000 pixels; it is now decoded at that size directly (about 60 ms
+  instead of 150-250 ms). On the photographed pages the engine read more correct words, not
+  fewer (817 against 672 on ten scan-named pages).
+  Together, on a 40-picture sample: 84.5 s down to 63.5 s, and processor time 246 s down to
+  184 s.
+- **Scanned PDF pages reach OCR uncompressed.** Each page was compressed to PNG (about
+  200 ms) and then uncompressed twice; it is now handed over as PNM, about 25 ms in all.
+- **The text-first pass no longer reads scanned PDFs.** "Pages to read from a scanned PDF"
+  says only the images pass uses it, but a text-first run read a wholly scanned PDF with OCR
+  all the same. It is now left for the pictures pass, like a picture. With 20 scanned PDFs
+  and a budget of 5 pages, the text pass went from 129-148 s to 3-4 s. A PDF that is only
+  partly scanned is still read in full on the text pass, because nothing would bring the
+  pictures pass back to it.
+- **An image model that will not load is tried three times per run, not once per picture.**
+  Where the CLIP model could not be downloaded, every picture tried again: 220 attempts, 67 s
+  of the pictures pass here, and a network timeout per picture on a machine that is offline.
+- **The whole corpus, both passes, one run each** (the machine was heavily loaded, so treat
+  this as indicative): 469 s before, 360 s after. The text pass is searchable after 4 s
+  instead of 148 s.
 
 ### Outlook archives read without Outlook: faster, and a damaged one keeps going
 

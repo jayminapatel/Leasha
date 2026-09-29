@@ -66,6 +66,17 @@ PDF_OCR_PAGES_VAR = "LEASHA_PDF_OCR_PAGES"
 #: 300dpi scan; higher costs time quadratically for very little accuracy.
 OCR_RENDER_DPI = 200
 
+#: How a rendered page is handed to OCR: uncompressed PNM, not PNG.
+#:
+#: **2026-09-29, measured** on a 200 dpi A4 scan (1653x2339): encoding the page
+#: as PNG took about 200 ms, and it was then decoded twice more (the ladder's
+#: thumbnail, and the engine) at about 35 ms each - roughly 270 ms a page spent
+#: compressing a picture only to uncompress it again. PNM is about 10 ms to
+#: write and 7-10 ms to read. The bytes are larger (11.6 MB against 1 MB for
+#: that page) but live only for the one page being read. Pillow, which both the
+#: ladder and RapidOCR use to open bytes, reads PNM natively.
+RENDER_FORMAT = "pnm"
+
 
 class PdfExtractor:
     name = "pdf"
@@ -160,6 +171,9 @@ class PdfExtractor:
                         "the document was almost certainly scanned or photographed."
                     ),
                     suggestion=(
+                        "Its pages are left for the pictures pass, which reads "
+                        "scanned pages after the text is indexed."
+                        if _pdf_ocr_pages() and _pictures_held() else
                         "Reading it needs OCR on every page, at seconds per page. "
                         "Turn it on with LEASHA_PDF_OCR_PAGES=<n>, where n is how "
                         "many pages of one document are worth that time."
@@ -266,6 +280,30 @@ def _pages_from_settings() -> int:
     return int(_SETTINGS_PAGES)
 
 
+def _pictures_held() -> bool:
+    """Is this read the text-first pass, which leaves scanned pages for later?
+
+    **2026-09-29, measured.** `PDF_OCR_PAGES` is described in Settings as
+    "Only the images pass uses this", but the text-first pass (`INDEX_OCR_MODE`
+    text, or "after the run") OCR'd a wholly scanned PDF inline all the same:
+    on a 250-document corpus with 20 scanned PDFs and a budget of 5 pages, the
+    text pass took 129 s instead of 3 s, all of it OCR - the same trap order 0z
+    lane C found for pictures inside a `.pst`. `app.extract.reading` carries
+    the pass's rule to the reader; outside a pipeline (a test, `app.cli
+    extract`) it is "read", which is exactly the old behaviour.
+
+    Only the *wholly* scanned PDF is held. A partly scanned one is indexed on
+    this pass from its text pages, so no queue entry would ever bring the
+    pictures pass back to its scanned pages; those stay read inline, as before.
+    """
+    try:
+        from app.extract import reading
+
+        return reading.current().images == reading.IMAGES_HOLD
+    except Exception:                            # noqa: BLE001 - never blocks a read
+        return False
+
+
 def _ocr_specific_pages(
     document: object, path: Path, builder: object, pages: list[int],
 ) -> tuple[list[int], float]:
@@ -305,7 +343,7 @@ def _ocr_specific_pages(
     for number in pages[:limit]:
         try:
             page = document.load_page(number - 1)               # type: ignore[attr-defined]
-            image = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
+            image = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes(RENDER_FORMAT)
         except Exception as exc:                                 # noqa: BLE001
             log.debug("could not render page {} of {}: {}", number, path, exc)
             continue
@@ -333,6 +371,12 @@ def _ocr_pages(document: object, path: Path, builder: object) -> object:
     if limit <= 0:
         return None
 
+    if _pictures_held():
+        # The text-first pass. Declining here gives the caller its ordinary
+        # `ERR_NO_TEXT_LAYER`, and that row is exactly the queue the pictures
+        # pass reads its scanned PDFs from (`Pipeline._is_deferred`).
+        return None
+
     from app.extract.ocr import available, ocr_image
 
     if not available():
@@ -350,7 +394,9 @@ def _ocr_pages(document: object, path: Path, builder: object) -> object:
             # `tobytes("png")` rather than a temp file: the OCR reader takes
             # bytes, and a corpus of scanned manuals would otherwise write and
             # delete a few hundred thousand temporary images.
-            image = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes("png")
+            # 2026-09-29: `RENDER_FORMAT` (uncompressed) rather than "png" -
+            # see there; still bytes, still no temp file.
+            image = page.get_pixmap(dpi=OCR_RENDER_DPI).tobytes(RENDER_FORMAT)
         except Exception as exc:                              # noqa: BLE001
             log.debug("could not render page {} of {}: {}", number + 1, path, exc)
             continue
