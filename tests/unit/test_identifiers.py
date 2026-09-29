@@ -156,7 +156,11 @@ def test_the_fast_scan_matches_the_old_one_on_generated_text(text, limit):
     "9Abc 12abC aB a1 AB ABC ABc XMLHttpRequest parseJSON2Data utf8 sha256",
     "NASA iPhone COVID19 Q3 page2 2026-09-27 MyISAM éBc ÉcoleNormale",
     " ".join(f"someLongIdentifier{n}" for n in range(5_000)),
-])
+], ids=["prose", "code", "awkward-mixes", "acronyms-and-accents", "5000-identifiers"])
+# Named, because pytest puts the test's id in the `PYTEST_CURRENT_TEST`
+# environment variable, and the id made from the 5,000-word text is ~120,000
+# characters: Windows refuses an environment variable over 32,767, so the test
+# ERRORed at setup and teardown on the Windows CI (2026-09-29) without running.
 def test_the_fast_scan_matches_the_old_one_on_known_text(text):
     assert symbol_tokens(text) == _symbol_tokens_before_5d(text)
 

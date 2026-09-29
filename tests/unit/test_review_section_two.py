@@ -52,9 +52,17 @@ def test_chunking_a_hundred_thousand_words_is_not_quadratic():
     text = " ".join(
         f"word{n}" + ("\n\n" if n % 40 == 0 else "") for n in range(PERF_WORDS))
 
-    started = time.perf_counter()
+    # **This thread's processor time, not the wall clock.** The question is how
+    # much work the chunker does, and only `thread_time` answers it alone. The
+    # wall clock also counts every moment this thread waited for Python's lock
+    # while another thread ran - and by this point in a whole-suite run, earlier
+    # GUI tests have left thread-pool workers behind. On the Windows CI one run
+    # measured 3.0s where the same code takes 0.24s here and passed there on the
+    # run before (2026-09-29): not quadratic, which would be ~100s, but waiting.
+    # The budget is unchanged; a quadratic scan still misses it fifty-fold.
+    started = time.thread_time()
     chunks = chunk_text(text)
-    elapsed = time.perf_counter() - started
+    elapsed = time.thread_time() - started
 
     assert chunks, "produced no chunks at all"
     assert elapsed < PERF_BUDGET_S, (

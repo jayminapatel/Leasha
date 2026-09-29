@@ -395,7 +395,13 @@ class SystemProbe:
             cpu = own = None
         try:
             state = psutil.sensors_battery()
-            battery = None if state is None else not state.power_plugged
+            # **`power_plugged` can be None: "cannot tell".** psutil says so,
+            # and a Windows virtual machine reports it that way. `not None` is
+            # True, so "cannot tell" read as "on battery" and the governor
+            # paused the run for ever - heartbeats still flowing, nothing
+            # indexed (2026-09-29, the first Windows CI run). Unknown is unknown.
+            plugged = None if state is None else state.power_plugged
+            battery = None if plugged is None else not plugged
         except Exception:                       # noqa: BLE001
             battery = None
 
