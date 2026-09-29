@@ -730,6 +730,11 @@ class IndexController(QObject):
                 # 0x §5b: "Read files in separate processes".
                 read_processes=bool(getattr(
                     self._w._settings, "index_read_processes", False)),
+                # 0z lane B: the time limits (`app/index/file_watch.py`).
+                file_time_limit_s=int(getattr(
+                    self._w._settings, "index_file_time_limit_s", 120)),
+                stall_limit_s=int(getattr(
+                    self._w._settings, "index_stall_limit_s", 600)),
                 prune_missing=roots is None,     # a folder-scoped run must not prune the rest
                 # A folder marked as an archive is walked once and then checked
                 # with one `stat` - the largest single saving available on a

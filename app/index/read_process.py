@@ -205,6 +205,33 @@ class ReaderProcess:
         #: How many children this reader has started - more than one means a
         #: child ended part-way (a crash, or a file abandoned mid-read).
         self.started = 0
+        #: Set by `kill_child` (0z lane B: a time limit or Force skip), so the
+        #: child's end is logged as what it was rather than as a crash.
+        self._killed = False
+
+    @property
+    def reading(self) -> bool:
+        """True while a `read()` is under way - the file is in the child."""
+        return self._busy
+
+    def kill_child(self) -> None:
+        r"""End the child now, from **another** thread. Never raises, never waits.
+
+        Work order 0z lane B: the file watchdog's way of freeing a thread whose
+        file has run past its time limit (`app/index/file_watch.py`). Only the
+        process is ended here; the owning thread, blocked reading the pipe,
+        sees it close, and its own `read()` tidies up (`_ended`, `_abandon`)
+        and starts a fresh child for the next file - so nothing is shared
+        between the two threads except the one `kill` call.
+        """
+        proc = self._proc
+        self._killed = True
+        if proc is None:
+            return
+        try:
+            proc.kill()
+        except Exception:                              # noqa: BLE001 - already gone
+            pass
 
     # -- life ----------------------------------------------------------------
 
@@ -292,6 +319,7 @@ class ReaderProcess:
         self.start()
         proc = self._proc
         self._busy = True
+        self._killed = False
         self._sequence += 1
         sequence = self._sequence
         finished = False
@@ -338,8 +366,12 @@ class ReaderProcess:
             except Exception:                          # noqa: BLE001
                 code = None
         self._abandon()
-        log.warning("the reader process ended while reading {} (exit code {})",
-                    Path(path).name, code)
+        if self._killed:
+            log.info("the reader process reading {} was ended: the file ran past "
+                     "its time limit, or was force-skipped", Path(path).name)
+        else:
+            log.warning("the reader process ended while reading {} (exit code {})",
+                        Path(path).name, code)
         return AppErrorException(make_error(
             "ERR_READER_PROCESS_ENDED", "index.read_process", path=str(path),
             details=f"The reader process exited with code {code}."))

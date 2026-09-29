@@ -179,6 +179,41 @@ class LongRunBox(QGroupBox):
         self.ocr_white_page_percent.valueChanged.connect(
             lambda _v: self.changed.emit())
 
+        # Work order 0z lane B: how long one file may hold a reader
+        # (`app/index/file_watch.py`). Coverage because a file that runs past
+        # it is not read - it is recorded as skipped, like a damaged one.
+        self.file_time_limit = QSpinBox()
+        self.file_time_limit.setObjectName("INDEX_FILE_TIME_LIMIT_S")
+        self.file_time_limit.setRange(0, 3600)
+        self.file_time_limit.setSingleStep(30)
+        self.file_time_limit.setSuffix(" s")
+        self.file_time_limit.setSpecialValueText("No limit")
+        self.file_time_limit.setKeyboardTracking(False)
+        self.file_time_limit.setToolTip(
+            "How long one text or code file may take to read before it is\n"
+            "skipped, so a damaged file cannot hold a reader for the rest of the\n"
+            "run. PDFs, Office files and other documents get ten times this.\n\n"
+            "Mailboxes and zip archives have no time limit - see the next\n"
+            "setting. Videos and recordings have none either. Any file can\n"
+            "also be skipped by hand with Force skip while it is being read."
+        )
+        self.file_time_limit.valueChanged.connect(lambda _v: self.changed.emit())
+
+        self.stall_limit = QSpinBox()
+        self.stall_limit.setObjectName("INDEX_STALL_LIMIT_S")
+        self.stall_limit.setRange(0, 7200)
+        self.stall_limit.setSingleStep(60)
+        self.stall_limit.setSuffix(" s")
+        self.stall_limit.setSpecialValueText("Never")
+        self.stall_limit.setKeyboardTracking(False)
+        self.stall_limit.setToolTip(
+            "A large mailbox (.pst, .mbox, .olm) or zip can rightly take hours,\n"
+            "so it is never cut off for taking long. It is skipped only when\n"
+            "nothing new has been read from it for this long. The messages\n"
+            "already read are kept and stay searchable."
+        )
+        self.stall_limit.valueChanged.connect(lambda _v: self.changed.emit())
+
         form = QFormLayout(self)
         form.addRow(self.name_only)
         form.addRow(_cost("INDEX_NAME_ONLY"))
@@ -191,12 +226,16 @@ class LongRunBox(QGroupBox):
         form.addRow(self.archive_read_inside)
         form.addRow(_cost("ARCHIVE_READ_INSIDE"))
         form.addRow("Largest archive to read", self.archive_max_mb)
+        form.addRow("Time limit per file", self.file_time_limit)
+        form.addRow("Skip a mailbox or archive after no progress for",
+                    self.stall_limit)
 
     def load(self, settings: Any) -> None:
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""
         widgets = (self.ocr_mode, self.archive_recheck_days, self.name_only,
                    self.archive_read_inside, self.archive_max_mb,
-                   self.pdf_ocr_pages, self.ocr_white_page_percent)
+                   self.pdf_ocr_pages, self.ocr_white_page_percent,
+                   self.file_time_limit, self.stall_limit)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -215,6 +254,10 @@ class LongRunBox(QGroupBox):
                 int(getattr(settings, "pdf_ocr_pages", 0)))
             self.ocr_white_page_percent.setValue(
                 int(getattr(settings, "ocr_white_page_percent", 70)))
+            self.file_time_limit.setValue(
+                int(getattr(settings, "index_file_time_limit_s", 120)))
+            self.stall_limit.setValue(
+                int(getattr(settings, "index_stall_limit_s", 600)))
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -229,4 +272,6 @@ class LongRunBox(QGroupBox):
             "archive_max_mb": int(self.archive_max_mb.value()),
             "pdf_ocr_pages": int(self.pdf_ocr_pages.value()),
             "ocr_white_page_percent": int(self.ocr_white_page_percent.value()),
+            "index_file_time_limit_s": int(self.file_time_limit.value()),
+            "index_stall_limit_s": int(self.stall_limit.value()),
         }

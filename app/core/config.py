@@ -371,6 +371,15 @@ class Settings(BaseModel):
     #: (`app/index/read_process.py`) rather than on threads that share one
     #: interpreter lock. Off by default until measured on the owner's machine.
     index_read_processes: bool = False
+    #: Work order 0z lane B (`app/index/file_watch.py`). Seconds one text or
+    #: code file may take to read before it is skipped (`ERR_FILE_TIMEOUT`);
+    #: PDFs, Office files and other documents get ten times this. 0 is no
+    #: limit. Mailboxes and archives are judged on progress instead - below.
+    index_file_time_limit_s: int = 120
+    #: Seconds a mailbox or archive may go with nothing new read before it is
+    #: skipped. Never a limit on its total time: a large `.pst` can rightly
+    #: take hours. 0 is no limit.
+    index_stall_limit_s: int = 600
 
     # --- indexing: when it runs --------------------------------------------
     #: manual | startup | interval | daily
@@ -507,6 +516,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_OCR_PASS",
     "INDEX_SEPARATE_PROCESS",
     "INDEX_READ_PROCESSES",
+    "INDEX_FILE_TIME_LIMIT_S",
+    "INDEX_STALL_LIMIT_S",
     "INDEX_MEMORY_MB",
     "INDEX_CPU_PERCENT",
     "INDEX_PAUSE_ON_BATTERY",
@@ -704,6 +715,11 @@ def load_settings(
             index_read_processes=_as_bool(
                 "INDEX_READ_PROCESSES",
                 values.get("INDEX_READ_PROCESSES", "false")),
+            index_file_time_limit_s=max(0, _as_int(
+                "INDEX_FILE_TIME_LIMIT_S",
+                values.get("INDEX_FILE_TIME_LIMIT_S", "120"))),
+            index_stall_limit_s=max(0, _as_int(
+                "INDEX_STALL_LIMIT_S", values.get("INDEX_STALL_LIMIT_S", "600"))),
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
