@@ -36,6 +36,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   pytest's own clean-up; and the open-files check stopped at a file it was not allowed to look at.
 - Three more checks were fixed in the same way: a column drag that did not move the column, a
   click that missed the Settings tick box, and a speed check that counted time spent waiting.
+### Indexing is no longer refused by a check that nothing was running
+
+- Starting an index, from the window or the command line, could be refused with "an index run is
+  already in progress" when nothing was indexing: the open window checks for another run every few
+  seconds, and a start that landed inside that check was taken for one. A start now waits up to a
+  second for such a check to finish; a real run in progress is still refused. Found by the Windows CI.
 
 ### A silent indexing process no longer hangs the window
 
