@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.33 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.34 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,63 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Signature logos and icons in email are no longer read (order 0z lane D, 2026-09-29)
+
+The owner's report: signature and junk pictures attached to email were being read by OCR,
+slowly, for nothing. Pictures inside a mail archive now go through a filter first
+(`app/extract/junk_images.py`). Each one it leaves unread is counted as `Skipped`, and the
+archive's line in the log gives the reason in brackets: "32 Skipped (12 decorative pictures,
+14 repeated pictures)". The Indexing page gets a row, "Pictures in mail not read". Each
+picture is still findable by its name on the message.
+
+- **Decorative (D2).** The message marks the picture as part of its layout (hidden, `cid:`,
+  or `ATT_MHTML_REF`) **and** it is tiny (both sides 100 pixels or under) or divider-shaped
+  (12 pixels or thinner, and 8 times as long). The size comes from the image header, without
+  decoding. Inline alone is never enough, because a pasted screenshot is inline too.
+- **Repeated with no words (D1).** A new table, `image_hashes` (schema v29), records
+  each picture's bytes across every archive and run. It keeps how often the bytes were met
+  and how many words reading them gave. Bytes met five times that gave fewer than three
+  words are not read again. `clear_index` empties the table.
+- **Fewer than three words (D3).** OCR text of under three words is not indexed. Words are
+  counted allowing for the spaces RapidOCR drops (it reads a line of six words as one run
+  of letters), so a line of real text is never mistaken for a logo. A Florence-2
+  description is kept.
+- **Near-identical logos (D4).** A logo that a mail client re-saves in every message (every
+  byte different) is matched by perceptual hash. The match has to be within 6 bits, at the
+  same size give or take 10%, and among pictures of 640x480 or smaller. A flat picture (a
+  blank, a divider) hashes to all zeros and never matches.
+- **Setting (D5).** "Leave out signature logos and icons in email"
+  (`INDEX_JUNK_IMAGE_FILTER`, Index tuning), on by default.
+- **Not used, by the order's decision:** file names (`image001.png` is also a pasted
+  screenshot), byte size alone, position in the email, and colour variance. CLIP is not
+  affected: pictures inside a mail archive never had CLIP vectors.
+
+**Measured** on Linux with RapidOCR on the processor. The corpus was three simulated
+archives of 60 messages each, read through the real libpff attachment loop. Every message
+carried a signature (four senders, four styles: a logo, social icons, a tracking pixel, a
+spacer, dividers, a conference banner, and one logo re-saved as JPEG in every message).
+Real content was spread across them: 12 pasted screenshots (inline), 3 receipts, 9
+screenshots, 3 photographed pages, 3 scans and 6 photographs.
+
+- Filter off: 126 OCR calls in 80.2 s. First run with the filter: 58 calls in 58.2 s
+  (-27%). A second run over the same archives: 48 calls in 52.3 s (-35%). The rest is real
+  content.
+- Left unread: 36 decorative, 32 then 42 repeated. 8 then 1 were read but held fewer
+  than three words.
+- **No screenshot, scan, receipt or photographed page was left unread.** Two real pictures
+  were affected, and neither loses anything that was searchable before:
+  - a pasted 98x40 "PAID" stamp. It was already below the 64x64 floor OCR never reads.
+  - one photograph whose OCR text was the single character "3".
+- **Missed, by design:** the conference banner reads as six words, so it is indexed (once
+  per archive).
+- On the public Enron sample archive (24 pictures, none marked inline), nothing was skipped
+  before reading. D3 dropped the OCR text of 5 photographs and scans. The text was noise:
+  "张", "m", "moise", "中" and "ASTEL Heaven".
+- **Unverified:** a real Outlook signature in a modern `.pst` (the Enron sample predates
+  inline `cid:` images), and the Outlook (MAPI) backend. That backend applies D1, D3 and D4
+  but not D2, because it does not read the inline property yet. Both need a run on the
+  owner's Windows machine.
 
 ### Indexing speed: pictures and scanned pages, measured (2026-09-29)
 

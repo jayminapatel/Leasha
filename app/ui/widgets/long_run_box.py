@@ -140,6 +140,20 @@ class LongRunBox(QGroupBox):
         )
         self.archive_max_mb.valueChanged.connect(lambda _v: self.changed.emit())
 
+        # Order 0z lane D. One switch, on by default: the filter only ever
+        # leaves out pictures that are decoration, never a screenshot or scan.
+        self.junk_images = QCheckBox("Leave out signature logos and icons in email")
+        self.junk_images.setObjectName("INDEX_JUNK_IMAGE_FILTER")
+        self.junk_images.setToolTip(
+            "Pictures attached to email that are only decoration are not read:\n"
+            "a signature logo repeated in every message, social-media icons,\n"
+            "tracking pixels and divider lines. Reading text out of each one\n"
+            "takes time and finds nothing worth searching for.\n\n"
+            "They are still findable by name. Screenshots, scans, receipts and\n"
+            "photos are read as before. Switch it off to read every picture."
+        )
+        self.junk_images.stateChanged.connect(lambda _s: self.changed.emit())
+
         # **A budget, not a switch.** At ~3.6s a page, twenty pages is about a
         # minute a document and covers the title, contents and introduction.
         # All-or-nothing is the sixty-hour column.
@@ -187,6 +201,7 @@ class LongRunBox(QGroupBox):
         form.addRow("Pages of a scanned PDF", self.pdf_ocr_pages)
         form.addRow("How white a photo must be to read as a page",
                     self.ocr_white_page_percent)
+        form.addRow(self.junk_images)
         form.addRow("Re-check archives every", self.archive_recheck_days)
         form.addRow(self.archive_read_inside)
         form.addRow(_cost("ARCHIVE_READ_INSIDE"))
@@ -196,7 +211,8 @@ class LongRunBox(QGroupBox):
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""
         widgets = (self.ocr_mode, self.archive_recheck_days, self.name_only,
                    self.archive_read_inside, self.archive_max_mb,
-                   self.pdf_ocr_pages, self.ocr_white_page_percent)
+                   self.pdf_ocr_pages, self.ocr_white_page_percent,
+                   self.junk_images)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -215,6 +231,8 @@ class LongRunBox(QGroupBox):
                 int(getattr(settings, "pdf_ocr_pages", 0)))
             self.ocr_white_page_percent.setValue(
                 int(getattr(settings, "ocr_white_page_percent", 70)))
+            self.junk_images.setChecked(
+                bool(getattr(settings, "index_junk_image_filter", True)))
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -229,4 +247,5 @@ class LongRunBox(QGroupBox):
             "archive_max_mb": int(self.archive_max_mb.value()),
             "pdf_ocr_pages": int(self.pdf_ocr_pages.value()),
             "ocr_white_page_percent": int(self.ocr_white_page_percent.value()),
+            "index_junk_image_filter": bool(self.junk_images.isChecked()),
         }

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.17 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 7.18 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -242,6 +242,16 @@ None of it has met a real display, real data, a real PST or Outlook.
       Then run the pictures pass (`--only-ocr`) and check it reads that archive's held pictures and
       nothing else of it. If it still stalls, note the folder and message the page showed when it
       stopped moving - a single libpff call that never returns cannot be caught inside the reader.
+- [ ] **Signature pictures in your own mail (order 0z lane D, 2026-09-29).** Run the pictures
+      pass (`--only-ocr`) over an archive of recent Outlook mail with signatures. Record here:
+      the archive's counts line in the log ("n Skipped (n decorative pictures, n repeated
+      pictures ...)"), the "Pictures in mail not read" row on the Indexing page, and the
+      pass's time next to the same pass with "Leave out signature logos and icons in email"
+      switched off. Then search for three real screenshots or receipts that were pasted into
+      messages; each must still be found by its words. Nothing here has run on a modern
+      `.pst` with inline `cid:` signature images: the only real archive available was the
+      2001 Enron sample. The Outlook (MAPI) backend applies the filter without the
+      "decorative" rule (it does not read the inline property yet), and has not run at all.
 - [ ] **`app.cli index` and `app.cli stats`** print the timestamped lines and the
       did-not-finish note in the Windows console, with no stray characters.
 
@@ -1248,6 +1258,17 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
   (`Frame.counts`; `Frame.beat` rises for every item, for a per-file time limit to watch).
   **Not caught, and cannot be from inside:** one libpff C call that never returns. No hang or crash
   was seen in 600 damaged copies; that is evidence, not proof.
+- **Junk pictures in mail are not read (2026-09-29, order 0z lane D).** Pictures attached to
+  mail go through `app/extract/junk_images.py` before OCR. Four things leave a picture unread:
+  it is decorative (inline and tiny or divider-shaped), its bytes are repeated with no words,
+  it is a near-identical logo, or OCR gave it fewer than three words (then the text is not
+  indexed). Each is a `Skipped` with a reason code. The book of picture hashes is **schema
+  v29**, `image_hashes`: a derived cache that `clear_index` empties. **A new migration must
+  now be numbered after 29.** It is loaded on first use and saved at the end of a run
+  (`app/index/image_book.py`), so a killed run costs only a second reading of those
+  pictures. Setting: `INDEX_JUNK_IMAGE_FILTER`, on by default. **Trap:** RapidOCR drops
+  spaces, reading a line of six words as one run of letters, so `count_words` also counts
+  letters divided by 5. Never count words by splitting on spaces.
 - **Attachment pictures are held on the text pass (2026-09-29, order 0z lane C).** They were OCR'd
   inline - about 80% of a real archive's read time. `app/extract/reading.py` carries the pass's
   rule to the reader; the archive goes on the `pictures_held_in_archives` list

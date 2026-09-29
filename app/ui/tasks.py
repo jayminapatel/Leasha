@@ -20,7 +20,7 @@ from typing import Any, Optional
 from app.core.logging import logger
 from app.ui.presenter.code import REPO_FILE_LIMIT, code_type_filter, git_rows_matching
 from app.ui.presenter.formatting import format_size, format_when
-from app.ui.presenter.indexing import warned_counts
+from app.ui.presenter.indexing import pictures_not_read_counts, warned_counts
 from app.ui.presenter.repos import RepoRow
 
 _log = logger.bind(component="ui.presenter")
@@ -513,7 +513,10 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
     try:
         payload["stats"] = store.stats()
         payload["last_run"] = store.get_state("index:last_run") or ""
-        payload["warned"] = warned_counts(store.get_state("last_run_stats"))
+        last_run_stats = store.get_state("last_run_stats")
+        payload["warned"] = warned_counts(last_run_stats)
+        # Order 0z lane D: the junk-image filter's count, from the same record.
+        payload["pictures_not_read"] = pictures_not_read_counts(last_run_stats)
     except Exception as exc:                     # noqa: BLE001 - reported, not swallowed
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return payload
