@@ -407,13 +407,11 @@ def _private_stdin():
         null = os.open(os.devnull, os.O_RDONLY)
         os.dup2(null, 0)
         os.close(null)
-        if sys.platform == "win32":
-            # The C runtime points the Win32 handle at the new descriptor only
-            # in a console program; `pythonw` is not one, so it is done here.
-            import ctypes
-            import msvcrt
+        # The C runtime points the Win32 handle at the new descriptor only in
+        # a console program; `pythonw` is not one, so it is done here.
+        from app.core.osbridge.stdio import follow_descriptor_zero
 
-            ctypes.windll.kernel32.SetStdHandle(-10, msvcrt.get_osfhandle(0))
+        follow_descriptor_zero()
         sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - for life
         return open(saved, encoding="utf-8", errors="replace")  # noqa: SIM115
     except (OSError, ValueError, AttributeError):
