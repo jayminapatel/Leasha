@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Code tab: search inside the code as you type
+
+- Typing in the Code tab now finds what is *inside* your code, not only file names: where a name is
+  defined comes first, then files whose name matches, then every other line that mentions it. Each
+  row shows the line number and the line of code. It answers from the index as you type.
 
 ### Code tab: no console flash, a Stop for history, and "Ignore this repository"
 
