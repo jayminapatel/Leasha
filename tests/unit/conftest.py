@@ -144,6 +144,48 @@ def gui_mainwindow(tmp_path_factory):
     vectors.close()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def windows_left_open_stop_watching_the_run_lock():
+    r"""A window a finished test module leaves open stops polling the run lock.
+
+    **Kept open, as `gui_mainwindow` explains - but not still asking.** Every
+    `MainWindow` runs `_watch_timer`, which every four seconds sends a worker to
+    `run_lock.is_indexing`, and that probe *takes the machine-wide index mutex*
+    for an instant. Windows built by one module are never torn down, so on a
+    full run a few dozen of them were still probing all through every later
+    module - measured on Linux, 22 by `test_media_open.py`, from a spy on the
+    live top-level widgets after each test (2026-09-29).
+
+    On Windows the mutex name is machine-wide, so a `lock_dir` isolates
+    nothing: an `IndexRunLock` or an `is_indexing` in `test_run_lock.py` that
+    landed inside one of those probes was refused as "another process", one
+    test at a time. `IndexRunLock` now waits a probe out
+    (`run_lock.CONTENTION_WAIT_S`); a bare `is_indexing` cannot, because a
+    probe is exactly what it is. So the probing stops with the module that
+    built the window: its tests are over, and nothing after it may depend on a
+    timer it cannot see. Only this timer - it is the one that reaches outside
+    the process - and only stopped, never closed or deleted, for the reason in
+    `gui_mainwindow`.
+
+    Module-scoped and autouse, so it is torn down after the module's own
+    fixtures: a `gui_mainwindow` has closed its store by then, and a poll
+    started against a closed store is one more thing this ends.
+    """
+    yield
+    from PyQt6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        return
+    for widget in QApplication.topLevelWidgets():
+        timer = getattr(widget, "_watch_timer", None)
+        if timer is None:
+            continue
+        try:
+            timer.stop()
+        except RuntimeError:             # its C++ side is already gone
+            pass
+
+
 @pytest.fixture
 def no_leaked_widgets():
     r"""Delete the top-level widgets *this test* built, and nothing else.
