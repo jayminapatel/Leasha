@@ -230,6 +230,9 @@ def signature(counters: tuple, workers: dict[str, dict[str, Any]]) -> tuple:
         parts.append((key, worker.get("file"), worker.get("item"),
                       worker.get("stage"), last.get("n"), last.get("where"),
                       last.get("stage"), last.get("detail"),
+                      # Order 0z lane C: a mail archive's reader moves `beat`
+                      # for every item, attachments and failures included.
+                      last.get("beat"),
                       len(inner)))
     return (counters, tuple(parts))
 
