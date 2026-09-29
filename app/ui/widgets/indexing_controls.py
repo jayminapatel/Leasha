@@ -49,6 +49,7 @@ from app.ui.widgets.indexing_headline import show_now
 
 __all__ = [
     "IndexControls",
+    "force_skip_reader",
     "hold_run",
     "let_run_go",
     "PAUSE_LABEL",
@@ -183,6 +184,21 @@ def hold_run(view: Any) -> None:
     view.headline.setText(PAUSED_HEADLINE)
     view.detail.setText(PAUSED_DETAIL)
     show_now(view, None)
+
+
+def force_skip_reader(view: Any, reader: str) -> bool:
+    """Work order 0z lane B: Force skip reader `reader`'s current file.
+
+    UI thread, no I/O: the in-process run only marks the file
+    (`Pipeline.force_skip`), and the separate-process run writes one line to
+    the indexing process (`ChildIndexRun.force_skip`), as Pause does. The next
+    progress tick shows the reader on its next file.
+    """
+    pipeline = getattr(getattr(view, "_worker", None), "pipeline", None)
+    skip = getattr(pipeline, "force_skip", None)
+    if skip is None or getattr(view, "_stopping", False):
+        return False
+    return bool(skip(reader))
 
 
 def let_run_go(view: Any) -> None:

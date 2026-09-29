@@ -423,6 +423,25 @@ SETTINGS: tuple[Setting, ...] = (
              "Takes effect from the next Start.",
     ),
     Setting(
+        key="INDEX_FILE_TIME_LIMIT_S", label="Time limit per file",
+        kind="int", default=120, group="Tuning", surface="indexing.tuning",
+        minimum=0, maximum=3600, unit="s",
+        help="How long one text or code file may take to read before it is "
+             "skipped, so a damaged file cannot hold a reader for the rest of "
+             "the run. PDFs, Office files and other documents get ten times "
+             "this. Mailboxes and archives use the no-progress limit instead. "
+             "0 means no limit.",
+    ),
+    Setting(
+        key="INDEX_STALL_LIMIT_S",
+        label="Skip a mailbox or archive after no progress for",
+        kind="int", default=600, group="Tuning", surface="indexing.tuning",
+        minimum=0, maximum=7200, unit="s",
+        help="A large mailbox can rightly take hours, so it has no time limit. "
+             "It is skipped only when nothing new has been read from it for "
+             "this long - the messages already read are kept. 0 means never.",
+    ),
+    Setting(
         key="INDEX_NAME_ONLY", label="Index every file by name", kind="bool",
         default=True, group="Tuning", surface="indexing.tuning",
         help="Records a row for every file, including the ones nothing can "

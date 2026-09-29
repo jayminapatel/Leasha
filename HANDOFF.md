@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.17 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.18 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -170,6 +170,15 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       `pythonw` per reader, each well under 100 MB; the page still shows "message N of M" inside a
       large `.mbox`; Pause, Stop and closing the window leave no reader `pythonw` behind. If the
       Windows numbers hold, it becomes the default in its own small change.
+- [ ] **Time limits and Force skip (0z lane B).** Indexing › Tuning › Coverage shows "Time limit per
+      file" (120 s) and "Skip a mailbox or archive after no progress for" (600 s). During a real index,
+      press "Force skip reader N" on a large PDF: within a second that reader moves on and the log
+      says "... you pressed Force skip on the Indexing page"; the file shows as skipped and is left
+      alone next run. Repeat with "Read files in separate processes" on (on a `.docx` or `.mbox`: its
+      `pythonw` is replaced, Task Manager count unchanged) and with "Index in a separate process" on.
+      A large real `.pst` must **not** be cut off while its message count moves. UNCONFIRMED on
+      Windows: whether a hung Outlook (COM) read lets go when interrupted, or is left behind and
+      replaced - the log line "did not let go ... left behind" says which.
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
