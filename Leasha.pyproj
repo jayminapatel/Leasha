@@ -145,6 +145,7 @@
     <Compile Include="app\core\env_writer.py" />
     <Compile Include="app\core\envelope.py" />
     <Compile Include="app\core\errors.py" />
+    <Compile Include="app\core\file_state.py" />
     <Compile Include="app\core\format_health.py" />
     <Compile Include="app\core\formats.py" />
     <Compile Include="app\core\gpu_serialize.py" />
@@ -234,6 +235,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
+    <Compile Include="app\index\file_watch.py" />
     <Compile Include="app\index\held_archives.py" />
     <Compile Include="app\index\image_book.py" />
     <Compile Include="app\index\index_bench.py" />
@@ -246,6 +248,7 @@
     <Compile Include="app\index\pipeline_bench.py" />
     <Compile Include="app\index\quantize_model.py" />
     <Compile Include="app\index\read_order.py" />
+    <Compile Include="app\index\read_process.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
@@ -266,6 +269,7 @@
     <Compile Include="app\reports\timeline.py" />
     <Compile Include="app\reports\timeline_words.py" />
     <Compile Include="app\search\__init__.py" />
+    <Compile Include="app\search\code_search.py" />
     <Compile Include="app\search\commands.py" />
     <Compile Include="app\search\completions.py" />
     <Compile Include="app\search\definitions.py" />
@@ -441,6 +445,7 @@
     <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\rail.py" />
     <Compile Include="app\ui\widgets\repo_health_note.py" />
+    <Compile Include="app\ui\widgets\repo_ignore.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
     <Compile Include="app\ui\widgets\restart_note.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
@@ -463,6 +468,8 @@
     <Compile Include="app\ui\widgets\sortable_item.py" />
     <Compile Include="app\ui\widgets\space_table.py" />
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
+    <Compile Include="app\ui\widgets\status_column.py" />
+    <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\table_filter.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
@@ -566,7 +573,9 @@
     <Compile Include="tests\unit\test_close_waits_for_index_run.py" />
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
+    <Compile Include="tests\unit\test_code_fixes_0y.py" />
     <Compile Include="tests\unit\test_code_route.py" />
+    <Compile Include="tests\unit\test_code_search.py" />
     <Compile Include="tests\unit\test_code_types.py" />
     <Compile Include="tests\unit\test_code_view.py" />
     <Compile Include="tests\unit\test_command_subsets.py" />
@@ -627,7 +636,9 @@
     <Compile Include="tests\unit\test_federated_search.py" />
     <Compile Include="tests\unit\test_feeder_thread.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
+    <Compile Include="tests\unit\test_file_state.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
+    <Compile Include="tests\unit\test_file_watch.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
     <Compile Include="tests\unit\test_filter_offers.py" />
@@ -636,6 +647,7 @@
     <Compile Include="tests\unit\test_first_contact_box.py" />
     <Compile Include="tests\unit\test_florence_tagger.py" />
     <Compile Include="tests\unit\test_folding.py" />
+    <Compile Include="tests\unit\test_force_skip_button.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fts_bulk_recovery.py" />
@@ -773,6 +785,7 @@
     <Compile Include="tests\unit\test_raw_extractor.py" />
     <Compile Include="tests\unit\test_read_order.py" />
     <Compile Include="tests\unit\test_read_order_ui.py" />
+    <Compile Include="tests\unit\test_read_process.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />
@@ -843,7 +856,9 @@
     <Compile Include="tests\unit\test_stages.py" />
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_start_indexing_resolves_off_thread.py" />
+    <Compile Include="tests\unit\test_start_while_running.py" />
     <Compile Include="tests\unit\test_startup_import_order.py" />
+    <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
@@ -1064,6 +1079,7 @@
     <Content Include="docs\WORKORDER-202626271510-results-presentation.md" />
     <Content Include="docs\WORKORDER-202626271601-splash-and-fast-lifecycle.md" />
     <Content Include="docs\WORKORDER-CONVENTIONS.md" />
+    <Content Include="docs\WORKORDER-code-and-mail-world-class.md" />
     <Content Include="docs\WORKORDER-dates-live-log-and-interrupted-runs.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
@@ -1075,6 +1091,7 @@
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />
+    <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
