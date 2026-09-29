@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.30 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A silent indexing process no longer hangs the window
+
+- With "Index in a separate process" on, an indexing process that stopped answering was waited on for
+  ever. It is now ended after a minute of silence (three minutes while it starts) and reported like a
+  crash, with its error output, and the next Start carries on. Found by the first Windows CI run.
 
 ### Indexing in a separate process stays a choice
 
