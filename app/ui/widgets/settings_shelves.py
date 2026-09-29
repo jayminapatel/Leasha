@@ -134,6 +134,9 @@ class SettingsShelves:
         # client built once at startup would keep asking the old address.
         self.models = ModelBox(self._make_client)
         self.models.changed.connect(self.ollama_model_changed)
+        from app.llm.engines import engine_of
+
+        self.models.set_engine(engine_of(settings), getattr(settings, "model_cache", None))
         # The address lives in the panel that can test it. Re-exposed because
         # `_make_client` reads it to build a client against what is typed now.
         self.ollama_url = self.models.url
@@ -187,10 +190,12 @@ class SettingsShelves:
         a probe never holds a reference to a client the rest of the app is also
         using.
         """
-        from app.llm.ollama import OllamaClient
+        # 2026-09-29: `CHAT_ENGINE` decides - with the model inside Leasha this is
+        # the shared ONNX client, whose model list is what is downloaded.
+        from app.llm.engines import text_model
 
         url = self.ollama_url.text().strip() or self._settings.ollama_url
-        return OllamaClient(url, self._settings.ollama_model)
+        return text_model(self._settings, self._settings.ollama_model, url=url)
 
     # -- the two labels that need the store -----------------------------------
 

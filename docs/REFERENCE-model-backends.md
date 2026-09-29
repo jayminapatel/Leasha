@@ -1,12 +1,19 @@
 # Reference: which models run where, and moving them to Ollama
 
-**Doc version:** 1.1 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Kept at the owner's request ("keep this as a reference for future") after a
 conversation on 2026-09-29 about moving every model to Ollama. **Reference, not a
 decision and not a work order.** Nothing here is ordered; see
 `docs/ORDER_REGISTER.md` for what is.
 
+> **2026-09-29, later the same day - superseded in part.** The owner chose to run
+> every model inside Leasha on **ONNX Runtime** instead ("all should be onnx by
+> default"), after Smart App Control blocked torch. Florence-2 and Whisper moved
+> to ONNX Runtime; the chat model runs on ONNX Runtime by default with Ollama as
+> a choice (`CHAT_ENGINE`). See `docs/WORKORDER-onnx-everywhere-2026-09-29.md`
+> for what was measured. The note below is kept as written.
+>
 > **2026-09-29, owner:** the laptop has **Intel graphics**, which Ollama does
 > not officially accelerate - Ollama vision would run on the CPU (the slow
 > column below). **Florence-2 stays as it is for now** ("forget the Florence

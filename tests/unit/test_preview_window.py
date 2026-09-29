@@ -503,7 +503,7 @@ def test_describe_button_greys_with_a_reason_when_ollama_is_unreachable(qapp, fi
     window = PreviewWindow(
         row, state={}, store=store,
         ollama_url="http://127.0.0.1:1",   # nothing listens here - fast refusal
-        ollama_vision_model="llava")
+        ollama_vision_model="llava", chat_engine="ollama")
 
     _settle(qapp, lambda: "not running" in window.describe_button.toolTip(), tries=200)
 
@@ -519,7 +519,7 @@ def test_describe_button_is_disabled_when_already_described(qapp, files):
     store = _FakeStoreForDescribe(already_described=True)
     window = PreviewWindow(
         row, state={}, store=store,
-        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava")
+        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava", chat_engine="ollama")
 
     _settle(qapp,
             lambda: "Already described" in window.describe_button.toolTip(),
@@ -546,7 +546,7 @@ def test_describe_click_caches_the_caption_and_disables_the_button(qapp, files, 
 
     window = PreviewWindow(
         row, state={}, store=store,
-        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava")
+        ollama_url="http://127.0.0.1:1", ollama_vision_model="llava", chat_engine="ollama")
     _settle(qapp, lambda: window.describe_button.isEnabled(), tries=200)
     assert window.describe_button.isEnabled()      # available, not yet described
 

@@ -39,6 +39,33 @@ three runs at 11.6x-12.0x real time on a quiet machine, and the real engine
 resumed from a journal (`tests/unit/test_media_real.py`). The engine seam
 (`TranscriberEngine`) is still what most tests drive, with a fake, because a
 model is 148 MB; the real-model tests skip cleanly when it is not downloaded.
+
+**Dated note, 2026-09-29 - the engine is now Whisper on ONNX Runtime**
+(owner: "all should be onnx by default"). CTranslate2, under faster-whisper,
+is an unsigned native library that Windows Smart App Control can block;
+`onnxruntime` is signed and already loads wherever Leasha runs. The built-in
+engine is `app.ort.whisper.OnnxWhisperEngine`, on the `onnx-community`
+Whisper exports; faster-whisper is no longer imported at all, and
+`FasterWhisperEngine` is gone. What the paragraphs above say about
+faster-whisper is the history of this file; what still holds, in the new
+terms:
+
+* *Absent is a state* - `available()` now asks whether `onnxruntime`, `av`
+  (PyAV, which decodes the audio) and `tokenizers` are installed.
+* *Nothing is downloaded while indexing* - the ONNX files are looked up with
+  `app.ort.hub.resolve`, which only reads the model cache: in `model_dir`
+  and, when that is the `whisper` folder under `MODEL_CACHE`, in
+  `MODEL_CACHE` itself (where `hub.fetch` puts models). The fix for a missing
+  model is the Download button beside the setting.
+* *CPU only* holds for the decoder, which is where the time goes: on
+  DirectML its cached steps return nonsense (measured, see
+  `OnnxWhisperEngine.from_folder`). The full-precision encoder goes on the
+  graphics card where the rest of the application would
+  (`app.ort.session.load_session`); an int8 copy always runs on the
+  processor.
+* *Silence* is skipped by a loudness check, not Silero VAD - see
+  `app/ort/whisper.py` for what that trades.
+* The measured speeds below are faster-whisper's, not this engine's.
 """
 
 from __future__ import annotations
@@ -89,6 +116,12 @@ log = logger.bind(component="extract.transcribe")
 #: `large-v3-turbo` (mobiuslabsgmbh/faster-whisper-large-v3-turbo, about
 #: 1.6 GB) is nearly as accurate as `large-v3` (Systran, about 3 GB) and much
 #: faster. Neither is measured here; on a processor both are slow.
+#:
+#: Dated note, 2026-09-29 (ONNX engine): every one of the six has an
+#: `onnx-community` export, confirmed from the Hugging Face API listing the
+#: same day - tiny, base and small as `whisper-<size>`, `whisper-large-v3-turbo`,
+#: and medium and large-v3 as `whisper-<size>-ONNX`. Repositories and sizes
+#: are in `app.ort.whisper.SIZES`.
 MODELS = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
 
 #: `base` is the size that is usually good enough for clear speech and cheap
@@ -105,6 +138,14 @@ DEFAULT_MODEL = "base"
 #: 2.26x and 2.46x, same clip). Each run includes the model load. The Settings
 #: cost line and `media --status` quote these, so a change here is a change to
 #: what people are told; re-measure with `python -m app.cli media --measure`.
+#:
+#: Dated note, 2026-09-29: **these were measured on faster-whisper
+#: (CTranslate2, int8), not on the ONNX engine that replaced it**, and must be
+#: re-measured on ONNX with `media --measure` on a real recording. The only
+#: ONNX figures so far are from a synthetic 80 s clip (40 s of it silence,
+#: which is skipped): whisper-base full precision in 4.1-6.2 s, int8 in
+#: 7.0-9.5 s (`app/ort/whisper.py` has the detail) - too little to replace
+#: these.
 MEASURED_REALTIME_FACTOR = 12.0
 MEASURED_REALTIME_FACTOR_BUSY = 2.3
 MEASURED_ON = "2026-09-20, model base, CPU only"
@@ -147,7 +188,10 @@ class Transcript:
 
 
 class TranscriberEngine(Protocol):
-    """The seam. Anything with this shape can stand in for faster-whisper."""
+    """The seam. Anything with this shape can stand in for faster-whisper.
+
+    (2026-09-29: the built-in engine is now `app.ort.whisper.OnnxWhisperEngine`.)
+    """
 
     #: Set by the engine once it knows, usually after the first segment.
     language: str
@@ -161,14 +205,23 @@ class TranscriberEngine(Protocol):
 # Is it here?
 # ---------------------------------------------------------------------------
 
+#: What the ONNX engine imports: the runtime, PyAV to decode the audio, and
+#: the tokenizer library that turns token ids back into words.
+_REQUIRED_PACKAGES = ("onnxruntime", "av", "tokenizers")
+
+
 def available() -> bool:
     """Is faster-whisper installed? Never raises, never imports it.
 
     `find_spec` only: importing it loads CTranslate2 and PyAV, which is a
     second's work to answer a yes/no question Settings asks every time it opens.
+
+    Dated note, 2026-09-29: the question is now whether the ONNX engine's
+    packages are installed (`_REQUIRED_PACKAGES`); still `find_spec` only.
     """
     try:
-        return importlib.util.find_spec("faster_whisper") is not None
+        return all(importlib.util.find_spec(name) is not None
+                   for name in _REQUIRED_PACKAGES)
     except (ImportError, ValueError):
         return False
 
@@ -185,10 +238,31 @@ def cost_sentence() -> str:
 
 
 def download_command(model: str) -> str:
-    """The one-off command that fetches `model`. Shown, never run by Leasha."""
+    """The one-off command that fetches `model`. Shown, never run by Leasha.
+
+    Dated note, 2026-09-29: the ONNX model is fetched by the Download button
+    beside the speech model setting, so this now says where that is, in the
+    words on screen, rather than giving a command.
+    """
     safe = model if model in MODELS else DEFAULT_MODEL
-    return ("venv\\Scripts\\python.exe -c \"from faster_whisper import "
-            f"download_model; download_model('{safe}')\"")
+    from app.ort.whisper import SIZES
+
+    spec = SIZES[safe]
+    return (f"In Settings, under 'Videos and recordings', choose '{safe}' as the "
+            f"Speech model size and press Download ({spec.repo}, about "
+            f"{spec.approx_mb} MB, once).")
+
+
+def _cache_dirs(model_dir: Optional[Path]) -> list[Path]:
+    """Where the ONNX files may be: `model_dir`, and `MODEL_CACHE` itself when
+    `model_dir` is its `whisper` folder (what `MediaConfig` hands over)."""
+    if not model_dir:
+        return []
+    root = Path(model_dir)
+    dirs = [root]
+    if root.name.lower() == "whisper":
+        dirs.append(root.parent)
+    return dirs
 
 
 def model_present(model: str, model_dir: Optional[Path]) -> bool:
@@ -199,16 +273,17 @@ def model_present(model: str, model_dir: Optional[Path]) -> bool:
     and finding that file is enough to tell Settings "downloaded". The real
     answer is still the load, which is why a false positive here costs a clear
     `ERR_TRANSCRIBE_MODEL_MISSING` on the first file and nothing worse.
+
+    Dated note, 2026-09-29: the files looked for are now the ONNX export's
+    (`app.ort.whisper.resolve_size`: both graphs, full precision or int8, and
+    the config and tokenizer files), in the same Hugging Face layout. A
+    faster-whisper download no longer counts.
     """
-    if not model_dir:
-        return False
     try:
-        root = Path(model_dir)
-        for repo in root.glob(f"models--*faster-whisper-{model}"):
-            if any(repo.glob("snapshots/*/model.bin")):
-                return True
-        return (root / model / "model.bin").is_file()
-    except OSError:
+        from app.ort.whisper import resolve_size
+
+        return resolve_size(model, _cache_dirs(model_dir)) is not None
+    except Exception:                              # noqa: BLE001 - "never raises"
         return False
 
 
@@ -216,40 +291,9 @@ def model_present(model: str, model_dir: Optional[Path]) -> bool:
 # The real engine
 # ---------------------------------------------------------------------------
 
-class FasterWhisperEngine:
-    """faster-whisper behind the `TranscriberEngine` seam. **Unverified live** -
-    see the module docstring."""
-
-    def __init__(self, model: Any) -> None:
-        self._model = model
-        self.language = ""
-
-    def transcribe(self, path: str, start_s: float = 0.0) -> Iterator[SpeechSegment]:
-        options: dict[str, Any] = {
-            # Greedy decoding: the speed/accuracy trade a processor needs.
-            "beam_size": 1,
-            # Off, because a hallucinated sentence otherwise conditions the
-            # next thirty seconds - the failure mode that turns silence into a
-            # page of "thank you for watching".
-            "condition_on_previous_text": False,
-        }
-        if start_s > 0:
-            # Resuming. faster-whisper documents `clip_timestamps` as
-            # `start,end,...` with the last end defaulting to the end of the
-            # file, so a lone start means "from here to the end".
-            options["clip_timestamps"] = f"{start_s:.2f}"
-        else:
-            # Skip silence on a fresh run - the largest single saving on a
-            # recorded meeting. Not combined with `clip_timestamps`, which
-            # faster-whisper does not promise to honour together.
-            options["vad_filter"] = True
-        segments, info = self._model.transcribe(path, **options)
-        self.language = str(getattr(info, "language", "") or "")
-        for segment in segments:
-            yield SpeechSegment(
-                start=float(segment.start), end=float(segment.end),
-                text=(segment.text or "").strip(),
-            )
+# Dated note, 2026-09-29: `FasterWhisperEngine` was here, the faster-whisper
+# engine. It is removed with the package; the engine is
+# `app.ort.whisper.OnnxWhisperEngine` (see the module docstring).
 
 
 _engine: Optional[TranscriberEngine] = None
@@ -328,20 +372,23 @@ def load_engine(model: str, model_dir: Optional[Path], *, path: str = "") -> Tra
             raise _engine_error
 
         try:
-            from faster_whisper import WhisperModel
+            from app.ort.whisper import OnnxWhisperEngine, resolve_size
 
-            threads = min(4, max(1, (os.cpu_count() or 2) // 2))
-            loaded = WhisperModel(
-                model, device="cpu", compute_type="int8", cpu_threads=threads,
-                download_root=str(model_dir) if model_dir else None,
-                # **The line that keeps this offline.** See the module docstring.
-                local_files_only=True,
-            )
+            # **The line that keeps this offline**: `resolve_size` only reads
+            # the model cache (`hub.resolve`); nothing here can download.
+            found = resolve_size(model, _cache_dirs(model_dir))
+            if found is None:
+                folders = ", ".join(str(d) for d in _cache_dirs(model_dir))
+                raise FileNotFoundError(
+                    f"the ONNX speech model '{model}' was not found in "
+                    f"{folders or 'no model folder'}")
+            spec, folder = found
+            loaded = OnnxWhisperEngine.from_folder(folder, model=spec)
         except Exception as exc:                  # noqa: BLE001 - classified below
             _engine_error = _classify_load_failure(exc, model, path)
             raise _engine_error from exc
 
-        _engine = FasterWhisperEngine(loaded)
+        _engine = loaded
         return _engine
 
 

@@ -71,6 +71,19 @@ class VisionModelField(QWidget):
         column.addWidget(combo)
         column.addLayout(buttons)
         column.addWidget(self.why)
+        # `CHAT_ENGINE=onnx` (the default, 2026-09-29): photo tags and Describe
+        # are Florence-2 inside Leasha, so this field offers that model's
+        # Download instead of Ollama's list. See `set_engine`.
+        self._engine = "ollama"
+        self.onnx_note = QLabel("Photo tags and Describe use Florence-2, which runs inside "
+                                "Leasha. Download it once; it then works without the internet.")
+        self.onnx_note.setWordWrap(True)
+        self.onnx_download = DownloadRow("onnx")
+        self.onnx_download.setObjectName("photoOnnxModel")
+        column.addWidget(self.onnx_note)
+        column.addWidget(self.onnx_download)
+        self.onnx_note.hide()
+        self.onnx_download.hide()
         self._offer(None)
 
     def _client(self) -> Any:
@@ -81,9 +94,26 @@ class VisionModelField(QWidget):
     def set_url(self, url: str) -> None:
         self._url = str(url or self._url)
 
+    def set_engine(self, engine: str, model_cache: Any = None) -> None:
+        """Ollama's vision list, or Florence-2 inside Leasha with its Download."""
+        from app.ort import hub
+
+        self._engine = "ollama" if engine == "ollama" else "onnx"
+        onnx = self._engine == "onnx"
+        for widget in (self.combo, self.look_again, self.download):
+            widget.setVisible(not onnx)
+        if onnx:
+            self.why.hide()
+        self.onnx_note.setVisible(onnx)
+        self.onnx_download.setVisible(onnx)
+        if onnx:
+            self.onnx_download.set_model_cache(model_cache)
+            self.onnx_download.set_target(hub.FLORENCE.key)
+
     def showEvent(self, event: Any) -> None:       # noqa: N802 - Qt's naming
         super().showEvent(event)
-        if not self._asked:
+        # Ollama is asked only when it is the engine (2026-09-29).
+        if not self._asked and self._engine == "ollama":
             self.refresh()
 
     def refresh(self) -> None:

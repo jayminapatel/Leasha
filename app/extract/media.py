@@ -506,8 +506,10 @@ class VideoExtractor(_MediaBase):
     extensions = VIDEO_EXTENSIONS
     #: Declared so Settings and `doctor` can say what is missing and why it
     #: matters, in the words `format_health` already uses for every extractor.
+    # 2026-09-29: speech runs on ONNX Runtime (always installed); what it still
+    # needs is PyAV, which reads the sound. Was `faster_whisper`.
     requires = (
-        Requirement("faster_whisper", "faster-whisper",
+        Requirement("av", "av",
                     provides="what was said in the video (speech to text)",
                     hard=False),
     )
@@ -617,8 +619,9 @@ class AudioExtractor(_MediaBase):
 
     name = "audio"
     extensions = AUDIO_EXTENSIONS
+    # 2026-09-29: PyAV reads the sound for the ONNX speech engine. Was `faster_whisper`.
     requires = (
-        Requirement("faster_whisper", "faster-whisper",
+        Requirement("av", "av",
                     provides="what was said in the recording (speech to text)",
                     hard=True),
     )

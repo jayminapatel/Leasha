@@ -25,6 +25,14 @@ expects to find it:
 * ``speech`` - the speech model (`TRANSCRIBE_MODEL`), loaded by faster-whisper
   from `MODEL_CACHE\whisper` with `local_files_only=True`
   (`app/extract/transcribe.py`), which is why it is never fetched by itself.
+* ``onnx`` - 2026-09-29: the models Leasha runs itself on ONNX Runtime
+  (`app/ort/hub.py`: Florence-2 photo tags, Whisper speech, the chat model),
+  named by their `hub` key. Only that model's graphs at its precision and its
+  small side files are fetched - each repository holds a dozen precisions.
+  Plain HTTPS with a 30 s stall limit: on the owner's link on 2026-09-29 the
+  Hugging Face "xet" transfer stalled for good at 445 MB, and plain HTTPS
+  stalled for minutes at a time; a download that gives up can be pressed
+  again and carries on.
 
 **The three file-based kinds download in a child process**, running exactly
 the constructor the application uses, into exactly the folder it reads. That
@@ -53,7 +61,7 @@ __all__ = [
     "STOPPED", "DONE",
 ]
 
-KINDS = ("ollama", "embed", "rerank", "speech")
+KINDS = ("ollama", "embed", "rerank", "speech", "onnx")
 
 #: What `fetch` returns.
 DONE = "done"
@@ -99,7 +107,27 @@ _CHILD_CODE = {
                "TextCrossEncoder(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
     "speech": ("import sys; from faster_whisper import download_model; "
                "download_model(sys.argv[1], cache_dir=sys.argv[2])"),
+    "onnx": ("import sys, json, os; os.environ.setdefault('HF_HUB_DISABLE_XET', '1'); "
+             "os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '30'); "
+             "from huggingface_hub import snapshot_download; "
+             "snapshot_download(sys.argv[1], cache_dir=sys.argv[2], "
+             "allow_patterns=json.loads(sys.argv[3]))"),
 }
+
+
+def _onnx_model(name: str) -> Any:
+    from app.ort import hub
+
+    return hub.by_key(name)
+
+
+def _speech_model(name: str) -> Any:
+    """2026-09-29: speech runs Whisper on ONNX Runtime (`app/ort/whisper.py`), so a
+    size ("base") is fetched as that size's ONNX export - the faster-whisper
+    files the old child fetched are not what the engine reads any more."""
+    from app.ort.whisper import SIZES
+
+    return SIZES.get(name)
 
 
 def child_code(kind: str) -> str:
@@ -117,7 +145,9 @@ def target_dir(kind: str, model_cache: Any) -> Optional[Path]:
     if not model_cache:
         return None
     root = Path(str(model_cache))
-    return root / "whisper" if kind == "speech" else root
+    # 2026-09-29: speech lands in MODEL_CACHE like every ONNX export; the engine
+    # also looks in MODEL_CACHE\whisper, where the old downloads went.
+    return root
 
 
 def _folder_bytes(path: Path) -> int:
@@ -173,6 +203,11 @@ def present(kind: str, name: str, *, model_cache: Any = None,
             from app.extract.transcribe import model_present
 
             return model_present(name, folder)
+        if kind == "onnx":
+            from app.ort import hub
+
+            model = _onnx_model(name)
+            return model is not None and hub.present(model, folder)
         source = _fastembed_source(kind, name)
         if source:
             repo = folder / ("models--" + source.replace("/", "--"))
@@ -218,19 +253,35 @@ def _no_window_flags() -> int:
     return getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
 
+def _child_args(kind: str, name: str, folder: Path) -> list[str]:
+    """What the child program gets after `-c code`: always the name and the folder;
+    for `onnx` and `speech`, the repository instead of the name, and the files."""
+    if kind not in ("onnx", "speech"):
+        return [name, str(folder)]
+    import json
+
+    from app.ort.hub import _SIDE_FILES
+
+    model = _onnx_model(name) if kind == "onnx" else _speech_model(name)
+    return [model.repo, str(folder), json.dumps(list(model.files()) + list(_SIDE_FILES))]
+
+
 def _fetch_in_child(kind: str, name: str, folder: Path,
                     on_progress: Callable[[str], None], stop: threading.Event,
                     popen: Callable[..., Any]) -> str:
     folder.mkdir(parents=True, exist_ok=True)
     start = _folder_bytes(folder)
-    total = APPROX_MB.get(name, 0) * 1024 ** 2
+    model = (_onnx_model(name) if kind == "onnx"
+             else _speech_model(name) if kind == "speech" else None)
+    total = (model.approx_mb if model is not None else APPROX_MB.get(name, 0)) * 1024 ** 2
     # The child's messages go to a file, never a pipe: the download libraries
     # draw progress bars on stderr, and a pipe nobody reads fills up and
     # stops the child dead partway through.
     said = tempfile.TemporaryFile()
     try:
         child = popen(
-            [sys.executable, "-c", _CHILD_CODE[kind], name, str(folder)],
+            [sys.executable, "-c", _CHILD_CODE["onnx" if kind == "speech" else kind],
+             *_child_args(kind, name, folder)],
             stdout=subprocess.DEVNULL, stderr=said,
             creationflags=_no_window_flags())
     except OSError as exc:
@@ -291,6 +342,14 @@ def fetch(kind: str, name: str, *, model_cache: Any = None, client: Any = None,
                 "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
                 details="no Ollama address to download from"))
         return _fetch_ollama(name, client, say, stop)
+    if kind == "speech" and _speech_model(name) is None:
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details=f"{name!r} is not a speech model size Leasha offers"))
+    if kind == "onnx" and _onnx_model(name) is None:
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details=f"{name!r} is not one of the models Leasha runs itself"))
     folder = target_dir(kind, model_cache)
     if folder is None:
         raise AppErrorException(make_error(

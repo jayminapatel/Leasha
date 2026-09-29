@@ -75,6 +75,10 @@ WEB_INTRO = ("Off, Chat stays entirely on this computer. On, it can also look th
 #: choice itself so Settings never offers a dead one without saying so. The value stored
 #: stays the bare word; only the text the person reads carries the note.
 CHOICE_NOTES: dict[str, dict[str, str]] = {
+    "CHAT_ENGINE": {
+        "onnx": " - inside Leasha, nothing else to install",
+        "ollama": " - the separate Ollama program",
+    },
     "CHAT_WEB_PROVIDER": {
         "wikipedia": " (works, no account; encyclopedia questions only)",
         "duckduckgo": " (not confirmed working: it asked for proof of a person)",
@@ -84,6 +88,10 @@ CHOICE_NOTES: dict[str, dict[str, str]] = {
 }
 
 ROLE_KEYS = ("CHAT_MODEL", "CHAT_ROUTER_MODEL", "CHAT_PLANNER_MODEL")
+
+#: Which engine answers (2026-09-29). Always visible, above the Manual part: it
+#: decides what the rest of the box is about.
+ENGINE_KEY = "CHAT_ENGINE"
 
 #: The Describe role lives on an existing setting (the photo description model).
 DESCRIBE_KEY = "OLLAMA_VISION_MODEL"
@@ -123,6 +131,20 @@ class ChatBox(QGroupBox):
         self.notes: dict[str, QLabel] = {}
 
         box = QVBoxLayout(self)
+        self._engine = "onnx"
+        self._model_cache: Any = None
+        #: The engine choice and, for the engine inside Leasha, its model's
+        #: Download - never hidden with the Manual part.
+        self.engine_part = QWidget()
+        self.engine_part.setObjectName("chatEnginePart")
+        engine_form = QFormLayout(self.engine_part)
+        engine_form.setContentsMargins(0, 0, 0, 0)
+        box.addWidget(self.engine_part)
+        from app.ort import hub as _hub
+
+        self.onnx_download = DownloadRow("onnx")
+        self.onnx_download.setObjectName("chatOnnxModel")
+        self._onnx_model = _hub.QWEN_1_5B.key
         #: Everything that follows the Index Tuning mode lives here, so it can be hidden
         #: as one piece; the web section below it is never hidden.
         self.manual_part = QWidget()
@@ -179,7 +201,8 @@ class ChatBox(QGroupBox):
             control.setToolTip(setting.help or setting.label)
             control.setAccessibleName(setting.label)
             self.controls[setting.key] = control
-            target = web_form if setting.key.startswith(WEB_PREFIX) else form
+            target = (engine_form if setting.key == ENGINE_KEY
+                      else web_form if setting.key.startswith(WEB_PREFIX) else form)
             if isinstance(control, ModelCombo):
                 self.roles.add_role(setting.label, control, setting.help)
             elif isinstance(control, QCheckBox):
@@ -193,6 +216,11 @@ class ChatBox(QGroupBox):
                     note.hide()
                     self.notes[setting.key] = note
                     form.addRow("", note)
+        engine_form.addRow("Chat model", self.onnx_download)
+        engine = self.controls.get(ENGINE_KEY)
+        if isinstance(engine, QComboBox):
+            engine.currentIndexChanged.connect(
+                lambda _i, c=engine: self._set_engine(str(c.currentData() or "onnx")))
         self._add_describe()
         self.roles.finish()
         self._found = bool(found)
@@ -309,8 +337,33 @@ class ChatBox(QGroupBox):
 
     def showEvent(self, event: Any) -> None:               # noqa: N802 - Qt name
         super().showEvent(event)
-        if self._manual and not self._asked:
+        # Ollama is asked only when it is the engine in use: with the model
+        # inside Leasha, opening Settings contacts nothing.
+        if self._manual and not self._asked and self._engine == "ollama":
             self.refresh()
+
+    # -- which engine (2026-09-29) -------------------------------------------------------
+
+    @property
+    def engine(self) -> str:
+        return self._engine
+
+    def _set_engine(self, engine: str) -> None:
+        self._engine = "ollama" if engine == "ollama" else "onnx"
+        self._apply_engine()
+        if self._engine == "ollama" and self._manual and not self._asked and self.isVisible():
+            self.refresh()
+
+    def _apply_engine(self) -> None:
+        """Ollama's own parts show only for Ollama; the model inside Leasha's
+        Download only for it. Every widget here already has its parent, so
+        showing is safe (see `__init__`'s note on hiding before a parent)."""
+        ollama = self._engine == "ollama"
+        for widget in (self.roles, self.look_again, self.download, self.status):
+            widget.setVisible(ollama)
+        self.onnx_download.setVisible(not ollama)
+        if not ollama and self._model_cache:
+            self.onnx_download.set_target(self._onnx_model)
 
     # -- what is installed (worker) ----------------------------------------------------
 
@@ -443,3 +496,8 @@ class ChatBox(QGroupBox):
         self._show_memory()
         # "Nothing said" is Manual, the rule `ChatSettings.from_settings` follows.
         self.set_manual(mode in ("", "manual"))
+        self._model_cache = getattr(settings, "model_cache", None)
+        self.onnx_download.set_model_cache(self._model_cache)
+        self._engine = ("ollama" if str(getattr(settings, "chat_engine", "onnx")) == "ollama"
+                        else "onnx")
+        self._apply_engine()

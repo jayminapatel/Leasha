@@ -558,6 +558,7 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
         caption_trickle_enabled=settings.caption_trickle_enabled,
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,
+        chat_engine=getattr(settings, "chat_engine", "onnx"),
         people_recognition_enabled=settings.people_recognition_enabled,
         media=MediaConfig.from_settings(settings),
     )

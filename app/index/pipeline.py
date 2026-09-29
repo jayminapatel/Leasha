@@ -861,6 +861,11 @@ class PipelineConfig:
     #: `app.extract.vision_caption.DEFAULT_VISION_MODEL`.
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_vision_model: str = "llava"
+    #: `CHAT_ENGINE` (2026-09-29). With `onnx` the caption trickle does not run:
+    #: Florence-2 already writes each photo-class image's AI description while
+    #: it is indexed, and a second Florence pass would cost seconds a photo for
+    #: the same words.
+    chat_engine: str = "onnx"
     #: Work order 0j, the whole order. OFF by default - see `app.core.
     #: settings_registry.PEOPLE_RECOGNITION_ENABLED`. Read by `_write_one`
     #: (the images-pass face step, section 1a) and `_drain_face_backfill`
@@ -4501,7 +4506,7 @@ class Pipeline:
         a corpus with thousands of undescribed photos must not turn "index
         my new files" into "wait for every old photo to be described first".
         """
-        if not self.config.caption_trickle_enabled:
+        if not self.config.caption_trickle_enabled or self.config.chat_engine == "onnx":
             stats.enrichment_counts[self.KIND_CAPTION_TRICKLE] = 0
             return
 

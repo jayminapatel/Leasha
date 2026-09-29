@@ -10,6 +10,11 @@ whenever a recording can be transcribed:
   * `extract_keyframes` a picture at every scene change, plus at least one every
                         N seconds, capped
 
+Dated note, 2026-09-29: a third - `decode_audio`, every sample of the sound
+as mono 16 kHz, for the ONNX speech engine (`app/ort/whisper.py`), which
+replaced faster-whisper and with it faster-whisper's own PyAV decoding. It
+lives here because this is the one module that imports PyAV.
+
 **No ffmpeg or ffprobe program is run, and none is needed.** The first build of
 this order ran both as subprocesses (2026-09-19). On 2026-09-20 that was
 replaced, on the owner's delegation ("video audio do"), for three measured
@@ -66,6 +71,7 @@ __all__ = [
     "parse_probe",
     "parse_iso6709",
     "extract_keyframes",
+    "decode_audio",
     "scene_score",
     "tools_status",
     "SCENE_THRESHOLD",
@@ -650,3 +656,54 @@ def extract_keyframes(
             raise _failed(path, "no pictures could be read: " + errors[0])
         return []
     return [Keyframe(seconds=s, path=p) for s, _score, p in kept]
+
+
+# ---------------------------------------------------------------------------
+# The sound, for speech to text
+# ---------------------------------------------------------------------------
+
+def decode_audio(path: str | Path, sampling_rate: int = 16_000) -> Any:
+    """Every sample of the first audio stream, mono, resampled, as an int16 numpy array.
+
+    Kept as 16-bit samples, not floats: a two-hour recording is 230 MB rather
+    than 460, and the speech engine converts one 30 s window at a time. The
+    resampler settings and the tolerance of a bad packet are faster-whisper's
+    `decode_audio` (MIT), which this replaces. Raises `ERR_MEDIA_TOOLS_MISSING`
+    without PyAV, and what PyAV raises for a file it cannot read (a file with
+    no sound among them) - the caller turns either into one skipped file.
+    """
+    import gc
+
+    import numpy as np
+
+    av = _import_av(Path(str(path)))
+    resampler = av.audio.resampler.AudioResampler(format="s16", layout="mono",
+                                                  rate=sampling_rate)
+    parts: list[Any] = []
+
+    def frames(container: Any) -> Any:
+        decoded = container.decode(audio=0)
+        while True:
+            try:
+                frame = next(decoded)
+            except StopIteration:
+                return
+            except av.error.InvalidDataError:
+                continue                      # one bad packet, not the file
+            frame.pts = None                  # as faster-whisper: no timestamp checks
+            yield frame
+
+    def keep(resampled: Any) -> None:
+        for out in resampled:
+            parts.append(out.to_ndarray().reshape(-1).astype(np.int16, copy=True))
+
+    with av.open(str(path), mode="r", metadata_errors="ignore") as container:
+        for frame in frames(container):
+            keep(resampler.resample(frame))
+        keep(resampler.resample(None))        # flush what the resampler holds
+    # faster-whisper's note: PyAV's resampler keeps memory until collected.
+    del resampler
+    gc.collect()
+    if not parts:
+        return np.zeros(0, dtype=np.int16)
+    return np.concatenate(parts)

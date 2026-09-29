@@ -650,6 +650,56 @@ def check_rerank_model(quick: bool = False) -> Check:
         )
 
 
+def check_onnx_models() -> list[Check]:
+    """The models Leasha runs itself on ONNX Runtime (2026-09-29): downloaded or not.
+
+    A disk look only - nothing is loaded and nothing is fetched. Each is
+    optional: search works without any of them, and each says what it is for
+    and where its Download button is. The chat model is listed only when it
+    is the engine in use (`CHAT_ENGINE`).
+    """
+    try:
+        from app.ort import hub
+    except Exception as exc:                           # noqa: BLE001 - reported, never fatal
+        return [Check("Models inside Leasha (ONNX)", False, f"{type(exc).__name__}: {exc}",
+                      optional=True)]
+    # The settings' own answer: MODEL_CACHE is usually derived from DATA_PATH,
+    # not written in .env, so reading the key alone looks in the wrong place.
+    try:
+        from app.core.config import load_settings
+
+        cache = str(load_settings(create_dirs=False, check_writable=False).model_cache)
+    except Exception:                                  # noqa: BLE001
+        cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
+    engine = (env_setting("CHAT_ENGINE") or "onnx").strip().lower()
+    wanted = [(hub.FLORENCE, "photo tags and Describe are", "Settings, Models, photo model")]
+    try:
+        from app.ort.whisper import SIZES, resolve_size
+
+        size = (env_setting("TRANSCRIBE_MODEL") or "base").strip()
+        speech = SIZES.get(size, hub.WHISPER_BASE)
+        found = resolve_size(size, [Path(cache), Path(cache) / "whisper"])
+        if found is not None:
+            speech = found[0]
+    except Exception:                                  # noqa: BLE001 - never fatal
+        speech = hub.WHISPER_BASE
+    wanted.append((speech, "speech in recordings is", "Settings, Videos and recordings, speech"))
+    if engine != "ollama":
+        wanted.append((hub.QWEN_1_5B, "Chat and Interpret are", "Settings, Models, Chat model"))
+    checks = []
+    for model, purpose, where in wanted:
+        folder = hub.resolve(model, Path(cache))
+        if folder is not None:
+            checks.append(Check(f"{model.label} (ONNX)", True, "downloaded", optional=True))
+        else:
+            checks.append(Check(
+                f"{model.label} (ONNX)", False, f"not downloaded - {purpose} off until it is",
+                fix=f"OPTIONAL - {where}, Download (about {model.approx_mb} MB). "
+                    "Search works without it.",
+                optional=True))
+    return checks
+
+
 def check_resources() -> Check:
     """Is the resource governor actually able to govern?
 
@@ -1002,6 +1052,7 @@ def run_all(quick: bool = False) -> list[Check]:
         check_lancedb_roundtrip(),
         check_embedding_model(quick),
         check_rerank_model(quick),
+        *check_onnx_models(),
         check_git(),
         check_resources(),
         check_pst_direct(),

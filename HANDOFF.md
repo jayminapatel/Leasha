@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.18 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 7.19 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,24 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-29 (evening) - the laptop session (order 1a), and order 1b.** On the owner's laptop:
+- `main` is on the laptop and on GitHub at `fec8a1a`: the 29 September merge, the PST
+  lock fix (an archive Outlook has attached is *locked*, not damaged - `_LOCK_PHRASES` lacked
+  Windows' "locked a portion of the file"), and **order 0r closed** (window visible 839 / 742 /
+  777 ms warm; the stray third window, the late splash hand-off, `git describe` on the window's
+  thread and splash text off its edge fixed).
+- The index and the logs were cleared for a clean run (the app's own reset; settings kept; logs
+  and cache to the Recycle Bin).
+- **Order 1b (`docs/WORKORDER-onnx-everywhere-2026-09-29.md`) is ACTIVE on branch
+  `feat/onnx-everywhere`, not merged**: every model inside Leasha on ONNX Runtime, Chat switchable
+  to Ollama (`CHAT_ENGINE`, default `onnx`). Photo tags and speech are measured on the real models;
+  the chat model (Qwen 2.5 1.5B, 1.5 GB) was still downloading at ~75 KB/s - its measurement is
+  the order's item 7.
+- **Smart App Control is now OFF on the owner's laptop** (the owner's decision), so torch and
+  rawpy load there again. It is still on for most people - see the Traps.
+- Order 1a: §0-§1 done (0.6's "system-Python launcher" was the venv's own redirector - one Leasha,
+  not two); §2 window checks, §3 index run and §4 MAPI side for 2013-2026 not done.
 
 **2026-09-27 (later) - order 0x is active, run as a master thread.** The owner released
 `docs/WORKORDER-overhaul-and-mac-ready.md`: the indexer moves into its own process so the
@@ -1613,6 +1631,33 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-09-29 - Windows Smart App Control blocks unsigned native libraries, and no one can make
+an exception.** On the owner's laptop it blocked torch (`torch_global_deps.dll`, so Florence-2
+photo tags silently never ran) and rawpy (camera RAW). `Unblock-File` and a Defender exclusion do
+nothing - it judges by signature and Microsoft's cloud reputation; the only way round is turning
+it off, which cannot be undone without resetting Windows on many builds. ONNX Runtime is signed by
+Microsoft, which is why order 1b moves the models onto it. Code Integrity's log
+(Event Viewer, CodeIntegrity/Operational, events 3033/3077/3118) names the blocked file. A blocked
+DLL raises `OSError`, not `ImportError` - `importorskip` does not catch it.
+
+**2026-09-29 - DirectML gives wrong answers, not errors, for two kinds of graph.** Quantised
+(int8) graphs and decoders with a key/value cache produced nonsense or NaN on the Iris Xe, with no
+error raised. `app/ort/session.py` keeps both on the processor. Measure before moving a model to
+the graphics card; "it ran" is not "it is right".
+
+**2026-09-29 - Hugging Face downloads stall on a slow link.** The "xet" transfer stalled for good;
+plain HTTPS (`HF_HUB_DISABLE_XET=1`) with `HF_HUB_DOWNLOAD_TIMEOUT` resumes. Tests that load a real
+model will *download it* on an online machine - run the unit suite with `HF_HUB_OFFLINE=1`, or
+`test_cli_wiring`'s rerank tests hang on the download.
+
+**2026-09-29 - two pytest runs at once break each other.** They share `.pytest_tmp`; one run's
+clean-up gives the other hundreds of `PermissionError: [WinError 32]`. Give each its own
+`--basetemp`. And `-q` here hides the "N passed" line - count `-rA`'s PASSED/FAILED lines.
+
+**2026-09-29 - Google Drive locks `.git/objects`.** `git gc` (automatic) could not delete a
+folder Drive held, and a pull stopped half-way. `gc.auto` is `0` in this copy; tidy by hand with
+Drive paused.
 
 **2026-09-19 - the test suite died silently three times in one process. Run it with
 `scripts/run_suite.py`.** `python -m pytest tests` ended part-way (about test 3,800 of 8,400)

@@ -17,10 +17,15 @@ import pytest
 
 from app.extract import florence_tagger
 
-HAS_FLORENCE_DEPS = (
-    importlib.util.find_spec("torch") is not None
-    and importlib.util.find_spec("transformers") is not None
-)
+def _has_onnx_florence() -> bool:
+    """2026-09-29: Florence-2 runs on ONNX Runtime now (was torch/transformers),
+    so "installed" means onnxruntime plus the downloaded ONNX model."""
+    if importlib.util.find_spec("onnxruntime") is None:
+        return False
+    return florence_tagger.available()
+
+
+HAS_FLORENCE_DEPS = _has_onnx_florence()
 
 
 def test_available_never_raises():
@@ -59,7 +64,7 @@ def test_tag_image_returns_none_for_an_unreadable_path(monkeypatch):
 
 
 @pytest.mark.slow
-@pytest.mark.skipif(not HAS_FLORENCE_DEPS, reason="torch/transformers not installed")
+@pytest.mark.skipif(not HAS_FLORENCE_DEPS, reason="the Florence-2 ONNX model is not downloaded")
 def test_a_real_image_gets_a_real_caption_and_tags(tmp_path):
     """The real-model proof, independent of `ocr.py`'s wiring. Caption text
     is non-deterministic model output - this only asserts the *shape* 1a

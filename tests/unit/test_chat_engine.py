@@ -236,10 +236,20 @@ def test_available_says_what_is_wrong_and_how_to_fix_it(env):
     assert not ok and "Ollama is not running" in why and "ollama serve" in why
     ok, why = env.engine(FakeLLM(installed=False, model="qwen2.5:1.5b")).available()
     assert not ok and "not installed" in why and "ollama pull qwen2.5:1.5b" in why
+    # Ollama's own sentences, when Ollama is the engine (CHAT_ENGINE, 2026-09-29).
     nothing_listening = ChatEngine(env.search, env.store, None,
-                                   ChatSettings(ollama_url="http://127.0.0.1:9"))
+                                   ChatSettings(engine="ollama", ollama_url="http://127.0.0.1:9"))
     ok, why = nothing_listening.available()
     assert not ok and "Ollama is not running" in why
+
+
+def test_available_with_the_model_inside_leasha_says_download_not_ollama(env, tmp_path):
+    """The default engine: a missing model is a Download, and Ollama is never named."""
+    engine = ChatEngine(env.search, env.store, None,
+                        ChatSettings(engine="onnx", model_cache=str(tmp_path)))
+    ok, why = engine.available()
+    assert not ok and "not downloaded yet" in why and "Download" in why
+    assert "Ollama" not in why and "ollama" not in why
 
 
 def test_the_search_engine_never_touches_the_model(env):

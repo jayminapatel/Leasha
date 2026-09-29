@@ -52,6 +52,7 @@
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
+    <Folder Include="app\ort" />
     <Folder Include="app\reports" />
     <Folder Include="app\search" />
     <Folder Include="app\shell" />
@@ -260,9 +261,17 @@
     <Compile Include="app\index\video_frames.py" />
     <Compile Include="app\index\walker.py" />
     <Compile Include="app\llm\__init__.py" />
+    <Compile Include="app\llm\engines.py" />
     <Compile Include="app\llm\models.py" />
     <Compile Include="app\llm\ollama.py" />
     <Compile Include="app\main.py" />
+    <Compile Include="app\ort\__init__.py" />
+    <Compile Include="app\ort\florence.py" />
+    <Compile Include="app\ort\generate.py" />
+    <Compile Include="app\ort\hub.py" />
+    <Compile Include="app\ort\llm.py" />
+    <Compile Include="app\ort\session.py" />
+    <Compile Include="app\ort\whisper.py" />
     <Compile Include="app\reports\__init__.py" />
     <Compile Include="app\reports\inheritance.py" />
     <Compile Include="app\reports\space.py" />
@@ -738,6 +747,10 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_ort_florence.py" />
+    <Compile Include="tests\unit\test_ort_generate.py" />
+    <Compile Include="tests\unit\test_ort_llm.py" />
+    <Compile Include="tests\unit\test_ort_whisper.py" />
     <Compile Include="tests\unit\test_osbridge.py" />
     <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_osbridge_pathnames.py" />
@@ -851,6 +864,7 @@
     <Compile Include="tests\unit\test_speed_work.py" />
     <Compile Include="tests\unit\test_spelling.py" />
     <Compile Include="tests\unit\test_splash.py" />
+    <Compile Include="tests\unit\test_splash_handoff.py" />
     <Compile Include="tests\unit\test_spreadsheet_preview.py" />
     <Compile Include="tests\unit\test_sqlite_bounded_connection.py" />
     <Compile Include="tests\unit\test_stages.py" />
@@ -1089,6 +1103,7 @@
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
+    <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />

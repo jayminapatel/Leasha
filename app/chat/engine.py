@@ -208,7 +208,17 @@ class ChatEngine:
     def _base_client(self) -> OllamaLLM:
         return self._client_for(self.cfg.ollama_model)
 
-    def _client_for(self, name: str) -> OllamaLLM:
+    def _client_for(self, name: str) -> Any:
+        if self.cfg.engine == "onnx":
+            # One model inside Leasha serves every role; the name is Ollama's
+            # and means nothing to it (2026-09-29). Shared with Interpret.
+            from types import SimpleNamespace
+
+            from app.llm.engines import text_model
+
+            return text_model(SimpleNamespace(
+                chat_engine="onnx", model_cache=self.cfg.model_cache or None,
+                embed_device=self.cfg.device), timeout=self.cfg.timeout_s)
         if name not in self._clients:
             from app.llm.ollama import OllamaClient
 
@@ -274,6 +284,20 @@ class ChatEngine:
         """`(ok, why_not)`: is a model reachable for answering? The reason is
         plain words with the fix in them - the tab shows it as it is."""
         llm = self._role("answerer")
+        if getattr(llm, "engine", "") == "onnx":
+            # The model inside Leasha: its own sentences - "Ollama is not
+            # running" would name a program it does not use (2026-09-29).
+            try:
+                if not llm.has_model():
+                    return False, ("The chat model is not downloaded yet, so Chat can only "
+                                   "count, find and check what is indexed. Open Settings, "
+                                   "Models, and press Download beside the chat model.")
+                if not llm.health():
+                    return False, ("The chat model could not be started. Restart Leasha, or "
+                                   "switch the chat engine to Ollama in Settings, Models.")
+            except Exception:                           # noqa: BLE001 - a probe never raises
+                return False, "The chat model could not be checked. Try again."
+            return True, ""
         if llm is None:
             return False, ("No AI model is set up, so Chat can only count, find and check what "
                            "is indexed. Install Ollama from ollama.com, then run: "
@@ -794,8 +818,12 @@ class ChatEngine:
             pieces = self._pieces(llm, messages, stop, max_tokens, temperature, think)
             for piece in pieces:
                 if time.monotonic() > deadline:
+                    # The engine's own code for a model inside Leasha (2026-09-29):
+                    # "Ollama did not finish" would name a program it does not use.
+                    code = ("ERR_LOCAL_MODEL_TIMEOUT" if getattr(llm, "engine", "") == "onnx"
+                            else "ERR_OLLAMA_TIMEOUT")
                     out.error = make_error(
-                        "ERR_OLLAMA_TIMEOUT", "chat.engine", timeout_s=f"{REPLY_DEADLINE_S:g}",
+                        code, "chat.engine", timeout_s=f"{REPLY_DEADLINE_S:g}",
                         details="the reply ran past its wall-clock limit")
                     break
                 out.text += piece

@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.36 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.37 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -18,6 +18,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
+
+### Every model runs inside Leasha, and Chat can use Ollama or not
+
+- Photo tags and speech-to-text now run on ONNX Runtime, the engine Leasha already used for
+  search. Windows' Smart App Control had blocked the old photo-tag engine (torch) on the owner's
+  laptop, so photos got no tags; it can block it on any PC where it is on, and an administrator
+  cannot make an exception. Measured on the owner's laptop: the same tags as before, captions of
+  the same quality, the photo model loads in 4 s instead of 22 s; speech got every word of a test
+  clip right, and an 80-second clip took about 4 seconds.
+- Chat, Interpret and Describe have a new setting: run inside Leasha (the default, nothing else
+  to install) or use Ollama. Inside Leasha, the chat model is downloaded once from Settings;
+  Settings no longer contacts Ollama unless Ollama is chosen.
+- Every model has a Download button in Settings and is fetched only when it is pressed. A
+  download that stalls gives up after 30 seconds and carries on from where it stopped when it is
+  pressed again. `doctor` says which models are downloaded.
+- Messages that told people to install faster-whisper, which nothing uses now, say what is
+  actually needed.
+- Settings' Interpret and Chat model lists stay as they were when Ollama is the engine.
 
 ### Leasha opens in one step, in under a second
 

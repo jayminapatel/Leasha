@@ -228,6 +228,7 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         caption_trickle_enabled=settings.caption_trickle_enabled,
         ollama_url=settings.ollama_url,
         ollama_vision_model=settings.ollama_vision_model,
+        chat_engine=getattr(settings, "chat_engine", "onnx"),
         people_recognition_enabled=settings.people_recognition_enabled,
         # Work order 202626270515. Off unless VIDEO_INDEXING_ENABLED and/or
         # AUDIO_TRANSCRIPTION_ENABLED are on in `.env`.

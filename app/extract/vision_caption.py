@@ -39,7 +39,7 @@ import base64
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.core.logging import logger
 from app.llm.ollama import OllamaClient
@@ -75,6 +75,14 @@ class VisionCaptionResult:
     elapsed_s: float
 
 
+def _inside_leasha(client: Any) -> bool:
+    """2026-09-29: with `CHAT_ENGINE=onnx` Describe is Florence-2 on ONNX Runtime
+    (`florence_tagger.describe`, its `<MORE_DETAILED_CAPTION>` task) - the chat
+    model inside Leasha reads text, not pictures. `app.llm.engines.vision_model`
+    hands this module the ONNX chat client, whose `engine` attribute says so."""
+    return getattr(client, "engine", "") == "onnx"
+
+
 def available(client: OllamaClient) -> bool:
     """Is Describe usable right now? Never raises.
 
@@ -85,6 +93,10 @@ def available(client: OllamaClient) -> bool:
     choice here is a Settings problem (`OLLAMA_VISION_MODEL`), not a crash.
     """
     try:
+        if _inside_leasha(client):
+            from app.extract import florence_tagger
+
+            return florence_tagger.available()
         return bool(client.health() and client.has_model())
     except Exception:                                 # noqa: BLE001 - a check, never a crash
         return False
@@ -97,6 +109,9 @@ def unavailable_reason(client: OllamaClient) -> str:
     does not re-derive that answer, it explains the one already given, the
     same two-question shape `available()` itself uses.
     """
+    if _inside_leasha(client):
+        return ("The photo model (Florence-2) is not downloaded yet - "
+                "Settings, Models, photo tags, Download.")
     try:
         reachable = client.health()
     except Exception:                                 # noqa: BLE001
@@ -116,6 +131,14 @@ def describe_image(path: Path, client: OllamaClient, *, timeout: float = 60.0
     `florence_tagger.tag_image` already gives its own callers.
     """
     started = time.monotonic()
+    if _inside_leasha(client):
+        from app.extract import florence_tagger
+
+        caption = florence_tagger.describe(path) or ""
+        if not caption.strip():
+            return None
+        return VisionCaptionResult(caption=caption.strip(), model="Florence-2",
+                                   elapsed_s=time.monotonic() - started)
     try:
         data = base64.b64encode(path.read_bytes()).decode("ascii")
         response = client.generate(_PROMPT, images=[data], timeout=timeout)

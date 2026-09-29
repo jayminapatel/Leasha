@@ -173,7 +173,11 @@ class ModelBox(QGroupBox):
         buttons.addWidget(self.test_button)
         buttons.addWidget(self.download, 1)
 
+        #: `CHAT_ENGINE` (2026-09-29): `onnx` shows the model inside Leasha;
+        #: `ollama` the list Ollama reports. See `set_engine`.
+        self._engine = "ollama"
         form = QFormLayout(self)
+        self._form = form
         form.addRow(self.enabled)
         form.addRow("Address", self.url)
         form.addRow("Model", self.model)
@@ -257,8 +261,35 @@ class ModelBox(QGroupBox):
         self._loading = False
         self.refresh_button.setEnabled(True)
 
+    def set_engine(self, engine: str, model_cache: Any = None) -> None:
+        """Which engine Interpret uses (`CHAT_ENGINE`). With the model inside
+        Leasha there is no address to type and no Ollama list: the drop-down
+        holds that model, and Download fetches it. UI thread, no I/O."""
+        from app.ort import hub
+
+        self._engine = "ollama" if engine == "ollama" else "onnx"
+        onnx = self._engine == "onnx"
+        self._form.setRowVisible(self.url, not onnx)
+        self.download.kind = "onnx" if onnx else "ollama"
+        self.download.set_model_cache(model_cache)
+        if onnx:
+            self._configured = hub.QWEN_1_5B.key
+            self.download.set_offers([])
+            self.download.set_target(hub.QWEN_1_5B.key)
+            self._show_models([])
+
     def _show_models(self, installed: Any) -> None:
         """Fill the dropdown. UI thread, no I/O."""
+        if self._engine == "onnx":
+            # One model, named plainly, whether or not it is downloaded yet -
+            # Download beside it says which.
+            from app.ort import hub
+
+            with _quiet(self.model):
+                self.model.clear()
+                self.model.addItem(hub.QWEN_1_5B.label, hub.QWEN_1_5B.key)
+                self.model.setCurrentIndex(0)
+            return
         names = [str(name) for name in (installed or [])]
         selected, note = choose(self._configured, names)
 
@@ -411,7 +442,8 @@ class ModelBox(QGroupBox):
             return
 
         error = getattr(result, "error", None)
-        if error is not None and getattr(error, "code", "") == "ERR_OLLAMA_TIMEOUT":
+        if error is not None and getattr(error, "code", "") in ("ERR_OLLAMA_TIMEOUT",
+                                                               "ERR_LOCAL_MODEL_TIMEOUT"):
             # The specific failure this panel exists to prevent, so it gets the
             # specific fix rather than a generic one.
             self.status.setText(

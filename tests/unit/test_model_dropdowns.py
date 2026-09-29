@@ -391,8 +391,11 @@ def test_the_speech_model_goes_where_transcribe_loads_it_from(tmp_path):
     started: list = []
     model_fetch.fetch("speech", "base", model_cache=tmp_path,
                       popen=lambda argv, **k: started.append(argv) or _FakeChild(0))
-    assert started[0][4] == str(tmp_path / "whisper")
-    assert "download_model" in started[0][2] and "cache_dir" in started[0][2]
+    # 2026-09-29: the ONNX export of that size, into MODEL_CACHE like every ONNX
+    # model (transcribe also looks in MODEL_CACHE\whisper for older downloads).
+    assert started[0][3] == "onnx-community/whisper-base"
+    assert started[0][4] == str(tmp_path)
+    assert "snapshot_download" in started[0][2] and "onnx/encoder_model.onnx" in started[0][5]
 
 
 def test_stop_kills_the_child(tmp_path):

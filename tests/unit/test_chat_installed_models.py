@@ -178,7 +178,7 @@ def test_the_box_asks_ollama_on_a_worker_fills_every_role_and_says_what_they_nee
 
     from types import SimpleNamespace
 
-    box = ChatBox(SimpleNamespace(index_tuning_mode="manual", chat_model="mistral", ollama_url="http://h:1",
+    box = ChatBox(SimpleNamespace(index_tuning_mode="manual", chat_engine="ollama", chat_model="mistral", ollama_url="http://h:1",
                                   ollama_model="mistral", chat_max_rounds=3, chat_verify_strictness=70,
                                   ollama_vision_model="llava:7b"), probe=probe)
     qtbot.addWidget(box)
@@ -209,7 +209,7 @@ def test_the_tuning_part_hides_outside_manual_and_the_web_section_never_does(qtb
 def test_a_number_with_an_envelope_states_its_range_its_reason_and_what_automatic_uses(qtbot):
     from types import SimpleNamespace
 
-    box = ChatBox(SimpleNamespace(index_tuning_mode="manual"), probe=lambda url: InstalledModels(
+    box = ChatBox(SimpleNamespace(index_tuning_mode="manual", chat_engine="ollama"), probe=lambda url: InstalledModels(
         reachable=True, names=("mistral:latest",), ram_mb=4096))
     qtbot.addWidget(box)
     box.show()

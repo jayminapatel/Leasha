@@ -608,7 +608,7 @@ class QueryTranslator:
                 # A timeout is transient: the model may simply have been cold,
                 # and the next press is usually the one that works. Caching it
                 # would make the button permanently dead for that sentence.
-                cache=code != "ERR_OLLAMA_TIMEOUT",
+                cache=code not in ("ERR_OLLAMA_TIMEOUT", "ERR_LOCAL_MODEL_TIMEOUT"),
             )
         except Exception as exc:                 # noqa: BLE001 - boundary; never fail a search
             log.debug("translation failed: {}: {}", type(exc).__name__, exc)
