@@ -602,7 +602,18 @@ class IndexController(QObject):
         # cost. Saying so is also better than appearing to ignore the button.
         if self._w.indexing_view.is_running():
             self._w._show(self._w.indexing_view)
-            self._w.notify("An index run is already in progress.", 5_000)
+            # 2026-09-29: this used to be a five-second note and nothing else.
+            # The owner pressed Start with "Index in a separate process" on
+            # while a long PST run was going, and reported that the button
+            # "did not work" - the note had come and gone. Now it asks, and
+            # offers the one thing that would let the new Start happen.
+            if self.confirm_stop_running(self._w):
+                self._w.indexing_view.stop()
+                self._w.notify(
+                    "Stopping the current run after the file it is reading. "
+                    "Press Start again once it has stopped.", 12_000)
+            else:
+                self._w.notify("An index run is already in progress.", 5_000)
             return
 
         chosen = roots or self._w.settings_view.current_roots()
@@ -645,6 +656,28 @@ class IndexController(QObject):
             lambda tuned: self._w._index_resolved(tuned, chosen, roots, recheck_archives))
         worker.signals.failed.connect(self._w._index_resolve_failed)
         run(QThreadPool.globalInstance(), worker)
+
+    @staticmethod
+    def confirm_stop_running(parent: Any) -> bool:
+        """Start was pressed while a run is going. Say why nothing new began,
+        and offer to stop the current run. True if the person chose to stop it.
+
+        A static method so a test can stand in for the dialog.
+        """
+        box = QMessageBox(parent)
+        box.setIcon(QMessageBox.Icon.Information)
+        box.setWindowTitle("Indexing is already running")
+        box.setText("An index run is already going, so Start cannot begin a second "
+                    "one into the same index.")
+        box.setInformativeText(
+            'Settings you have changed since it began - "Index in a separate '
+            'process", for one - apply from the next Start. Stop the current run '
+            "now? Everything indexed so far is kept, and the next Start carries on "
+            "where this one stopped.")
+        stop = box.addButton("Stop the current run", QMessageBox.ButtonRole.AcceptRole)
+        box.addButton("Keep it running", QMessageBox.ButtonRole.RejectRole)
+        box.exec()
+        return box.clickedButton() is stop
 
     def _index_resolved(self, tuned: Any, chosen: list[str],
                         roots: Optional[list[str]], recheck_archives: bool) -> None:
