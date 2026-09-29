@@ -1007,6 +1007,20 @@ def test_a_dragged_width_is_stored_exactly_as_dragged():
         apply_to_table(table, chooser.prefs, columns=COLUMNS_3,
                        available=AVAILABLE_3)
 
+        # **Every drag must move the column, or there is nothing to save.** The
+        # "Folder" column is fitted to its heading, which is about 40 pixels
+        # wide in a narrow font: 47 with DejaVu Sans here, 41 with Liberation
+        # Sans, and - by the Windows CI, which stored nothing at all for the
+        # drag to 40 (2026-09-29) - exactly 40 with Segoe UI, so that "drag"
+        # changed nothing. Qt also derives the header's smallest section from
+        # the font (40 with FreeSans), which would stop a drag short of 40.
+        # So the column starts at a width none of the drags uses, and the floor
+        # is set below them; neither is what this test is about.
+        header = table.horizontalHeader()
+        header.setMinimumSectionSize(20)
+        _drag(table, 1, 250)
+        assert dict(chooser.prefs.widths).get("path") == 250
+
         for dragged in (40, 90, 137, 300):
             _drag(table, 1, dragged)
 
