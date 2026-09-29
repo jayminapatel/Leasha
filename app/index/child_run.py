@@ -139,6 +139,23 @@ _LIVE: "weakref.WeakSet[ChildIndexRun]" = weakref.WeakSet()
 _LIVE_LOCK = threading.Lock()
 
 
+def _end_descendants(pid: Optional[int]) -> None:
+    """Kill every process below `pid`. Best effort: without psutil, or once
+    they have gone, there is nothing to do."""
+    if not pid:
+        return
+    try:
+        import psutil
+
+        for child in psutil.Process(pid).children(recursive=True):
+            try:
+                child.kill()
+            except psutil.Error:
+                pass
+    except Exception:                    # noqa: BLE001 - never block the ending
+        pass
+
+
 def live_children() -> list["ChildIndexRun"]:
     """The child runs still going, for closing and for tests."""
     with _LIVE_LOCK:
@@ -525,7 +542,15 @@ class ChildIndexRun:
                     pass
 
     def _force_end(self, proc: Any) -> Optional[int]:
-        """Terminate, wait, then kill. Returns the exit code if one arrived."""
+        """Terminate, wait, then kill. Returns the exit code if one arrived.
+
+        2026-09-29: the child's own processes go too. Windows CI ended its job
+        with two indexers still running that no test held any more; ending
+        only the process we started can leave what it started (a reader
+        process, or the real interpreter behind a venv's launcher) alive and
+        still writing to our pipe.
+        """
+        _end_descendants(getattr(proc, "pid", None))
         for step in (proc.terminate, proc.kill):
             try:
                 step()
