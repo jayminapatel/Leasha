@@ -37,13 +37,16 @@ import threading
 import time
 from collections import deque
 from pathlib import Path
-from typing import NamedTuple, Optional
+from typing import Any, NamedTuple, Optional
 
 __all__ = [
     "ACTIVITY_LIMIT",
     "ActivityEntry",
     "ActivityLog",
     "KIND_ARCHIVE",
+    "KIND_ARCHIVE_COUNTS",
+    "decode_counts",
+    "encode_counts",
     "KIND_FINISHED",
     "KIND_LARGE_FILE",
     "KIND_NOTICE",
@@ -76,6 +79,32 @@ KIND_FINISHED = "finished"    # text: "" for a whole run, "stopped" for one that
 #: 0w 3b/3c. text: the archive's file name; detail: "resumed" (carrying on at
 #: the folder an earlier run reached) or "part_read" (this run stopped in it).
 KIND_ARCHIVE = "archive"
+#: Order 0z lane C. text: the archive's file name; detail: its per-item status
+#: counts as `encode_counts` writes them ("Indexed=12400;Failed=3"). Once per
+#: archive, when its read ends. A string, so it crosses from the indexer's own
+#: process in the same `[seq, at, kind, text, size, detail]` row as every entry.
+KIND_ARCHIVE_COUNTS = "archive_counts"
+
+
+def encode_counts(counts: Any) -> str:
+    """`{"Indexed": 12400, "Failed": 3}` as `"Indexed=12400;Failed=3"`. Never raises."""
+    try:
+        return ";".join(f"{word}={int(n)}" for word, n in dict(counts).items() if int(n))
+    except Exception:                            # noqa: BLE001 - a log line is never worth a run
+        return ""
+
+
+def decode_counts(text: str) -> dict[str, int]:
+    """The reverse of `encode_counts`. Anything malformed is left out."""
+    out: dict[str, int] = {}
+    for part in str(text or "").split(";"):
+        word, _, number = part.partition("=")
+        try:
+            if word.strip():
+                out[word.strip()] = int(number)
+        except ValueError:
+            continue
+    return out
 
 #: **What counts as a large file**, and so earns a line of its own when a
 #: worker starts it. The point of the line is the one file that holds a worker

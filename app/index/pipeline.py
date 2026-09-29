@@ -62,6 +62,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract import progress as reader_progress
+from app.extract import reading as reader_reading
 from app.extract.base import extractor_for, reads_externally
 from app.core.priority import lower_this_thread
 from app.core.osbridge.pathnames import path_key
@@ -70,6 +71,7 @@ from app.extract.source_types import indexed_ext
 from app.index import backends
 from app.index.activity import (
     KIND_ARCHIVE,
+    KIND_ARCHIVE_COUNTS,
     KIND_FINISHED,
     KIND_LARGE_FILE,
     KIND_NOTICE,
@@ -79,9 +81,11 @@ from app.index.activity import (
     KIND_STOPPING,
     KIND_WARNING,
     ActivityLog,
+    encode_counts,
     large_file_kind,
 )
 from app.index.clip_embedder import ClipImageEmbedder
+from app.index.held_archives import HeldArchives
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
@@ -1586,6 +1590,8 @@ class Pipeline:
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
         self._pending_frames = {}
+        # Order 0z lane C: the held-pictures list is read afresh each run.
+        self.__dict__.pop("_held_archive_book", None)
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -1836,6 +1842,9 @@ class Pipeline:
         self._say_if_nothing_was_walked(stats)
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
+        # Order 0z lane C: archives whose attached pictures wait for the
+        # pictures pass. Written here, on the run's own thread, never by a worker.
+        self._held_archives().save()
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
@@ -2532,6 +2541,10 @@ class Pipeline:
         # exists to avoid.
         scanned = (list(self._no_text_layer_candidates())
                    if self.config.ocr_mode == "images" else [])
+        # Order 0z lane C: mail archives whose attached pictures the text pass
+        # held. The narrowed walk never reaches a `.pst`, so the list does.
+        if self.config.ocr_mode == "images":
+            scanned.extend(self._held_archive_candidates())
         # Work order 0i section 2a: visibility into a requeue mechanism that
         # already existed before this item - additive counting only, no
         # change to what gets requeued or when. See the note on
@@ -2590,6 +2603,26 @@ class Pipeline:
             # is exactly what `_classify` now declines to re-parse - and this pass
             # exists to read them anyway. The images pass is the one thing that
             # can do what the text pass could not.
+            yield Candidate(path=path, size_bytes=stat.st_size,
+                            mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
+
+    def _held_archive_candidates(self) -> Iterator[Candidate]:
+        """Archives with attachment pictures held for this pass (`held_archives`).
+
+        `retry=True` because the archive's row is INDEXED and unchanged - the
+        text pass read it - and `_classify` would otherwise send it home. A
+        file since deleted or moved is skipped; the prune deals with its rows.
+        """
+        try:
+            paths = self._held_archives().paths()
+        except Exception as exc:                        # noqa: BLE001 - nothing queued
+            self._log.debug("held-archive list unreadable: {}", exc)
+            return
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
             yield Candidate(path=path, size_bytes=stat.st_size,
                             mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
 
@@ -2719,7 +2752,13 @@ class Pipeline:
         # as settled would leave it name-only for ever, with nothing to tell
         # anyone why. The unreadable case never gets this far; it is answered
         # above without a read.
-        if not changed and record is not None and record.status == FileStatus.INDEXED:
+        # **Except a file deliberately put back** (order 0z lane C): the
+        # pictures pass re-queues archives the text pass read in full but
+        # whose attached pictures it held (`_held_archive_candidates`). Every
+        # other re-queue reads SKIPPED rows only, so for them this changes
+        # nothing.
+        if (not changed and record is not None and record.status == FileStatus.INDEXED
+                and not getattr(candidate, "retry", False)):
             return UNCHANGED
 
         # **A skip is settled while the file has not moved, and this was H1.**
@@ -3041,6 +3080,53 @@ class Pipeline:
     def _extract_stream(
         self, candidate: Candidate, digest: Optional[str]
     ) -> Iterator[_Extracted]:
+        """`_read_stream`, inside the pass's images rule (order 0z lane C).
+
+        The rule (`app.extract.reading`) tells a container reader what to do
+        with the pictures inside it: hold them on the text pass, read only them
+        on the pictures pass. What the reader reports back - how many it held,
+        and its per-item status words - is acted on here, once the file ends:
+        the archive is remembered for the pictures pass (`held_archives`), and
+        the log gets one line of counts. An abandoned read (a stop) still
+        remembers held pictures but never forgets any, and logs nothing.
+        """
+        with reader_reading.reading(
+                images=reader_reading.images_for_ocr_mode(self.config.ocr_mode)) as policy:
+            finished = False
+            try:
+                yield from self._read_stream(candidate, digest)
+                finished = True
+            finally:
+                self._after_container(candidate, policy, finished)
+
+    def _after_container(self, candidate: Candidate, policy: Any, finished: bool) -> None:
+        """The held-pictures record and the counts line for one file. Never raises."""
+        try:
+            self._held_archives().note(
+                candidate.path, held=policy.held, finished=finished,
+                pass_=self.config.ocr_mode)
+            if finished and policy.counts:
+                self._record(KIND_ARCHIVE_COUNTS, candidate.path.name,
+                             detail=encode_counts(policy.counts))
+        except Exception as exc:                        # noqa: BLE001 - bookkeeping only
+            self._log.debug("could not note {}: {}", candidate.path.name, exc)
+
+    def _held_archives(self) -> HeldArchives:
+        """This run's `HeldArchives`, made on first use (bare test pipelines have none)."""
+        held = self.__dict__.get("_held_archive_book")
+        if held is None:
+            held = self.__dict__.setdefault("_held_archive_book", HeldArchives(self.store))
+        return held
+
+    def _is_held_archive(self, path: Path) -> bool:
+        try:
+            return self._held_archives().is_held(path)
+        except Exception:                               # noqa: BLE001 - read it normally
+            return False
+
+    def _read_stream(
+        self, candidate: Candidate, digest: Optional[str]
+    ) -> Iterator[_Extracted]:
         """Yield one `_Extracted` per document, as it is read.
 
         **A generator, not a list, and that is the entire point.** The previous
@@ -3085,7 +3171,15 @@ class Pipeline:
         resume_from = 0
         resume_extra: Optional[dict[str, Any]] = None
         resume_key: Optional[str] = None
-        if digest is not None:
+        #: Order 0z lane C: the pictures pass coming back for an archive whose
+        #: attachment pictures the text pass held. Only the pictures are read,
+        #: so this read must not move the archive's resume cursor or write its
+        #: "read to the end" marker - the text pass owns both.
+        rereading_held = (self.config.ocr_mode == "images"
+                          and self._is_held_archive(candidate.path))
+        if rereading_held:
+            pass
+        elif digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
                 try:
@@ -3192,9 +3286,22 @@ class Pipeline:
                     resume_key=resume_key,
                 )
         except AppErrorException as exc:
+            if rereading_held:
+                # Order 0z lane C. The archive's own row belongs to the text
+                # pass; a pictures-pass failure must not overwrite it. Kept on
+                # the held list (`held` > 0) so the next pictures pass tries again.
+                self._log.warning("could not read the held pictures in {}: {}",
+                                  candidate.path.name, exc.error.code)
+                reader_reading.current().held += 1
+                return
             # A failure part-way through an archive costs the rest of that
             # archive, never the messages already handed over and written.
             yield _Extracted(candidate, digest, error=exc.error)
+            return
+
+        if rereading_held:
+            # Only pictures were read: no marker (the text pass wrote it), and
+            # "no text" here means only that the pictures held none.
             return
 
         if produced == 0:

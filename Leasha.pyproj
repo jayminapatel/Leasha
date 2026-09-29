@@ -214,6 +214,7 @@
     <Compile Include="app\extract\publisher.py" />
     <Compile Include="app\extract\quoting.py" />
     <Compile Include="app\extract\raw.py" />
+    <Compile Include="app\extract\reading.py" />
     <Compile Include="app\extract\rtf.py" />
     <Compile Include="app\extract\source_types.py" />
     <Compile Include="app\extract\timecode.py" />
@@ -230,6 +231,7 @@
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
+    <Compile Include="app\index\held_archives.py" />
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\live_progress.py" />
@@ -749,6 +751,7 @@
     <Compile Include="tests\unit\test_pst_libpff.py" />
     <Compile Include="tests\unit\test_pst_partial_pipeline.py" />
     <Compile Include="tests\unit\test_pst_resilience.py" />
+    <Compile Include="tests\unit\test_pst_robust.py" />
     <Compile Include="tests\unit\test_quantize_model.py" />
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
