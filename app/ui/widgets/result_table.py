@@ -414,4 +414,5 @@ def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,
         response.results, terms, summary=summary, keep_scroll=True,
         details=found.get("details", {}), missing=found.get("missing", set()),
         volumes=found.get("volumes", {}),
-        placeholders=found.get("placeholders", set()))
+        placeholders=found.get("placeholders", set()),
+        statuses=found.get("statuses", {}))

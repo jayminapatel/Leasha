@@ -145,6 +145,7 @@
     <Compile Include="app\core\env_writer.py" />
     <Compile Include="app\core\envelope.py" />
     <Compile Include="app\core\errors.py" />
+    <Compile Include="app\core\file_state.py" />
     <Compile Include="app\core\format_health.py" />
     <Compile Include="app\core\formats.py" />
     <Compile Include="app\core\gpu_serialize.py" />
@@ -459,6 +460,8 @@
     <Compile Include="app\ui\widgets\sortable_item.py" />
     <Compile Include="app\ui\widgets\space_table.py" />
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
+    <Compile Include="app\ui\widgets\status_column.py" />
+    <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\table_filter.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
@@ -623,6 +626,7 @@
     <Compile Include="tests\unit\test_federated_search.py" />
     <Compile Include="tests\unit\test_feeder_thread.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
+    <Compile Include="tests\unit\test_file_state.py" />
     <Compile Include="tests\unit\test_file_types_editor.py" />
     <Compile Include="tests\unit\test_file_watch.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
@@ -837,6 +841,7 @@
     <Compile Include="tests\unit\test_start_indexing_resolves_off_thread.py" />
     <Compile Include="tests\unit\test_start_while_running.py" />
     <Compile Include="tests\unit\test_startup_import_order.py" />
+    <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />

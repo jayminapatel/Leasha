@@ -45,6 +45,7 @@ from app.ui.presenter import (
     MAIL_COMMANDS, mail_filters, mail_rows, mail_summary, with_date_problems,
 )
 from app.ui.preview_loader import mail_body, quoted_notice
+from app.ui.tasks import browse_messages_page
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -52,7 +53,7 @@ from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
-from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
+from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
@@ -76,7 +77,13 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("subject", "Subject", "subject", False),
     ("attach", "Attach", "attachment", False),
     ("size", "Size", "size", True),
+    STATUS_COLUMN,              # 2026-09-29: the one-word Status - see file_state
 )
+
+#: Sort on the real value, not the formatted string: "3 KB" and "10 KB" sort
+#: the wrong way as text, and a date column sorted alphabetically is worse
+#: than one that does not sort at all. Key -> attribute on `MailRow`.
+SORT_KEYS: dict[str, str] = {"date": "sent_at", "size": "size_bytes"}
 
 #: Offered whatever the rows say. A mail list with no sender and no subject is
 #: not a mail list, and a mailbox filtered down to one blank-subject message
@@ -87,6 +94,12 @@ ALWAYS_OFFERED = ("from", "subject", "date")
 #: row by row on the UI thread, so this is the number that decides whether
 #: typing stays smooth - not the query, which is indexed and fast either way.
 PAGE_SIZE = 500
+
+
+def _first_cell(item: Any, row: Any) -> None:
+    """The message's id, and its synthetic path as the tooltip."""
+    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
+    item.setToolTip(row.path)
 
 
 class MailView(QWidget):
@@ -213,8 +226,8 @@ class MailView(QWidget):
         self._generation += 1
         generation = self._generation
 
-        worker = CallableWorker(
-            self._store.browse_messages, limit=PAGE_SIZE, component="ui.mail", **filters
+        worker = CallableWorker(   # the page and, when it is full, the total
+            browse_messages_page, self._store, limit=PAGE_SIZE, component="ui.mail", **filters
         )
         worker.signals.finished.connect(
             lambda rows, g=generation: self._show(rows, g, leftover)
@@ -226,7 +239,8 @@ class MailView(QWidget):
         if generation != self._generation:
             return                          # newer typing has overtaken this
 
-        display = mail_rows(rows)
+        page = rows if isinstance(rows, dict) else {"rows": rows}
+        display = mail_rows(page["rows"])
         self._rows = display
 
         # Off while filling, on afterwards. Qt re-sorts after every `setItem`
@@ -238,26 +252,9 @@ class MailView(QWidget):
         # on and re-applies the sort somebody chose. The two lines here were
         # the only place in the application that had worked it out, and three
         # other tables had to be made sortable without inheriting the lesson.
-        self.results.setRowCount(len(display))
-        for index, row in enumerate(display):
-            for column, (_key, _heading, attribute, _right) in enumerate(COLUMNS):
-                # The alignment comes from the column spec the table was built
-                # with, which is also what points the heading the same way.
-                item = SortableItem(getattr(row, attribute))
-                # Sort on the real value, not the formatted string: "3 KB" and
-                # "10 KB" sort the wrong way as text, and a date column sorted
-                # alphabetically is worse than one that does not sort at all.
-                if attribute == "sent":
-                    item.setData(SORT_ROLE, row.sent_at)
-                elif attribute == "size":
-                    item.setData(SORT_ROLE, row.size_bytes)
-                if column == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
-                    item.setToolTip(row.path)
-                self.results.setItem(index, column, item)
-        # Before sorting is re-enabled: the objects are attached in table order
-        # and a sort would already have moved the cells out from under them.
-        self.results.set_row_objects(display)
+        # The cells, sort values, Status tooltip and row objects (attached in
+        # table order, before sorting is re-enabled) - `status_column.fill_rows`.
+        fill_rows(self.results, display, COLUMNS, SORT_KEYS, first=_first_cell)
 
         # Recomputed from the rows on screen, so a column is offered when the
         # data can fill it and disabled when it cannot - see `view_options`.
@@ -267,14 +264,14 @@ class MailView(QWidget):
         )
         self._apply_prefs()
 
-        self.summary.setText(self._summary_text(len(display), leftover))
+        self.summary.setText(self._summary_text(len(display), leftover, page.get("total")))
 
-    def _summary_text(self, shown: int, leftover: str) -> str:
+    def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:
         """The wording lives in `presenter.mail_summary` - this file had one
         line of headroom under the 250-line guard, and three branches of string
         formatting inside a widget can only be checked by a person looking at a
         mail tab at the right moment."""
-        return with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE),
+        return with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE, total=total),
                                   getattr(self, "_parsed", None))
 
     # -- how it looks ----------------------------------------------------------

@@ -35,6 +35,7 @@ from app.ui.widgets.indexing_headline import show_now
 from app.ui.widgets.indexing_workers import IndexingWorkers
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
+from app.ui.widgets.status_funnel import StatusFunnel
 
 __all__ = [
     "assemble_pages", "paint_finished", "paint_progress", "paint_resting_headline",
@@ -69,6 +70,13 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     view._starting_headline = view._resting_headline = view.headline.text()
     # 0x §4b: what the run is doing now, straight under the counts it explains.
     status_layout.addWidget(view.now_line)
+    # 2026-09-29: the funnel - one line of counts per status word, at the top
+    # of the page as the owner chose, under the headline and its "now" line
+    # (which 0x §4b keeps directly under the headline). Made here, not in the
+    # view, which is at its line guard; `view.funnel` is set on the view
+    # exactly as if it had been.
+    view.funnel = StatusFunnel()
+    status_layout.addWidget(view.funnel)
     status_layout.addWidget(view.totals)
     status_layout.addWidget(view.stats_box)
     status_layout.addWidget(view.bar)
@@ -170,6 +178,10 @@ def paint_totals(view: Any, payload: dict) -> None:
         warned=payload.get("warned"),
     )
     view.stats_box.show_rows(rows)
+    funnel = getattr(view, "funnel", None)
+    if funnel is not None:
+        # Read on the same worker as the rest of the payload - no second read.
+        funnel.show_counts(payload.get("funnel"))
     paint_resting_headline(view, payload, running=running)
     stats = payload.get("stats") or {}
     try:
@@ -301,6 +313,10 @@ def paint_progress(view: Any, stats: Any) -> None:
     panel = getattr(view, "workers_panel", None)
     if panel is not None:
         panel.show_live(stats, stopping=view._stopping)
+    # The funnel re-reads its counts on a worker, throttled - see its module.
+    funnel = getattr(view, "funnel", None)
+    if funnel is not None:
+        funnel.tick(view, stats)
     paint_run_panels(view, stats)
 
 

@@ -162,7 +162,7 @@ class ResultsView(QWidget):
     def show_results(self, results: Sequence[Any], terms: Sequence[str], summary: str = "",
                      details: Optional[dict[int, Any]] = None, missing: Optional[set[str]] = None,
                      volumes: Optional[dict[int, Any]] = None,
-                     placeholders: Optional[set] = None,
+                     placeholders: Optional[set] = None, statuses: Optional[dict] = None,
                      keep_scroll: bool = False, register: Optional[str] = None) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
@@ -203,6 +203,8 @@ class ResultsView(QWidget):
             # in step with the delegate the identical way.
             self._placeholders = set(placeholders)
             self._delegate.placeholders = self._placeholders
+        if statuses is not None:            # the Status words - same rule as `volumes`
+            self._delegate.statuses = dict(statuses)
         if register is not None:
             # **Only when told.** `redraw_with_details`'s follow-up paint of
             # the same results omits this - item 4b's register must not reset
@@ -285,7 +287,8 @@ class ResultsView(QWidget):
     def _append(self, payload: Any, *, expanded: bool = False, anchor: Any = None) -> None:
         self._model.appendRow(result_item(
             payload, expanded=expanded, missing=self._missing,
-            volumes=self._volumes, placeholders=self._placeholders))
+            volumes=self._volumes, placeholders=self._placeholders,
+            statuses=self._delegate.statuses))
         if anchor is not None and row_identity(payload) == anchor:      # item 5d
             self._list.setCurrentIndex(self._model.index(self._model.rowCount() - 1, 0))
 

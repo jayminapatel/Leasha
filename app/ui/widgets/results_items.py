@@ -28,6 +28,7 @@ from typing import Any
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QStandardItem
 
+from app.core.file_state import explain
 from app.ui.presenter import (
     Terminator, accessible_text, explain_switch_on, offline_volume_note,
     result_tooltip, why,
@@ -42,17 +43,21 @@ _ROLE = Qt.ItemDataRole
 
 
 def result_item(payload: Any, *, expanded: bool, missing: set, volumes: dict,
-                placeholders: set) -> QStandardItem:
+                placeholders: set, statuses: Any = None) -> QStandardItem:
     item = QStandardItem()
     item.setEditable(False)
     item.setData(payload, ROLE_PAYLOAD)
     item.setData(expanded, ROLE_EXPANDED)
     path = str(getattr(payload, "path", "") or "")
     note = offline_volume_note(volumes.get(int(getattr(payload, "file_id", 0) or 0)))
-    item.setData(
-        result_tooltip(payload, missing=path in missing, volume_note=note,
-                       placeholder=(not note) and path in placeholders),
-        int(_ROLE.ToolTipRole))
+    tip = result_tooltip(payload, missing=path in missing, volume_note=note,
+                         placeholder=(not note) and path in placeholders)
+    # The Status word the delegate paints, and its one plain sentence - the
+    # hover is where "what does Deferred mean" gets answered.
+    word = (statuses or {}).get(int(getattr(payload, "file_id", 0) or 0), "")
+    if word:
+        tip = "\n\n".join(part for part in (tip, f"Status: {word} — {explain(word)}") if part)
+    item.setData(tip, int(_ROLE.ToolTipRole))
     spoken = accessible_text(payload, expanded=expanded)      # item 7a
     item.setData(spoken, int(_ROLE.AccessibleTextRole))
     item.setData(spoken, int(_ROLE.DisplayRole))

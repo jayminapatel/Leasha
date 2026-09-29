@@ -242,6 +242,9 @@ from app.ui.presenter.results import (
     Terminator,
 )
 from app.ui.presenter.rows import (
+    LIST_TOTAL_CAP,
+    MAIL_TOTAL_CAP,
+    capped_total,
     FileRow,
     _STATUS_NOTES,
     file_rows,
@@ -344,6 +347,12 @@ _TASK_NAMES = frozenset({
     "code_content_matches",
     "matching_repos",
     "resolve_open_path",
+    "result_statuses",
+    "_bounded_count",
+    "offline_volume_ids",
+    "browse_files_page",
+    "browse_messages_page",
+    "status_funnel_counts",
 })
 
 
@@ -429,6 +438,9 @@ __all__ = [
     "mail_details",
     "missing_paths",
     "file_summary",
+    "capped_total",
+    "LIST_TOTAL_CAP",
+    "MAIL_TOTAL_CAP",
     "search_options",
     "decorate_results",
     "record_open",
