@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 28
+CURRENT_VERSION = 29
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1515,6 +1515,36 @@ def _v28_chunk_index_follows_its_columns(conn: sqlite3.Connection) -> None:
             conn.execute(statement)
 
 
+def _v29_image_hashes(conn: sqlite3.Connection) -> None:
+    r"""The junk-image filter's book: one row per picture's bytes. Order 0z lane D.
+
+    A signature logo repeated in four thousand messages across a dozen
+    archives was read by OCR in every archive, on every run that re-read one.
+    This remembers, per blake2b content hash (the same 128-bit digest
+    `pst_libpff._hash_bytes` already takes), how often those bytes were met and
+    how many words reading them gave, so bytes met five times that gave fewer
+    than three words are never read again (`app/extract/junk_images.py`).
+    `phash`, `width` and `height` let a re-encoded copy of the same logo be
+    recognised too.
+
+    **Derived, like everything in the index**: lose it and the cost is one
+    reading of each picture again, nothing else. `clear_index` empties it.
+    `phash` is the 64-bit perceptual hash as 16 hex characters, the form
+    `files.phash` uses. `WITHOUT ROWID` because the hash is the key and the
+    row is small. Idempotent.
+    """
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS image_hashes ("
+        " hash TEXT PRIMARY KEY,"
+        " seen INTEGER NOT NULL DEFAULT 0,"
+        " words INTEGER,"
+        " phash TEXT,"
+        " width INTEGER NOT NULL DEFAULT 0,"
+        " height INTEGER NOT NULL DEFAULT 0,"
+        " updated_at INTEGER NOT NULL DEFAULT 0"
+        ") WITHOUT ROWID")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1543,6 +1573,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     26: _v26_chat_sessions,
     27: _v27_mail_sent_date,
     28: _v28_chunk_index_follows_its_columns,
+    29: _v29_image_hashes,
 }
 
 

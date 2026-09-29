@@ -41,6 +41,7 @@ from app.ui.presenter import (
     ALL_LOCATIONS, FILES_COMMANDS, file_query, file_rows, file_summary, with_date_problems,
     set_volume_filter, volume_picker_options,
 )
+from app.ui.tasks import browse_files_page
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
@@ -48,7 +49,7 @@ from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
-from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
+from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
 from app.ui.workers import CallableWorker, open_row_async, run, stop_timers
 
 __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
@@ -65,6 +66,9 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("size", "Size", "size", True),
     ("modified", "Modified", "modified", True),
     ("type", "Type", "kind", False),
+    # 2026-09-29: the one-word Status (`app.core.file_state`), before Folder so
+    # the stretching column stays last.
+    STATUS_COLUMN,
     ("folder", "Folder", "folder", False),
 )
 
@@ -93,6 +97,13 @@ NAME_DEBOUNCE_MS = 80
 #: Below this, a name query matches nearly everything and the answer is not
 #: useful. The *list* is not cleared while typing towards it - see `_run`.
 MIN_NAME_CHARS = 2
+
+
+def _first_cell(item: Any, row: Any) -> None:
+    """The row's id, and why its contents are not searchable when they are not."""
+    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
+    if row.note:
+        item.setToolTip(row.note)
 
 
 class FilesView(QWidget):
@@ -142,7 +153,7 @@ class FilesView(QWidget):
             aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
         # Double-click opens the file; right-click offers everything else; Enter
         # does what double-click does, because a keyboard user should never have
         # to reach for the mouse to act on a result they have already selected.
@@ -240,7 +251,11 @@ class FilesView(QWidget):
 
     def _show_header_data(self, result: tuple) -> None:
         total, values = result
-        self.summary.setText(file_summary(total))
+        # Never over a list's own summary: this count and the first page race
+        # on two workers, and the page's line ("Showing 200 of ...", a date
+        # problem) is the more specific answer. Seen as a flaky suite failure.
+        if not getattr(self, "_listed", False):
+            self.summary.setText(file_summary(total))
         self.volume_picker.clear()          # addItem never fires `activated`
         for label, value in volume_picker_options(values):
             self.volume_picker.addItem(label, value)
@@ -304,8 +319,8 @@ class FilesView(QWidget):
         self._generation += 1
         generation = self._generation
 
-        worker = CallableWorker(
-            self._store.browse_files, parsed, limit=200, component="ui.files",
+        worker = CallableWorker(   # the page, its total and its offline volumes
+            browse_files_page, self._store, parsed, limit=200, component="ui.files",
         )
         worker.signals.finished.connect(
             lambda rows, g=generation: self._show(rows, g, text)
@@ -317,24 +332,11 @@ class FilesView(QWidget):
         if generation != self._generation:
             return                                  # a newer query has been sent
 
-        display = file_rows(rows)
-        self.results.setRowCount(len(display))
-        for index, row in enumerate(display):
-            for column, (key, _heading, attribute, _right) in enumerate(COLUMNS):
-                # `SortableItem`, and the alignment comes from the column spec
-                # the table was built with - see COLUMNS.
-                item = SortableItem(getattr(row, attribute))
-                sort_by = SORT_KEYS.get(key)
-                if sort_by:
-                    item.setData(SORT_ROLE, getattr(row, sort_by, 0))
-                if column == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, row.file_id)
-                    if row.note:
-                        item.setToolTip(row.note)
-                self.results.setItem(index, column, item)
-        # What the preview pane draws from. After filling, so the order here is
-        # the order the rows went in.
-        self.results.set_row_objects(display)
+        page, self._listed = (rows if isinstance(rows, dict) else {"rows": rows}), True
+        display = file_rows(page["rows"], offline_volumes=page.get("offline", ()))
+        # The cells, the Status tooltip and the row objects the preview pane
+        # draws from - `widgets/status_column.fill_rows`, shared with Mail.
+        fill_rows(self.results, display, COLUMNS, SORT_KEYS, first=_first_cell)
 
         # Offered when the data can fill it, disabled when it cannot.
         self.view_button.available = self._available = available_columns(
@@ -343,7 +345,7 @@ class FilesView(QWidget):
         )
         self._apply_prefs()
 
-        line = file_summary(0, shown=len(display), text=text)
+        line = file_summary(0, shown=len(display), text=text, found=page.get("total"))
         self.summary.setText(with_date_problems(line, getattr(self, "_parsed", None)))
 
     # -- opening -------------------------------------------------------------

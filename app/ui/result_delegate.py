@@ -124,6 +124,11 @@ class ResultDelegate(QStyledItemDelegate):
         #: worker-computed, view-synced pattern `volumes` just above already
         #: follows.
         self.placeholders: set = set()
+        #: file_id -> the one-word Status (`app.core.file_state`), set by the
+        #: view from `tasks.result_statuses` - the same worker-computed,
+        #: view-synced pattern as the two above. Empty until the worker lands,
+        #: so the word appears a moment after the row, as the subtitles do.
+        self.statuses: dict[int, str] = {}
 
     # -- geometry ----------------------------------------------------------
 
@@ -267,6 +272,11 @@ class ResultDelegate(QStyledItemDelegate):
         name_metrics = QFontMetrics(name_font)
         painter.setFont(meta_font)
         date_width = QFontMetrics(meta_font).horizontalAdvance(group.when) + 8
+        # The owner: *"it must show the single word status ... visible in the
+        # results"*. The word sits just left of the date, in the same faint
+        # meta font, so it is on every row without competing with the name.
+        word = self.statuses.get(int(getattr(group, "file_id", 0) or 0), "")
+        status_width = QFontMetrics(meta_font).horizontalAdvance(word) + 14 if word else 0
         meta_h = QFontMetrics(meta_font).height()
 
         # **UI Redesign §4a: a kind badge spanning the name and meta lines.**
@@ -289,6 +299,11 @@ class ResultDelegate(QStyledItemDelegate):
                                name_metrics.height()),
                          int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                          group.when)
+        if word:
+            painter.drawText(QRect(left + width - date_width - status_width, y,
+                                   status_width, name_metrics.height()),
+                             int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
+                             word)
 
         # **Item 3a: a real file icon where the `[PDF]` text tag used to
         # sit.** Recognised faster than read - the kind word itself moved to
@@ -299,7 +314,7 @@ class ResultDelegate(QStyledItemDelegate):
 
         painter.setFont(name_font)
         painter.setPen(QPen(colour))
-        name_width = width - date_width - (text_left - left)
+        name_width = width - date_width - status_width - (text_left - left)
         name = name_metrics.elidedText(
             group.name, Qt.TextElideMode.ElideMiddle, name_width)
         painter.drawText(QRect(text_left, y, name_width, name_metrics.height()),
@@ -340,7 +355,7 @@ class ResultDelegate(QStyledItemDelegate):
         painter.setFont(meta_font)
         painter.setPen(QPen(faint))
         meta_metrics = QFontMetrics(meta_font)
-        bits = [row.location]
+        bits = [row.location, self.statuses.get(int(getattr(row, "file_id", 0) or 0), "")]
         if self.prefs.show_scores:
             bits.append(why(row))
         painter.drawText(QRect(left, y, width, meta_metrics.height()),

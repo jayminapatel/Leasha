@@ -69,6 +69,21 @@ CLIP_IMAGE_DIM = 512
 #: showing a machine that wants otherwise.
 CLIP_IMAGE_BATCH = 16
 
+#: Failed model loads before this embedder stops trying for the rest of its life
+#: (one index run: `app.cli index` builds one per run).
+#:
+#: **2026-09-29, measured.** A failed load was not remembered, so every picture
+#: in the run tried again: on a machine where the model cannot be fetched, 220
+#: pictures made 220 attempts to build `ImageEmbedding`, each one a fresh
+#: download attempt - 67 s of the pictures pass here, where the network refuses
+#: at once, and a connection timeout per picture on a machine that is simply
+#: offline. The same shape as OCR's `ENGINE_LOAD_ATTEMPTS`: more than one,
+#: because a load can fail for a moment (a model file mid-copy, a busy disk);
+#: small, because the usual cause does not go away mid-run. Every picture
+#: after that still gets the same `ERR_MODEL_LOAD`, so the pipeline counts it
+#: exactly as before.
+CLIP_LOAD_ATTEMPTS = 3
+
 #: Same tolerance as `embedder._NORM_TOLERANCE`, for the same reason: floating
 #: point noise lands around 1e-7, and anything past this is a real signal the
 #: model is not returning unit vectors.
@@ -119,6 +134,10 @@ class ClipImageEmbedder:
         #: Set once the model loads. `None` until then, so nothing reports a
         #: provider that has not yet been proven to work.
         self.choice: Optional[backends.Choice] = None
+        #: Failed loads so far, and the error given up on - see
+        #: `CLIP_LOAD_ATTEMPTS`.
+        self._load_failures = 0
+        self._given_up: Optional[object] = None
 
     @classmethod
     def from_settings(cls, settings: object, **overrides: object) -> "ClipImageEmbedder":
@@ -149,48 +168,67 @@ class ClipImageEmbedder:
     def _ensure_encoder(self) -> Encoder:
         if self._encoder is not None:
             return self._encoder
+        if self._given_up is not None:
+            # See `CLIP_LOAD_ATTEMPTS`: the same answer, without asking again.
+            raise AppErrorException(self._given_up)
         with self._lock:
             if self._encoder is not None:      # another thread won the race
                 return self._encoder
+            if self._given_up is not None:
+                raise AppErrorException(self._given_up)
             try:
-                from fastembed import ImageEmbedding
-            except ImportError as exc:
-                raise AppErrorException(make_error(
-                    "ERR_MODEL_LOAD", "index.clip_embedder",
-                    details=f"fastembed is not importable: {exc}",
-                    suggestion="Re-run the installer, or: "
-                               "venv\\Scripts\\python.exe -m pip install fastembed",
-                )) from exc
+                return self._load_encoder()
+            except AppErrorException as exc:
+                self._load_failures += 1
+                if self._load_failures >= CLIP_LOAD_ATTEMPTS:
+                    self._given_up = exc.error
+                    _log.info(
+                        "the image model did not load after {} attempts; no more "
+                        "attempts on this run: {}", self._load_failures,
+                        getattr(exc.error, "details", "") or exc)
+                raise
 
-            wanted = backends.choose(self._resolved_profile(), self.device)
+    def _load_encoder(self) -> Encoder:
+        """Build the model. Called under `_lock` by `_ensure_encoder` only."""
+        try:
+            from fastembed import ImageEmbedding
+        except ImportError as exc:
+            raise AppErrorException(make_error(
+                "ERR_MODEL_LOAD", "index.clip_embedder",
+                details=f"fastembed is not importable: {exc}",
+                suggestion="Re-run the installer, or: "
+                           "venv\\Scripts\\python.exe -m pip install fastembed",
+            )) from exc
 
-            def build(providers: tuple) -> object:
-                if providers == (backends.CPU_PROVIDER,):
-                    # **The CPU path is byte-for-byte what it was.** Passing a
-                    # providers list that means "the default" would still be
-                    # a new argument to somebody else's constructor on every
-                    # machine that has no GPU at all.
-                    return ImageEmbedding(model_name=self.model_name,
-                                          cache_dir=self.cache_dir)
+        wanted = backends.choose(self._resolved_profile(), self.device)
+
+        def build(providers: tuple) -> object:
+            if providers == (backends.CPU_PROVIDER,):
+                # **The CPU path is byte-for-byte what it was.** Passing a
+                # providers list that means "the default" would still be
+                # a new argument to somebody else's constructor on every
+                # machine that has no GPU at all.
                 return ImageEmbedding(model_name=self.model_name,
-                                       cache_dir=self.cache_dir,
-                                       providers=list(providers))
+                                      cache_dir=self.cache_dir)
+            return ImageEmbedding(model_name=self.model_name,
+                                   cache_dir=self.cache_dir,
+                                   providers=list(providers))
 
-            try:
-                model, self.choice = backends.with_fallback(
-                    build, wanted, problems=self._problems)
-            except Exception as exc:           # noqa: BLE001 - download, disk, or ONNX
-                raise AppErrorException(make_error(
-                    "ERR_MODEL_LOAD", "index.clip_embedder",
-                    details=f"{self.model_name}: {type(exc).__name__}: {exc}",
-                )) from exc
+        try:
+            model, self.choice = backends.with_fallback(
+                build, wanted, problems=self._problems)
+        except Exception as exc:           # noqa: BLE001 - download, disk, or ONNX
+            raise AppErrorException(make_error(
+                "ERR_MODEL_LOAD", "index.clip_embedder",
+                details=f"{self.model_name}: {type(exc).__name__}: {exc}",
+            )) from exc
 
-            if wanted.fell_back_from and self._problems is not None:
-                self._problems.append(wanted.why)
+        if wanted.fell_back_from and self._problems is not None:
+            self._problems.append(wanted.why)
 
-            backends.record_provider("image model", self.choice)
-            self._encoder = lambda paths: model.embed([str(p) for p in paths])
-            return self._encoder
+        backends.record_provider("image model", self.choice)
+        self._encoder = lambda paths: model.embed([str(p) for p in paths])
+        return self._encoder
 
     def _resolved_profile(self) -> object:
         """The profile to decide against - the given one, or this machine's.

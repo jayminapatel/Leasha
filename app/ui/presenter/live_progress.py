@@ -40,7 +40,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Mapping, Optional
 
-from app.ui.presenter.activity import READING_WORDS
+from app.ui.presenter.activity import READING_WORDS, status_counts_text
 from app.ui.presenter.indexing import PHASE_WORDS
 
 __all__ = [
@@ -271,6 +271,7 @@ def worker_lines(stats: Any, *, now: Optional[float] = None) -> list[str]:
     worker's `started_at`; it defaults to the current time. Examples::
 
         Reader 1: Archive2019.pst › Inbox/Projects › message 4,512 of 18,300 · 3 min 20 s
+        Reader 1: Archive2019.pst › Inbox › message 12 of 40 · 12,400 Indexed · 3 Failed · 3 min 20 s
         Reader 2: report.docx · 2 s
         Reader 3: waiting for the next file
     """
@@ -285,10 +286,24 @@ def worker_lines(stats: Any, *, now: Optional[float] = None) -> list[str]:
             lines.append(f"Reader {key}: waiting for the next file")
             continue
         trail = inner_trail(worker.get("inner") or [], top=str(worker.get("file")))
+        counts = _frame_counts(worker.get("inner") or [])
         started = float(worker.get("started_at") or 0.0)
         took = f" · {since_text(clock - started)}" if started else ""
-        lines.append(f"Reader {key}: {trail}{took}")
+        lines.append(f"Reader {key}: {trail}{counts}{took}")
     return lines
+
+
+def _frame_counts(frames: Iterable[Any]) -> str:
+    """" · 12,400 Indexed · 3 Failed" from the innermost frame that counts, or "".
+
+    Order 0z lane C: the per-item status words a mail archive's reader keeps
+    (`app.extract.progress.STATUS_WORDS`), shown on its reader's line.
+    """
+    for frame in reversed(list(frames or [])):
+        text = status_counts_text(_get(frame, "counts") or {})
+        if text:
+            return f" · {text}"
+    return ""
 
 
 def heartbeat_line(stats: Any, *, now: Optional[float] = None) -> tuple[str, bool]:

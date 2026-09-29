@@ -14,6 +14,7 @@ from app.ui.presenter.formatting import (
     format_size,
     format_when,
 )
+from app.ui.presenter.rows import MAIL_TOTAL_CAP, capped_total
 
 
 @dataclass
@@ -96,6 +97,9 @@ PHASE_WORDS: dict[str, str] = {
     "word_index_check": "Checking the word index…",
     "catch_up": "Finishing what the last run left undone…",
     "planning": "Working out which folders to read…",
+    # 2026-09-29, `read_order` "newest": the whole walk before the first read.
+    # The count is the headline's "files seen", climbing as it goes.
+    "scanning": "Finding files, to read the newest first…",
     "media": "Reading videos and recordings…",
     "tidying": "Tidying up the index…",
     "vector_index": "Organising the index so searches stay quick…",
@@ -442,6 +446,7 @@ def index_summary(
     next_run: str = "",
     error: str = "",
     warned: Optional[Mapping[str, Any]] = None,
+    pictures_not_read: Optional[Mapping[str, Any]] = None,
 ) -> list[StatRow]:
     """Everything worth knowing about the index, in one list.
 
@@ -503,6 +508,21 @@ def index_summary(
             note=", ".join(f"{code} ({count})" for code, count in worst),
         ))
 
+    not_read = pictures_not_read_counts(pictures_not_read or {})
+    if not_read:
+        # Order 0z lane D: "a count on the Indexing page". From the last run's
+        # record, like the partly-read row below; not a problem, so no warn.
+        from app.ui.presenter.activity import PICTURE_REASON_WORDS
+
+        out.append(StatRow(
+            "Pictures in mail not read",
+            f"{sum(not_read.values()):,}",
+            note=(", ".join(f"{n:,} {PICTURE_REASON_WORDS.get(reason, reason)}"
+                            for reason, n in sorted(not_read.items()) if n)
+                  + ". Signature logos, icons and dividers; switch this off in "
+                    "Index tuning to read every picture."),
+        ))
+
     partial = int((warned or {}).get("ERR_PST_PARTIAL", 0) or 0)
     if partial:
         # Work order `pst-resilience` 3d. **Said, because "indexed" reads as
@@ -529,6 +549,39 @@ def index_summary(
         out.append(StatRow("Next run", next_run))
 
     return out
+
+
+def pictures_not_read_counts(raw: Any) -> dict[str, int]:
+    """`pictures_not_read` from the stored `last_run_stats` (or the dict itself), or `{}`.
+
+    Order 0z lane D. Same reading rules as `warned_counts`.
+    """
+    if isinstance(raw, Mapping):
+        counts: Any = raw
+    else:
+        counts = _last_run_field(raw, "pictures_not_read")
+    if not isinstance(counts, Mapping):
+        return {}
+    out: dict[str, int] = {}
+    for reason, count in counts.items():
+        try:
+            if int(count) > 0:
+                out[str(reason)] = int(count)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _last_run_field(raw: Any, name: str) -> Any:
+    if not raw:
+        return None
+    import ast
+
+    try:
+        stats = ast.literal_eval(str(raw))
+    except (ValueError, SyntaxError, MemoryError, RecursionError):
+        return None
+    return stats.get(name) if isinstance(stats, dict) else None
 
 
 def warned_counts(raw: Any) -> dict[str, int]:
@@ -586,7 +639,8 @@ def when_text(iso: str) -> str:
     return format_when(int(moment.timestamp() * 1e9))
 
 
-def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500) -> str:
+def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500,
+                 total: Optional[int] = None) -> str:
     """The line under the Mail table: how many, what was capped, what was dropped.
 
     Moved out of `mail_view.py`, which had **one line** of headroom under the
@@ -608,8 +662,14 @@ def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500) -> str
         return ("No message matches those filters. If no mail is indexed "
                 "yet, add a .pst in Settings and run an index.")
 
-    parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
-    if shown >= page_size:
+    # **2026-09-29, the total.** The owner: *"when searching for mails the
+    # search displays maximum 500 but does not tell how much total"*. `total`
+    # is a bounded count from the worker (`tasks.browse_messages_page`); when
+    # it is known and larger than the page, the sentence says both numbers.
+    # The two sentences below stay as they were for a total that is unknown.
+    capped = capped_total(shown, total, "messages", "/from, /after …", cap=MAIL_TOTAL_CAP)
+    parts = [capped or f"{shown:,} message{'s' if shown != 1 else ''}"]
+    if shown >= page_size and not capped:
         parts.append(
             f"showing the newest {page_size:,} — narrow the filters to see more")
     if leftover:

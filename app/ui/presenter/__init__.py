@@ -68,6 +68,10 @@ from app.ui.presenter.code import (
     code_summary,
     git_summary,
     git_result_row,
+    code_list,
+    code_match_rows,
+    code_page,
+    match_counts,
 )
 from app.ui.presenter.commands import (
     _switch_catalogue,
@@ -155,6 +159,7 @@ from app.ui.presenter.indexing import (
     GRAPH_TABLE_LIMIT,
     StatRow,
     index_summary,
+    pictures_not_read_counts,
     warned_counts,
     _by_status,
     when_text,
@@ -238,6 +243,9 @@ from app.ui.presenter.results import (
     Terminator,
 )
 from app.ui.presenter.rows import (
+    LIST_TOTAL_CAP,
+    MAIL_TOTAL_CAP,
+    capped_total,
     FileRow,
     _STATUS_NOTES,
     file_rows,
@@ -337,8 +345,15 @@ _TASK_NAMES = frozenset({
     "_comparable",
     "code_rows_for",
     "code_rows_and_repos",
+    "code_content_matches",
     "matching_repos",
     "resolve_open_path",
+    "result_statuses",
+    "_bounded_count",
+    "offline_volume_ids",
+    "browse_files_page",
+    "browse_messages_page",
+    "status_funnel_counts",
 })
 
 
@@ -364,6 +379,10 @@ __all__ = [
     "git_rows_matching",
     "code_rows_for",
     "code_summary",
+    "code_list",
+    "code_match_rows",
+    "code_page",
+    "match_counts",
     "git_result_row",
     "git_summary",
     "repo_root_for",
@@ -397,6 +416,7 @@ __all__ = [
     "REPO_KINDS",
     "StatRow",
     "index_summary",
+    "pictures_not_read_counts",
     "warned_counts",
     "PART_READ_LABEL",
     "PART_READ_LABEL_MANY",
@@ -420,6 +440,9 @@ __all__ = [
     "mail_details",
     "missing_paths",
     "file_summary",
+    "capped_total",
+    "LIST_TOTAL_CAP",
+    "MAIL_TOTAL_CAP",
     "search_options",
     "decorate_results",
     "record_open",

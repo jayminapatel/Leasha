@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.34 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -31,6 +31,222 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   and without the machine kept busy, now come out identical (measured on Linux; the Windows test
   run is the check there). A screenshot now takes about twice as long, because it waits.
 
+### One stuck file no longer holds a reader for the rest of the run
+
+- A file whose reader stops making progress is now skipped (`ERR_FILE_TIMEOUT`, "'report.pdf' was
+  skipped after 20 min 3 s: ...") and the run carries on. Two new settings on Indexing › Tuning ›
+  Coverage: "Time limit per file" (120 s for text and code; PDFs, Office files and other documents get
+  ten times this) and "Skip a mailbox or archive after no progress for" (600 s). A `.pst`, `.mbox`,
+  `.olm` or `.zip` has no total limit - a large one can rightly take hours - and is skipped only when
+  nothing new has been read from it for that long, keeping the messages already read. Videos and
+  recordings have no limit. 0 switches either limit off. A timed-out file is settled like any other
+  skip, and read again when it changes.
+- With "Read files in separate processes" on, the stuck reader's process is ended and a fresh one
+  reads the next file. In the main process, a reader stuck in Python code is interrupted and the same
+  reader carries on; one stuck inside native code (a network read that never returns) cannot be
+  interrupted by anything in Python, so it is left behind and a replacement reader takes its place.
+- Each busy reader on the Indexing page has a "Force skip reader N" button that does the same for its
+  current file straight away, recorded as skipped by you. It works with "Index in a separate process"
+  too (a `skip <reader>` command to the indexing process).
+
+### Indexing can read files in separate processes
+
+- New switch, Indexing › Tuning › "Read files in separate processes" (off by default). Documents and
+  mail are read in helper processes, one per reader, so they use more of the computer's cores at
+  once. On the benchmark corpus a run took about 45-49% less time, with exactly the same results.
+  Each helper uses about 40 MB. A file that makes its reader fail is skipped
+  (`ERR_READER_PROCESS_ENDED`) and the run carries on. Pictures, PDFs, zips, Outlook and older
+  Office files are still read in the main process. `bench-pipeline --read-processes` measures it.
+### Code tab: search inside the code as you type
+
+- Typing in the Code tab now finds what is *inside* your code, not only file names: where a name is
+  defined comes first, then files whose name matches, then every other line that mentions it. Each
+  row shows the line number and the line of code. It answers from the index as you type.
+
+### Code tab: no console flash, a Stop for history, and "Ignore this repository"
+
+- Searching history no longer flashes a black console window on Windows.
+- A history search can be stopped: the button reads "Stop" while it runs, and Esc does the same.
+- Right-click a file in a repository › "Ignore this repository" when a folder is not really a
+  repository. Its files stay indexed and searchable; they just stop counting as code. "Undo" puts it
+  back straight away.
+### Start during a run now says why, and offers to stop it
+
+- Pressing Start while an index run is already going used to show a five-second note and nothing else,
+  so the button looked broken. It now explains that a second run cannot start into the same index, that
+  changed settings (such as "Index in a separate process") apply from the next Start, and offers
+  "Stop the current run". Everything indexed so far is kept.
+### Every result says where it stands, in one word
+
+- Search, Files, Mail and Code show a **Status** column: Indexed, Queued, Deferred, Skipped, Failed,
+  NameOnly, Offline or TimedOut (Discovered and Reading appear on the Indexing page during a run). Hover a
+  word for one plain sentence about what it means. Files and Mail offer it in the View menu like any
+  other column; Search shows it beside the date. The words are worked out from what the index already
+  records - no index rebuild. TimedOut is ready for the per-file time limit and appears once that
+  records its first file; Duplicate has a word and a sentence but nothing records one yet.
+- The Indexing page opens with a line of counts per status, for example `Indexed 448,210 · Queued
+  1,200 · Reading 4 · Skipped 310 · Failed 12 · Deferred 45`. It refreshes every few seconds during a
+  run and whenever the page's totals do.
+- Mail says how many messages match when it can only show the first 500: "Showing 500 of 12,431
+  messages — narrow it with /from, /after …" (counted up to 100,000). Files, which stopped at 200 in
+  the same silence, now says "Showing 200 of 3,412 files" too (counted up to 10,000).
+### Signature logos and icons in email are no longer read (order 0z lane D, 2026-09-29)
+
+The owner's report: signature and junk pictures attached to email were being read by OCR,
+slowly, for nothing. Pictures inside a mail archive now go through a filter first
+(`app/extract/junk_images.py`). Each one it leaves unread is counted as `Skipped`, and the
+archive's line in the log gives the reason in brackets: "32 Skipped (12 decorative pictures,
+14 repeated pictures)". The Indexing page gets a row, "Pictures in mail not read". Each
+picture is still findable by its name on the message.
+
+- **Decorative (D2).** The message marks the picture as part of its layout (hidden, `cid:`,
+  or `ATT_MHTML_REF`) **and** it is tiny (both sides 100 pixels or under) or divider-shaped
+  (12 pixels or thinner, and 8 times as long). The size comes from the image header, without
+  decoding. Inline alone is never enough, because a pasted screenshot is inline too.
+- **Repeated with no words (D1).** A new table, `image_hashes` (schema v29), records
+  each picture's bytes across every archive and run. It keeps how often the bytes were met
+  and how many words reading them gave. Bytes met five times that gave fewer than three
+  words are not read again. `clear_index` empties the table.
+- **Fewer than three words (D3).** OCR text of under three words is not indexed. Words are
+  counted allowing for the spaces RapidOCR drops (it reads a line of six words as one run
+  of letters), so a line of real text is never mistaken for a logo. A Florence-2
+  description is kept.
+- **Near-identical logos (D4).** A logo that a mail client re-saves in every message (every
+  byte different) is matched by perceptual hash. The match has to be within 6 bits, at the
+  same size give or take 10%, and among pictures of 640x480 or smaller. A flat picture (a
+  blank, a divider) hashes to all zeros and never matches.
+- **Setting (D5).** "Leave out signature logos and icons in email"
+  (`INDEX_JUNK_IMAGE_FILTER`, Index tuning), on by default.
+- **Not used, by the order's decision:** file names (`image001.png` is also a pasted
+  screenshot), byte size alone, position in the email, and colour variance. CLIP is not
+  affected: pictures inside a mail archive never had CLIP vectors.
+
+**Measured** on Linux with RapidOCR on the processor. The corpus was three simulated
+archives of 60 messages each, read through the real libpff attachment loop. Every message
+carried a signature (four senders, four styles: a logo, social icons, a tracking pixel, a
+spacer, dividers, a conference banner, and one logo re-saved as JPEG in every message).
+Real content was spread across them: 12 pasted screenshots (inline), 3 receipts, 9
+screenshots, 3 photographed pages, 3 scans and 6 photographs.
+
+- Filter off: 126 OCR calls in 80.2 s. First run with the filter: 58 calls in 58.2 s
+  (-27%). A second run over the same archives: 48 calls in 52.3 s (-35%). The rest is real
+  content.
+- Left unread: 36 decorative, 32 then 42 repeated. 8 then 1 were read but held fewer
+  than three words.
+- **No screenshot, scan, receipt or photographed page was left unread.** Two real pictures
+  were affected, and neither loses anything that was searchable before:
+  - a pasted 98x40 "PAID" stamp. It was already below the 64x64 floor OCR never reads.
+  - one photograph whose OCR text was the single character "3".
+- **Missed, by design:** the conference banner reads as six words, so it is indexed (once
+  per archive).
+- On the public Enron sample archive (24 pictures, none marked inline), nothing was skipped
+  before reading. D3 dropped the OCR text of 5 photographs and scans. The text was noise:
+  "张", "m", "moise", "中" and "ASTEL Heaven".
+- **Unverified:** a real Outlook signature in a modern `.pst` (the Enron sample predates
+  inline `cid:` images), and the Outlook (MAPI) backend. That backend applies D1, D3 and D4
+  but not D2, because it does not read the inline property yet. Both need a run on the
+  owner's Windows machine.
+
+### Indexing speed: pictures and scanned pages, measured (2026-09-29)
+
+Measured on Linux (4 logical CPUs, shared with other work, so every figure is the best of
+several runs), RapidOCR on the processor, the text embedder FAKE (no model could be
+downloaded here): a generated corpus of 250 documents (60 text PDFs, 20 scanned PDFs, DOCX,
+XLSX, PPTX, TXT, MD, HTML) and 220 pictures (12 MP photographs, 2 MP photographs, icons,
+logos, screenshots and photographed pages).
+
+- **Reading ordinary documents was already fast, and is unchanged.** 230 documents with a
+  text layer took 1.2 s to extract on one thread, and the whole text pass 3.1 s. Nothing
+  there was worth changing.
+- **A picture is decoded and searched for text once, not twice.** The OCR ladder's detection
+  probe asked the engine for detection alone and then, if it found anything, ran the whole
+  engine again. RapidOCR already stops after detection when there is nothing to read, so the
+  probe never saved time and cost a second decode and detection on every photograph where it
+  found something. The probe now makes the one full call and keeps its answer; the ladder
+  and its setting are unchanged. Photographs without names a camera gives: 1.2-1.9 s down to
+  0.7-0.9 s each.
+- **Large JPEGs are decoded at the size OCR uses.** A 12 MP photograph was decoded at full
+  size and then shrunk to 2,000 pixels; it is now decoded at that size directly (about 60 ms
+  instead of 150-250 ms). On the photographed pages the engine read more correct words, not
+  fewer (817 against 672 on ten scan-named pages).
+  Together, on a 40-picture sample: 84.5 s down to 63.5 s, and processor time 246 s down to
+  184 s.
+- **Scanned PDF pages reach OCR uncompressed.** Each page was compressed to PNG (about
+  200 ms) and then uncompressed twice; it is now handed over as PNM, about 25 ms in all.
+- **The text-first pass no longer reads scanned PDFs.** "Pages to read from a scanned PDF"
+  says only the images pass uses it, but a text-first run read a wholly scanned PDF with OCR
+  all the same. It is now left for the pictures pass, like a picture. With 20 scanned PDFs
+  and a budget of 5 pages, the text pass went from 129-148 s to 3-4 s. A PDF that is only
+  partly scanned is still read in full on the text pass, because nothing would bring the
+  pictures pass back to it.
+- **An image model that will not load is tried three times per run, not once per picture.**
+  Where the CLIP model could not be downloaded, every picture tried again: 220 attempts, 67 s
+  of the pictures pass here, and a network timeout per picture on a machine that is offline.
+- **The whole corpus, both passes, one run each** (the machine was heavily loaded, so treat
+  this as indicative): 469 s before, 360 s after. The text pass is searchable after 4 s
+  instead of 148 s.
+
+### Outlook archives read without Outlook: faster, and a damaged one keeps going
+
+- **One bad item costs one item.** A damaged attachment inside a `.pst` could end the whole archive
+  when its reader failed with anything other than Leasha's own error (a damaged `.xls` did, through
+  `xlrd`). On damaged copies of a real archive this stopped the read early in 29 of 150 copies with
+  light damage and 100 of 150 with heavy damage; it now stops in none of them.
+- **A damaged folder tree can no longer loop or spin.** A folder that lists its own ancestor, folders
+  nested without end, and a folder claiming far more messages than it holds are each recorded as a
+  folder that could not be read, and the archive carries on.
+- **What happened to each message, while it is read.** The reader's line on the Indexing page shows
+  single-word counts for the archive, for example `12,400 Indexed · 3 Failed · 12 Duplicate`, and the
+  log says the same when the archive ends. The words: Indexed, Skipped, Failed, Duplicate (an
+  attachment already read in that archive), Held (a picture left for the pictures pass). TimedOut is
+  reserved and not yet set.
+- **Pictures attached to mail wait for the pictures pass.** The text-first pass read them with OCR,
+  which was about 80% of the time a real archive took. They are now held, their names stay on the
+  message, and the pictures pass comes back for exactly those archives and reads only the pictures.
+- **Faster without OCR too.** Each attachment is fetched from the archive once instead of twice, a
+  type nothing reads is turned down by name without being written to disk, a duplicate is never
+  written, and attachments share one scratch folder per archive. Measured on Linux on a real 14 MB
+  archive (71 messages, 70 attachments), with OCR taken out of both: from about 0.41 s to about 0.27 s
+  a read (best of 20). The text-first pass over the same archive, pictures held: 20-27 s before,
+  0.24 s now.
+
+### Docs
+
+- `HANDOFF.md` 7.16 → 7.17: an owner check for the above on a real archive.
+### The newest files are searchable first
+
+- An index run now finds every file before it reads any, then reads the folders you marked "Index
+  this folder first", in the order you marked them, and then everything else newest first - mail
+  archives and files mixed, each by its own date, and small files before large ones within a month.
+  What you worked on lately is searchable in seconds rather than whenever the walk happens to reach
+  it. While it looks, the Indexing page says "Finding files, to read the newest first…" and counts
+  the files seen; the bar then counts against the real total from the first file read.
+- "Index this folder first" is a new button and right-click action on the folder list (Settings ›
+  What's indexed), with a "Read first" column showing each marked folder's place. It is used by the
+  window's run, by `app.cli index` when no `--first` is given, and by "Index in a separate process".
+- Indexing › Tuning › Strategy has a new **Reading order** choice: "Newest first (mixed)", the default,
+  or "As found", the order the scan reaches files in, as before. `app.cli index --order newest|found`
+  does the same for one run.
+- An interrupted run carries on in the same order with the files it had not reached, and a rerun with
+  nothing changed reads nothing - and, on a 9,002-file synthetic corpus in a Linux sandbox, finished
+  in about a second instead of twenty (not yet measured on Windows). A folder marked first no longer also claims a neighbour whose name merely starts the same
+  (`C:\Docs2` under `C:\Docs`).
+### Numbers are typed, and models are chosen from a list
+
+- Every number box in the app has lost its up/down arrows; the number is typed. In their place is a
+  small reset icon that puts the default back, greyed when the box already holds it. Its tooltip says
+  what the default is. The keyboard's Up and Down keys still step a number, and the mouse wheel still
+  only changes a box you have clicked.
+- Every model is now picked from a drop-down; none can be typed. That covers the meaning model, the
+  rerank model, the photo description model (a text box until now), the Interpret model, the Chat
+  models and the speech model. A model saved earlier that the list does not know is still shown and
+  still used, marked "(current, not in the list)" or "(current, not installed)".
+- More choices: six more meaning models (small, multilingual, long-passage and large ones, each with
+  its width), two more rerankers, two large speech models (`large-v3-turbo`, `large-v3`), and five
+  picture-reading Ollama models (moondream, llava, qwen2.5vl, minicpm-v, llama3.2-vision).
+- A Download button under each list fetches a model that is not on this computer yet, with progress
+  and a Stop. Ollama models are pulled through Ollama; the others are fetched into the model folder
+  by the same loader Leasha uses. Nothing is downloaded unless you press it.
 ### The question box on the Chat tab grows as you type
 
 - A question that wrapped onto a second or third line stayed one line tall on Windows, so its start

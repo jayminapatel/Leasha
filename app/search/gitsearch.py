@@ -35,13 +35,16 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+import threading
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logging import logger
+from app.core.osbridge import hidden_console_flags
 
 __all__ = [
     "DEFAULT_DEPTHS",
@@ -49,6 +52,8 @@ __all__ = [
     "GitRow",
     "GitSearchResult",
     "SEARCH_TIMEOUT_S",
+    "STOPPED_EXIT",
+    "StopFlag",
     "run_query",
     "DEFAULT_TIMEOUT_S",
     "GitResult",
@@ -81,20 +86,70 @@ DEFAULT_TIMEOUT_S = 600.0
 Runner = Callable[[Sequence[str], Path | None, float], "tuple[int, str, str]"]
 
 
-def _run(args: Sequence[str], cwd: Path | None,
-         timeout: float) -> tuple[int, str, str]:
-    """The real subprocess. The only part of this module that is not testable."""
+#: The exit code `_run` reports for a search somebody stopped (order 0y §1b).
+#: 130 is what a shell reports for a program ended with Ctrl+C.
+STOPPED_EXIT = 130
+
+#: How often a running git is checked for a Stop, in seconds. Well inside the
+#: half-second the order promises.
+_STOP_POLL_S = 0.1
+
+
+class StopFlag:
+    """A switch the window flips to end a running git search. Order 0y §1b.
+
+    Made by the window for each search and handed to `run_query`; `stop()` is
+    safe from any thread, and the git process is ended within `_STOP_POLL_S`.
+    """
+
+    def __init__(self) -> None:
+        self._event = threading.Event()
+
+    def stop(self) -> None:
+        self._event.set()
+
+    @property
+    def stopped(self) -> bool:
+        return self._event.is_set()
+
+
+def _run(args: Sequence[str], cwd: Path | None, timeout: float,
+         stop: Optional[StopFlag] = None) -> tuple[int, str, str]:
+    """The real subprocess. The only part of this module that is not testable.
+
+    **No console window** (order 0y §1a): started with
+    `osbridge.hidden_console_flags()`, so a window running under `pythonw.exe`
+    does not flash a black console box for every git call on Windows.
+
+    **Stoppable** (§1b): git is waited for in short steps rather than in one
+    `subprocess.run`, so a `stop` flipped by the window ends it within
+    `_STOP_POLL_S`. `communicate` is documented as safe to call again after a
+    timeout without losing output.
+    """
     try:
-        completed = subprocess.run(
+        proc = subprocess.Popen(
             list(args), cwd=str(cwd) if cwd else None,
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=timeout, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace",
+            creationflags=hidden_console_flags(),
         )
-    except subprocess.TimeoutExpired:
-        return 124, "", f"timed out after {timeout:.0f}s"
     except OSError as exc:
         return 127, "", str(exc)
-    return completed.returncode, completed.stdout, completed.stderr
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            out, err = proc.communicate(timeout=_STOP_POLL_S)
+        except subprocess.TimeoutExpired:
+            if stop is not None and stop.stopped:
+                proc.kill()
+                proc.communicate()
+                return STOPPED_EXIT, "", "stopped"
+            if time.monotonic() >= deadline:
+                proc.kill()
+                proc.communicate()
+                return 124, "", f"timed out after {timeout:.0f}s"
+            continue
+        return proc.returncode, out, err
 
 
 @dataclass(frozen=True)
@@ -360,13 +415,15 @@ class GitSearchResult:
     #: True when the row cap cut the output. Said out loud, because a truncated
     #: list that does not say so is a wrong answer.
     truncated: bool = False
+    #: Order 0y §1b: somebody pressed Stop (or Esc) before git finished.
+    stopped: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "ok": self.ok, "matches": len(self.rows),
             "elapsed_s": round(self.elapsed_s, 3), "explain": self.explain,
             "command": " ".join(self.command), "error": self.error,
-            "truncated": self.truncated,
+            "truncated": self.truncated, "stopped": self.stopped,
             "rows": [row.as_dict() for row in self.rows],
         }
 
@@ -538,8 +595,12 @@ def run_query(
     limit: int = DEFAULT_ROW_LIMIT,
     timeout: float = SEARCH_TIMEOUT_S,
     runner: Runner = _run,
+    stop: Optional[StopFlag] = None,
 ) -> GitSearchResult:
     """Run one `GitQuery` against `repo` and read what came back.
+
+    `stop` (order 0y §1b) ends the search early when the window flips it: the
+    result then has `stopped=True` and no rows.
 
     The plan comes from `gitquery.build`, which is where every decision about
     *what* to run lives; this runs it and parses it. Splitting them that way is
@@ -555,10 +616,19 @@ def run_query(
     )
 
     plan = build(query)
+    if stop is not None and runner is _run:
+        runner = partial(_run, stop=stop)
     plan.argv = _expand_refs(Path(repo), plan, runner)
     started = time.perf_counter()
-    code, out, err = runner(plan.argv, Path(repo), timeout)
+    if stop is not None and stop.stopped:
+        code, out, err = STOPPED_EXIT, "", "stopped"
+    else:
+        code, out, err = runner(plan.argv, Path(repo), timeout)
     elapsed = time.perf_counter() - started
+    if stop is not None and stop.stopped:
+        return GitSearchResult(
+            ok=False, stopped=True, elapsed_s=elapsed, explain=plan.explain,
+            command=tuple(plan.argv), error="stopped")
 
     # Exit code 1 is "found nothing" for both grep and log. See the note on
     # `search_history`: treating it as failure reports every unsuccessful

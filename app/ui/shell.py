@@ -54,6 +54,7 @@ from app.ui.state_writes import pool as state_write_pool, save_state, save_state
 from app.ui.view_options import load_prefs, save_prefs_later
 from app.ui.window_state import bring_forward, restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets.rail import Rail
 from app.ui.widgets.restart_note import mark_restart_needed
 from app.ui.widgets.search_bar import retint_toolbar
@@ -511,6 +512,9 @@ class MainWindow(QMainWindow):
         # matters; doing it here means a new page gets it for free.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls", guarded)
+        # Every number field loses its arrows and gains a back-to-default
+        # button (owner, 2026-09-29), here for the same reason as the guard.
+        fit_number_fields(self)
 
         # **Opt-in, and off until asked for.** An application that vanishes
         # from the taskbar when you did not ask it to is alarming: you close a
@@ -662,6 +666,7 @@ class MainWindow(QMainWindow):
         # guarded a second time is guarded harmlessly, see `protect`.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
+        fit_number_fields(self)
         self._apply_motion()                     # §5c: the two new panes too
 
     def _construct_deferred_pages(self, store: Any, settings: Any, model: str,
@@ -723,10 +728,13 @@ class MainWindow(QMainWindow):
             self.settings_view.debug_pane.file_chosen.connect(self._open_path)
             self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
             self.settings_view.set_roots(
-                self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots())
+                self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots(),
+                self.settings_ctl._load_first_folders())
             self.settings_view.roots_changed.connect(self._save_roots)
             self.settings_view.root_modes_changed.connect(self._save_root_modes)
             self.settings_view.cloud_content_roots_changed.connect(self._save_cloud_content_roots)
+            self.settings_view.first_folders_changed.connect(
+                self.settings_ctl._save_first_folders)
             self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())
@@ -820,6 +828,7 @@ class MainWindow(QMainWindow):
             # Once, for the controls that did not exist when `__init__` ran it.
             guarded = protect_all(self)
             _log.debug("wheel-guarded {} controls (second pass, Indexing + Settings)", guarded)
+            fit_number_fields(self)
             # **After the pages are in the window**: `mark_restart_needed` finds
             # controls by `findChild` on the window, and a page that has not been
             # added to the rail yet has no parent to be found under.

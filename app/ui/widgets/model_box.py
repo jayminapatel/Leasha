@@ -50,6 +50,8 @@ from app.llm.models import (
     with_suggestions,
 )
 from app.search.translate import TEST_SENTENCE
+from app.ui.widgets.model_download import DownloadRow
+from app.ui.widgets.number_field import fit
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ModelBox", "TEST_SENTENCE"]
@@ -120,6 +122,9 @@ class ModelBox(QGroupBox):
             "model sets a sensible budget for it; adjust only if you see timeouts."
         )
         self.timeout.valueChanged.connect(lambda _v: self._emit())
+        # No arrows, and its back-to-default button restores the budget that
+        # fits the chosen model - the number this box would set itself.
+        fit(self.timeout, default=suggested_timeout_s(None))
 
         self.refresh_button = QPushButton("Refresh list")
         self.refresh_button.setToolTip("Ask Ollama which models are installed")
@@ -153,6 +158,13 @@ class ModelBox(QGroupBox):
         self.status.setWordWrap(True)
         self.status.setObjectName("resultsSummary")
 
+        # Owner, 2026-09-29: model lists are drop-downs only, "if there are
+        # other options add them and put a mechanism to download". The greyed
+        # suggestions in the list are what Download offers; once one is pulled
+        # the list is asked for again and it becomes choosable.
+        self.download = DownloadRow("ollama", client_factory=self._client_factory)
+        self.download.finished.connect(lambda _n, _r: self.refresh())
+
         buttons = QHBoxLayout()
         buttons.addWidget(self.refresh_button)
         buttons.addWidget(self.test_button)
@@ -164,6 +176,7 @@ class ModelBox(QGroupBox):
         form.addRow("Model", self.model)
         form.addRow("Give it up to", self.timeout)
         form.addRow(buttons)
+        form.addRow(self.download)
         form.addRow(self.status)
 
     # -- loading ---------------------------------------------------------------
@@ -183,6 +196,9 @@ class ModelBox(QGroupBox):
             self.enabled.setChecked(bool(enabled))
         with _quiet(self.timeout):
             self.timeout.setValue(int(timeout_s or suggested_timeout_s(None)))
+        from app.llm.models import parameter_billions
+
+        fit(self.timeout, default=suggested_timeout_s(parameter_billions(self._configured)))
         self._show_models([])
         self._sync_enabled()
         if enabled:
@@ -210,7 +226,8 @@ class ModelBox(QGroupBox):
         somebody knows what turning it on would give them.
         """
         on = self.enabled.isChecked()
-        for widget in (self.model, self.timeout, self.refresh_button, self.test_button):
+        for widget in (self.model, self.timeout, self.refresh_button, self.test_button,
+                       self.download):
             widget.setEnabled(on)
 
     def refresh(self) -> None:
@@ -264,11 +281,17 @@ class ModelBox(QGroupBox):
             # nothing and even when it is not installed. Dropping it would
             # silently change a setting somebody chose.
             if selected and self.model.findData(selected) < 0:
-                self.model.insertItem(0, selected, selected)
+                # Dated note, 2026-09-29: marked, when Ollama answered and the
+                # model is not among what it has - the list says so itself.
+                label = f"{selected}  (current, not installed)" if names else selected
+                self.model.insertItem(0, label, selected)
             position = self.model.findData(selected)
             self.model.setCurrentIndex(max(0, position))
 
         self.status.setText(note or self._speed_note(names, selected))
+        self.download.set_offers(
+            (choice.name, "not installed") for choice in with_suggestions(names)
+            if not choice.installed)
 
     def _speed_note(self, installed: list[str], selected: str) -> str:
         """One line under the dropdown: how many there are, and what to do.
@@ -313,6 +336,7 @@ class ModelBox(QGroupBox):
 
         with _quiet(self.timeout):
             self.timeout.setValue(suggested_timeout_s(parameter_billions(chosen)))
+        fit(self.timeout, default=suggested_timeout_s(parameter_billions(chosen)))
         if not self.enabled.isChecked():
             # Choosing a model is the act of asking for the feature. Making
             # somebody then find a separate switch is a step that exists only

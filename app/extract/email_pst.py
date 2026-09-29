@@ -168,8 +168,10 @@ def _attachment_documents(
     `proposal_v2_FINAL.pptx` may be identical bytes, and `report.pdf` from two
     senders usually is. Hashing is cheap next to parsing and embedding.
     """
+    from app.extract import junk_images, reading
     from app.extract.base import extract as extract_path
 
+    policy = reading.current()
     for attachment in item.attachments:
         name = attachment.filename or "attachment"
         if attachment.size_bytes > MAX_ATTACHMENT_BYTES:
@@ -199,12 +201,33 @@ def _attachment_documents(
                 continue
 
             digest = _hash_bytes(data)
+            # Order 0z lane D: the junk-image filter, pictures only - D1, D3
+            # and D4. **Not D2**: whether Outlook marks the attachment inline
+            # or hidden is a MAPI property this backend does not read yet, so
+            # "decorative" is never decided here. UNVERIFIED on Windows: this
+            # path needs classic Outlook and has not run under the filter.
+            book = policy.junk if _is_picture(name) else None
+            if book is not None:
+                book.saw(digest)
             if digest in seen_hashes:
                 continue          # the same bytes are already indexed somewhere
             seen_hashes.add(digest)
+            screened = None
+            if book is not None:
+                screened = junk_images.screen(book, digest, data, inline=False)
+                if screened.reason:
+                    policy.left_unread(screened.reason)
+                    continue
 
             try:
-                for document in extract_path(target):
+                documents = extract_path(target)
+                if book is not None:
+                    documents, why = junk_images.settle(
+                        book, digest, list(documents), screened)
+                    if why:
+                        policy.left_unread(why)
+                        continue
+                for document in documents:
                     document.virtual_path = f"{message_key}/attachments/{name}"
                     document.source_kind = SourceKind.PST_MESSAGE
                     document.meta.setdefault("attachment_of", message_key)
@@ -212,8 +235,28 @@ def _attachment_documents(
                     document.meta.setdefault("content_hash", digest)
                     yield document
             except AppErrorException as exc:
+                if book is not None and exc.error.code == "ERR_NO_TEXT_LAYER":
+                    junk_images.settle(book, digest, [], screened)   # no words: D1
                 # An unreadable attachment is a skip, never the end of the run.
                 warnings.append(exc.error)
+            except Exception as exc:                      # noqa: BLE001
+                # Order 0z lane C: a reader failing with anything else - `xlrd`
+                # raised `struct.error` on a damaged `.xls` - ended the archive
+                # on the libpff path, measured. The same hole was here.
+                warnings.append(make_error(
+                    "ERR_FILE_CORRUPT", "extract.pst", path=f"{message_key}/{name}",
+                    details=f"Could not be read: {type(exc).__name__}: {exc}",
+                ))
+
+
+def _is_picture(name: str) -> bool:
+    """Would this attachment be read by OCR? Never raises."""
+    from app.extract.base import reads_by_ocr
+
+    try:
+        return reads_by_ocr(Path(name))
+    except Exception:                            # noqa: BLE001
+        return False
 
 
 def walk_session(

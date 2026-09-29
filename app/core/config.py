@@ -362,11 +362,27 @@ class Settings(BaseModel):
     embed_dedup: bool = True
     #: `with-run | after-run | manual`. When the images pass happens.
     index_ocr_pass: str = "with-run"
+    #: `newest | found`. The order a run reads files in - see
+    #: `app/index/read_order.py`. 2026-09-29.
+    index_order: str = "newest"
     #: Work order 0x §2e. Run the window's index in a child process of its
     #: own (`app/index/child_run.py`) rather than on threads inside the
     #: window's process. Kept as a switch until the before-and-after
     #: measurement (§2d) is confirmed on the owner's real index.
     index_separate_process: bool = False
+    #: Work order 0x §5b. Read files in a process per extraction thread
+    #: (`app/index/read_process.py`) rather than on threads that share one
+    #: interpreter lock. Off by default until measured on the owner's machine.
+    index_read_processes: bool = False
+    #: Work order 0z lane B (`app/index/file_watch.py`). Seconds one text or
+    #: code file may take to read before it is skipped (`ERR_FILE_TIMEOUT`);
+    #: PDFs, Office files and other documents get ten times this. 0 is no
+    #: limit. Mailboxes and archives are judged on progress instead - below.
+    index_file_time_limit_s: int = 120
+    #: Seconds a mailbox or archive may go with nothing new read before it is
+    #: skipped. Never a limit on its total time: a large `.pst` can rightly
+    #: take hours. 0 is no limit.
+    index_stall_limit_s: int = 600
 
     # --- indexing: when it runs --------------------------------------------
     #: manual | startup | interval | daily
@@ -391,6 +407,10 @@ class Settings(BaseModel):
     #: The largest archive whose members are read, in MB. A 40GB backup zip is
     #: recorded by name with a message saying why, rather than read.
     archive_max_mb: int = 100
+    #: Order 0z lane D: leave decorative and repeated pictures attached to
+    #: mail unread (`app/extract/junk_images.py`). On by default - the owner's
+    #: report was that signature images were being read, slowly, for nothing.
+    index_junk_image_filter: bool = True
     #: Rung 1 of the OCR ladder (`app/extract/ocr_ladder.py`): above this
     #: percentage of plain-white pixels in a downscaled thumbnail, an image
     #: goes straight to full OCR rather than the cheaper detection probe.
@@ -501,7 +521,11 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_BULK_FTS",
     "EMBED_DEDUP",
     "INDEX_OCR_PASS",
+    "INDEX_ORDER",
     "INDEX_SEPARATE_PROCESS",
+    "INDEX_READ_PROCESSES",
+    "INDEX_FILE_TIME_LIMIT_S",
+    "INDEX_STALL_LIMIT_S",
     "INDEX_MEMORY_MB",
     "INDEX_CPU_PERCENT",
     "INDEX_PAUSE_ON_BATTERY",
@@ -516,6 +540,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "ARCHIVE_MAX_MB",
     "PDF_OCR_PAGES",
     "OCR_WHITE_PAGE_PERCENT",
+    "INDEX_JUNK_IMAGE_FILTER",
     "MIN_FREE_GB",
     "REQUIRED_FREE_GB",
     "CLOUD_CONTENT_CAP_MB",
@@ -693,9 +718,18 @@ def load_settings(
             embed_dedup=_as_bool("EMBED_DEDUP", values.get("EMBED_DEDUP", "true")),
             index_ocr_pass=(
                 values.get("INDEX_OCR_PASS") or "with-run").strip().lower(),
+            index_order=(values.get("INDEX_ORDER") or "newest").strip().lower(),
             index_separate_process=_as_bool(
                 "INDEX_SEPARATE_PROCESS",
                 values.get("INDEX_SEPARATE_PROCESS", "false")),
+            index_read_processes=_as_bool(
+                "INDEX_READ_PROCESSES",
+                values.get("INDEX_READ_PROCESSES", "false")),
+            index_file_time_limit_s=max(0, _as_int(
+                "INDEX_FILE_TIME_LIMIT_S",
+                values.get("INDEX_FILE_TIME_LIMIT_S", "120"))),
+            index_stall_limit_s=max(0, _as_int(
+                "INDEX_STALL_LIMIT_S", values.get("INDEX_STALL_LIMIT_S", "600"))),
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
@@ -720,6 +754,9 @@ def load_settings(
             ocr_white_page_percent=_as_int(
                 "OCR_WHITE_PAGE_PERCENT",
                 values.get("OCR_WHITE_PAGE_PERCENT", "70")),
+            index_junk_image_filter=_as_bool(
+                "INDEX_JUNK_IMAGE_FILTER",
+                values.get("INDEX_JUNK_IMAGE_FILTER", "true")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,
@@ -766,6 +803,7 @@ def load_settings(
         ("INDEX_BULK_FTS", settings.index_bulk_fts, ("auto", "on", "off")),
         ("INDEX_OCR_PASS", settings.index_ocr_pass,
          ("with-run", "after-run", "manual")),
+        ("INDEX_ORDER", settings.index_order, ("newest", "found")),
         ("SEARCH_FIX_SPELLING", settings.search_fix_spelling,
          ("auto", "suggest", "off")),
     ):

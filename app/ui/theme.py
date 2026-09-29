@@ -387,6 +387,10 @@ QToolButton:focus {{ border-color: {focus_ring}; }}
 /* Icon-only toggles on the Search toolbar (202626160950 §3e): a 28px square
    that fills when on. The label lives in the tooltip and accessible name. */
 QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18px; }}
+/* The back-to-default button inside every number field, where the arrows
+   were (widgets/number_field.py, owner 2026-09-29). Sized by the field, so no
+   padding of its own. */
+QToolButton#numberReset {{ padding: 0px; border: none; }}
 
 /* **The segmented control** (§3c): one flat strip, the chosen segment lifted
    to the surface colour. A QButtonGroup of checkable QToolButtons, so keyboard

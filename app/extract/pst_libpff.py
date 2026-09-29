@@ -31,6 +31,7 @@ from __future__ import annotations
 import email.utils
 import hashlib
 import re
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -38,7 +39,7 @@ from typing import Any, Iterable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
-from app.extract import progress
+from app.extract import junk_images, progress, reading
 from app.extract.base import Document, SourceKind, looks_locked, with_closing_warning
 from app.extract.email_files import build_email_document, html_to_text
 
@@ -146,7 +147,7 @@ class _Report:
     was complete.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, frame: Optional[progress.Frame] = None) -> None:
         self.read = 0
         self.messages = 0
         self.folders = 0
@@ -157,13 +158,23 @@ class _Report:
         #: it is a number somewhere rather than only a log line nobody reads.
         self.attachments = 0
         self.examples: list[str] = []
+        #: Order 0z lane C: the per-item status words live on the progress
+        #: frame, so the Indexing page sees them while the archive is read.
+        self.frame = frame if frame is not None else progress.Frame("pst", "", unit="message")
+        #: `_readable_type`'s answers, one per extension, for this read only.
+        self.types: dict[str, bool] = {}
 
     @property
     def failed(self) -> bool:
         return bool(self.messages or self.folders)
 
+    def status(self, word: str) -> None:
+        """One item (message or attachment) ended as `word`. See `progress.STATUS_WORDS`."""
+        self.frame.count(word)
+
     def message_failed(self, folder_path: str, index: int, exc: BaseException) -> None:
         self.messages += 1
+        self.status(progress.STATUS_FAILED)
         self._note(f"message {index} in {folder_path}", exc)
 
     def folder_failed(self, folder_path: str, exc: BaseException) -> None:
@@ -172,6 +183,7 @@ class _Report:
 
     def attachment_failed(self, message_key: str, index: int, exc: BaseException) -> None:
         self.attachments += 1
+        self.status(progress.STATUS_FAILED)
         self._note(f"attachment {index} on {message_key}", exc)
 
     def _note(self, where: str, exc: BaseException) -> None:
@@ -188,31 +200,106 @@ class _Report:
         return " and ".join(parts) + f" could not be read ({self.read} were)"
 
 
+#: Guards against a damaged folder tree (order 0z lane C). **Constants, not
+#: settings** (non-negotiable 11): they never fire on a healthy archive, and
+#: nobody could choose a better number than "far past anything real".
+#:
+#: `MAX_FOLDER_DEPTH` - folders nested deeper than this are not entered. A
+#: descriptor that points back at an ancestor makes the tree infinitely deep;
+#: before this, the walk recursed until Python's recursion limit, and the
+#: `RecursionError` ended the whole archive. Chosen, not measured: Outlook
+#: users nest a handful deep; 64 is far past that.
+MAX_FOLDER_DEPTH = 64
+#: `MAX_CONSECUTIVE_FAILURES` - a folder whose items fail this many times in
+#: a row is abandoned (and recorded as a folder that could not be read). A
+#: damaged folder can claim billions of messages; each failed read takes
+#: microseconds, so an honest loop over a lying count spins for hours with
+#: `frame.n` rising and nothing read. Chosen, not measured: the fuzzed damage
+#: on a real archive (`HANDOFF.md`) never produced more than a few failures
+#: in a row in a readable folder.
+MAX_CONSECUTIVE_FAILURES = 200
+
+
+def _identifier(item: Any) -> Optional[int]:
+    """libpff's node identifier, or None when it cannot be read (or a fake lacks it)."""
+    try:
+        return int(item.get_identifier())
+    except Exception:                            # noqa: BLE001
+        return None
+
+
 def _walk_folders(
     folder: Any, path: str = "", report: Optional[_Report] = None,
 ) -> Iterator[tuple[str, Any]]:
-    """Every folder in the archive, depth first, with its path."""
+    """Every folder in the archive, depth first, with its path.
+
+    **Iterative, with a cycle guard** (order 0z lane C). The order is exactly
+    the recursive order it replaced - pre-order, children fetched one at a
+    time - because `_messages` numbers folders by it and a saved resume cursor
+    is that number. What changed is what a damaged tree can do: a folder seen
+    before (by libpff identifier) is not entered again, nesting stops at
+    `MAX_FOLDER_DEPTH`, and a folder whose children fail
+    `MAX_CONSECUTIVE_FAILURES` times in a row stops being asked. Each is
+    recorded as a folder that could not be read.
+    """
+    def failed(where: str, exc: BaseException) -> None:
+        if report is not None:
+            report.folder_failed(where, exc)
+        else:
+            _log.warning("folder {} unreadable: {}", where, exc)
+
+    def children(here: str, node: Any) -> int:
+        try:
+            return int(node.get_number_of_sub_folders())
+        except Exception as exc:                 # noqa: BLE001
+            # A whole subtree vanishes here, so it is recorded rather than shrugged off.
+            failed(here, exc)
+            return 0
+
+    seen: set[int] = set()
+    root_id = _identifier(folder)
+    if root_id is not None:
+        seen.add(root_id)
     name = _safe(folder, "get_name") or "(unnamed)"
     here = f"{path}/{name}".strip("/")
     yield here, folder
-
-    try:
-        count = folder.get_number_of_sub_folders()
-    except Exception as exc:                     # noqa: BLE001
-        # A whole subtree vanishes here, so it is recorded rather than shrugged off.
-        if report is not None:
-            report.folder_failed(here, exc)
-        count = 0
-    for index in range(count):
-        try:
-            child = folder.get_sub_folder(index)
-        except Exception as exc:                 # noqa: BLE001 - one bad folder, not a bad archive
-            if report is not None:
-                report.folder_failed(f"{here}/#{index}", exc)
-            else:
-                _log.warning("folder {} of {} unreadable: {}", index, here, exc)
+    # Each entry: [path, folder, child count, next child index, failures in a row].
+    stack: list[list[Any]] = [[here, folder, children(here, folder), 0, 0]]
+    while stack:
+        top = stack[-1]
+        parent_path, parent, count, index, bad = top
+        if index >= count:
+            stack.pop()
             continue
-        yield from _walk_folders(child, here, report)
+        top[3] = index + 1
+        if bad >= MAX_CONSECUTIVE_FAILURES:
+            failed(f"{parent_path} (from #{index})", RuntimeError(
+                f"gave up after {bad} unreadable sub-folders in a row "
+                f"({count} claimed)"))
+            stack.pop()
+            continue
+        try:
+            child = parent.get_sub_folder(index)
+        except Exception as exc:                 # noqa: BLE001 - one bad folder, not a bad archive
+            top[4] = bad + 1
+            failed(f"{parent_path}/#{index}", exc)
+            continue
+        top[4] = 0
+        child_id = _identifier(child)
+        name = _safe(child, "get_name") or "(unnamed)"
+        child_path = f"{parent_path}/{name}".strip("/")
+        if child_id is not None and child_id in seen:
+            failed(child_path, RuntimeError(
+                f"folder {child_id} appears twice in the folder tree (a loop)"))
+            continue
+        if len(stack) >= MAX_FOLDER_DEPTH:
+            failed(child_path, RuntimeError(
+                f"nested more than {MAX_FOLDER_DEPTH} folders deep"))
+            continue
+        if child_id is not None:
+            seen.add(child_id)
+        yield child_path, child
+        stack.append([child_path, child, children(child_path, child), 0, 0])
 
 
 def _open_error(path: Path, exc: BaseException) -> AppErrorException:
@@ -329,8 +416,9 @@ def _read_archive(
             details=f"the archive has no readable root folder: {exc}",
         )) from exc
 
-    report = _Report()
+    report = _Report(frame)
     report.read = max(0, int(read_before or 0))
+    policy = reading.current()
 
     def closing() -> Optional[AppError]:
         if not report.failed:
@@ -353,13 +441,19 @@ def _read_archive(
     # `content_hash`-identical references, not eight embeddings of the same
     # bytes.
     seen_hashes: set[str] = set(seen_attachments or ())
+    scratch = _Scratch()
 
     try:
         yield from with_closing_warning(
             _messages(root, path, store_name, skip, report, seen_hashes,
                       resume_from=max(0, int(resume_from or 0)),
-                      frame=frame), closing)
+                      frame=frame, policy=policy, scratch=scratch), closing)
     finally:
+        # However the read ended - finished, failed or abandoned - the pipeline
+        # gets the counts for its end-of-archive log line (order 0z lane C),
+        # and the scratch folder goes.
+        policy.counts = dict(frame.counts)
+        scratch.close()
         try:
             archive.close()
         except Exception:                        # noqa: BLE001
@@ -391,6 +485,8 @@ def _messages(
     root: Any, path: Path, store_name: str, skip: frozenset[str], report: _Report,
     seen_hashes: set[str], *, resume_from: int = 0,
     frame: Optional[progress.Frame] = None,
+    policy: Optional[reading.Reading] = None,
+    scratch: Optional["_Scratch"] = None,
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -407,9 +503,27 @@ def _messages(
     anyway to drive the loop), so it costs nothing. A whole-archive total
     would need every folder visited first - a second walk of a file that can
     be tens of gigabytes - so there is none, on purpose.
+
+    **Order 0z lane C.** Every message ends as one status word on the frame
+    (`progress.STATUS_WORDS`), and `frame.n` moves for every message -
+    read, empty or failed - so a per-file time limit watching it never takes
+    a slow archive for a stalled one. A folder whose messages fail
+    `MAX_CONSECUTIVE_FAILURES` times in a row is abandoned and recorded,
+    because a damaged folder can claim more messages than exist.
+
+    `policy` is the pass's images rule (`app.extract.reading`). With
+    `IMAGES_ONLY` - the pictures pass coming back for an archive whose
+    pictures were held - messages are not converted or yielded (the text pass
+    indexed them) and only picture attachments are read.
     """
     if frame is None:
-        frame = progress.Frame("pst", path.name, unit="message")
+        frame = report.frame
+    if policy is None:
+        policy = reading.current()
+    if scratch is None:
+        scratch = _Scratch()
+    images_only = policy.images == reading.IMAGES_ONLY
+    seen_messages: set[int] = set()
     for ordinal, (folder_path, folder) in enumerate(_walk_folders(root, report=report)):
         if ordinal < resume_from:
             continue
@@ -424,37 +538,77 @@ def _messages(
         frame.n = 0
         frame.total = None
         try:
-            count = folder.get_number_of_sub_messages()
+            count = int(folder.get_number_of_sub_messages())
         except Exception as exc:                 # noqa: BLE001
             report.folder_failed(folder_path, exc)
             continue
         frame.total = count
         frame.stage = progress.STAGE_MESSAGES
 
+        bad_in_a_row = repeats_in_a_row = 0
         for index in range(count):
+            if bad_in_a_row >= MAX_CONSECUTIVE_FAILURES:
+                report.folder_failed(f"{folder_path} (from message {index})", RuntimeError(
+                    f"gave up after {bad_in_a_row} unreadable messages in a row "
+                    f"({count} claimed)"))
+                break
+            if repeats_in_a_row >= MAX_CONSECUTIVE_FAILURES:
+                # Everything here was already read: not damage worth a partial
+                # warning, only a loop worth leaving.
+                _log.info("left {} after {} messages in a row that were already read",
+                          folder_path, repeats_in_a_row)
+                break
             frame.n = index + 1
             try:
                 message = folder.get_sub_message(index)
-                document = _to_document(message, path, store_name, folder_path)
+                identifier = _identifier(message)
+                if identifier is not None and identifier in seen_messages:
+                    # The same message twice - a damaged index pointing back at
+                    # itself, or a folder listing another's messages. Its
+                    # `virtual_path` is its identifier, so a second read would
+                    # only overwrite the first.
+                    repeats_in_a_row += 1
+                    report.status(progress.STATUS_DUPLICATE)
+                    continue
+                repeats_in_a_row = 0
+                attachments = _attachments(message, report)
+                if images_only:
+                    document = None
+                    message_key = f"pst://{store_name}/{identifier if identifier is not None else f'{folder_path}#{index}'}"
+                else:
+                    document = _to_document(message, path, store_name, folder_path,
+                                            attachment_names=[name for name, _a in attachments])
+                    message_key = (document.virtual_path if document is not None
+                                   else f"pst://{store_name}/{folder_path}/{index}")
             except Exception as exc:             # noqa: BLE001 - one bad message, not a bad run
+                bad_in_a_row += 1
                 report.message_failed(folder_path, index, exc)
                 continue
+            bad_in_a_row = 0
+            if identifier is not None:
+                seen_messages.add(identifier)
 
-            if document is not None:
+            if images_only:
                 report.read += 1
+            elif document is None:
+                report.status(progress.STATUS_SKIPPED)
+            else:
+                report.read += 1
+                report.status(progress.STATUS_INDEXED)
                 _mark_folder(document, report, ordinal, read_before)
                 yield document
-                # **After the message, not instead of it.** One bad
-                # attachment must never cost the message itself - `_to_
-                # document` already returned successfully by the time this
-                # runs, so the worst an attachment failure does now is one
-                # missing attachment, logged and counted in `report.
-                # attachments`.
+            # **After the message, not instead of it.** One bad attachment
+            # must never cost the message itself - `_to_document` already
+            # returned successfully by the time this runs, so the worst an
+            # attachment failure does now is one missing attachment, logged
+            # and counted in `report.attachments`.
+            if attachments:
                 for attached in _attachment_documents(
-                    message, document.virtual_path or f"pst://{store_name}/{folder_path}/{index}",
-                    seen_hashes, report, frame=frame,
+                    message, message_key, seen_hashes, report, frame=frame,
+                    attachments=attachments, policy=policy, scratch=scratch,
                 ):
-                    _mark_folder(attached, report, ordinal, read_before)
+                    if not images_only:
+                        _mark_folder(attached, report, ordinal, read_before)
                     yield attached
 
 
@@ -476,6 +630,7 @@ def _to_document(
     archive_path: Path,
     store_name: str,
     folder_path: str,
+    attachment_names: Optional[list[str]] = None,
 ) -> Optional[Document]:
     headers = _safe(message, "get_transport_headers")
     subject = _safe(message, "get_subject")
@@ -505,7 +660,8 @@ def _to_document(
         or None
     )
 
-    attachment_names = _attachment_names(message)
+    if attachment_names is None:
+        attachment_names = _attachment_names(message)
     document = build_email_document(
         archive_path,
         subject=subject,
@@ -527,20 +683,36 @@ def _to_document(
     return document
 
 
-def _attachment_names(message: Any) -> list[str]:
+def _attachments(message: Any, report: Optional[_Report] = None) -> list[tuple[str, Any]]:
+    """Each attachment's name and libpff object, fetched **once** per message.
+
+    Order 0z lane C, measured: `get_attachment` is the costliest call in a
+    read without OCR (about 2ms each on a real archive), and it used to be
+    made twice per attachment - once for the name on the message, once to read
+    the bytes. An attachment that cannot be fetched keeps its place as
+    `attachment-N` with `None` for the object, and is counted as failed when
+    its bytes are wanted.
+    """
     try:
-        count = message.get_number_of_attachments()
+        count = int(message.get_number_of_attachments())
     except Exception:                            # noqa: BLE001
         return []
-
-    names: list[str] = []
-    for index in range(count):
+    found: list[tuple[str, Any]] = []
+    for index in range(max(0, count)):
         try:
             attachment = message.get_attachment(index)
-            names.append(_attachment_name(attachment, index))
+        except Exception as exc:                 # noqa: BLE001
+            found.append((f"attachment-{index}", exc))
+            continue
+        try:
+            found.append((_attachment_name(attachment, index), attachment))
         except Exception:                        # noqa: BLE001
-            names.append(f"attachment-{index}")
-    return names
+            found.append((f"attachment-{index}", attachment))
+    return found
+
+
+def _attachment_names(message: Any) -> list[str]:
+    return [name for name, _attachment in _attachments(message)]
 
 
 #: MAPI property tags carrying an attachment's file name, per [MS-OXPROPS].
@@ -612,9 +784,81 @@ def _hash_bytes(data: bytes) -> str:
     return hashlib.blake2b(data, digest_size=16).hexdigest()
 
 
+class _Scratch:
+    """One temporary folder per archive, for handing attachment bytes to a reader.
+
+    Order 0z lane C. Every reader takes a path, so an attachment's bytes still
+    go to disk - but through one folder made on first use and removed when the
+    archive closes, instead of a `TemporaryDirectory` created and deleted per
+    attachment. Measured on Linux (tmpfs): 0.34ms per attachment for the
+    folder per attachment against 0.10ms for the write alone. On Windows, where
+    each create and delete also passes the virus scanner, the saving should be
+    larger - UNCONFIRMED, not measured there.
+
+    Each file is deleted as soon as its reader has finished with it, so the
+    folder never holds more than one attachment.
+    """
+
+    __slots__ = ("_dir",)
+
+    def __init__(self) -> None:
+        self._dir: Optional[Path] = None
+
+    def write(self, name: str, data: bytes) -> Path:
+        if self._dir is None:
+            self._dir = Path(tempfile.mkdtemp(prefix="lkg_attach_"))
+        target = self._dir / _attachment_filename(name)
+        target.write_bytes(data)
+        return target
+
+    def close(self) -> None:
+        if self._dir is not None:
+            shutil.rmtree(self._dir, ignore_errors=True)
+            self._dir = None
+
+
+def _attachment_filename(name: str) -> str:
+    """A name safe to write on any file system, keeping the extension readers route by."""
+    base = Path(str(name).replace("\\", "/")).name or "attachment"
+    stem, dot, ext = base.rpartition(".")
+    if not dot:
+        return _safe_filename(base, limit=120)
+    return f"{_safe_filename(stem, limit=120)}.{_UNSAFE.sub('_', ext)[:16]}"
+
+
+def _readable_type(name: str, known: dict[str, bool]) -> bool:
+    """Would the registry read a file with this name? Cached per extension, per archive.
+
+    Order 0z lane C, measured: an attachment of a type nothing reads (`.url`,
+    `.dat`, ...) was written to disk, handed to `extract`, and turned down -
+    and on the way `extract` parsed `extractors.toml` again to look for a
+    converter, about 4ms each. One answer per extension per archive now,
+    with no write.
+    """
+    ext = Path(name).suffix.lower()
+    answer = known.get(ext)
+    if answer is None:
+        from app.extract.base import extractor_for
+
+        answer = extractor_for(Path(name)) is not None
+        if not answer:
+            try:
+                from app.core.formats import load_rules
+
+                rule = load_rules().converter_for(ext)
+                answer = bool(rule is not None and rule.enabled)
+            except Exception:                    # noqa: BLE001 - let extract decide
+                answer = True
+        known[ext] = answer
+    return answer
+
+
 def _attachment_documents(
     message: Any, message_key: str, seen_hashes: set[str], report: _Report,
     *, frame: Optional[progress.Frame] = None,
+    attachments: Optional[list[tuple[str, Any]]] = None,
+    policy: Optional[reading.Reading] = None,
+    scratch: Optional[_Scratch] = None,
 ) -> Iterator[Document]:
     """Extract each attachment through the normal registry, deduplicated.
 
@@ -631,13 +875,13 @@ def _attachment_documents(
     and `meta` shape - so Layer 3 cannot tell, and should not have to,
     which backend produced an attachment.
     """
-
-    try:
-        count = message.get_number_of_attachments()
-    except Exception:                            # noqa: BLE001
+    if attachments is None:
+        attachments = _attachments(message, report)
+    if not attachments:
         return
-    if not count:
-        return
+    own_scratch = scratch is None
+    if scratch is None:
+        scratch = _Scratch()
 
     # Work order 0x section 3b: while attachments are read the page says so,
     # and names the one being read - a 60MB attachment is exactly the kind of
@@ -647,8 +891,12 @@ def _attachment_documents(
         frame.stage = progress.STAGE_ATTACHMENTS
     try:
         yield from _each_attachment(message, message_key, seen_hashes, report,
-                                    count, frame)
+                                    attachments, frame,
+                                    policy if policy is not None else reading.current(),
+                                    scratch)
     finally:
+        if own_scratch:
+            scratch.close()
         if frame is not None:
             frame.stage = progress.STAGE_MESSAGES
             frame.detail = ""
@@ -656,22 +904,53 @@ def _attachment_documents(
 
 def _each_attachment(
     message: Any, message_key: str, seen_hashes: set[str], report: _Report,
-    count: int, frame: Optional[progress.Frame],
+    attachments: list[tuple[str, Any]], frame: Optional[progress.Frame],
+    policy: reading.Reading, scratch: _Scratch,
 ) -> Iterator[Document]:
-    """The attachment loop of `_attachment_documents`. See there."""
+    """The attachment loop of `_attachment_documents`. See there.
+
+    **Every attachment ends as exactly one status word** (order 0z lane C),
+    and nothing a reader raises reaches the archive. Before, only
+    `AppErrorException` was caught around the reader: a damaged `.xls` inside
+    a damaged archive raised `struct.error` from `xlrd`, and the archive
+    ended there - reproduced on 17 of 150 damaged copies of a real archive,
+    each stopping after 7 to 62 of its 71 messages.
+
+    **The cheap refusals come before the bytes are read**: a type nothing
+    reads, a picture held for the pictures pass, an attachment over the size
+    ceiling. Then the bytes are hashed *before* they are written, so a
+    duplicate is never written at all.
+    """
     from app.extract.base import extract as extract_path
+    from app.extract.base import reads_by_ocr
     from app.extract.email_pst import MAX_ATTACHMENT_BYTES
 
-    for index in range(count):
-        try:
-            attachment = message.get_attachment(index)
-        except Exception as exc:                 # noqa: BLE001 - one bad attachment
-            report.attachment_failed(message_key, index, exc)
-            continue
+    hold = policy.images == reading.IMAGES_HOLD
+    images_only = policy.images == reading.IMAGES_ONLY
+    known = report.types
 
-        name = _attachment_name(attachment, index)
+    for index, (name, attachment) in enumerate(attachments):
         if frame is not None:
             frame.detail = name
+        if isinstance(attachment, BaseException):
+            report.attachment_failed(message_key, index, attachment)
+            continue
+        try:
+            is_picture = reads_by_ocr(Path(name))
+        except Exception:                        # noqa: BLE001
+            is_picture = False
+        if images_only and not is_picture:
+            continue                             # the text pass read it
+        if hold and is_picture:
+            # Order 0z lane C: never opened on the text pass. Its name is on
+            # the message already; the pictures pass comes back for it.
+            policy.held += 1
+            report.status(progress.STATUS_HELD)
+            continue
+        if not _readable_type(name, known):
+            report.status(progress.STATUS_SKIPPED)
+            _log.debug("attachment '{}' on {} is a type nothing reads", name, message_key)
+            continue
 
         try:
             size = int(attachment.get_size())
@@ -680,6 +959,7 @@ def _each_attachment(
             continue
 
         if size > MAX_ATTACHMENT_BYTES:
+            report.status(progress.STATUS_SKIPPED)
             _log.warning(
                 "attachment '{}' on {} is {:,} bytes, over the {}MB ceiling, "
                 "and was not opened - large attachments are almost always "
@@ -688,32 +968,87 @@ def _each_attachment(
             )
             continue
 
-        with tempfile.TemporaryDirectory(prefix="lkg_attach_") as scratch:
-            target = Path(scratch) / Path(name).name
-            try:
-                data = attachment.read_buffer(size)
-                target.write_bytes(data)
-            except Exception as exc:             # noqa: BLE001 - one bad attachment
-                report.attachment_failed(message_key, index, exc)
+        try:
+            data = attachment.read_buffer(size) if size > 0 else b""
+        except Exception as exc:                 # noqa: BLE001 - one bad attachment
+            report.attachment_failed(message_key, index, exc)
+            continue
+
+        digest = _hash_bytes(data)
+        # Order 0z lane D: the junk-image filter, pictures only. Every sighting
+        # counts towards "seen five times", a duplicate within this archive too.
+        book = policy.junk if is_picture else None
+        if book is not None:
+            book.saw(digest)
+        if digest in seen_hashes:
+            report.status(progress.STATUS_DUPLICATE)
+            continue          # the same bytes are already indexed somewhere
+        seen_hashes.add(digest)
+
+        screened: Optional[junk_images.Screened] = None
+        if book is not None:
+            screened = junk_images.screen(
+                book, digest, data, inline=junk_images.is_inline(attachment))
+            if screened.reason:
+                _not_read(report, policy, name, message_key, screened.reason)
                 continue
 
-            digest = _hash_bytes(data)
-            if digest in seen_hashes:
-                continue          # the same bytes are already indexed somewhere
-            seen_hashes.add(digest)
+        target: Optional[Path] = None
+        produced = False
+        try:
+            target = scratch.write(name, data)
+            del data
+            documents: Iterable[Document] = extract_path(target)
+            if book is not None:
+                # D3 needs every word before any is indexed; a picture is one
+                # document, so holding it costs nothing.
+                documents, why = junk_images.settle(book, digest, list(documents), screened)
+                if why:
+                    _not_read(report, policy, name, message_key, why)
+                    continue
+            for document in documents:
+                document.virtual_path = f"{message_key}/attachments/{name}"
+                document.source_kind = SourceKind.PST_MESSAGE
+                document.meta.setdefault("attachment_of", message_key)
+                document.meta.setdefault("attachment_name", name)
+                document.meta.setdefault("content_hash", digest)
+                document.meta.setdefault("backend", "libpff")
+                produced = True
+                yield document
+        except AppErrorException as exc:
+            # An unreadable attachment is a skip, never the end of the run.
+            # No text, or a type turned down, is not damage: Skipped, at debug.
+            if exc.error.code in ("ERR_NO_TEXT_LAYER", "ERR_UNSUPPORTED_TYPE"):
+                if book is not None and exc.error.code == "ERR_NO_TEXT_LAYER":
+                    junk_images.settle(book, digest, [], screened)   # no words: D1
+                report.status(progress.STATUS_SKIPPED)
+                _log.debug("attachment '{}' on {}: {}", name, message_key, exc.error.code)
+                continue
+            report.attachment_failed(message_key, index, exc)
+            continue
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            report.attachment_failed(message_key, index, exc)
+            continue
+        finally:
+            if target is not None:
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+        report.status(progress.STATUS_INDEXED if produced else progress.STATUS_SKIPPED)
 
-            try:
-                for document in extract_path(target):
-                    document.virtual_path = f"{message_key}/attachments/{name}"
-                    document.source_kind = SourceKind.PST_MESSAGE
-                    document.meta.setdefault("attachment_of", message_key)
-                    document.meta.setdefault("attachment_name", name)
-                    document.meta.setdefault("content_hash", digest)
-                    document.meta.setdefault("backend", "libpff")
-                    yield document
-            except AppErrorException as exc:
-                # An unreadable attachment is a skip, never the end of the run.
-                report.attachment_failed(message_key, index, exc)
+
+def _not_read(report: _Report, policy: reading.Reading, name: str, message_key: str,
+              reason: str) -> None:
+    """A picture the junk-image filter left out: `Skipped`, counted by reason.
+
+    Its name stays on the message (`attachment_names`), so it is still found by
+    name - which is all a signature logo was ever going to be found by.
+    """
+    report.status(progress.STATUS_SKIPPED)
+    policy.left_unread(reason)
+    _log.debug("attachment '{}' on {}: {}", name, message_key,
+               junk_images.REASON_TEXT.get(reason, reason))
 
 
 # ---------------------------------------------------------------------------
@@ -760,13 +1095,22 @@ def export_to_eml(
                 continue
 
             target_dir = destination / _safe_relative(folder_path)
+            bad_in_a_row = 0
             for index in range(count):
+                if bad_in_a_row >= MAX_CONSECUTIVE_FAILURES:
+                    # The same guard as `_messages`: a damaged folder can claim
+                    # more messages than it holds.
+                    _log.warning("gave up on {} after {} unreadable messages in a row",
+                                 folder_path, bad_in_a_row)
+                    break
                 try:
                     message = folder.get_sub_message(index)
                     body = _eml_bytes(message)
                 except Exception as exc:         # noqa: BLE001
+                    bad_in_a_row += 1
                     _log.warning("message {} in {} not exported: {}", index, folder_path, exc)
                     continue
+                bad_in_a_row = 0
 
                 target_dir.mkdir(parents=True, exist_ok=True)
                 name = _safe_filename(_safe(message, "get_subject") or f"message-{index}")
