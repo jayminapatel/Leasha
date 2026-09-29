@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional
 
+from app.core.file_state import derive
 from app.core.logging import logger
 from app.ui.presenter.formatting import (
     format_count,
@@ -44,6 +45,9 @@ class RepoFileRow:
     #: flat list has to say it in a column - "where is that file" is the
     #: question somebody arrives with, and the repository is the answer.
     repo: str = ""
+    #: **2026-09-29 note:** now the one-word Status from
+    #: `app.core.file_state.derive` ("Indexed", "Deferred", ...), the same word
+    #: every other results list shows, rather than the raw store value below.
     #: INDEXED, SKIPPED, FAILED or PENDING - straight from the store. Shown as
     #: a column because "it is in the list but I cannot search inside it" is a
     #: real and useful thing to know, and hiding it invites the same search
@@ -80,7 +84,7 @@ def repo_file_rows(
         ext = str(field(record, "ext", "") or "").lower().lstrip(".")
         out.append(RepoFileRow(
             repo=str(field(record, "repo", "") or ""),
-            status=str(field(record, "status", "") or ""),
+            status=derive(field(record, "status", ""), field(record, "skip_code", None)),
             name=path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path,
             size=format_size(size),
             kind=ext,
