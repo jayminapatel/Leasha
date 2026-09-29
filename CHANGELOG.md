@@ -43,6 +43,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   Each helper uses about 40 MB. A file that makes its reader fail is skipped
   (`ERR_READER_PROCESS_ENDED`) and the run carries on. Pictures, PDFs, zips, Outlook and older
   Office files are still read in the main process. `bench-pipeline --read-processes` measures it.
+### Code tab: search inside the code as you type
+
+- Typing in the Code tab now finds what is *inside* your code, not only file names: where a name is
+  defined comes first, then files whose name matches, then every other line that mentions it. Each
+  row shows the line number and the line of code. It answers from the index as you type.
+
 ### Code tab: no console flash, a Stop for history, and "Ignore this repository"
 
 - Searching history no longer flashes a black console window on Windows.

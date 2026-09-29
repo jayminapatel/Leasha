@@ -179,6 +179,10 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
       A large real `.pst` must **not** be cut off while its message count moves. UNCONFIRMED on
       Windows: whether a hung Outlook (COM) read lets go when interrupted, or is left behind and
       replaced - the log line "did not let go ... left behind" says which.
+- [ ] **Search inside the code (order 0y §2).** In the Code tab, type a class or function name from
+      one of your repositories: its definition is the first row (Match "Definition"), with the Line
+      and the line of Code, then files whose name matches, then Mentions. Open the file and check the
+      line number is right.
 - [ ] **Code tab fixes (order 0y §1).** Run a history search (`/repo <name> something /history`):
       no black console window flashes up. Start one on a large repository and press Esc (or the
       button, which reads "Stop"): it ends at once and says "History search stopped". Right-click a

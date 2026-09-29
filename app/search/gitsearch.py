@@ -37,9 +37,9 @@ import shutil
 import subprocess
 import threading
 import time
-from functools import partial
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, replace
+from functools import partial
 from pathlib import Path
 from typing import Any, Optional
 
