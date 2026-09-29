@@ -147,6 +147,31 @@ def test_a_child_that_exits_without_finishing_is_not_taken_for_a_success(tmp_pat
     assert "exit code 0" in caught.value.error.details
 
 
+def test_a_child_that_never_says_anything_is_ended_and_reported(tmp_path, monkeypatch) -> None:
+    """2026-09-29: the first Windows CI run waited ten minutes on a silent child."""
+    monkeypatch.setattr(child_run, "FIRST_WORD_S", 1.0)
+    run = ChildIndexRun([sys.executable, "-c", "import time; time.sleep(120)"],
+                        stderr_path=tmp_path / "child-stderr.log")
+    started = time.monotonic()
+    with pytest.raises(AppErrorException) as caught:
+        run.run()
+    assert time.monotonic() - started < 15
+    assert caught.value.error.code == "ERR_INDEX_PROCESS_ENDED"
+    assert "sent nothing for 1s" in caught.value.error.details
+    assert _gone(run.pid) and not live_children()
+
+
+def test_a_child_that_goes_quiet_after_starting_is_ended_too(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(child_run, "SILENCE_S", 1.0)
+    script = "import sys, time; print('hello', flush=True); time.sleep(120)"
+    run = ChildIndexRun([sys.executable, "-c", script],
+                        stderr_path=tmp_path / "child-stderr.log")
+    with pytest.raises(AppErrorException) as caught:
+        run.run()
+    assert "sent nothing for 1s" in caught.value.error.details
+    assert _gone(run.pid)
+
+
 def test_a_child_that_could_not_start_its_run_passes_its_own_error_on(tmp_path) -> None:
     with pytest.raises(AppErrorException) as caught:
         _run("error", tmp_path).run()
