@@ -161,6 +161,7 @@
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
     <Compile Include="app\core\osbridge\programs.py" />
+    <Compile Include="app\core\osbridge\stdio.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
