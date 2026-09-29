@@ -38,11 +38,14 @@ from app.storage.sqlite_store import SqliteStore
 from app.ui.presenter import PHASE_WORDS, phase_words, progress_for, progress_text
 
 #: The order `Pipeline.run` enters its phases on a run with no media backlog.
+#: `PHASE_SCANNING` since 2026-09-29: the default read order ("newest") walks
+#: the whole corpus before the first read (`app/index/read_order.py`).
 EXPECTED_ORDER = [
     pipeline_module.PHASE_MODEL,
     pipeline_module.PHASE_WORD_INDEX_CHECK,
     pipeline_module.PHASE_CATCH_UP,
     pipeline_module.PHASE_PLANNING,
+    pipeline_module.PHASE_SCANNING,
     pipeline_module.PHASE_READING,
     pipeline_module.PHASE_TIDYING,
     pipeline_module.PHASE_VECTOR_INDEX,

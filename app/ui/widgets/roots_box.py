@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QAction
 from PyQt6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -33,6 +34,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QMenu,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -66,13 +68,23 @@ class RootsBox(QGroupBox):
     #: `set_roots`'s own load.
     cloud_content_changed = pyqtSignal(set)
     rescan_requested = pyqtSignal()
+    #: 2026-09-29. The folders marked "Index this folder first", **in order**
+    #: - the order they were marked in, which is the order they are read in.
+    #: Fires on the person's action only, like the two above.
+    first_changed = pyqtSignal(list)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Folders to index", parent)
 
+        #: The "first" folders, in the order they were marked. Kept here rather
+        #: than read back from the rows, because the order is the setting and
+        #: the rows are in the order the folders were added.
+        self._first: list[str] = []
+
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(3)
-        self.tree.setHeaderLabels(["Folder", "How it is indexed", "Cloud content"])
+        self.tree.setColumnCount(4)
+        self.tree.setHeaderLabels(
+            ["Folder", "How it is indexed", "Cloud content", "Read first"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
@@ -87,6 +99,10 @@ class RootsBox(QGroupBox):
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        # 2026-09-29. The row action, on the row: right-click a folder.
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._row_menu)
 
         add = QPushButton("Add folder…")
         add.setToolTip(
@@ -113,9 +129,21 @@ class RootsBox(QGroupBox):
         )
         self.rescan.clicked.connect(lambda _checked=False: self.rescan_requested.emit())
 
+        # 2026-09-29. A new control. The same action as the row's own menu,
+        # for the selected rows - a menu nobody knows to right-click for is a
+        # feature nobody has.
+        self.first = QPushButton("Index this folder first")
+        self.first.setToolTip(
+            "Read the selected folder before everything else, next time an\n"
+            "index runs. Mark several and they are read in the order you\n"
+            "marked them; the rest follow, newest first. Press again on a\n"
+            "marked folder to take the mark off.")
+        self.first.clicked.connect(lambda _checked=False: self.toggle_first())
+
         buttons = QHBoxLayout()
         buttons.addWidget(add)
         buttons.addWidget(remove)
+        buttons.addWidget(self.first)
         buttons.addStretch(1)
         buttons.addWidget(self.rescan)
 
@@ -207,6 +235,7 @@ class RootsBox(QGroupBox):
     def set_roots(
         self, roots: list[str], modes: Optional[dict[str, str]] = None,
         cloud_content: Optional[set[str]] = None,
+        first: Optional[list[str]] = None,
     ) -> None:
         """Replace the list, without emitting on the way in.
 
@@ -217,6 +246,8 @@ class RootsBox(QGroupBox):
         """
         modes = modes or {}
         cloud_content = cloud_content or set()
+        if first is not None:
+            self._first = [str(folder) for folder in first]
         self.tree.blockSignals(True)
         try:
             self.tree.clear()
@@ -227,6 +258,7 @@ class RootsBox(QGroupBox):
             self.tree.blockSignals(False)
         self._sync_empty()
         self._sync_rescan()
+        self._sync_first()
 
     def _append(self, root: str, mode: str = LIVE, cloud_content: bool = False) -> QTreeWidgetItem:
         item = QTreeWidgetItem([str(root), "", ""])
@@ -313,6 +345,39 @@ class RootsBox(QGroupBox):
                 found.add(normalise(item.text(0)))
         return found
 
+    def current_first_folders(self) -> list[str]:
+        """The folders marked "first", in the order marked, as each row
+        spells it - only those still in the list."""
+        rows = {normalise(root): root for root in self.current_roots()}
+        out: list[str] = []
+        for folder in self._first:
+            root = rows.get(normalise(folder))
+            if root is not None and root not in out:
+                out.append(root)
+        return out
+
+    def toggle_first(self, items: Optional[list] = None) -> None:
+        """Mark the selected folders "first", or take the mark off.
+
+        When every selected folder is already marked, the marks come off;
+        otherwise the unmarked ones are added **at the end**, so marking one
+        folder and then another reads them in that order.
+        """
+        items = list(items if items is not None else self.tree.selectedItems())
+        if not items:
+            return
+        chosen = [item.text(0) for item in items]
+        marked = {normalise(folder) for folder in self.current_first_folders()}
+        current = self.current_first_folders()
+        if all(normalise(folder) in marked for folder in chosen):
+            drop = {normalise(folder) for folder in chosen}
+            current = [f for f in current if normalise(f) not in drop]
+        else:
+            current += [f for f in chosen if normalise(f) not in marked]
+        self._first = current
+        self._sync_first()
+        self.first_changed.emit(self.current_first_folders())
+
     def add_root(self, folder: str) -> bool:
         """Add one folder if it is not already there. Returns whether it was."""
         if not folder or normalise(folder) in {
@@ -335,6 +400,33 @@ class RootsBox(QGroupBox):
             self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(item))
         self._emit()
 
+    def _row_menu(self, point: Any) -> None:
+        item = self.tree.itemAt(point)
+        if item is None:
+            return
+        marked = normalise(item.text(0)) in {
+            normalise(folder) for folder in self.current_first_folders()}
+        menu = QMenu(self)
+        action = QAction("Index this folder first", menu)
+        action.setCheckable(True)
+        action.setChecked(marked)
+        action.triggered.connect(lambda _checked=False: self.toggle_first([item]))
+        menu.addAction(action)
+        menu.exec(self.tree.viewport().mapToGlobal(point))
+
+    def _sync_first(self) -> None:
+        """Each marked row shows its place in the order; the rest show none."""
+        order = {normalise(folder): place
+                 for place, folder in enumerate(self.current_first_folders(), 1)}
+        for row in range(self.tree.topLevelItemCount()):
+            item = self.tree.topLevelItem(row)
+            place = order.get(normalise(item.text(0)))
+            item.setText(3, str(place) if place else "")
+            item.setToolTip(3, (
+                f"Read {'first' if place == 1 else f'number {place}'} of the "
+                "folders marked \"Index this folder first\"." if place else
+                "Read with everything else, newest first."))
+
     def _modes_changed(self) -> None:
         self.modes_changed.emit(self.current_modes())
         self._sync_rescan()
@@ -349,6 +441,12 @@ class RootsBox(QGroupBox):
         self.modes_changed.emit(self.current_modes())
         self.cloud_content_changed.emit(self.current_cloud_content_roots())
         self._sync_rescan()
+        # A folder removed stops being "first"; one added is not yet.
+        first = self.current_first_folders()
+        if first != self._first:
+            self._first = first
+            self.first_changed.emit(first)
+        self._sync_first()
 
     def _sync_rescan(self) -> None:
         """A button that does nothing is worse than one that is not there.

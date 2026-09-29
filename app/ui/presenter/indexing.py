@@ -96,6 +96,9 @@ PHASE_WORDS: dict[str, str] = {
     "word_index_check": "Checking the word index…",
     "catch_up": "Finishing what the last run left undone…",
     "planning": "Working out which folders to read…",
+    # 2026-09-29, `read_order` "newest": the whole walk before the first read.
+    # The count is the headline's "files seen", climbing as it goes.
+    "scanning": "Finding files, to read the newest first…",
     "media": "Reading videos and recordings…",
     "tidying": "Tidying up the index…",
     "vector_index": "Organising the index so searches stay quick…",

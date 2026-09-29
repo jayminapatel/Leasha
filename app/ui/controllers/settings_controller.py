@@ -597,6 +597,29 @@ class SettingsController(QObject):
                    dump_cloud_content_roots(roots),
                    component="ui.settings", owner=self, on_failed=not_saved)
 
+    def _load_first_folders(self) -> list:
+        """2026-09-29: "Index this folder first", in order. See
+        `app/index/read_order.py`."""
+        from app.index.read_order import FIRST_FOLDERS_STATE_KEY, load_first_folders
+
+        try:
+            return load_first_folders(
+                self._w._store.get_state(FIRST_FOLDERS_STATE_KEY, "") or "")
+        except Exception as exc:                     # noqa: BLE001
+            _log.debug("folders to index first not read: {}", exc)
+            return []
+
+    def _save_first_folders(self, folders: list) -> None:
+        from app.index.read_order import FIRST_FOLDERS_STATE_KEY, dump_first_folders
+
+        def not_saved(error: Any) -> None:
+            _log.warning("folders to index first not saved: {}", error)
+            self._w.notify("Which folders to index first was not saved.", 8_000)
+
+        save_state(self._w._store, FIRST_FOLDERS_STATE_KEY,
+                   dump_first_folders(folders),
+                   component="ui.settings", owner=self, on_failed=not_saved)
+
     def _file_types_saved(self, changes: dict) -> None:
         """A file-type mapping changed - bump the generation, then say so.
 

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.17 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -204,6 +204,15 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 - [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
       bar glides during a scanned run and shows a moving block before the total is known; minimise
       and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+- [ ] **Newest first, and "Index this folder first" (2026-09-29).** On the real index, mark two
+      folders with "Index this folder first" (Settings › What's indexed, the button or a right-click;
+      the Read first column shows 1 and 2) and Start: the page says "Finding files, to read the
+      newest first…" with "files seen" climbing, then reads the marked folders first, in order, then
+      this month's files and mail before older ones. Note the scan time (`walk` in the run's
+      `worker_seconds`) on the full corpus, and that an unchanged rerun is no slower than before.
+      Stop part-way and Start again: it carries on with the files it had not reached. Tuning ›
+      Strategy › Reading order "As found" restores the old order. Also with "Index in a separate
+      process" on.
 
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated

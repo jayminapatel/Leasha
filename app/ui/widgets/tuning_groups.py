@@ -529,6 +529,17 @@ class StrategyBox(QGroupBox):
             "After-run leaves the rest of the index usable while the images\n"
             "are done, which on a scanned corpus is days of difference.")
 
+        # 2026-09-29. A new control; see `app/index/read_order.py`.
+        self.read_order = QComboBox()
+        self.read_order.setObjectName("INDEX_ORDER")
+        self.read_order.addItem("Newest first (mixed)", "newest")
+        self.read_order.addItem("As found", "found")
+        self.read_order.setToolTip(
+            "Newest first finds every file before reading any, then reads the\n"
+            "folders marked \"Index this folder first\", then everything else\n"
+            "newest first, mail and files mixed. What you worked on lately is\n"
+            "searchable soonest. As found reads in the order the scan goes.")
+
         # Work order 0x §2e. **Where the run happens, not how fast it goes** -
         # but it is on this shelf because it is watched here: somebody whose
         # window catches while an index runs is looking at this page. A new
@@ -548,7 +559,7 @@ class StrategyBox(QGroupBox):
                                parent=self)
         for widget in (self.two_phase, self.dedup, self.separate_process):
             widget.stateChanged.connect(lambda _s: self._save())
-        for widget in (self.bulk_fts, self.ocr_pass):
+        for widget in (self.bulk_fts, self.ocr_pass, self.read_order):
             widget.currentIndexChanged.connect(lambda _i: self._save())
 
         form = QFormLayout(self)
@@ -556,6 +567,7 @@ class StrategyBox(QGroupBox):
         form.addRow(self.dedup)
         form.addRow("Word index", self.bulk_fts)
         form.addRow("Read images", self.ocr_pass)
+        form.addRow("Reading order", self.read_order)
         form.addRow(self.separate_process)
 
         if settings is not None:
@@ -563,7 +575,7 @@ class StrategyBox(QGroupBox):
 
     def load(self, settings: Any) -> None:
         widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass,
-                   self.separate_process)
+                   self.read_order, self.separate_process)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -575,6 +587,7 @@ class StrategyBox(QGroupBox):
             for combo, name, fallback in (
                 (self.bulk_fts, "index_bulk_fts", "auto"),
                 (self.ocr_pass, "index_ocr_pass", "with-run"),
+                (self.read_order, "index_order", "newest"),
             ):
                 found = combo.findData(str(getattr(settings, name, fallback)))
                 combo.setCurrentIndex(found if found >= 0 else 0)
@@ -589,6 +602,7 @@ class StrategyBox(QGroupBox):
             "EMBED_DEDUP": bool(self.dedup.isChecked()),
             "INDEX_BULK_FTS": str(self.bulk_fts.currentData() or "auto"),
             "INDEX_OCR_PASS": str(self.ocr_pass.currentData() or "with-run"),
+            "INDEX_ORDER": str(self.read_order.currentData() or "newest"),
             "INDEX_SEPARATE_PROCESS": bool(self.separate_process.isChecked()),
         }
 

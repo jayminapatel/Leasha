@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import os
 import queue
 import threading
@@ -104,6 +105,7 @@ from app.index.resources import (
     SystemProbe,
     Verdict,
 )
+from app.index.read_order import ORDER_NEWEST, WorkList, normalise_order
 from app.index.stages import WAITING, StageClock
 from app.index.walker import (
     Candidate,
@@ -264,6 +266,11 @@ PHASE_MODEL = "model"
 PHASE_WORD_INDEX_CHECK = "word_index_check"
 PHASE_CATCH_UP = "catch_up"
 PHASE_PLANNING = "planning"
+#: 2026-09-29. `read_order` "newest": the walk and the cheap change check run
+#: to the end before anything is read, and the list is sorted. `seen` climbs
+#: while it lasts; `walk_complete` turns true when it ends, and the bar counts
+#: against a real total from the first file read.
+PHASE_SCANNING = "scanning"
 PHASE_READING = "reading"
 PHASE_MEDIA = "media"
 PHASE_TIDYING = "tidying"
@@ -838,6 +845,12 @@ class PipelineConfig:
     #: `app/cli/index.py`). `None`, so a run nobody asked to be pausable
     #: behaves exactly as it always did and stats nothing per file.
     pause_file: Optional[Path] = None
+    #: 2026-09-29. The order files are read in - see `app/index/read_order.py`.
+    #: `newest` scans the whole walk first, then reads the folders chosen
+    #: first (`walk.priority_roots`), then everything else newest first, small
+    #: before large within a month. `found` streams the walk straight into the
+    #: queue, which is how every run behaved before. From `INDEX_ORDER`.
+    read_order: str = "newest"
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -991,6 +1004,20 @@ _GROWTH_WAITING_SHARE = 0.5
 #: nothing else to spend. 50ms x four workers is 80 flag reads a second
 #: against a machine doing nothing at all.
 HOLD_POLL_S = 0.05
+
+#: 2026-09-29. Least time between two asks of the resource governor while the
+#: "newest" order is scanning (`_produce`).
+#:
+#: **Measured, not assumed.** One ask costs 1.76ms in the sandbox this was
+#: built in (9,002 asks: 15.9s; the bare walk of the same 9,002 files: 0.37s),
+#: because each one reads the disk's free space and the process table. Once a
+#: file was harmless there - the walk overlapped the reading - but a scan runs
+#: *before* the reading, so every millisecond of it is a millisecond before the
+#: first file is searchable. A scan holds nothing in flight for a pause to
+#: drain, so asking four times a second still honours a pause, a battery, a
+#: full disk or Stop within a quarter of a second. A constant: nobody would
+#: tune it, and the evidence that would change it is a probe that got cheaper.
+SCAN_GOVERNOR_S = 0.25
 
 #: 2026-09-20. Least time between two looks at `PipelineConfig.pause_file`.
 #: Every waiter asks the governor whether the person has paused, and without
@@ -1675,13 +1702,22 @@ class Pipeline:
                                   name="feeder", daemon=True)
         self._feeder_thread = feeder
 
+        # 2026-09-29. Said before the producer starts, so it can never land
+        # after the producer's own switch to reading - see `_read_in_order`.
+        ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
+        if ordered:
+            self._announce_phase(stats, on_progress, PHASE_SCANNING)
+
         producer.start()
         for worker in workers:
             worker.start()
         feeder.start()
 
         # Back to counting: `progress_for` draws a real bar from here on.
-        self._announce_phase(stats, on_progress, PHASE_READING)
+        # In the "newest first" order the walker says so itself, the moment
+        # the sorted list is ready (`_read_in_order`).
+        if not ordered:
+            self._announce_phase(stats, on_progress, PHASE_READING)
         # 0x 5d: a second run on the same `Pipeline` starts with no shared
         # transaction open - see `_begin_write_group`.
         self._write_group = None
@@ -2053,6 +2089,11 @@ class Pipeline:
 
         The unchanged decision happens *here*, before anything is queued, so an
         incremental pass over a settled corpus never wakes a worker at all.
+
+        **Two orders** (`PipelineConfig.read_order`, see `read_order.py`).
+        `found` streams each file into the queue as the walk finds it. `newest`
+        walks to the end first, keeping only what needs reading, then sorts
+        that list and queues it in order - `_read_in_order`.
         """
         from app.index.archives import files_under
 
@@ -2060,9 +2101,14 @@ class Pipeline:
         # Snapshotted: `walk.roots` is not written during a run, and asking for
         # it per file would be a list build a million times over.
         roots = list(self.config.walk.roots)
+        ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
+        worklist = WorkList(self._spill_dir()) if ordered else None
+        halted = False
+        next_ask = 0.0
         try:
             for candidate in self._candidates():
                 if self._stop.is_set():
+                    halted = True
                     break
                 # `_candidates` and the walker have already recorded this path
                 # in the same set - see M17. Kept as a no-op `add` rather than
@@ -2082,37 +2128,36 @@ class Pipeline:
                 # one candidate path, so pausing it starves the workers of new
                 # work while everything already in flight keeps draining - which
                 # is what actually brings memory down.
-                verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
-                self._copy_pause_state(stats)
-                if verdict.action == "stop":
-                    # Say why. Breaking silently here would end the run
-                    # reporting complete success having indexed nothing - the
-                    # exact failure shape that hid every PST for two days.
-                    if not self._stop.is_set() and stats.stopped_early is None:
-                        stats.stopped_early = make_error(
-                            "ERR_DISK_SPACE", "index.pipeline",
-                            free_gb="low", drive=str(self.vectors.uri),
-                            details=verdict.reason,
-                        )
-                        self._log.error("{}", stats.stopped_early.render())
-                        self.request_stop()
-                    break
+                #
+                # While scanning ("newest"), at most every `SCAN_GOVERNOR_S`:
+                # nothing is in flight yet, and the scan is on the critical
+                # path. The streaming order asks per file, as it always did.
+                if worklist is None or time.monotonic() >= next_ask:
+                    if not self._governor_allows(stats):
+                        halted = True
+                        break
+                    next_ask = time.monotonic() + SCAN_GOVERNOR_S
 
-                decision = self._classify(candidate)
+                # **No hash during a scan.** A file never seen is hashed by the
+                # change check, and a hash is a full read: the scan would read
+                # the whole corpus before the first file could be searched. The
+                # hash is taken when the file's turn comes - `_read_in_order`.
+                decision = self._classify(candidate, hash_now=not ordered)
                 if decision is UNCHANGED:
                     stats.unchanged += 1
+                    continue
+
+                if worklist is not None:
+                    worklist.add(candidate, decision)
                     continue
 
                 # (priority, sequence) keeps PriorityQueue from ever comparing
                 # Candidates, which are not orderable, while preserving the
                 # walker's deterministic order within a priority band.
                 sequence += 1
-                while not self._stop.is_set():
-                    try:
-                        work.put((candidate.priority, sequence, candidate, decision), timeout=0.25)
-                        break
-                    except queue.Full:
-                        continue                # bounded on purpose: this is backpressure
+                self._queue_work(work, (candidate.priority, sequence, candidate, decision))
+            if worklist is not None and not halted and not self._stop.is_set():
+                sequence = self._read_in_order(work, stats, worklist)
         except Exception as exc:                # noqa: BLE001 - a walker crash must not hang the run
             # Loud, and recorded in the stats. The silent version of this cost a
             # whole run: it logged one line nobody saw and reported success.
@@ -2123,24 +2168,109 @@ class Pipeline:
             )
             self._log.error("walker stopped early: {}", stats.stopped_early.render())
         finally:
+            if worklist is not None:
+                worklist.close()
             # **`seen` only becomes a real total here.** Until the walk ends it
             # is "what has been found so far", and because the work queue is
             # bounded the walker can never run more than a queue-length ahead of
             # the workers - so `done / seen` sits near 1 from the first minute
             # whatever fraction of the corpus is left. See `progress_for`.
-            stats.walk_complete = True
-            # §6a. **Recorded, but not on the critical path**, so it is added
-            # to the worker tally rather than the stage one: the walk runs on
-            # its own thread alongside everything else, and counting its
-            # seconds as a share of the run would push the total past 100%.
-            #
-            # Worth having all the same - a walk that takes two hours over a
-            # network share is a fact about the corpus that no other number in
-            # the report shows.
-            self._clock.add_worker(
-                "walk", time.monotonic() - self._run_started)
+            # (In the "newest" order `_read_in_order` has already said so, at
+            # the end of the scan, which is when it became true.)
+            if not stats.walk_complete:
+                stats.walk_complete = True
+                # §6a. **Recorded, but not on the critical path**, so it is
+                # added to the worker tally rather than the stage one: the walk
+                # runs on its own thread alongside everything else, and
+                # counting its seconds as a share of the run would push the
+                # total past 100%.
+                #
+                # Worth having all the same - a walk that takes two hours over
+                # a network share is a fact about the corpus that no other
+                # number in the report shows.
+                self._clock.add_worker(
+                    "walk", time.monotonic() - self._run_started)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
+
+    def _read_in_order(self, work: queue.PriorityQueue, stats: IndexStats,
+                       worklist: WorkList) -> int:
+        """The scan is over: sort what it found and queue it. Returns the last
+        sequence number used, for the stop markers after it.
+
+        **Each file's hash is taken here, on its turn** - see `_produce` - by
+        asking `_classify` again with hashing allowed. For a file never seen
+        that is the hash the old single pass took; for one whose date moved it
+        is the check that finds a `robocopy` restore unchanged, which is then
+        counted as unchanged and not read. `verify_hash` off means the scan's
+        answer was already final.
+        """
+        stats.walk_complete = True
+        self._clock.add_worker("walk", time.monotonic() - self._run_started)
+        sorting_from = time.monotonic()
+        entries = worklist.sorted()
+        first = next(entries, None)             # the sort itself happens here
+        self._clock.add_worker("sort", time.monotonic() - sorting_from)
+        self._log.info(
+            "scan finished: {:,} file(s) found, {:,} to read, newest first{}",
+            stats.seen, len(worklist), " (sorted on disk)" if worklist.spilled else "")
+        stats.phase = PHASE_READING
+        stats.activity.record(KIND_PHASE, PHASE_READING)
+        sequence = 0
+        if first is None:
+            return sequence
+        for candidate, decision in itertools.chain((first,), entries):
+            if self._stop.is_set():
+                break
+            if not self._governor_allows(stats):
+                break
+            if self.config.verify_hash:
+                decision = self._classify(candidate)
+                if decision is UNCHANGED:
+                    stats.unchanged += 1
+                    continue
+            sequence += 1
+            if not self._queue_work(
+                    work, (candidate.priority, sequence, candidate, decision)):
+                break
+        return sequence
+
+    def _governor_allows(self, stats: IndexStats) -> bool:
+        """Wait out a pause; False when the run must stop, having said why."""
+        verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        self._copy_pause_state(stats)
+        if verdict.action != "stop":
+            return True
+        # Say why. Breaking silently here would end the run reporting complete
+        # success having indexed nothing - the exact failure shape that hid
+        # every PST for two days.
+        if not self._stop.is_set() and stats.stopped_early is None:
+            stats.stopped_early = make_error(
+                "ERR_DISK_SPACE", "index.pipeline",
+                free_gb="low", drive=str(self.vectors.uri),
+                details=verdict.reason,
+            )
+            self._log.error("{}", stats.stopped_early.render())
+            self.request_stop()
+        return False
+
+    def _queue_work(self, work: queue.PriorityQueue, entry: tuple) -> bool:
+        """Put one entry on the bounded queue, waiting for room. False if the
+        run was stopped while waiting."""
+        while not self._stop.is_set():
+            try:
+                work.put(entry, timeout=0.25)
+                return True
+            except queue.Full:
+                continue                # bounded on purpose: this is backpressure
+        return False
+
+    def _spill_dir(self) -> Optional[Path]:
+        """Where a large work list goes: beside the index, on the drive that
+        already has room for it. None (the system's temporary folder) for a
+        store with no file."""
+        database = getattr(self.store, "db_path", None)
+        return Path(database).parent if database else None
 
     def _preflight_disk(self, stats: IndexStats) -> None:
         """Say at minute one what the disk looks like. Never stops the run.
@@ -2608,8 +2738,14 @@ class Pipeline:
                             priority=0,          # retried first: they are few and cheap
                             retry=True)          # settled row, deliberately reopened
 
-    def _classify(self, candidate: Candidate) -> Optional[str]:
+    def _classify(self, candidate: Candidate, *, hash_now: bool = True) -> Optional[str]:
         """`UNCHANGED` to skip the file; otherwise its content hash, or None.
+
+        `hash_now=False` answers from the row and `stat()` alone and never
+        reads the file: the scan of the "newest" order (`_produce`), which asks
+        again with hashing allowed when the file's turn comes. Everything it
+        calls unchanged is unchanged on either answer; what it cannot settle
+        without a hash it passes on.
 
         **The sentinel is a distinct object, not `None`.** It used to be `None`,
         which is also the perfectly ordinary "changed, but there is no hash"
@@ -2689,7 +2825,8 @@ class Pipeline:
                 # A file read through another application is held open by it, so
                 # hashing its bytes fails - and those bytes are not what gets
                 # parsed anyway. mtime and size are all there is, and enough.
-                verify_hash=self.config.verify_hash and not reads_externally(candidate.path),
+                verify_hash=(self.config.verify_hash and hash_now
+                             and not reads_externally(candidate.path)),
             )
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
@@ -3282,7 +3419,19 @@ class Pipeline:
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
 
+        # 2026-09-29. The walker moves the run from scanning to reading
+        # (`_read_in_order`), but only this thread reports progress - so it
+        # passes the change on, here, rather than two threads calling
+        # `on_progress` at once.
+        phase_told = stats.phase
         while finished < self._expected_stops:
+            if stats.phase != phase_told:
+                phase_told = stats.phase
+                if on_progress is not None:
+                    try:
+                        on_progress(stats)
+                    except Exception as exc:  # noqa: BLE001 - as elsewhere
+                        self._log.warning("progress reporting failed: {}", exc)
             if self._stop.is_set():
                 # Asked to stop - by the UI's pause button, or by the disk
                 # guard. Everything already written stays written; the files

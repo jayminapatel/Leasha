@@ -723,10 +723,13 @@ class MainWindow(QMainWindow):
             self.settings_view.debug_pane.file_chosen.connect(self._open_path)
             self.settings_view.debug_pane.pop_out.connect(self._pop_out_log)
             self.settings_view.set_roots(
-                self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots())
+                self._load_roots(), self._load_root_modes(), self._load_cloud_content_roots(),
+                self.settings_ctl._load_first_folders())
             self.settings_view.roots_changed.connect(self._save_roots)
             self.settings_view.root_modes_changed.connect(self._save_root_modes)
             self.settings_view.cloud_content_roots_changed.connect(self._save_cloud_content_roots)
+            self.settings_view.first_folders_changed.connect(
+                self.settings_ctl._save_first_folders)
             self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())

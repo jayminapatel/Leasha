@@ -239,6 +239,7 @@
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\pipeline_bench.py" />
     <Compile Include="app\index\quantize_model.py" />
+    <Compile Include="app\index\read_order.py" />
     <Compile Include="app\index\repo_health.py" />
     <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
@@ -754,6 +755,8 @@
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_quoting.py" />
     <Compile Include="tests\unit\test_raw_extractor.py" />
+    <Compile Include="tests\unit\test_read_order.py" />
+    <Compile Include="tests\unit\test_read_order_ui.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />
