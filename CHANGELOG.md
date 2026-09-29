@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Start during a run now says why, and offers to stop it
+
+- Pressing Start while an index run is already going used to show a five-second note and nothing else,
+  so the button looked broken. It now explains that a second run cannot start into the same index, that
+  changed settings (such as "Index in a separate process") apply from the next Start, and offers
+  "Stop the current run". Everything indexed so far is kept.
 
 ### A silent indexing process no longer hangs the window
 
