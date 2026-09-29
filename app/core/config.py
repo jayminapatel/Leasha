@@ -391,6 +391,10 @@ class Settings(BaseModel):
     #: The largest archive whose members are read, in MB. A 40GB backup zip is
     #: recorded by name with a message saying why, rather than read.
     archive_max_mb: int = 100
+    #: Order 0z lane D: leave decorative and repeated pictures attached to
+    #: mail unread (`app/extract/junk_images.py`). On by default - the owner's
+    #: report was that signature images were being read, slowly, for nothing.
+    index_junk_image_filter: bool = True
     #: Rung 1 of the OCR ladder (`app/extract/ocr_ladder.py`): above this
     #: percentage of plain-white pixels in a downscaled thumbnail, an image
     #: goes straight to full OCR rather than the cheaper detection probe.
@@ -516,6 +520,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "ARCHIVE_MAX_MB",
     "PDF_OCR_PAGES",
     "OCR_WHITE_PAGE_PERCENT",
+    "INDEX_JUNK_IMAGE_FILTER",
     "MIN_FREE_GB",
     "REQUIRED_FREE_GB",
     "CLOUD_CONTENT_CAP_MB",
@@ -720,6 +725,9 @@ def load_settings(
             ocr_white_page_percent=_as_int(
                 "OCR_WHITE_PAGE_PERCENT",
                 values.get("OCR_WHITE_PAGE_PERCENT", "70")),
+            index_junk_image_filter=_as_bool(
+                "INDEX_JUNK_IMAGE_FILTER",
+                values.get("INDEX_JUNK_IMAGE_FILTER", "true")),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,

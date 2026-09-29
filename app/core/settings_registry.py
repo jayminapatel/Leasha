@@ -460,6 +460,18 @@ SETTINGS: tuple[Setting, ...] = (
              "as documents unnecessarily.",
     ),
     Setting(
+        key="INDEX_JUNK_IMAGE_FILTER",
+        label="Leave out signature logos and icons in email", kind="bool",
+        default=True, group="Tuning", surface="indexing.tuning",
+        help="Pictures attached to email that are only decoration - a "
+             "signature logo repeated in every message, social-media icons, "
+             "tracking pixels, divider lines - are not read, because reading "
+             "text out of each one takes time and finds nothing worth "
+             "searching for. They are still findable by name. Screenshots, "
+             "scans, receipts and photos are read as before. Switch it off to "
+             "read every picture.",
+    ),
+    Setting(
         key="PDF_OCR_PAGES", label="Pages to read from a scanned PDF",
         kind="int", default=0, group="Tuning", surface="indexing.tuning",
         minimum=0, maximum=500, unit="pages",

@@ -89,7 +89,8 @@ def test_an_index_made_by_the_previous_build_is_upgraded(tmp_path):
         END""")
         _write_version(conn, 27)
     with SqliteStore(db) as store:
-        assert store.schema_version == CURRENT_VERSION == 28
+        # CURRENT_VERSION, not the literal: v29 (order 0z lane D) came after.
+        assert store.schema_version == CURRENT_VERSION >= 28
         sql = store.conn.execute(
             "SELECT sql FROM sqlite_master WHERE name = 'chunks_au'").fetchone()[0]
         assert "UPDATE OF text, symbols" in sql

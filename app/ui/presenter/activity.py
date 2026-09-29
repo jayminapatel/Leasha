@@ -24,6 +24,7 @@ from app.ui.presenter.indexing import PHASE_WORDS
 __all__ = [
     "LOG_LINES_SHOWN",
     "READING_WORDS",
+    "PICTURE_REASON_WORDS",
     "STATUS_ORDER",
     "STATUS_SEPARATOR",
     "status_counts_text",
@@ -124,18 +125,41 @@ STATUS_ORDER = ("Indexed", "Skipped", "Failed", "TimedOut", "Duplicate", "Held")
 STATUS_SEPARATOR = " · "
 
 
+#: Order 0z lane D. Why a picture in mail was left unread - the codes of
+#: `app.extract.junk_images.REASONS`, which ride in the counts as
+#: `"Skipped:decorative"` - in words, for the brackets after "Skipped".
+PICTURE_REASON_WORDS = {
+    "decorative": "decorative pictures",
+    "repeated": "repeated pictures",
+    "few_words": "pictures with under three words",
+}
+
+
 def status_counts_text(counts: Any) -> str:
     """`{"Indexed": 12400, "Failed": 3}` as "12,400 Indexed · 3 Failed". Never raises.
 
-    Zero counts are left out; nothing at all is "".
+    Zero counts are left out; nothing at all is "". A key `Word:reason`
+    (order 0z lane D) is not a word of its own: it is shown in brackets after
+    its word - "30 Skipped (24 decorative pictures)".
     """
     try:
         values = {str(word): int(n) for word, n in dict(counts or {}).items()}
     except (TypeError, ValueError):
         return ""
+    reasons: dict[str, list[tuple[str, int]]] = {}
+    for key in [k for k in values if ":" in k]:
+        word, _, reason = key.partition(":")
+        reasons.setdefault(word, []).append((reason, values.pop(key)))
     order = [w for w in STATUS_ORDER if w in values] + sorted(
         w for w in values if w not in STATUS_ORDER)
-    return STATUS_SEPARATOR.join(f"{values[w]:,} {w}" for w in order if values[w] > 0)
+    parts = []
+    for word in order:
+        if values[word] <= 0:
+            continue
+        why = ", ".join(f"{n:,} {PICTURE_REASON_WORDS.get(reason, reason)}"
+                        for reason, n in reasons.get(word, ()) if n > 0)
+        parts.append(f"{values[word]:,} {word}" + (f" ({why})" if why else ""))
+    return STATUS_SEPARATOR.join(parts)
 
 
 def _decode_counts(text: str) -> dict[str, int]:

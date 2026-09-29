@@ -161,6 +161,7 @@ def paint_totals(view: Any, payload: dict) -> None:
         next_run=view._next_run_text,
         error=payload.get("error", ""),
         warned=payload.get("warned"),
+        pictures_not_read=payload.get("pictures_not_read"),
     )
     view.stats_box.show_rows(rows)
     paint_resting_headline(view, payload, running=running)
