@@ -106,6 +106,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Add folder…": ("folder-plus", "secondary"),
     "Remove": ("folder-minus", "secondary"),
     "Rescan archived folders now": ("refresh-cw", "secondary"),
+    # 2026-09-29: marks the selected folder to be read before the rest.
+    "Index this folder first": ("pin", "secondary"),
     "Rescan these folders now": ("refresh-cw", "secondary"),
     "Add all four": ("folder-plus", "secondary"),
     "Select all": ("list-checks", "secondary"),

@@ -106,6 +106,19 @@ class _ActivityPrinter:
         self._progress.repaint()
 
 
+def _saved_first_folders(store) -> list[str]:
+    """The window's "Index this folder first" list, in order. Never raises:
+    a list that cannot be read means none is marked, which loses nothing."""
+    from app.index.read_order import FIRST_FOLDERS_STATE_KEY, load_first_folders
+
+    try:
+        return load_first_folders(store.get_state(FIRST_FOLDERS_STATE_KEY, "") or "")
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        logger.bind(component="cli.index").debug(
+            "could not read the folders to index first: {}", exc)
+        return []
+
+
 def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: object,
                           workers: int | None = None, memory_mb: int | None = None,
                           cpu_percent: int | None = None, full_speed: bool = False,
@@ -116,7 +129,8 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
                           force: bool = False, retry_skipped: bool = False,
                           ocr_mode: str | None = None, archives: bool = True,
                           recheck_archives: bool = False,
-                          pause_file: Path | None = None):
+                          pause_file: Path | None = None,
+                          read_order: str | None = None):
     r"""The `PipelineConfig` a command-line run uses, from settings and flags.
 
     **One construction, shared, so two callers cannot drift apart.** It was
@@ -140,9 +154,12 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
       may be downloaded and read;
     * `ocr_mode` - `both`, `text` or `images`; None asks the settings, the
       way `_ocr_mode` does with no flag.
+    * `read_order` - `newest` or `found` (`--order`); None asks the settings
+      (`INDEX_ORDER`). See `app/index/read_order.py`.
     """
     from app.extract.media import MediaConfig
     from app.index.pipeline import PipelineConfig
+    from app.index.read_order import normalise_order
     from app.index.walker import WalkConfig, own_paths
 
     limits = replace(limits_from_settings(settings), workers=tuned.workers)
@@ -221,6 +238,9 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         # 2026-09-20. The command line's half of the Indexing page's Pause
         # button - see `add_index_parser` for why it is a file and not a verb.
         pause_file=pause_file,
+        # 2026-09-29. Newest first unless the settings or `--order` say not.
+        read_order=normalise_order(
+            read_order if read_order else getattr(settings, "index_order", "")),
     )
 
 
@@ -559,6 +579,10 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         # this run takes the lock**, because taking it replaces the record a
         # run that died left behind - the only evidence that one did.
         unfinished = read_unfinished_run(_store)
+        # 2026-09-29. "Index this folder first", as the window saved it, when
+        # the command line named none. `--first` still wins: it is a decision
+        # about this run.
+        first = tuple(args.first or ()) or tuple(_saved_first_folders(_store))
     if unfinished and not machine:
         print(unfinished_run_line(unfinished, carrying_on=True))
     _tuning_log = logger.bind(component="cli.index")
@@ -578,7 +602,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         settings, roots, tuned=tuned,
         workers=args.workers, memory_mb=args.memory_mb,
         cpu_percent=args.cpu_percent, full_speed=args.full_speed,
-        first=tuple(args.first or ()), include_cloud=args.include_cloud,
+        first=first, include_cloud=args.include_cloud,
         cloud_content_roots=cloud_keys,
         cloud_content_cap_mb=args.cloud_content_cap_mb,
         verify_hash=not args.fast,
@@ -590,6 +614,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         recheck_archives=bool(getattr(args, "recheck_archives", False)),
         pause_file=(Path(args.pause_file).expanduser()
                     if getattr(args, "pause_file", None) else None),
+        read_order=getattr(args, "order", None),
     )
 
     if getattr(args, "fake_embedder_for_bench", False):
@@ -1045,6 +1070,11 @@ def add_index_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
     p_index.add_argument("roots", nargs="*", help="folders to index")
     p_index.add_argument("--first", action="append", metavar="PATH",
                          help="index this folder before the others; repeatable, in order")
+    p_index.add_argument("--order", choices=("newest", "found"), default=None,
+                         help="newest: find every file first, then read the --first "
+                              "folders, then the rest newest first (the default, "
+                              "from INDEX_ORDER); found: read in the order the scan "
+                              "finds them")
     p_index.add_argument("--workers", type=int, metavar="N",
                          help="files read at once (default: half your cores, capped at 4)")
     p_index.add_argument("--fast", action="store_true",

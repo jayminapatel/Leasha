@@ -362,6 +362,9 @@ class Settings(BaseModel):
     embed_dedup: bool = True
     #: `with-run | after-run | manual`. When the images pass happens.
     index_ocr_pass: str = "with-run"
+    #: `newest | found`. The order a run reads files in - see
+    #: `app/index/read_order.py`. 2026-09-29.
+    index_order: str = "newest"
     #: Work order 0x §2e. Run the window's index in a child process of its
     #: own (`app/index/child_run.py`) rather than on threads inside the
     #: window's process. Kept as a switch until the before-and-after
@@ -518,6 +521,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_BULK_FTS",
     "EMBED_DEDUP",
     "INDEX_OCR_PASS",
+    "INDEX_ORDER",
     "INDEX_SEPARATE_PROCESS",
     "INDEX_READ_PROCESSES",
     "INDEX_FILE_TIME_LIMIT_S",
@@ -714,6 +718,7 @@ def load_settings(
             embed_dedup=_as_bool("EMBED_DEDUP", values.get("EMBED_DEDUP", "true")),
             index_ocr_pass=(
                 values.get("INDEX_OCR_PASS") or "with-run").strip().lower(),
+            index_order=(values.get("INDEX_ORDER") or "newest").strip().lower(),
             index_separate_process=_as_bool(
                 "INDEX_SEPARATE_PROCESS",
                 values.get("INDEX_SEPARATE_PROCESS", "false")),
@@ -798,6 +803,7 @@ def load_settings(
         ("INDEX_BULK_FTS", settings.index_bulk_fts, ("auto", "on", "off")),
         ("INDEX_OCR_PASS", settings.index_ocr_pass,
          ("with-run", "after-run", "manual")),
+        ("INDEX_ORDER", settings.index_order, ("newest", "found")),
         ("SEARCH_FIX_SPELLING", settings.search_fix_spelling,
          ("auto", "suggest", "off")),
     ):
