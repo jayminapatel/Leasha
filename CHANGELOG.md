@@ -17,6 +17,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Screenshots of the window come out the same every time
+
+- The screenshot tool (`tools/grab_ui.py`) sometimes took its picture before the page had finished
+  drawing, so the look check against the saved screenshots failed on a slow Windows test machine
+  with nothing changed. It caught the search page between its quick first answer and its full one,
+  with a banner the tool had already hidden come back, or the Code page before it said "No code
+  repositories found". It now waits for the page to go quiet, and if something never arrives it
+  stops and names it, rather than saving a half-drawn picture.
+- The temporary folder's random name and the search's measured time were drawn in every results
+  picture; both are now fixed. The timeline's wait for its pictures could never be met and always
+  ran out; it now waits for the pictures the page actually shows. Five runs of every screen, with
+  and without the machine kept busy, now come out identical (measured on Linux; the Windows test
+  run is the check there). A screenshot now takes about twice as long, because it waits.
+
 ### The question box on the Chat tab grows as you type
 
 - A question that wrapped onto a second or third line stayed one line tall on Windows, so its start

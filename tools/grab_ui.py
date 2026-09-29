@@ -22,7 +22,9 @@ page without a grab entry fails the test.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -151,6 +153,27 @@ _SEED = (
 _SEED_MTIME = 1_741_780_800          # 12 March 2025, so dates do not drift with the day it is run
 
 
+#: What the status line says a search took ("4 result(s) · 35ms"). The real
+#: figure is different on every run - measured 2ms to 78ms on one machine - and
+#: it is drawn on the results surface, so it is pinned here the way `_SEED_MTIME`
+#: pins the dates. 35 is what the committed dark-1920x1080 golden shows.
+SHOWN_ELAPSED_MS = 35.0
+
+
+def _steady_clock(engine: Any) -> Any:
+    """`engine`, with every response reporting `SHOWN_ELAPSED_MS`."""
+    for name in ("search", "interim"):
+        real = getattr(engine, name)
+
+        def timed(*args: Any, _real: Any = real, **kwargs: Any) -> Any:
+            response = _real(*args, **kwargs)
+            response.elapsed_ms = SHOWN_ELAPSED_MS
+            return response
+
+        setattr(engine, name, timed)
+    return engine
+
+
 def seed(store: Any, root: Path) -> None:
     """Real files and their index rows, so the search page has rows to show."""
     import json
@@ -241,9 +264,28 @@ def _show_timeline(app: Any, window: Any) -> None:
     view = window.reports_view.timeline
     show_timeline(window.reports_view, lambda t: t.browse_month_of(
         int(_dt(2015, 6, 10, 12).timestamp()) * 1_000_000_000))
-    _wait(app, lambda: not view._loading and view.list.block_count() > 0 and view._overview is not None)
-    view.grab()                                    # painting is what asks for the pictures...
-    _wait(app, lambda: len(view.list._pictures) >= 5, seconds=6.0)   # ...and workers decode them
+    _require(app, lambda: (not view._loading and view.list.block_count() > 0
+                           and view._overview is not None),
+             "the timeline's June 2015 list and overview")
+    _settle(app, window, "the timeline")
+    # **Painting is what asks for the pictures, and workers decode them.** The
+    # old wait was for "five or more decoded"; at 1100x760 four are on screen,
+    # so it timed out silently on every run (measured 2026-09-29) and the grab
+    # was of whichever had landed. The honest condition is the one the list
+    # itself keeps: paint, let every picture that paint asked for arrive, and
+    # repeat until a paint asks for nothing new. A decode the list skipped as
+    # stale is asked for again by the next paint, so it cannot be missed.
+    view_list = view.list
+    for _ in range(10):
+        view.grab()
+        if not view_list._asked:
+            break
+        _require(app, lambda: not view_list._asked, "the timeline's thumbnails")
+        _settle(app, window, "the timeline's thumbnails")
+    else:
+        raise GrabNotReadyError("the timeline kept asking for thumbnails after ten paints")
+    if not view_list._pictures:
+        raise GrabNotReadyError("the timeline drew no thumbnails at all")
 
 
 def _pump(app: Any, n: int = 8) -> None:
@@ -285,7 +327,7 @@ def build_window(root: Path, *, theme: str = "system", size: str = "1100x760",
         from app.search.engine import SearchEngine
 
         seed(store, root)
-        engine: Any = SearchEngine(store, _NoVectors(), _NoModel(), log_usage=False)
+        engine: Any = _steady_clock(SearchEngine(store, _NoVectors(), _NoModel(), log_usage=False))
     else:
         engine = _Engine(store)
     if timeline:
@@ -323,10 +365,14 @@ def _reach(app: Any, window: Any, spec: dict) -> Any:
     elif spec.get("state") == "timeline":
         _show_timeline(app, window)
     _pump(app)
+    # Every page refreshes itself on a worker the first time it is shown
+    # (counts, lists, status). Without this the picture was of whichever of
+    # those had landed by the time the grab happened.
+    _settle(app, window, f"the {spec['page']} page")
     # A startup toast ("Indexing: Only when you ask.") is still up when the
     # first grabs are taken and sits over whatever is at the bottom of the page.
     window.toast.clear()
-    _pump(app)
+    _settle(app, window, f"the {spec['page']} page")
     return window
 
 
@@ -344,6 +390,69 @@ def _wait(app: Any, done: Any, seconds: float = 8.0) -> bool:
     return bool(done())
 
 
+#: How long anything a grab depends on may take to arrive. Generous on purpose:
+#: a shared Windows CI runner is several times slower than a desk, and the only
+#: cost of a long limit is a slow failure. The cost of a short one was a picture
+#: of a half-drawn page that drifted from its golden (2026-09-29).
+WAIT_SECONDS = 30.0
+
+
+class GrabNotReadyError(RuntimeError):
+    """Something a surface needs never arrived, so no picture was taken."""
+
+
+def _require(app: Any, done: Any, what: str, seconds: float = WAIT_SECONDS) -> None:
+    """`_wait`, but a timeout is an error naming `what` - never a picture.
+
+    **A grab of a page that has not finished drawing is not a grab of that
+    page.** `_wait` used to return False on a timeout and every caller ignored
+    it, so a slow runner quietly photographed whatever state the page was in
+    and the golden comparison then reported a drifted look that was really a
+    race."""
+    if not _wait(app, done, seconds):
+        raise GrabNotReadyError(f"{what} never arrived within {seconds:.0f}s, so the "
+                           "surface was not grabbed (a slow machine, or a real hang)")
+
+
+def _pending_timers(window: Any) -> list:
+    """Single-shot timers still armed anywhere in the window: debounces (the
+    search box's two tiers, the preview's), each one a piece of work that has
+    not started yet. Repeating timers (watchers, pollers) never finish and are
+    not counted."""
+    from PyQt6.QtCore import QTimer
+
+    return [t for t in window.findChildren(QTimer) if t.isSingleShot() and t.isActive()]
+
+
+def _settle(app: Any, window: Any, what: str, seconds: float = WAIT_SECONDS) -> None:
+    """Drain everything in flight - debounce timers, `QThreadPool` workers and
+    the signals they post back - until the window is quiet for several turns.
+
+    A worker that finishes posts its result to this thread, and handling that
+    can start another (results, then their mail subtitles; a page's refresh,
+    then its counts). So "quiet" is checked repeatedly, not once."""
+    import time
+
+    from PyQt6.QtCore import QThreadPool
+    from PyQt6.QtTest import QTest
+
+    pool = QThreadPool.globalInstance()
+    end = time.monotonic() + seconds
+    quiet = 0
+    while quiet < 4:
+        left = end - time.monotonic()
+        if left <= 0:
+            raise GrabNotReadyError(
+                f"{what}: the window never went quiet within {seconds:.0f}s "
+                f"({pool.activeThreadCount()} background task(s) running, "
+                f"{len(_pending_timers(window))} debounce timer(s) armed), so the surface "
+                "was not grabbed")
+        pool.waitForDone(max(1, int(left * 1000)))
+        QTest.qWait(25)
+        busy = pool.activeThreadCount() or _pending_timers(window)
+        quiet = 0 if busy else quiet + 1
+
+
 def _show_results(app: Any, window: Any) -> None:
     """Type a query, wait for the rows, select the first and open the inspector -
     the state §9i calls "results with the inspector"."""
@@ -352,31 +461,78 @@ def _show_results(app: Any, window: Any) -> None:
     from app.ui.view_options import ViewPreferences
 
     view = window.search_view
+    # **Typing answers twice**: the keyword ("interim") tier after 150ms, the
+    # full search after 400ms, each with its own status line, notices and
+    # decoration pass. Waiting only for "some rows" photographed whichever had
+    # landed - measured 2026-09-29 under CPU load: the interim page ("keyword
+    # only, still searching...", phash 6 from the settled page), or the full
+    # search's degraded-meaning banner arriving after it had been cleared
+    # (phash 12). So: wait for the full tier by name, then for everything it
+    # started, and only then select and preview.
+    tiers: list[str] = []
+    view.searched.connect(lambda shape: tiers.append(shape.get("tier", "")))
     view.input.setText("boiler quote dave")
     model = view.results._model
-    _wait(app, lambda: model.rowCount() > 0)
+    _require(app, lambda: "full" in tiers and model.rowCount() > 0,
+             "the full search's results for 'boiler quote dave'")
     # A message's sender, subject and kind arrive from a worker a beat after its
     # row; until they do it is drawn without its badge. Wait for that too, or the
     # picture depends on which got there first.
-    _wait(app, lambda: any(getattr(model.index(i, 0).data(int(Qt.ItemDataRole.UserRole)),
-                                   "kind", "") == "email" for i in range(model.rowCount())))
+    _require(app, lambda: any(getattr(model.index(i, 0).data(int(Qt.ItemDataRole.UserRole)),
+                                      "kind", "") == "email" for i in range(model.rowCount())),
+             "the e-mail row's badge (its sender and kind, from the decoration worker)")
+    _settle(app, window, "search results")
     view.set_view_preferences(ViewPreferences(preview=True))
     view.results._list.setCurrentIndex(model.index(0, 0))
-    _wait(app, lambda: view.preview.subtitle.text() != "Loading…"
-          and bool(view.preview.text.toPlainText().strip()), seconds=4.0)
+    _require(app, lambda: view.preview.subtitle.text() != "Loading…"
+             and bool(view.preview.text.toPlainText().strip()),
+             "the preview of the first result")
+    _settle(app, window, "the preview")
     # The grab runs keyword-only, so the search says "meaning-based search
     # returned nothing" in a banner over the rows; that is true of this run and
     # of no user's, and it would sit in every golden. The status line stays.
     view.notices.show_notices(())
 
 
+#: The temporary store's folder. **A fixed name, not `mkdtemp`'s random one**:
+#: the results surface draws the seeded files' paths (every row's breadcrumb,
+#: the preview's title), so a random `leasha-grab-XXXXXXXX` put different
+#: glyphs in every grab - 2 to 4 bits of phash between two runs of the same
+#: code on the same machine, measured 2026-09-29. Eight letters after the dash,
+#: like the random names the goldens were made with, so the width is the same.
+GRAB_DIR_NAME = "leasha-grab-snapshot"
+
+
+@contextlib.contextmanager
+def _grab_dir() -> Any:
+    """`<temp>/GRAB_DIR_NAME`, empty, removed afterwards. One grab at a time:
+    a folder that is still there and cannot be removed is an error, not a
+    reason to pick a different (random) name."""
+    path = Path(tempfile.gettempdir()) / GRAB_DIR_NAME
+    if path.exists():
+        shutil.rmtree(path, ignore_errors=True)
+        if path.exists():
+            raise GrabNotReadyError(f"{path} is left from an earlier grab and could not be removed "
+                               "- is another grab running?")
+    path.mkdir(parents=True)
+    try:
+        yield path
+    finally:
+        # ignore_errors: see the note on the Windows handle in `grab`.
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def grab(names: Iterable[str], out: Path, *, theme: str = "system",
-         size: str = "1100x760", show: bool = False) -> list[Path]:
-    """Grab every named surface to `out/<name>.png`. Returns the files written."""
+         size: str = "1100x760", show: bool = False, workdir: Path | None = None) -> list[Path]:
+    """Grab every named surface to `out/<name>.png`. Returns the files written.
+
+    The temporary store lives in `workdir` when given (an empty folder the
+    caller owns), otherwise in the fixed `_grab_dir()` - which is what makes two
+    grabs of the same surface draw the same paths."""
     names = list(names)
     out.mkdir(parents=True, exist_ok=True)
-    # ignore_cleanup_errors: SqliteStore hands out one sqlite3 connection per
-    # native thread (threading.local()), but a QThreadPool worker thread that
+    # Cleanup ignores errors (`_grab_dir`): SqliteStore hands out one sqlite3
+    # connection per native thread (threading.local()), but a QThreadPool worker thread that
     # is reused for a second task does not reliably see its own cached
     # connection on the second call - it opens a fresh one, and the first is
     # silently overwritten in SqliteStore._open rather than closed. Walking
@@ -386,7 +542,7 @@ def grab(names: Iterable[str], out: Path, *, theme: str = "system",
     # lives outside this tempdir. Worth fixing in SqliteStore itself, not
     # papering over here; tracked as a follow-up rather than blocking this
     # tool on it.
-    with tempfile.TemporaryDirectory(prefix="leasha-grab-", ignore_cleanup_errors=True) as tmp:
+    with (contextlib.nullcontext(workdir) if workdir is not None else _grab_dir()) as tmp:
         seeded = any(SURFACES[n].get("state") == "results" for n in names)
         timeline = any(SURFACES[n].get("state") == "timeline" for n in names)
         app, window, closers = build_window(Path(tmp), theme=theme, size=size, seeded=seeded,

@@ -73,7 +73,10 @@ def grabbed(tmp_path_factory):
     from tools import grab_ui
 
     out = tmp_path_factory.mktemp("grabs")
-    written = grab_ui.grab(list(grab_ui.SURFACES), out)
+    # Its own store folder, not the fixed one the golden subprocesses below
+    # share: this grab runs in the test process, which lives on after it.
+    written = grab_ui.grab(list(grab_ui.SURFACES), out,
+                           workdir=tmp_path_factory.mktemp("grab-store"))
     return out, written
 
 
