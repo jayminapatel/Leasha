@@ -82,7 +82,14 @@ log = logger.bind(component="extract.transcribe")
 #: The model sizes offered, smallest first. English-only `.en` variants are left
 #: out: this is a family and workplace archive, and a family holds more than one
 #: language.
-MODELS = ("tiny", "base", "small", "medium")
+#:
+#: Dated note, 2026-09-29 (owner: "if there are other options add them"): the
+#: two large multilingual models faster-whisper 1.2.1 names in its own table
+#: (`faster_whisper.utils._MODELS`) are offered too, after `medium`.
+#: `large-v3-turbo` (mobiuslabsgmbh/faster-whisper-large-v3-turbo, about
+#: 1.6 GB) is nearly as accurate as `large-v3` (Systran, about 3 GB) and much
+#: faster. Neither is measured here; on a processor both are slow.
+MODELS = ("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3")
 
 #: `base` is the size that is usually good enough for clear speech and cheap
 #: enough for a processor. **Measured 2026-09-20** (Systran/faster-whisper-base,

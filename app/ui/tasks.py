@@ -20,8 +20,9 @@ from typing import Any, Optional
 from app.core.logging import logger
 from app.ui.presenter.code import REPO_FILE_LIMIT, code_type_filter, git_rows_matching
 from app.ui.presenter.formatting import format_size, format_when
-from app.ui.presenter.indexing import warned_counts
+from app.ui.presenter.indexing import pictures_not_read_counts, warned_counts
 from app.ui.presenter.repos import RepoRow
+from app.ui.presenter.rows import LIST_TOTAL_CAP, MAIL_TOTAL_CAP  # how far each total is counted
 
 _log = logger.bind(component="ui.presenter")
 
@@ -96,15 +97,138 @@ def decorate_results(store: Any, results: Any) -> dict:
     Together here so there is one worker rather than four, and one place
     that says which of this work is off-thread.
     """
+    volumes = offline_volume_marks(store, results)
     return {
         "details": mail_details(store, results),
         "missing": missing_paths(
             getattr(row, "path", "") for row in results or ()
             if getattr(row, "volume_id", None) is None
         ),
-        "volumes": offline_volume_marks(store, results),
+        "volumes": volumes,
         "placeholders": placeholder_marks(results),
+        # The Status word per row - one batched read, and the offline answer
+        # the line above already paid for rather than a second volume check.
+        "statuses": result_statuses(store, results, offline=volumes),
     }
+
+
+def result_statuses(store: Any, results: Any, *, offline: Any = ()) -> dict[int, str]:
+    """`{file_id: word}` for one page of search results. **Worker only.**
+
+    The Search list's Status column (see `app.core.file_state`). A search
+    result carries its file's id and nothing about its index state, so this is
+    one `store.file_states` read for the whole page; `offline` is the set (or
+    dict) of file ids `offline_volume_marks` found on a disconnected volume.
+    Never raises: a missing word is a blank cell, not a failed search.
+    """
+    from app.core.file_state import derive
+
+    ids = {int(getattr(row, "file_id", 0) or 0) for row in results or ()}
+    ids.discard(0)
+    if not ids or store is None:
+        return {}
+    try:
+        states = store.file_states(sorted(ids))
+    except Exception as exc:                     # noqa: BLE001 - a column, not the search
+        _log.debug("no status words for this page: {}", exc)
+        return {}
+    away = set(offline or ())
+    return {
+        file_id: derive(state.get("status"), state.get("skip_code"),
+                        offline=file_id in away)
+        for file_id, state in states.items()
+    }
+
+
+def offline_volume_ids(store: Any, rows: Any) -> set[int]:
+    """Which of these rows' volumes are not connected right now. **Worker only**
+    - the same live check `offline_volume_marks` makes, and only when a row is
+    on a catalogued volume at all. `rows` are store dicts or row objects."""
+    def volume_of(row: Any) -> Any:
+        return row.get("volume_id") if isinstance(row, dict) else getattr(row, "volume_id", None)
+
+    wanted = {int(v) for v in (volume_of(row) for row in rows or ()) if v is not None}
+    if not wanted:
+        return set()
+    from app.index.offline_media import connected_volumes
+
+    try:
+        online = connected_volumes(store)
+    except Exception:                            # noqa: BLE001 - a column, not the list
+        online = {}
+    return {volume for volume in wanted if volume not in online}
+
+
+def _bounded_count(count: Any, *args: Any, **kwargs: Any) -> Optional[int]:
+    """A list's total, or None when the store cannot say. Never raises: the
+    rows are the answer, the total is the sentence under them."""
+    if count is None:
+        return None
+    try:
+        total = count(*args, **kwargs)
+    except Exception as exc:                     # noqa: BLE001 - a sentence, not the list
+        _log.debug("no total for this list: {}", exc)
+        return None
+    return None if total is None else int(total)
+
+
+def browse_files_page(store: Any, parsed: Any, *, limit: int) -> dict:
+    """One page of the Files list, its total and its offline volumes. **Worker.**
+
+    `rows` is exactly `store.browse_files` - its errors still reach the view,
+    because a failed search must say so. `total` is the bounded count behind
+    the page (`None` when unknown or when the page was not full), so the
+    summary can say "Showing 200 of 12,431" instead of stopping at 200 in
+    silence. `offline` feeds the Status column's Offline word.
+    """
+    rows = store.browse_files(parsed, limit=limit)
+    total = None
+    if len(rows) >= limit:
+        total = _bounded_count(getattr(store, "count_browse_files", None),
+                               parsed, cap=LIST_TOTAL_CAP)
+    return {"rows": rows, "total": total, "offline": offline_volume_ids(store, rows)}
+
+
+def browse_messages_page(store: Any, *, limit: int, **filters: Any) -> dict:
+    """One page of the Mail list and its total. **Worker.**
+
+    Asked for directly: *"when searching for mails the search displays maximum
+    500 but does not tell how much total"*. Counted only when the page is full
+    - a page with room left in it is already the whole answer.
+    """
+    rows = store.browse_messages(limit=limit, **filters)
+    total = None
+    if len(rows) >= limit:
+        total = _bounded_count(getattr(store, "count_messages_matching", None),
+                               cap=MAIL_TOTAL_CAP, **filters)
+    return {"rows": rows, "total": total}
+
+
+def status_funnel_counts(store: Any, stats: Any = None) -> dict[str, int]:
+    """Counts per status word for the Indexing page's funnel. **Worker only.**
+
+    The store's grouped counts (`store.status_counts`, three indexed
+    statements - see there) plus the two numbers only a live run knows:
+    `Reading`, the readers with a file open, and `Discovered`, what the walk
+    has found that no reader has finished with. `stats` is the latest progress
+    snapshot, or None when nothing is running.
+    """
+    from app.core.file_state import funnel_counts
+
+    grouped = store.status_counts(store.offline_volume_ids())
+    reading = discovered = 0
+    if stats is not None:
+        workers = getattr(stats, "workers", None) or {}
+        reading = sum(1 for slot in workers.values()
+                      if isinstance(slot, dict) and slot.get("file"))
+        done = sum(int(getattr(stats, name, 0) or 0)
+                   for name in ("indexed", "unchanged", "skipped"))
+        # `seen` is roughly `done` plus the bounded queue (see
+        # `presenter.progress_for`); for an archive `indexed` counts messages,
+        # which can overtake `seen` - hence the floor at zero.
+        discovered = max(0, int(getattr(stats, "seen", 0) or 0) - done - reading)
+    return funnel_counts(grouped["by_status"], grouped["coded"], grouped["offline"],
+                         reading=reading, discovered=discovered)
 
 
 def offline_volume_marks(store: Any, results: Any) -> dict[int, dict]:
@@ -513,7 +637,10 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
     try:
         payload["stats"] = store.stats()
         payload["last_run"] = store.get_state("index:last_run") or ""
-        payload["warned"] = warned_counts(store.get_state("last_run_stats"))
+        last_run_stats = store.get_state("last_run_stats")
+        payload["warned"] = warned_counts(last_run_stats)
+        # Order 0z lane D: the junk-image filter's count, from the same record.
+        payload["pictures_not_read"] = pictures_not_read_counts(last_run_stats)
     except Exception as exc:                     # noqa: BLE001 - reported, not swallowed
         payload["error"] = f"{type(exc).__name__}: {exc}"
         return payload
@@ -523,6 +650,12 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
     from app.index.interrupted import read_part_read_archives, read_unfinished_run
 
     payload["unfinished"] = read_unfinished_run(store)
+    # The Indexing page's funnel - counts per status word. Its own guard: a
+    # funnel that cannot be read leaves the rest of the summary standing.
+    try:
+        payload["funnel"] = status_funnel_counts(store)
+    except Exception as exc:                     # noqa: BLE001 - one line of the page
+        _log.debug("no status funnel: {}", exc)
     # 3c: archives a run stopped inside. Stats each one, so on the worker too.
     payload["part_read"] = read_part_read_archives(store)
 
@@ -907,7 +1040,35 @@ def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = Non
     """
     rows = code_rows_for(store, scope, route, cached=cached, limit=limit)
     return {"rows": rows,
+            "matches": code_content_matches(store, scope, route, cached=cached),
             "matching": matching_repos(store, route, cached=cached, repos=repos)}
+
+
+def code_content_matches(store: Any, scope: Any, route: Any, *, cached: Any = None) -> list:
+    r"""Order 0y §2: the lines of code that hold what was typed. **On the worker.**
+
+    Index only (`app.search.code_search`), with line numbers read from the files
+    inside a small time budget. None of it for a branch scope (`cached`): that
+    list comes from `git ls-tree` and describes a tree the index does not hold,
+    so a line from the working copy would be a claim about the wrong version.
+    """
+    from dataclasses import replace as _replace
+
+    from app.search.code_search import code_matches, resolve_lines
+
+    parsed = getattr(route, "parsed", None)
+    if cached is not None or parsed is None:
+        return []
+    repo = (str(getattr(scope, "repo", "") or "")
+            or str(getattr(route, "repo", "") or ""))
+    if repo:
+        parsed = _replace(parsed, repos=(repo,))
+    try:
+        found = code_matches(store, parsed, types=code_type_filter(store))
+    except Exception as exc:                 # noqa: BLE001 - the file list still answers
+        _log.debug("code content search failed: {}", exc)
+        return []
+    return resolve_lines(found)
 
 
 def matching_repos(store: Any, route: Any, *, cached: Any = None,

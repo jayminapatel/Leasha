@@ -21,18 +21,31 @@ is the one moment it is needed. So the heartbeat line is redrawn once a
 second from the last tick, against the clock - no store read, no I/O, one
 `setText` on one label. The timer runs only while a run is being shown and
 the panel is visible; a hidden page or an idle page runs no timer at all.
+
+**Force skip** (work order 0z lane B). Under the lines, one small button per
+busy reader - "Force skip reader 2" - that skips the file that reader has open
+now, exactly as its time limit would, with the reason naming the person
+(`app/index/file_watch.py`). The button only asks: `forceSkip` carries the
+reader's number to `indexing_controls.force_skip_reader`, which marks the file
+on the run (a flag, or one line to the indexing process) and returns. The
+buttons are made once per reader number and reused, as the lines' label is.
+A pressed button stays disabled while the same file is shown, so a second
+press cannot land on the reader's next file.
 """
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import QTimer, pyqtSignal
+from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.live_progress import heartbeat_line, live_view
 
-__all__ = ["HEARTBEAT_REDRAW_MS", "IndexingWorkers"]
+__all__ = ["FORCE_SKIP_LABEL", "HEARTBEAT_REDRAW_MS", "IndexingWorkers"]
+
+#: Work order 0z lane B. `{n}` is the reader's number, as its line says it.
+FORCE_SKIP_LABEL = "Force skip reader {n}"
 
 #: How often the heartbeat line is redrawn between ticks. Work order 0x §3d,
 #: "a heartbeat once a second". A constant (non-negotiable 11): the text only
@@ -45,7 +58,12 @@ class IndexingWorkers(QWidget):
 
     `show_live(stats)` paints a progress snapshot; `clear()` empties and hides
     the panel. Both are UI-thread only and do no I/O.
+
+    `forceSkip(reader)` is emitted when a Force skip button is pressed, with
+    the reader's number as a string ("2").
     """
+
+    forceSkip = pyqtSignal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -69,6 +87,20 @@ class IndexingWorkers(QWidget):
         for label in (self.lines, self.heartbeat, self.writer):
             layout.addWidget(label)
             label.setVisible(False)
+        # 0z lane B: the Force skip buttons, under the lines they act on.
+        self.skip_row = QWidget()
+        self.skip_row.setObjectName("indexForceSkip")
+        self._skip_layout = QHBoxLayout(self.skip_row)
+        self._skip_layout.setContentsMargins(0, 0, 0, 0)
+        self._skip_layout.addStretch(1)
+        #: Reader number -> its button. Made on first need, then reused.
+        self.skip_buttons: dict[str, QPushButton] = {}
+        #: Reader number -> (file, started_at) a press was sent for.
+        self._skipped: dict[str, tuple] = {}
+        #: Reader number -> (file, started_at) as last painted.
+        self._current: dict[str, tuple] = {}
+        layout.insertWidget(1, self.skip_row)
+        self.skip_row.setVisible(False)
 
         #: The last snapshot painted, so the timer can redraw the heartbeat
         #: against the clock without a new tick. None when nothing is shown.
@@ -87,6 +119,7 @@ class IndexingWorkers(QWidget):
         self._stats = stats
         view = live_view(stats)
         self._set(self.lines, "\n".join(view.workers))
+        self._show_skips(getattr(stats, "workers", None))
         self._paint_heartbeat(view.heartbeat, view.quiet)
         self._set(self.writer, view.writer)
         showing = bool(view.workers or view.heartbeat or view.writer)
@@ -100,6 +133,7 @@ class IndexingWorkers(QWidget):
         self._timer.stop()
         for label in (self.lines, self.heartbeat, self.writer):
             self._set(label, "")
+        self._show_skips(None)
         self.setVisible(False)
 
     @property
@@ -135,6 +169,46 @@ class IndexingWorkers(QWidget):
             self.heartbeat.style().unpolish(self.heartbeat)
             self.heartbeat.style().polish(self.heartbeat)
         self._set(self.heartbeat, text)
+
+    def _show_skips(self, workers: Any) -> None:
+        """One Force skip button per busy reader; the rest hidden."""
+        busy: dict[str, tuple] = {}
+        if isinstance(workers, dict):
+            for key, worker in workers.items():
+                if isinstance(worker, dict) and worker.get("file"):
+                    busy[str(key)] = (worker.get("file"), worker.get("started_at"))
+        for key in sorted(busy, key=lambda k: (len(k), k)):
+            button = self.skip_buttons.get(key)
+            if button is None:
+                button = QPushButton(FORCE_SKIP_LABEL.format(n=key))
+                button.setObjectName(f"indexForceSkip{key}")
+                button.clicked.connect(lambda _c=False, k=key: self._pressed(k))
+                self._skip_layout.insertWidget(self._skip_layout.count() - 1, button)
+                self.skip_buttons[key] = button
+            button.setToolTip(
+                f"Stop reading {busy[key][0]} and skip it. Everything else carries "
+                "on. It is recorded as skipped by you, and read again when it "
+                "changes.")
+            if self._skipped.get(key) != busy[key]:
+                self._skipped.pop(key, None)
+            button.setEnabled(key not in self._skipped)
+            button.setVisible(True)
+        for key, button in self.skip_buttons.items():
+            if key not in busy:
+                button.setVisible(False)
+                self._skipped.pop(key, None)
+        self.skip_row.setVisible(bool(busy))
+        self._current = busy
+
+    def _pressed(self, key: str) -> None:
+        current = self._current.get(key)
+        if current is None:
+            return
+        self._skipped[key] = current
+        button = self.skip_buttons.get(key)
+        if button is not None:
+            button.setEnabled(False)
+        self.forceSkip.emit(key)
 
     @staticmethod
     def _set(label: QLabel, text: str) -> None:

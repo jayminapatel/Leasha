@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import os
 import queue
 import threading
@@ -62,6 +63,7 @@ from app.core.errors import AppError, AppErrorException, make_error, to_app_erro
 from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract import progress as reader_progress
+from app.extract import reading as reader_reading
 from app.extract.base import extractor_for, reads_externally
 from app.core.priority import lower_this_thread
 from app.core.osbridge.pathnames import path_key
@@ -70,6 +72,7 @@ from app.extract.source_types import indexed_ext
 from app.index import backends
 from app.index.activity import (
     KIND_ARCHIVE,
+    KIND_ARCHIVE_COUNTS,
     KIND_FINISHED,
     KIND_LARGE_FILE,
     KIND_NOTICE,
@@ -79,9 +82,12 @@ from app.index.activity import (
     KIND_STOPPING,
     KIND_WARNING,
     ActivityLog,
+    encode_counts,
     large_file_kind,
 )
 from app.index.clip_embedder import ClipImageEmbedder
+from app.index.held_archives import HeldArchives
+from app.index.image_book import PersistentImageBook
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
 from app.index.embedder import Embedder
@@ -96,7 +102,17 @@ from app.index.live_progress import (
     STAGES,  # noqa: F401 - re-exported: `pipeline.STAGES` is the one ordered list
     WorkerBoard,
 )
+from app.index.file_watch import (
+    GRACE_S,
+    ORPHANED,
+    FileCancelled,
+    FileTimedOut,
+    FileWatch,
+    Watchdog,
+    limit_kind,
+)
 from app.index.phash import PhashComputer
+from app.index.read_process import ReaderProcess, reads_in_process
 from app.index.resources import (
     MANUAL_PAUSE_REASON,
     ResourceGovernor,
@@ -104,6 +120,7 @@ from app.index.resources import (
     SystemProbe,
     Verdict,
 )
+from app.index.read_order import ORDER_NEWEST, WorkList, normalise_order
 from app.index.stages import WAITING, StageClock
 from app.index.walker import (
     Candidate,
@@ -264,6 +281,11 @@ PHASE_MODEL = "model"
 PHASE_WORD_INDEX_CHECK = "word_index_check"
 PHASE_CATCH_UP = "catch_up"
 PHASE_PLANNING = "planning"
+#: 2026-09-29. `read_order` "newest": the walk and the cheap change check run
+#: to the end before anything is read, and the list is sorted. `seen` climbs
+#: while it lasts; `walk_complete` turns true when it ends, and the bar counts
+#: against a real total from the first file read.
+PHASE_SCANNING = "scanning"
 PHASE_READING = "reading"
 PHASE_MEDIA = "media"
 PHASE_TIDYING = "tidying"
@@ -421,6 +443,11 @@ class IndexStats:
     #: "412 decks are mostly images" - the input to the Office OCR decision -
     #: a question nobody could answer without grepping.
     warned_by_code: dict[str, int] = field(default_factory=dict)
+    #: Order 0z lane D. Pictures attached to mail that the junk-image filter
+    #: left unread, per reason (`junk_images.REASONS`: decorative, repeated,
+    #: few_words). Each was also one `Skipped` in its archive's counts line;
+    #: this is the run's total, for the Indexing page.
+    pictures_not_read: dict[str, int] = field(default_factory=dict)
     #: Vectors actually written this run, against `chunks` written.
     #:
     #: **The number whose absence hid the embedding gap for weeks.** A run that
@@ -673,6 +700,7 @@ class IndexStats:
             "skipped_roots": list(self.skipped_roots),
             "notices": list(self.notices),
             "warned_by_code": dict(self.warned_by_code),
+            "pictures_not_read": dict(self.pictures_not_read),
             "ocr_mode": self.ocr_mode,
             "stopped_early": self.stopped_early.code if self.stopped_early else None,
             # §6a. Omitted entirely when nothing was measured, so a run too
@@ -754,6 +782,21 @@ class PipelineConfig:
     #: ceiling raised. Cheaper and far more targeted than `--force`, which
     #: re-indexes the whole corpus including everything that succeeded.
     retry_skipped: bool = False
+    #: Work order 0x §5b. Read files in a process per extraction thread
+    #: (`app/index/read_process.py`), so readers stop taking turns on one
+    #: interpreter lock. Only readers that are pure file parsing move; every
+    #: other file is read on the thread as before. Off by default: the
+    #: "Read files in separate processes" switch on the Indexing page.
+    read_processes: bool = False
+    #: Work order 0z lane B: the time limits (`app/index/file_watch.py`).
+    #: Seconds a text or code file may take to read; other single documents
+    #: get `file_watch.LONG_FACTOR` times this. 0 is no limit. The Indexing
+    #: page's "Time limit per file" (`INDEX_FILE_TIME_LIMIT_S`).
+    file_time_limit_s: int = 120
+    #: Seconds a mailbox or archive may go with nothing new read before it is
+    #: skipped. Never a limit on its total time. 0 is no limit.
+    #: `INDEX_STALL_LIMIT_S`.
+    stall_limit_s: int = 600
     #: Which pass this is. See `OCR_MODES` and `_ocr_gate`.
     #:
     #: **OCR is the schedule, not a feature.** At 3.6 seconds a page, 100,000
@@ -763,6 +806,10 @@ class PipelineConfig:
     #: `images` picks up exactly that queue. Search becomes useful after the
     #: first, in a day or two rather than a fortnight.
     ocr_mode: str = "both"
+    #: Order 0z lane D: leave signature logos, social icons, tracking pixels
+    #: and dividers attached to mail unread (`app/extract/junk_images.py`).
+    #: From `INDEX_JUNK_IMAGE_FILTER`; on by default.
+    junk_images: bool = True
     #: Honour the Live/Archive mode on each root. Off for a run that must see
     #: everything whatever the modes say - `--recheck-archives` sets `recheck`
     #: instead, which walks the archives *and* refreshes their records.
@@ -838,6 +885,12 @@ class PipelineConfig:
     #: `app/cli/index.py`). `None`, so a run nobody asked to be pausable
     #: behaves exactly as it always did and stats nothing per file.
     pause_file: Optional[Path] = None
+    #: 2026-09-29. The order files are read in - see `app/index/read_order.py`.
+    #: `newest` scans the whole walk first, then reads the folders chosen
+    #: first (`walk.priority_roots`), then everything else newest first, small
+    #: before large within a month. `found` streams the walk straight into the
+    #: queue, which is how every run behaved before. From `INDEX_ORDER`.
+    read_order: str = "newest"
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -991,6 +1044,20 @@ _GROWTH_WAITING_SHARE = 0.5
 #: nothing else to spend. 50ms x four workers is 80 flag reads a second
 #: against a machine doing nothing at all.
 HOLD_POLL_S = 0.05
+
+#: 2026-09-29. Least time between two asks of the resource governor while the
+#: "newest" order is scanning (`_produce`).
+#:
+#: **Measured, not assumed.** One ask costs 1.76ms in the sandbox this was
+#: built in (9,002 asks: 15.9s; the bare walk of the same 9,002 files: 0.37s),
+#: because each one reads the disk's free space and the process table. Once a
+#: file was harmless there - the walk overlapped the reading - but a scan runs
+#: *before* the reading, so every millisecond of it is a millisecond before the
+#: first file is searchable. A scan holds nothing in flight for a pause to
+#: drain, so asking four times a second still honours a pause, a battery, a
+#: full disk or Stop within a quarter of a second. A constant: nobody would
+#: tune it, and the evidence that would change it is a probe that got cheaper.
+SCAN_GOVERNOR_S = 0.25
 
 #: 2026-09-20. Least time between two looks at `PipelineConfig.pause_file`.
 #: Every waiter asks the governor whether the person has paused, and without
@@ -1191,6 +1258,10 @@ class Pipeline:
         self._plans: tuple[Any, ...] = ()
         #: Monotonic marks for the daily summary line. Set in `run`.
         self._run_started = 0.0
+        #: The same moment on `time.perf_counter`, for the walk and sort
+        #: timings: `monotonic` ticks every ~15ms on Windows, so a short scan
+        #: measured on it read 0s and was left out of the report (2026-09-29).
+        self._run_started_pc = 0.0
         #: Wall-clock start, and who started it. `_run_started` is monotonic -
         #: correct for measuring elapsed time and meaningless to another
         #: process, which needs a clock it can format as "since 14:02".
@@ -1246,6 +1317,13 @@ class Pipeline:
         #: they were started. Only the consumer thread ever appends to this,
         #: from `_maybe_grow_workers`, so no lock guards it.
         self._dynamic_workers: list[threading.Thread] = []
+        #: 0z lane B: threads started in place of one left stuck in a reader.
+        self._replacement_workers: list[threading.Thread] = []
+        #: 0z lane B: the thread idents of those stuck threads.
+        self._left_behind: set[int] = set()
+        #: 0z lane B: the per-file time limits and Force skip, for the run
+        #: in progress. None between runs.
+        self._watchdog: Optional[Watchdog] = None
         #: §6g. Set for as long as the feeder thread is actually inside
         #: `_embed_pending` - not merely "has a batch queued" - so growth can
         #: tell "the model is chewing through a batch right now" from "a
@@ -1549,6 +1627,8 @@ class Pipeline:
         self._feeder_errors = []
         # §6g: same reason - a second run starts back at the static count.
         self._dynamic_workers = []
+        self._replacement_workers = []
+        self._left_behind = set()
         self._embedding_now.clear()
         self._last_growth = 0.0
         # Work order 202626270509, item 1b: same reason - a fresh run rebuilds
@@ -1560,6 +1640,7 @@ class Pipeline:
         self._archive_resumed = {}
         started = time.perf_counter()
         self._run_started = self._last_summary = time.monotonic()
+        self._run_started_pc = time.perf_counter()
         # The first mid-run cursor write waits a full interval, like the rest.
         self._last_resume_persist = self._run_started
         self._run_started_wall = time.time()
@@ -1586,6 +1667,10 @@ class Pipeline:
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
         self._pending_frames = {}
+        # Order 0z lane C: the held-pictures list is read afresh each run.
+        self.__dict__.pop("_held_archive_book", None)
+        # Order 0z lane D: so is the junk-image book.
+        self.__dict__.pop("_image_book_store", None)
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -1675,13 +1760,28 @@ class Pipeline:
                                   name="feeder", daemon=True)
         self._feeder_thread = feeder
 
+        # 0z lane B: before the workers, so each can register its file watch.
+        self._watchdog = Watchdog(
+            file_limit_s=self.config.file_time_limit_s,
+            stall_limit_s=self.config.stall_limit_s,
+            on_orphan=lambda watch: self._replace_worker(watch, work, results))
+        self._watchdog.start()
+        # 2026-09-29. Said before the producer starts, so it can never land
+        # after the producer's own switch to reading - see `_read_in_order`.
+        ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
+        if ordered:
+            self._announce_phase(stats, on_progress, PHASE_SCANNING)
+
         producer.start()
         for worker in workers:
             worker.start()
         feeder.start()
 
         # Back to counting: `progress_for` draws a real bar from here on.
-        self._announce_phase(stats, on_progress, PHASE_READING)
+        # In the "newest first" order the walker says so itself, the moment
+        # the sorted list is ready (`_read_in_order`).
+        if not ordered:
+            self._announce_phase(stats, on_progress, PHASE_READING)
         # 0x 5d: a second run on the same `Pipeline` starts with no shared
         # transaction open - see `_begin_write_group`.
         self._write_group = None
@@ -1699,15 +1799,30 @@ class Pipeline:
             # 0x 5d: and give back the page cache `_consume` asked for.
             self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
+            # 0z lane B: nothing is timed out or replaced once the run is ending.
+            watchdog, self._watchdog = self._watchdog, None
+            if watchdog is not None:
+                watchdog.stop()
             _drain(work)
             _drain(results)
             producer.join(timeout=5)
+            # 0z lane B: a thread left stuck in native code is not waited for -
+            # five seconds each, for a thread known not to be coming back.
+            left_behind = set(self._left_behind)
             for worker in workers:
-                worker.join(timeout=5)
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
             # §6g: whatever `_maybe_grow_workers` started, this run also ends -
             # the static workers above are not the only ones reading `work`.
             for worker in self._dynamic_workers:
-                worker.join(timeout=5)
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
+            # 0z lane B: replacements for threads left stuck in a reader. The
+            # stuck threads themselves are not joined: they are daemons, held
+            # in native code, and waiting for them is what they were left for.
+            for worker in self._replacement_workers:
+                if worker.ident not in left_behind:
+                    worker.join(timeout=5)
             # **After** the extraction threads, never before: `_consume`'s own
             # final flush (`_feed_sync`) already waited for every batch it
             # handed off, whether it returned normally, was stopped, or
@@ -1836,6 +1951,11 @@ class Pipeline:
         self._say_if_nothing_was_walked(stats)
         self.store.set_state("last_run", str(int(time.time())))
         self.store.set_state("last_run_stats", repr(stats.as_dict()))
+        # Order 0z lane C: archives whose attached pictures wait for the
+        # pictures pass. Written here, on the run's own thread, never by a worker.
+        self._held_archives().save()
+        # Order 0z lane D: what this run learnt about pictures in mail.
+        self._image_book().save()
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
@@ -2053,6 +2173,11 @@ class Pipeline:
 
         The unchanged decision happens *here*, before anything is queued, so an
         incremental pass over a settled corpus never wakes a worker at all.
+
+        **Two orders** (`PipelineConfig.read_order`, see `read_order.py`).
+        `found` streams each file into the queue as the walk finds it. `newest`
+        walks to the end first, keeping only what needs reading, then sorts
+        that list and queues it in order - `_read_in_order`.
         """
         from app.index.archives import files_under
 
@@ -2060,9 +2185,14 @@ class Pipeline:
         # Snapshotted: `walk.roots` is not written during a run, and asking for
         # it per file would be a list build a million times over.
         roots = list(self.config.walk.roots)
+        ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
+        worklist = WorkList(self._spill_dir()) if ordered else None
+        halted = False
+        next_ask = 0.0
         try:
             for candidate in self._candidates():
                 if self._stop.is_set():
+                    halted = True
                     break
                 # `_candidates` and the walker have already recorded this path
                 # in the same set - see M17. Kept as a no-op `add` rather than
@@ -2082,37 +2212,36 @@ class Pipeline:
                 # one candidate path, so pausing it starves the workers of new
                 # work while everything already in flight keeps draining - which
                 # is what actually brings memory down.
-                verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
-                self._copy_pause_state(stats)
-                if verdict.action == "stop":
-                    # Say why. Breaking silently here would end the run
-                    # reporting complete success having indexed nothing - the
-                    # exact failure shape that hid every PST for two days.
-                    if not self._stop.is_set() and stats.stopped_early is None:
-                        stats.stopped_early = make_error(
-                            "ERR_DISK_SPACE", "index.pipeline",
-                            free_gb="low", drive=str(self.vectors.uri),
-                            details=verdict.reason,
-                        )
-                        self._log.error("{}", stats.stopped_early.render())
-                        self.request_stop()
-                    break
+                #
+                # While scanning ("newest"), at most every `SCAN_GOVERNOR_S`:
+                # nothing is in flight yet, and the scan is on the critical
+                # path. The streaming order asks per file, as it always did.
+                if worklist is None or time.monotonic() >= next_ask:
+                    if not self._governor_allows(stats):
+                        halted = True
+                        break
+                    next_ask = time.monotonic() + SCAN_GOVERNOR_S
 
-                decision = self._classify(candidate)
+                # **No hash during a scan.** A file never seen is hashed by the
+                # change check, and a hash is a full read: the scan would read
+                # the whole corpus before the first file could be searched. The
+                # hash is taken when the file's turn comes - `_read_in_order`.
+                decision = self._classify(candidate, hash_now=not ordered)
                 if decision is UNCHANGED:
                     stats.unchanged += 1
+                    continue
+
+                if worklist is not None:
+                    worklist.add(candidate, decision)
                     continue
 
                 # (priority, sequence) keeps PriorityQueue from ever comparing
                 # Candidates, which are not orderable, while preserving the
                 # walker's deterministic order within a priority band.
                 sequence += 1
-                while not self._stop.is_set():
-                    try:
-                        work.put((candidate.priority, sequence, candidate, decision), timeout=0.25)
-                        break
-                    except queue.Full:
-                        continue                # bounded on purpose: this is backpressure
+                self._queue_work(work, (candidate.priority, sequence, candidate, decision))
+            if worklist is not None and not halted and not self._stop.is_set():
+                sequence = self._read_in_order(work, stats, worklist)
         except Exception as exc:                # noqa: BLE001 - a walker crash must not hang the run
             # Loud, and recorded in the stats. The silent version of this cost a
             # whole run: it logged one line nobody saw and reported success.
@@ -2123,24 +2252,109 @@ class Pipeline:
             )
             self._log.error("walker stopped early: {}", stats.stopped_early.render())
         finally:
+            if worklist is not None:
+                worklist.close()
             # **`seen` only becomes a real total here.** Until the walk ends it
             # is "what has been found so far", and because the work queue is
             # bounded the walker can never run more than a queue-length ahead of
             # the workers - so `done / seen` sits near 1 from the first minute
             # whatever fraction of the corpus is left. See `progress_for`.
-            stats.walk_complete = True
-            # §6a. **Recorded, but not on the critical path**, so it is added
-            # to the worker tally rather than the stage one: the walk runs on
-            # its own thread alongside everything else, and counting its
-            # seconds as a share of the run would push the total past 100%.
-            #
-            # Worth having all the same - a walk that takes two hours over a
-            # network share is a fact about the corpus that no other number in
-            # the report shows.
-            self._clock.add_worker(
-                "walk", time.monotonic() - self._run_started)
+            # (In the "newest" order `_read_in_order` has already said so, at
+            # the end of the scan, which is when it became true.)
+            if not stats.walk_complete:
+                stats.walk_complete = True
+                # §6a. **Recorded, but not on the critical path**, so it is
+                # added to the worker tally rather than the stage one: the walk
+                # runs on its own thread alongside everything else, and
+                # counting its seconds as a share of the run would push the
+                # total past 100%.
+                #
+                # Worth having all the same - a walk that takes two hours over
+                # a network share is a fact about the corpus that no other
+                # number in the report shows.
+                self._clock.add_worker(
+                    "walk", time.perf_counter() - self._run_started_pc)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
+
+    def _read_in_order(self, work: queue.PriorityQueue, stats: IndexStats,
+                       worklist: WorkList) -> int:
+        """The scan is over: sort what it found and queue it. Returns the last
+        sequence number used, for the stop markers after it.
+
+        **Each file's hash is taken here, on its turn** - see `_produce` - by
+        asking `_classify` again with hashing allowed. For a file never seen
+        that is the hash the old single pass took; for one whose date moved it
+        is the check that finds a `robocopy` restore unchanged, which is then
+        counted as unchanged and not read. `verify_hash` off means the scan's
+        answer was already final.
+        """
+        stats.walk_complete = True
+        self._clock.add_worker("walk", time.perf_counter() - self._run_started_pc)
+        sorting_from = time.perf_counter()
+        entries = worklist.sorted()
+        first = next(entries, None)             # the sort itself happens here
+        self._clock.add_worker("sort", time.perf_counter() - sorting_from)
+        self._log.info(
+            "scan finished: {:,} file(s) found, {:,} to read, newest first{}",
+            stats.seen, len(worklist), " (sorted on disk)" if worklist.spilled else "")
+        stats.phase = PHASE_READING
+        stats.activity.record(KIND_PHASE, PHASE_READING)
+        sequence = 0
+        if first is None:
+            return sequence
+        for candidate, decision in itertools.chain((first,), entries):
+            if self._stop.is_set():
+                break
+            if not self._governor_allows(stats):
+                break
+            if self.config.verify_hash:
+                decision = self._classify(candidate)
+                if decision is UNCHANGED:
+                    stats.unchanged += 1
+                    continue
+            sequence += 1
+            if not self._queue_work(
+                    work, (candidate.priority, sequence, candidate, decision)):
+                break
+        return sequence
+
+    def _governor_allows(self, stats: IndexStats) -> bool:
+        """Wait out a pause; False when the run must stop, having said why."""
+        verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        self._copy_pause_state(stats)
+        if verdict.action != "stop":
+            return True
+        # Say why. Breaking silently here would end the run reporting complete
+        # success having indexed nothing - the exact failure shape that hid
+        # every PST for two days.
+        if not self._stop.is_set() and stats.stopped_early is None:
+            stats.stopped_early = make_error(
+                "ERR_DISK_SPACE", "index.pipeline",
+                free_gb="low", drive=str(self.vectors.uri),
+                details=verdict.reason,
+            )
+            self._log.error("{}", stats.stopped_early.render())
+            self.request_stop()
+        return False
+
+    def _queue_work(self, work: queue.PriorityQueue, entry: tuple) -> bool:
+        """Put one entry on the bounded queue, waiting for room. False if the
+        run was stopped while waiting."""
+        while not self._stop.is_set():
+            try:
+                work.put(entry, timeout=0.25)
+                return True
+            except queue.Full:
+                continue                # bounded on purpose: this is backpressure
+        return False
+
+    def _spill_dir(self) -> Optional[Path]:
+        """Where a large work list goes: beside the index, on the drive that
+        already has room for it. None (the system's temporary folder) for a
+        store with no file."""
+        database = getattr(self.store, "db_path", None)
+        return Path(database).parent if database else None
 
     def _preflight_disk(self, stats: IndexStats) -> None:
         """Say at minute one what the disk looks like. Never stops the run.
@@ -2532,6 +2746,10 @@ class Pipeline:
         # exists to avoid.
         scanned = (list(self._no_text_layer_candidates())
                    if self.config.ocr_mode == "images" else [])
+        # Order 0z lane C: mail archives whose attached pictures the text pass
+        # held. The narrowed walk never reaches a `.pst`, so the list does.
+        if self.config.ocr_mode == "images":
+            scanned.extend(self._held_archive_candidates())
         # Work order 0i section 2a: visibility into a requeue mechanism that
         # already existed before this item - additive counting only, no
         # change to what gets requeued or when. See the note on
@@ -2593,6 +2811,26 @@ class Pipeline:
             yield Candidate(path=path, size_bytes=stat.st_size,
                             mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
 
+    def _held_archive_candidates(self) -> Iterator[Candidate]:
+        """Archives with attachment pictures held for this pass (`held_archives`).
+
+        `retry=True` because the archive's row is INDEXED and unchanged - the
+        text pass read it - and `_classify` would otherwise send it home. A
+        file since deleted or moved is skipped; the prune deals with its rows.
+        """
+        try:
+            paths = self._held_archives().paths()
+        except Exception as exc:                        # noqa: BLE001 - nothing queued
+            self._log.debug("held-archive list unreadable: {}", exc)
+            return
+        for path in paths:
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            yield Candidate(path=path, size_bytes=stat.st_size,
+                            mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
+
     def _locked_candidates(self) -> Iterator[Candidate]:
         """Files skipped as locked last time. The program holding them may have
         closed since, and nothing else would ever look at them again."""
@@ -2608,8 +2846,14 @@ class Pipeline:
                             priority=0,          # retried first: they are few and cheap
                             retry=True)          # settled row, deliberately reopened
 
-    def _classify(self, candidate: Candidate) -> Optional[str]:
+    def _classify(self, candidate: Candidate, *, hash_now: bool = True) -> Optional[str]:
         """`UNCHANGED` to skip the file; otherwise its content hash, or None.
+
+        `hash_now=False` answers from the row and `stat()` alone and never
+        reads the file: the scan of the "newest" order (`_produce`), which asks
+        again with hashing allowed when the file's turn comes. Everything it
+        calls unchanged is unchanged on either answer; what it cannot settle
+        without a hash it passes on.
 
         **The sentinel is a distinct object, not `None`.** It used to be `None`,
         which is also the perfectly ordinary "changed, but there is no hash"
@@ -2689,7 +2933,8 @@ class Pipeline:
                 # A file read through another application is held open by it, so
                 # hashing its bytes fails - and those bytes are not what gets
                 # parsed anyway. mtime and size are all there is, and enough.
-                verify_hash=self.config.verify_hash and not reads_externally(candidate.path),
+                verify_hash=(self.config.verify_hash and hash_now
+                             and not reads_externally(candidate.path)),
             )
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
@@ -2719,7 +2964,13 @@ class Pipeline:
         # as settled would leave it name-only for ever, with nothing to tell
         # anyone why. The unreadable case never gets this far; it is answered
         # above without a read.
-        if not changed and record is not None and record.status == FileStatus.INDEXED:
+        # **Except a file deliberately put back** (order 0z lane C): the
+        # pictures pass re-queues archives the text pass read in full but
+        # whose attached pictures it held (`_held_archive_candidates`). Every
+        # other re-queue reads SKIPPED rows only, so for them this changes
+        # nothing.
+        if (not changed and record is not None and record.status == FileStatus.INDEXED
+                and not getattr(candidate, "retry", False)):
             return UNCHANGED
 
         # **A skip is settled while the file has not moved, and this was H1.**
@@ -2774,7 +3025,7 @@ class Pipeline:
         consumer's loop); an abnormal one sends its own, and the reason is logged.
         """
         clean = False
-        board = slot = None
+        board = slot = watchdog = None
         try:
             # 0x 3c: this thread's own line on the page, and the list its
             # readers write their position into (`app.extract.progress.attach`).
@@ -2794,6 +3045,22 @@ class Pipeline:
             if slot is not None:
                 reader_progress.attach(slot.frames)
             self._worker_slots().slot = slot
+            # 0x 5b: this thread's reader process, started now so its start-up
+            # overlaps the walk rather than delaying the first file.
+            if getattr(getattr(self, "config", None), "read_processes", False):
+                reader = ReaderProcess(
+                    low_priority=bool(self.config.resolved_limits().low_priority))
+                reader.start()
+                self._worker_slots().reader = reader
+            # 0z lane B: this thread's file watch - the time limits and Force
+            # skip. Asked for with `getattr` like the board above: a pipeline a
+            # test built without `run()` has no watchdog, and reads unwatched.
+            watchdog = getattr(self, "_watchdog", None)
+            if watchdog is not None:
+                watch = FileWatch(slot=slot,
+                                  reader=getattr(self._worker_slots(), "reader", None))
+                self._worker_slots().watch = watch
+                watchdog.add(watch)
             self._extract_worker_loop(work, results)
             clean = True
         except BaseException as exc:                    # noqa: BLE001 - reported, then re-raised
@@ -2802,10 +3069,19 @@ class Pipeline:
                       type(exc).__name__, exc)
             raise
         finally:
+            watch = getattr(self._worker_slots(), "watch", None)
+            if watch is not None:
+                self._worker_slots().watch = None
+                if watchdog is not None:
+                    watchdog.remove(watch)
             if slot is not None and board is not None:
                 board.close_slot(slot)
                 reader_progress.detach()
             self._worker_slots().slot = None
+            reader = getattr(self._worker_slots(), "reader", None)
+            if reader is not None:
+                self._worker_slots().reader = None
+                reader.close()
             if not clean:
                 try:
                     results.put(_STOP, timeout=5)
@@ -2825,6 +3101,8 @@ class Pipeline:
 
     def _extract_worker_loop(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
         slot = getattr(self._worker_slots(), "slot", None)
+        #: 0z lane B: None when the run has no watchdog (a bare test pipeline).
+        watch = getattr(self._worker_slots(), "watch", None)
         while True:
             try:
                 _priority, _sequence, candidate, digest = work.get(timeout=0.25)
@@ -2886,6 +3164,12 @@ class Pipeline:
             self._stats_ref.current_item = 0
             if slot is not None:
                 slot.begin(candidate.path)       # 0x 3c: once per file
+            if watch is not None:
+                watch.begin(candidate, digest, limit_kind(candidate.path))
+            stream = None
+            #: 0z lane B: set when the watchdog gave up on this thread and
+            #: started another in its place - this one leaves after this file.
+            replaced = False
             try:
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
@@ -2901,9 +3185,20 @@ class Pipeline:
                 while True:
                     started = time.perf_counter()
                     try:
-                        item = next(stream)
-                    except StopIteration:
-                        break
+                        # 0z lane B: the reader's time, bracketed for the
+                        # watchdog. `enter` refuses a file already cancelled;
+                        # `leave` raises `FileCancelled` if it was cancelled
+                        # while the reader worked.
+                        if watch is not None:
+                            watch.enter()
+                        try:
+                            item = next(stream)
+                        except StopIteration:
+                            if watch is not None:
+                                watch.leave(finished=True)
+                            break
+                        if watch is not None:
+                            watch.leave()
                     finally:
                         self._clock.add_worker(
                             "extract", time.perf_counter() - started)
@@ -2917,16 +3212,60 @@ class Pipeline:
             except BaseException as exc:        # noqa: BLE001 - never let a worker die silently
                 # `BaseException`, not `Exception`: one file that raises
                 # `SystemExit` or the like must cost that file, not the worker.
-                self._offer(results, _Extracted(
-                    candidate=candidate, content_hash=digest,
-                    error=to_app_error(exc, "index.pipeline", path=str(candidate.path)),
-                ))
+                #
+                # 0z lane B: first ask the watch whether this was a time limit
+                # or a Force skip, which is recorded as `ERR_FILE_TIMEOUT`
+                # instead of whatever the reader raised on the way out (a
+                # reader process that was ended says "ended unexpectedly").
+                # Retried once: an exception raised into this thread by the
+                # watchdog can arrive at the first line of `settle` itself,
+                # which then clears anything still pending.
+                verdict = None
+                if watch is not None:
+                    try:
+                        verdict = watch.settle()
+                    except FileTimedOut:
+                        verdict = watch.settle()
+                if verdict is ORPHANED:
+                    # Recorded by the watchdog, and another thread has taken
+                    # this one's place: nothing to offer, and no more work.
+                    replaced = True
+                elif verdict is not None:
+                    self._record(KIND_WARNING, verdict.message, detail="timed_out")
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=digest, error=verdict))
+                else:
+                    if isinstance(exc, (FileCancelled, FileTimedOut)):
+                        # Cancelled with no verdict cannot happen; recorded as
+                        # a plain failure rather than lost if it ever does.
+                        exc = RuntimeError("the read was cancelled")
+                    self._offer(results, _Extracted(
+                        candidate=candidate, content_hash=digest,
+                        error=to_app_error(exc, "index.pipeline",
+                                           path=str(candidate.path)),
+                    ))
             finally:
+                # Closed here rather than left for the garbage collector: a
+                # file abandoned part-way (Stop, Pause) must let go of what it
+                # was reading - with 0x 5b, a reader process part-way through a
+                # mailbox - before this thread takes its next file.
+                if stream is not None:
+                    try:
+                        stream.close()
+                    except Exception:           # noqa: BLE001 - already reported above
+                        pass
+                if watch is not None:
+                    watch.end()
                 self._stats_ref.current = ""
                 self._stats_ref.current_item = 0
                 if slot is not None:
                     slot.end()
                 work.task_done()
+            if replaced:
+                self._log.info(
+                    "a reader that was replaced after being stuck on {} has "
+                    "come back; it ends here", candidate.path.name)
+                return
 
     def _maybe_grow_workers(
         self, work: "queue.PriorityQueue[Any]", results: queue.Queue,
@@ -3003,6 +3342,58 @@ class Pipeline:
             "has been spent waiting for files to be read",
             total + 1, self.config.worker_ceiling)
 
+    def _replace_worker(self, watch: FileWatch, work: "queue.PriorityQueue[Any]",
+                        results: queue.Queue) -> None:
+        r"""0z lane B: a thread stuck in a reader is left behind and replaced.
+
+        Called by the watchdog (`file_watch.Watchdog`, on its own thread) when
+        a thread told to let go of a timed-out or force-skipped file did not
+        within `file_watch.GRACE_S` - it is inside native code, where nothing
+        in Python can reach it. The file is recorded here, from the watch, and
+        a new thread takes the stuck one's place, so the run keeps its number
+        of readers.
+
+        **No new `_STOP` marker.** The stuck thread will never take the one
+        `_produce` queued for it (if it ever comes back, it ends without
+        taking work - see `_extract_worker_loop`), so its replacement takes
+        that one, and `_consume`'s count of expected markers is unchanged.
+        """
+        candidate, error = watch.candidate, watch.cancel
+        self._left_behind.add(watch.thread_id)
+        if candidate is not None and error is not None:
+            self._record(KIND_WARNING, error.message, detail="timed_out")
+            self._offer(results, _Extracted(
+                candidate=candidate, content_hash=watch.digest, error=error))
+        board = getattr(getattr(self, "_stats_ref", None), "board", None)
+        if board is not None and watch.slot is not None:
+            board.close_slot(watch.slot)
+        self._log.warning(
+            "a reader did not let go of {} within {:.0f}s of being told to (it is "
+            "inside native code, which cannot be interrupted); it is left behind "
+            "and another reader takes its place",
+            getattr(getattr(candidate, "path", None), "name", candidate),
+            GRACE_S)
+        if self._stop.is_set():
+            return
+        worker = threading.Thread(
+            target=self._background(self._extract_worker), args=(work, results),
+            name=f"extract-replacement-{len(self._replacement_workers) + 1}",
+            daemon=True)
+        self._replacement_workers.append(worker)
+        worker.start()
+
+    def force_skip(self, slot_id: Any) -> bool:
+        """The Indexing page's Force skip: skip reader `slot_id`'s current file.
+
+        Safe from the UI thread: it only marks the file, and the watchdog acts
+        on it within `file_watch.TICK_S`. False when no run is going or that
+        reader has no file open.
+        """
+        watchdog = getattr(self, "_watchdog", None)
+        if watchdog is None:
+            return False
+        return watchdog.request_skip(slot_id)
+
     def _offer_stop_token(self, work: "queue.PriorityQueue[Any]") -> bool:
         r"""Enqueue one more `_STOP` marker for a worker about to start.
 
@@ -3039,6 +3430,83 @@ class Pipeline:
                 continue
 
     def _extract_stream(
+        self, candidate: Candidate, digest: Optional[str]
+    ) -> Iterator[_Extracted]:
+        """`_read_stream`, inside the pass's images rule (order 0z lane C).
+
+        The rule (`app.extract.reading`) tells a container reader what to do
+        with the pictures inside it: hold them on the text pass, read only them
+        on the pictures pass. What the reader reports back - how many it held,
+        and its per-item status words - is acted on here, once the file ends:
+        the archive is remembered for the pictures pass (`held_archives`), and
+        the log gets one line of counts. An abandoned read (a stop) still
+        remembers held pictures but never forgets any, and logs nothing.
+        """
+        with reader_reading.reading(
+                images=reader_reading.images_for_ocr_mode(self.config.ocr_mode),
+                junk=(self._image_book()
+                      if getattr(self.config, "junk_images", True) else False)) as policy:
+            finished = False
+            try:
+                yield from self._read_stream(candidate, digest)
+                finished = True
+            finally:
+                self._after_container(candidate, policy, finished)
+
+    def _after_container(self, candidate: Candidate, policy: Any, finished: bool) -> None:
+        """The held-pictures record and the counts line for one file. Never raises."""
+        try:
+            self._held_archives().note(
+                candidate.path, held=policy.held, finished=finished,
+                pass_=self.config.ocr_mode)
+            if policy.not_read:
+                # Order 0z lane D. Counted whether or not the read finished:
+                # these pictures were left unread either way.
+                with self._not_read_lock:
+                    total = self._stats_ref.pictures_not_read
+                    for reason, n in policy.not_read.items():
+                        total[reason] = total.get(reason, 0) + int(n)
+            if finished and policy.counts:
+                # "Skipped:decorative=24" beside "Skipped=30": the presenter
+                # shows why, in brackets after the word (order 0z lane D).
+                counts = dict(policy.counts)
+                for reason, n in policy.not_read.items():
+                    counts[f"{reader_progress.STATUS_SKIPPED}:{reason}"] = n
+                self._record(KIND_ARCHIVE_COUNTS, candidate.path.name,
+                             detail=encode_counts(counts))
+        except Exception as exc:                        # noqa: BLE001 - bookkeeping only
+            self._log.debug("could not note {}: {}", candidate.path.name, exc)
+
+    def _image_book(self) -> PersistentImageBook:
+        """This run's junk-image book, made on first use; loads nothing until a
+        reader asks for its contents."""
+        book = self.__dict__.get("_image_book_store")
+        if book is None:
+            book = self.__dict__.setdefault("_image_book_store",
+                                            PersistentImageBook(self.store))
+        return book
+
+    @property
+    def _not_read_lock(self) -> threading.Lock:
+        lock = self.__dict__.get("_not_read_lock_obj")
+        if lock is None:
+            lock = self.__dict__.setdefault("_not_read_lock_obj", threading.Lock())
+        return lock
+
+    def _held_archives(self) -> HeldArchives:
+        """This run's `HeldArchives`, made on first use (bare test pipelines have none)."""
+        held = self.__dict__.get("_held_archive_book")
+        if held is None:
+            held = self.__dict__.setdefault("_held_archive_book", HeldArchives(self.store))
+        return held
+
+    def _is_held_archive(self, path: Path) -> bool:
+        try:
+            return self._held_archives().is_held(path)
+        except Exception:                               # noqa: BLE001 - read it normally
+            return False
+
+    def _read_stream(
         self, candidate: Candidate, digest: Optional[str]
     ) -> Iterator[_Extracted]:
         """Yield one `_Extracted` per document, as it is read.
@@ -3085,7 +3553,15 @@ class Pipeline:
         resume_from = 0
         resume_extra: Optional[dict[str, Any]] = None
         resume_key: Optional[str] = None
-        if digest is not None:
+        #: Order 0z lane C: the pictures pass coming back for an archive whose
+        #: attachment pictures the text pass held. Only the pictures are read,
+        #: so this read must not move the archive's resume cursor or write its
+        #: "read to the end" marker - the text pass owns both.
+        rereading_held = (self.config.ocr_mode == "images"
+                          and self._is_held_archive(candidate.path))
+        if rereading_held:
+            pass
+        elif digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
                 try:
@@ -3116,27 +3592,11 @@ class Pipeline:
         #: for a reason that will pass (Outlook was busy) - see below.
         retry_next_pass = False
         try:
-            for index, document in enumerate(
-                extract(candidate.path, resume_from=resume_from,
-                        resume_extra=resume_extra)
+            for index, (document, chunks) in enumerate(
+                self._read_documents(candidate, resume_from, resume_extra, slot)
             ):
                 if any(_is_transient_partial(w) for w in document.warnings):
                     retry_next_pass = True
-                chunks: list[dict[str, Any]] = []
-                # 0x 3a: "chunking" while the text is cut into passages. Two
-                # plain stores per document; nothing is formatted here.
-                if slot is not None:
-                    slot.stage = STAGE_CHUNKING
-                for ordinal, chunk in enumerate(chunk_document(document)):
-                    chunks.append({
-                        "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
-                        "char_start": chunk.char_start, "char_end": chunk.char_end,
-                        # Adoptions §6a. `None` for everything that is not a
-                        # spreadsheet, which is nearly every document.
-                        "label": chunk.label,
-                    })
-                if slot is not None:
-                    slot.stage = STAGE_READING
 
                 if not chunks:
                     # One empty message in an archive is ordinary and silent.
@@ -3192,9 +3652,22 @@ class Pipeline:
                     resume_key=resume_key,
                 )
         except AppErrorException as exc:
+            if rereading_held:
+                # Order 0z lane C. The archive's own row belongs to the text
+                # pass; a pictures-pass failure must not overwrite it. Kept on
+                # the held list (`held` > 0) so the next pictures pass tries again.
+                self._log.warning("could not read the held pictures in {}: {}",
+                                  candidate.path.name, exc.error.code)
+                reader_reading.current().held += 1
+                return
             # A failure part-way through an archive costs the rest of that
             # archive, never the messages already handed over and written.
             yield _Extracted(candidate, digest, error=exc.error)
+            return
+
+        if rereading_held:
+            # Only pictures were read: no marker (the text pass wrote it), and
+            # "no text" here means only that the pictures held none.
             return
 
         if produced == 0:
@@ -3231,6 +3704,42 @@ class Pipeline:
                 first_of_file=False, file_marker=True,
                 resume_key=resume_key,
             )
+
+    def _read_documents(
+        self, candidate: Candidate, resume_from: int,
+        resume_extra: Optional[dict[str, Any]], slot: Any,
+    ) -> Iterator[tuple[Any, list[dict[str, Any]]]]:
+        """Each document of one file with its passages, from wherever it is read.
+
+        0x 5b: in this thread's reader process when there is one and the file's
+        reader is on `read_process.PROCESS_READERS`; otherwise here, exactly as
+        before. Either way the passages are the same dictionaries - the reader
+        process runs the same `extract` and `chunk_document`.
+        """
+        reader = getattr(self._worker_slots(), "reader", None)
+        if reader is not None and reads_in_process(candidate.path):
+            yield from reader.read(
+                candidate.path, resume_from=resume_from, resume_extra=resume_extra,
+                frames=slot.frames if slot is not None else None)
+            return
+        for document in extract(candidate.path, resume_from=resume_from,
+                                resume_extra=resume_extra):
+            chunks: list[dict[str, Any]] = []
+            # 0x 3a: "chunking" while the text is cut into passages. Two
+            # plain stores per document; nothing is formatted here.
+            if slot is not None:
+                slot.stage = STAGE_CHUNKING
+            for ordinal, chunk in enumerate(chunk_document(document)):
+                chunks.append({
+                    "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                    "char_start": chunk.char_start, "char_end": chunk.char_end,
+                    # Adoptions §6a. `None` for everything that is not a
+                    # spreadsheet, which is nearly every document.
+                    "label": chunk.label,
+                })
+            if slot is not None:
+                slot.stage = STAGE_READING
+            yield document, chunks
 
     # -- stage 3: embed and write (one thread: this one) --------------------
 
@@ -3282,7 +3791,19 @@ class Pipeline:
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
 
+        # 2026-09-29. The walker moves the run from scanning to reading
+        # (`_read_in_order`), but only this thread reports progress - so it
+        # passes the change on, here, rather than two threads calling
+        # `on_progress` at once.
+        phase_told = stats.phase
         while finished < self._expected_stops:
+            if stats.phase != phase_told:
+                phase_told = stats.phase
+                if on_progress is not None:
+                    try:
+                        on_progress(stats)
+                    except Exception as exc:  # noqa: BLE001 - as elsewhere
+                        self._log.warning("progress reporting failed: {}", exc)
             if self._stop.is_set():
                 # Asked to stop - by the UI's pause button, or by the disk
                 # guard. Everything already written stays written; the files

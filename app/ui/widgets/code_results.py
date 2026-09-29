@@ -29,7 +29,7 @@ from app.ui.view_options import apply_to_table, available_columns
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
-from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
+from app.ui.widgets.status_column import fill_rows
 
 __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 
@@ -46,6 +46,12 @@ __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 #: and "where on this machine", and the second is the one somebody copies.
 COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("name", "Name", "name", False),
+    # Order 0y §2: why the row is here, the line, and the line of code. Only
+    # offered once something is typed - `available_columns` hides a column no
+    # row fills, so a plain file list looks exactly as it did.
+    ("match", "Match", "match", False),
+    ("line", "Line", "line", True),
+    ("code", "Code", "code", False),
     ("repo", "Repository", "repo", False),
     ("kind", "Kind", "kind", False),
     ("size", "Size", "size", True),
@@ -62,7 +68,7 @@ ALWAYS_OFFERED = ("name", "repo")
 #: What each column sorts on when it is not the text in it - attribute on
 #: `RepoFileRow`. `size` reads "12.4 KB" and `seen` reads "2 hours ago", and
 #: sorted as text both are wrong in the way people notice immediately.
-SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at"}
+SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at", "line": "line_no"}
 
 
 class CodeResults(QWidget):
@@ -72,6 +78,8 @@ class CodeResults(QWidget):
     open_requested = pyqtSignal(str)
     reveal_requested = pyqtSignal(str)
     search_repo_requested = pyqtSignal(str)
+    #: Order 0y §1c: "Ignore this repository", with the repository's name.
+    ignore_repo_requested = pyqtSignal(str)
     #: Somebody right-clicked the header. The view owns the View button.
     view_menu_requested = pyqtSignal(object)
 
@@ -107,22 +115,15 @@ class CodeResults(QWidget):
 
     def show_rows(self, rows: list[Any], prefs: Any) -> None:
         """Replace the list. `rows` are `RepoFileRow`s from either engine."""
-        self.table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
-            for column, (key, _h, attribute, _r) in enumerate(COLUMNS):
-                # **The right-aligned flag used to be destructured into a
-                # throwaway here**, so `Size` was declared right-aligned in
-                # `COLUMNS` and rendered left for the life of this table - the
-                # kind of thing a declaration in one place and a loop in
-                # another produces. The table reads the spec now.
-                item = SortableItem(str(getattr(row, attribute, "") or ""))
-                sort_by = SORT_KEYS.get(key)
-                if sort_by:
-                    item.setData(SORT_ROLE, getattr(row, sort_by, 0))
-                if column == 0:
-                    item.setToolTip(getattr(row, "full_path", "") or "")
-                self.table.setItem(index, column, item)
-        self.table.set_row_objects(rows)
+        # **The right-aligned flag used to be destructured into a throwaway
+        # here**, so `Size` was declared right-aligned in `COLUMNS` and
+        # rendered left for the life of this table - the kind of thing a
+        # declaration in one place and a loop in another produces. The table
+        # reads the spec now. 2026-09-29: the loop itself is the one Files and
+        # Mail use (`status_column.fill_rows`), which also gives the Status
+        # cell its one-sentence tooltip.
+        fill_rows(self.table, rows, COLUMNS, SORT_KEYS, first=lambda item, row:
+                  item.setToolTip(getattr(row, "full_path", "") or ""))
         self.available = available_columns(
             rows, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
             always=ALWAYS_OFFERED,
@@ -173,4 +174,9 @@ class CodeResults(QWidget):
             search_inside=((lambda: self.search_repo_requested.emit(name))
                            if name else None),
             copy=[("Copy repository name", name), ("Copy full path", path)],
+            extra=[("Ignore this repository",
+                    "This folder is not really a repository. Its files stay "
+                    "indexed and searchable; they stop counting as code. "
+                    "You can undo it.",
+                    lambda: self.ignore_repo_requested.emit(name))] if name else [],
         ))

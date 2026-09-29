@@ -1,0 +1,505 @@
+r"""Reading files in a process of their own: one reader process per extraction thread.
+
+Layer: L3
+
+Work order 0x section 5b. **The extraction threads share one interpreter
+lock.** Parsing mail, unzipping a `.docx` and cutting text into passages are
+all Python work, so four reader threads mostly take turns - and the writing
+thread, which only needs the lock for a moment between SQLite statements,
+waits behind them (the 5d note in `pipeline.py` measured a run using under one
+core of four). A process of its own has a lock of its own. Measured on the
+prototype: -30% to -43% wall time on the benchmark corpus.
+
+**The shape.** Each extraction thread gets one child, started when the thread
+starts and kept for the whole run, so the start-up cost (a fresh interpreter
+and the reader imports, well under a second) is paid once per thread rather
+than once per file. The thread sends the child one file at a time; the child
+reads it, cuts it into passages, and sends the documents back **one at a
+time, as they are read**. Nothing is buffered whole: a 4GB mailbox streams
+exactly as it does in-process, and when the writer falls behind the pipe
+fills, the child blocks on its next write, and memory stays flat - the same
+back-pressure the in-process generator gets from the bounded results queue.
+
+**Only readers that are pure file parsing go to a child** (`PROCESS_READERS`).
+The rest stay on the thread, where their process-wide state lives: OCR and
+picture models and the GPU lock that keeps them apart (`gpu_exclusive`), the
+warm LibreOffice session, Outlook, the media backlog, and the zip reader, which
+hands each member to *any* reader. A file whose reader is not on the list is
+read in-process exactly as before, so switching this on can only change where
+the listed readers run, never what any reader produces.
+
+**What a crash costs.** In-process, a reader that crashes the interpreter (a
+native library fault on a damaged file) takes the window with it. Here it
+takes one child: the file is recorded as skipped with
+`ERR_READER_PROCESS_ENDED`, a fresh child is started for the next file, and
+the run carries on (non-negotiable #3).
+
+**Inner progress still shows.** The child's readers write their position into
+a frame stack exactly as they do in-process (`app.extract.progress`); a small
+thread in the child sends a copy of the stack four times a second while it
+changes, and the parent writes it into the thread's own slot, so the Indexing
+page reads `Archive.mbox › message 812 of 20,000` either way.
+
+**The protocol** is length-prefixed `pickle` frames over the child's own
+standard input and output. `pickle` is safe here because both ends are this
+application: nothing but the child ever writes to that pipe. The child moves
+its real standard output out of the way first, so a stray `print` in a library
+lands on standard error instead of corrupting the stream.
+
+Started as `python -m app.index.read_process` (an argument list, never a
+shell), with the window's own interpreter - `pythonw.exe` on Windows, so no
+console window appears - and the same on macOS, where `sys.executable` is the
+venv's `python`.
+"""
+
+from __future__ import annotations
+
+import os
+import pickle
+import struct
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+from typing import Any, Callable, Iterator, Optional
+
+from app.core.errors import AppErrorException, make_error
+from app.core.logging import logger
+
+log = logger.bind(component="index.read_process")
+
+__all__ = [
+    "PROCESS_READERS",
+    "ReaderProcess",
+    "RemoteDocument",
+    "reads_in_process",
+    "main",
+]
+
+#: Readers that only parse a file's bytes: no model, no GPU, no converter, no
+#: Outlook, no settings, no process-wide cache. Named by class so the list
+#: reads as a decision, and `test_read_process.py` checks every name is still
+#: a registered reader - a rename cannot quietly empty it.
+#:
+#: Deliberately **not** here: `ArchiveExtractor` (a zip member can be a
+#: picture that needs OCR), `PdfExtractor` (the OCR ladder), `OcrExtractor`,
+#: `RawExtractor`, the media readers, `DocExtractor` / `PptExtractor` /
+#: `XlsExtractor` (the warm LibreOffice session), `MobiExtractor` (falls back
+#: to a converter), `PstExtractor` (Outlook, or libpff's own handle), and
+#: everything else not listed. Each can join once it is shown to carry no
+#: process-wide state.
+PROCESS_READERS = frozenset({
+    "PlainTextExtractor",
+    "DocxExtractor",
+    "XlsxExtractor",
+    "PptxExtractor",
+    "OdfExtractor",
+    "RtfExtractor",
+    "EmlExtractor",
+    "MsgExtractor",
+    "MboxExtractor",
+    "EmlxExtractor",
+    "OlmExtractor",
+    "EpubExtractor",
+    "Fb2Extractor",
+})
+
+#: Seconds between the child's progress copies while a file is being read.
+_FRAMES_EVERY_S = 0.25
+#: Seconds `close()` waits for a child to leave by itself before ending it.
+_CLOSE_WAIT_S = 2.0
+
+_HEADER = struct.Struct("<I")
+
+
+def reads_in_process(path: Path) -> bool:
+    """Would this file's reader run in a reader process? False for any doubt."""
+    from app.extract.base import extractor_for, reads_externally
+
+    extractor = extractor_for(path)
+    if extractor is None or reads_externally(path):
+        return False
+    return type(extractor).__name__ in PROCESS_READERS
+
+
+# ---------------------------------------------------------------------------
+# Framing - shared by both ends
+# ---------------------------------------------------------------------------
+
+def _write(stream: Any, message: Any) -> None:
+    data = pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL)
+    stream.write(_HEADER.pack(len(data)) + data)
+    stream.flush()
+
+
+def _read_exact(stream: Any, size: int) -> Optional[bytes]:
+    """`size` bytes, or None at the end of the stream (the other end went)."""
+    chunks: list[bytes] = []
+    remaining = size
+    while remaining:
+        chunk = stream.read(remaining)
+        if not chunk:
+            return None
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
+def _read(stream: Any) -> Any:
+    """The next message, or None when the other end has gone."""
+    head = _read_exact(stream, _HEADER.size)
+    if head is None:
+        return None
+    body = _read_exact(stream, _HEADER.unpack(head)[0])
+    if body is None:
+        return None
+    return pickle.loads(body)
+
+
+# ---------------------------------------------------------------------------
+# The parent's side
+# ---------------------------------------------------------------------------
+
+class RemoteDocument:
+    """A document read in a child: the four things the pipeline uses of one.
+
+    The pipeline reads `key`, `source_kind`, `meta` and `warnings` from a
+    `Document` (`Pipeline._extract_stream`), and the passages arrive already
+    cut, so the text itself never crosses the pipe twice.
+    """
+
+    __slots__ = ("key", "source_kind", "meta", "warnings")
+
+    def __init__(self, key: str, source_kind: str, meta: dict[str, Any],
+                 warnings: tuple[Any, ...]) -> None:
+        self.key = key
+        self.source_kind = source_kind
+        self.meta = meta
+        self.warnings = warnings
+
+
+class ReaderProcess:
+    r"""One child that reads files for one extraction thread.
+
+    Used only from the thread that owns it. `start()` launches the child
+    without waiting for it; the first `read()` waits for it to say it is ready,
+    so the child's start-up overlaps the walk.
+    """
+
+    def __init__(self, *, low_priority: bool = True, python: Optional[str] = None,
+                 popen: Callable[..., Any] = subprocess.Popen) -> None:
+        self.low_priority = bool(low_priority)
+        self.python = python or sys.executable
+        self._popen = popen
+        self._proc: Any = None
+        self._ready = False
+        #: Numbers each file sent, so a progress copy the child sent just as
+        #: one file finished is never shown against the next one.
+        self._sequence = 0
+        #: True while a `read()` has not finished or been closed. A new read
+        #: while one is still open means the old one was abandoned without
+        #: being closed; its child is ended first, so the new file can never
+        #: receive the old file's leftover documents.
+        self._busy = False
+        #: How many children this reader has started - more than one means a
+        #: child ended part-way (a crash, or a file abandoned mid-read).
+        self.started = 0
+        #: Set by `kill_child` (0z lane B: a time limit or Force skip), so the
+        #: child's end is logged as what it was rather than as a crash.
+        self._killed = False
+
+    @property
+    def reading(self) -> bool:
+        """True while a `read()` is under way - the file is in the child."""
+        return self._busy
+
+    def kill_child(self) -> None:
+        r"""End the child now, from **another** thread. Never raises, never waits.
+
+        Work order 0z lane B: the file watchdog's way of freeing a thread whose
+        file has run past its time limit (`app/index/file_watch.py`). Only the
+        process is ended here; the owning thread, blocked reading the pipe,
+        sees it close, and its own `read()` tidies up (`_ended`, `_abandon`)
+        and starts a fresh child for the next file - so nothing is shared
+        between the two threads except the one `kill` call.
+        """
+        proc = self._proc
+        self._killed = True
+        if proc is None:
+            return
+        try:
+            proc.kill()
+        except Exception:                              # noqa: BLE001 - already gone
+            pass
+
+    # -- life ----------------------------------------------------------------
+
+    def argv(self) -> list[str]:
+        argv = [self.python, "-m", "app.index.read_process"]
+        if self.low_priority:
+            argv.append("--low-priority")
+        return argv
+
+    def start(self) -> None:
+        """Launch the child if there is none. Never waits for it."""
+        if self._proc is not None and self._proc.poll() is None:
+            return
+        # The folder that holds the `app` package, so `-m` finds it whatever
+        # the window's own working folder is.
+        here = Path(__file__).resolve().parents[2]
+        self._proc = self._popen(
+            self.argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, cwd=str(here), close_fds=True,
+        )
+        self._ready = False
+        self.started += 1
+
+    def close(self) -> None:
+        """Ask the child to leave, and end it if it does not. Never raises."""
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        try:
+            _write(proc.stdin, ("quit",))
+            proc.stdin.close()
+        except Exception:                              # noqa: BLE001 - already gone
+            pass
+        try:
+            proc.wait(timeout=_CLOSE_WAIT_S)
+        except Exception:                              # noqa: BLE001
+            self._kill(proc)
+        self._close_pipes(proc)
+
+    def _abandon(self) -> None:
+        """End the child now: it is part-way through a file nobody wants."""
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            self._kill(proc)
+            self._close_pipes(proc)
+
+    @staticmethod
+    def _kill(proc: Any) -> None:
+        try:
+            proc.kill()
+            proc.wait(timeout=_CLOSE_WAIT_S)
+        except Exception:                              # noqa: BLE001 - nothing more to do
+            pass
+
+    @staticmethod
+    def _close_pipes(proc: Any) -> None:
+        for pipe in (getattr(proc, "stdin", None), getattr(proc, "stdout", None)):
+            try:
+                if pipe is not None:
+                    pipe.close()
+            except Exception:                          # noqa: BLE001
+                pass
+
+    # -- reading -------------------------------------------------------------
+
+    def read(self, path: Path, *, resume_from: int = 0,
+             resume_extra: Optional[dict[str, Any]] = None,
+             frames: Optional[list[Any]] = None,
+             ) -> Iterator[tuple[RemoteDocument, list[dict[str, Any]]]]:
+        r"""Each document of `path` with its passages, as the child reads them.
+
+        Raises `AppErrorException` exactly where `extract()` would (the
+        child's reader raised it), or with `ERR_READER_PROCESS_ENDED` when the
+        child ended without finishing the file. Any other exception in the
+        child's reader comes back as a `RuntimeError` naming it, which the
+        pipeline's per-file guard turns into a skip, as it would in-process.
+
+        **Closed part-way** (the run stopped or paused between documents), the
+        child is ended rather than drained: it may be deep in a large mailbox,
+        and draining would read the rest of it for nothing. The next file
+        starts a fresh one.
+        """
+        if self._busy:
+            self._abandon()
+        self.start()
+        proc = self._proc
+        self._busy = True
+        self._killed = False
+        self._sequence += 1
+        sequence = self._sequence
+        finished = False
+        try:
+            try:
+                _write(proc.stdin, ("read", sequence, str(path), int(resume_from),
+                                    resume_extra))
+            except (OSError, ValueError):
+                raise self._ended(path)
+            while True:
+                message = _read(proc.stdout)
+                if message is None:
+                    raise self._ended(path)
+                kind = message[0]
+                if kind == "ready":
+                    self._ready = True
+                elif kind == "frames":
+                    if frames is not None and message[1] == sequence:
+                        frames[:] = [_frame_from(item) for item in message[2]]
+                elif kind == "doc":
+                    _, key, source_kind, meta, warnings, chunks = message
+                    yield RemoteDocument(key, source_kind, meta, tuple(warnings)), chunks
+                elif kind == "end":
+                    finished = True
+                    error, failure = message[1], message[2]
+                    if frames is not None:
+                        frames.clear()
+                    if error is not None:
+                        raise AppErrorException(error)
+                    if failure is not None:
+                        raise RuntimeError(failure)
+                    return
+        finally:
+            self._busy = False
+            if not finished:
+                self._abandon()
+
+    def _ended(self, path: Path) -> AppErrorException:
+        """The child went without finishing `path`. Records how, and resets."""
+        proc, code = self._proc, None
+        if proc is not None:
+            try:
+                code = proc.wait(timeout=_CLOSE_WAIT_S)
+            except Exception:                          # noqa: BLE001
+                code = None
+        self._abandon()
+        if self._killed:
+            log.info("the reader process reading {} was ended: the file ran past "
+                     "its time limit, or was force-skipped", Path(path).name)
+        else:
+            log.warning("the reader process ended while reading {} (exit code {})",
+                        Path(path).name, code)
+        return AppErrorException(make_error(
+            "ERR_READER_PROCESS_ENDED", "index.read_process", path=str(path),
+            details=f"The reader process exited with code {code}."))
+
+
+def _frame_from(item: dict[str, Any]) -> Any:
+    """A `progress.Frame` rebuilt from the plain values the child sent."""
+    from app.extract.progress import Frame
+
+    frame = Frame(item.get("kind", ""), item.get("name", ""),
+                  unit=item.get("unit", ""), total=item.get("total"),
+                  stage=item.get("stage", ""))
+    frame.n = item.get("n", 0)
+    frame.where = item.get("where", "")
+    frame.detail = item.get("detail", "")
+    return frame
+
+
+# ---------------------------------------------------------------------------
+# The child's side
+# ---------------------------------------------------------------------------
+
+class _FrameSender(threading.Thread):
+    """Sends a copy of the reader's frame stack while it changes."""
+
+    def __init__(self, stack: list[Any], send: Callable[[Any], None]) -> None:
+        super().__init__(name="read-process-frames", daemon=True)
+        self._stack = stack
+        self._send = send
+        self._active = threading.Event()
+        self._last: Any = None
+        self._sequence = 0
+
+    def begin(self, sequence: int) -> None:
+        self._last = None
+        self._sequence = sequence
+        self._active.set()
+
+    def end(self) -> None:
+        self._active.clear()
+
+    def run(self) -> None:
+        while True:
+            self._active.wait()
+            time.sleep(_FRAMES_EVERY_S)
+            if not self._active.is_set():
+                continue
+            sequence = self._sequence
+            snapshot = [frame.as_dict() for frame in list(self._stack)]
+            if snapshot != self._last:
+                self._last = snapshot
+                try:
+                    self._send(("frames", sequence, snapshot))
+                except Exception:                      # noqa: BLE001 - parent gone
+                    return
+
+
+def _serve(inbound: Any, outbound: Any) -> None:
+    from app.extract import chunk_document, extract
+    from app.extract import progress as reader_progress
+
+    lock = threading.Lock()
+
+    def send(message: Any) -> None:
+        with lock:
+            _write(outbound, message)
+
+    stack: list[Any] = []
+    reader_progress.attach(stack)
+    sender = _FrameSender(stack, send)
+    sender.start()
+    send(("ready", os.getpid()))
+
+    while True:
+        request = _read(inbound)
+        if request is None or request[0] == "quit":
+            return
+        _, sequence, path, resume_from, resume_extra = request
+        error = failure = None
+        sender.begin(sequence)
+        try:
+            for document in extract(Path(path), resume_from=resume_from,
+                                    resume_extra=resume_extra):
+                chunks = [
+                    {"ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                     "char_start": chunk.char_start, "char_end": chunk.char_end,
+                     "label": chunk.label}
+                    for ordinal, chunk in enumerate(chunk_document(document))
+                ]
+                send(("doc", document.key, document.source_kind, document.meta,
+                      list(document.warnings), chunks))
+        except AppErrorException as exc:
+            error = exc.error
+        except Exception as exc:                       # noqa: BLE001 - reported to the parent
+            failure = f"{type(exc).__name__}: {exc}"
+        finally:
+            sender.end()
+            stack.clear()
+        send(("end", error, failure))
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    """The child: read the files the parent sends until it says stop."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    # The protocol gets the real standard output; everything else that writes
+    # to "standard output" from here on lands on standard error instead.
+    outbound = os.fdopen(os.dup(sys.stdout.fileno()), "wb")
+    try:
+        os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    except (OSError, AttributeError, ValueError):
+        # `pythonw.exe` has no standard error to point at; a null device does.
+        devnull = os.open(os.devnull, os.O_WRONLY)
+        os.dup2(devnull, sys.stdout.fileno())
+    sys.stdout = sys.stderr if sys.stderr is not None else open(os.devnull, "w")
+    if "--low-priority" in argv:
+        try:
+            import psutil
+
+            from app.core.osbridge.priority import lower_process_priority
+            lower_process_priority(psutil)
+        except Exception:                              # noqa: BLE001 - politeness, not correctness
+            pass
+    try:
+        _serve(sys.stdin.buffer, outbound)
+    except (BrokenPipeError, OSError):
+        return 0                                       # the parent went first
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

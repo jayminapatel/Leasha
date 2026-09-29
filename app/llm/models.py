@@ -36,6 +36,7 @@ __all__ = [
     "install_hint",
     "EMBEDDING_HINTS",
     "SUGGESTED",
+    "VISION_SUGGESTED",
     "TIMEOUT_RANGE",
 ]
 
@@ -60,6 +61,22 @@ SUGGESTED: tuple[str, ...] = (
     "qwen2.5:1.5b",
     "llama3.2:3b",
     "phi3.5:3.8b",
+)
+
+
+#: Ollama models that can read a picture, for Describe and the caption trickle
+#: (`OLLAMA_VISION_MODEL`). Owner, 2026-09-29: model lists are drop-downs only,
+#: with the other options listed and a way to download them. Smallest first,
+#: each with its size in parameters, because the size is what decides whether
+#: describing a photo takes seconds or a minute. Every name here is matched by
+#: `app.chat.roles.VISION_NAME_HINTS`, so once pulled it is recognised as a
+#: vision model by the same rule the Chat roles grid uses.
+VISION_SUGGESTED: tuple[tuple[str, str], ...] = (
+    ("moondream", "1.8B, the smallest and quickest"),
+    ("llava", "7B, the usual choice"),
+    ("qwen2.5vl", "7B, good at reading text in pictures"),
+    ("minicpm-v", "8B"),
+    ("llama3.2-vision", "11B, slow without a graphics card"),
 )
 
 

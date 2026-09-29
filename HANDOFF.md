@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.18 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -164,6 +164,30 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 > **2026-09-27:** the owner decided the setting stays optional and configurable for good; the
 > in-process path is never retired. This check now decides only the default.
 
+- [ ] **Read files in separate processes (off by default, 0x §5b).** Indexing › Tuning: turn it on,
+      run `app.cli bench-pipeline --size medium --full-speed` with and without `--read-processes`
+      (on Linux: 63 s -> 35 s). Then a real index with it on: Task Manager shows one extra
+      `pythonw` per reader, each well under 100 MB; the page still shows "message N of M" inside a
+      large `.mbox`; Pause, Stop and closing the window leave no reader `pythonw` behind. If the
+      Windows numbers hold, it becomes the default in its own small change.
+- [ ] **Time limits and Force skip (0z lane B).** Indexing › Tuning › Coverage shows "Time limit per
+      file" (120 s) and "Skip a mailbox or archive after no progress for" (600 s). During a real index,
+      press "Force skip reader N" on a large PDF: within a second that reader moves on and the log
+      says "... you pressed Force skip on the Indexing page"; the file shows as skipped and is left
+      alone next run. Repeat with "Read files in separate processes" on (on a `.docx` or `.mbox`: its
+      `pythonw` is replaced, Task Manager count unchanged) and with "Index in a separate process" on.
+      A large real `.pst` must **not** be cut off while its message count moves. UNCONFIRMED on
+      Windows: whether a hung Outlook (COM) read lets go when interrupted, or is left behind and
+      replaced - the log line "did not let go ... left behind" says which.
+- [ ] **Search inside the code (order 0y §2).** In the Code tab, type a class or function name from
+      one of your repositories: its definition is the first row (Match "Definition"), with the Line
+      and the line of Code, then files whose name matches, then Mentions. Open the file and check the
+      line number is right.
+- [ ] **Code tab fixes (order 0y §1).** Run a history search (`/repo <name> something /history`):
+      no black console window flashes up. Start one on a large repository and press Esc (or the
+      button, which reads "Stop"): it ends at once and says "History search stopped". Right-click a
+      file in a repository › "Ignore this repository": its files leave the Code list and stay
+      searchable elsewhere; "Undo" in the note brings them straight back.
 - [ ] **Index in a separate process (off by default).** Indexing › Tuning › Strategy: turn it on,
       start a large index, click round every page, then compare the log's `shutdown: window
       responsiveness` line with a run with it off. Pause, Resume and Stop work, and a Stop is not
@@ -204,6 +228,30 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 - [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
       bar glides during a scanned run and shows a moving block before the total is known; minimise
       and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+- [ ] **One-word status and list totals (added 2026-09-29).** On the real index: Search, Files, Mail
+      and Code each show a Status column (Search: the word left of the date) and hovering a word gives
+      its sentence; a held scan reads Deferred, a file on an unplugged drive reads Offline. Indexing ›
+      Status opens with the counts line and it moves during a run (Reading shows the readers busy).
+      Mail with no filter says "Showing 500 of N messages"; note how long that summary takes to appear
+      on the full mailbox. Files with an empty box says "Showing 200 of N files".
+- [ ] **Newest first, and "Index this folder first" (2026-09-29).** On the real index, mark two
+      folders with "Index this folder first" (Settings › What's indexed, the button or a right-click;
+      the Read first column shows 1 and 2) and Start: the page says "Finding files, to read the
+      newest first…" with "files seen" climbing, then reads the marked folders first, in order, then
+      this month's files and mail before older ones. Note the scan time (`walk` in the run's
+      `worker_seconds`) on the full corpus, and that an unchanged rerun is no slower than before.
+      Stop part-way and Start again: it carries on with the files it had not reached. Tuning ›
+      Strategy › Reading order "As found" restores the old order. Also with "Index in a separate
+      process" on.
+- [ ] **Number fields and model lists (2026-09-29).** Every number box on Settings and Indexing (and
+      the View menu's text size, the file-type and meaning-model dialogs) has no up/down arrows and a
+      small reset icon inside its right edge, greyed at the default; hovering says "Back to the default
+      (N)". Check it looks right at 100% and 125%, light and dark, and that no number is clipped under the
+      icon (sizes are measured on Linux). Every model is a drop-down you cannot type in. Press Download
+      once for a small Ollama model (Settings › Models › Photo description model › Download ›
+      moondream) and once for a file model (Search › Rerank model: pick jina turbo, Download), then Stop
+      one halfway: the bar moves, Stop ends it, and Download again carries on. Neither download has
+      been run for real anywhere yet.
 
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated
@@ -234,6 +282,24 @@ None of it has met a real display, real data, a real PST or Outlook.
       not finished. Start again: that archive carries on from its folder (libpff), and the final
       message count equals an uninterrupted run. Repeat once with a pulled plug if you can.
 - [ ] **A normal Stop or Pause is not reported as "did not finish".**
+- [ ] **Your own `.pst` through libpff (order 0z lane C, 2026-09-29).** Index the archive that was
+      slow and unreliable, on the text-first pass. Record here: messages per second (the run
+      summary, or messages divided by the time the log shows between "Reading a large mail archive"
+      and the archive's counts line); the counts line itself (`Archive.pst: n Indexed · n Failed ·
+      n Held ...`); and whether the reader's line on the Indexing page showed the counts moving.
+      Then run the pictures pass (`--only-ocr`) and check it reads that archive's held pictures and
+      nothing else of it. If it still stalls, note the folder and message the page showed when it
+      stopped moving - a single libpff call that never returns cannot be caught inside the reader.
+- [ ] **Signature pictures in your own mail (order 0z lane D, 2026-09-29).** Run the pictures
+      pass (`--only-ocr`) over an archive of recent Outlook mail with signatures. Record here:
+      the archive's counts line in the log ("n Skipped (n decorative pictures, n repeated
+      pictures ...)"), the "Pictures in mail not read" row on the Indexing page, and the
+      pass's time next to the same pass with "Leave out signature logos and icons in email"
+      switched off. Then search for three real screenshots or receipts that were pasted into
+      messages; each must still be found by its words. Nothing here has run on a modern
+      `.pst` with inline `cid:` signature images: the only real archive available was the
+      2001 Enron sample. The Outlook (MAPI) backend applies the filter without the
+      "decorative" rule (it does not read the inline property yet), and has not run at all.
 - [ ] **`app.cli index` and `app.cli stats`** print the timestamped lines and the
       did-not-finish note in the Windows console, with no stray characters.
 
@@ -1229,6 +1295,34 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
   and reaches `warned_by_code` and the CLI's `Partial` line. **Not yet true:** the Indexing tab
   does not show it, and on an incremental run whose last message is unchanged it is not counted
   (order 0v, 3d and 3e). How Outlook holds a `.pst` it has attached is unmeasured (1e).
+
+- **A damaged archive costs its damaged items, and says so per item (2026-09-29, order 0z lane
+  C).** Measured on seeded damage to copies of a real 14 MB archive (the public Enron sample from
+  the `pst-extractor` project; nothing of the owner's): before, 29/150 lightly and 100/150 heavily
+  damaged copies ended early because an attachment's reader raised something other than
+  `AppErrorException`. `_each_attachment` now catches everything around the reader; the folder walk
+  is iterative with a cycle, depth and failures-in-a-row guard (`MAX_FOLDER_DEPTH`,
+  `MAX_CONSECUTIVE_FAILURES`). Each message and attachment ends as one word on the progress frame
+  (`Frame.counts`; `Frame.beat` rises for every item, for a per-file time limit to watch).
+  **Not caught, and cannot be from inside:** one libpff C call that never returns. No hang or crash
+  was seen in 600 damaged copies; that is evidence, not proof.
+- **Junk pictures in mail are not read (2026-09-29, order 0z lane D).** Pictures attached to
+  mail go through `app/extract/junk_images.py` before OCR. Four things leave a picture unread:
+  it is decorative (inline and tiny or divider-shaped), its bytes are repeated with no words,
+  it is a near-identical logo, or OCR gave it fewer than three words (then the text is not
+  indexed). Each is a `Skipped` with a reason code. The book of picture hashes is **schema
+  v29**, `image_hashes`: a derived cache that `clear_index` empties. **A new migration must
+  now be numbered after 29.** It is loaded on first use and saved at the end of a run
+  (`app/index/image_book.py`), so a killed run costs only a second reading of those
+  pictures. Setting: `INDEX_JUNK_IMAGE_FILTER`, on by default. **Trap:** RapidOCR drops
+  spaces, reading a line of six words as one run of letters, so `count_words` also counts
+  letters divided by 5. Never count words by splitting on spaces.
+- **Attachment pictures are held on the text pass (2026-09-29, order 0z lane C).** They were OCR'd
+  inline - about 80% of a real archive's read time. `app/extract/reading.py` carries the pass's
+  rule to the reader; the archive goes on the `pictures_held_in_archives` list
+  (`app/index/held_archives.py`), and the pictures pass reads only its pictures, writing no marker
+  and no resume cursor. **The Outlook (MAPI) backend does not honour it yet** - pictures read
+  through Outlook are still OCR'd on the text pass.
 
 ### Two ways to read a .pst, and when each applies
 

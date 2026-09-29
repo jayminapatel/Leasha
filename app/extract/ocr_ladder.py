@@ -40,6 +40,14 @@ whiteboards, text photos) still reach the full engine.
 - Each image pays the ladder once. A per-image PDF probe applies the same
   ladder to each scanned page.
 
+**2026-09-29 - a correction to rungs 2 and 4, measured.** RapidOCR (1.4.4)
+returns straight after detection when detection finds no boxes, so a textless
+photograph never paid the recognition pass even without rung 2; the "second
+detection pass" rung 2 cost was paid by every picture in which it found
+anything. `app/extract/ocr.py::_probe_by_reading` now answers rung 2 with the
+engine's one full call and keeps it as rung 4's answer. This module is
+unchanged: `detect` is still any callable returning boxes.
+
 **Rung 1's threshold is a setting, read by the caller.** This module stays
 importable and testable with nothing but Pillow - its own rule, above - so it
 never imports `app.core.config` itself. `OCR_WHITE_PAGE_PERCENT` (Index

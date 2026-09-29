@@ -24,6 +24,10 @@ from app.ui.presenter.indexing import PHASE_WORDS
 __all__ = [
     "LOG_LINES_SHOWN",
     "READING_WORDS",
+    "PICTURE_REASON_WORDS",
+    "STATUS_ORDER",
+    "STATUS_SEPARATOR",
+    "status_counts_text",
     "activity_line",
     "activity_lines",
     "activity_text",
@@ -101,11 +105,75 @@ def activity_text(entry: Any) -> str:
         if detail == "resumed":
             return f"Carrying on with {text} from where an earlier run stopped."
         return f"Stopped part-way through {text}. The next run carries on with it."
+    if kind == "archive_counts":
+        # Order 0z lane C: "Archive2019.pst: 12,400 Indexed · 3 Failed".
+        counts = status_counts_text(_decode_counts(detail))
+        return f"{text}: {counts}" if counts else text
     if kind == "finished":
         if text == "stopped":
             return "Stopped. Everything indexed so far is kept."
         return "Finished."
     return text
+
+
+#: The order the per-item status words are shown in. The words are the keys
+#: (`app.extract.progress.STATUS_WORDS`), shown as they are: the owner asked
+#: for single words. A word this list does not know is shown after these.
+STATUS_ORDER = ("Indexed", "Skipped", "Failed", "TimedOut", "Duplicate", "Held")
+
+#: Between two counts: "12,400 Indexed · 3 Failed".
+STATUS_SEPARATOR = " · "
+
+
+#: Order 0z lane D. Why a picture in mail was left unread - the codes of
+#: `app.extract.junk_images.REASONS`, which ride in the counts as
+#: `"Skipped:decorative"` - in words, for the brackets after "Skipped".
+PICTURE_REASON_WORDS = {
+    "decorative": "decorative pictures",
+    "repeated": "repeated pictures",
+    "few_words": "pictures with under three words",
+}
+
+
+def status_counts_text(counts: Any) -> str:
+    """`{"Indexed": 12400, "Failed": 3}` as "12,400 Indexed · 3 Failed". Never raises.
+
+    Zero counts are left out; nothing at all is "". A key `Word:reason`
+    (order 0z lane D) is not a word of its own: it is shown in brackets after
+    its word - "30 Skipped (24 decorative pictures)".
+    """
+    try:
+        values = {str(word): int(n) for word, n in dict(counts or {}).items()}
+    except (TypeError, ValueError):
+        return ""
+    reasons: dict[str, list[tuple[str, int]]] = {}
+    for key in [k for k in values if ":" in k]:
+        word, _, reason = key.partition(":")
+        reasons.setdefault(word, []).append((reason, values.pop(key)))
+    order = [w for w in STATUS_ORDER if w in values] + sorted(
+        w for w in values if w not in STATUS_ORDER)
+    parts = []
+    for word in order:
+        if values[word] <= 0:
+            continue
+        why = ", ".join(f"{n:,} {PICTURE_REASON_WORDS.get(reason, reason)}"
+                        for reason, n in reasons.get(word, ()) if n > 0)
+        parts.append(f"{values[word]:,} {word}" + (f" ({why})" if why else ""))
+    return STATUS_SEPARATOR.join(parts)
+
+
+def _decode_counts(text: str) -> dict[str, int]:
+    # The same format `app.index.activity.encode_counts` writes; decoded here
+    # rather than imported, so the presenter stays free of the index layer.
+    out: dict[str, int] = {}
+    for part in str(text or "").split(";"):
+        word, _, number = part.partition("=")
+        try:
+            if word.strip():
+                out[word.strip()] = int(number)
+        except ValueError:
+            continue
+    return out
 
 
 def activity_line(entry: Any) -> str:

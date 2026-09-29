@@ -124,6 +124,10 @@ class BenchOptions:
     #: exactly as the window does with "Index in a separate process" on), and
     #: keep only the heartbeat - and the stand-in window - in this process.
     child_process: bool = False
+    #: Work order 0x §5b: read files in a process per extraction thread
+    #: (`app/index/read_process.py`), as "Read files in separate processes"
+    #: does. Overrides the setting either way when given.
+    read_processes: bool | None = None
     #: The person's own `.env`, read only to find the downloaded model and (with
     #: `my_settings`) their tuning. Never written to.
     env_file: Path | None = None
@@ -403,6 +407,8 @@ def _pipeline_config(settings: Any, store: Any, corpus_root: Path,
     config = build_pipeline_config(settings, [corpus_root], tuned=tuned,
                                    workers=options.workers,
                                    full_speed=options.full_speed)
+    if options.read_processes is not None:
+        config.read_processes = bool(options.read_processes)
     return config, tuned
 
 
@@ -865,6 +871,7 @@ def _build_report(options: BenchOptions, manifest: CorpusManifest, corpus_how: s
         + (" · full speed" if options.full_speed else "")
         + (" · your .env tuning" if options.my_settings else " · app defaults")
         + (" · CHILD PROCESS" if options.child_process else " · in process")
+        + (" · READER PROCESSES" if config.read_processes else "")
     )
     stages = dict(getattr(stats, "stages", {}) or {})
     documents = int(stats.indexed)
@@ -929,6 +936,7 @@ def _build_report(options: BenchOptions, manifest: CorpusManifest, corpus_how: s
             "dedup_chunks": config.dedup_chunks,
             "two_phase": config.two_phase,
             "bulk_fts": config.bulk_fts,
+            "read_processes": config.read_processes,
             "ocr_mode": config.ocr_mode,
             "full_speed": options.full_speed,
             "image_lane": "not built (the corpus has no pictures)",

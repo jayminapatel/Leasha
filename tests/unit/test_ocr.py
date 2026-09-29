@@ -472,19 +472,22 @@ def test_a_wall_photo_settles_no_text_without_recognition_ever_running(tmp_path)
     photo = tmp_path / "wall.jpg"  # no rung-0 pattern, not white-heavy
     Image.new("RGB", (256, 256), color="blue").save(photo)
 
-    recognition_calls = []
+    # 2026-09-29: rung 2 now makes the engine's one full call rather than a
+    # detection-only call followed by a second, full one. RapidOCR returns
+    # `(None, None)` straight after detection when it finds no boxes, before
+    # recognition runs, so "never reaches recognition" is RapidOCR's own
+    # behaviour; what is pinned here is one call, and the settled state.
+    calls = []
 
     def engine(source, use_det=None, use_cls=None, use_rec=None):
-        if use_rec is False:
-            return (None, None)  # RapidOCR's own shape: detection found nothing
-        recognition_calls.append(source)
-        raise AssertionError("recognition ran after rung 2 already settled this")
+        calls.append((use_det, use_cls, use_rec))
+        return (None, None)  # RapidOCR's own shape: detection found nothing
 
     result = ocr_image(photo, engine=engine)
 
     assert result.checked_no_text is True
     assert result.empty
-    assert recognition_calls == []
+    assert len(calls) == 1, "a textless photo must cost one engine call"
 
 
 @pytest.mark.skipif(not HAS_PIL, reason="Pillow is not installed")

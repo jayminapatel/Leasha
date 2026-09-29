@@ -142,6 +142,19 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.AUTO_FIX,
         action_payload="ollama serve",
     ),
+    # A model somebody asked for by pressing Download (owner, 2026-09-29: model
+    # lists are drop-downs only, with a way to fetch what is not here yet).
+    # The one path in the application that goes to the internet for a model on
+    # request; it never runs on its own.
+    "ERR_MODEL_DOWNLOAD": _Spec(
+        message="The model {model} could not be downloaded.",
+        suggestion=(
+            "Check this computer's internet connection (or proxy) and press "
+            "Download again - what was already fetched is kept, so it carries "
+            "on. Search and everything already indexed work without it."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # A separate code from ERR_OLLAMA_DOWN because it has a different cause and
     # a different fix, and conflating them sent a real diagnosis in the wrong
     # direction: Ollama answered a trial question in 0.59s and the application
@@ -501,6 +514,39 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "move it out of the indexed folders for now and start again."
         ),
         action_type=ActionType.USER_RETRY,
+    ),
+    # Work order 0x §5b. One file's reader ran in a process of its own
+    # (`app/index/read_process.py`) and that process ended before the file was
+    # finished - a native fault in a reader library on a damaged file, most
+    # likely. It costs this file only: the run carries on with a fresh reader.
+    # Settled like any other skip, so it is not re-read every run while the
+    # file stays the same; a changed file is read again.
+    "ERR_READER_PROCESS_ENDED": _Spec(
+        message="Reading '{path}' stopped unexpectedly, so it was skipped.",
+        suggestion=(
+            "Everything else carried on and is indexed. The file may be damaged: "
+            "try opening it in its usual program. If it opens and has changed, "
+            "the next run reads it again."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    # Work order 0z lane B. A reader that stops making progress on one file -
+    # a damaged PDF, a corrupt 3GB zip, a mailbox that stops yielding
+    # messages - is ended (or left behind) and the file skipped, so it holds
+    # one reader for minutes rather than the run for ever. Also what the
+    # Indexing page's Force skip records, with `reason` naming the person.
+    # `took` and `reason` are worded by `app/index/file_watch.py`.
+    "ERR_FILE_TIMEOUT": _Spec(
+        message="'{path}' was skipped after {took}: {reason}.",
+        suggestion=(
+            "Everything else carried on and is indexed. Try opening the file in "
+            "its usual program - it may be damaged. If it opens and is simply "
+            "very large, raise 'Time limit per file' (or, for a mailbox or zip, "
+            "'Skip a mailbox or archive after no progress for') on the "
+            "Indexing page's Tuning shelf. The "
+            "file is read again the next time it changes."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
     ),
     # Offline Media catalogues a *volume*, whose identity is the drive's own
     # GUID (or a share's UNC name) - a folder has neither, and a drive letter is

@@ -33,12 +33,13 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from app.core.logging import logger
 from app.ui.presenter import (
-    REPO_FILE_LIMIT, GitScope, code_preset, code_route, code_rows_and_repos, code_rows_for,
-    code_summary, repo_empty_state, repo_file_rows, repo_root_for, with_date_problems,
+    REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route, code_rows_and_repos,
+    code_rows_for, repo_empty_state, repo_root_for, with_date_problems,
 )
+from app.ui.presenter.code import _anything_indexed
 from app.ui.widgets.repo_health_note import RepoHealthNote
+from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button
 from app.ui.widgets.code_commands import (
     CODE_CATALOGUE, code_command_for, code_matching, git_values,
@@ -47,15 +48,13 @@ from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.git_tree import (
     GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
-    paint_repo_state, start_git_search,
+    git_search_running, paint_repo_state, start_git_search, stop_git_search,
 )
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["CodeView", "COLUMNS", "PREFS_KEY"]
 
 PREFS_KEY = "ui:code"
-
-_log = logger.bind(component="ui.code")
 
 #: One indexed lookup over an indexed column, so this only needs to be long
 #: enough to avoid a query per keystroke on a fast typist.
@@ -130,6 +129,9 @@ class CodeView(QWidget):
         self.results.open_requested.connect(self.open_requested)
         self.results.reveal_requested.connect(self.reveal_requested)
         self.results.search_repo_requested.connect(self.search_repo_requested)
+        # Order 0y §1c: the row menu's "Ignore this repository".
+        self.results.ignore_repo_requested.connect(
+            lambda name: ignore_repository(self, name))
         self.results.view_menu_requested.connect(
             lambda at: self.view_button.show_menu(at))
         self.preview = self.results.preview        # re-exposed for callers
@@ -255,7 +257,12 @@ class CodeView(QWidget):
         self._typed()
 
     def start(self) -> None:
-        """Enter: run whatever the line asks for, including the slow one."""
+        """Enter: run whatever the line asks for, including the slow one.
+
+        While a history search runs the same button reads Stop (order 0y §1b).
+        """
+        if stop_git_search(self):
+            return
         route = code_route(self.input.text())
         if route.engine == "git":
             start_git_search(self, route)
@@ -271,20 +278,20 @@ class CodeView(QWidget):
     def _show_files(self, payload: Any, generation: int) -> None:
         if generation != self._generation:
             return
-        records = payload.get("rows") if isinstance(payload, dict) else payload
-        rows = repo_file_rows(list(records or [])[:REPO_FILE_LIMIT])
+        # Order 0y §2: definitions, then files, then mentions - `code_page`.
+        rows, summary = code_page(payload, self._repos, self._scope,
+                                  preset=code_preset(self._store))
         self._fill(rows)
         self._show_state()
         if isinstance(payload, dict):
             draw_matches(self, payload.get("matching"))
         if self._repos:
-            self.summary.setText(with_date_problems(code_summary(
-                rows, self._repos, self._scope, preset=code_preset(self._store)),
-                getattr(self, "_parsed", None)))
+            self.summary.setText(with_date_problems(summary, getattr(self, "_parsed", None)))
 
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""
         if generation == self._generation:
+            git_search_running(self, False)
             draw_git_result(self, found)
 
     def _show_state(self) -> None:
@@ -312,18 +319,8 @@ class CodeView(QWidget):
             message="" if has_repos else repo_empty_state(self._anything_indexed()))
 
     def _anything_indexed(self) -> bool:
-        """Cheap and guarded. Only decides which of two sentences to show.
-
-        **It used to say that and not be true.** `stats()` is three `COUNT(*)`,
-        two of them scans of `chunks` - 93ms at two million, around 460ms at
-        ten - and this runs while the tab is being drawn. `has_any_files()` is
-        one row with a `LIMIT 1`, which is what "is there anything" needs.
-        """
-        try:
-            return self._store.has_any_files()
-        except Exception as exc:                 # noqa: BLE001
-            _log.debug("could not read the index size: {}", exc)
-            return True                          # the less alarming of the two
+        # Moved to the presenter (order 0y §1) under the 250-line guard.
+        return _anything_indexed(self._store)
 
     def _apply_prefs(self) -> None:
         self.results.apply_prefs(self.view_button.prefs)

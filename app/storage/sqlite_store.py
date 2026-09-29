@@ -1634,6 +1634,53 @@ class SqliteStore:
         once, and it made the filter look broken to anybody who did not know the
         full address by heart.
         """
+        where, params = self._message_where(
+            sender=sender, recipient=recipient, subject=subject,
+            has_attachment=has_attachment, after=after, before=before)
+        # **The file-level switches, built by the one shared definition.**
+        # `browse_messages` has always joined `files`, so `/type`, `/path`,
+        # `/name`, `/size` and `/repo` cost nothing to honour here - they were
+        # simply never passed. The mail columns are deliberately *not* in this
+        # fragment: the caller clears them, because `sender` and friends above
+        # can use the trigram header index and `after`/`before` belong on
+        # `m.sent_at` - the date the message was sent - rather than on the
+        # file's mtime.
+        # Not interpolated from anything a person typed: the parser only ever
+        # produces `newest` or `oldest`, and anything else is newest.
+        direction = "ASC" if str(sort or "").lower() == "oldest" else "DESC"
+        sql = f"""
+            SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
+                   m.has_attach, m.store_path, m.conversation, m.quoted_removed,
+                   f.path, f.size_bytes, f.status, f.skip_code
+            FROM messages m
+            JOIN files f ON f.id = m.file_id
+            {where} {file_where}
+            -- `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
+            -- 3.30. The bundled version is newer, but the version a user's
+            -- Python happens to ship is not something this should depend on,
+            -- and the two forms cost the same.
+            ORDER BY m.sent_at IS NULL, m.sent_at {direction}, m.file_id {direction}
+            LIMIT ?
+        """
+        params.extend(file_params or ())
+        params.append(max(1, int(limit)))
+        return [dict(row) for row in self.conn.execute(sql, params)]
+
+    def _message_where(
+        self,
+        *,
+        sender: Optional[str] = None,
+        recipient: Optional[str] = None,
+        subject: Optional[str] = None,
+        has_attachment: Optional[bool] = None,
+        after: Optional[int] = None,
+        before: Optional[int] = None,
+    ) -> tuple[str, list[Any]]:
+        """`(" WHERE ...", params)` over `messages m` for the Mail tab's filters.
+
+        Shared by `browse_messages` and `count_messages_matching`, so the
+        count under the list is the count of exactly the rows it pages through.
+        """
         clauses: list[str] = []
         params: list[Any] = []
 
@@ -1684,34 +1731,48 @@ class SqliteStore:
             params.append(int(before))
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else " WHERE 1=1"
-        # **The file-level switches, built by the one shared definition.**
-        # `browse_messages` has always joined `files`, so `/type`, `/path`,
-        # `/name`, `/size` and `/repo` cost nothing to honour here - they were
-        # simply never passed. The mail columns are deliberately *not* in this
-        # fragment: the caller clears them, because `sender` and friends above
-        # can use the trigram header index and `after`/`before` belong on
-        # `m.sent_at` - the date the message was sent - rather than on the
-        # file's mtime.
-        # Not interpolated from anything a person typed: the parser only ever
-        # produces `newest` or `oldest`, and anything else is newest.
-        direction = "ASC" if str(sort or "").lower() == "oldest" else "DESC"
-        sql = f"""
-            SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
-                   m.has_attach, m.store_path, m.conversation, m.quoted_removed,
-                   f.path, f.size_bytes, f.status
-            FROM messages m
-            JOIN files f ON f.id = m.file_id
-            {where} {file_where}
-            -- `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
-            -- 3.30. The bundled version is newer, but the version a user's
-            -- Python happens to ship is not something this should depend on,
-            -- and the two forms cost the same.
-            ORDER BY m.sent_at IS NULL, m.sent_at {direction}, m.file_id {direction}
-            LIMIT ?
+        return where, params
+
+    def count_messages_matching(
+        self,
+        *,
+        sender: Optional[str] = None,
+        recipient: Optional[str] = None,
+        subject: Optional[str] = None,
+        has_attachment: Optional[bool] = None,
+        after: Optional[int] = None,
+        before: Optional[int] = None,
+        file_where: str = "",
+        file_params: Sequence[Any] = (),
+        cap: int = 100_000,
+        **_ignored: Any,
+    ) -> int:
+        """How many messages `browse_messages` would return with no limit, up to
+        `cap + 1`.
+
+        Asked for directly: *"when searching for mails the search displays
+        maximum 500 but does not tell how much total"*. **Bounded**, because a
+        count over two hundred thousand messages behind a substring filter is
+        a scan, and the Mail tab filters on every keystroke. A result above
+        `cap` means "more than `cap`", and the summary says exactly that.
+
+        `**_ignored` takes `sort` and `limit`, so the caller can pass the same
+        keyword arguments it passes to `browse_messages`.
         """
-        params.extend(file_params or ())
-        params.append(max(1, int(limit)))
-        return [dict(row) for row in self.conn.execute(sql, params)]
+        where, params = self._message_where(
+            sender=sender, recipient=recipient, subject=subject,
+            has_attachment=has_attachment, after=after, before=before)
+        sql = f"""
+            SELECT COUNT(*) AS n FROM (
+                SELECT 1 FROM messages m
+                JOIN files f ON f.id = m.file_id
+                {where} {file_where}
+                LIMIT ?
+            )
+        """
+        row = self.conn.execute(
+            sql, [*params, *(file_params or ()), max(1, int(cap)) + 1]).fetchone()
+        return int(row["n"]) if row else 0
 
     def messages_for(self, file_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
         """Mail metadata for a page of results, keyed by `file_id`.
@@ -2164,6 +2225,74 @@ class SqliteStore:
             best.setdefault(int(record["id"]), record)
         return list(best.values())
 
+    def count_browse_files(
+        self,
+        parsed: Any,
+        *,
+        extra_ext: Optional[Sequence[str]] = None,
+        cap: int = 10_000,
+    ) -> Optional[int]:
+        """How many files `browse_files` would return with no limit, up to
+        `cap + 1`. `None` when it cannot say (an index with no FTS tables).
+
+        The Files list shows its first page and used to stop there silently -
+        the same fault the owner reported on Mail. **The same filter and the
+        same two halves as `browse_files`** (a name match or a contents match),
+        counted as distinct files, so the number under the list is the number
+        of rows it would page through.
+
+        **Bounded**: a common word matches most of a corpus, and the list
+        filters as somebody types. Above `cap` the summary says "more than".
+        """
+        from app.storage.filters import file_filter_sql
+
+        where, params = file_filter_sql(parsed)
+        wanted = [e.lower().lstrip(".") for e in (extra_ext or ())]
+        if wanted and not getattr(parsed, "ext", ()):
+            where += f" AND f.ext IN ({','.join('?' * len(wanted))})"
+            params.extend(wanted)
+        cleaned = " ".join(
+            str(part) for part in (getattr(parsed, "terms", ()) or ())
+        ).strip() or str(getattr(parsed, "text", "") or "").strip()
+        bound = max(1, int(cap)) + 1
+        if len(cleaned) < NAME_MIN_CHARS:
+            if cleaned:
+                return 0
+            row = self.conn.execute(
+                f"""SELECT COUNT(*) AS n FROM (
+                        SELECT 1 FROM files f
+                        WHERE f.source_kind = 'file'{where}
+                        LIMIT ?)""", [*params, bound]).fetchone()
+            return int(row["n"]) if row else 0
+        literal = '"' + cleaned.replace('"', '""') + '"'
+        sql = f"""
+            SELECT COUNT(*) AS n FROM (
+                SELECT id FROM (
+                    SELECT f.id AS id
+                    FROM files_fts
+                    JOIN files f ON f.id = files_fts.rowid
+                    WHERE files_fts MATCH ? {where}
+                    UNION
+                    SELECT f.id
+                    FROM chunks_fts
+                    JOIN chunks c ON c.id = chunks_fts.rowid
+                    JOIN files  f ON f.id = c.file_id
+                    WHERE chunks_fts MATCH ? AND f.source_kind = 'file' {where}
+                )
+                LIMIT ?
+            )
+        """
+        try:
+            row = self.conn.execute(
+                sql, [literal, *params, literal, *params, bound]).fetchone()
+        except sqlite3.OperationalError as exc:
+            # The one fallback `browse_files` allows itself, for the same
+            # reason: an index older than the FTS tables. Anything else raises.
+            if "no such table" not in str(exc).lower():
+                raise
+            return None
+        return int(row["n"]) if row else 0
+
     def repos_with_matches(
         self,
         parsed: Any,
@@ -2373,6 +2502,97 @@ class SqliteStore:
             "WHERE skip_code IS NOT NULL GROUP BY skip_code ORDER BY n DESC"
         )
         return {row["skip_code"]: int(row["n"]) for row in rows}
+
+    def status_counts(self, offline_volume_ids: Sequence[int] = ()) -> dict[str, Any]:
+        """The Indexing page's funnel, as the three groupings `file_state` needs.
+
+        Returns `{"by_status": {status: n}, "coded": [(status, code, n)],
+        "offline": {status: n}}` - see `app.core.file_state.funnel_counts`,
+        which turns them into one count per word.
+
+        **Three small statements, each answered from an index it already has,
+        rather than one `GROUP BY status, skip_code, volume_id` over the
+        table.** That one reads every row of `files` - twenty million at the
+        target scale - on a refresh that runs every few seconds during a run.
+        Checked with `EXPLAIN QUERY PLAN` (`test_status_funnel.py` holds it):
+
+        * `by_status` is a covering scan of `idx_files_status`, the same
+          statement `stats()` has always run;
+        * `coded` is a search of the partial `idx_files_skip` for the handful
+          of codes that change a file's word - deferred and timed-out rows, not
+          every skip;
+        * `offline` searches `idx_files_volume` for the disconnected volumes'
+          rows only, and is not run at all when every volume is connected.
+
+        Offline rows are left out of `coded`, so a held picture on a drive in a
+        drawer is counted once, as Offline.
+        """
+        from app.core.file_state import DEFERRED_CODES, DUPLICATE_CODES, TIMEOUT_CODES
+
+        by_status = {
+            row["status"]: int(row["n"])
+            for row in self.conn.execute(
+                "SELECT status, COUNT(*) AS n FROM files GROUP BY status")
+        }
+        codes = sorted(DEFERRED_CODES | TIMEOUT_CODES | DUPLICATE_CODES)
+        offline = [int(v) for v in offline_volume_ids or ()]
+        not_offline = ""
+        params: list[Any] = list(codes)
+        if offline:
+            not_offline = (" AND (volume_id IS NULL OR volume_id NOT IN "
+                           f"({','.join('?' * len(offline))}))")
+            params.extend(offline)
+        coded = [
+            (row["status"], row["skip_code"], int(row["n"]))
+            for row in self.conn.execute(
+                f"SELECT status, skip_code, COUNT(*) AS n FROM files "
+                f"WHERE skip_code IN ({','.join('?' * len(codes))}){not_offline} "
+                f"GROUP BY status, skip_code", params)
+        ]
+        away: dict[str, int] = {}
+        if offline:
+            away = {
+                row["status"]: int(row["n"])
+                for row in self.conn.execute(
+                    f"SELECT status, COUNT(*) AS n FROM files "
+                    f"WHERE volume_id IN ({','.join('?' * len(offline))}) "
+                    f"GROUP BY status", offline)
+            }
+        return {"by_status": by_status, "coded": coded, "offline": away}
+
+    def offline_volume_ids(self) -> list[int]:
+        """Volumes whose last known status is not ONLINE. Cheap - `volumes` is
+        one row per catalogued drive or share.
+
+        **Last known, not live.** The live answer (`offline_media.
+        connected_volumes`) is a Windows volume lookup per drive, which the
+        results lists pay once per page; the funnel refreshes every few seconds
+        during a run and reads the status the Offline Media page last recorded.
+        """
+        return [int(row["id"]) for row in self.conn.execute(
+            "SELECT id FROM volumes WHERE status != 'ONLINE'")]
+
+    def file_states(self, file_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+        """`{file_id: {"status", "skip_code", "volume_id"}}` for a page of results.
+
+        **One query for the page, never one per row** - the same rule as
+        `messages_for`, for the same reason: the search box runs on a debounce.
+        The Search list's Status column is filled from this, on the worker that
+        already decorates the page. Ids that are not in `files` are absent.
+        """
+        wanted = sorted({int(file_id) for file_id in file_ids or ()})
+        if not wanted:
+            return {}
+        out: dict[int, dict[str, Any]] = {}
+        # Chunked under SQLite's host-parameter limit; a page is 20 to 500 rows.
+        for start in range(0, len(wanted), 900):
+            part = wanted[start:start + 900]
+            for row in self.conn.execute(
+                f"SELECT id, status, skip_code, volume_id FROM files "
+                f"WHERE id IN ({','.join('?' * len(part))})", part):
+                out[int(row["id"])] = {"status": row["status"], "skip_code": row["skip_code"],
+                                       "volume_id": row["volume_id"]}
+        return out
 
     # -- chunks --------------------------------------------------------------
 
@@ -3457,7 +3677,7 @@ class SqliteStore:
             try:
                 for table in ("entity_mentions", "entity_edges", "entities",
                               "search_hits", "searches", "files",
-                              "files_fts", "repos"):
+                              "files_fts", "repos", "image_hashes"):
                     try:
                         conn.execute(f"DELETE FROM {table}")
                     except sqlite3.OperationalError:
@@ -3707,7 +3927,7 @@ class SqliteStore:
         """
         rows = self.conn.execute(
             """
-            SELECT id, path, ext, size_bytes, mtime_ns, status
+            SELECT id, path, ext, size_bytes, mtime_ns, status, skip_code
             FROM files
             WHERE repo_id = ? AND source_kind = 'file'
             ORDER BY mtime_ns DESC, id DESC
@@ -3855,6 +4075,58 @@ class SqliteStore:
             return False
         self.set_state(self.IGNORED_REPOS_KEY, "\n".join(kept))
         return True
+
+    def repo_undo_record(self, root_path: str) -> Optional[dict[str, Any]]:
+        r"""Everything `restore_repo` needs to put a repository back exactly.
+
+        Order 0y §1c. Read *before* `forget_repo`, by the window's "Ignore this
+        repository", so its Undo is immediate and exact: the same name, kind
+        and files, with no index run in between. `app.cli repos --remember`
+        stays what it was (the next run re-adopts the folder); a person who
+        clicked the wrong row deserves the row back now. None when the root is
+        not a known repository.
+        """
+        root = str(root_path or "").rstrip("\\/")
+        if not root:
+            return None
+        row = self.conn.execute(
+            "SELECT id, root_path, name, kind FROM repos WHERE root_path = ? COLLATE NOCASE",
+            (root,),
+        ).fetchone()
+        if row is None:
+            return None
+        ids = [int(r[0]) for r in self.conn.execute(
+            "SELECT id FROM files WHERE repo_id = ?", (int(row["id"]),))]
+        return {"root_path": str(row["root_path"]), "name": str(row["name"]),
+                "kind": str(row["kind"]), "file_ids": ids}
+
+    def restore_repo(self, record: dict[str, Any]) -> int:
+        """Undo "Ignore this repository". Returns how many files came back.
+
+        Stops ignoring the root, registers it again, and gives back exactly the
+        files it held - only those still unattributed, so a file some other
+        repository has claimed since is left alone. The index generation is
+        bumped for the same reason `forget_repo` bumps it.
+        """
+        root = str(record.get("root_path") or "")
+        if not root:
+            return 0
+        self.unignore_repo_root(root)
+        repo_id = self.upsert_repo(root, kind=str(record.get("kind") or "work"),
+                                   name=str(record.get("name") or "") or None)
+        ids = [int(i) for i in record.get("file_ids") or ()]
+        restored = 0
+        with self.write() as conn:
+            for start in range(0, len(ids), 500):
+                part = ids[start:start + 500]
+                marks = ",".join("?" * len(part))
+                restored += conn.execute(
+                    f"UPDATE files SET repo_id = ? WHERE id IN ({marks}) AND repo_id IS NULL",
+                    (repo_id, *part),
+                ).rowcount or 0
+            self._bump_generation(conn)
+        _log.info("restored repository {} with {} file(s)", root, restored)
+        return int(restored)
 
     def prune_repos(self, alive: Sequence[str]) -> list[str]:
         r"""Remove repositories whose root is no longer one. Returns their roots.
@@ -4304,6 +4576,34 @@ class SqliteStore:
                 "updated_at = excluded.updated_at",
                 [(key, str(value), now) for key, value in values.items()],
             )
+
+    def image_hashes(self) -> list[tuple[str, int, Optional[int], Optional[str], int, int]]:
+        """Every row of the junk-image filter's book (schema v29), as plain tuples.
+
+        `(hash, seen, words, phash, width, height)`. Read once per run, the
+        first time a picture inside a mail archive is met. Order 0z lane D.
+        """
+        rows = self.conn.execute(
+            "SELECT hash, seen, words, phash, width, height FROM image_hashes").fetchall()
+        return [(str(r[0]), int(r[1] or 0), None if r[2] is None else int(r[2]),
+                 r[3], int(r[4] or 0), int(r[5] or 0)) for r in rows]
+
+    def save_image_hashes(
+        self, rows: list[tuple[str, int, Optional[int], Optional[str], int, int]],
+    ) -> None:
+        """Write rows of the book, replacing what was there. One transaction."""
+        if not rows:
+            return
+        now = int(time.time())
+        with self.write() as conn:
+            conn.executemany(
+                "INSERT INTO image_hashes (hash, seen, words, phash, width, height, updated_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(hash) DO UPDATE SET seen = excluded.seen, "
+                "words = excluded.words, phash = excluded.phash, "
+                "width = excluded.width, height = excluded.height, "
+                "updated_at = excluded.updated_at",
+                [(*row, now) for row in rows])
 
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:
         row = self.conn.execute("SELECT value FROM index_state WHERE key = ?", (key,)).fetchone()

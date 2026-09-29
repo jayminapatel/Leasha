@@ -435,6 +435,11 @@ def draw_git_result(view: Any, found: Any) -> None:
     """
     from app.ui.presenter import code_route, git_result_row, git_summary, repo_root_for
 
+    if getattr(found, "stopped", False):
+        view.summary.setText(
+            "History search stopped. Press Enter or “Search history” to run it again.")
+        view._fill([])
+        return
     if not found.ok:
         # Never silent: git's own message about a bad revision or pattern is the
         # useful one, and the command makes it reproducible.
@@ -446,6 +451,48 @@ def draw_git_result(view: Any, found: Any) -> None:
     root = repo_root_for(view._repos, code_route(view.input.text()).repo)
     view._fill([git_result_row(row, root) for row in found.rows])
     view.summary.setText(git_summary(found))
+
+
+#: The Stop button's tooltip while a history search runs (order 0y §1b).
+STOP_HINT = ("Stop this history search now. Esc does the same.\n\n"
+             "Nothing is lost: press Enter to run it again.")
+
+
+def git_search_running(view: Any, running: bool) -> None:
+    """The button reads Stop while git runs, and Esc stops it. Order 0y §1b.
+
+    "Search history" and "Stop" are both labels the button system already
+    knows, so `refresh_icon` gives each its own icon.
+    """
+    from PyQt6.QtGui import QKeySequence, QShortcut
+
+    from app.ui.widgets.buttons import refresh_icon
+
+    view.run_button.setText("Stop" if running else "Search history")
+    view.run_button.setToolTip(STOP_HINT if running else view._run_hint)
+    refresh_icon(view.run_button)
+    escape = getattr(view, "_git_escape", None)
+    if escape is None:
+        escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), view)
+        escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        escape.activated.connect(lambda: stop_git_search(view))
+        view._git_escape = escape
+    escape.setEnabled(running)
+
+
+def stop_git_search(view: Any) -> bool:
+    """Stop the history search that is running, if there is one.
+
+    True when one was stopped - the caller then does nothing else, which is
+    what makes one button both start and stop. The git process ends within a
+    tenth of a second (`gitsearch._STOP_POLL_S`); the worker then hands back a
+    result marked `stopped`, which `draw_git_result` says in words.
+    """
+    stop = getattr(view, "_git_stop", None)
+    if stop is None or stop.stopped:
+        return False
+    stop.stop()
+    return True
 
 
 def start_git_search(view: Any, route: Any) -> None:
@@ -461,7 +508,7 @@ def start_git_search(view: Any, route: Any) -> None:
     # made `monkeypatch.setattr("...git_tree.run", ...)` bind a name this
     # function never looked at - so the test saw nothing start, correctly.
     from app.search.gitquery import build, parse_git_query
-    from app.search.gitsearch import run_query
+    from app.search.gitsearch import StopFlag, run_query
     from app.ui.presenter import repo_root_for
 
     root = repo_root_for(view._repos, route.repo)
@@ -481,8 +528,15 @@ def start_git_search(view: Any, route: Any) -> None:
     generation = view._generation
     view.summary.setText(f"Searching {build(query).explain}…")
 
-    worker = CallableWorker(run_query, root, query, component="ui.code.git")
+    # Order 0y §1b: a newer search ends the older one, and this one can be
+    # stopped from the button or with Esc.
+    stop_git_search(view)
+    view._git_stop = StopFlag()
+    git_search_running(view, True)
+    worker = CallableWorker(run_query, root, query, stop=view._git_stop,
+                            component="ui.code.git")
     worker.signals.finished.connect(
         lambda found, g=generation: view._show_git(found, g))
+    worker.signals.failed.connect(lambda _e: git_search_running(view, False))
     worker.signals.failed.connect(view.error.emit)
     run(QThreadPool.globalInstance(), worker)
