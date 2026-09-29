@@ -118,6 +118,40 @@ def test_the_lock_is_released_even_when_the_run_raises(store, locks):
         assert second.acquired, "a failed run kept the lock"
 
 
+def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks):
+    r"""**A probe is not a holder.** `is_indexing` answers by taking the lock and
+    letting it straight go, and an open window asks it every four seconds on a
+    worker. A run starting inside that instant was refused as "already in
+    progress (another process)" with nothing indexing anywhere - seen on the
+    Windows CI (2026-09-29), where the named mutex is machine-wide and a test
+    window left open by an earlier test was doing the asking.
+
+    The probe here is held far longer than a real one (a quarter of a second
+    against microseconds), from a thread of its own, because a Windows mutex
+    can only be let go by the thread that took it."""
+    import threading
+
+    from app.core.run_lock import CONTENTION_WAIT_S
+
+    taken = threading.Event()
+
+    def probe() -> None:
+        held = SingleInstance(INDEX_MUTEX_NAME, lock_dir=locks).acquire()
+        taken.set()
+        threading.Event().wait(0.25)
+        held.release()
+
+    prober = threading.Thread(target=probe, name="probe")
+    prober.start()
+    try:
+        assert taken.wait(5), "the probe never took the lock"
+        assert 0.25 < CONTENTION_WAIT_S, "the wait would not outlast this probe"
+        with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks) as run:
+            assert run.acquired
+    finally:
+        prober.join(5)
+
+
 # ---------------------------------------------------------------------------
 # The record describes; the mutex decides
 # ---------------------------------------------------------------------------
