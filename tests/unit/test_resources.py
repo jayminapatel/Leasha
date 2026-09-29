@@ -556,3 +556,31 @@ def test_a_failing_busiest_sample_does_not_break_the_check(captured):
     governor.check(now=0.0)
 
     assert governor.check(now=10.0).action == "pause"
+
+
+def test_a_power_state_that_cannot_be_read_is_not_on_battery(monkeypatch):
+    """psutil reports `power_plugged=None` when it cannot tell, as a Windows
+    virtual machine does. `not None` is True, so it read as "on battery" and
+    the run paused for ever (2026-09-29, the first Windows CI run)."""
+    from types import SimpleNamespace
+
+    from app.index.resources import SystemProbe
+
+    fake = SimpleNamespace(
+        sensors_battery=lambda: SimpleNamespace(power_plugged=None, percent=100),
+    )
+    probe = SystemProbe()
+    monkeypatch.setattr(probe, "_psutil", lambda: _WithBattery(fake))
+    assert probe.read().on_battery is None
+
+
+class _WithBattery:
+    """The real psutil for everything but the battery."""
+
+    def __init__(self, fake):
+        import psutil
+
+        self._real, self._fake = psutil, fake
+
+    def __getattr__(self, name):
+        return getattr(self._fake if name == "sensors_battery" else self._real, name)
