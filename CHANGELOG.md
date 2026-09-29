@@ -56,6 +56,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Right-click a file in a repository › "Ignore this repository" when a folder is not really a
   repository. Its files stay indexed and searchable; they just stop counting as code. "Undo" puts it
   back straight away.
+### Start during a run now says why, and offers to stop it
+
+- Pressing Start while an index run is already going used to show a five-second note and nothing else,
+  so the button looked broken. It now explains that a second run cannot start into the same index, that
+  changed settings (such as "Index in a separate process") apply from the next Start, and offers
+  "Stop the current run". Everything indexed so far is kept.
 ### The question box on the Chat tab grows as you type
 
 - A question that wrapped onto a second or third line stayed one line tall on Windows, so its start
