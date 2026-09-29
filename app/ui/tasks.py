@@ -907,7 +907,35 @@ def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = Non
     """
     rows = code_rows_for(store, scope, route, cached=cached, limit=limit)
     return {"rows": rows,
+            "matches": code_content_matches(store, scope, route, cached=cached),
             "matching": matching_repos(store, route, cached=cached, repos=repos)}
+
+
+def code_content_matches(store: Any, scope: Any, route: Any, *, cached: Any = None) -> list:
+    r"""Order 0y §2: the lines of code that hold what was typed. **On the worker.**
+
+    Index only (`app.search.code_search`), with line numbers read from the files
+    inside a small time budget. None of it for a branch scope (`cached`): that
+    list comes from `git ls-tree` and describes a tree the index does not hold,
+    so a line from the working copy would be a claim about the wrong version.
+    """
+    from dataclasses import replace as _replace
+
+    from app.search.code_search import code_matches, resolve_lines
+
+    parsed = getattr(route, "parsed", None)
+    if cached is not None or parsed is None:
+        return []
+    repo = (str(getattr(scope, "repo", "") or "")
+            or str(getattr(route, "repo", "") or ""))
+    if repo:
+        parsed = _replace(parsed, repos=(repo,))
+    try:
+        found = code_matches(store, parsed, types=code_type_filter(store))
+    except Exception as exc:                 # noqa: BLE001 - the file list still answers
+        _log.debug("code content search failed: {}", exc)
+        return []
+    return resolve_lines(found)
 
 
 def matching_repos(store: Any, route: Any, *, cached: Any = None,

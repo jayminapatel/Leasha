@@ -68,6 +68,10 @@ from app.ui.presenter.code import (
     code_summary,
     git_summary,
     git_result_row,
+    code_list,
+    code_match_rows,
+    code_page,
+    match_counts,
 )
 from app.ui.presenter.commands import (
     _switch_catalogue,
@@ -337,6 +341,7 @@ _TASK_NAMES = frozenset({
     "_comparable",
     "code_rows_for",
     "code_rows_and_repos",
+    "code_content_matches",
     "matching_repos",
     "resolve_open_path",
 })
@@ -364,6 +369,10 @@ __all__ = [
     "git_rows_matching",
     "code_rows_for",
     "code_summary",
+    "code_list",
+    "code_match_rows",
+    "code_page",
+    "match_counts",
     "git_result_row",
     "git_summary",
     "repo_root_for",

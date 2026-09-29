@@ -34,8 +34,8 @@ from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
-    REPO_FILE_LIMIT, GitScope, code_preset, code_route, code_rows_and_repos, code_rows_for,
-    code_summary, repo_empty_state, repo_file_rows, repo_root_for, with_date_problems,
+    REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route, code_rows_and_repos,
+    code_rows_for, repo_empty_state, repo_root_for, with_date_problems,
 )
 from app.ui.presenter.code import _anything_indexed
 from app.ui.widgets.repo_health_note import RepoHealthNote
@@ -278,16 +278,15 @@ class CodeView(QWidget):
     def _show_files(self, payload: Any, generation: int) -> None:
         if generation != self._generation:
             return
-        records = payload.get("rows") if isinstance(payload, dict) else payload
-        rows = repo_file_rows(list(records or [])[:REPO_FILE_LIMIT])
+        # Order 0y §2: definitions, then files, then mentions - `code_page`.
+        rows, summary = code_page(payload, self._repos, self._scope,
+                                  preset=code_preset(self._store))
         self._fill(rows)
         self._show_state()
         if isinstance(payload, dict):
             draw_matches(self, payload.get("matching"))
         if self._repos:
-            self.summary.setText(with_date_problems(code_summary(
-                rows, self._repos, self._scope, preset=code_preset(self._store)),
-                getattr(self, "_parsed", None)))
+            self.summary.setText(with_date_problems(summary, getattr(self, "_parsed", None)))
 
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""

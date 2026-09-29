@@ -54,6 +54,15 @@ class RepoFileRow:
     #: `preview_loader.load_preview_for`. Empty for a file in the checkout,
     #: which is read normally.
     preview_text: str = ""
+    #: Order 0y §2. Why this row is here once something is typed: "Definition",
+    #: "File name" or "Mention". Empty for a box with nothing typed.
+    match: str = ""
+    #: The line number as shown ("" until it is known), and as a number to
+    #: sort and open on (0 until known).
+    line: str = ""
+    line_no: int = 0
+    #: The line of code itself, for a Definition or Mention row.
+    code: str = ""
 
 
 def repo_file_rows(
@@ -458,6 +467,90 @@ def code_preset(store: Any) -> str:
 
     preset, _chosen = choice_from(store)
     return preset
+
+
+#: Order 0y §2: the words for each kind of row, in the order they are listed.
+MATCH_DEFINITION = "Definition"
+MATCH_FILE = "File name"
+MATCH_MENTION = "Mention"
+
+
+def _repo_for(path: str, repos: Iterable[Mapping[str, Any]]) -> str:
+    """The repository holding `path`: the longest root it sits under."""
+    folded = path.replace("\\", "/").lower()
+    best, name = -1, ""
+    for row in repos or ():
+        root = str(row.get("root_path") or "").replace("\\", "/").rstrip("/").lower()
+        if root and (folded == root or folded.startswith(root + "/")) and len(root) > best:
+            best, name = len(root), str(row.get("name") or "")
+    return name
+
+
+def code_match_rows(matches: Iterable[Any], repos: Iterable[Mapping[str, Any]]) -> list[RepoFileRow]:
+    """`code_search.CodeMatch`es as rows of the Code list. Order 0y §2b."""
+    from app.search.code_search import KIND_DEFINITION
+
+    repos = list(repos or ())
+    out: list[RepoFileRow] = []
+    for match in matches or ():
+        path = str(match.path)
+        name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
+        line = int(match.line or 0)
+        out.append(RepoFileRow(
+            name=name, size="", kind=str(match.ext or ""), seen="",
+            path=shorten_path(path, limit=60), full_path=path,
+            ext=str(match.ext or ""), repo=_repo_for(path, repos),
+            match=MATCH_DEFINITION if match.kind == KIND_DEFINITION else MATCH_MENTION,
+            line=str(line) if line else "", line_no=line,
+            code=str(match.text or "").strip(),
+        ))
+    return out
+
+
+def code_list(file_rows: list[RepoFileRow], match_rows: list[RepoFileRow]) -> list[RepoFileRow]:
+    """Definitions, then files whose name matched, then mentions (order 0y §2a).
+
+    File rows are marked "File name" only when there are content rows beside
+    them; with nothing typed the list is today's list, unchanged.
+    """
+    from dataclasses import replace as _replace
+
+    if not match_rows:
+        return list(file_rows)
+    definitions = [r for r in match_rows if r.match == MATCH_DEFINITION]
+    mentions = [r for r in match_rows if r.match != MATCH_DEFINITION]
+    files = [_replace(r, match=MATCH_FILE) for r in file_rows]
+    return definitions + files + mentions
+
+
+def match_counts(rows: Iterable[RepoFileRow]) -> str:
+    """`3 definitions · 12 files · 48 mentions` - "" when nothing was typed (§2d)."""
+    rows = list(rows)
+    if not any(r.match for r in rows):
+        return ""
+    counts = {kind: sum(1 for r in rows if r.match == kind)
+              for kind in (MATCH_DEFINITION, MATCH_FILE, MATCH_MENTION)}
+    words = ((MATCH_DEFINITION, "definition", "definitions"),
+             (MATCH_FILE, "file", "files"), (MATCH_MENTION, "mention", "mentions"))
+    return "  ·  ".join(f"{counts[k]:,} {one if counts[k] == 1 else many}"
+                        for k, one, many in words)
+
+
+def code_page(payload: Any, repos: list[Any], scope: Any = None, *,
+              preset: str = "") -> tuple[list[RepoFileRow], str]:
+    """The Code list and its summary line, from what the worker returned.
+
+    Order 0y §2: definitions, then the files whose name matched, then mentions
+    (`code_list`), with the counts ahead of the usual summary (`match_counts`).
+    Here rather than in the view for the reason the rest of this module is.
+    """
+    records = payload.get("rows") if isinstance(payload, dict) else payload
+    files = repo_file_rows(list(records or [])[:REPO_FILE_LIMIT])
+    found = payload.get("matches") if isinstance(payload, dict) else None
+    rows = code_list(files, code_match_rows(found or (), repos))
+    counts = match_counts(rows)
+    summary = code_summary(files, repos, scope, preset=preset)
+    return rows, (f"{counts}  ·  {summary}" if counts else summary)
 
 
 def code_summary(rows: list[Any], repos: list[Any], scope: Any = None,

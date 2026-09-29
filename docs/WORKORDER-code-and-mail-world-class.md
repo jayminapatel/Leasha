@@ -1,6 +1,6 @@
 # Work order (One thread): the Code tab and the mail preview, world class
 
-**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 **Created:** 2026-09-27 · **Layer:** L1/L4/L5 - `app/search/gitsearch.py`, `app/search/gitquery.py`, `app/ui/code_view.py`, `app/ui/widgets/code_results.py`, `app/ui/widgets/git_tree.py`, `app/ui/presenter/code.py`, `app/ui/preview_loader.py`, `app/ui/mail_view.py`, `app/storage/sqlite_store.py`
 **Thread:** One thread, in small PRs, each merged by the owner
 **Status:** RELEASED *(owner, 2026-09-27: "design it ... and build straight away")*
@@ -77,25 +77,36 @@ surface feel finished, to the people who use it.
 
 ## 2. Code: search inside the code as you type
 
+> **2026-09-29, 2a, 2b and 2d built; 2c next, in its own PR.** `app/search/code_search.py`: one
+> `keyword.search` over the code scope (so `/repo` and `/type` mean what they mean elsewhere), then each
+> passage read line by line - a line declaring a name that contains the word is a Definition (the git
+> grammar's `SYMBOL_PATTERNS`, loosened so `password` finds `ResetPasswordHandler`), any other line
+> holding it a Mention. **Line numbers come from the file, not the index**: the indexed text of a code
+> file folds blank lines (measured: 551 lines indexed for a 565-line file), so `resolve_lines` reads
+> the real file on the worker and finds the line nearest the passage, inside a 30 ms budget; a row past
+> the budget, or whose file has changed, shows no number rather than a wrong one. Measured: 2 ms a
+> keystroke on this repository's 3,467 passages, under 40 ms at 2,000+ in the test. New columns Match,
+> Line and Code appear only once something is typed. Tests: `tests/unit/test_code_search.py` (10).
+
 Today typing matches **file names and paths** (`browse_files` scoped to code). Finding where a
 function is used means leaving for the Search tab and adding the Code chip. For a developer that is
 the main question, so it belongs in the Code tab's own box.
 
-- [ ] **2a** Typing searches **names and contents together**, in one indexed query each, off the UI
+- [x] **2a** Typing searches **names and contents together**, in one indexed query each, off the UI
       thread, inside the typing budget. The list shows, in this order:
       1. **Definitions** - passages where the typed word is being *defined* (`def`, `class`,
          `function`, `interface`, a `name =` at the start of a line), using the `SYMBOL_PATTERNS`
          the git grammar already has, applied to the passage text in Python after FTS narrows it;
       2. **Files** whose name matches (today's rows, unchanged);
       3. **Mentions** - other passages containing the word.
-- [ ] **2b** Each content row shows the **line number** and **one line of code** with the word
+- [x] **2b** Each content row shows the **line number** and **one line of code** with the word
       highlighted. The line number is computed from the passage's `char_start` in the stored text
       (no file read), so it costs nothing extra on screen and stays correct after indexing.
 - [ ] **2c** **Open at the line.** Enter (or double-click) opens the file in the person's editor at
       that line when one is found - VS Code (`code -g path:line`), then Notepad++ (`-n`), then
       Sublime (`path:line`) - otherwise the default program. A new "Editor for code" setting
       (Automatic, or a program chosen by the person) under Settings, per non-negotiable #11.
-- [ ] **2d** The summary keeps its current shape and adds the split:
+- [x] **2d** The summary keeps its current shape and adds the split:
       `3 definitions · 12 files · 48 mentions`.
 
 ## 3. Code: history that answers as it goes

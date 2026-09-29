@@ -46,6 +46,12 @@ __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 #: and "where on this machine", and the second is the one somebody copies.
 COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("name", "Name", "name", False),
+    # Order 0y §2: why the row is here, the line, and the line of code. Only
+    # offered once something is typed - `available_columns` hides a column no
+    # row fills, so a plain file list looks exactly as it did.
+    ("match", "Match", "match", False),
+    ("line", "Line", "line", True),
+    ("code", "Code", "code", False),
     ("repo", "Repository", "repo", False),
     ("kind", "Kind", "kind", False),
     ("size", "Size", "size", True),
@@ -62,7 +68,7 @@ ALWAYS_OFFERED = ("name", "repo")
 #: What each column sorts on when it is not the text in it - attribute on
 #: `RepoFileRow`. `size` reads "12.4 KB" and `seen` reads "2 hours ago", and
 #: sorted as text both are wrong in the way people notice immediately.
-SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at"}
+SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at", "line": "line_no"}
 
 
 class CodeResults(QWidget):
