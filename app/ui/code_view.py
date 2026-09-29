@@ -33,11 +33,11 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
-from app.core.logging import logger
 from app.ui.presenter import (
     REPO_FILE_LIMIT, GitScope, code_preset, code_route, code_rows_and_repos, code_rows_for,
     code_summary, repo_empty_state, repo_file_rows, repo_root_for, with_date_problems,
 )
+from app.ui.presenter.code import _anything_indexed
 from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button
@@ -55,8 +55,6 @@ from app.ui.workers import CallableWorker, run, stop_timers
 __all__ = ["CodeView", "COLUMNS", "PREFS_KEY"]
 
 PREFS_KEY = "ui:code"
-
-_log = logger.bind(component="ui.code")
 
 #: One indexed lookup over an indexed column, so this only needs to be long
 #: enough to avoid a query per keystroke on a fast typist.
@@ -322,18 +320,8 @@ class CodeView(QWidget):
             message="" if has_repos else repo_empty_state(self._anything_indexed()))
 
     def _anything_indexed(self) -> bool:
-        """Cheap and guarded. Only decides which of two sentences to show.
-
-        **It used to say that and not be true.** `stats()` is three `COUNT(*)`,
-        two of them scans of `chunks` - 93ms at two million, around 460ms at
-        ten - and this runs while the tab is being drawn. `has_any_files()` is
-        one row with a `LIMIT 1`, which is what "is there anything" needs.
-        """
-        try:
-            return self._store.has_any_files()
-        except Exception as exc:                 # noqa: BLE001
-            _log.debug("could not read the index size: {}", exc)
-            return True                          # the less alarming of the two
+        # Moved to the presenter (order 0y §1) under the 250-line guard.
+        return _anything_indexed(self._store)
 
     def _apply_prefs(self) -> None:
         self.results.apply_prefs(self.view_button.prefs)
