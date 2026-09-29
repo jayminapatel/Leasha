@@ -49,6 +49,8 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.model_download import DownloadRow
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 __all__ = [
     "IndexLocationDialog", "RebuildVectorsDialog", "LocationChoice",
@@ -68,6 +70,9 @@ __all__ = [
 #: Held here so `chosen_dim()` can write `EMBED_DIM` alongside `EMBED_MODEL`.
 #: A model that is *not* in this list has an unknown width - see `chosen_dim`.
 #:
+#: Dated note, 2026-09-29: "Editable" below is no longer so - the owner ruled
+#: that a model is only ever chosen from the list. See `RebuildVectorsDialog`.
+#:
 #: `bge-small-en-v1.5` is what this project ships and measures against; the
 #: others are the common alternatives at each size. Editable, so anything else
 #: still works.
@@ -75,7 +80,22 @@ EMBED_MODELS: tuple[tuple[str, int, str], ...] = (
     ("BAAI/bge-small-en-v1.5", 384, "~130MB - the shipped default"),
     ("BAAI/bge-base-en-v1.5", 768, "~440MB - better quality, slower"),
     ("sentence-transformers/all-MiniLM-L6-v2", 384, "~90MB"),
+    # Dated note, 2026-09-29 (owner: the list is the only way to choose, so
+    # the other options go in it). Dense models fastembed 0.8.0 loads through
+    # the same `TextEmbedding(model_name, cache_dir)` call `Embedder` makes,
+    # each with the width fastembed's own catalogue gives. None needs a text
+    # prefix the embedder does not add. Sizes are fastembed's download sizes.
+    ("snowflake/snowflake-arctic-embed-s", 384, "~130MB - small, English"),
+    ("jinaai/jina-embeddings-v2-small-en", 512, "~120MB - reads longer passages"),
+    ("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2", 384,
+     "~220MB - many languages"),
+    ("snowflake/snowflake-arctic-embed-m", 768, "~430MB - English"),
+    ("mixedbread-ai/mxbai-embed-large-v1", 1024, "~640MB - large, slow on a processor"),
+    ("BAAI/bge-large-en-v1.5", 1024, "~1.2GB - largest, slowest"),
 )
+
+#: What an unlisted model already in use is called in the list (2026-09-29).
+NOT_LISTED = "(current, not in the list)"
 
 MOVE = "move"
 ADOPT = "adopt"
@@ -291,6 +311,7 @@ class RebuildVectorsDialog(QDialog):
         parent: Optional[QWidget] = None,
         *,
         current_dim: int = 384,
+        model_cache: Any = None,
     ) -> None:
         super().__init__(parent)
         self.setWindowTitle("Change the meaning model")
@@ -302,6 +323,14 @@ class RebuildVectorsDialog(QDialog):
         # with an error about a number nobody typed. Choosing from names that
         # carry their own width makes the mismatch impossible rather than
         # explained afterwards.
+        #
+        # Dated note, 2026-09-29 - the owner overruled the next line: "where
+        # there are models it has to be dropdown only no manual entry for
+        # models". The box is not editable. A model already in use that the
+        # list does not know is added as its own entry, marked as such, so it
+        # is shown rather than silently swapped; the width question below is
+        # asked only for that one. More models are listed, and the Download
+        # row fetches the chosen one before the re-embed starts.
         #
         # Editable, because a model not listed here is a legitimate choice.
         self.model = QComboBox()
@@ -316,16 +345,15 @@ class RebuildVectorsDialog(QDialog):
         # is made.
         self.model.setObjectName("EMBED_MODEL")
         self.model.setAccessibleName("Meaning model")
-        self.model.setEditable(True)
-        self.model.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+        self.model.setEditable(False)
         for identifier, dim, note in EMBED_MODELS:
             self.model.addItem(f"{identifier}   —   {dim} dimensions, {note}",
                                identifier)
         index = self.model.findData(current_model)
-        if index >= 0:
-            self.model.setCurrentIndex(index)
-        else:
-            self.model.setEditText(current_model)
+        if index < 0 and str(current_model or "").strip():
+            self.model.addItem(f"{current_model}   —   {NOT_LISTED}", current_model)
+            index = self.model.count() - 1
+        self.model.setCurrentIndex(max(0, index))
         self.model.currentTextChanged.connect(lambda _t: self._refresh())
         self._current = current_model
 
@@ -373,9 +401,15 @@ class RebuildVectorsDialog(QDialog):
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 
+        self.download = DownloadRow("embed", model_cache=model_cache)
+        self.download.setVisible(bool(model_cache))
+        self.model.currentIndexChanged.connect(
+            lambda _i: self.download.set_target(self.chosen_model()))
+
         layout = QVBoxLayout(self)
         layout.addWidget(explanation)
         layout.addWidget(self.model)
+        layout.addWidget(self.download)
         layout.addWidget(self.dim_row)
         layout.addWidget(self.cost)
         layout.addWidget(self.buttons)
@@ -383,9 +417,12 @@ class RebuildVectorsDialog(QDialog):
         self._chunks = max(0, int(chunk_count))
         self._current_dim = int(current_dim) or 384
         self._refresh()
+        self.download.set_target(self.chosen_model())
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+        # Number fields: typed, no arrows, a back-to-default button.
+        fit_number_fields(self)
 
     def chosen_model(self) -> str:
         r"""The identifier alone - the dimensions shown beside it are for the

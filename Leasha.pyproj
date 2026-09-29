@@ -153,6 +153,7 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\model_fetch.py" />
     <Compile Include="app\core\osbridge\__init__.py" />
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
@@ -422,8 +423,10 @@
     <Compile Include="app\ui\widgets\media_box.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
+    <Compile Include="app\ui\widgets\model_download.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
+    <Compile Include="app\ui\widgets\number_field.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
     <Compile Include="app\ui\widgets\photo_tagger_page.py" />
     <Compile Include="app\ui\widgets\photo_tagger_window.py" />
@@ -464,6 +467,7 @@
     <Compile Include="app\ui\widgets\toast.py" />
     <Compile Include="app\ui\widgets\tuning_box.py" />
     <Compile Include="app\ui\widgets\tuning_groups.py" />
+    <Compile Include="app\ui\widgets\vision_model.py" />
     <Compile Include="app\ui\widgets\why_dialog.py" />
     <Compile Include="app\ui\widgets\window_box.py" />
     <Compile Include="app\ui\window_state.py" />
@@ -689,6 +693,7 @@
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
+    <Compile Include="tests\unit\test_model_dropdowns.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_nightly.py" />
@@ -698,6 +703,7 @@
     <Compile Include="tests\unit\test_no_stray_paths.py" />
     <Compile Include="tests\unit\test_no_undefined_names.py" />
     <Compile Include="tests\unit\test_notice_line.py" />
+    <Compile Include="tests\unit\test_number_fields.py" />
     <Compile Include="tests\unit\test_numbers.py" />
     <Compile Include="tests\unit\test_numpy_pyarrow_hotpath.py" />
     <Compile Include="tests\unit\test_ocr.py" />

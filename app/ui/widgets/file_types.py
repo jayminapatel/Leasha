@@ -65,6 +65,7 @@ from PyQt6.QtWidgets import (
 from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
@@ -175,6 +176,8 @@ class EditFileTypeDialog(QDialog):
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+        # Number fields: typed, no arrows, a back-to-default button.
+        fit_number_fields(self)
 
     def _warn_about_cost(self, value: int) -> None:
         """Say what a large cap costs, for the types where it is not obvious.

@@ -35,6 +35,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 __all__ = ["PhotoTaggerPage"]
 
@@ -550,6 +551,8 @@ class _BatchEraDialog(QDialog):
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+        # Number fields: typed, no arrows, a back-to-default button.
+        fit_number_fields(self)
 
     def chosen_year(self) -> int:
         low, high = sorted((self._from.value(), self._to.value()))
