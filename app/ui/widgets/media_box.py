@@ -30,6 +30,10 @@ from PyQt6.QtWidgets import (
 )
 
 from app.extract import media_tools, transcribe
+from app.ui.widgets.model_download import DownloadRow
+
+#: How a saved speech model the list does not offer is marked (2026-09-29).
+NOT_LISTED = "(current, not in the list)"
 
 __all__ = ["MediaBox", "tools_sentence", "speech_sentence", "model_sentence"]
 
@@ -115,6 +119,11 @@ class MediaBox(QGroupBox):
             "and more memory. 'base' is a sensible start.")
         for name in transcribe.MODELS:
             self.model.addItem(name, name)
+        # Owner, 2026-09-29: models are chosen from the list only, and there is
+        # a way to download them. The speech model is never fetched by itself
+        # (`transcribe.load_engine` is `local_files_only`), so this row is the
+        # one way to get it from inside the application.
+        self.download = DownloadRow("speech")
 
         self.interval = QSpinBox()
         self.interval.setObjectName("VIDEO_KEYFRAME_INTERVAL_S")
@@ -157,6 +166,7 @@ class MediaBox(QGroupBox):
         form.addRow("Most pictures per video", self.cap)
         form.addRow(self.audio)
         form.addRow("Speech model size", self.model)
+        form.addRow("", self.download)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -193,13 +203,20 @@ class MediaBox(QGroupBox):
             self.video.setChecked(bool(getattr(settings, "video_indexing_enabled", False)))
             self.audio.setChecked(
                 bool(getattr(settings, "audio_transcription_enabled", False)))
-            found = self.model.findData(
-                str(getattr(settings, "transcribe_model", "base") or "base"))
-            self.model.setCurrentIndex(found if found >= 0 else self.model.findData("base"))
+            saved = str(getattr(settings, "transcribe_model", "base") or "base")
+            found = self.model.findData(saved)
+            if found < 0:
+                # Dated note, 2026-09-29: a saved size the list does not offer
+                # is shown as itself, marked, rather than displayed as 'base' -
+                # the list must not quietly say something other than the file.
+                self.model.addItem(f"{saved} {NOT_LISTED}", saved)
+                found = self.model.count() - 1
+            self.model.setCurrentIndex(found)
             self.interval.setValue(int(getattr(settings, "video_keyframe_interval_s", 60)))
             self.cap.setValue(int(getattr(settings, "video_keyframe_cap", 200)))
             cache = getattr(settings, "model_cache", None)
             self._model_dir = (Path(cache) / "whisper") if cache else None
+            self.download.set_model_cache(cache)
         finally:
             for control in controls:
                 control.blockSignals(False)
@@ -209,12 +226,16 @@ class MediaBox(QGroupBox):
         """Re-ask what is installed. Cheap: file lookups, no processes, no imports."""
         self.tools_note.setText(tools_sentence(media_tools.tools_status()))
         self.speech_note.setText(speech_sentence(transcribe.available()))
+        # Without the package there is nothing that could load a speech model,
+        # and the note above already says how to install it.
+        self.download.setEnabled(transcribe.available())
         self._on_model(emit=False)
 
     def _on_model(self, emit: bool = True) -> None:
         name = str(self.model.currentData() or "base")
         self.model_note.setText(model_sentence(
             name, transcribe.model_present(name, self._model_dir)))
+        self.download.set_target(name)
         if emit:
             self._emit()
 

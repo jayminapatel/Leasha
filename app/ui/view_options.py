@@ -514,6 +514,10 @@ def build_menu(
             prefs, font_pt=0 if value < FONT_RANGE[0] else value,
         ))
     )
+    # No arrows, and a back-to-default button (owner, 2026-09-29). The default
+    # is "System", the range's minimum - not the size this menu opened on.
+    from app.ui.widgets.number_field import fit
+    fit(spin, default=FONT_RANGE[0] - 1)
     row.addWidget(spin)
     holder = QWidgetAction(menu)
     holder.setDefaultWidget(box)

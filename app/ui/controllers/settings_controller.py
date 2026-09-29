@@ -185,6 +185,9 @@ class SettingsController(QObject):
             self._w._chunk_count(),
             self._w,
             current_dim=current_dim,
+            # Where the meaning model is loaded from, so its Download row
+            # fetches into the same folder (2026-09-29).
+            model_cache=getattr(self._w._settings, "model_cache", None),
         )
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return

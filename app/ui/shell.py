@@ -54,6 +54,7 @@ from app.ui.state_writes import pool as state_write_pool, save_state, save_state
 from app.ui.view_options import load_prefs, save_prefs_later
 from app.ui.window_state import bring_forward, restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets.rail import Rail
 from app.ui.widgets.restart_note import mark_restart_needed
 from app.ui.widgets.search_bar import retint_toolbar
@@ -511,6 +512,9 @@ class MainWindow(QMainWindow):
         # matters; doing it here means a new page gets it for free.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls", guarded)
+        # Every number field loses its arrows and gains a back-to-default
+        # button (owner, 2026-09-29), here for the same reason as the guard.
+        fit_number_fields(self)
 
         # **Opt-in, and off until asked for.** An application that vanishes
         # from the taskbar when you did not ask it to is alarming: you close a
@@ -662,6 +666,7 @@ class MainWindow(QMainWindow):
         # guarded a second time is guarded harmlessly, see `protect`.
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
+        fit_number_fields(self)
         self._apply_motion()                     # §5c: the two new panes too
 
     def _construct_deferred_pages(self, store: Any, settings: Any, model: str,
@@ -823,6 +828,7 @@ class MainWindow(QMainWindow):
             # Once, for the controls that did not exist when `__init__` ran it.
             guarded = protect_all(self)
             _log.debug("wheel-guarded {} controls (second pass, Indexing + Settings)", guarded)
+            fit_number_fields(self)
             # **After the pages are in the window**: `mark_restart_needed` finds
             # controls by `findChild` on the window, and a page that has not been
             # added to the rail yet has no parent to be found under.

@@ -25,7 +25,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import dataclass
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
@@ -100,7 +100,11 @@ class OllamaResponse:
 
 
 class OllamaClient:
-    """Health check, then generate. Nothing else."""
+    """Health check, then generate. Nothing else.
+
+    Dated note, 2026-09-29: and `pull`, which fetches a model - only ever
+    because somebody pressed Download beside a model list in Settings.
+    """
 
     def __init__(
         self,
@@ -189,6 +193,83 @@ class OllamaClient:
         except Exception:  # noqa: BLE001
             return []
         return [str(entry.get("name", "")) for entry in payload.get("models", [])]
+
+    def _stream(self, path: str, payload: dict, timeout: float) -> Iterator[dict]:
+        """POST and yield each JSON line of a streamed reply. Closed when done.
+
+        `timeout` is the wait *between* lines, not for the whole reply: a pull
+        of a 5GB model takes as long as the line does, and says so every few
+        hundred milliseconds while it works.
+        """
+        if self._transport is not None:
+            yield from self._transport("STREAM", self.url + path, payload, timeout)
+            return
+        import requests  # noqa: PLC0415
+
+        response = requests.post(self.url + path, json=payload, stream=True,
+                                 timeout=self._budget(timeout))
+        try:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                if line:
+                    yield json.loads(line)
+        finally:
+            # Closing the connection is also how a Stop reaches Ollama: it
+            # abandons a pull whose caller has gone and keeps what it already
+            # has, so pressing Download again carries on rather than restarts.
+            response.close()
+
+    def pull(
+        self,
+        name: str,
+        *,
+        on_status: Optional[Callable[[dict], None]] = None,
+        should_stop: Optional[Callable[[], bool]] = None,
+        timeout: float = 120.0,
+    ) -> bool:
+        """Download `name` into Ollama. True when it finished, False if stopped.
+
+        **Only called because a person pressed Download.** Nothing in search,
+        indexing or start-up reaches this; the application stays offline until
+        somebody asks for a model by name. Blocks for as long as the download
+        takes, so it runs on a worker - see `app/core/model_fetch.py`.
+
+        Each status line Ollama sends (`{"status", "total", "completed"}`) is
+        handed to `on_status`. Raises `AppErrorException(ERR_MODEL_DOWNLOAD)`
+        when Ollama reports an error (an unknown name, a full disk) or cannot
+        be reached, with its own words in the details.
+        """
+        wanted = (name or "").strip()
+        try:
+            # `model` is the field's name today; `name` is what older Ollama
+            # builds read. Unknown fields are ignored, so both are sent.
+            for event in self._stream("/api/pull",
+                                      {"model": wanted, "name": wanted, "stream": True},
+                                      timeout):
+                if should_stop is not None and should_stop():
+                    return False
+                if not isinstance(event, dict):
+                    continue
+                if event.get("error"):
+                    raise AppErrorException(make_error(
+                        "ERR_MODEL_DOWNLOAD", "llm.ollama", model=wanted,
+                        details=str(event.get("error"))))
+                if on_status is not None:
+                    on_status(event)
+                if str(event.get("status", "")).lower() == "success":
+                    return True
+        except AppErrorException:
+            raise
+        except Exception as exc:  # noqa: BLE001 - one shape out, like generate
+            self._healthy_until = 0.0
+            raise AppErrorException(make_error(
+                "ERR_MODEL_DOWNLOAD", "llm.ollama", model=wanted,
+                details=f"Ollama at {self.url}: {exc}")) from exc
+        if should_stop is not None and should_stop():
+            return False
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "llm.ollama", model=wanted,
+            details="Ollama ended the download without saying it had finished."))
 
     def has_model(self) -> bool:
         """Is the configured model actually installed?

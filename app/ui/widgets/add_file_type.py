@@ -49,6 +49,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 __all__ = ["AddFileTypeWizard", "TIER_ROUTE", "TIER_CONVERT", "TIER_CODE"]
 
@@ -111,6 +112,8 @@ class AddFileTypeWizard(QDialog):
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+        # Number fields: typed, no arrows, a back-to-default button.
+        fit_number_fields(self)
 
     # -- tier 1 --------------------------------------------------------------
 

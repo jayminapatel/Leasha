@@ -240,9 +240,12 @@ def test_choosing_a_role_emits_its_key_and_the_photo_model_stays_in_step_with_it
     box._describe.select("llava:7b")
     box._describe.activated.emit(box._describe.currentIndex())
     gui_pump(c.app)
-    assert vision.text() == "llava:7b" and {"OLLAMA_VISION_MODEL": "llava:7b"} in seen
-    vision.setText("")
-    vision.editingFinished.emit()
+    # Dated note, 2026-09-29: the Models page's control is a drop-down now
+    # (owner: no manual entry for models), so the other direction is a choice
+    # of "Automatic" there rather than a cleared text box.
+    assert vision.value() == "llava:7b" and {"OLLAMA_VISION_MODEL": "llava:7b"} in seen
+    vision.setCurrentIndex(0)
+    vision.activated.emit(0)
     assert box._describe.value() == ""
 
 
