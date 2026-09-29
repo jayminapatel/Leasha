@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
@@ -432,7 +432,7 @@ The owner chose this on a live mock; implement it faithfully.
 > `dict(REGISTRY)` is not empty; a duplicate claim still raises) and a new case in
 > `tests/unit/test_startup_import_order.py` (importing `app.ui.shell` in a fresh interpreter
 > imports no parser).
-- [ ] **2b** defer what the first paint does not need: audit
+- [x] **2b** defer what the first paint does not need: audit
   `MainWindow.__init__` for work movable to after `show()` (the M11
   pattern — construct light, populate async). Target: window visible
   <1.5s warm on the owner's machine, recorded, not promised.
@@ -573,6 +573,46 @@ The owner chose this on a live mock; implement it faithfully.
   > and Files were *not* pulled into the deferred set. All 22 tests in the
   > file pass, offscreen, `--basetemp=/tmp/pytest_tmp_laned` (this
   > sandbox's SQLite-under-FUSE trap, per a sibling lane's finding).
+  >
+  > **2026-09-29, on the owner's laptop, real display - TICKED.** Window
+  > visible **839 / 742 / 777 ms** across three warm starts through
+  > `leasha.cmd` (the run log's `startup: timings` line), against <1.5 s.
+  > Measured with a sampling profile of the main thread, not inferred. What
+  > it took, beyond the earlier deferral:
+  >
+  > * **`git describe` on the window's thread, 5 s.** `debug_recorder.
+  >   _environment` took the version from `build_info()`, which also runs
+  >   `git describe` (timeout 5 s). With debug recording on - the owner's
+  >   setting - that ran inside `MainWindow.__init__`, and from `leasha.cmd`
+  >   it hung to its timeout on every start: window 5.9-6.0 s. Now
+  >   `version()`, which reads the `VERSION` file. The first start after a
+  >   code update is still slower (7.8 s seen, Python recompiling on Google
+  >   Drive) - a one-off, not the warm figure this item is about.
+  > * **The splash handed over 3-5 s late.** It closed after the deferred
+  >   pages and the vector connect, so it sat over a finished window. It now
+  >   closes straight after `window.show()`; `MainWindow.hold_deferred_start`
+  >   / `release_deferred_start` keep the pages from building inside its
+  >   hold and fade, which pump events. Probe of the real windows: splash
+  >   gone 0.27-0.8 s after the window appears (was 5.1 s).
+  > * **A third window.** The owner: "a splash comes up, then a small window
+  >   and then the main window". A separate top-level "Leasha" window lived
+  >   1.6 s after the main one appeared: `ChatBox` called `setVisible(True)`
+  >   on itself before it had a parent (in `__init__` and again from
+  >   `set_manual` via `load`), which Qt shows as a window of its own until a
+  >   layout adopts it. `DebugPane`'s pop-out button and the search bar's
+  >   Interpret hint did the same. All four are hide-only now; the probe shows
+  >   splash then window, nothing between.
+  > * **Splash text off the edge** (owner, same day). Lines had fixed boxes
+  >   and no wrap: one case line was 431 px for 417 at the normal size, all
+  >   five over at 13 pt. `fitted_font` wraps, then shrinks to a 7 pt floor;
+  >   the approved wording is unchanged.
+  >
+  > Tests, each failing before its fix: `test_window_opens.py`
+  > (`..._opens_as_a_window_of_its_own`, `..._rebuilds_nothing`),
+  > `test_splash_handoff.py`, `test_debug_recorder.py`
+  > (`test_starting_a_recording_never_runs_git`), `test_splash.py`
+  > (`test_no_splash_line_runs_off_the_splash` at 9/11/13 pt,
+  > `test_the_tagline_is_the_approved_text`).
 - [x] **2c** the handover wait paints honestly: during
   `acquire(wait_s=HANDOVER_WAIT_S)` the splash shows the §0.5 handover
   line — the 12s worst case becomes an explained wait instead of a dead
@@ -992,6 +1032,11 @@ The owner chose this on a live mock; implement it faithfully.
 > forward). Tests: `test_startup_sets_the_window_stylesheet_once_not_twice`,
 > `test_an_f5_in_the_gap_is_replayed_once_the_page_exists`,
 > `test_a_folder_dropped_in_the_gap_is_indexed_and_shown` in `test_window_opens.py`.
+
+> **2026-09-29 status: 18 of 18 ticked - every item done.** 2b closed on the owner's laptop
+> (see its note: 839 / 742 / 777 ms warm, real display). Delivered with it, on the owner's word
+> the same day: the stray third window between splash and window, and splash text that ran off
+> its edge.
 
 ## Done means
 

@@ -208,9 +208,14 @@ def _environment() -> dict[str, Any]:
         "pid": os.getpid(),
     }
     try:
-        from app.core.version import build_info
+        # `version()`, not `build_info()["version"]`: the same string, without
+        # the `git describe` `build_info` also runs. This is called while the
+        # window is being built, and from `leasha.cmd` on the owner's laptop
+        # that git call hung for its whole 5 s timeout - window visible at
+        # 5.9 s instead of about 1 s (0r 2b, measured 2026-09-29).
+        from app.core.version import version
 
-        info["app"] = build_info().get("version")
+        info["app"] = version()
     except Exception:                            # noqa: BLE001
         pass
     try:

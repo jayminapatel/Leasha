@@ -21,7 +21,15 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("onnx")
-pytest.importorskip("onnxruntime.quantization")
+# Not `importorskip`: that skips on `ImportError` only. `onnxruntime.quantization`
+# imports torch when torch is installed, and a torch whose DLL Windows' Smart App
+# Control blocks raises `OSError` - which made this whole file a collection error
+# on the owner's laptop (2026-09-29) instead of a skip that says why.
+try:
+    import onnxruntime.quantization  # noqa: F401
+except (ImportError, OSError) as exc:
+    pytest.skip(f"onnxruntime.quantization cannot load here: {exc}",
+                allow_module_level=True)
 
 from app.index.quantize_model import quantised_model_dir
 

@@ -432,3 +432,58 @@ def test_a_fastembed_model_is_found_in_the_hugging_face_layout(tmp_path):
     assert not model_fetch.present("rerank", "Xenova/ms-marco-MiniLM-L-6-v2", model_cache=tmp_path)
     (snap / "model.onnx").write_bytes(b"x")
     assert model_fetch.present("rerank", "Xenova/ms-marco-MiniLM-L-6-v2", model_cache=tmp_path)
+
+
+# -- the buttons for a model sit on one line (owner, 2026-09-29) ------------------------
+
+def _row_of(widget, box) -> int:
+    from PyQt6.QtCore import QPoint
+
+    return widget.mapTo(box, QPoint(0, widget.height() // 2)).y()
+
+
+def _laid_out(qapp, box):
+    # As the window does: `MainWindow` runs `style_all` over its whole tree,
+    # so every button in a row has the button system's height.
+    from app.ui.widgets.buttons import style_all
+
+    style_all(box)
+    box.resize(700, box.sizeHint().height())
+    box.show()
+    for _ in range(3):
+        qapp.processEvents()
+    return box
+
+
+def test_interpret_refresh_test_and_download_are_on_one_line(qapp):
+    """The owner: "the refresh, test and download buttons on ollama should be on
+    one line". Download sat on a row of its own under Refresh and Test."""
+    from app.ui.widgets.model_box import ModelBox
+
+    box = _laid_out(qapp, ModelBox(
+        client_factory=lambda: SimpleNamespace(available_models=lambda: [])))
+    row = _row_of(box.refresh_button, box)
+    assert _row_of(box.test_button, box) == row
+    assert _row_of(box.download.download, box) == row
+    box.close()
+
+
+def test_chat_look_again_and_download_are_on_one_line(qapp):
+    """"see for others too" - Chat's Look again and Download were two rows."""
+    from app.chat.roles import InstalledModels
+    from app.ui.widgets.chat_box import ChatBox
+
+    box = _laid_out(qapp, ChatBox(None, probe=lambda _url: InstalledModels(
+        reachable=False, names=(), vision=())))
+    assert _row_of(box.download.download, box) == _row_of(box.look_again, box)
+    box.close()
+
+
+def test_photo_model_look_again_and_download_are_on_one_line(qapp):
+    from app.ui.widgets.chat_roles import ModelCombo
+    from app.ui.widgets.vision_model import VisionModelField
+
+    combo = ModelCombo("OLLAMA_VISION_MODEL", vision=True, automatic="Automatic (llava)")
+    field = _laid_out(qapp, VisionModelField(combo, saved="llava"))
+    assert _row_of(field.download.download, field) == _row_of(field.look_again, field)
+    field.close()

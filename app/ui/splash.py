@@ -82,6 +82,10 @@ STATUS_MESSAGES = {
     "ready": "Ready",
 }
 
+# Tagline (brand copy, byte-exact). A constant since 2026-09-29, so the paint
+# and the fit test read one string.
+TAGLINE = "Forgets nothing. Tells no one. Outlives the drives."
+
 # Case lines (brand copy, owner-approved, byte-exact)
 CASE_LINES = [
     (
@@ -147,6 +151,37 @@ class StatusReporter(Callable[[str], None]):
         if self.splash is not None:
             self.splash.report_progress(message, progress)
 
+
+
+#: The smallest a line may shrink to, in the same "points at a 9pt base" terms
+#: as `_splash_font` - so it still scales with a larger system font.
+_MIN_POINTS = 7.0
+
+
+def fitted_font(text: str, width: int, height: int, points: float) -> "QFont":
+    """The largest splash font, up to `points`, at which `text` fits the box.
+
+    Measured with word wrap on, so a long line first takes a second line and
+    only then gets smaller. Stops at `_MIN_POINTS`; `drawText` clips anything
+    past that rather than painting off the splash.
+
+    2026-09-29, the owner: "the text goes off screen". Every line was drawn
+    into a fixed box with no wrap - on their display one case line was 431px
+    for a 417px box at the normal text size, and all five were over at 13pt.
+    The case lines are approved copy and are not reworded; they fit instead.
+    """
+    from PyQt6.QtCore import QRect, Qt           # noqa: PLC0415 - startup speed
+    from PyQt6.QtGui import QFontMetrics          # noqa: PLC0415
+
+    size = points
+    while True:
+        font = _splash_font(size)
+        need = QFontMetrics(font).boundingRect(
+            QRect(0, 0, max(1, width), 100_000),
+            int(Qt.TextFlag.TextWordWrap), text)
+        if (need.width() <= width and need.height() <= height) or size <= _MIN_POINTS:
+            return font
+        size = max(_MIN_POINTS, size - 0.5)
 
 
 def _splash_font(points_at_default: float) -> "QFont":
@@ -463,35 +498,29 @@ class SplashScreen:
                     self._logo_image
                 )
 
+            boxes = self.text_boxes()
+            wrap = Qt.TextFlag.TextWordWrap
+
             # 4. Tagline
-            painter.setFont(_splash_font(11))
+            x, y, bw, bh, points = boxes["tagline"]
+            painter.setFont(fitted_font(TAGLINE, bw, bh, points))
             painter.setPen(QColor("white"))
-            tagline_y = stripe_height + (h // 4) + (h // 6)
-            painter.drawText(
-                0, tagline_y, w, h // 10,
-                Qt.AlignmentFlag.AlignCenter,
-                "Forgets nothing. Tells no one. Outlives the drives."
-            )
+            painter.drawText(x, y, bw, bh, Qt.AlignmentFlag.AlignCenter | wrap, TAGLINE)
 
             # 5. Rotating case line with icon
             case_icon_name, case_text = CASE_LINES[self._current_case_index]
-            case_y = tagline_y + (h // 8)
-            self._paint_case_line(painter, case_icon_name, case_text, case_y)
+            self._paint_case_line(painter, case_icon_name, case_text, boxes["case"])
 
             # 6. Status line
-            status_y = case_y + (h // 10)
-            painter.setFont(_splash_font(9))
+            x, y, bw, bh, points = boxes["status"]
+            painter.setFont(fitted_font(self._status_message, bw, bh, points))
             painter.setPen(QColor(BRAND_TEXT_FAINT))
-            painter.drawText(
-                0, status_y, w, h // 12,
-                Qt.AlignmentFlag.AlignCenter,
-                self._status_message
-            )
+            painter.drawText(x, y, bw, bh, Qt.AlignmentFlag.AlignCenter | wrap,
+                             self._status_message)
 
             # 7. Progress bar (if showing download)
             if self._showing_progress:
-                progress_y = status_y + (h // 12)
-                self._paint_progress_bar(painter, progress_y)
+                self._paint_progress_bar(painter, y + bh)
 
             # 8. Footer
             footer_y = h - (h // 20)
@@ -511,39 +540,53 @@ class SplashScreen:
         finally:
             painter.end()
 
+    def text_boxes(self) -> dict[str, tuple[int, int, int, int, float]]:
+        """`{name: (x, y, width, height, points)}` for the three text lines.
+
+        One place, so the paint and `test_splash`'s fit test measure the same
+        boxes. The vertical rhythm is unchanged; the case line now owns the
+        whole gap down to the status line (h/10, two lines) instead of h/12,
+        and the status line has side margins instead of running edge to edge.
+        """
+        w, h = self.widget.width(), self.widget.height()
+        stripe_height = max(2, h // 76)
+        margin = w // 20
+        tagline_y = stripe_height + (h // 4) + (h // 6)
+        case_y = tagline_y + (h // 8)
+        status_y = case_y + (h // 10)
+        h_icon = h // 24
+        # Icon and text used to be positioned independently around the
+        # widget's centre, which left a ~90px gap between them. They are one
+        # group, indented from a shared left margin with a small fixed gap.
+        text_x = (w // 6) + h_icon + (h_icon // 2)
+        return {
+            "tagline": (margin, tagline_y, w - 2 * margin, h // 10, 11.0),
+            "case": (text_x, case_y, w - text_x - margin, h // 10, 9.0),
+            "status": (margin, status_y, w - 2 * margin, h // 12, 9.0),
+        }
+
     def _paint_case_line(
         self,
         painter: Any,
         icon_name: str,
         text: str,
-        y: float,
+        box: tuple[int, int, int, int, float],
     ) -> None:
-        """Paint a case line with its icon."""
+        """Paint a case line with its icon, wrapped and fitted to `box`."""
         from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QColor, QFont
+        from PyQt6.QtGui import QColor
 
-        w = self.widget.width()
+        x, y, width, height, points = box
         h_icon = self.widget.height() // 24
+        self._paint_icon(painter, icon_name, self.widget.width() // 6, y, h_icon)
 
-        # Icon and text used to be positioned independently around the
-        # widget's centre (icon anchored left-of-centre, text anchored
-        # right-of-centre) which left a gap of roughly w/6 - about 90px on
-        # this widget's size - between them: two unrelated-looking pieces
-        # rather than one case line. They are now one group, indented from a
-        # shared left margin with a small fixed gap between icon and text.
-        group_x = w // 6
-        icon_gap = h_icon // 2
-        icon_x = group_x
-        self._paint_icon(painter, icon_name, icon_x, y, h_icon)
-
-        # Paint the text
-        painter.setFont(_splash_font(9))
+        painter.setFont(fitted_font(text, width, height, points))
         painter.setPen(QColor("white"))
-        text_x = group_x + h_icon + icon_gap
         painter.drawText(
-            text_x, int(y), w - text_x - (w // 20), self.widget.height() // 12,
-            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop,
-            text
+            x, y, width, height,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
+            | Qt.TextFlag.TextWordWrap,
+            text,
         )
 
     def _paint_icon(

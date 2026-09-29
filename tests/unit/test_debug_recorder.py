@@ -78,6 +78,26 @@ def test_the_first_event_carries_the_environment(tmp_path):
     assert "python" in start and "platform" in start
 
 
+def test_starting_a_recording_never_runs_git(tmp_path, monkeypatch):
+    """The recorder starts inside `MainWindow.__init__`, before the window is
+    shown. It used to take the version from `build_info()`, which also runs
+    `git describe` - and launched from `leasha.cmd` on the owner's laptop that
+    hung for its whole 5 s timeout, every start (0r 2b, 2026-09-29)."""
+    import subprocess
+
+    from app.core import version as version_module
+
+    def no_git(*_args, **_kwargs):
+        raise AssertionError("the recorder ran a subprocess on the window's thread")
+
+    version_module.git_describe.cache_clear()
+    monkeypatch.setattr(subprocess, "run", no_git)
+    path = tmp_path / "s.jsonl"
+    DebugRecorder(path).close()
+
+    assert events(path)[0]["app"] == version_module.version()
+
+
 def test_every_event_is_timed_and_ordered(tmp_path):
     """Reconstructing a freeze needs the gaps between events, not just the
     events - "then nothing happened for 200 seconds" is the finding."""

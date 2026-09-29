@@ -653,6 +653,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             log.info("startup: constructing the window")
             window = MainWindow(settings, store, vectors, engine,
                                 image_vectors=image_vectors, debug=debug)
+            # Before anything pumps events: the pages it defers wait for the
+            # splash to hand over (see `release_deferred_start` below).
+            window.hold_deferred_start()
 
             # **Armed here, and only here.** `closeEvent` runs in the test
             # suite too, and a 300-second `os._exit` timer started by a test
@@ -667,6 +670,14 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # and guarded inside - see `set_window_relaunch` for what it fixes.
             set_window_relaunch(int(window.winId()))
             startup_timer.record_window_visible()
+            # **The hand-off, now, over a painted window with nothing else
+            # running** (0r 2b, 2026-09-29). It used to wait until after the
+            # deferred pages and the vector connect, so on the owner's display
+            # the splash sat over a finished window for 3-4 s (5 s on a cold
+            # start). Its hold and fade pump events; the pages are held until
+            # it is gone, so nothing stalls the fade half-way.
+            splash.hide_and_close()
+            window.release_deferred_start()
             # **Work order 0r item 2b: the vector stores connect now, not before
             # the window.** Importing LanceDB is the largest single cost between
             # the splash and the window and nothing the first paint needs it; a
@@ -700,13 +711,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                 _timings["process_start_to_window_ms"],
                 _timings["process_start_to_ready_ms"],
             )
-            # **Nothing closed the splash.** It showed, reported every stage
-            # correctly, and then sat on screen rotating cases for the entire
-            # life of the process - `hide_and_close` existed and was never
-            # called. It honours its own documented minimum hold time, so
-            # calling it here rather than the instant the window is ready
-            # never cuts a fast startup's one rotation short.
-            splash.hide_and_close()
+            # **Nothing closed the splash** once - it sat on screen for the life
+            # of the process. It is closed above now, straight after `show()`,
+            # still honouring its own minimum hold.
 
             # **Measured, not assumed.** The beat starts here, the moment before
             # the loop does, so start-up work is not counted as a stall. The

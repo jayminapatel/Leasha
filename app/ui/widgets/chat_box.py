@@ -149,15 +149,17 @@ class ChatBox(QGroupBox):
         self.status = QLabel("")
         self.status.setObjectName("chatModelsStatus")
         self.status.setWordWrap(True)
-        look.addWidget(self.look_again)
-        look.addWidget(self.status, 1)
-        outer.addLayout(look)
         # Owner, 2026-09-29: the lists above can only offer what is installed,
         # so the models worth having that are not installed yet are offered
         # here, and pulling one asks for the lists again.
         self.download = DownloadRow("ollama", client_factory=self._client)
         self.download.finished.connect(lambda _n, _r: self.refresh())
-        outer.addWidget(self.download)
+        # Look again and Download on one line (owner, 2026-09-29); what Ollama
+        # said about the installed models goes on the line below.
+        look.addWidget(self.look_again)
+        look.addWidget(self.download, 1)
+        outer.addLayout(look)
+        outer.addWidget(self.status)
 
         form = QFormLayout()
         outer.addLayout(form)
@@ -194,7 +196,14 @@ class ChatBox(QGroupBox):
         self._add_describe()
         self.roles.finish()
         self._found = bool(found)
-        self.setVisible(self._found)
+        # **Hide, never show, before there is a parent.** `setVisible(True)` on
+        # a widget with no parent yet opens it as a window of its own, and this
+        # box did, on every start, for as long as the rest of Settings took to
+        # build - the "small window" between the splash and the main window
+        # (2026-09-29; `test_window_opens`'s stray-window test names it). A
+        # child that was never hidden appears with its page.
+        if not self._found:
+            self.hide()
         if settings is not None:
             self.load(settings)
 
@@ -291,7 +300,12 @@ class ChatBox(QGroupBox):
         way. **The web section is always shown** - it is a privacy choice, not a tuning."""
         self._manual = bool(manual)
         self.manual_part.setVisible(self._manual)
-        self.setVisible(self._found)
+        # Hide-only, as in `__init__`: `load` calls this from the constructor,
+        # before the box has a parent, and `setVisible(True)` there opened it as
+        # a window of its own. `_found` never changes after construction, so
+        # there is nothing this ever needed to show again.
+        if not self._found:
+            self.hide()
 
     def showEvent(self, event: Any) -> None:               # noqa: N802 - Qt name
         super().showEvent(event)

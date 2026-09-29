@@ -59,15 +59,18 @@ class VisionModelField(QWidget):
         self.download = DownloadRow("ollama", client_factory=self._client)
         self.download.finished.connect(lambda _n, _r: self.refresh())
 
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        top.addWidget(combo, 1)
-        top.addWidget(self.look_again)
+        # The drop-down, then Look again and Download on one line (owner,
+        # 2026-09-29: the buttons for a model sit together, as in Interpret's
+        # and Chat's boxes), then why the list is short.
+        buttons = QHBoxLayout()
+        buttons.setContentsMargins(0, 0, 0, 0)
+        buttons.addWidget(self.look_again)
+        buttons.addWidget(self.download, 1)
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
-        column.addLayout(top)
+        column.addWidget(combo)
+        column.addLayout(buttons)
         column.addWidget(self.why)
-        column.addWidget(self.download)
         self._offer(None)
 
     def _client(self) -> Any:

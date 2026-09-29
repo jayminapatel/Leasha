@@ -380,3 +380,49 @@ class TestGetSplashStatusText:
         from app.ui.splash import get_splash_status_text
 
         assert get_splash_status_text("unknown_stage") == "unknown_stage"
+
+
+# --- every line fits its box (2026-09-29) -------------------------------------
+
+@pytest.mark.qt
+@pytest.mark.parametrize("system_points", [9.0, 11.0, 13.0])
+def test_no_splash_line_runs_off_the_splash(qapp, system_points) -> None:
+    """The owner: "on the splash, depending on what it is, the text goes off
+    screen". Every line was drawn into a fixed box with no wrap; measured on
+    their display, one case line was 431px for a 417px box at the normal text
+    size, and all five were over at 13pt. Each line now wraps, then shrinks,
+    to fit - at the normal size and with the system font made bigger.
+    """
+    from PyQt6.QtCore import QRect, Qt
+    from PyQt6.QtGui import QFontMetrics
+
+    from app.ui import splash as s
+
+    original = qapp.font()
+    font = qapp.font()
+    font.setPointSizeF(system_points)
+    qapp.setFont(font)
+    try:
+        screen = s.SplashScreen()
+        boxes = screen.text_boxes()
+        lines = [("tagline", s.TAGLINE)]
+        lines += [("case", text) for _, text in s.CASE_LINES]
+        lines += [("status", text) for text in s.STATUS_MESSAGES.values()]
+        for kind, text in lines:
+            _x, _y, width, height, points = boxes[kind]
+            fitted = s.fitted_font(text, width, height, points)
+            need = QFontMetrics(fitted).boundingRect(
+                QRect(0, 0, width, 100_000), int(Qt.TextFlag.TextWordWrap), text)
+            assert need.width() <= width and need.height() <= height, (
+                f"{kind} line at {system_points}pt needs {need.width()}x"
+                f"{need.height()} in a {width}x{height} box: {text!r}")
+    finally:
+        qapp.setFont(original)
+
+
+def test_the_tagline_is_the_approved_text() -> None:
+    """A real check: the old `test_tagline_byte_exact` ends in `or expected`,
+    so it could not fail."""
+    from app.ui.splash import TAGLINE
+
+    assert TAGLINE == "Forgets nothing. Tells no one. Outlives the drives."

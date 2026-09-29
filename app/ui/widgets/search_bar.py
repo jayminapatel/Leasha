@@ -292,7 +292,11 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     hint.setAlignment(Qt.AlignmentFlag.AlignRight)
     interpret = next((c for c in controls if isinstance(c, QAction) and c.text() == "Interpret"), None)
     if interpret is not None:
-        hint.setVisible(interpret.isVisible())
+        # Hide-only while it has no parent - showing it would open a window of
+        # its own (see `ChatBox.__init__`). The connection below runs later,
+        # once it sits in the bar.
+        if not interpret.isVisible():
+            hint.hide()
         interpret.changed.connect(lambda: hint.setVisible(interpret.isVisible()))
     summary.addWidget(hint)
     bar_layout.addLayout(summary)

@@ -165,10 +165,13 @@ class ModelBox(QGroupBox):
         self.download = DownloadRow("ollama", client_factory=self._client_factory)
         self.download.finished.connect(lambda _n, _r: self.refresh())
 
+        # One line, owner 2026-09-29: Refresh, Test and Download are the three
+        # things you do to this model, so they sit together; Download's own
+        # progress text takes the rest of the line.
         buttons = QHBoxLayout()
         buttons.addWidget(self.refresh_button)
         buttons.addWidget(self.test_button)
-        buttons.addStretch(1)
+        buttons.addWidget(self.download, 1)
 
         form = QFormLayout(self)
         form.addRow(self.enabled)
@@ -176,7 +179,6 @@ class ModelBox(QGroupBox):
         form.addRow("Model", self.model)
         form.addRow("Give it up to", self.timeout)
         form.addRow(buttons)
-        form.addRow(self.download)
         form.addRow(self.status)
 
     # -- loading ---------------------------------------------------------------

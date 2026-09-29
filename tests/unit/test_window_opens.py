@@ -88,6 +88,28 @@ class _Engine:
         pass
 
 
+def _WindowSpy():
+    """An event filter that remembers every top-level widget Qt shows.
+
+    Built lazily so importing this module does not import Qt.
+    """
+    from PyQt6.QtCore import QEvent, QObject
+    from PyQt6.QtWidgets import QWidget
+
+    class Spy(QObject):
+        def __init__(self) -> None:
+            super().__init__()
+            self.shown: list[tuple[QWidget, str]] = []
+
+        def eventFilter(self, obj, event):          # noqa: N802 - Qt's name
+            if (event.type() == QEvent.Type.Show and isinstance(obj, QWidget)
+                    and obj.isWindow()):
+                self.shown.append((obj, type(obj).__name__))
+            return False
+
+    return Spy()
+
+
 @pytest.fixture(scope="module")
 def window(tmp_path_factory):
     r"""**One window, shared.** Building four crashed the interpreter.
@@ -116,9 +138,16 @@ def window(tmp_path_factory):
     app = QApplication.instance() or QApplication([])
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+    # Watching from before construction: a stray window opens inside
+    # `__init__` or on the first turns of the loop, never later.
+    spy = _WindowSpy()
+    app.installEventFilter(spy)
     built = MainWindow(settings, store, vectors, _Engine(store), debug=False)
+    built._test_window_spy = spy
 
     yield app, built
+
+    app.removeEventFilter(spy)
 
     # Deliberately not closing the window: see the docstring. The process is
     # ending anyway, and tearing it down is what crashes.
@@ -151,6 +180,50 @@ def test_the_window_survives_the_first_turns_of_the_event_loop(window):
 
     for _ in range(5):
         app.processEvents()
+
+
+def test_no_part_of_the_window_opens_as_a_window_of_its_own(window):
+    r"""**The small window between the splash and the main one** (0r, 2026-09-29).
+
+    The owner saw three windows on every start: the splash, "a small window",
+    then Leasha. Measured on their display, the middle one was a separate
+    top-level window titled Leasha that lived 1.6 s. `setVisible(True)` on a
+    widget that has no parent yet does exactly that - Qt shows it as a window
+    of its own until a layout adopts it - and three widgets did it in their
+    constructors: `ChatBox` (the one on screen for the whole Settings build),
+    `DebugPane`'s pop-out button and the search bar's Interpret hint.
+
+    The window itself is the only top-level anything may show while it is
+    built and while its deferred pages build.
+    """
+    app, built = window
+    for _ in range(10):
+        app.processEvents()
+
+    strays = [name for widget, name in built._test_window_spy.shown
+              if widget is not built]
+    assert strays == [], (
+        f"{strays} opened as windows of their own during start-up - a widget "
+        "was shown before it had a parent. Hide, never show, until it is in "
+        "a layout.")
+
+
+def test_holding_the_deferred_pages_after_they_ran_rebuilds_nothing(window):
+    """`hold`/`release` are for `app.main`'s splash hand-off, before the loop
+    has turned. Called after the pages exist they must be no-ops, not a
+    second build of Mail, Code, Indexing and Settings."""
+    app, built = window
+    for _ in range(5):
+        app.processEvents()
+    settings_view, mail_view = built.settings_view, built.mail_view
+
+    built.hold_deferred_start()
+    built.release_deferred_start()
+    for _ in range(5):
+        app.processEvents()
+
+    assert built.settings_view is settings_view
+    assert built.mail_view is mail_view
 
 
 def test_every_tab_can_be_selected(window):

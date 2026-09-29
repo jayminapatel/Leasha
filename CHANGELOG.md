@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.35 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.36 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,31 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
 
+### Leasha opens in one step, in under a second
+
+- Opening Leasha showed the splash, then a small window of its own for about a second and a half,
+  then the main window. The small one was the Chat part of Settings showing itself before it had
+  been put into its page; it, and two smaller pieces that did the same, now stay out of sight until
+  they are in place. The splash now goes the moment the main window is up, instead of sitting over
+  it for three to five seconds while the rest of the pages were built.
+- The main window now appears in about 0.8 s (839, 742 and 777 ms on the owner's laptop, three
+  starts in a row), down from about 6 s. With the diagnostic recording switched on, building the
+  window asked git for the version on every start, and from the Leasha shortcut git took its whole
+  five-second limit to give up. The version now comes from the `VERSION` file. The first start
+  after an update is still slower while Python prepares the new code.
+- Splash lines no longer run off its edge. A long line now takes a second line and, only if it
+  must, a slightly smaller size; with a larger system text size all five rotating lines used to
+  be cut off. The wording is unchanged.
+- In Settings, Refresh list, Test and Download for the Interpret model now sit on one line, as do
+  Look again and Download for Chat and for the photo model.
+
+### An Outlook archive that Outlook has open is no longer called damaged
+
+- Reading a `.pst` directly while Outlook had it attached reported the archive as damaged - never
+  tried again, and never handed to Outlook. Outlook locks part of the file, and Windows words that
+  lock in a way Leasha did not recognise. It is now reported as in use, tried again on the next
+  run, and read through Outlook in the meantime when the reader is on Automatic. Found on the
+  owner's laptop: 15 of 20 archives "damaged", every one readable once Outlook let go.
 ### Screenshots of the window come out the same every time
 
 - The screenshot tool (`tools/grab_ui.py`) sometimes took its picture before the page had finished

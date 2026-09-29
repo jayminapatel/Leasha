@@ -590,9 +590,38 @@ class MainWindow(QMainWindow):
         # `later`, not `QTimer.singleShot`: these lambdas have no owner, so a window
         # closed before the next turn of the loop would still have its pages built
         # into it. See `app/ui/later.py` for the measured difference.
-        later(self, 0, lambda: self._construct_secondary_views(store))
-        later(self, 0, lambda: self._construct_deferred_pages(
-            store, settings, model, translator, interpret_on))
+        #
+        # **Kept, so `app.main` can hold them for the splash hand-off** (0r 2b,
+        # 2026-09-29). Measured on the owner's display: these two ran inside
+        # the pump that brings the window up, so the splash sat over a finished
+        # window for three to four seconds while Settings was built, and the
+        # fade would have stalled half-way had it run beside them. Nothing
+        # holds them unless asked, so every other caller is unchanged.
+        self._deferred_start = [
+            later(self, 0, lambda: self._construct_secondary_views(store)),
+            later(self, 0, lambda: self._construct_deferred_pages(
+                store, settings, model, translator, interpret_on)),
+        ]
+        self._deferred_held: list[Any] = []
+
+    def hold_deferred_start(self) -> None:
+        """Keep the deferred pages from building until `release_deferred_start`.
+
+        For `app.main` only, called straight after construction and before any
+        event is pumped: the splash's hold and fade pump events, and the pages
+        would otherwise be built inside them. Idempotent; a timer that has
+        already fired is left alone.
+        """
+        for timer in self._deferred_start:
+            if timer.isActive():
+                timer.stop()
+                self._deferred_held.append(timer)
+
+    def release_deferred_start(self) -> None:
+        """Let the held pages build on the next turn of the loop. Idempotent."""
+        held, self._deferred_held = self._deferred_held, []
+        for timer in held:
+            timer.start(0)
 
     def _construct_secondary_views(self, store: Any) -> None:
         """Build Mail and Code, and insert them where they belong.

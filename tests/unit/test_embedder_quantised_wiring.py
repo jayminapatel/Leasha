@@ -19,7 +19,12 @@ from __future__ import annotations
 import pytest
 
 pytest.importorskip("onnx")
-pytest.importorskip("onnxruntime.quantization")
+# Skips on `OSError` too - a torch DLL blocked by Windows; see test_quantize_model.py.
+try:
+    import onnxruntime.quantization  # noqa: F401
+except (ImportError, OSError) as exc:
+    pytest.skip(f"onnxruntime.quantization cannot load here: {exc}",
+                allow_module_level=True)
 
 from app.index.embedder import Embedder
 

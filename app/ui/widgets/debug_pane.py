@@ -116,7 +116,10 @@ class DebugPane(QGroupBox):
             "watch while you work in another application. The log stays "
             "here as well.")
         self.pop_button.clicked.connect(self.pop_out)
-        self.pop_button.setVisible(bool(poppable))
+        # Hide-only: it has no parent yet, so showing it would open a window of
+        # its own (see `ChatBox.__init__`).
+        if not poppable:
+            self.pop_button.hide()
 
         controls = QHBoxLayout()
         controls.addWidget(self.follow)
