@@ -137,8 +137,16 @@ class MessageBox(QWidget):
     def _fit(self) -> None:
         """Height for the wrapped text as it stands: one line up to `MAX_LINES`."""
         line = self.edit.fontMetrics().lineSpacing()
-        content = self.edit.document().size().height()
-        wanted = int(round(content)) + 14
+        # **Lines, not pixels.** A `QPlainTextEdit`'s document layout reports
+        # its height as the number of laid-out (wrapped) lines, so the old
+        # `height + 14` compared a line count with pixel bounds: the box only
+        # grew once the text wrapped onto more lines than `line + 8` - about
+        # 22 with DejaVu Sans, which is why it passed on Linux, and never for
+        # a normal question with Segoe UI on Windows, where the Windows CI
+        # caught it (2026-09-29). The `+ 22` is the same allowance for frame
+        # and padding as the one-line floor below, so one line is exactly it.
+        lines = self.edit.document().size().height()
+        wanted = int(round(lines * line)) + 22
         low, high = line + 22, line * MAX_LINES + 22
         self.edit.setFixedHeight(max(low, min(high, wanted)))
 
