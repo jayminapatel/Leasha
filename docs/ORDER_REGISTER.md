@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.44 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.45 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -72,6 +72,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0x | `overhaul-and-mac-ready` | A window that never waits, an indexer that shows its work, and code ready for a Mac | **ACTIVE** *(owner, 2026-09-27)* | 49 / 3 | Builds on 0w (`dates-live-log-and-interrupted-runs`), which shipped and was merged into this branch on 2026-09-27. Overrides "working version first" and the macOS parking for its own scope only (owner decision D4); hardware-specific Mac work stays parked (§P). Run as a master thread with helper threads in worktrees |
 | 0y | `code-and-mail-world-class` | The Code tab and the mail preview, world class | **RELEASED** *(owner, 2026-09-27)* | 7 / 8 | Designed and released in one instruction ("design it ... and build straight away"), for a developer and for everyday people. Starts from what 081149 and 081801 already built. Fixes first (§1), then search inside the code as you type (§2), the mail preview (§4), streaming history (§3) - one PR each |
 | 0z | `robust-indexing-and-status` | Robust indexing, one status everywhere, and PST that keeps going | **RELEASED** *(owner, 2026-09-29)* | 0 / 24 | "build it all", with helper threads. Lanes: A status vocabulary in results and the Indexing funnel (and "500 of 12,431"), B time limit per file and Force skip, C PST on libpff fast and reliable, D junk-image filter, E scan-then-sort newest first, F later (watching, mail threads, retry longer) |
+| 1a | `local-verify-2026-09-29` | Bring the laptop up to date and prove the 29 September merge | **RELEASED** *(owner, 2026-09-29)* | 0 / 30 | For a Claude session running on the owner's laptop: apply `a2fa6f5` to `D:\Local\GDrive\SearchProject` (the pull was cut short by a Google Drive lock), see each merged change in the window, one real index run with its logs, the PST field test, then correct HANDOFF and this register |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
