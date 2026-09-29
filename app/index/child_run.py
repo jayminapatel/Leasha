@@ -65,6 +65,7 @@ evidence 0w's interrupted-run notice reads the next time the page opens.
 from __future__ import annotations
 
 import os
+import queue
 import subprocess
 import sys
 import threading
@@ -102,6 +103,19 @@ TERMINATE_WAIT_S = 5.0
 #: together. Long enough for an embedding batch and a flush to finish; short
 #: enough that nobody finds an indexer running with no window.
 ORPHAN_GRACE_S = 60.0
+
+#: Seconds to wait for the child's first line. It has to start Python and
+#: import the pipeline first, which takes a few seconds on a warm machine and
+#: can take much longer on a cold one, or a busy test runner.
+FIRST_WORD_S = 180.0
+
+#: Seconds of silence after that before the child is taken to be stuck. It
+#: sends a heartbeat every `run_events.HEARTBEAT_S` (half a second) whatever
+#: it is doing, paused included, so a minute with nothing at all is not a slow
+#: file - it is a child that has stopped answering. 2026-09-29: the first
+#: Windows CI run with the child indexer waited ten minutes on a child that
+#: never said anything, and the test runner ended the whole suite there.
+SILENCE_S = 60.0
 
 #: The longest line read from the child. A progress event is a few kilobytes;
 #: this only stops a runaway line (a library dumping binary to stdout) from
@@ -277,6 +291,9 @@ class ChildIndexRun:
         self._last_stats: Any = None
         #: `time.monotonic()` of the last line of any kind from the child.
         self.last_heard: Optional[float] = None
+        #: Set when the child was ended for saying nothing: how long it was
+        #: silent. Named in the error, so "it crashed" and "it hung" differ.
+        self.silent_s: Optional[float] = None
         self.returncode: Optional[int] = None
 
     # -- what the window asks ---------------------------------------------------
@@ -359,11 +376,39 @@ class ChildIndexRun:
         finished: Optional[dict] = None
         self._start()
         proc = self._proc
+        # **Read on a thread of its own, so silence has a limit.** A pipe read
+        # cannot time out on Windows, so the lines are handed over through a
+        # queue and this loop waits on the queue instead. A child that says
+        # nothing for `FIRST_WORD_S` at the start, or `SILENCE_S` after that,
+        # is ended and reported exactly as a crash is - with its error output -
+        # rather than waited on for ever.
+        lines: "queue.Queue[bytes]" = queue.Queue()
+
+        def pump() -> None:
+            try:
+                while True:
+                    line = proc.stdout.readline(LINE_LIMIT_BYTES)
+                    lines.put(line)
+                    if not line:
+                        return
+            except (OSError, ValueError):
+                lines.put(b"")
+
+        threading.Thread(target=pump, name="index-child-reader", daemon=True).start()
+        wait_s = FIRST_WORD_S
         try:
             while True:
-                raw = proc.stdout.readline(LINE_LIMIT_BYTES)
+                try:
+                    raw = lines.get(timeout=wait_s)
+                except queue.Empty:
+                    self.silent_s = wait_s
+                    _log.warning("the indexing process sent nothing for {:.0f}s; ending it",
+                                 wait_s)
+                    self._force_end(proc)
+                    break
                 if not raw:
                     break                                   # the pipe closed
+                wait_s = SILENCE_S
                 self.last_heard = time.monotonic()
                 if not raw.endswith(b"\n"):
                     # **Only complete lines are events.** A line without its
@@ -507,6 +552,9 @@ class ChildIndexRun:
         where = f" while reading {current}" if current else ""
         code = self.returncode
         details = f"exit code {code}" if code is not None else "exit code unknown"
+        if self.silent_s is not None:
+            details = (f"it sent nothing for {self.silent_s:.0f}s and was ended; "
+                       + details)
         if code is not None and code < 0:
             # POSIX reports "ended by a signal" as a negative code: -9 is a kill.
             details += f" (ended by signal {-code})"
