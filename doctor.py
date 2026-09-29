@@ -685,11 +685,12 @@ def check_onnx_models() -> list[Check]:
         speech = hub.WHISPER_BASE
     wanted.append((speech, "speech in recordings is", "Settings, Videos and recordings, speech"))
     if engine != "ollama":
-        wanted.append((hub.QWEN_1_5B, "Chat and Interpret are", "Settings, Models, Chat model"))
+        wanted.append((hub.QWEN_1_5B_Q4, "Chat and Interpret are", "Settings, Models, Chat model"))
     checks = []
     for model, purpose, where in wanted:
-        folder = (hub.resolve_any((hub.FLORENCE, hub.FLORENCE_INT8), Path(cache))
-                  if model is hub.FLORENCE else hub.resolve(model, Path(cache)))
+        either = {id(hub.FLORENCE): (hub.FLORENCE, hub.FLORENCE_INT8),
+                  id(hub.QWEN_1_5B_Q4): (hub.QWEN_1_5B_Q4, hub.QWEN_1_5B)}
+        folder = hub.resolve_any(either.get(id(model), (model,)), Path(cache))
         if folder is not None:
             checks.append(Check(f"{model.label} (ONNX)", True, "downloaded", optional=True))
         else:

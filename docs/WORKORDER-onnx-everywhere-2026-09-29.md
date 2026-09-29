@@ -1,6 +1,6 @@
 # Work order: every model inside Leasha on ONNX Runtime, Chat switchable to Ollama
 
-**Doc version:** 1.1 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Created:** 2026-09-29 · **Layer:** L2 (new package `app/ort/`), with L1/L5 wiring
 **Thread:** the local laptop session of 2026-09-29 (order 1a's), branch `feat/onnx-everywhere`
 **Status:** ACTIVE *(owner, 2026-09-29: "i want you to do this now all should be onnx be default ... and for chat it should be configurable to use ollama or Onnx... go for it do it all any decisions make them")*. Written after the work started, as the record of it: the owner authorised the work directly and asked for the decisions to be made, and they are all below.
@@ -84,7 +84,7 @@ and loads everywhere Leasha runs.
   ONNX model.
 - [x] **6** False strings corrected (D7); `requirements.txt` dated notes (torch, transformers,
   faster-whisper not needed; PyAV still is).
-- [ ] **7** Chat and Interpret measured on the real Qwen model (it was still downloading at
+- [x] **7** Chat and Interpret measured on the real Qwen model (it was still downloading at
   ~75 KB/s): tokens per second on the processor, first-token time, one Interpret sentence, one
   Chat answer, the router and planner (JSON) on it.
   > **2026-09-30, int8 measured - not good enough yet; left open.** Load 3.3-5.7 s, first word
@@ -104,6 +104,20 @@ and loads everywhere Leasha runs.
   > (`tools/measure_onnx_chat.py` and `tools/measure_ollama_chat.py`; photos: `tools/measure_onnx_photo.py`).
   > Until then Interpret on ONNX is unreliable: on a machine where Ollama works, `CHAT_ENGINE`
   > `ollama` gives the better Interpret today.
+  >
+  > **2026-09-30, later - closed: the 4-bit copy answers as Ollama does.** `model_q4.onnx`
+  > arrived. Interpret gave `from:chris licence after:2025-12-31` (Ollama: `from:chris license
+  > after:2025-12-31`), left the beach sentence as typed as Ollama did, and the planner's JSON
+  > parsed with real queries. Its cached and recomputed answers agree token for token at every
+  > optimisation level (int8's did not). Speed on the owner's i7-1365U, processor only: 5.1
+  > tokens/s, first word 0.8 s; Interpret 14.4 s cold and 9.4 s warm (Ollama 8.4 s and 1.2 s),
+  > inside the owner's 29 s limit. Two changes got it there, both measured: the start of the last
+  > prompt is reused (560 of Interpret's 580 tokens not read again, as Ollama does), and the
+  > chat model uses every logical processor but two (`session.interactive_threads`; 10 threads
+  > against 4: 7.7-8.9 s against 11.7-13.5 s warm). The chat model prefers q4 when present
+  > (`hub.QWEN_1_5B_Q4`) and its Download should fetch it; int8 stays only as a fallback.
+  > **Honest trade:** inside Leasha is the default the owner asked for and needs nothing
+  > installed; Ollama, where it is installed, answers several times faster.
 - [x] **8** Florence-2 full precision measured against int8: vision encoder on DirectML
   (the decoder stays on the processor, D3), caption quality on the same four photos.
   > **2026-09-30.** Full precision, vision graph on the graphics card: **3.6-5.8 s a photo**;

@@ -45,7 +45,7 @@ from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 from app.ort import hub
 from app.ort.generate import Decoder, generate, sample
-from app.ort.session import load_session
+from app.ort.session import interactive_threads, load_session
 
 __all__ = ["OnnxLLM", "ENGINE", "chatml", "first_json"]
 
@@ -126,7 +126,7 @@ class _Loaded:
         # `basic`, not full optimisation: see `load_session` - at full
         # optimisation the cached step picked different words (2026-09-30).
         loaded = load_session(folder / model.graph_file(model.graphs[0]), what="chat model",
-                              device=device, optimise="basic")
+                              device=device, optimise="basic", threads=interactive_threads())
         self.decoder = Decoder(loaded.session, heads=kv_heads, head_dim=head_dim)
         self.tokenizer = Tokenizer.from_file(str(folder / "tokenizer.json"))
         eos = generation.get("eos_token_id", config.get("eos_token_id", []))
@@ -256,19 +256,40 @@ class OnnxLLM:
                 return True
             return bool(should_stop and should_stop())
 
-        def step(new_ids: list[int], position: int) -> np.ndarray:
-            total = position + len(new_ids)
-            return loaded.decoder.step({
-                "input_ids": np.array([new_ids], dtype=np.int64),
-                "attention_mask": np.ones((1, total), dtype=np.int64),
-                "position_ids": np.arange(position, total, dtype=np.int64)[None, :],
-            })
-
         with self._busy:
+            # **The start of the last prompt is not read twice** (2026-09-30).
+            # Interpret, the router and the planner send the same long
+            # instructions every time with a new sentence at the end; reading
+            # them was most of Interpret's 17-24 s on the owner's laptop. As
+            # Ollama does, the cache after the last prompt is kept, cut back to
+            # the part this prompt shares with it, and only the rest is read.
+            # Exact for the 4-bit model: its cached and recomputed answers agree
+            # token for token (the int8 copy's did not - see `hub.QWEN_1_5B_Q4`).
+            reuse = self._shared_prefix(loaded, ids)
             loaded.decoder.reset()
+            if reuse:
+                loaded.decoder.past = {name: value[:, :, :reuse, :]
+                                       for name, value in self._prefix_past.items()}
+            captured = {"done": False}
+
+            def step(new_ids: list[int], position: int) -> np.ndarray:
+                start = position + reuse
+                total = start + len(new_ids)
+                logits = loaded.decoder.step({
+                    "input_ids": np.array([new_ids], dtype=np.int64),
+                    "attention_mask": np.ones((1, total), dtype=np.int64),
+                    "position_ids": np.arange(start, total, dtype=np.int64)[None, :],
+                })
+                if not captured["done"]:
+                    # The cache right after the whole prompt, before any reply.
+                    captured["done"] = True
+                    self._prefix_ids = list(ids)
+                    self._prefix_past = dict(loaded.decoder.past)
+                return logits
+
             produced: list[int] = []
             shown = ""
-            for token in generate(step, prompt=ids, max_new_tokens=limit, eos=loaded.eos,
+            for token in generate(step, prompt=ids[reuse:], max_new_tokens=limit, eos=loaded.eos,
                                   pick=sample(temperature), should_stop=stopping):
                 produced.append(token)
                 text = loaded.tokenizer.decode(produced, skip_special_tokens=True)
@@ -277,6 +298,21 @@ class OnnxLLM:
                 if len(text) > len(shown):
                     piece, shown = text[len(shown):], text
                     yield piece
+
+    def _shared_prefix(self, loaded: Any, ids: list[int]) -> int:
+        """How many leading tokens of `ids` the kept cache already holds. At least
+        one token is always left to read, so the model has something to answer."""
+        previous = getattr(self, "_prefix_ids", None)
+        if not previous or getattr(self, "_prefix_owner", None) is not loaded:
+            self._prefix_owner = loaded
+            self._prefix_ids, self._prefix_past = [], {}
+            return 0
+        shared = 0
+        for a, b in zip(previous, ids):
+            if a != b:
+                break
+            shared += 1
+        return min(shared, len(ids) - 1)
 
     @staticmethod
     def _until_stop(pieces: Iterator[str], stop: Optional[list[str]]) -> Iterator[str]:

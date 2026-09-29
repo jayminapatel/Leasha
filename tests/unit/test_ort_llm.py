@@ -38,15 +38,21 @@ class ScriptedDecoder:
         self.reply = [ord(c) + 1 for c in reply] + [EOS]
         self.delay_s = delay_s
         self.calls = []
+        self.positions = []
         self.produced = 0
+        self.past = {}
 
     def reset(self):
         self.produced = 0
+        self.past = {}
 
     def step(self, inputs):
         import time
 
         self.calls.append({k: v.shape for k, v in inputs.items()})
+        self.positions.append(inputs["position_ids"][0].tolist())
+        grown = sum(v.shape[2] for v in list(self.past.values())[:1]) + inputs["input_ids"].shape[1]
+        self.past = {"past_key_values.0.key": np.zeros((1, 2, grown, 4), np.float32)}
         if self.delay_s:
             time.sleep(self.delay_s)
         logits = np.zeros(200, np.float32)
@@ -180,3 +186,32 @@ def test_describe_goes_to_florence_when_the_engine_is_onnx(monkeypatch, tmp_path
 
 def test_the_module_says_which_engine_it_is():
     assert ort_llm.ENGINE == "onnx" and OnnxLLM.engine == "onnx"
+
+
+def test_a_second_prompt_reads_only_what_it_does_not_share(monkeypatch):
+    """The long instructions Interpret sends every time are read once; the
+    next request reads only its own sentence, at the right positions."""
+    client = fake_llm(monkeypatch, "ok")
+    decoder = client._fake.decoder
+    client.generate("Rewrite as a search: emails from chris")
+    first_prompt = decoder.calls[0]["input_ids"][1]
+    decoder.calls.clear(); decoder.positions.clear(); decoder.reply = [ord("k") + 1, EOS]
+    decoder.produced = 0
+    client.generate("Rewrite as a search: photos of the beach")
+    second = decoder.calls[0]["input_ids"][1]
+    assert 0 < second < first_prompt, "only the part after the shared start is read"
+    assert decoder.positions[0][0] > 0, "reading resumes where the shared part ends"
+    assert decoder.calls[0]["attention_mask"][1] == decoder.positions[0][-1] + 1
+
+
+def test_a_different_prompt_starts_from_the_beginning(monkeypatch):
+    client = fake_llm(monkeypatch, "ok")
+    decoder = client._fake.decoder
+    client.generate("alpha")
+    decoder.calls.clear(); decoder.positions.clear(); decoder.produced = 0
+    client.chat_stream  # noqa: B018 - same client
+    list(client.chat_stream([{"role": "system", "content": "totally different"},
+                             {"role": "user", "content": "beta"}]))
+    # Only the opening "<|im_start|>system\n" is shared (this fake tokenizer makes
+    # one token per character), so reading starts right after it.
+    assert decoder.positions[0][0] == len("<|im_start|>system\n")

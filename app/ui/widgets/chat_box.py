@@ -144,7 +144,7 @@ class ChatBox(QGroupBox):
 
         self.onnx_download = DownloadRow("onnx")
         self.onnx_download.setObjectName("chatOnnxModel")
-        self._onnx_model = _hub.QWEN_1_5B.key
+        self._onnx_model = _hub.QWEN_1_5B_Q4.key    # the copy that answers as Ollama does (2026-09-30)
         #: Everything that follows the Index Tuning mode lives here, so it can be hidden
         #: as one piece; the web section below it is never hidden.
         self.manual_part = QWidget()

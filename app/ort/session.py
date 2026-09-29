@@ -22,7 +22,8 @@ from typing import Any, Optional
 from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 
-__all__ = ["Loaded", "is_cached_decoder", "is_quantised", "load_session", "machine_profile"]
+__all__ = ["Loaded", "interactive_threads", "is_cached_decoder", "is_quantised", "load_session",
+           "machine_profile"]
 
 _log = logger.bind(component="ort.session")
 
@@ -71,6 +72,14 @@ def _options(providers: tuple[str, ...], threads: int, optimise: str = "all") ->
         options.enable_mem_pattern = False
         options.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
     return options
+
+
+def interactive_threads() -> int:
+    """For a model somebody is waiting on (Chat, Interpret): every logical
+    processor but two. Measured 2026-09-30 on the owner's i7-1365U (12 logical):
+    Interpret with a reused prompt took 7.7-8.9 s at 10 threads against
+    11.7-13.5 s at 4. Indexing's models keep `default_threads`."""
+    return max(default_threads(), (os.cpu_count() or 4) - 2)
 
 
 def default_threads() -> int:

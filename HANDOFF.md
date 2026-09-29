@@ -73,6 +73,10 @@ line, no traceback and no window.
   ~85 KB/s; the chat model uses it automatically when it lands. **Next: run
   `tools/measure_onnx_chat.py` and `tools/measure_ollama_chat.py` and compare** - order 1b item 7.
   Until then, where Ollama works, `CHAT_ENGINE=ollama` gives the better Interpret.
+  **Later the same night - done:** q4 arrived and answers Interpret and JSON as Ollama's copy does;
+  with the last prompt's start reused and 10 threads, Interpret takes 9-15 s (Ollama 1-8 s), Chat
+  ~5 tokens/s. Item 7 is closed; Downloads fetch q4. What order 1b still needs: item 9 (one real
+  index run with photo tags and speech) and item 10 (PR, owner merges).
 - **Smart App Control is now OFF on the owner's laptop** (the owner's decision), so torch and
   rawpy load there again. It is still on for most people - see the Traps.
 - Order 1a: §0-§1 done (0.6's "system-Python launcher" was the venv's own redirector - one Leasha,

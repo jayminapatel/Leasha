@@ -275,7 +275,7 @@ class ModelBox(QGroupBox):
         if onnx:
             self._configured = hub.QWEN_1_5B.key
             self.download.set_offers([])
-            self.download.set_target(hub.QWEN_1_5B.key)
+            self.download.set_target(hub.QWEN_1_5B_Q4.key)   # the 4-bit copy (2026-09-30)
             self._show_models([])
 
     def _show_models(self, installed: Any) -> None:

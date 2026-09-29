@@ -28,9 +28,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   the same quality or better, the photo model loads in 4 s instead of 22 s and describes a photo
   in 4-6 s instead of 11-14 s (its picture part runs on the graphics card); speech got every word
   of a test clip right, and an 80-second clip took about 4 seconds.
-- The chat model inside Leasha answers ordinary Chat questions, but does not yet rewrite a
-  sentence into a search for Interpret as well as the same model through Ollama does; a better
-  copy of it is being measured. Until then, Ollama gives the better Interpret where it is installed.
+- The chat model inside Leasha rewrites a sentence into a search for Interpret the way the same
+  model does through Ollama, and answers Chat at about 5 words a second on the owner's laptop.
+  It is slower than Ollama (Interpret about 9-15 s against 1-8 s), so where Ollama is installed
+  it remains the quicker choice. A first copy of the model got Interpret wrong; the one Leasha
+  now downloads is the one that was checked against Ollama.
 - Chat, Interpret and Describe have a new setting: run inside Leasha (the default, nothing else
   to install) or use Ollama. Inside Leasha, the chat model is downloaded once from Settings;
   Settings no longer contacts Ollama unless Ollama is chosen.
