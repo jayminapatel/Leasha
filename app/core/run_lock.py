@@ -82,6 +82,28 @@ STOP_STATE_KEY = "run:stop_requested"
 #: did.
 FRONT_STATE_KEY = "gui:front_requested"
 
+#: How long taking the run lock keeps asking before it says somebody has it.
+#:
+#: **A probe is not a holder, but for an instant it looks like one.**
+#: `is_indexing` answers by taking the mutex and letting it straight go, and
+#: the window asks it every four seconds on a worker thread. On Windows that
+#: probe's handle keeps the named mutex in existence, so an `acquire` in any
+#: process that lands inside it gets `ERROR_ALREADY_EXISTS` - and a run was
+#: refused with "an index run is already in progress (another process)" when
+#: nothing was indexing at all. Found on the Windows CI (2026-09-29), where
+#: test windows left open by earlier tests kept polling and
+#: `test_run_lock.py` lost the race one test at a time; the same race is open
+#: to the window's own Start and to a terminal's `app.cli index` while a
+#: window is open. A probe lets go within microseconds - milliseconds at
+#: worst, on a loaded machine that stops its thread in between - so one
+#: second of asking again is far past it, and a genuine run, which holds the
+#: lock for minutes, is still refused one second later. Fixed rather than a
+#: setting: nobody can choose a better value than "longer than a probe", and
+#: only a probe measured holding for longer would change it. Every caller is
+#: off the UI thread (`IndexWorker.run`, `app.cli`, the offline-media scan's
+#: worker), so the wait freezes no window.
+CONTENTION_WAIT_S = 1.0
+
 #: What kind of process is holding the lock. Only for the sentence a person
 #: reads, so these are words rather than an enum.
 GUI = "the window"
@@ -118,7 +140,7 @@ class IndexRunLock:
 
     def acquire(self) -> "IndexRunLock":
         try:
-            self._guard.acquire()
+            self._guard.acquire(wait_s=CONTENTION_WAIT_S)
         except AppErrorException as exc:
             # **The holder is described, never trusted.** By the time this is
             # read the other process may have finished; the mutex already said
