@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.30 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,18 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The Windows test run, cleared of problems that were only in the tests
+
+- On a Mac or Linux, a code search's result joined to a repository folder now always uses `/`,
+  decided by the same check as everything else in that step rather than by a second one. Nothing
+  changes on Windows or on a real Mac; it was found because the Windows test run could fake a Mac
+  and get `/Users/me/repo\src\b.cs`.
+- The rest were the tests, not Leasha. The Windows test run measured every word in a square box
+  (its hidden Qt window had no fonts), so eight layout checks saw names cut that are not cut in the
+  real window; it now uses the Windows fonts. One test's name was too long for a Windows environment
+  variable; the letter-case tests ran a Linux check on a Windows-shaped folder; one test broke
+  pytest's own clean-up; and the open-files check stopped at a file it was not allowed to look at.
 
 ### Indexing in a separate process stays a choice
 
