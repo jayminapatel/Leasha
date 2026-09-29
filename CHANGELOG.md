@@ -76,6 +76,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Mail says how many messages match when it can only show the first 500: "Showing 500 of 12,431
   messages — narrow it with /from, /after …" (counted up to 100,000). Files, which stopped at 200 in
   the same silence, now says "Showing 200 of 3,412 files" too (counted up to 10,000).
+### Outlook archives read without Outlook: faster, and a damaged one keeps going
+
+- **One bad item costs one item.** A damaged attachment inside a `.pst` could end the whole archive
+  when its reader failed with anything other than Leasha's own error (a damaged `.xls` did, through
+  `xlrd`). On damaged copies of a real archive this stopped the read early in 29 of 150 copies with
+  light damage and 100 of 150 with heavy damage; it now stops in none of them.
+- **A damaged folder tree can no longer loop or spin.** A folder that lists its own ancestor, folders
+  nested without end, and a folder claiming far more messages than it holds are each recorded as a
+  folder that could not be read, and the archive carries on.
+- **What happened to each message, while it is read.** The reader's line on the Indexing page shows
+  single-word counts for the archive, for example `12,400 Indexed · 3 Failed · 12 Duplicate`, and the
+  log says the same when the archive ends. The words: Indexed, Skipped, Failed, Duplicate (an
+  attachment already read in that archive), Held (a picture left for the pictures pass). TimedOut is
+  reserved and not yet set.
+- **Pictures attached to mail wait for the pictures pass.** The text-first pass read them with OCR,
+  which was about 80% of the time a real archive took. They are now held, their names stay on the
+  message, and the pictures pass comes back for exactly those archives and reads only the pictures.
+- **Faster without OCR too.** Each attachment is fetched from the archive once instead of twice, a
+  type nothing reads is turned down by name without being written to disk, a duplicate is never
+  written, and attachments share one scratch folder per archive. Measured on Linux on a real 14 MB
+  archive (71 messages, 70 attachments), with OCR taken out of both: from about 0.41 s to about 0.27 s
+  a read (best of 20). The text-first pass over the same archive, pictures held: 20-27 s before,
+  0.24 s now.
+
+### Docs
+
+- `HANDOFF.md` 7.16 → 7.17: an owner check for the above on a real archive.
 ### The question box on the Chat tab grows as you type
 
 - A question that wrapped onto a second or third line stayed one line tall on Windows, so its start

@@ -214,6 +214,14 @@ def _attachment_documents(
             except AppErrorException as exc:
                 # An unreadable attachment is a skip, never the end of the run.
                 warnings.append(exc.error)
+            except Exception as exc:                      # noqa: BLE001
+                # Order 0z lane C: a reader failing with anything else - `xlrd`
+                # raised `struct.error` on a damaged `.xls` - ended the archive
+                # on the libpff path, measured. The same hole was here.
+                warnings.append(make_error(
+                    "ERR_FILE_CORRUPT", "extract.pst", path=f"{message_key}/{name}",
+                    details=f"Could not be read: {type(exc).__name__}: {exc}",
+                ))
 
 
 def walk_session(
