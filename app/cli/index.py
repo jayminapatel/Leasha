@@ -401,13 +401,52 @@ def _redirect_stdout():
         return events
 
 
+def _private_stdin():
+    r"""Take the command pipe off standard input, and return a stream to read it.
+
+    2026-09-29, found on Windows CI: every child run sat still until the
+    window's first command arrived - five minutes, in the tests, until "stop".
+    **On Windows, I/O on a synchronous pipe is one-at-a-time per pipe.** While
+    the command thread waits in a read on standard input, anything else that
+    touches that same pipe waits behind it: asking what kind of file it is
+    (`os.fstat`, `isatty`, which libraries do on import), or starting a
+    process that inherits it (OCR, a reader process, LibreOffice), whose own
+    start-up asks the same question. The run froze at the first such touch.
+
+    So the pipe is kept aside for the commands - a duplicate of descriptor 0,
+    not inherited by anything started later - and descriptor 0 and the
+    process's standard input handle are pointed at the null device, which
+    anybody may ask about or inherit. Where that cannot be done, the plain
+    `sys.stdin` is returned and nothing is worse than before.
+    """
+    stream = sys.stdin
+    if stream is None:
+        return None
+    try:
+        saved = os.dup(0)                        # not inheritable (PEP 446)
+        null = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(null, 0)
+        os.close(null)
+        if sys.platform == "win32":
+            # The C runtime points the Win32 handle at the new descriptor only
+            # in a console program; `pythonw` is not one, so it is done here.
+            import ctypes
+            import msvcrt
+
+            ctypes.windll.kernel32.SetStdHandle(-10, msvcrt.get_osfhandle(0))
+        sys.stdin = open(os.devnull, encoding="utf-8")  # noqa: SIM115 - for life
+        return open(saved, encoding="utf-8", errors="replace")  # noqa: SIM115
+    except (OSError, ValueError, AttributeError):
+        return stream
+
+
 def _cmd_index_events(args: argparse.Namespace) -> int:
     """`cmd_index` as a child: events out, commands in, errors as events."""
     from app.core.errors import AppErrorException, to_app_error
 
     session = _EventSession(_redirect_stdout())
     session.writer.start()
-    session.listen(sys.stdin)
+    session.listen(_private_stdin())
     try:
         return cmd_index(args, session)
     except AppErrorException as exc:
