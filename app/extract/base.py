@@ -595,7 +595,15 @@ def reads_externally(path: Path) -> bool:
 #: 2026-09-20 against pypff 20231205 on Windows 11: an exclusive hold gives
 #: "...with error: The process cannot access the file because it is being used
 #: by another process", while a damaged file gives "invalid file signature".
-_LOCK_PHRASES = ("used by another process", "sharing violation", "lock violation")
+#: **"locked a portion of the file"** is Windows' own wording for error 33,
+#: ERROR_LOCK_VIOLATION - and the one Outlook causes. Outlook does not refuse
+#: sharing on an archive it has attached; it byte-range-locks it, so libpff's
+#: open succeeds and its first read fails with this text. It was missing, so
+#: every archive attached in Outlook was reported as damaged (2026-09-29, the
+#: owner's laptop: 15 of 20 archives, every one of them readable through Outlook
+#: and, once Outlook let go, through libpff).
+_LOCK_PHRASES = ("used by another process", "sharing violation", "lock violation",
+                 "locked a portion of the file")
 
 
 def looks_locked(exc: BaseException) -> bool:

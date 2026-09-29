@@ -33,9 +33,19 @@ _LOCKED_TEXT = (
 
 # --- telling a lock from damage ---------------------------------------------
 
+#: What libpff said on the owner's laptop for an archive attached in Outlook,
+#: 2026-09-29 - a byte-range lock, Windows error 33.
+_RANGE_LOCKED_TEXT = (
+    "pypff_file_open: unable to open file. libcfile_internal_file_read_buffer_at_"
+    "offset_with_error_code: unable to read from file with error: The process "
+    "cannot access the file because another process has locked a portion of the file."
+)
+
+
 @pytest.mark.parametrize("exc", [
     PermissionError(13, "Permission denied"),
     OSError(_LOCKED_TEXT),
+    OSError(_RANGE_LOCKED_TEXT),
     OSError("sharing violation"),
 ])
 def test_a_held_file_is_recognised_as_locked(exc) -> None:
@@ -376,12 +386,56 @@ def _hold_exclusively(path: Path):
     return lambda: kernel.CloseHandle(handle)
 
 
+def _lock_a_range(path: Path):
+    """Share `path` but byte-range-lock its start, as Outlook does an attached
+    archive: an open succeeds, the first read fails with error 33."""
+    import ctypes
+    from ctypes import wintypes
+
+    class OVERLAPPED(ctypes.Structure):
+        _fields_ = [("Internal", ctypes.c_void_p), ("InternalHigh", ctypes.c_void_p),
+                    ("Offset", wintypes.DWORD), ("OffsetHigh", wintypes.DWORD),
+                    ("hEvent", wintypes.HANDLE)]
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.restype = wintypes.HANDLE
+    kernel.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    kernel.LockFileEx.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD,
+                                  wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+    # Read and write, shared for both: nothing refuses the open itself.
+    handle = kernel.CreateFileW(str(path), 0xC0000000, 0x3, None, 3, 0x80, None)
+    assert handle not in (None, wintypes.HANDLE(-1).value), ctypes.get_last_error()
+    overlapped = OVERLAPPED()
+    # LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, the first 64KB.
+    assert kernel.LockFileEx(handle, 0x3, 0, 0x10000, 0, ctypes.byref(overlapped)), \
+        ctypes.get_last_error()
+    return lambda: kernel.CloseHandle(handle)
+
+
 @needs_real_lock
 def test_the_real_library_reports_an_exclusively_held_file_as_locked(tmp_path: Path) -> None:
     """Measured, not assumed: this is the message `looks_locked` was written from."""
     held = tmp_path / "held.pst"
     held.write_bytes(b"!BDN" + bytes(200))
     release = _hold_exclusively(held)
+    try:
+        with pytest.raises(AppErrorException) as caught:
+            list(pst_libpff.read_archive(held))
+    finally:
+        release()
+    assert caught.value.error.code == "ERR_FILE_LOCKED"
+
+
+@needs_real_lock
+def test_the_real_library_reports_an_outlook_style_range_lock_as_locked(tmp_path: Path) -> None:
+    """How Outlook holds an attached archive. Was `ERR_FILE_CORRUPT` - settled,
+    never retried, and no fall-back to Outlook - for 15 real archives."""
+    held = tmp_path / "attached.pst"
+    held.write_bytes(b"!BDN" + bytes(200))
+    release = _lock_a_range(held)
     try:
         with pytest.raises(AppErrorException) as caught:
             list(pst_libpff.read_archive(held))
