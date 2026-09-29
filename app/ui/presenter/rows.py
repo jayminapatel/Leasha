@@ -11,6 +11,7 @@ from datetime import datetime as _datetime
 from datetime import timedelta as _timedelta
 from typing import Any, Iterable, Mapping, Optional
 
+from app.core.file_state import derive
 from app.ui.presenter.formatting import (
     format_address,
     format_recipients,
@@ -63,6 +64,9 @@ class FileRow:
     #: results and had never been extended to this tab.
     volume_id: Optional[int] = None
     relative_path: str = ""
+    #: The one-word Status column - `app.core.file_state.derive` over the
+    #: row's `status`, `skip_code` and whether its volume is connected.
+    status: str = ""
 
 
 #: What a status means to somebody looking at a list of files.
@@ -73,8 +77,14 @@ _STATUS_NOTES = {
 }
 
 
-def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None) -> list[FileRow]:
-    """Store rows to display rows for the Files list."""
+def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
+              offline_volumes: Any = ()) -> list[FileRow]:
+    """Store rows to display rows for the Files list.
+
+    `offline_volumes` is the set of volume ids not connected right now,
+    decided on the worker (`tasks.offline_volume_ids`) - never here.
+    """
+    away = set(offline_volumes or ())
     out: list[FileRow] = []
     for row in rows:
         path = str(row.get("path", ""))
@@ -98,17 +108,56 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None)
             note=note,
             volume_id=int(volume_id) if volume_id is not None else None,
             relative_path=str(row.get("relative_path", "") or ""),
+            status=derive(status, row.get("skip_code"),
+                          offline=volume_id is not None and int(volume_id) in away),
         ))
     return out
 
 
-def file_summary(total: int, shown: int = -1, text: str = "") -> str:
+#: The most the Files list's total is counted to - `tasks` reads it from here,
+#: because the sentence needs it too and `tasks` imports this module. Above it
+#: the summary says "more than 10,000": a Files count behind typed text is a
+#: union over two full-text indexes, and a common word matches most of a
+#: corpus, on a list that searches as somebody types.
+LIST_TOTAL_CAP = 10_000
+#: The Mail list's, larger on purpose. The owner asked for the total of a
+#: mailbox, and a mailbox is tens of thousands of messages; every Mail filter is
+#: a header column or the header trigram index, so the count behind a full
+#: page is a walk of at most this many index entries, on the worker.
+MAIL_TOTAL_CAP = 100_000
+
+
+def capped_total(shown: int, total: Optional[int], noun: str, hint: str,
+                 *, cap: int = LIST_TOTAL_CAP) -> str:
+    """The sentence for a list showing one page of more than a page.
+
+    "Showing 500 of 12,431 messages — narrow it with /from, /after …"
+
+    `""` when there is nothing to add: the total is unknown, or the page
+    already holds all of it. `total` above `cap` is a bounded count that
+    stopped early, and says "more than" rather than a number it does not have.
+    """
+    if total is None or shown <= 0 or total <= shown:
+        return ""
+    many = f"more than {cap:,}" if total > cap else f"{total:,}"
+    return f"Showing {shown:,} of {many} {noun} — narrow it with {hint}"
+
+
+def file_summary(total: int, shown: int = -1, text: str = "",
+                 found: Optional[int] = None) -> str:
     """The line under the Files table.
 
     Here rather than in the view because it is three branches choosing a
     sentence, and a branch inside a Qt widget can only be checked by somebody
     typing the right thing at the right moment.
     """
+    typed = str(text or "").strip()
+    capped = capped_total(shown, found, f"files matching '{typed}'" if typed else "files",
+                          "/type, /after, /path …")
+    if capped:
+        # **The first page is not the whole answer**, and used to be shown as
+        # though it were - the fault the owner reported on Mail, here too.
+        return capped
     if shown >= 0:
         # **An empty box is browsing, not a search that found nothing.**
         # It used to read "7 file names contain ''", which is both wrong and
@@ -167,6 +216,8 @@ class MailRow:
     sent_at: int = 0
     size_bytes: int = 0
     has_attachment: bool = False
+    #: The one-word Status column - see `FileRow.status`.
+    status: str = ""
 
 
 def mail_rows(
@@ -200,6 +251,7 @@ def mail_rows(
             size_bytes=size_bytes,
             has_attachment=attached,
             quoted_removed=row.get("quoted_removed"),
+            status=derive(row.get("status"), row.get("skip_code")),
         ))
     return out
 

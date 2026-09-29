@@ -29,7 +29,7 @@ from app.ui.view_options import apply_to_table, available_columns
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
-from app.ui.widgets.sortable_item import SORT_ROLE, SortableItem
+from app.ui.widgets.status_column import fill_rows
 
 __all__ = ["CodeResults", "COLUMNS", "ALWAYS_OFFERED"]
 
@@ -107,22 +107,15 @@ class CodeResults(QWidget):
 
     def show_rows(self, rows: list[Any], prefs: Any) -> None:
         """Replace the list. `rows` are `RepoFileRow`s from either engine."""
-        self.table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
-            for column, (key, _h, attribute, _r) in enumerate(COLUMNS):
-                # **The right-aligned flag used to be destructured into a
-                # throwaway here**, so `Size` was declared right-aligned in
-                # `COLUMNS` and rendered left for the life of this table - the
-                # kind of thing a declaration in one place and a loop in
-                # another produces. The table reads the spec now.
-                item = SortableItem(str(getattr(row, attribute, "") or ""))
-                sort_by = SORT_KEYS.get(key)
-                if sort_by:
-                    item.setData(SORT_ROLE, getattr(row, sort_by, 0))
-                if column == 0:
-                    item.setToolTip(getattr(row, "full_path", "") or "")
-                self.table.setItem(index, column, item)
-        self.table.set_row_objects(rows)
+        # **The right-aligned flag used to be destructured into a throwaway
+        # here**, so `Size` was declared right-aligned in `COLUMNS` and
+        # rendered left for the life of this table - the kind of thing a
+        # declaration in one place and a loop in another produces. The table
+        # reads the spec now. 2026-09-29: the loop itself is the one Files and
+        # Mail use (`status_column.fill_rows`), which also gives the Status
+        # cell its one-sentence tooltip.
+        fill_rows(self.table, rows, COLUMNS, SORT_KEYS, first=lambda item, row:
+                  item.setToolTip(getattr(row, "full_path", "") or ""))
         self.available = available_columns(
             rows, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
             always=ALWAYS_OFFERED,

@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Every result says where it stands, in one word
+
+- Search, Files, Mail and Code show a **Status** column: Indexed, Queued, Deferred, Skipped, Failed,
+  NameOnly, Offline or TimedOut (Discovered and Reading appear on the Indexing page during a run). Hover a
+  word for one plain sentence about what it means. Files and Mail offer it in the View menu like any
+  other column; Search shows it beside the date. The words are worked out from what the index already
+  records - no index rebuild. TimedOut is ready for the per-file time limit and appears once that
+  records its first file; Duplicate has a word and a sentence but nothing records one yet.
+- The Indexing page opens with a line of counts per status, for example `Indexed 448,210 · Queued
+  1,200 · Reading 4 · Skipped 310 · Failed 12 · Deferred 45`. It refreshes every few seconds during a
+  run and whenever the page's totals do.
+- Mail says how many messages match when it can only show the first 500: "Showing 500 of 12,431
+  messages — narrow it with /from, /after …" (counted up to 100,000). Files, which stopped at 200 in
+  the same silence, now says "Showing 200 of 3,412 files" too (counted up to 10,000).
 
 ### A silent indexing process no longer hangs the window
 
