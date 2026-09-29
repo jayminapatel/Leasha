@@ -350,6 +350,98 @@ def _detect_only(run: Callable[..., Any]) -> Callable[[Any], list]:
     return _detect
 
 
+#: RapidOCR's own `Global.max_side_len` (its `config.yaml`, pinned 1.4.4): it
+#: shrinks every image to this long side before detection. Read from the engine
+#: when it carries one; this is only the fallback for an engine that does not.
+ENGINE_MAX_SIDE = 2000
+
+
+def _engine_input(source: Path | bytes, engine: Any) -> Any:
+    """`source`, or - for a large JPEG - the picture decoded at the engine's size.
+
+    **2026-09-29, measured.** RapidOCR decodes a 12-megapixel photograph at
+    full size (4000x3000) and then shrinks it to `max_side_len` before looking
+    at it. A JPEG can be decoded at a half, a quarter or an eighth of its size
+    directly (Pillow's `draft`, the codec's own DCT scaling), which here cost
+    about 60 ms instead of 150-250 ms for the same photograph. `draft` never
+    goes *below* the requested size, so the engine still receives at least
+    `max_side_len` on the long side and does its own final shrink exactly as
+    before. On the synthetic photographed pages used to measure it, the engine
+    read the same or slightly more lines from the drafted picture.
+
+    Anything else - a PNG, a CMYK JPEG, a JPEG already small enough that no
+    power-of-two reduction applies, anything Pillow cannot open - is returned
+    unchanged, so the engine decodes it itself as it always has. Never raises.
+    """
+    limit = int(getattr(engine, "max_side_len", 0) or ENGINE_MAX_SIDE)
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        image = Image.open(source if isinstance(source, Path) else BytesIO(source))
+    except Exception:                            # noqa: BLE001 - the engine will say
+        return source
+    try:
+        width, height = image.size
+        longest = max(width, height)
+        if (image.format != "JPEG" or image.mode not in ("RGB", "L")
+                or longest < 2 * limit):
+            image.close()
+            return source
+        scale = longest / limit
+        image.draft(image.mode, (max(1, int(width / scale)), max(1, int(height / scale))))
+        image.load()
+        return image
+    except Exception:                            # noqa: BLE001 - fall back to the engine's own decode
+        try:
+            image.close()
+        except Exception:                        # noqa: BLE001
+            pass
+        return source
+
+
+def _engine_arg(source: Any, feed: Any) -> Any:
+    """What `run(...)` is called with: the prepared picture, or the source as before."""
+    if feed is not source:
+        return feed
+    return source if isinstance(source, (str, bytes)) else str(source)
+
+
+def _probe_by_reading(run: Callable[..., Any], feed: Any,
+                      keep: list[Any]) -> Callable[[Any], list]:
+    """Rung 2's probe, answered by one full engine call that is then kept.
+
+    **2026-09-29, measured - the detection-only probe could never save time.**
+    `_detect_only` asked RapidOCR for detection alone, on the understanding
+    that a textless photograph would otherwise pay the ~3.6 s recognition pass.
+    It does not: RapidOCR 1.4.4's `__call__` returns `(None, None)` straight
+    after detection when detection finds no boxes, before classification or
+    recognition run. So for a picture with no text the probe cost exactly what
+    the full call costs, and for every picture where detection found anything
+    - every page, screenshot and most photographs - the image was decoded and
+    detected twice. Measured on this corpus that second pass was 0.4-1.3 s per
+    image.
+
+    This probe makes the full call once, keeps its answer in `keep` for
+    `ocr_image` to use, and gives the ladder the boxes it asked about. The
+    ladder is unchanged: rungs 0-1 still decide whether it is asked, a probe
+    that fails is still "not decided" rather than "no text", and zero boxes
+    still settles `checked_no_text`. `_detect_only` stays for
+    `tools/nightly_probe.py`, which times detection on its own.
+    """
+    def _probe(_source: Any) -> list:
+        with gpu_exclusive(_engine_is_gpu):
+            raw = run(_engine_arg(_source, feed))
+        results = raw[0] if isinstance(raw, tuple) and len(raw) == 2 else raw
+        if results and not isinstance(results, (list, tuple)):
+            # A shape this module does not know: let the ordinary pass decide.
+            raise TypeError(f"unexpected OCR result {type(results).__name__}")
+        keep.append(raw)
+        return list(results) if results else []
+    return _probe
+
+
 def ocr_image(
     source: Any,
     *,
@@ -396,10 +488,17 @@ def _ocr_image_now(
     if run is None:
         return OcrResult(engine_missing=True)
 
+    started = time.monotonic()
+    # What the engine is handed: the path or bytes as before, or - for a large
+    # JPEG - the picture already decoded at the size the engine shrinks it to.
+    feed = _engine_input(source, run) if isinstance(source, (Path, bytes)) else source
+    #: The one engine call rung 2 made, when it made one - see `_probe_by_reading`.
+    first_pass: list[Any] = []
+
     if isinstance(source, (Path, bytes)):
         try:
             routed = ocr_ladder.route(
-                source, detect=_detect_only(run),
+                source, detect=_probe_by_reading(run, feed, first_pass),
                 white_fraction_threshold=_white_fraction_threshold(),
             )
         except Exception as exc:                 # noqa: BLE001 - the ladder must never take an image down
@@ -410,17 +509,22 @@ def _ocr_image_now(
             # The detection rung already found zero text boxes - recognition
             # would spend the expensive pass to confirm what is already known.
             return OcrResult(
-                elapsed_s=routed.elapsed_ms / 1000.0,
+                elapsed_s=time.monotonic() - started,
                 checked_no_text=True,
             )
 
-    started = time.monotonic()
     try:
-        # Gated on the engine actually loaded, not on `_device` - a fallen-
-        # back-to-processor engine must not keep paying the cross-subsystem
-        # lock it no longer needs; see `gpu_serialize`.
-        with gpu_exclusive(_engine_is_gpu):
-            raw = run(source if isinstance(source, (str, bytes)) else str(source))
+        if first_pass:
+            # Rung 2 already ran the whole engine and it found text boxes:
+            # that call's answer is this image's answer. Running it again is
+            # the second decode and second detection this used to pay.
+            raw = first_pass[0]
+        else:
+            # Gated on the engine actually loaded, not on `_device` - a fallen-
+            # back-to-processor engine must not keep paying the cross-subsystem
+            # lock it no longer needs; see `gpu_serialize`.
+            with gpu_exclusive(_engine_is_gpu):
+                raw = run(_engine_arg(source, feed))
     except Exception as exc:                     # noqa: BLE001 - one image, not the run
         if is_transient_gpu_error(exc):
             # **A previously-working engine just had a transient hardware
