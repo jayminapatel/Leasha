@@ -102,8 +102,13 @@ def test_the_detection_probe_runs_inside_the_graphics_card_gate(
     for thread in threads:
         thread.join()
 
-    assert fake.detect_calls > 0, (
-        "the ladder never reached rung 2, so this test proved nothing")
+    # 2026-09-29: rung 2 now makes the image's one full engine call and keeps
+    # it (`ocr._probe_by_reading`), so there is no separate detection-only
+    # call to count. Rung 1 fails on the missing file, so every one of these
+    # twelve reads is decided by the probe, and each costs exactly one call.
+    assert fake.calls == 12, (
+        f"expected one engine call per image, all made by rung 2's probe; "
+        f"got {fake.calls}")
     assert fake.max_inside == 1, (
         f"{fake.max_inside} threads were inside the graphics-card OCR engine at "
         "once - two concurrent DirectML calls is the access violation "
@@ -181,9 +186,11 @@ def test_a_probe_that_faults_never_becomes_no_text(monkeypatch, tmp_path):
     monkeypatch.setattr(ocr, "_engine_is_gpu", False, raising=False)
     calls: list[dict] = []
 
+    # 2026-09-29: the probe is now the image's first full call rather than a
+    # detection-only one, so "the probe faults" is "the first call faults".
     def half_broken(source, **kwargs):
         calls.append(kwargs)
-        if kwargs.get("use_rec") is False:
+        if len(calls) == 1:
             raise RuntimeError("Unknown C++ exception from OpenCV code")
         return [[None, "readable after all", 0.9]], 0.01
 
