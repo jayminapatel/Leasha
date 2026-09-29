@@ -17,6 +17,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The question box on the Chat tab grows as you type
+
+- A question that wrapped onto a second or third line stayed one line tall on Windows, so its start
+  scrolled out of sight. The box now grows with every wrapped line, up to five, then scrolls. (It
+  measured lines as if they were pixels, which only worked with some fonts.)
+
 ### The Windows test run, cleared of problems that were only in the tests
 
 - On a Mac or Linux, a code search's result joined to a repository folder now always uses `/`,
@@ -28,6 +34,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   real window; it now uses the Windows fonts. One test's name was too long for a Windows environment
   variable; the letter-case tests ran a Linux check on a Windows-shaped folder; one test broke
   pytest's own clean-up; and the open-files check stopped at a file it was not allowed to look at.
+- Three more checks were fixed in the same way: a column drag that did not move the column, a
+  click that missed the Settings tick box, and a speed check that counted time spent waiting.
+
 ### A silent indexing process no longer hangs the window
 
 - With "Index in a separate process" on, an indexing process that stopped answering was waited on for
