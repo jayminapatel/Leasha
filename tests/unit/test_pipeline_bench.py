@@ -202,8 +202,18 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
     real_rmtree = bench.shutil.rmtree
 
     def spy(path, *args, **kwargs):
-        held.extend(f.path for f in psutil.Process().open_files()
-                    if Path(f.path).is_relative_to(work))
+        # **Only the removal of `work` itself is the moment in question.**
+        # `bench.shutil` is the one `shutil` module, so this patch sees every
+        # `rmtree` in the process - including the archive reader's
+        # `TemporaryDirectory` for each zip member, which the python.org
+        # build's `tempfile` routes through `shutil.rmtree` (Debian's binds
+        # its own copy at import, which is why Linux never saw them). Those
+        # run mid-index, with the database and logs rightly open, and on
+        # the Windows CI they filled this list with 14 x 5 "leaks" that were
+        # nothing of the kind (2026-09-29).
+        if Path(path) == work:
+            held.extend(f.path for f in psutil.Process().open_files()
+                        if Path(f.path).is_relative_to(work))
         return real_rmtree(path, *args, **kwargs)
 
     # **A handle this process may not even look at must not end the check.**
