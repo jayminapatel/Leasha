@@ -243,6 +243,28 @@ def test_the_links_box_reads_without_writing(gui_mainwindow, qtbot):
     assert fired == [], "loading the state must never write to the registry"
 
 
+def _tick(qtbot, checkbox) -> None:
+    """Click a check box where a person would: on its box or its words.
+
+    **Not at the middle of the widget.** A `QCheckBox` only takes a click inside
+    its box and label; the rest of its width is dead. Here the Settings page is
+    not on screen, so the box keeps Qt's default 640-pixel width, the words end
+    at about 223, and a click at 319 did nothing - the ticking test failed on
+    Linux and, once the Windows CI had real fonts, on Windows too; with no fonts
+    every letter was a wide box that reached past the middle (2026-09-29). The
+    failed-write test below "passed" through the same dead click, because
+    nothing happening looks exactly like a write that did not stick.
+    """
+    from PyQt6.QtWidgets import QStyle, QStyleOptionButton
+
+    option = QStyleOptionButton()
+    checkbox.initStyleOption(option)
+    target = checkbox.style().subElementRect(
+        QStyle.SubElement.SE_CheckBoxClickRect, option, checkbox)
+    assert checkbox.hitButton(target.center()), "no clickable point on the box"
+    qtbot.mouseClick(checkbox, Qt.MouseButton.LeftButton, pos=target.center())
+
+
 def test_ticking_the_links_box_writes_and_shows_the_result(gui_mainwindow, qtbot, monkeypatch):
     from app.core import deeplink
 
@@ -253,11 +275,11 @@ def test_ticking_the_links_box_writes_and_shows_the_result(gui_mainwindow, qtbot
     monkeypatch.setattr(deeplink, "is_registered", lambda: state["on"])
 
     box.set_links_state(False)
-    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    _tick(qtbot, box.links)
     qtbot.waitUntil(lambda: state["on"] is True, timeout=3000)
     qtbot.waitUntil(lambda: box.links.isChecked(), timeout=3000)
 
-    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    _tick(qtbot, box.links)
     qtbot.waitUntil(lambda: state["on"] is False, timeout=3000)
     qtbot.waitUntil(lambda: not box.links.isChecked(), timeout=3000)
 
@@ -267,10 +289,13 @@ def test_a_failed_write_is_not_left_looking_done(gui_mainwindow, qtbot, monkeypa
 
     app, window, store, engine = gui_mainwindow
     box = window.settings_view.environment
-    monkeypatch.setattr(deeplink, "set_registered", lambda wanted, exe=None: False)
+    attempts = []
+    monkeypatch.setattr(deeplink, "set_registered",
+                        lambda wanted, exe=None: attempts.append(wanted) or False)
     monkeypatch.setattr(deeplink, "is_registered", lambda: False)
     box.set_links_state(False)
-    qtbot.mouseClick(box.links, Qt.MouseButton.LeftButton)
+    _tick(qtbot, box.links)
+    qtbot.waitUntil(lambda: attempts == [True], timeout=3000)   # the write was tried
     qtbot.waitUntil(lambda: not box.links.isChecked(), timeout=3000)
 
 

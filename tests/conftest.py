@@ -92,6 +92,25 @@ REQUIRED_FREE_GB=150
 # on purpose: `EMBED_DEVICE=auto python -m pytest tests/unit/test_embedder.py`.
 os.environ.setdefault("EMBED_DEVICE", "cpu")
 
+# **Real fonts for the offscreen Qt on Windows.** The suite runs Qt with
+# `QT_QPA_PLATFORM=offscreen`, and that platform does not know where Windows
+# keeps its fonts (Qt no longer bundles any; it looks beside its own libraries,
+# finds nothing, and says "QFontDatabase: Cannot find font directory" once, at
+# start-up, before any test's messages are captured). With no font at all Qt
+# measures every letter as a square box one font-size wide - so on the Windows
+# CI "Storage & maintenance" measured 325 pixels, "Up to date" wrapped onto two
+# lines, and a chip was too short for its rounded corners. Eight layout tests
+# failed there that pass on Linux, where fontconfig finds the fonts, and they
+# fail here the same way, to the pixel, with fontconfig pointed at an empty
+# folder (2026-09-29). The real application uses the `windows` platform, which
+# asks Windows for its fonts and never reads this variable; `tools/grab_ui.py`
+# sets it the same way for the goldens. Set before the first `QApplication`,
+# because the font folder is read once, when that is built.
+if sys.platform == "win32":
+    _windows_fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
+    if _windows_fonts.is_dir():
+        os.environ.setdefault("QT_QPA_FONTDIR", str(_windows_fonts))
+
 
 @pytest.fixture(autouse=True, scope="session")
 def _repository_detection_stops_at_the_test_tree(tmp_path_factory) -> Iterator[None]:
