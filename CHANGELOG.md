@@ -17,6 +17,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Indexing is no longer refused by a check that nothing was running
+
+- Starting an index, from the window or the command line, could be refused with "an index run is
+  already in progress" when nothing was indexing: the open window checks for another run every few
+  seconds, and a start that landed inside that check was taken for one. A start now waits up to a
+  second for such a check to finish; a real run in progress is still refused. Found by the Windows CI.
+
 ### A silent indexing process no longer hangs the window
 
 - With "Index in a separate process" on, an indexing process that stopped answering was waited on for
