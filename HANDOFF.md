@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.16 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.17 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -204,6 +204,15 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 - [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
       bar glides during a scanned run and shows a moving block before the total is known; minimise
       and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+- [ ] **Number fields and model lists (2026-09-29).** Every number box on Settings and Indexing (and
+      the View menu's text size, the file-type and meaning-model dialogs) has no up/down arrows and a
+      small reset icon inside its right edge, greyed at the default; hovering says "Back to the default
+      (N)". Check it looks right at 100% and 125%, light and dark, and that no number is clipped under the
+      icon (sizes are measured on Linux). Every model is a drop-down you cannot type in. Press Download
+      once for a small Ollama model (Settings › Models › Photo description model › Download ›
+      moondream) and once for a file model (Search › Rerank model: pick jina turbo, Download), then Stop
+      one halfway: the bar moves, Stop ends it, and Download again carries on. Neither download has
+      been run for real anywhere yet.
 
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated

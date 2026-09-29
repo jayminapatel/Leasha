@@ -142,6 +142,19 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.AUTO_FIX,
         action_payload="ollama serve",
     ),
+    # A model somebody asked for by pressing Download (owner, 2026-09-29: model
+    # lists are drop-downs only, with a way to fetch what is not here yet).
+    # The one path in the application that goes to the internet for a model on
+    # request; it never runs on its own.
+    "ERR_MODEL_DOWNLOAD": _Spec(
+        message="The model {model} could not be downloaded.",
+        suggestion=(
+            "Check this computer's internet connection (or proxy) and press "
+            "Download again - what was already fetched is kept, so it carries "
+            "on. Search and everything already indexed work without it."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # A separate code from ERR_OLLAMA_DOWN because it has a different cause and
     # a different fix, and conflating them sent a real diagnosis in the wrong
     # direction: Ollama answered a trial question in 0.59s and the application

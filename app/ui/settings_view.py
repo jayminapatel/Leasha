@@ -28,6 +28,8 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.chat_roles import ModelCombo
+from app.ui.widgets.vision_model import VisionModelField
 from app.ui.widgets.settings_shelves import (  # noqa: F401 - re-exported for callers
     CATEGORY_APPEARANCE, CATEGORY_MODELS, CATEGORY_SEARCH, CATEGORY_STATE_KEY,
     CATEGORY_STORAGE, CATEGORY_WHATS_INDEXED, SettingsShelves,
@@ -156,17 +158,23 @@ class SettingsView(SettingsShelves, QWidget):
         # already uses just above is the whole of what non-negotiable #11
         # asks for here.
         self.photo_people_box = QGroupBox("People and photo descriptions")
-        self.vision_model = QLineEdit()
+        # Owner, 2026-09-29: a drop-down, never a text box, for any model. The
+        # same control the Chat roles grid uses for this setting, with a
+        # Download menu under it - see `widgets/vision_model.py`.
+        self.vision_model = ModelCombo("OLLAMA_VISION_MODEL", vision=True,
+                                       automatic="Automatic (llava)")
         self.vision_model.setObjectName("OLLAMA_VISION_MODEL")
         self.vision_model.setPlaceholderText("llava")
-        self.vision_model.setText(str(getattr(settings, "ollama_vision_model", "") or ""))
         self.vision_model.setToolTip(
             "The Ollama model that answers Describe on a photo. Needs a "
             "vision-capable model - llava or qwen2.5vl are common choices."
         )
-        self.vision_model.editingFinished.connect(
-            lambda: self.settings_changed.emit(
-                {"OLLAMA_VISION_MODEL": self.vision_model.text().strip()}))
+        self.vision_field = VisionModelField(
+            self.vision_model, url=str(getattr(settings, "ollama_url", "") or ""),
+            saved=str(getattr(settings, "ollama_vision_model", "") or ""))
+        self.vision_model.activated.connect(
+            lambda _i: self.settings_changed.emit(
+                {"OLLAMA_VISION_MODEL": self.vision_model.value()}))
 
         self.caption_trickle = QCheckBox("Describe photos in the background")
         self.caption_trickle.setObjectName("CAPTION_TRICKLE_ENABLED")
@@ -211,7 +219,7 @@ class SettingsView(SettingsShelves, QWidget):
             lambda _c=False: self.open_photo_tagger_requested.emit())
         photo_people_form.addRow(self.name_people_button)
         photo_people_form.addRow(self.caption_trickle)
-        photo_people_form.addRow("Photo description model", self.vision_model)
+        photo_people_form.addRow("Photo description model", self.vision_field)
 
         self._build_late_boxes(settings)
 

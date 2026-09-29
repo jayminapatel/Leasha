@@ -121,6 +121,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Refresh list": ("refresh-cw", "secondary"),
     "Test": ("flask-conical", "secondary"),
     "Name the people in your photos…": ("users", "secondary"),
+    # Beside every model drop-down (widgets/model_download.py, 2026-09-29).
+    "Download": ("file-down", "secondary"),
     # -- Settings › Storage & maintenance ------------------------------------
     "Move or change index location…": ("move", "secondary"),
     "Change the meaning model…": ("brain", "secondary"),

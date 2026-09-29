@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Numbers are typed, and models are chosen from a list
+
+- Every number box in the app has lost its up/down arrows; the number is typed. In their place is a
+  small reset icon that puts the default back, greyed when the box already holds it. Its tooltip says
+  what the default is. The keyboard's Up and Down keys still step a number, and the mouse wheel still
+  only changes a box you have clicked.
+- Every model is now picked from a drop-down; none can be typed. That covers the meaning model, the
+  rerank model, the photo description model (a text box until now), the Interpret model, the Chat
+  models and the speech model. A model saved earlier that the list does not know is still shown and
+  still used, marked "(current, not in the list)" or "(current, not installed)".
+- More choices: six more meaning models (small, multilingual, long-passage and large ones, each with
+  its width), two more rerankers, two large speech models (`large-v3-turbo`, `large-v3`), and five
+  picture-reading Ollama models (moondream, llava, qwen2.5vl, minicpm-v, llama3.2-vision).
+- A Download button under each list fetches a model that is not on this computer yet, with progress
+  and a Stop. Ollama models are pulled through Ollama; the others are fetched into the model folder
+  by the same loader Leasha uses. Nothing is downloaded unless you press it.
 
 ### A silent indexing process no longer hangs the window
 

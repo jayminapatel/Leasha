@@ -52,7 +52,9 @@ from PyQt6.QtWidgets import (
 from app.chat.roles import InstalledModels, ram_line, resolve_roles
 from app.core import envelope
 from app.core import settings_registry as reg
+from app.llm.models import SUGGESTED, VISION_SUGGESTED
 from app.ui.widgets.chat_roles import ModelCombo, RolesGrid
+from app.ui.widgets.model_download import DownloadRow
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ChatBox", "chat_settings", "ROLE_KEYS", "DESCRIBE_KEY", "INTRO"]
@@ -150,6 +152,12 @@ class ChatBox(QGroupBox):
         look.addWidget(self.look_again)
         look.addWidget(self.status, 1)
         outer.addLayout(look)
+        # Owner, 2026-09-29: the lists above can only offer what is installed,
+        # so the models worth having that are not installed yet are offered
+        # here, and pulling one asks for the lists again.
+        self.download = DownloadRow("ollama", client_factory=self._client)
+        self.download.finished.connect(lambda _n, _r: self.refresh())
+        outer.addWidget(self.download)
 
         form = QFormLayout()
         outer.addLayout(form)
@@ -320,9 +328,25 @@ class ChatBox(QGroupBox):
             installed = InstalledModels()
         self.set_installed(installed)
 
+    def _client(self) -> Any:
+        """Worker thread: a client for the address Chat uses. No I/O to build."""
+        from app.llm.ollama import OllamaClient
+
+        return OllamaClient(self._url)
+
+    def _offer_downloads(self, installed: InstalledModels) -> None:
+        have = set(installed.names)
+        have |= {name.split(":")[0] for name in installed.names}
+        offers = [(name, "for answering") for name in SUGGESTED]
+        offers += [(name, f"reads pictures, {note}") for name, note in VISION_SUGGESTED]
+        self.download.set_offers(
+            (name, note) for name, note in offers
+            if name not in have and name.split(":")[0] not in have)
+
     def set_installed(self, installed: InstalledModels) -> None:
         """Fill every drop-down from what is installed, keeping what was chosen."""
         self._installed = installed
+        self._offer_downloads(installed)
         for key, control in self.controls.items():
             if isinstance(control, ModelCombo):
                 control.populate(installed, control.value())

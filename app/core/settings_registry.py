@@ -685,7 +685,10 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(
         key="TRANSCRIBE_MODEL", label="Speech model size",
         kind="choice", default="base", group="Models", surface="settings.models",
-        choices=("tiny", "base", "small", "medium"), restart=True,
+        # Dated note, 2026-09-29: the two large models added, in step with
+        # `transcribe.MODELS` (a test holds the two equal).
+        choices=("tiny", "base", "small", "medium", "large-v3-turbo", "large-v3"),
+        restart=True,
         help="Larger models hear accented or quiet speech better and take longer "
              "and more memory: 'tiny' is quickest and roughest, 'base' a sensible "
              "start, 'small' and 'medium' for recordings that matter. Each is "
