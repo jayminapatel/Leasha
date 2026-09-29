@@ -264,6 +264,14 @@ None of it has met a real display, real data, a real PST or Outlook.
       not finished. Start again: that archive carries on from its folder (libpff), and the final
       message count equals an uninterrupted run. Repeat once with a pulled plug if you can.
 - [ ] **A normal Stop or Pause is not reported as "did not finish".**
+- [ ] **Your own `.pst` through libpff (order 0z lane C, 2026-09-29).** Index the archive that was
+      slow and unreliable, on the text-first pass. Record here: messages per second (the run
+      summary, or messages divided by the time the log shows between "Reading a large mail archive"
+      and the archive's counts line); the counts line itself (`Archive.pst: n Indexed · n Failed ·
+      n Held ...`); and whether the reader's line on the Indexing page showed the counts moving.
+      Then run the pictures pass (`--only-ocr`) and check it reads that archive's held pictures and
+      nothing else of it. If it still stalls, note the folder and message the page showed when it
+      stopped moving - a single libpff call that never returns cannot be caught inside the reader.
 - [ ] **`app.cli index` and `app.cli stats`** print the timestamped lines and the
       did-not-finish note in the Windows console, with no stray characters.
 
@@ -1259,6 +1267,23 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
   and reaches `warned_by_code` and the CLI's `Partial` line. **Not yet true:** the Indexing tab
   does not show it, and on an incremental run whose last message is unchanged it is not counted
   (order 0v, 3d and 3e). How Outlook holds a `.pst` it has attached is unmeasured (1e).
+
+- **A damaged archive costs its damaged items, and says so per item (2026-09-29, order 0z lane
+  C).** Measured on seeded damage to copies of a real 14 MB archive (the public Enron sample from
+  the `pst-extractor` project; nothing of the owner's): before, 29/150 lightly and 100/150 heavily
+  damaged copies ended early because an attachment's reader raised something other than
+  `AppErrorException`. `_each_attachment` now catches everything around the reader; the folder walk
+  is iterative with a cycle, depth and failures-in-a-row guard (`MAX_FOLDER_DEPTH`,
+  `MAX_CONSECUTIVE_FAILURES`). Each message and attachment ends as one word on the progress frame
+  (`Frame.counts`; `Frame.beat` rises for every item, for a per-file time limit to watch).
+  **Not caught, and cannot be from inside:** one libpff C call that never returns. No hang or crash
+  was seen in 600 damaged copies; that is evidence, not proof.
+- **Attachment pictures are held on the text pass (2026-09-29, order 0z lane C).** They were OCR'd
+  inline - about 80% of a real archive's read time. `app/extract/reading.py` carries the pass's
+  rule to the reader; the archive goes on the `pictures_held_in_archives` list
+  (`app/index/held_archives.py`), and the pictures pass reads only its pictures, writing no marker
+  and no resume cursor. **The Outlook (MAPI) backend does not honour it yet** - pictures read
+  through Outlook are still OCR'd on the text pass.
 
 ### Two ways to read a .pst, and when each applies
 

@@ -69,6 +69,13 @@ __all__ = [
     "STAGE_ZIP",
     "STAGE_OCR",
     "READER_STAGES",
+    "STATUS_WORDS",
+    "STATUS_INDEXED",
+    "STATUS_SKIPPED",
+    "STATUS_FAILED",
+    "STATUS_TIMED_OUT",
+    "STATUS_DUPLICATE",
+    "STATUS_HELD",
     "attach",
     "detach",
     "enter",
@@ -99,6 +106,34 @@ READER_STAGES = (
     STAGE_ZIP, STAGE_OCR,
 )
 
+#: What happened to each item inside a container, as one word each. Order 0z
+#: lane C: the owner asked to see, *inside* a mail archive's progress,
+#: "12,400 Indexed · 3 Failed · 1 TimedOut". The word is also the key in
+#: `Frame.counts`, so it crosses to the window as plain JSON with no mapping
+#: to keep in step. Items are messages *and* attachments.
+#:
+#: * Indexed - read, and handed on to be indexed.
+#: * Skipped - nothing to read: an empty message, an attachment of a type
+#:   nothing reads, one with no text, or one over the size ceiling.
+#: * Failed - could not be read; the reason is in the log.
+#: * TimedOut - reserved for a per-item time limit. **Nothing sets it yet**: a
+#:   libpff call cannot be interrupted from Python, so a limit has to live
+#:   outside the reader (the per-file limit).
+#: * Duplicate - an attachment whose bytes were already read in this archive.
+#: * Held - a picture left for the pictures pass (`app.extract.reading`).
+STATUS_INDEXED = "Indexed"
+STATUS_SKIPPED = "Skipped"
+STATUS_FAILED = "Failed"
+STATUS_TIMED_OUT = "TimedOut"
+STATUS_DUPLICATE = "Duplicate"
+STATUS_HELD = "Held"
+
+#: Every status word, in the order they are shown.
+STATUS_WORDS = (
+    STATUS_INDEXED, STATUS_SKIPPED, STATUS_FAILED, STATUS_TIMED_OUT,
+    STATUS_DUPLICATE, STATUS_HELD,
+)
+
 
 class Frame:
     """Where one reader is inside one container file.
@@ -126,9 +161,21 @@ class Frame:
     * `stage` - one of the `STAGE_*` codes.
     * `detail` - one extra name worth showing, for example the attachment
       being read. "" when there is none.
+    * `counts` - how many items ended as each `STATUS_WORDS` word so far,
+      for the whole container. Empty for a reader that does not count.
+    * `beat` - rises by one for **every** item looked at: message or
+      attachment, read, skipped, failed or held. `n` is a position within a
+      folder, goes back to 1 when the next folder starts, and stands still
+      while a message's attachments are read; `beat` only ever rises, so "has
+      this reader moved?" is one comparison. 0 for a reader that does not
+      keep it.
+
+    `counts` and `beat` appear in `as_dict` only once a reader has set them,
+    so the frame of a reader that does not count is exactly what it was.
     """
 
-    __slots__ = ("kind", "name", "unit", "n", "total", "where", "stage", "detail")
+    __slots__ = ("kind", "name", "unit", "n", "total", "where", "stage", "detail",
+                 "counts", "beat")
 
     def __init__(self, kind: str, name: str, *, unit: str = "",
                  total: Optional[int] = None, stage: str = "") -> None:
@@ -140,14 +187,30 @@ class Frame:
         self.where = ""
         self.stage = stage
         self.detail = ""
+        self.counts: dict[str, int] = {}
+        self.beat = 0
+
+    def count(self, word: str) -> None:
+        """One more item ended as `word`, and the reader moved on."""
+        self.counts[word] = self.counts.get(word, 0) + 1
+        self.beat += 1
 
     def as_dict(self) -> dict[str, Any]:
-        """The frame as plain values, ready for JSON. Called only when read."""
-        return {
+        """The frame as plain values, ready for JSON. Called only when read.
+
+        `dict(self.counts)` is one C-level copy, so a reader adding to it on
+        another thread cannot tear it (see the module docstring).
+        """
+        out: dict[str, Any] = {
             "kind": self.kind, "name": self.name, "unit": self.unit,
             "n": self.n, "total": self.total, "where": self.where,
             "stage": self.stage, "detail": self.detail,
         }
+        if self.counts:
+            out["counts"] = dict(self.counts)
+        if self.beat:
+            out["beat"] = self.beat
+        return out
 
 
 #: Each thread's own stack of frames. See the module docstring.
