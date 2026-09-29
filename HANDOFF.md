@@ -228,6 +228,12 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 - [ ] **The Indexing page.** At 125% and 150%: the log's filter and Copy line up with its caption; the
       bar glides during a scanned run and shows a moving block before the total is known; minimise
       and restore mid-run and the bar is right at once. Tab moves left to right through the buttons.
+- [ ] **One-word status and list totals (added 2026-09-29).** On the real index: Search, Files, Mail
+      and Code each show a Status column (Search: the word left of the date) and hovering a word gives
+      its sentence; a held scan reads Deferred, a file on an unplugged drive reads Offline. Indexing ›
+      Status opens with the counts line and it moves during a run (Reading shows the readers busy).
+      Mail with no filter says "Showing 500 of N messages"; note how long that summary takes to appear
+      on the full mailbox. Files with an empty box says "Showing 200 of N files".
 
 **Owner testing to do later (on Windows, with the real index).** Deferred by the owner
 2026-09-27 when this was merged. Tick each box here, and put anything that fails in a dated

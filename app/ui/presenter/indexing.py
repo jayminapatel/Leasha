@@ -14,6 +14,7 @@ from app.ui.presenter.formatting import (
     format_size,
     format_when,
 )
+from app.ui.presenter.rows import MAIL_TOTAL_CAP, capped_total
 
 
 @dataclass
@@ -586,7 +587,8 @@ def when_text(iso: str) -> str:
     return format_when(int(moment.timestamp() * 1e9))
 
 
-def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500) -> str:
+def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500,
+                 total: Optional[int] = None) -> str:
     """The line under the Mail table: how many, what was capped, what was dropped.
 
     Moved out of `mail_view.py`, which had **one line** of headroom under the
@@ -608,8 +610,14 @@ def mail_summary(shown: int, leftover: str = "", *, page_size: int = 500) -> str
         return ("No message matches those filters. If no mail is indexed "
                 "yet, add a .pst in Settings and run an index.")
 
-    parts = [f"{shown:,} message{'s' if shown != 1 else ''}"]
-    if shown >= page_size:
+    # **2026-09-29, the total.** The owner: *"when searching for mails the
+    # search displays maximum 500 but does not tell how much total"*. `total`
+    # is a bounded count from the worker (`tasks.browse_messages_page`); when
+    # it is known and larger than the page, the sentence says both numbers.
+    # The two sentences below stay as they were for a total that is unknown.
+    capped = capped_total(shown, total, "messages", "/from, /after …", cap=MAIL_TOTAL_CAP)
+    parts = [capped or f"{shown:,} message{'s' if shown != 1 else ''}"]
+    if shown >= page_size and not capped:
         parts.append(
             f"showing the newest {page_size:,} — narrow the filters to see more")
     if leftover:
