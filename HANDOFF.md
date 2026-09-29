@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.17 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 7.18 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -164,6 +164,10 @@ through a full run, then end Leasha from Task Manager mid-archive and relaunch.
 > **2026-09-27:** the owner decided the setting stays optional and configurable for good; the
 > in-process path is never retired. This check now decides only the default.
 
+- [ ] **Search inside the code (order 0y §2).** In the Code tab, type a class or function name from
+      one of your repositories: its definition is the first row (Match "Definition"), with the Line
+      and the line of Code, then files whose name matches, then Mentions. Open the file and check the
+      line number is right.
 - [ ] **Code tab fixes (order 0y §1).** Run a history search (`/repo <name> something /history`):
       no black console window flashes up. Start one on a large repository and press Esc (or the
       button, which reads "Stop"): it ends at once and says "History search stopped". Right-click a

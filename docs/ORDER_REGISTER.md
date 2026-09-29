@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.43 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.44 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -70,7 +70,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 0v | `pst-resilience` | PST resilience - an archive that is held open or slightly damaged | RELEASED | **17 / 1** | 4a decided 2026-09-20 (retry a partial read next pass only when the cause was transient); 3d, 3e, 5a built; 6c measured on damaged scratch copies of a real archive (no fix needed); 6b ticked with the whole suite run and its failures fixed. **Open:** 1e only (owner-run: how Outlook holds a `.pst` needs an Outlook left running with one attached). **Known, unfixed:** the last block of test files died twice with a native crash in one Qt test when four test processes share a memory-starved machine - see the order's 6b note |
 | 0w | `dates-live-log-and-interrupted-runs` | Date ranges in every box, a live index log, and runs that say they were interrupted | **SHIPPED** | **14 / 0** | Released and built 2026-09-27 from the owner's structured feedback, in the same session. The three verified bugs in that feedback (page-switch freeze, mail dates, silent progress phases) were fixed directly, not ordered. PST folder resume is libpff only (Outlook reason in the order's 3b note). **Not run on the owner's machine** - see `HANDOFF.md` §3, 2026-09-27 (later)
 | 0x | `overhaul-and-mac-ready` | A window that never waits, an indexer that shows its work, and code ready for a Mac | **ACTIVE** *(owner, 2026-09-27)* | 48 / 4 | Builds on 0w (`dates-live-log-and-interrupted-runs`), which shipped and was merged into this branch on 2026-09-27. Overrides "working version first" and the macOS parking for its own scope only (owner decision D4); hardware-specific Mac work stays parked (§P). Run as a master thread with helper threads in worktrees |
-| 0y | `code-and-mail-world-class` | The Code tab and the mail preview, world class | **RELEASED** *(owner, 2026-09-27)* | 4 / 11 | Designed and released in one instruction ("design it ... and build straight away"), for a developer and for everyday people. Starts from what 081149 and 081801 already built. Fixes first (§1), then search inside the code as you type (§2), the mail preview (§4), streaming history (§3) - one PR each |
+| 0y | `code-and-mail-world-class` | The Code tab and the mail preview, world class | **RELEASED** *(owner, 2026-09-27)* | 7 / 8 | Designed and released in one instruction ("design it ... and build straight away"), for a developer and for everyday people. Starts from what 081149 and 081801 already built. Fixes first (§1), then search inside the code as you type (§2), the mail preview (§4), streaming history (§3) - one PR each |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
