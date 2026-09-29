@@ -47,6 +47,9 @@ class SettingsView(SettingsShelves, QWidget):
     #: `{normalised root}` opted in to cloud content indexing (202626270514
     #: §2b). See `RootsBox.cloud_content_changed` - this only relays it.
     cloud_content_roots_changed = pyqtSignal(set)
+    #: 2026-09-29. "Index this folder first", in order. See
+    #: `RootsBox.first_changed` - this only relays it.
+    first_folders_changed = pyqtSignal(list)
     #: "Rescan archived folders now" - one full walk, not a change of policy.
     rescan_archives_requested = pyqtSignal()
     #: `(preset, groups)` for the Code tab's file-type filter. A view

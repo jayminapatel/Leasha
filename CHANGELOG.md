@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.31 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.32 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The newest files are searchable first
+
+- An index run now finds every file before it reads any, then reads the folders you marked "Index
+  this folder first", in the order you marked them, and then everything else newest first - mail
+  archives and files mixed, each by its own date, and small files before large ones within a month.
+  What you worked on lately is searchable in seconds rather than whenever the walk happens to reach
+  it. While it looks, the Indexing page says "Finding files, to read the newest first…" and counts
+  the files seen; the bar then counts against the real total from the first file read.
+- "Index this folder first" is a new button and right-click action on the folder list (Settings ›
+  What's indexed), with a "Read first" column showing each marked folder's place. It is used by the
+  window's run, by `app.cli index` when no `--first` is given, and by "Index in a separate process".
+- Indexing › Tuning › Strategy has a new **Reading order** choice: "Newest first (mixed)", the default,
+  or "As found", the order the scan reaches files in, as before. `app.cli index --order newest|found`
+  does the same for one run.
+- An interrupted run carries on in the same order with the files it had not reached, and a rerun with
+  nothing changed reads nothing - and, on a 9,002-file synthetic corpus in a Linux sandbox, finished
+  in about a second instead of twenty (not yet measured on Windows). A folder marked first no longer also claims a neighbour whose name merely starts the same
+  (`C:\Docs2` under `C:\Docs`).
 
 ### A silent indexing process no longer hangs the window
 

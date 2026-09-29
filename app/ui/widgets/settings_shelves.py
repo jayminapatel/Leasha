@@ -90,6 +90,7 @@ class SettingsShelves:
         self.roots_box.modes_changed.connect(self.root_modes_changed)
         self.roots_box.cloud_content_changed.connect(self.cloud_content_roots_changed)
         self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
+        self.roots_box.first_changed.connect(self.first_folders_changed)
 
         self.code_types = CodeTypesBox()
         self.code_types.changed.connect(self.code_types_changed)
@@ -160,9 +161,9 @@ class SettingsShelves:
 
     def set_roots(
         self, roots: list[str], modes: Optional[dict] = None,
-        cloud_content: Optional[set] = None,
+        cloud_content: Optional[set] = None, first: Optional[list] = None,
     ) -> None:
-        self.roots_box.set_roots(roots, modes, cloud_content)
+        self.roots_box.set_roots(roots, modes, cloud_content, first)
 
     def add_root(self, folder: str) -> bool:
         return self.roots_box.add_root(folder)
@@ -175,6 +176,9 @@ class SettingsShelves:
 
     def current_roots(self) -> list[str]:
         return self.roots_box.current_roots()
+
+    def current_first_folders(self) -> list[str]:
+        return self.roots_box.current_first_folders()
 
     def _make_client(self):
         """A fresh OllamaClient against whatever URL is currently in the box.

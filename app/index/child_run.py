@@ -201,6 +201,7 @@ def child_command(roots: Iterable[Any], *, env_file: Any = None,
                   python: Optional[str] = None, prune: bool = True,
                   recheck_archives: bool = False, workers: int = 0,
                   cloud_content_keys: Iterable[str] = (),
+                  first: Iterable[Any] = (),
                   extra: Iterable[str] = ()) -> list[str]:
     r"""The argument list that starts the indexer as a child. A list, never a
     string, so no shell ever parses a folder name (Windows and macOS alike).
@@ -216,7 +217,9 @@ def child_command(roots: Iterable[Any], *, env_file: Any = None,
     * `recheck_archives` -> `--recheck-archives` ("Rescan archived folders now");
     * `workers` -> `--workers`, the number `resolve_for_run` already chose;
     * `cloud_content_keys` -> `--cloud-content-key`, the per-folder cloud
-      opt-ins exactly as the window stores them (already normalised).
+      opt-ins exactly as the window stores them (already normalised);
+    * `first` -> `--first`, once per folder marked "Index this folder first",
+      **in order** - the order is the setting (2026-09-29).
     """
     argv = [python or sys.executable, "-m", "app.cli", "index",
             "--events", "jsonl", "--run-owner", "window"]
@@ -230,6 +233,8 @@ def child_command(roots: Iterable[Any], *, env_file: Any = None,
         argv += ["--workers", str(int(workers))]
     for key in sorted(str(k) for k in cloud_content_keys):
         argv += ["--cloud-content-key", key]
+    for folder in first:
+        argv += ["--first", str(Path(folder))]
     argv += [str(item) for item in extra]
     # `--` so a folder whose name starts with a dash is read as a folder.
     argv.append("--")
