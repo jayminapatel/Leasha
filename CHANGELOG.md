@@ -25,6 +25,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   Each helper uses about 40 MB. A file that makes its reader fail is skipped
   (`ERR_READER_PROCESS_ENDED`) and the run carries on. Pictures, PDFs, zips, Outlook and older
   Office files are still read in the main process. `bench-pipeline --read-processes` measures it.
+### A silent indexing process no longer hangs the window
+
+- With "Index in a separate process" on, an indexing process that stopped answering was waited on for
+  ever. It is now ended after a minute of silence (three minutes while it starts) and reported like a
+  crash, with its error output, and the next Start carries on. Found by the first Windows CI run.
 
 ### Indexing in a separate process stays a choice
 
