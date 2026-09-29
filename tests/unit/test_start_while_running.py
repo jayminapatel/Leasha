@@ -57,6 +57,8 @@ def test_keeping_the_run_changes_nothing_but_says_why(monkeypatch) -> None:
     assert asked == [window], "the person is asked, not left with a passing note"
     assert view.stopped == 0 and shown == [view]
     assert window._resolving_index is False, "no second run was begun"
+    # The pre-order note, word for word (test_ui_redesign keeps it that way).
+    assert notes == ["An index run is already in progress."]
 
 
 def test_stopping_the_run_stops_it_and_says_what_next(monkeypatch) -> None:

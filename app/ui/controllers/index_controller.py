@@ -612,6 +612,8 @@ class IndexController(QObject):
                 self._w.notify(
                     "Stopping the current run after the file it is reading. "
                     "Press Start again once it has stopped.", 12_000)
+            else:
+                self._w.notify("An index run is already in progress.", 5_000)
             return
 
         chosen = roots or self._w.settings_view.current_roots()
