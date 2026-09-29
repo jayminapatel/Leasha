@@ -1087,6 +1087,7 @@
     <Content Include="docs\WORKORDER-git-search-ui.md" />
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
+    <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
