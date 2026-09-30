@@ -3274,6 +3274,9 @@ class Pipeline:
             #: started another in its place - this one leaves after this file.
             replaced = False
             try:
+                # 2026-09-30: before the first `watch.enter()`, so a reader
+                # process's start-up is never this file's reader time.
+                self._reader_ready(candidate)
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
                 # worker-minutes" answers a question - but it is not a
@@ -3501,6 +3504,46 @@ class Pipeline:
             daemon=True)
         self._replacement_workers.append(worker)
         worker.start()
+
+    def _reader_ready(self, candidate: Candidate) -> None:
+        r"""Wait for this thread's reader process before `candidate`'s clock starts.
+
+        2026-09-30. The file watchdog times a file by the seconds its thread
+        spends waiting on the reader (`FileWatch.enter`/`leave`), and
+        `ReaderProcess.read` used to wait for a child's start-up inside that.
+        So a child slower to start than the limit - a loaded machine, a short
+        limit - timed out the file it was started for; and because a child
+        ended for a time-out is replaced by a fresh one that must start in its
+        turn, every file after one stuck file timed out as well.
+
+        The wait happens here instead, outside the clock, and only when there
+        is something to wait for: a reader process that is not ready and a
+        file that would be read in it. It is bounded by the reader's own
+        `START_LIMIT_S` and gives up at once if the run is stopping.
+
+        **A process that will not start costs no file.** It is reported once
+        (`ERR_READER_PROCESS_START`) and this thread reads its files itself
+        for the rest of the run, which is what it does with "Read files in
+        separate processes" off. Trying again for every file would cost the
+        start-up limit per file.
+        """
+        slots = self._worker_slots()
+        reader = getattr(slots, "reader", None)
+        if reader is None or reader.ready or not reads_in_process(candidate.path):
+            return
+        try:
+            reader.wait_ready(cancelled=self._stop.is_set)
+        except AppErrorException as exc:
+            slots.reader = None
+            watch = getattr(slots, "watch", None)
+            if watch is not None:
+                watch.reader = None
+            reader.close()
+            error = exc.error
+            self._log.warning("{} | {}", error.message, error.suggestion)
+            self._record(KIND_WARNING, error.message, detail=error.code)
+            self._stats_ref.warned_by_code[error.code] = (
+                self._stats_ref.warned_by_code.get(error.code, 0) + 1)
 
     def _kept_in_hand(self, watch: Optional[FileWatch]) -> list[_Extracted]:
         """What a cut-off mailbox or archive had read and not yet handed on.

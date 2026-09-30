@@ -563,6 +563,23 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # 2026-09-30. A reader process (`app/index/read_process.py`) that did not
+    # say it was ready within its own start-up limit, or ended before it did.
+    # No file is named because none was involved - nothing had been sent to
+    # it - and none is skipped: the extraction thread it belonged to reads its
+    # files itself for the rest of the run, exactly as with the switch off.
+    # `{why}` is worded by `ReaderProcess.wait_ready`.
+    "ERR_READER_PROCESS_START": _Spec(
+        message="A reader process did not start: {why}.",
+        suggestion=(
+            "Nothing was skipped: that reader is reading its files inside the "
+            "indexing process for the rest of this run, which is slower but "
+            "complete. If this appears on every run, switch off 'Read files "
+            "in separate processes' on the Indexing page's Tuning shelf, and "
+            "check whether a security program is blocking Leasha's Python."
+        ),
+        action_type=ActionType.AUTO_FIX,
+    ),
     # Work order 0z lane B. A reader that stops making progress on one file -
     # a damaged PDF, a corrupt 3GB zip, a mailbox that stops yielding
     # messages - is ended (or left behind) and the file skipped, so it holds

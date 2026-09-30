@@ -477,6 +477,130 @@ def test_a_hung_reader_process_is_ended_and_the_thread_moves_on(
     pipeline.store.close()
 
 
+#: A reader process that takes 2.5 s to start - what a loaded machine does to
+#: a fresh interpreter and its imports - and then reads perfectly well.
+_SLOW_START_CHILD = textwrap.dedent("""
+    import sys, time
+    time.sleep(2.5)
+    import app.index.read_process as read_process
+    sys.exit(read_process.main(sys.argv[1:]))
+""")
+
+
+class _SlowStartReader(ReaderProcess):
+    def argv(self) -> list[str]:
+        return [self.python, "-c", _SLOW_START_CHILD]
+
+
+def test_a_reader_process_s_start_up_is_not_charged_to_its_first_file(
+        tmp_path, monkeypatch, fast_watchdog) -> None:
+    """The fault of 2026-09-30. The clock for a file started before its reader
+    process had said it was ready, so a process slower to start than the limit
+    timed out the file it was started for - and, a fresh process being started
+    after every time-out, every file after it. Fails on the code as it was
+    (nothing indexed, three `ERR_FILE_TIMEOUT`)."""
+    root = _corpus(tmp_path / "docs", files=3)
+    monkeypatch.setattr(pipeline_module, "ReaderProcess", _SlowStartReader)
+    monkeypatch.setenv("PYTHONPATH", str(PROJECT))
+    # 1 s for a text file; the process needs 2.5 s before it can read one.
+    pipeline = _pipeline(root, tmp_path / "index.db", file_limit=1.0,
+                         read_processes=True)
+    stats, _ = _run(pipeline)
+
+    assert stats.skipped_by_code.get("ERR_FILE_TIMEOUT") is None
+    assert stats.indexed == 3
+    pipeline.store.close()
+
+
+class _NeverReadyReader(ReaderProcess):
+    def argv(self) -> list[str]:
+        return [self.python, "-c", "import time; time.sleep(600)"]
+
+
+def test_a_reader_process_that_never_starts_is_given_up_on_and_nothing_is_skipped(
+        tmp_path, monkeypatch, fast_watchdog) -> None:
+    """The other half: taking start-up off the file's clock must not leave it
+    on no clock. A process that never says it is ready is ended after its own
+    limit, said so in a structured error, and that thread reads its files
+    itself for the rest of the run - no file is blamed for it."""
+    from app.index import read_process
+
+    root = _corpus(tmp_path / "docs", files=3)
+    monkeypatch.setattr(read_process, "START_LIMIT_S", 1.0)
+    monkeypatch.setattr(pipeline_module, "ReaderProcess", _NeverReadyReader)
+    pipeline = _pipeline(root, tmp_path / "index.db", file_limit=5.0,
+                         read_processes=True)
+    stats, took = _run(pipeline)
+
+    assert stats.indexed == 3, "read in the thread instead"
+    assert stats.skipped == 0
+    assert stats.warned_by_code.get("ERR_READER_PROCESS_START") == 1
+    assert took < 15, "one bounded wait, not one per file"
+    warnings = [e.text for e in stats.activity.entries()
+                if e.detail == "ERR_READER_PROCESS_START"]
+    assert len(warnings) == 1 and "did not start" in warnings[0]
+    pipeline.store.close()
+
+
+def test_waiting_for_a_reader_process_is_bounded_and_says_why(monkeypatch) -> None:
+    from app.core.errors import AppErrorException
+    from app.index import read_process
+
+    monkeypatch.setattr(read_process, "START_LIMIT_S", 0.5)
+    reader = _NeverReadyReader(low_priority=False)
+    started = time.monotonic()
+    try:
+        with pytest.raises(AppErrorException) as caught:
+            reader.wait_ready()
+    finally:
+        reader.close()
+    assert time.monotonic() - started < 5
+    error = caught.value.error
+    assert error.code == "ERR_READER_PROCESS_START"
+    assert error.suggestion and "Read files in separate processes" in error.suggestion
+    assert not reader.ready
+
+
+def test_a_stop_is_not_kept_waiting_for_a_reader_process_to_start() -> None:
+    reader = _NeverReadyReader(low_priority=False)
+    started = time.monotonic()
+    try:
+        assert reader.wait_ready(cancelled=lambda: True) is False
+    finally:
+        reader.close()
+    assert time.monotonic() - started < 5
+
+
+def test_the_file_s_clock_starts_when_the_reader_process_is_ready(
+        tmp_path, monkeypatch) -> None:
+    """Read from the clock itself rather than from a time-out: the reader
+    seconds charged to the first file exclude the 2.5 s the process took."""
+    root = _corpus(tmp_path / "docs", files=1)
+    monkeypatch.setattr(pipeline_module, "ReaderProcess", _SlowStartReader)
+    monkeypatch.setenv("PYTHONPATH", str(PROJECT))
+    charged: list[float] = []
+    real_end = file_watch.FileWatch.end
+
+    def end(self) -> None:
+        if self.candidate is not None:
+            with self.lock:
+                self._stop_clock()
+                charged.append(self.read_s)
+        real_end(self)
+
+    monkeypatch.setattr(file_watch.FileWatch, "end", end)
+    pipeline = _pipeline(root, tmp_path / "index.db", file_limit=60.0,
+                         read_processes=True)
+    stats, took = _run(pipeline)
+
+    assert stats.indexed == 1
+    assert took > 2.0, "the process really was slow to start"
+    assert charged and max(charged) < 1.5, (
+        f"the file was charged {max(charged):.1f}s of reader time; the "
+        "process's start-up is in it")
+    pipeline.store.close()
+
+
 # ---------------------------------------------------------------------------
 # The separate-process run: `skip <reader>`
 # ---------------------------------------------------------------------------
