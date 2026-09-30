@@ -104,6 +104,7 @@ from app.index.live_progress import (
 )
 from app.index.file_watch import (
     GRACE_S,
+    LIMIT_STALL,
     ORPHANED,
     FileCancelled,
     FileTimedOut,
@@ -1121,6 +1122,22 @@ WRITE_GROUP_MAX_DOCS = 256
 #: second is well under the 0.25 s the lag monitor calls a stall, and long
 #: enough that commits are no longer a measurable share of the run.
 WRITE_GROUP_MAX_S = 0.1
+
+
+def _kept_on_cut_off(watch: Any, item: Any) -> bool:
+    """Is `item` a message its reader handed over as its archive was cut off?
+
+    Such a message is kept (`Pipeline._kept_in_hand` says why). Only a
+    document of a mailbox or archive: not an error, not the archive's closing
+    marker - an archive that was cut off is not marked as read - and nothing
+    from a thread that was already replaced, whose file is recorded.
+    """
+    return (getattr(watch, "kind", None) == LIMIT_STALL
+            and not getattr(watch, "orphaned", False)
+            and getattr(item, "error", None) is None
+            and not getattr(item, "file_marker", False)
+            and not getattr(item, "name_only", False)
+            and bool(getattr(item, "chunks", None)))
 
 
 def _is_transient_partial(warning: Any) -> bool:
@@ -3284,7 +3301,15 @@ class Pipeline:
                                 watch.leave(finished=True)
                             break
                         if watch is not None:
-                            watch.leave()
+                            try:
+                                watch.leave()
+                            except FileCancelled:
+                                # 2026-09-30: the reader handed this message
+                                # over in the instant its archive was cut off.
+                                # It was read; it is kept, like the rest.
+                                if _kept_on_cut_off(watch, item):
+                                    self._offer(results, item)
+                                raise
                     finally:
                         self._clock.add_worker(
                             "extract", time.perf_counter() - started)
@@ -3318,6 +3343,10 @@ class Pipeline:
                     replaced = True
                 elif verdict is not None:
                     self._record(KIND_WARNING, verdict.message, detail="timed_out")
+                    # Before the error, as every message before it was: what
+                    # the reader had read and not yet handed on.
+                    for kept in self._kept_in_hand(watch):
+                        self._offer(results, kept)
                     self._offer(results, _Extracted(
                         candidate=candidate, content_hash=digest, error=verdict))
                 else:
@@ -3448,6 +3477,11 @@ class Pipeline:
         self._left_behind.add(watch.thread_id)
         if candidate is not None and error is not None:
             self._record(KIND_WARNING, error.message, detail="timed_out")
+            # 2026-09-30: the stuck thread cannot hand over what its reader
+            # had read and was holding back, so this thread does. The stuck
+            # thread is not running Python, so nothing else touches these.
+            for kept in self._kept_in_hand(watch):
+                self._offer(results, kept)
             self._offer(results, _Extracted(
                 candidate=candidate, content_hash=watch.digest, error=error))
         board = getattr(getattr(self, "_stats_ref", None), "board", None)
@@ -3467,6 +3501,35 @@ class Pipeline:
             daemon=True)
         self._replacement_workers.append(worker)
         worker.start()
+
+    def _kept_in_hand(self, watch: Optional[FileWatch]) -> list[_Extracted]:
+        """What a cut-off mailbox or archive had read and not yet handed on.
+
+        2026-09-30. A reader that attaches a closing warning to its last
+        message holds the newest one back (`base.with_closing_warning`), so it
+        is always one message ahead of the index. When a time limit or a Force
+        skip ended the read, that message went with the reader: read, counted
+        as Indexed, and never indexed. It is kept now - "the messages already
+        read are kept" includes the last of them.
+
+        **Mailboxes and archives only** (`LIMIT_STALL`). Any other file is one
+        document, and one that ran out of time is recorded as timed out, not
+        half-indexed. Never raises: keeping one more message must not cost the
+        record of the cut-off itself.
+
+        The cost is cutting that one message into passages with no limit on
+        it - milliseconds for a message, and finite for any text.
+        """
+        take = getattr(watch, "in_hand", None)
+        if take is None or getattr(watch, "kind", None) != LIMIT_STALL:
+            return []
+        try:
+            return list(take())
+        except Exception as exc:                        # noqa: BLE001 - see above
+            self._log.warning("could not keep the last message read from {}: {}",
+                              getattr(getattr(watch.candidate, "path", None),
+                                      "name", watch.candidate), exc)
+            return []
 
     def _time_limit_factor(self, candidate: Candidate) -> float:
         """Order 0z F3: how many times the usual time limit this file is given.
@@ -3708,66 +3771,110 @@ class Pipeline:
         #: Work order `pst-resilience` 4a. Set when the archive came up short
         #: for a reason that will pass (Outlook was busy) - see below.
         retry_next_pass = False
+        #: How many documents the reader has handed over so far.
+        received = 0
+
+        def wrap(index: int, document: Any,
+                 chunks: list[dict[str, Any]]) -> Optional[_Extracted]:
+            """One document of this file as the consumer takes it, or None for
+            one with no text. Shared by the loop below and by `in_hand`, so a
+            document kept after a cut-off is keyed exactly as any other."""
+            nonlocal produced, retry_next_pass
+            if any(_is_transient_partial(w) for w in document.warnings):
+                retry_next_pass = True
+
+            if not chunks:
+                # One empty message in an archive is ordinary and silent.
+                # An empty *file* is a finding worth reporting - it is the
+                # scanned PDF case, and the person needs to know why their
+                # document is not searchable.
+                return None
+
+            key = document.key
+            # **The real fix belongs here, not only in `row_key`.** An
+            # extractor's `Document.key` already defaults to
+            # `str(candidate.path)` for an ordinary single-document file,
+            # so by the time `row_key`'s fallback ran, `key` was already
+            # truthy and the volume-safe branch never fired - found by
+            # `test_the_same_volume_walked_at_two_mount_points_is_one_row`
+            # returning the real, letter-bearing path. Only substituted
+            # when the extractor left the default in place: a multi-
+            # document extractor's own `virtual_path` (an archive member,
+            # a mail message) must never be overridden here.
+            if (key == str(candidate.path)
+                    and candidate.volume_id is not None
+                    and candidate.relative_path is not None):
+                key = _candidate_row_key(candidate)
+            if key in seen_keys:
+                # An extractor yielding many documents must give each a
+                # `virtual_path`. Without one they all share the file's path,
+                # every message overwrites the last, and the archive ends up
+                # as a single row holding only its final email - silently.
+                # Made unique rather than dropped: losing mail to a bug in an
+                # extractor is far worse than an ugly key, and the warning
+                # names the file so it can be fixed.
+                self._log.warning(
+                    "{} produced document {} with a duplicate key {!r}; "
+                    "the extractor is not setting virtual_path",
+                    candidate.path.name, index, key,
+                )
+                key = f"{key}#{index}"
+            seen_keys.add(key)
+
+            produced += 1
+            self._stats_ref.current_item = produced
+            if slot is not None:
+                slot.item = produced
+            return _Extracted(
+                candidate=candidate,
+                content_hash=digest,
+                key=key,
+                chunks=chunks,
+                meta=document.meta,
+                source_kind=document.source_kind,
+                warnings=document.warnings,
+                first_of_file=(index == 0),
+                resume_key=resume_key,
+            )
+
+        # 2026-09-30: what a cut-off read had read and not handed on. A reader
+        # that holds a document back (`base.with_closing_warning`) names it on
+        # this read's `Reading`; `_kept_in_hand` calls this when a time limit
+        # or a Force skip ends the file, from this thread or - for a reader
+        # stuck in native code - from the watchdog's.
+        #
+        # **Not the document whose text was being cut into passages** when the
+        # cut-off came. That one is the item the read was cut off on: cutting
+        # it again here would run with no limit on it, and it may be the very
+        # thing that was taking too long.
+        policy = reader_reading.current()
+
+        def in_hand() -> list[_Extracted]:
+            nonlocal received
+            kept: list[_Extracted] = []
+            for document in policy.take_in_hand():
+                item = wrap(received, document, self._passages(document, None))
+                received += 1
+                if item is not None:
+                    kept.append(item)
+            return kept
+
+        watch = getattr(self._worker_slots(), "watch", None)
+        if watch is not None:
+            watch.in_hand = in_hand
         try:
             for index, (document, chunks) in enumerate(
                 self._read_documents(candidate, resume_from, resume_extra, slot)
             ):
-                if any(_is_transient_partial(w) for w in document.warnings):
-                    retry_next_pass = True
-
-                if not chunks:
-                    # One empty message in an archive is ordinary and silent.
-                    # An empty *file* is a finding worth reporting - it is the
-                    # scanned PDF case, and the person needs to know why their
-                    # document is not searchable.
-                    continue
-
-                key = document.key
-                # **The real fix belongs here, not only in `row_key`.** An
-                # extractor's `Document.key` already defaults to
-                # `str(candidate.path)` for an ordinary single-document file,
-                # so by the time `row_key`'s fallback ran, `key` was already
-                # truthy and the volume-safe branch never fired - found by
-                # `test_the_same_volume_walked_at_two_mount_points_is_one_row`
-                # returning the real, letter-bearing path. Only substituted
-                # when the extractor left the default in place: a multi-
-                # document extractor's own `virtual_path` (an archive member,
-                # a mail message) must never be overridden here.
-                if (key == str(candidate.path)
-                        and candidate.volume_id is not None
-                        and candidate.relative_path is not None):
-                    key = _candidate_row_key(candidate)
-                if key in seen_keys:
-                    # An extractor yielding many documents must give each a
-                    # `virtual_path`. Without one they all share the file's path,
-                    # every message overwrites the last, and the archive ends up
-                    # as a single row holding only its final email - silently.
-                    # Made unique rather than dropped: losing mail to a bug in an
-                    # extractor is far worse than an ugly key, and the warning
-                    # names the file so it can be fixed.
-                    self._log.warning(
-                        "{} produced document {} with a duplicate key {!r}; "
-                        "the extractor is not setting virtual_path",
-                        candidate.path.name, index, key,
-                    )
-                    key = f"{key}#{index}"
-                seen_keys.add(key)
-
-                produced += 1
-                self._stats_ref.current_item = produced
-                if slot is not None:
-                    slot.item = produced
-                yield _Extracted(
-                    candidate=candidate,
-                    content_hash=digest,
-                    key=key,
-                    chunks=chunks,
-                    meta=document.meta,
-                    source_kind=document.source_kind,
-                    warnings=document.warnings,
-                    first_of_file=(index == 0),
-                    resume_key=resume_key,
-                )
+                if watch is not None and watch.orphaned:
+                    # A thread left behind in native code that has come back.
+                    # Its file is recorded and what it held was kept by the
+                    # thread that gave up on it; nothing more is wanted.
+                    raise FileCancelled()
+                received = index + 1
+                item = wrap(index, document, chunks)
+                if item is not None:
+                    yield item
         except AppErrorException as exc:
             if rereading_held:
                 # Order 0z lane C. The archive's own row belongs to the text
@@ -3841,22 +3948,26 @@ class Pipeline:
             return
         for document in extract(candidate.path, resume_from=resume_from,
                                 resume_extra=resume_extra):
-            chunks: list[dict[str, Any]] = []
-            # 0x 3a: "chunking" while the text is cut into passages. Two
-            # plain stores per document; nothing is formatted here.
-            if slot is not None:
-                slot.stage = STAGE_CHUNKING
-            for ordinal, chunk in enumerate(chunk_document(document)):
-                chunks.append({
-                    "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
-                    "char_start": chunk.char_start, "char_end": chunk.char_end,
-                    # Adoptions §6a. `None` for everything that is not a
-                    # spreadsheet, which is nearly every document.
-                    "label": chunk.label,
-                })
-            if slot is not None:
-                slot.stage = STAGE_READING
-            yield document, chunks
+            yield document, self._passages(document, slot)
+
+    def _passages(self, document: Any, slot: Any) -> list[dict[str, Any]]:
+        """One document's text cut into passages, as the writer takes them."""
+        chunks: list[dict[str, Any]] = []
+        # 0x 3a: "chunking" while the text is cut into passages. Two
+        # plain stores per document; nothing is formatted here.
+        if slot is not None:
+            slot.stage = STAGE_CHUNKING
+        for ordinal, chunk in enumerate(chunk_document(document)):
+            chunks.append({
+                "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                "char_start": chunk.char_start, "char_end": chunk.char_end,
+                # Adoptions §6a. `None` for everything that is not a
+                # spreadsheet, which is nearly every document.
+                "label": chunk.label,
+            })
+        if slot is not None:
+            slot.stage = STAGE_READING
+        return chunks
 
     # -- stage 3: embed and write (one thread: this one) --------------------
 

@@ -276,6 +276,12 @@ class FileWatch:
         #: True once the watchdog has recorded this file itself and the
         #: pipeline has replaced the thread.
         self.orphaned = False
+        #: 2026-09-30. Set by the pipeline while it reads this file: a call
+        #: returning what the reader has read and not yet handed on, so a
+        #: mailbox that is cut off keeps its last message
+        #: (`Pipeline._kept_in_hand`). Callable from the watchdog's thread,
+        #: for a reader stuck where its own thread cannot be reached.
+        self.in_hand: Optional[Callable[[], list]] = None
 
     # -- the extraction thread's side ------------------------------------------
 
@@ -297,6 +303,7 @@ class FileWatch:
             self.cancel = None
             self.acted_at = 0.0
             self.injected = False
+            self.in_hand = None
 
     def enter(self) -> None:
         """About to ask the reader for its next document."""
@@ -351,6 +358,7 @@ class FileWatch:
             self.token += 1
             self.candidate = None
             self.cancel = None
+            self.in_hand = None
 
     def _stop_clock(self) -> None:
         if self.reading_since:
