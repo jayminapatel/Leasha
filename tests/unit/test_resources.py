@@ -455,6 +455,161 @@ def test_the_probe_stays_cheap_with_children():
     assert per_read < 0.005, f"{per_read * 1000:.2f}ms per read with eight children"
 
 
+# ---------------------------------------------------------------------------
+# 2026-09-30: the subtraction above never happened on a real machine.
+#
+# `psutil.Process.children()` builds a **new** `Process` object for every child
+# on every call, and the first `cpu_percent(interval=None)` of a new object is
+# 0.0 by psutil's contract. The probe asked each new object once and threw it
+# away, so every child read 0.0 for ever. `FakeChild` above hands back a fixed
+# number from the first call, which is why the tests above never saw it.
+# ---------------------------------------------------------------------------
+
+class PsutilLikeChild:
+    """A child as psutil gives one: 0.0 on the first reading of each object."""
+
+    def __init__(self, pid: int, percent: float, created: float = 100.0,
+                 alive: list | None = None):
+        self.pid = pid
+        self._percent = percent
+        self._created = created
+        self._asked = False
+        self._alive = alive
+
+    def create_time(self) -> float:
+        return self._created
+
+    def cpu_percent(self, interval=None) -> float:
+        if self._alive is not None and not self._alive[0]:
+            raise FakePsutil.NoSuchProcess(self.pid)
+        if not self._asked:
+            self._asked = True
+            return 0.0
+        return self._percent
+
+
+class PsutilLikeProcess(FakeProcess):
+    """`children()` as psutil's: new objects every call, and the calls counted."""
+
+    def __init__(self, own_percent: float, make_children):
+        super().__init__(own_percent, [])
+        self._make = make_children
+        self.listed = 0
+
+    def children(self, recursive: bool = False) -> list:
+        self.listed += 1
+        return self._make()
+
+
+def _ticking(monkeypatch, start: float = 1000.0) -> list:
+    """`time.monotonic` in `resources`, moved by hand."""
+    from app.index import resources
+
+    now = [start]
+    monkeypatch.setattr(resources.time, "monotonic", lambda: now[0])
+    return now
+
+
+def test_a_child_is_counted_from_its_second_reading_on(monkeypatch):
+    """Fails on the code as it was: own stays at 10.0 however often it is read."""
+    now = _ticking(monkeypatch)
+    me = PsutilLikeProcess(40.0, lambda: [PsutilLikeChild(1, 120.0), PsutilLikeChild(2, 40.0)])
+    probe = probe_with(FakePsutil(me, cores=4))
+
+    first = probe.read()
+    now[0] += 1.0
+    second = probe.read()
+    now[0] += 1.0
+    third = probe.read()
+
+    assert first.own_cpu_percent == pytest.approx(10.0), "a child's first reading is 0.0"
+    assert second.own_cpu_percent == pytest.approx(50.0)
+    assert third.own_cpu_percent == pytest.approx(50.0)
+
+
+def test_a_child_that_has_gone_is_dropped_and_a_reused_pid_starts_again(monkeypatch):
+    from app.index import resources
+
+    now = _ticking(monkeypatch)
+    alive = [True]
+    table = [[PsutilLikeChild(7, 80.0, created=100.0, alive=alive)]]
+    me = PsutilLikeProcess(0.0, lambda: list(table[0]))
+    probe = probe_with(FakePsutil(me, cores=4))
+    probe.read()
+    now[0] += resources.CHILD_LIST_S
+    assert probe.read().own_cpu_percent == pytest.approx(20.0)
+
+    # The converter exits; Windows hands its pid to a new one a moment later.
+    alive[0] = False
+    table[0] = [PsutilLikeChild(7, 400.0, created=200.0)]
+    now[0] += resources.CHILD_LIST_S
+    assert probe.read().own_cpu_percent == pytest.approx(0.0), (
+        "the new process's first reading, not the old one's last")
+    now[0] += resources.CHILD_LIST_S
+    assert probe.read().own_cpu_percent == pytest.approx(100.0)
+    assert len(probe._children) == 1, "the dead child is not kept"
+
+
+def test_the_process_table_is_walked_once_a_second_however_often_it_is_asked(monkeypatch):
+    """The walk is the probe's whole cost (measured: see `_children_cpu_percent`),
+    and during a run the governor asks four times a second."""
+    from app.index import resources
+
+    now = _ticking(monkeypatch)
+    me = PsutilLikeProcess(0.0, lambda: [PsutilLikeChild(1, 80.0)])
+    probe = probe_with(FakePsutil(me, cores=4))
+
+    readings = []
+    for _ in range(9):                          # two seconds, at the run's 0.25 s
+        readings.append(probe.read().own_cpu_percent)
+        now[0] += 0.25
+
+    assert me.listed == 3, "at 0, 1 and 2 seconds"
+    assert readings[0] == pytest.approx(0.0)
+    assert all(value == pytest.approx(20.0) for value in readings[1:]), (
+        "and the child is read every time, from the object that was kept")
+    assert resources.CHILD_LIST_S == 1.0
+
+
+def test_a_real_busy_child_is_counted_as_our_own_load():
+    """The suspicion of 2026-09-30, tested for real: a child that burns a core,
+    and the probe read a second apart the way the governor reads it. Fails on
+    the code as it was - measured on this laptop, own 0.1% of the machine
+    against a child truly using 3.6-6.8% of it."""
+    import subprocess
+    import sys
+    import time as _time
+
+    psutil = pytest.importorskip("psutil")
+    from app.index.resources import SystemProbe
+
+    child = subprocess.Popen([sys.executable, "-c", "while True:\n    pass"])
+    try:
+        _time.sleep(1.0)
+        # A venv's python.exe starts the real interpreter as its own child, so
+        # the busy process may be a grandchild: the truth is the whole tree's.
+        root = psutil.Process(child.pid)
+        tree = [root, *root.children(recursive=True)]
+        for process in tree:
+            process.cpu_percent(interval=None)
+        cores = psutil.cpu_count() or 1
+        probe = SystemProbe()
+        probe.read()
+        seen: list[tuple[float, float]] = []
+        for _ in range(5):
+            _time.sleep(1.0)
+            own = probe.read().own_cpu_percent
+            truth = sum(p.cpu_percent(interval=None) for p in tree) / cores
+            seen.append((round(own, 2), round(truth, 2)))
+            if truth >= 1.0 and own >= 0.5 * truth:
+                return
+    finally:
+        child.kill()
+    if all(truth < 1.0 for _own, truth in seen):
+        pytest.skip(f"the child never got a processor to itself: {seen}")
+    pytest.fail(f"the child's processor use was not counted as ours (own, truth): {seen}")
+
+
 # -- who is busy -------------------------------------------------------------
 
 @pytest.fixture
