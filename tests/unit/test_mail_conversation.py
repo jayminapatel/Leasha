@@ -273,7 +273,7 @@ def qapp():
 def test_a7_a_message_with_three_replies_shows_the_card_and_four_messages(qapp, store) -> None:
     """Acceptance A7."""
     from app.ui.mail_view import MailView
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     ids = _thread(store)
     view = MailView(store)
@@ -292,12 +292,11 @@ def test_a7_a_message_with_three_replies_shows_the_card_and_four_messages(qapp, 
         assert not card.conversation.item(1).font().bold()
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_clicking_a_message_shows_it_in_the_same_pane(qapp, store) -> None:
     from app.ui.mail_view import MailView
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     ids = _thread(store)
     view = MailView(store)
@@ -318,12 +317,11 @@ def test_clicking_a_message_shows_it_in_the_same_pane(qapp, store) -> None:
         assert not pane.mail.conversation.item(0).font().bold()
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_a_message_on_its_own_shows_no_list(qapp, store) -> None:
     from app.ui.mail_view import MailView
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     add_message(store, path="pst://Archive/E1", subject="Alone", sender="x@y.z",
                 sent_at=TUESDAY, body="Just me.", conversation="<alone@x>")
@@ -335,7 +333,6 @@ def test_a_message_on_its_own_shows_no_list(qapp, store) -> None:
         assert view.preview.mail.conversation_box.isHidden()
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_the_list_is_named_for_a_screen_reader(qapp) -> None:

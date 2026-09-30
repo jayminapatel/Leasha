@@ -433,3 +433,141 @@ def test_no_heading_anywhere_is_centred_over_a_column_that_is_not(qapp):
                 f"{heading!r} is aligned {item.textAlignment()}, "
                 f"its column is {wanted}")
             assert item.textAlignment() != centred
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-30 - switching sorting back on costs one sort, or none
+# ---------------------------------------------------------------------------
+
+def _count_comparisons(monkeypatch) -> list:
+    """How many times Qt asks a cell whether it sorts before another."""
+    calls = [0]
+    real = SortableItem.__lt__
+
+    def counted(self, other):
+        calls[0] += 1
+        return real(self, other)
+
+    monkeypatch.setattr(SortableItem, "__lt__", counted)
+    return calls
+
+
+def _many(count: int = 60) -> list:
+    # Names deliberately out of order, so a sort by name has work to do.
+    return [Row(f"file {(n * 37) % count:03d}", f"{n} KB", n * 1_000, "then", n)
+            for n in range(count)]
+
+
+def test_a_ranked_list_is_filled_without_sorting_at_all(qapp, monkeypatch):
+    r"""The rows arrive in the engine's order and are numbered as they stand,
+    so there is nothing to sort. It used to sort twice per fill - once by
+    whatever the header pointed at, once by the hidden rank column - and every
+    comparison is a call into Python: about a third of a 2,000-row draw."""
+    rows = _many()
+    calls = _count_comparisons(monkeypatch)
+    table = ResultTable(["Name", "Size", "When"], ranked=True,
+                        aligns=["left", "right", "right"])
+
+    _fill(table, rows)
+    _fill(table, rows)                                  # and a redraw
+
+    assert calls[0] == 0, f"{calls[0]} comparisons to fill a list already in order"
+    assert _names(table) == [row.name for row in rows]
+    assert table.isSortingEnabled()
+    assert not table.horizontalHeader().isSortIndicatorShown()
+    assert table.sort_order == RELEVANCE
+
+
+def test_a_chosen_sort_is_reapplied_with_one_sort_not_two(qapp, monkeypatch):
+    rows = _many()
+    table = ResultTable(["Name", "Size", "When"], ranked=True,
+                        aligns=["left", "right", "right"])
+    _fill(table, rows)
+    _click(table, 0)                                    # somebody sorts by name
+    calls = _count_comparisons(monkeypatch)
+    sorts: list = []                                    # the model says so once per sort
+    table.model().layoutChanged.connect(lambda *_a: sorts.append(1))
+
+    _fill(table, rows)                                  # a new result set
+
+    assert _names(table) == sorted(row.name for row in rows)
+    assert calls[0] > 0 and len(sorts) == 1, (calls[0], len(sorts))
+
+
+def test_qt_sorts_the_moment_sorting_is_switched_on(qapp, monkeypatch):
+    """The Qt behaviour the two tests above rest on, pinned so an upgrade that
+    changes it is noticed: enabling sorting sorts by the header's indicator,
+    and an indicator pointing at no column compares nothing."""
+    from PyQt6.QtWidgets import QTableWidget
+
+    calls = _count_comparisons(monkeypatch)
+
+    def plain(section):
+        table = QTableWidget(3, 1)
+        for index, text in enumerate(["b", "c", "a"]):
+            table.setItem(index, 0, SortableItem(text))
+        table.horizontalHeader().setSortIndicator(section, Qt.SortOrder.AscendingOrder)
+        assert calls[0] == 0, "pointing the indicator sorted, with sorting off"
+        table.setSortingEnabled(True)
+        return [table.item(row, 0).text() for row in range(3)]
+
+    assert plain(0) == ["a", "b", "c"] and calls[0] > 0
+    calls[0] = 0
+    assert plain(-1) == ["b", "c", "a"] and calls[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-30 - a list nobody has sorted stays in the order it was filled in
+# ---------------------------------------------------------------------------
+
+def test_an_unranked_list_nobody_has_sorted_keeps_the_order_it_was_given(qapp):
+    r"""Mail's table. Qt's header starts out pointing at column 0, descending,
+    and sorts by it the moment sorting is switched on - so the list arrived in
+    order of its first column, Z to A, under an arrow nobody had asked for,
+    while `sort_order` said it was unsorted."""
+    table = _table()                                    # unranked, as Mail's is
+
+    assert _names(table) == ["beta", "alpha", "gamma"], "the order it was filled in"
+    assert table.sort_order is None
+    assert not table.horizontalHeader().isSortIndicatorShown()
+
+    _fill(table, list(reversed(ROWS)))                  # and after a refresh
+    assert _names(table) == ["gamma", "alpha", "beta"]
+
+
+def test_an_unranked_list_still_sorts_when_a_heading_is_clicked(qapp):
+    table = _table()
+    _click(table, 0)
+    assert _names(table) == ["alpha", "beta", "gamma"]
+
+    _fill(table, list(reversed(ROWS)))                  # the chosen sort survives
+    assert _names(table) == ["alpha", "beta", "gamma"]
+
+
+def test_the_mail_tab_opens_newest_first(qapp, tmp_path):
+    """End to end: the list the Mail tab shows is the list the index returned."""
+    from PyQt6.QtCore import QThreadPool
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.mail_view import COLUMNS, MailView
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        for day, sender in enumerate(["bob@x.org", "dave@x.org", "alice@x.org", "carol@x.org"]):
+            message = store.upsert_file(f"pst://box/E{day}", size_bytes=5, mtime_ns=1,
+                                        source_kind="pst_message")
+            store.mark_indexed(message)
+            store.set_message(message, subject=f"Day {day}", sender=sender,
+                              sent_at=1_700_000_000 + day * 86_400)
+        view = MailView(store)
+        try:
+            view._timer.stop()
+            for _ in range(10):
+                QThreadPool.globalInstance().waitForDone(5_000)
+                qapp.processEvents()
+            subject = [key for key, *_ in COLUMNS].index("subject")
+            shown = [view.results.item(row, subject).text()
+                     for row in range(view.results.rowCount())]
+            assert shown == ["Day 3", "Day 2", "Day 1", "Day 0"], shown
+            assert not view.results.horizontalHeader().isSortIndicatorShown()
+        finally:
+            view.shutdown()

@@ -181,7 +181,7 @@ def test_a9_previewing_opens_nothing_and_the_click_opens_that_message(qapp, stor
     """Acceptance A9, as far as it can go without Outlook: the button is there
     for an Outlook message, previewing starts nothing, and one click hands the
     launcher this message's identifier and archive."""
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     add_message(store, path="pst://Archive2019/0000ABCD", subject="School trip",
                 sender="dave@acme.com", sent_at=TUESDAY, body="The trip is on Friday.",
@@ -203,11 +203,10 @@ def test_a9_previewing_opens_nothing_and_the_click_opens_that_message(qapp, stor
         assert outlook.calls == [("0000ABCD", "D:/mail/Archive2019.pst")]
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_outlook_failing_is_reported_not_raised(qapp, store) -> None:
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     add_message(store, path="pst://Archive2019/0000ABCD", subject="School trip",
                 sender="dave@acme.com", sent_at=TUESDAY, body="x",
@@ -223,14 +222,13 @@ def test_outlook_failing_is_reported_not_raised(qapp, store) -> None:
         assert [error.code for error in errors] == ["ERR_OUTLOOK_OPEN"]
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_an_eml_message_opens_with_the_panes_open_button(qapp, store, tmp_path, monkeypatch) -> None:
     """For a message that is a file, "Open" opens the file - not Outlook, and
     not a search inside it."""
     from app.ui.widgets import mail_open
-    from tests.unit.test_mail_preview_card import preview_now, pump, release
+    from tests.unit.test_mail_preview_card import preview_now, pump
 
     letter = tmp_path / "trip.eml"
     letter.write_text("Subject: School trip\n\nThe trip is on Friday.", encoding="utf-8")
@@ -256,7 +254,6 @@ def test_an_eml_message_opens_with_the_panes_open_button(qapp, store, tmp_path, 
         assert outlook.calls == [] and searched == []
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_a_file_that_is_not_a_message_keeps_its_open_button_as_it_was(qapp) -> None:

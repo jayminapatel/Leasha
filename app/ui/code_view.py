@@ -40,7 +40,7 @@ from app.ui.presenter import (
 from app.ui.presenter.code import _anything_indexed
 from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.widgets.repo_ignore import ignore_repository
-from app.ui.view_options import button as view_button
+from app.ui.view_options import button as view_button, weak_slot
 from app.ui.widgets.code_commands import (
     CODE_CATALOGUE, code_command_for, code_matching, git_values,
 )
@@ -85,7 +85,10 @@ class CodeView(QWidget):
             "/repo  /type  /history  /class  /introduced")
         self.input.setClearButtonEnabled(True)
         self.input.setAccessibleName("Search code and repository history")
-        self.input.textChanged.connect(lambda _t: self._timer.start())
+        # **2026-09-30: `weak_slot`, never `lambda: self...`** - a callback
+        # closing over `self`, held by this view's own child, kept a view that
+        # had been let go alive. See `view_options.weak_slot`.
+        self.input.textChanged.connect(weak_slot(self, lambda view, _t: view._timer.start()))
         self.input.returnPressed.connect(self.start)
         # The two catalogues merged - see `widgets/code_commands.py`. Values
         # come from the index for `/repo` and `/type`, and from git for
@@ -93,8 +96,8 @@ class CodeView(QWidget):
         self._popup = attach_to(
             self.input, catalogue=CODE_CATALOGUE, matcher=code_matching,
             resolve=code_command_for, store=store,
-            lookup=lambda kind, prefix, limit: git_values(
-                self._repos, self.input.text(), kind, prefix, limit),
+            lookup=weak_slot(self, lambda view, kind, prefix, limit: git_values(
+                view._repos, view.input.text(), kind, prefix, limit)),
         )
 
         self.run_button = QPushButton("Search history")
@@ -114,7 +117,8 @@ class CodeView(QWidget):
 
         self.empty = QLabel("", wordWrap=True, openExternalLinks=False,
                             visible=False)
-        self.empty.linkActivated.connect(lambda _l: self.indexing_requested.emit())
+        self.empty.linkActivated.connect(
+            weak_slot(self, lambda view, _l: view.indexing_requested.emit()))
 
         # The table, the preview and the row menu are in `code_results.py`;
         # the tree and its scope are in `git_tree.py`. Both were split out when
@@ -132,10 +136,9 @@ class CodeView(QWidget):
         self.results.reveal_requested.connect(self.reveal_requested)
         self.results.search_repo_requested.connect(self.search_repo_requested)
         # Order 0y §1c: the row menu's "Ignore this repository".
-        self.results.ignore_repo_requested.connect(
-            lambda name: ignore_repository(self, name))
+        self.results.ignore_repo_requested.connect(weak_slot(self, ignore_repository))
         self.results.view_menu_requested.connect(
-            lambda at: self.view_button.show_menu(at))
+            weak_slot(self, lambda view, at: view.view_button.show_menu(at)))
         self.preview = self.results.preview        # re-exposed for callers
 
         # The repository tree, and the button that reveals it. Off by default:
@@ -234,8 +237,9 @@ class CodeView(QWidget):
             cached=self._scoped_rows, repos=self._repos, limit=REPO_FILE_LIMIT,
             component="ui.code",
         )
-        worker.signals.finished.connect(
-            lambda rows, g=generation: self._show_files(rows, g))
+        # `weak_slot`: a finished worker and its slots wait for the collector.
+        worker.signals.finished.connect(weak_slot(
+            self, lambda view, rows, g=generation: view._show_files(rows, g)))
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 

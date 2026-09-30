@@ -40,6 +40,7 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import GitScope
+from app.ui.view_options import weak_slot
 from app.ui.workers import CallableWorker, _emit, run
 
 __all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
@@ -538,7 +539,9 @@ def git_search_running(view: Any, running: bool) -> None:
     if escape is None:
         escape = QShortcut(QKeySequence(Qt.Key.Key_Escape), view)
         escape.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
-        escape.activated.connect(lambda: stop_git_search(view))
+        # 2026-09-30: `weak_slot` - the view holds this shortcut, so a slot
+        # closing over the view was a cycle. See `view_options.weak_slot`.
+        escape.activated.connect(weak_slot(view, stop_git_search))
         view._git_escape = escape
     escape.setEnabled(running)
 
@@ -608,17 +611,20 @@ def start_git_search(view: Any, route: Any) -> None:
     relay = lambda progress: _emit(worker.signals, "progress", progress)  # noqa: E731
     worker = CallableWorker(search_repositories, targets, query, stop=view._git_stop,
                             on_progress=relay, component="ui.code.git")
-    worker.signals.progress.connect(
-        lambda progress, g=generation: draw_git_progress(view, progress, g))
-    worker.signals.finished.connect(
-        lambda found, g=generation: view._show_git(found, g))
-    worker.signals.failed.connect(lambda _e: git_search_running(view, False))
+    # 2026-09-30: `weak_slot` throughout - a finished worker and its slots
+    # wait for the collector, and would keep a view that was let go with them.
+    worker.signals.progress.connect(weak_slot(
+        view, lambda code, progress, g=generation: draw_git_progress(code, progress, g)))
+    worker.signals.finished.connect(weak_slot(
+        view, lambda code, found, g=generation: code._show_git(found, g)))
+    worker.signals.failed.connect(
+        weak_slot(view, lambda code, _e: git_search_running(code, False)))
     worker.signals.failed.connect(view.error.emit)
     # 2026-09-30: the button goes back to "Search history" when *this* search
     # ends, whatever the list is showing by then. Typing a plain file search
     # while git ran moved `_generation` on, the result was (rightly) dropped,
     # and the button read "Stop" until somebody pressed it.
-    worker.signals.done.connect(
-        lambda flag=view._git_stop: git_search_running(view, False)
-        if view._git_stop is flag else None)
+    worker.signals.done.connect(weak_slot(
+        view, lambda code, flag=view._git_stop: git_search_running(code, False)
+        if code._git_stop is flag else None))
     run(QThreadPool.globalInstance(), worker)

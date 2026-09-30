@@ -227,6 +227,20 @@ class MailRow:
     thread_count: int = 0
 
 
+def file_of_row(row: Any) -> str:
+    """The real file a row stands for, or `""` when it stands for none.
+
+    What "Show in folder" can select. A message read out of a mail archive has
+    a made-up address for a path - `pst://archive/E12` - and no file of its
+    own; an attachment inside one the same; a commit from a repository's
+    history has no file on disk at all. A Code row keeps its real path in
+    `full_path` (`path` is shortened for the column), so that is read first.
+    """
+    full = getattr(row, "full_path", None)
+    path = str((full if full is not None else getattr(row, "path", "")) or "")
+    return "" if "://" in path else path
+
+
 def mail_rows(
     rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None
 ) -> list[MailRow]:

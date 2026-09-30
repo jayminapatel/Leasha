@@ -47,7 +47,7 @@ from app.ui.presenter import (
 from app.ui.presenter.mail import THREAD_COLUMN, mail_list
 from app.ui.tasks import browse_messages_page
 from app.ui.view_options import (
-    apply_to_table, available_columns, button as view_button,
+    apply_to_table, available_columns, button as view_button, weak_slot,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
@@ -128,7 +128,10 @@ class MailView(QWidget):
             "/has attachment  /after 2024-01-01"
         )
         self.input.setClearButtonEnabled(True)
-        self.input.textChanged.connect(lambda _t: self._timer.start())
+        # **2026-09-30: `weak_slot` and methods, never `lambda: self...`** - a
+        # callback closing over `self`, held by this view's own child, kept a
+        # view that had been let go alive. See `view_options.weak_slot`.
+        self.input.textChanged.connect(weak_slot(self, lambda view, _t: view._timer.start()))
         # Only what this tab honours - see `command_popup.MAIL_COMMANDS`.
         self._popup = attach_to(self.input, only=MAIL_COMMANDS, store=store)
 
@@ -147,13 +150,13 @@ class MailView(QWidget):
 
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(self._on_context_menu)
-        self.results.itemDoubleClicked.connect(lambda _item: self._open_selected())
+        self.results.itemDoubleClicked.connect(self._open_selected)   # the cell is no row
         # Right-click the header for the column, density and text-size menu.
         # On the header rather than in Settings: it is a preference about this
         # table, and the place people look for it is the table.
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        header.customContextMenuRequested.connect(
-            lambda point: self.view_button.show_menu(header.mapToGlobal(point)))
+        header.customContextMenuRequested.connect(weak_slot(self, lambda view, point: (
+            view.view_button.show_menu(view.results.horizontalHeader().mapToGlobal(point)))))
 
         self.view_button = view_button(
             self, store, PREFS_KEY,
@@ -179,7 +182,8 @@ class MailView(QWidget):
             self.results, self._open_selected, self.error.emit, store=store)
         # The message as text for a pinned window, the stripped-quote notice,
         # and the words to highlight (0y 4b) - `mail_card.attach_mail`.
-        attach_mail(self.preview, store, lambda: getattr(self, "_parsed", None))
+        attach_mail(self.preview, store,
+                    weak_slot(self, lambda view: getattr(view, "_parsed", None)))
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
@@ -228,9 +232,9 @@ class MailView(QWidget):
         worker = CallableWorker(   # the page and, when it is full, the total
             browse_messages_page, self._store, limit=PAGE_SIZE, component="ui.mail", **filters
         )
-        worker.signals.finished.connect(
-            lambda rows, g=generation: self._show(rows, g, leftover)
-        )
+        # `weak_slot`: a finished worker and its slots wait for the collector.
+        worker.signals.finished.connect(weak_slot(
+            self, lambda view, rows, g=generation: view._show(rows, g, leftover)))
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 

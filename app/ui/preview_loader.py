@@ -884,6 +884,11 @@ class MailPreview:
     #: The card, conversation and original are then its parent message's, and
     #: `body` is the attachment's own text.
     attachment: str = ""
+    #: 2026-09-30: the archive file this message was read out of
+    #: (`messages.store_path`), for a row that is not a file itself - what
+    #: "Show in folder" selects for it. `""` for a message that is its own file
+    #: (`.eml`, `.msg`), and for one whose archive the index did not record.
+    archive: str = ""
 
 
 def _conversation(store: Any, message: Any, file_id: int) -> tuple[tuple, str]:
@@ -946,7 +951,7 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     from app.ui.presenter.mail import (
         UNNAMED_ATTACHMENT, mail_card, original_target, split_index_headers,
     )
-    from app.ui.presenter.rows import mail_rows
+    from app.ui.presenter.rows import file_of_row, mail_rows
 
     stored = stored_text(store, file_id)
     card = mail_card(message, stored)
@@ -971,6 +976,7 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
         conversation=lines, conversation_heading=heading,
         original=original_target(message, listed.path),
         attachment=attachment,
+        archive=("" if file_of_row(row) else str(message.get("store_path") or "").strip()),
     )
 
 

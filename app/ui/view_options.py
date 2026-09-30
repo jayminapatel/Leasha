@@ -40,7 +40,7 @@ __all__ = [
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
-    "column_cap", "MAX_COLUMN_SHARE", "MIN_COLUMN_CAP_PX",
+    "column_cap", "MAX_COLUMN_SHARE", "MIN_COLUMN_CAP_PX", "weak_slot",
 ]
 
 
@@ -594,6 +594,37 @@ def _weakly(callback: Any) -> Any:
     return call
 
 
+def weak_slot(owner: Any, function: Any) -> Any:
+    """`function(owner, *args)` as a callback that does not keep `owner` alive.
+
+    For the places a view hands one of its own children something to call
+    back - a signal's slot, a provider - that is not simply one of its methods.
+    Written as `lambda: self.something()`, that callback closes over `self`,
+    the child holds the callback and the view holds the child: a cycle, so the
+    view outlives its last reference until the cyclic collector gets to it.
+    And while the width watcher's registry (`_WATCHERS`) could reach such a
+    callback through the table's header, the collector never got to it at all.
+
+        header.customContextMenuRequested.connect(
+            weak_slot(self, lambda view, point: view.view_button.show_menu(...)))
+
+    **The function takes the owner as its first argument and must not mention
+    `self`**, or the cycle is back; `test_views_are_freed.py` fails if one does.
+    A method whose arguments already fit needs none of this: `connect(self.x)`
+    does not keep `self` alive. Once the owner has gone the callback does
+    nothing and returns None - by then whatever would call it is going too.
+    """
+    import weakref
+
+    ref = weakref.ref(owner)
+
+    def call(*args: Any) -> Any:
+        alive = ref()
+        return function(alive, *args) if alive is not None else None
+
+    return call
+
+
 def button(
     parent: Any,
     store: Any,
@@ -619,7 +650,14 @@ def button(
     """
     from PyQt6.QtWidgets import QToolButton
 
+    import weakref
+
     on_change = _weakly(on_change)
+    #: **Weakly**: the table's width watcher refers to this button, so a strong
+    #: reference back made button -> table -> watcher -> button a cycle (and,
+    #: through `_WATCHERS`, a path from the registry to everything the table's
+    #: slots close over). The table is the view's; it outlives this button.
+    table_ref = weakref.ref(table) if table is not None else None
     widget = QToolButton(parent)
     widget.setText("View")
     widget.setToolTip(
@@ -646,9 +684,10 @@ def button(
         exactly as dragged while the setting that produced them disappeared -
         the preference and the screen disagreeing, which is worse than either.
         """
-        if table is not None:
+        fitted = table_ref() if table_ref is not None else None
+        if fitted is not None:
             try:
-                table.setProperty(FITTED, False)
+                fitted.setProperty(FITTED, False)
             except RuntimeError:                 # the C++ side has gone
                 pass
         changed(replace(widget.prefs, widths=()))
@@ -879,6 +918,17 @@ WATCH_MS = 600
 #: never picks it (or anything it holds) to clear. Entries go when their timer
 #: has been deleted - pruned on the next `remember_widths` - or when `look`
 #: stops its own timer because the table has gone.
+#:
+#: **Which is why `look` may hold nothing of the view strongly (2026-09-30).**
+#: Anything reachable from here lives for as long as the entry does. `look`
+#: used to close over the table's header and the View button, and from those
+#: the whole view could be reached - header -> the view's own context-menu
+#: slot -> `self` for Files and Mail; button -> its `refit` -> the table -> a
+#: slot closing over the results widget -> the view for Code (traced with
+#: `gc.get_referents`). A view that was let go was then never freed, not even
+#: by `gc.collect()`: the crash had become a leak. `look` now holds its timer,
+#: its own small dictionaries, and weak references to the table and the button.
+#: `tests/unit/test_views_are_freed.py` pins it.
 _WATCHERS: dict = {}
 
 
@@ -944,8 +994,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     * A width that changed and then **stayed put for a whole tick** is a
       person who dragged a column and let go. That is the one worth saving.
     """
-    header = table.horizontalHeader()
-    if header is None:
+    if table.horizontalHeader() is None:
         return
     order = [key for key, _heading in columns]
 
@@ -957,6 +1006,13 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     #: module's closure stored on the table, so a strong reference here made
     #: table <-> closure a cycle that only the cyclic collector could end.
     table_ref = weakref.ref(table)
+    #: **The button too, and the header is asked for each time rather than
+    #: kept** - see `_WATCHERS`: these closures are reachable from that
+    #: registry, and both of those led from it to the whole view.
+    try:
+        button_ref: Any = weakref.ref(button)
+    except TypeError:                            # a stand-in with no weak side
+        button_ref = lambda: button              # noqa: E731
 
     def live() -> Any:
         found = table_ref()
@@ -974,6 +1030,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
 
     def widths_now() -> dict:
         view = live()
+        header = view.horizontalHeader()
         return {index: int(header.sectionSize(index))
                 for index in range(header.count())
                 if not view.isColumnHidden(index)}
@@ -1030,8 +1087,8 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             # *else* settled alongside it: if the last column is the only one
             # that moved, it really was dragged, and refusing it there would
             # mean the last column could never be sized at all.
-            if (len(settled) > 1 and header.stretchLastSection()
-                    and current):
+            if (len(settled) > 1 and current
+                    and live().horizontalHeader().stretchLastSection()):
                 last = max(current)
                 if last in settled:
                     settled.remove(last)
@@ -1049,7 +1106,10 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
                     # store and the screen then agree on a number the person
                     # never chose. `_cap_columns` leaves chosen columns alone,
                     # so the two agree at the width asked for.
-                    button.remember_width(order[index], width)
+                    owner = button_ref()
+                    if owner is None:            # the View button has gone
+                        continue
+                    owner.remember_width(order[index], width)
                     _log.debug("column {} width saved as {} (table {}px)",
                                order[index], width, room)
         except RuntimeError:

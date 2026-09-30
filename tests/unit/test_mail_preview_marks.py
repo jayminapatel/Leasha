@@ -263,7 +263,7 @@ def test_a8_a_message_opened_from_the_mail_tab_has_its_word_highlighted(qapp, tm
     from app.storage.sqlite_store import SqliteStore
     from app.ui.mail_view import MailView
     from tests.unit.test_mail_preview_card import (
-        TUESDAY, add_message, preview_now, pump, release,
+        TUESDAY, add_message, preview_now, pump,
     )
 
     with SqliteStore(tmp_path / "index.db") as store:
@@ -272,6 +272,11 @@ def test_a8_a_message_opened_from_the_mail_tab_has_its_word_highlighted(qapp, tm
         view = MailView(store)
         try:
             view.input.setText("/subject trip")
+            # 2026-09-30: typing started the 120ms debounce, and when it fired
+            # during the waits below it ran the filter a second time, refilled
+            # the list and cleared the marks just counted. Seen as this test
+            # failing (0 matches) only when run straight after a Search test.
+            view._timer.stop()
             view._run()
             pump()
             preview_now(view.preview, view._rows[0])
@@ -285,4 +290,3 @@ def test_a8_a_message_opened_from_the_mail_tab_has_its_word_highlighted(qapp, tm
             assert pane.match_note.text().startswith("2 of 3")
         finally:
             view.shutdown()
-            release(view)

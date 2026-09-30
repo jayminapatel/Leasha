@@ -46,6 +46,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
+from app.ui.presenter.rows import file_of_row
 from app.ui.preview_loader import (
     decode_image,
     KIND_EPUB,
@@ -91,9 +92,13 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
     pane.error.connect(on_error)
     # §5b: "Show in folder" from the pane takes the results view's own
     # reveal path, so the window handles both the same way.
+    #
+    # 2026-09-30: **only the Search list has one.** The Files, Mail and Code
+    # lists are tables with no such signal, so in those three tabs the button
+    # was enabled and connected to nothing. A list without a route of its own
+    # gets the pane's (`PreviewPane.reveal_row`).
     reveal = getattr(results, "reveal_requested", None)
-    if reveal is not None:
-        pane.reveal_requested.connect(reveal.emit)
+    pane.reveal_requested.connect(reveal.emit if reveal is not None else pane.reveal_row)
     pane.store = store
     # Order 0y section 4b: the words to highlight. The Search list already
     # answers "what was typed" for its "why is this here" menu
@@ -272,8 +277,7 @@ class PreviewPane(QWidget):
         self.reveal_button = QPushButton("Show in folder")
         self.reveal_button.setToolTip("Open the folder this file is in, with the file selected")
         self.reveal_button.setEnabled(False)
-        self.reveal_button.clicked.connect(
-            lambda _c=False: self._row is not None and self.reveal_requested.emit(self._row))
+        self.reveal_button.clicked.connect(self._reveal_clicked)
 
         self.pop_button = QPushButton("Pin in a window")
         self.pop_button.setToolTip(
@@ -296,6 +300,10 @@ class PreviewPane(QWidget):
         from app.ui.presenter.mail import OPEN_IN_OUTLOOK, OPEN_IN_OUTLOOK_TIP
 
         self._original: Any = None
+        #: 2026-09-30: the archive a previewed message was read out of, when
+        #: the message is not a file itself - what "Show in folder" shows for
+        #: it. Known only once the read comes back (`_rendered`).
+        self._archive = ""
         self.outlook_launcher: Any = None
         self.original_button = QPushButton(OPEN_IN_OUTLOOK)
         self.original_button.setToolTip(OPEN_IN_OUTLOOK_TIP)
@@ -474,6 +482,7 @@ class PreviewPane(QWidget):
         self._show_facts(())
         self._show_mail(None)
         self._show_original(None)
+        self._archive = ""
         self.marks.clear()
         self.text.setPlainText("")
         self.stack.setCurrentWidget(self.text)
@@ -507,7 +516,11 @@ class PreviewPane(QWidget):
         # shows; anything else gets the title back until the read says more.
         self._show_mail(card_from_row(row))
         self.open_button.setEnabled(True)
-        self.reveal_button.setEnabled(bool(getattr(row, "path", "")))
+        # 2026-09-30: only for a row that is a real file. A message inside a
+        # mail archive has an address (`pst://...`), not a file; its button
+        # comes on in `_rendered`, if the read says which archive it is in.
+        self._archive = ""
+        self.reveal_button.setEnabled(bool(file_of_row(row)))
         self.pop_button.setEnabled(True)
         self._timer.start()
 
@@ -548,6 +561,33 @@ class PreviewPane(QWidget):
         Outlook button when that is Outlook. Opens nothing."""
         self._original = target
         self.original_button.setVisible(getattr(target, "kind", "") == "outlook")
+
+    def _reveal_clicked(self, _checked: bool = False) -> None:
+        """"Show in folder". For a message read out of an archive, **the
+        archive file** - the message has no file of its own, and where the
+        mailbox is kept is what the question means. For anything else, the
+        list's own route (`attach_preview`)."""
+        if self._row is None:
+            return
+        if self._archive:
+            from app.ui.workers import open_async
+
+            open_async(self._archive, reveal=True, on_error=self.error.emit,
+                       component="ui.preview.reveal")
+            return
+        self.reveal_requested.emit(self._row)
+
+    def reveal_row(self, row: Any) -> None:
+        """Show `row`'s file in its folder, on a worker. What a list with no
+        route of its own is given - see `attach_preview`."""
+        from app.ui.workers import open_async, open_row_async
+
+        if getattr(row, "volume_id", None) is not None:      # a catalogued volume
+            open_row_async(self.store, row, reveal=True, on_error=self.error.emit,
+                           component="ui.preview.reveal")
+            return
+        open_async(file_of_row(row), reveal=True, on_error=self.error.emit,
+                   component="ui.preview.reveal")
 
     def _open_clicked(self, _checked: bool = False) -> None:
         """"Open". For a message that is a file, the file itself; otherwise
@@ -617,6 +657,9 @@ class PreviewPane(QWidget):
         mail = preview.meta.get("mail") if preview.error is None else None
         self._show_mail(mail.card if mail is not None else None)
         self._show_original(mail.original if mail is not None else None)
+        self._archive = str(getattr(mail, "archive", "") or "")
+        if self._archive:
+            self.reveal_button.setEnabled(True)
         if mail is not None:
             # 4c: read with the message, on the worker - drawn here.
             self.mail.show_conversation(mail.conversation_heading, mail.conversation)
