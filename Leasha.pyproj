@@ -141,6 +141,7 @@
     <Compile Include="app\cli\scan.py" />
     <Compile Include="app\cli\search.py" />
     <Compile Include="app\cli\timeline.py" />
+    <Compile Include="app\cli\watch.py" />
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
     <Compile Include="app\core\code_types.py" />
@@ -164,7 +165,9 @@
     <Compile Include="app\core\osbridge\__init__.py" />
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
+    <Compile Include="app\core\osbridge\dirwatch.py" />
     <Compile Include="app\core\osbridge\launch.py" />
+    <Compile Include="app\core\osbridge\outlook.py" />
     <Compile Include="app\core\osbridge\pathnames.py" />
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
@@ -242,6 +245,7 @@
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\file_watch.py" />
+    <Compile Include="app\index\folder_watch.py" />
     <Compile Include="app\index\held_archives.py" />
     <Compile Include="app\index\image_book.py" />
     <Compile Include="app\index\index_bench.py" />
@@ -263,8 +267,10 @@
     <Compile Include="app\index\schedule.py" />
     <Compile Include="app\index\stages.py" />
     <Compile Include="app\index\synthetic_corpus.py" />
+    <Compile Include="app\index\timed_out_retry.py" />
     <Compile Include="app\index\video_frames.py" />
     <Compile Include="app\index\walker.py" />
+    <Compile Include="app\index\watch_child.py" />
     <Compile Include="app\llm\__init__.py" />
     <Compile Include="app\llm\engines.py" />
     <Compile Include="app\llm\models.py" />
@@ -331,6 +337,7 @@
     <Compile Include="app\ui\chips_logic.py" />
     <Compile Include="app\ui\close_windows.py" />
     <Compile Include="app\ui\code_view.py" />
+    <Compile Include="app\ui\commit_preview.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
@@ -342,6 +349,7 @@
     <Compile Include="app\ui\exit_watchdog.py" />
     <Compile Include="app\ui\files_view.py" />
     <Compile Include="app\ui\first_contact.py" />
+    <Compile Include="app\ui\folder_watch.py" />
     <Compile Include="app\ui\grammars.py" />
     <Compile Include="app\ui\hotkey.py" />
     <Compile Include="app\ui\indexing_settings.py" />
@@ -365,6 +373,7 @@
     <Compile Include="app\ui\presenter\interrupted.py" />
     <Compile Include="app\ui\presenter\live_progress.py" />
     <Compile Include="app\ui\presenter\log_filter.py" />
+    <Compile Include="app\ui\presenter\mail.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
@@ -373,7 +382,9 @@
     <Compile Include="app\ui\presenter\settings.py" />
     <Compile Include="app\ui\presenter\snippets.py" />
     <Compile Include="app\ui\presenter\space_rows.py" />
+    <Compile Include="app\ui\presenter\timed_out.py" />
     <Compile Include="app\ui\presenter\timeline.py" />
+    <Compile Include="app\ui\presenter\watch_words.py" />
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
@@ -447,6 +458,8 @@
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
+    <Compile Include="app\ui\widgets\mail_card.py" />
+    <Compile Include="app\ui\widgets\mail_open.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
@@ -478,6 +491,7 @@
     <Compile Include="app\ui\widgets\search_behaviour_box.py" />
     <Compile Include="app\ui\widgets\search_box.py" />
     <Compile Include="app\ui\widgets\search_home.py" />
+    <Compile Include="app\ui\widgets\search_marks.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
@@ -491,6 +505,7 @@
     <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
+    <Compile Include="app\ui\widgets\timed_out_panel.py" />
     <Compile Include="app\ui\widgets\timeline_host.py" />
     <Compile Include="app\ui\widgets\timeline_list.py" />
     <Compile Include="app\ui\widgets\timeline_picker.py" />
@@ -522,6 +537,7 @@
     <Compile Include="tests\fixtures\timeline_scale.py" />
     <Compile Include="tests\fixtures\web_pages.py" />
     <Compile Include="tests\integration\__init__.py" />
+    <Compile Include="tests\integration\test_folder_watch_acceptance.py" />
     <Compile Include="tests\integration\test_layer0_acceptance.py" />
     <Compile Include="tests\integration\test_layer1_acceptance.py" />
     <Compile Include="tests\integration\test_layer2_acceptance.py" />
@@ -529,6 +545,7 @@
     <Compile Include="tests\integration\test_layer4_acceptance.py" />
     <Compile Include="tests\integration\test_repos_acceptance.py" />
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
+    <Compile Include="tests\private_locks.py" />
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\chat_env.py" />
     <Compile Include="tests\unit\chat_fakes.py" />
@@ -585,6 +602,7 @@
     <Compile Include="tests\unit\test_cli_expands_slashes.py" />
     <Compile Include="tests\unit\test_cli_extract.py" />
     <Compile Include="tests\unit\test_cli_index.py" />
+    <Compile Include="tests\unit\test_cli_watch.py" />
     <Compile Include="tests\unit\test_cli_wiring.py" />
     <Compile Include="tests\unit\test_clip_embedder.py" />
     <Compile Include="tests\unit\test_clip_lane_pipeline.py" />
@@ -595,12 +613,15 @@
     <Compile Include="tests\unit\test_cloud_content_cli.py" />
     <Compile Include="tests\unit\test_cloudstub.py" />
     <Compile Include="tests\unit\test_code_fixes_0y.py" />
+    <Compile Include="tests\unit\test_code_history_live.py" />
+    <Compile Include="tests\unit\test_code_open_at_line.py" />
     <Compile Include="tests\unit\test_code_route.py" />
     <Compile Include="tests\unit\test_code_search.py" />
     <Compile Include="tests\unit\test_code_types.py" />
     <Compile Include="tests\unit\test_code_view.py" />
     <Compile Include="tests\unit\test_command_subsets.py" />
     <Compile Include="tests\unit\test_commands.py" />
+    <Compile Include="tests\unit\test_commit_preview.py" />
     <Compile Include="tests\unit\test_completions_sidecar.py" />
     <Compile Include="tests\unit\test_compute_envelope.py" />
     <Compile Include="tests\unit\test_config.py" />
@@ -667,6 +688,8 @@
     <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_first_contact_box.py" />
     <Compile Include="tests\unit\test_florence_tagger.py" />
+    <Compile Include="tests\unit\test_folder_watch.py" />
+    <Compile Include="tests\unit\test_folder_watch_ui.py" />
     <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_force_skip_button.py" />
     <Compile Include="tests\unit\test_format_health.py" />
@@ -675,6 +698,7 @@
     <Compile Include="tests\unit\test_fusion.py" />
     <Compile Include="tests\unit\test_generation_bump.py" />
     <Compile Include="tests\unit\test_git_sharpness_and_mail.py" />
+    <Compile Include="tests\unit\test_git_streaming.py" />
     <Compile Include="tests\unit\test_git_view.py" />
     <Compile Include="tests\unit\test_gitquery.py" />
     <Compile Include="tests\unit\test_gitsearch.py" />
@@ -728,6 +752,11 @@
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
+    <Compile Include="tests\unit\test_mail_conversation.py" />
+    <Compile Include="tests\unit\test_mail_grouping.py" />
+    <Compile Include="tests\unit\test_mail_open_original.py" />
+    <Compile Include="tests\unit\test_mail_preview_card.py" />
+    <Compile Include="tests\unit\test_mail_preview_marks.py" />
     <Compile Include="tests\unit\test_mail_sent_date_filter.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_media.py" />
@@ -896,6 +925,8 @@
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />
     <Compile Include="tests\unit\test_timed_notices.py" />
+    <Compile Include="tests\unit\test_timed_out_panel.py" />
+    <Compile Include="tests\unit\test_timed_out_retry.py" />
     <Compile Include="tests\unit\test_timeline.py" />
     <Compile Include="tests\unit\test_timeline_cli.py" />
     <Compile Include="tests\unit\test_timeline_entry_points.py" />
