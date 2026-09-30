@@ -88,8 +88,27 @@ at the end.
 
 ## Lane F - later, in this order
 
+> **2026-09-30, F2 built, as a view choice.** "One row per conversation" is a new item in the View
+> menu of both lists that show mail, off until asked for and remembered per list
+> (`ViewPreferences.group_by_conversation`, state key `<list>:conversations`). **Mail:** each
+> conversation's listed messages fold into the newest of them (`presenter.mail.fold_conversations`),
+> with a new Messages column beside Subject saying how many; the summary keeps counting messages,
+> with the fold said in front of it - `Folded into 212 conversations  ·  Showing 500 of 12,431
+> messages - narrow it with ...` - so nothing is hidden silently. The count on a row is of the
+> messages *listed*; the preview's own list (order 0y 4c) reads the whole conversation. **Search:**
+> `group_results(..., conversations=True)` folds the passages of every message of a conversation,
+> and of their attachments, into one row placed by its best passage, saying `3 messages of this
+> conversation matched`; **when the best passage is in an attachment the row is the parent
+> message** (`Dave - School trip`, `in the attachment form.pdf`). With the choice off, an attachment
+> row is exactly as the results-presentation order's 5b left it. **Previewing an attachment**, from
+> any list and whatever the choice, now shows the message it is attached to - card, conversation,
+> "Open in Outlook" - above the attachment's own text; before, it previewed as a missing file.
+> `messages_for` returns `conversation` (same single query). Limits: an expanded folded Search row
+> lists its passages without saying which message each is from; a message with no conversation
+> recorded is never folded with another. Tests: `tests/unit/test_mail_grouping.py` (23).
+
 - [ ] **F1** Watch the indexed folders for changes, so a file saved a moment ago can be found.
-- [ ] **F2** Mail results grouped by conversation, with the parent message shown when only an
+- [x] **F2** Mail results grouped by conversation, with the parent message shown when only an
       attachment matched (overlaps order 0y §4c).
 - [ ] **F3** "Retry with a longer time limit" on a group of timed-out files (needs B).
 

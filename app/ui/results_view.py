@@ -266,7 +266,7 @@ class ResultsView(QWidget):
 
         self._model.clear()
         if self._prefs.group_by_document:
-            for group in group_results(self._rows, details=self._details, register=self._register):
+            for group in group_results(self._rows, details=self._details, register=self._register, conversations=self._prefs.group_by_conversation):
                 expanded = group.file_id in self._expanded
                 self._append(group, expanded=expanded, anchor=anchor)
                 if expanded and group.match_count > 1:

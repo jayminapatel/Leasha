@@ -42,16 +42,16 @@ from app.core.logging import logger
 from app.search.commands import expand_slashes
 from app.search.query import parse_query
 from app.ui.presenter import (
-    MAIL_COMMANDS, mail_filters, mail_rows, mail_summary, with_date_problems,
+    MAIL_COMMANDS, mail_filters, mail_summary, with_date_problems,
 )
-from app.ui.presenter.mail import mail_terms
-from app.ui.preview_loader import mail_body, quoted_notice
+from app.ui.presenter.mail import THREAD_COLUMN, mail_list
 from app.ui.tasks import browse_messages_page
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.mail_card import attach_mail
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
@@ -76,6 +76,7 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("to", "To", "recipients", False),
     ("date", "Date", "sent", False),
     ("subject", "Subject", "subject", False),
+    THREAD_COLUMN,              # 0z F2: how many messages a folded row stands for
     ("attach", "Attach", "attachment", False),
     ("size", "Size", "size", True),
     STATUS_COLUMN,              # 2026-09-29: the one-word Status - see file_state
@@ -84,7 +85,7 @@ COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
 #: Sort on the real value, not the formatted string: "3 KB" and "10 KB" sort
 #: the wrong way as text, and a date column sorted alphabetically is worse
 #: than one that does not sort at all. Key -> attribute on `MailRow`.
-SORT_KEYS: dict[str, str] = {"date": "sent_at", "size": "size_bytes"}
+SORT_KEYS: dict[str, str] = {"date": "sent_at", "size": "size_bytes", "messages": "thread_count"}
 
 #: Offered whatever the rows say. A mail list with no sender and no subject is
 #: not a mail list, and a mailbox filtered down to one blank-subject message
@@ -117,6 +118,7 @@ class MailView(QWidget):
         super().__init__(parent)
         self._store = store
         self._generation = 0
+        self._folded = False        # 0z F2: is the list on screen one row per conversation
         self._rows: list[Any] = []
         self._available: tuple[str, ...] = tuple(key for key, *_ in COLUMNS)
 
@@ -156,7 +158,7 @@ class MailView(QWidget):
         self.view_button = view_button(
             self, store, PREFS_KEY,
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
-            on_change=self._prefs_changed,
+            on_change=self._prefs_changed, conversations=True,
             # A dragged width is remembered; an automatic fit is not - see
             # `view_options.remember_widths` for why that needs a guard.
             table=self.results,
@@ -174,18 +176,10 @@ class MailView(QWidget):
         # `store=` (order 0y section 4): with it the pane reads a message as a
         # message - the header card, its conversation, its original.
         self.preview, self.split = attach_preview(
-            self.results, lambda _row: self._open_selected(), self.error.emit, store=store)
-        # **The message, not the indexed text on its own.** `stored_text`
-        # returns what the index holds - so a reply arrived with its headers
-        # missing, its quoted thread gone with nothing saying so, and a blank
-        # line at every chunk boundary. `mail_body` puts From/To/Sent/Subject
-        # above it and joins the chunks without inventing paragraphs; the
-        # stripped-quote notice goes on the pane's own notice line.
-        self.preview.body_provider = lambda row: mail_body(store, row)
-        self.preview.notice_provider = lambda row: quoted_notice(
-            getattr(row, "quoted_removed", None))
-        # 0y section 4b: what to highlight in the message - see `mail_terms`.
-        self.preview.terms_provider = lambda: mail_terms(getattr(self, "_parsed", None))
+            self.results, self._open_selected, self.error.emit, store=store)
+        # The message as text for a pinned window, the stripped-quote notice,
+        # and the words to highlight (0y 4b) - `mail_card.attach_mail`.
+        attach_mail(self.preview, store, lambda: getattr(self, "_parsed", None))
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
@@ -245,7 +239,10 @@ class MailView(QWidget):
             return                          # newer typing has overtaken this
 
         page = rows if isinstance(rows, dict) else {"rows": rows}
-        display = mail_rows(page["rows"])
+        # 0z F2: one row per conversation when the View menu says so. `folded`
+        # is what the summary says about it; the message counts stay as they are.
+        self._folded = self.view_button.prefs.group_by_conversation
+        display, folded = mail_list(page["rows"], fold=self._folded)
         self._rows = display
 
         # Off while filling, on afterwards. Qt re-sorts after every `setItem`
@@ -269,7 +266,8 @@ class MailView(QWidget):
         )
         self._apply_prefs()
 
-        self.summary.setText(self._summary_text(len(display), leftover, page.get("total")))
+        self.summary.setText(folded + self._summary_text(
+            len(page["rows"]), leftover, page.get("total")))
 
     def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:
         """The wording lives in `presenter.mail_summary` - this file had one
@@ -292,6 +290,9 @@ class MailView(QWidget):
 
     def _prefs_changed(self, _prefs: Any) -> None:
         """The button owns the preferences and has already saved them."""
+        # 0z F2: folding conversations changes the rows themselves - ask again.
+        if _prefs.group_by_conversation != self._folded:
+            return self._run()
         self._apply_prefs()
 
     def selected_row(self) -> Optional[Any]:
@@ -328,7 +329,7 @@ class MailView(QWidget):
                 return
         super().keyPressEvent(event)
 
-    def _open_selected(self) -> None:
+    def _open_selected(self, row: Any = None) -> None:
         """Show what is inside the selected message.
 
         **Not "open the file", because there is no file.** A message's path is
@@ -340,7 +341,9 @@ class MailView(QWidget):
         `opened` is emitted as well, for anything that wants the id rather than
         the content.
         """
-        row = self.selected_row()
+        # `row` from the pane's Open: the message on show, which after a click
+        # in its conversation list (0y 4c) is not the row selected here.
+        row = row if hasattr(row, "file_id") else self.selected_row()
         if row is None:
             return
         self.opened.emit(row.file_id)

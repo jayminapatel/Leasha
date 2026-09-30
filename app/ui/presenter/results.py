@@ -265,6 +265,7 @@ def group_results(
     details: Optional[Mapping[int, Mapping[str, Any]]] = None,
     now: Optional[float] = None,
     register: str = "plain",
+    conversations: bool = False,
 ) -> list[ResultGroup]:
     """Chunk rows to document groups, ordered by each group's best chunk.
 
@@ -279,24 +280,74 @@ def group_results(
     `register` gates `when` between "yesterday"/"3 weeks ago" (`"plain"`, the
     default) and an exact date (`"technical"`) - item 4b. Whichever it picks,
     `ResultGroup.when_exact` always carries the exact date, for the tooltip.
+
+    `conversations` (order 0z F2, the View menu's "One row per conversation")
+    folds every message of one conversation, and every attachment of those
+    messages, into one group - keyed by `details[file_id]["conversation"]`,
+    which for an attachment is its parent message's. The group is headed by
+    its best-ranked passage, as a document's is; when that passage is in an
+    attachment, the group is drawn as the **message** it is attached to, with
+    the attachment named beside it (`_as_conversation`). A file that is not
+    mail, or mail with no conversation recorded, groups by itself as before.
     """
-    order: list[int] = []
-    collected: dict[int, list[ResultRow]] = {}
+    details = details or {}
+
+    def key_of(row: ResultRow) -> Any:
+        detail = details.get(row.file_id) if conversations else None
+        conversation = (detail or {}).get("conversation")
+        return ("conversation", str(conversation)) if conversation else row.file_id
+
+    order: list[Any] = []
+    collected: dict[Any, list[ResultRow]] = {}
     for row in rows:
-        if row.file_id not in collected:
-            collected[row.file_id] = []
+        key = key_of(row)
+        if key not in collected:
+            collected[key] = []
             # First appearance decides position, so the best-ranked chunk of a
             # document decides where the document sits. No re-sorting needed.
-            order.append(row.file_id)
-        collected[row.file_id].append(row)
+            order.append(key)
+        collected[key].append(row)
 
-    groups = [
-        _build_group(file_id, collected[file_id], (details or {}).get(file_id),
-                    now=now, register=register)
-        for file_id in order
-    ]
+    groups = []
+    for key in order:
+        found = collected[key]
+        head = found[0].file_id
+        group = _build_group(head, found, details.get(head), now=now, register=register)
+        if isinstance(key, tuple):
+            group = _as_conversation(group, details)
+        groups.append(group)
     groups = _distinguish_twins(groups)
     return groups[:limit] if limit else groups
+
+
+def _as_conversation(group: ResultGroup, details: Mapping[int, Mapping[str, Any]]) -> ResultGroup:
+    """Order 0z F2: one group standing for a conversation's matching messages.
+
+    Two things change from a one-document group, both in what the row *says*;
+    its passages, its rank and what opening it does are untouched.
+
+    * **The parent message is shown when only an attachment matched.** A group
+      headed by an attachment is named for the message it is attached to -
+      "Dave - School trip" - with the attachment's own name on the grey line,
+      because in a list of conversations the message is what is recognised.
+    * **It says how many messages it stands for**, so folding hides nothing:
+      the count is of the messages (and attachments' messages) with a passage
+      in this group.
+    """
+    head = details.get(group.file_id) or {}
+    folder, name, kind = group.folder, group.name, group.kind
+    if group.is_attachment:
+        subject = str(head.get("subject") or "").strip() or "(no subject)"
+        sender = format_address(head.get("sender"))
+        folder = f"in the attachment {group.name}"
+        name = f"{sender} — {subject}" if sender else subject
+        kind = "email"
+    messages = {int((details.get(row.file_id) or {}).get("attachment_of") or row.file_id)
+                for row in group.rows}
+    if len(messages) > 1:
+        note = f"{len(messages):,} messages of this conversation matched"
+        folder = f"{folder} · {note}" if folder else note
+    return replace(group, name=name, folder=folder, kind=kind)
 
 
 def _path_pieces(path: str) -> list[str]:

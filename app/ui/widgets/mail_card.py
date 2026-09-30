@@ -37,7 +37,30 @@ from PyQt6.QtWidgets import (
 from app.ui.presenter.mail import RECIPIENTS_LABEL, RECIPIENTS_TIP, MailCard
 from app.ui.widgets.flow_layout import FlowLayout
 
-__all__ = ["MailCardView", "MailBody"]
+__all__ = ["MailCardView", "MailBody", "attach_mail"]
+
+
+def attach_mail(pane: Any, store: Any, parsed: Any) -> None:
+    r"""What the Mail tab's preview pane needs beyond a store. Here rather than
+    in `mail_view.py`, which is at the length a view is allowed to be.
+
+    * `body_provider` - **the message, not the indexed text on its own.**
+      `stored_text` returns what the index holds, so a reply arrived with its
+      headers missing and a blank line at every chunk boundary; `mail_body`
+      puts From/To/Sent/Subject above it and joins the chunks without inventing
+      paragraphs. Since order 0y section 4 the pane itself draws a message as a
+      card; this is what "Pin in a window" still reads.
+    * `notice_provider` - the stripped-quote notice, for the same window.
+    * `terms_provider` - the words to highlight in the message (0y 4b), from
+      `parsed()`, the list's current filter. Called on the interface thread; it
+      reads nothing but that object.
+    """
+    from app.ui.presenter.mail import mail_terms
+    from app.ui.preview_loader import mail_body, quoted_notice
+
+    pane.body_provider = lambda row: mail_body(store, row)
+    pane.notice_provider = lambda row: quoted_notice(getattr(row, "quoted_removed", None))
+    pane.terms_provider = lambda: mail_terms(parsed())
 
 #: Rows of the conversation list on show at once; a longer one scrolls.
 CONVERSATION_ROWS = 4

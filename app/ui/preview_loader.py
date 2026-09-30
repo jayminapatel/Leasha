@@ -823,6 +823,12 @@ def quoted_notice(removed: Any) -> str:
             f"The index holds only what this message itself added.")
 
 
+def attachment_notice(name: str) -> str:
+    """What the pane says above an attachment shown under its message."""
+    return (f"'{name}' is attached to this message. The text below is the "
+            f"attachment's own, as the index read it.")
+
+
 def mail_body(store: Any, row: Any) -> str:
     """Header block, then the message. Runs on a worker - see `stored_text`."""
     body = stored_text(store, getattr(row, "file_id", 0))
@@ -874,6 +880,10 @@ class MailPreview:
     #: 4d: `presenter.mail.OriginalTarget` - where the full message can be
     #: opened - or `None` when nowhere can. Deciding it opens nothing.
     original: Any = None
+    #: Order 0z F2: set when the row previewed is an **attachment** - its name.
+    #: The card, conversation and original are then its parent message's, and
+    #: `body` is the attachment's own text.
+    attachment: str = ""
 
 
 def _conversation(store: Any, message: Any, file_id: int) -> tuple[tuple, str]:
@@ -918,8 +928,20 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     except Exception as exc:                    # noqa: BLE001 - the card, not the preview
         _log.debug("no message row for file {}: {}", file_id, exc)
         return None
+    # Order 0z F2: **an attachment is shown under the message it is attached
+    # to.** It has no row in `messages` - its parent has - so the card, the
+    # conversation and the original are the parent's, and the text under them
+    # is the attachment's own, which is where the searched words are.
+    path = str(getattr(row, "path", "") or "")
+    attachment = ""
+    own_text = ""
     if not message:
-        return None
+        parent = _attachment_parent(store, path)
+        if parent is None:
+            return None
+        message, path, attachment = parent
+        own_text = stored_text(store, file_id)
+        file_id = int(message["file_id"])
 
     from app.ui.presenter.mail import (
         UNNAMED_ATTACHMENT, mail_card, original_target, split_index_headers,
@@ -929,12 +951,14 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     stored = stored_text(store, file_id)
     card = mail_card(message, stored)
     _headers, body = split_index_headers(stored)
+    if attachment:
+        body = own_text
 
     # The plain block is the one `mail_header` has always written, from the
     # same row shape the Mail list uses - with the attachments named where the
     # index knows their names, since the index's own header lines (which used
     # to follow it and carried them) are no longer typed under it.
-    listed = mail_rows([{**message, "path": str(getattr(row, "path", "") or "")}])[0]
+    listed = mail_rows([{**message, "path": path}])[0]
     named = ", ".join(name for name in card.attachments if name != UNNAMED_ATTACHMENT)
     if named and listed.attachment:
         listed = replace(listed, attachment=named)
@@ -946,7 +970,32 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
         quoted_removed=message.get("quoted_removed"),
         conversation=lines, conversation_heading=heading,
         original=original_target(message, listed.path),
+        attachment=attachment,
     )
+
+
+def _attachment_parent(store: Any, path: str) -> Optional[tuple[Any, str, str]]:
+    """`(the parent's messages row, its path, the attachment's name)` for a
+    file that is an attachment of an indexed message, else `None`. **Worker.**
+
+    The link is the path - `<message>/attachments/<name>`, the convention the
+    Search list already reads (`presenter.mail.attachment_of`) - so this is two
+    lookups by key, and only for a row that is not itself a message.
+    """
+    from app.ui.presenter.mail import attachment_of
+
+    parent_path, name = attachment_of(path)
+    if not parent_path:
+        return None
+    try:
+        record = store.get_file(parent_path)
+        message = store.get_message(record.id) if record is not None else None
+    except Exception as exc:                    # noqa: BLE001 - the card, not the preview
+        _log.debug("no parent message for {}: {}", path, exc)
+        return None
+    if not message:
+        return None
+    return message, parent_path, name
 
 
 def offline_volume_subtitle(store: Any, row: Any) -> str:
@@ -1089,7 +1138,9 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
         return Preview(
             kind=KIND_TEXT, body=mail.copy_header + mail.body,
             path=str(getattr(row, "path", "") or ""), title=mail.card.subject,
-            notice=quoted_notice(mail.quoted_removed), meta={"mail": mail},
+            notice=(attachment_notice(mail.attachment) if mail.attachment
+                    else quoted_notice(mail.quoted_removed)),
+            meta={"mail": mail},
         )
 
     body = str(getattr(row, "preview_text", "") or "")

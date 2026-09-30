@@ -38,6 +38,7 @@ __all__ = [
     "ConversationLine", "conversation_lines", "conversation_heading", "first_line",
     "CONVERSATION_SHOWN",
     "OriginalTarget", "original_target", "OPEN_IN_OUTLOOK", "OPEN_IN_OUTLOOK_TIP",
+    "THREAD_COLUMN", "fold_conversations", "mail_list", "attachment_of", "ATTACHMENT_MARKER",
 ]
 
 #: What a message with an empty subject is called - the Mail list's own words
@@ -328,6 +329,80 @@ def original_target(message: Optional[Mapping[str, Any]], path: Any) -> Optional
     if text.lower().endswith(MESSAGE_FILE_SUFFIXES) and "://" not in text:
         return OriginalTarget(kind="file", label=OPEN_FILE, path=text)
     return None
+
+
+# ---------------------------------------------------------------------------
+# Order 0z F2 - the Mail list, one row per conversation
+# ---------------------------------------------------------------------------
+
+#: How an attachment's path says which message it belongs to:
+#: `<the message's path>/attachments/<name>`, written by
+#: `email_pst._attachment_documents`. The same marker `tasks.py` reads for the
+#: Search list's subtitles (`_attachment_parent_path`); a test holds the two
+#: to the same answer.
+ATTACHMENT_MARKER = "/attachments/"
+
+
+def attachment_of(path: Any) -> tuple[str, str]:
+    """`(the parent message's path, the attachment's name)`, or `("", "")` for
+    a path that is not an indexed attachment. A rule about a string - no I/O."""
+    text = str(path or "")
+    index = text.find(ATTACHMENT_MARKER)
+    if index <= 0:
+        return "", ""
+    return text[:index], text[index + len(ATTACHMENT_MARKER):]
+
+
+#: The Mail table's column for a folded row: `(key, heading, attribute on
+#: MailRow, right-aligned?)`. Empty - and so not offered - unless folding is on.
+THREAD_COLUMN: tuple[str, str, str, bool] = ("messages", "Messages", "thread", True)
+
+
+def fold_conversations(rows: Any) -> list:
+    """The Mail list's rows with each conversation's messages folded into one.
+
+    **The first row of a conversation stands for it**, in the order the list
+    came in - so with the list newest first, that is its newest message, and
+    the conversation sits where that message sat. The row carries how many of
+    the *listed* messages it stands for (`thread`, `thread_count`); the preview
+    pane's own list (order 0y 4c) is where every message of it is read, the
+    ones beyond this page included.
+
+    A message with no conversation recorded is a conversation of one. Nothing
+    is dropped without being counted: the counts add up to the rows given.
+    """
+    from dataclasses import replace
+
+    order: list[Any] = []
+    counts: dict[Any, int] = {}
+    first: dict[Any, Any] = {}
+    for row in rows or ():
+        key = getattr(row, "conversation", "") or ("alone", getattr(row, "file_id", id(row)))
+        if key not in counts:
+            counts[key] = 0
+            first[key] = row
+            order.append(key)
+        counts[key] += 1
+    return [replace(first[key], thread=f"{counts[key]:,}", thread_count=counts[key])
+            for key in order]
+
+
+def mail_list(store_rows: Any, *, fold: bool = False, now: Optional[float] = None) -> tuple[list, str]:
+    """`(rows to draw, what to say about folding)` for the Mail table.
+
+    The second value goes in front of the list's summary, which is left to
+    count messages exactly as it always has: `Showing 500 of 12,431 messages`
+    is still true of a folded list, and `Folded into 212 conversations` says
+    what the fold did to those 500. `""` when nothing is folded.
+    """
+    from app.ui.presenter.rows import mail_rows
+
+    rows = mail_rows(store_rows, now=now)
+    if not fold or not rows:
+        return rows, ""
+    folded = fold_conversations(rows)
+    count = len(folded)
+    return folded, f"Folded into {count:,} conversation{'s' if count != 1 else ''}  ·  "
 
 
 def mail_terms(parsed: Any) -> list[str]:

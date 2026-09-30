@@ -1798,7 +1798,10 @@ class SqliteStore:
             return {}
         placeholders = ",".join("?" * len(wanted))
         rows = self.conn.execute(
-            f"""SELECT file_id, subject, sender, recipients, sent_at, has_attach
+            # `conversation` since order 0z F2: what "One row per conversation"
+            # folds a page of results by. Same query, one more column.
+            f"""SELECT file_id, subject, sender, recipients, sent_at, has_attach,
+                       conversation
                 FROM messages WHERE file_id IN ({placeholders})""",
             wanted,
         )
