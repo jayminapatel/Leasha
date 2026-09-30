@@ -215,6 +215,10 @@ class OnnxLLM:
         self.device = device
         self.timeout = float(timeout)
         self._model = (hub.by_key(model) or hub.QWEN_1_5B).key
+        #: The model a caller actually named - empty when it named none, so the
+        #: catalogue's ranking decides (`_copies`). `_model` cannot say this: it
+        #: falls back to the int8 key, which is not the preferred copy.
+        self._asked = self._model if model and hub.by_key(model) is not None else ""
         self._loaded: Optional[_Loaded] = None
         self._loaded_key = ""
         self._load_error: Optional[BaseException] = None
@@ -231,6 +235,7 @@ class OnnxLLM:
         chosen = hub.by_key(name)
         if chosen is not None and chosen.key != self._model:
             self._model = chosen.key
+            self._asked = chosen.key
             self._load_error = None
 
     def _spec(self) -> hub.OnnxModel:
@@ -272,6 +277,12 @@ class OnnxLLM:
             rows = cat.for_job("chat")
             ordered = [e for e in rows if e.is_verified] + [e for e in rows if not e.is_verified]
             picked = catalogue.chosen("chat")          # "Use this" (2026-09-30) goes first
+            # 2026-09-30: a catalogue key handed to the constructor goes before
+            # even that. It was accepted and never read, so asking for Gemma
+            # loaded Qwen (found checking order 1c item 8). Anything that is not
+            # a catalogue key - an Ollama-style name - is ignored, as before.
+            if self._asked and cat.by_key(self._asked) is not None:
+                picked = self._asked
             if picked and cat.by_key(picked) is not None:
                 ordered = [cat.by_key(picked)] + [e for e in ordered if e.key != picked]
             if ordered:

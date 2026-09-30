@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "version": "2026-09-30.2",
+  "version": "2026-09-30.3",
   "note": "The models Leasha runs itself on ONNX Runtime. Only entries with a 'verified' record are recommended; 'rank' orders copies of one job, best first. Revisions and sha256 are pinned: a download must match them.",
   "models": [
     {
@@ -368,6 +368,70 @@
       "size": "large-v3",
       "description": "OpenAI's Whisper (large-v3), full precision, about 6,177 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
       "source": "verified"
+    },
+    {
+      "key": "hf:onnx-community/gemma-3-1b-it-ONNX:4-bit",
+      "job": "chat",
+      "runner": "decoder-chat",
+      "rank": 20,
+      "label": "gemma-3-1b-it-ONNX (4-bit)",
+      "repo": "onnx-community/gemma-3-1b-it-ONNX",
+      "revision": "a58439f40017d3b99c7d378ff525e54e0ba08ebf",
+      "graphs": [
+        "model"
+      ],
+      "suffix": "_q4",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "extra": [
+        "onnx/model_q4.onnx_data"
+      ],
+      "approx_mb": 820,
+      "licence": "gemma",
+      "sha256": {},
+      "verified": null,
+      "source": "verified",
+      "downloads": 1932,
+      "description": "Google's Gemma 3, 1 billion parameters, 4-bit. Checked on the owner's laptop: quick and good for Chat, but understands searches less well than the recommended Qwen model.",
+      "prompt_format": "gemma",
+      "offered": true,
+      "note": "checked 2026-09-30: works; Chat answers well and faster than Qwen (7.9 words/s against 4.4), JSON parses, but Interpret is weaker - it left 'last year' as words"
+    },
+    {
+      "key": "hf:onnx-community/Llama-3.2-1B-Instruct-ONNX:4-bit",
+      "job": "chat",
+      "runner": "decoder-chat",
+      "rank": 21,
+      "label": "Llama-3.2-1B-Instruct-ONNX (4-bit)",
+      "repo": "onnx-community/Llama-3.2-1B-Instruct-ONNX",
+      "revision": "14007543b6dc92de88daf96a9aa85d2f95ace6ef",
+      "graphs": [
+        "model"
+      ],
+      "suffix": "_q4",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "extra": [
+        "onnx/model_q4.onnx_data"
+      ],
+      "approx_mb": 1614,
+      "licence": "llama3.2",
+      "sha256": {},
+      "verified": null,
+      "source": "verified",
+      "downloads": 4188,
+      "description": "Meta's Llama 3.2, 1 billion parameters, 4-bit. Checked on the owner's laptop: fast for Chat, but it misreads searches, so it is not offered.",
+      "prompt_format": "llama3",
+      "offered": false,
+      "note": "checked 2026-09-30: Chat is fast (15 words/s) and JSON parses, but Interpret gave wrong answers - it returned searches copied from its instructions' examples"
     }
   ]
 }

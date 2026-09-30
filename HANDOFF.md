@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.21 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.23 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -50,6 +50,25 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-30 (evening) - 1b and 1c merged; the lines below that say otherwise are superseded.**
+- `main` is on the laptop and on GitHub at `bea16e7` (orders 1b and 1c merged straight to
+  `main` on the owner's word, no PR; `feat/onnx-everywhere` deleted). "Check for new models"
+  reads GitHub's `main` and answers "latest list (2026-09-30.2)".
+- 1b and 1c are 9/1 each. **1b §9** is the owner's clean index run in the app with photo tags
+  and speech on, read afterwards from `LOG_PATH\runs` (the index lock is machine-wide, so a
+  separate test index would block it). **1c §8**: Gemma 3 1B and Llama 3.2 1B (4-bit) were
+  downloading on the owner's approval, to be checked with `tools/measure_onnx_chat.py`.
+- Order 1a is unchanged: 0/30 in its file; §2 window checks, §3 index run and §4 MAPI side open.
+- **Later - 1c shipped (10/0).** Gemma 3 1B and Llama 3.2 1B checked (both chat; neither beats
+  Qwen at Interpret; catalogue 2026-09-30.3). Bug fixes: `OnnxLLM` ignored the model handed to
+  it; `doctor.py`'s Outlook check **started Outlook** (Settings' health check and the test
+  suite run it) - it reads `HKCR\Outlook.Application\CLSID` now. `ui:pst_backend` set to
+  `auto` on the owner's word (was `outlook`; 12 of 20 archives timed out through Outlook).
+- **Open fault:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
+  `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
+  headless walk and a throwaway pipeline run both classify them correctly (name-only), so the
+  cause is in the window's run and is not yet found.
 
 **2026-09-29 (evening) - the laptop session (order 1a), and order 1b.** On the owner's laptop:
 - `main` is on the laptop and on GitHub at `fec8a1a`: the 29 September merge, the PST

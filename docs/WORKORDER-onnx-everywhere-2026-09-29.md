@@ -127,7 +127,9 @@ and loads everywhere Leasha runs.
   > Full precision is now the default when it is on disk (`hub.FLORENCE`), int8 the fallback
   > (`hub.FLORENCE_INT8`); Download fetches full precision (about 1 GB).
 - [ ] **9** One real index run with photo tags and speech on, read from its logs (order 1a §3).
-- [ ] **10** HANDOFF and the register updated; CHANGELOG entry; PR; the owner merges.
+  > **2026-09-30, closed.** HANDOFF, register and CHANGELOG updated in the branch; no PR: on the
+  > owner's word the branch was merged straight to `main` as `bea16e7` and pushed.
+- [x] **10** HANDOFF and the register updated; CHANGELOG entry; PR; the owner merges.
 
 ## Not in this order
 

@@ -140,3 +140,23 @@ def test_the_platform_check_still_fails_on_any_other_platform(monkeypatch):
     check = doctor.check_platform()
     assert check.ok is False
     assert "Windows 10/11" in check.fix
+
+
+# -- the Outlook check never starts Outlook (2026-09-30) --------------------------
+
+def test_the_outlook_check_never_starts_outlook(monkeypatch):
+    """Owner, 2026-09-30: *"i think you are opening outlook"*. The check used
+    `Dispatch("Outlook.Application")`, which starts Outlook; Settings' health
+    check and the test suite both run doctor. It reads the registry instead."""
+    win32com = pytest.importorskip("win32com.client")
+
+    def refuse(*_a, **_k):
+        raise AssertionError("doctor started a COM server")
+    monkeypatch.setattr(win32com, "Dispatch", refuse)
+    monkeypatch.setattr(win32com, "DispatchEx", refuse)
+    monkeypatch.setattr(doctor, "classic_outlook_registered", lambda: True)
+    assert doctor.check_outlook().ok
+    monkeypatch.setattr(doctor, "classic_outlook_registered", lambda: False)
+    monkeypatch.setattr(doctor, "new_outlook_present", lambda: False)
+    check = doctor.check_outlook()
+    assert not check.ok and check.optional and "not registered" in check.detail

@@ -16,9 +16,13 @@ def _cache() -> Path:
 
 
 
-llm = OnnxLLM(_cache(), device="auto", timeout=300)
+# Optional first argument: a catalogue key (order 1c item 8 checks one Gemma and one
+# Llama 3 model this way). None given: the chat model Leasha would choose.
+MODEL = sys.argv[1] if len(sys.argv) > 1 else ""
+llm = OnnxLLM(_cache(), MODEL, device="auto", timeout=300)
 t = time.time()
 ok = llm.warm()
+print(f"model: {MODEL or '(default)'}")
 print(f"load: {time.time()-t:.1f}s ok={ok} health={llm.health()} models={llm.available_models()}")
 
 # Speed: stream a longer answer, time the first piece and the rate.

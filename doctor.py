@@ -929,13 +929,34 @@ def check_pst_direct() -> Check:
         )
 
 
+def classic_outlook_registered() -> bool:
+    r"""True if classic Outlook's automation object is registered on this machine.
+
+    **2026-09-30: read from the registry, never by starting Outlook.** This
+    check used `win32com.client.Dispatch("Outlook.Application")`, which *starts*
+    Outlook when it is not running. Settings' health check runs `doctor.py
+    --json --quick`, and so does the test suite, so Outlook kept opening on the
+    owner's laptop by itself - and an Outlook attached to the archives is what
+    locks them against direct reading. `HKEY_CLASSES_ROOT\Outlook.Application
+    \CLSID` is what `Dispatch` itself looks up; it exists exactly when classic
+    Outlook is installed.
+    """
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CLASSES_ROOT, r"Outlook.Application\CLSID") as key:
+            return bool(winreg.QueryValueEx(key, "")[0])
+    except OSError:
+        return False
+
+
 def check_outlook() -> Check:
     if sys.platform != "win32":
         return Check("Outlook MAPI (PST)", False, "not Windows",
                      fix="OPTIONAL - PST indexing is Windows-only.", optional=True)
     try:
-        import win32com.client
-        win32com.client.Dispatch("Outlook.Application")
+        if not classic_outlook_registered():
+            raise LookupError("Outlook.Application is not registered")
         return Check("Classic Outlook MAPI available (PST ingestion)", True, optional=True)
     except Exception as exc:
         detail = f"{type(exc).__name__}: {exc}"

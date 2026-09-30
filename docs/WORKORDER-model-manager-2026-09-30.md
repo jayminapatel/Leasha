@@ -56,10 +56,23 @@ rerankers not chosen, the old faster-whisper files, superseded int8 copies).
 - [x] **6** Tests: `test_ort_models_manage.py` (17), `test_model_manager_qt.py` (4); the wider
   affected set 2,413 passed.
 - [x] **7** This laptop cleaned: 7.2 GB -> 3.7 GB, every model in use untouched.
-- [ ] **8** Try one found model of each new chat format (Gemma, Llama 3) on a real machine with
+  > **2026-09-30, closed.** Both chat formats work on real models: Gemma 3 1B and Llama 3.2 1B
+  > (4-bit, downloaded on the owner's approval) answer Chat coherently and their JSON parses.
+  > Neither beats Qwen at Interpret. Gemma: 7.9 words/s, but "last year" stayed as words.
+  > Llama: 15.3 words/s, but it returned searches copied from its prompt's examples. Neither
+  > is `verified`; both are curated entries with the result as their note (catalogue
+  > 2026-09-30.3): Gemma offered, Llama not. Found on the way: `OnnxLLM(cache, key)` never
+  > read `key`, so the first run measured Qwen three times - fixed (`_asked`), with a test.
+  > `tools/measure_onnx_chat.py` takes a catalogue key as its argument.
+- [x] **8** Try one found model of each new chat format (Gemma, Llama 3) on a real machine with
   `tools/measure_onnx_chat.py`; a pass is a `verified` entry in `catalogue.json`.
-- [ ] **9** "Check for new models" of the curated catalogue reads this repository's `main` on
+  > **2026-09-30, closed.** Merged to `main` as `bea16e7`; the button on this laptop read
+  > GitHub's copy and answered "No new models: this computer already has the latest list
+  > (2026-09-30.2)".
+- [x] **9** "Check for new models" of the curated catalogue reads this repository's `main` on
   GitHub (checked 2026-09-30: public, answers). It has something to read once
   `app/ort/catalogue.json` is merged to `main`; from then on, a verified entry added there
   reaches every copy of Leasha that presses the button.
-- [ ] **10** PR with order 1b; the owner merges.
+  > **2026-09-30, closed.** No PR: on the owner's word ("first merge push and update local") the
+  > branch was merged straight to `main` as `bea16e7`, pushed, and the laptop updated.
+- [x] **10** PR with order 1b; the owner merges.

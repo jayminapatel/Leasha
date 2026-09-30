@@ -218,3 +218,16 @@ def test_hub_by_key_finds_a_model_only_the_catalogue_knows(state):
     key = next(e.key for e in catalogue.load(state).entries if e.source == "huggingface")
     model = hub.by_key(key)
     assert model is not None and model.revision
+
+
+def test_a_chat_model_named_by_its_caller_is_the_one_tried_first(state):
+    """2026-09-30, order 1c item 8: `OnnxLLM(cache, key)` accepted the key and
+    never read it, so asking for Gemma loaded Qwen. A catalogue key now leads;
+    no key, or an Ollama-style name, leaves the catalogue's ranking alone."""
+    from app.ort.llm import OnnxLLM
+
+    gemma = next(e.key for e in catalogue.load(state).for_job("chat")
+                 if e.prompt_format == "gemma")
+    assert OnnxLLM(None, gemma)._copies()[0].key == gemma
+    assert OnnxLLM(None)._copies()[0].key == "qwen2.5-1.5b-instruct-q4"
+    assert OnnxLLM(None, "qwen2.5:1.5b")._copies()[0].key == "qwen2.5-1.5b-instruct-q4"

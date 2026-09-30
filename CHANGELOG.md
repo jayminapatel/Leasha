@@ -19,6 +19,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
 
+### Fixed, 2026-09-30
+
+- **Leasha no longer starts Outlook by itself.** The health check (Settings, and `doctor.py`)
+  asked Windows for Outlook's automation object to see whether classic Outlook was installed,
+  and asking for it starts Outlook. An Outlook started that way attaches the archives, which
+  locks them against direct reading. The check now reads the registry instead.
+- **A chat model chosen by name is the one that loads.** The chat engine inside Leasha accepted
+  a model and then loaded Qwen regardless.
+- Gemma 3 1B and Llama 3.2 1B were checked on a real laptop: both chat, and neither understands
+  searches as well as Qwen. Gemma is listed with that note; Llama is not offered.
+
 ### A Models box: see, remove, choose and find models
 
 - Settings, Models now lists every model on this computer - what it is for, which copy, how big,
