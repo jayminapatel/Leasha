@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.41 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.42 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -68,6 +68,28 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   pictures pass, is no longer mistaken for one that has stopped.
 - The line of counts per status on the Indexing page stood still until the run ended when indexing ran
   in its own process. It now refreshes every few seconds, as it does otherwise.
+
+### A mail preview that looks like an email (order 0y section 4 and order 0z F2, 2026-09-30)
+
+- A message now opens with a header: the subject, who sent it, who it went to, the date in words and
+  each attachment by name. It looks the same in Search and in Mail.
+- The words you searched for are highlighted in the message. F3 goes to the next one and Shift+F3 to
+  the previous. Text files do the same.
+- Under the header, "4 messages in this conversation" lists the replies. Click one to read it in the
+  same pane.
+- "Open in Outlook" shows the whole message in Outlook, quoted text included. For a .eml or .msg file,
+  "Open" opens the file. Nothing is opened until you press the button. Outlook keeps an archive it
+  opened this way attached afterwards.
+- View › "One row per conversation" folds replies together in Mail and in Search. Each row says how
+  many messages it stands for, and the count under the list still counts every message. It is off
+  until you choose it.
+- An attachment found by a search now previews under the message it came with. A message or
+  attachment inside an Outlook archive, selected in Search, used to preview as a missing file.
+- Changed: on the Mail tab, "Open" on a .eml or .msg message opens the file. It used to search inside
+  it. Select All and Copy in a mail preview still gives the From, To, Sent and Subject lines with the
+  message.
+- Known limits: To and Cc are shown as one list, and a sender's display name is shown only where the
+  index kept it.
 
 ### Code tab: open at the line, history as it is found, every repository, and commits (order 0y, 2026-09-30)
 
