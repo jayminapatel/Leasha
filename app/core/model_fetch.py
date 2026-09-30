@@ -105,8 +105,9 @@ _CHILD_CODE = {
               "TextEmbedding(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
     "rerank": ("import sys; from fastembed.rerank.cross_encoder import TextCrossEncoder; "
                "TextCrossEncoder(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
-    "speech": ("import sys; from faster_whisper import download_model; "
-               "download_model(sys.argv[1], cache_dir=sys.argv[2])"),
+    # "speech" had its own faster-whisper program here until 2026-09-30; speech has
+    # fetched the ONNX export through "onnx" since 2026-09-29 (`child_code` and the
+    # download both map it), so that program was never run and was removed.
     "onnx": ("import sys, json, os; os.environ.setdefault('HF_HUB_DISABLE_XET', '1'); "
              "os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '30'); "
              "from huggingface_hub import snapshot_download; "
@@ -132,8 +133,11 @@ def _speech_model(name: str) -> Any:
 
 
 def child_code(kind: str) -> str:
-    """The one-line program a file-based download runs. For the tests and the CLI."""
-    return _CHILD_CODE[kind]
+    """The one-line program a file-based download runs. For the tests and the CLI.
+
+    Speech is fetched as its ONNX export, so it runs the "onnx" program - the
+    same mapping the download itself makes."""
+    return _CHILD_CODE["onnx" if kind == "speech" else kind]
 
 
 def target_dir(kind: str, model_cache: Any) -> Optional[Path]:

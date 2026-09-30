@@ -61,6 +61,13 @@
     <Folder Include="app\ui\controllers" />
     <Folder Include="app\ui\presenter" />
     <Folder Include="app\ui\widgets" />
+    <Folder Include="archive" />
+    <Folder Include="archive\app" />
+    <Folder Include="archive\app\ui" />
+    <Folder Include="archive\app\ui\widgets" />
+    <Folder Include="archive\docs" />
+    <Folder Include="archive\scripts" />
+    <Folder Include="archive\tools" />
     <Folder Include="assets" />
     <Folder Include="assets\icons" />
     <Folder Include="config" />
@@ -475,6 +482,7 @@
     <Compile Include="app\ui\widgets\search_home.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
+    <Compile Include="app\ui\widgets\shimmer_bar.py" />
     <Compile Include="app\ui\widgets\skeleton.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
@@ -484,7 +492,6 @@
     <Compile Include="app\ui\widgets\status_column.py" />
     <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
-    <Compile Include="app\ui\widgets\table_filter.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
     <Compile Include="app\ui\widgets\timeline_host.py" />
     <Compile Include="app\ui\widgets\timeline_list.py" />
@@ -498,6 +505,9 @@
     <Compile Include="app\ui\widgets\window_box.py" />
     <Compile Include="app\ui\window_state.py" />
     <Compile Include="app\ui\workers.py" />
+    <Compile Include="archive\app\ui\widgets\table_filter.py" />
+    <Compile Include="archive\tools\bench_results_paint.py" />
+    <Compile Include="archive\tools\measure_onnx_photo.py" />
     <Compile Include="doctor.py" />
     <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
@@ -861,6 +871,7 @@
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_shell.py" />
+    <Compile Include="tests\unit\test_shimmer_bar.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
@@ -936,12 +947,10 @@
     <Compile Include="tests\unit\test_write_groups.py" />
     <Compile Include="tests\unit\timeline_env.py" />
     <Compile Include="tools\__init__.py" />
-    <Compile Include="tools\bench_results_paint.py" />
     <Compile Include="tools\extract_speed.py" />
     <Compile Include="tools\grab_ui.py" />
     <Compile Include="tools\measure_ollama_chat.py" />
     <Compile Include="tools\measure_onnx_chat.py" />
-    <Compile Include="tools\measure_onnx_photo.py" />
     <Compile Include="tools\nightly.py" />
     <Compile Include="tools\nightly_probe.py" />
     <Compile Include="tools\reader_recall.py" />
@@ -962,12 +971,18 @@
     <Content Include="HANDOFF.md" />
     <Content Include="LOCAL_KNOWLEDGE_GRAPH_V2.md" />
     <Content Include="README.md" />
-    <Content Include="SESSION_CLOSE_2026-09-04.md" />
     <Content Include="add-to-path.cmd" />
     <Content Include="add-to-path.ps1" />
     <Content Include="app\ort\catalogue.json" />
     <Content Include="app\ort\catalogue_hf.json" />
     <Content Include="app\storage\schema.sql" />
+    <Content Include="archive\SESSION_CLOSE_2026-09-04.md" />
+    <Content Include="archive\docs\HANDOFF-github.md" />
+    <Content Include="archive\docs\HANDOFF-thread-merge.md" />
+    <Content Include="archive\docs\SESSION-2026-09-04-0q-results-handoff.md" />
+    <Content Include="archive\docs\WORKORDER-ui-shell-and-results.md" />
+    <Content Include="archive\finish-cleanup.ps1" />
+    <Content Include="archive\scripts\setup-github.ps1" />
     <Content Include="assets\icons\arrow-right-left.svg" />
     <Content Include="assets\icons\bookmark.svg" />
     <Content Include="assets\icons\brain.svg" />
@@ -1055,8 +1070,6 @@
     <Content Include="docs\CODE_REVIEW.md" />
     <Content Include="docs\EXTRACTION_SPEED.md" />
     <Content Include="docs\GLOSSARY.md" />
-    <Content Include="docs\HANDOFF-github.md" />
-    <Content Include="docs\HANDOFF-thread-merge.md" />
     <Content Include="docs\MAC_VERIFICATION.md" />
     <Content Include="docs\ORDER_REGISTER.md" />
     <Content Include="docs\PARKED-IDEAS.md" />
@@ -1064,7 +1077,6 @@
     <Content Include="docs\REFERENCE-model-backends.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
     <Content Include="docs\REVIEW-2026-08-26.md" />
-    <Content Include="docs\SESSION-2026-09-04-0q-results-handoff.md" />
     <Content Include="docs\THIRD_PARTY_NOTICES.md" />
     <Content Include="docs\TROUBLESHOOTING.md" />
     <Content Include="docs\VERSIONING.md" />
@@ -1123,10 +1135,8 @@
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
-    <Content Include="docs\WORKORDER-ui-shell-and-results.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
-    <Content Include="finish-cleanup.ps1" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
     <Content Include="pyproject.toml" />
@@ -1136,7 +1146,6 @@
     <Content Include="scripts\README.md" />
     <Content Include="scripts\install-nightly.ps1" />
     <Content Include="scripts\parse-check.ps1" />
-    <Content Include="scripts\setup-github.ps1" />
     <Content Include="tests\fixtures\README.md" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-home.png" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-results.png" />

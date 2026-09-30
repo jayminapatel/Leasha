@@ -362,3 +362,8 @@ models, neither beats Qwen at Interpret (Gemma offered with a note, Llama not). 
 faults found the same hour and fixed outside any order, as bug fixes: `OnnxLLM` ignored the
 model it was handed, and `doctor.py`'s Outlook check *started* Outlook (Settings' health
 check and the test suite both run it) - it now reads the registry.
+
+**2026-09-30 - files moved to `archive/`.** The owner asked for unused files to be
+archived. `WORKORDER-ui-shell-and-results.md` (row `ui-shell-and-results`, SUPERSEDED) is
+now `archive/docs/WORKORDER-ui-shell-and-results.md`; its row is otherwise unchanged. The
+other moves, and why each file is unused, are listed in `archive/README.md`.

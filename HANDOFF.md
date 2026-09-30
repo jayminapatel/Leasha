@@ -30,6 +30,14 @@ processes and was five points of failure before a single search ran.
 
 ## 2. Where everything lives
 
+> **2026-09-30 - the owner's laptop moved.** The working copy is now
+> `D:\Local\GitHub\SearchProject`, a fresh clone of GitHub `main` outside Google Drive
+> (it was `D:\Local\GDrive\SearchProject`, synced by Drive). Read `D:\SearchProject` in
+> the table below as that path. Code travels by git only; release builds go to
+> `D:\Local\GDrive\Leasha\Releases\<version>\`, and Drive sync carries them. The old
+> copy's leftovers are in `D:\Local\Archive\SearchProject-2026-09-30`. See `CLAUDE.md`,
+> *Where a session runs*.
+
 | What | Where |
 |---|---|
 | Code, docs, venv | `D:\SearchProject` |

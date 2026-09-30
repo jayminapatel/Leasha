@@ -632,7 +632,12 @@ class OcrExtractor:
         # photo-class image (the ladder found no text) is simply not tagged -
         # exactly today's behaviour - rather than being blocked. available()
         # checks both modules; either one missing reads as "not available".
-        Requirement("transformers", "transformers",
+        # 2026-09-30: was `Requirement("transformers", "transformers", ...)`.
+        # Florence-2 has run on ONNX Runtime since 2026-09-29
+        # (`app/ort/florence.py`), so naming transformers told people to install
+        # something nothing uses. The model itself is a download (Settings,
+        # Models); `florence_tagger.available()` checks both.
+        Requirement("onnxruntime", "onnxruntime-directml",
                     provides="AI tags and a caption for photos with no text "
                              "(Florence-2)", hard=False),
     )

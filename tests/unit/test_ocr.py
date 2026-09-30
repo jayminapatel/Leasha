@@ -201,11 +201,21 @@ def test_a_blank_page_yields_nothing_when_florence_is_unavailable(tmp_path, monk
     assert list(OcrExtractor().extract(path)) == []
 
 
+def _florence_ready() -> bool:
+    try:
+        from app.extract.florence_tagger import available
+
+        return bool(available())
+    except Exception:                                   # noqa: BLE001
+        return False
+
+
 @pytest.mark.slow
 @pytest.mark.skipif(
-    not (HAS_OCR and HAS_PIL and importlib.util.find_spec("torch")
-         and importlib.util.find_spec("transformers")),
-    reason="OCR and/or Florence-2 (torch/transformers) are not installed")
+    # 2026-09-30: was torch and transformers; Florence-2 runs on ONNX Runtime now,
+    # so the real question is whether its reader says it can run.
+    not (HAS_OCR and HAS_PIL and _florence_ready()),
+    reason="OCR, or the Florence-2 ONNX model, is not available")
 def test_a_blank_page_gets_an_ai_description_instead_of_nothing(tmp_path):
     """0i section 1a/1b, proved against the real model, not a stub.
 

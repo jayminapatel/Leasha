@@ -67,15 +67,15 @@ folders, commands and apps only while the desktop app is open.
 | What | Lives in | Travels by |
 |---|---|---|
 | Code, docs, work orders | GitHub `jayminapatel/Leasha`, branch `main` - the only master | a cloud session clones and pushes; the laptop runs `git pull` |
-| Laptop working copy + venv | `D:\Local\GDrive\SearchProject` today; `D:\SearchProject`, outside Google Drive, is the recommended target (owner to confirm) | git only - never Drive sync |
+| Laptop working copy + venv | `D:\Local\GitHub\SearchProject` (moved out of Google Drive 2026-09-30) | git only - never Drive sync |
 | The owner's index and models | `D:\Leasha\Data` | never synced, never in git |
-| Release builds | a Google Drive folder outside the repo | Drive sync brings them to the laptop |
+| Release builds | Google Drive `Leasha\Releases\<version>\` (on the laptop `D:\Local\GDrive\Leasha\Releases\`), outside the repo | Drive sync brings them to the laptop |
 
 **A cloud (Linux) session can do**: code, docs, pure-Python tests. **It cannot see**:
 the real Windows window, Outlook/PST, DirectML, Smart App Control, the owner's data.
 A red Windows-only test there proves nothing; mark such claims *UNVERIFIED on
-Windows*, or run them on the laptop through the desktop app (`venv\Scripts\python.exe`
-in the working copy) while it is open. Never write into the laptop working copy
+Windows*, or run them on the laptop through the desktop app
+(`D:\Local\GitHub\SearchProject\venv\Scripts\python.exe`) while it is open. Never write into the laptop working copy
 through Drive; push to GitHub and pull.
 
 ## Close-out
