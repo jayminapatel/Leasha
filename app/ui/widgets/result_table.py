@@ -136,6 +136,9 @@ class ResultTable(QTableWidget):
         #: the whole of §2a: a right-aligned number under a centred heading
         #: reads as a table somebody stopped caring about halfway through.
         self._aligns = tuple(aligns or ())
+        #: The same, as Qt flags, worked out once: `setItem` asks for one per
+        #: cell, and a two-thousand-row list is twenty thousand cells.
+        self._align_flags = tuple(alignment_for(word) for word in self._aligns)
         self._apply_header_alignment()
 
         # **Sorting is now on by default, and that is a reversal.** It used to
@@ -181,8 +184,8 @@ class ResultTable(QTableWidget):
 
     def alignment_of(self, column: int) -> Any:
         """The Qt flag for a column, from the words the view declared."""
-        if 0 <= column < len(self._aligns):
-            return alignment_for(self._aligns[column])
+        if 0 <= column < len(self._align_flags):
+            return self._align_flags[column]
         return alignment_for("left")
 
     def setItem(self, row: int, column: int, item: Any) -> None:   # noqa: N802 - Qt's naming
@@ -288,8 +291,7 @@ class ResultTable(QTableWidget):
 
         if getattr(self, "_filling", False):
             self._filling = False
-            self.setSortingEnabled(True)
-            self._reapply_sort()
+            self._sorting_back_on()
 
         # A fresh result set with a row still highlighted from the last one
         # would otherwise preview whatever is now at that index. Qt keeps the
@@ -305,14 +307,39 @@ class ResultTable(QTableWidget):
         item.setData(Qt.ItemDataRole.DisplayRole, "")
         super().setItem(index, self._rank_column, item)
 
-    def _reapply_sort(self) -> None:
-        """Restore whatever order was on screen before the rows changed."""
+    def _sorting_back_on(self) -> None:
+        r"""Sorting on again after a fill, in the order that was on screen -
+        **for one sort, or none.**
+
+        Measured 2026-09-30 on a 2,000-row Code list, offscreen: attaching the
+        rows and switching sorting back on was 290-365 ms of a draw of about a
+        second, nearly all of it Qt calling `SortableItem.__lt__` in Python.
+        It sorted twice. `setSortingEnabled(True)` sorts at once by whatever
+        the header's indicator points at - Qt's own behaviour, counted in
+        `test_table_sorting.py` - and then `sortItems` sorted again, by the
+        column somebody chose or by the hidden rank column. For a ranked list
+        this method now takes about 3 ms.
+
+        * **A sort somebody chose**: the indicator is pointed at it first (no
+          sort happens while sorting is off), so switching sorting on *is* the
+          sort, and the second one has gone.
+        * **A ranked list in its own order**: the rows went in in the engine's
+          order and `_stamp_rank` numbered them as they stand, so they are
+          already in relevance order. The indicator is pointed at no column,
+          which gives Qt nothing to compare, and no sort happens at all.
+        * **An unranked list nobody has sorted**: as it was.
+        """
+        header = self.horizontalHeader()
         if self._sort is not None:
             column, order = self._sort
-            self.sortItems(column, order)
+            header.setSortIndicator(column, order)
+            self.setSortingEnabled(True)
         elif self.ranked:
-            self.sortItems(self._rank_column, Qt.SortOrder.AscendingOrder)
-            self.horizontalHeader().setSortIndicatorShown(False)
+            header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+            self.setSortingEnabled(True)
+            header.setSortIndicatorShown(False)
+        else:
+            self.setSortingEnabled(True)
 
     def row_object(self, row: int) -> Any:
         """The object behind a row index, or None.
