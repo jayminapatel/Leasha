@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.25 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.26 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -110,6 +110,13 @@ line, no traceback and no window.
   `D:\Local\Archive\SearchProject-2026-09-30\old-copy-untracked`. **Owner, 2026-09-30:** he
   opened Leasha from the new copy and it works; and order 1a is to be left - *"forget it as
   after this changes we are going to start fresh"*. The register still lists 1a as released.
+- **Full unit suite after that fix (12:16-12:41):** 11,262 passed, 5 failed, 106 skipped,
+  counted from the progress marks - the run printed no totals line. Three failures are the
+  old ones (osbridge Mac x2, scaffold lint). Two were `test_run_lock`'s window tests, which
+  took the real machine-wide window mutex and so failed because the owner opened Leasha at
+  12:18; they now use a name of their own and pass with Leasha open. The index-run lock in
+  that file is still the real one. **Never run two pytest runs at once in this copy** - they
+  share `.pytest_tmp`, and the second clears the first's files (pass `--basetemp`).
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the

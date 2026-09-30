@@ -27,6 +27,7 @@ lock, breakable only by hand and only at the worst moment.
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 
@@ -66,6 +67,19 @@ def locks(tmp_path):
     return directory
 
 
+@pytest.fixture()
+def window_name():
+    """The window's mutex under a name of this test's own.
+
+    The real `GUI_MUTEX_NAME` is machine-wide and Leasha holds it for as long
+    as its window is open, so these tests failed whenever the owner had Leasha
+    running (2026-09-30: opened mid-suite, two failures). What they prove - the
+    window's lock is not the run lock, and a second window is refused - does not
+    depend on the real name; `test_the_two_locks_are_not_the_same_name` pins that.
+    """
+    return f"{GUI_MUTEX_NAME}.test-{uuid.uuid4().hex}"
+
+
 # ---------------------------------------------------------------------------
 # The two halves of the property
 # ---------------------------------------------------------------------------
@@ -78,13 +92,13 @@ def test_two_index_runs_exclude_each_other(store, locks):
     assert raised.value.error.code == "ERR_INDEX_RUNNING"
 
 
-def test_an_open_window_does_not_block_an_index_run(store, locks):
+def test_an_open_window_does_not_block_an_index_run(store, locks, window_name):
     r"""**The reported bug, stated as the thing that must now be possible.**
 
     The window's lock and the run lock are different mutexes. Holding the first
     - which is what having Leasha open means - must leave the second free.
     """
-    window = SingleInstance(GUI_MUTEX_NAME, lock_dir=locks)
+    window = SingleInstance(window_name, lock_dir=locks)
     window.acquire()
     try:
         with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks) as held:
@@ -93,13 +107,13 @@ def test_an_open_window_does_not_block_an_index_run(store, locks):
         window.release()
 
 
-def test_a_second_window_is_still_refused(locks):
+def test_a_second_window_is_still_refused(locks, window_name):
     """Splitting the locks must not quietly permit two windows."""
-    first = SingleInstance(GUI_MUTEX_NAME, lock_dir=locks)
+    first = SingleInstance(window_name, lock_dir=locks)
     first.acquire()
     try:
         with pytest.raises(AppErrorException):
-            SingleInstance(GUI_MUTEX_NAME, lock_dir=locks).acquire()
+            SingleInstance(window_name, lock_dir=locks).acquire()
     finally:
         first.release()
 
