@@ -30,6 +30,7 @@ from app.core.osbridge import programs as _programs
 
 __all__ = [
     "EDITORS", "command_for", "detect", "installed", "copyable", "AUTO",
+    "NONE", "TERMINAL_EDITORS", "label_for",
 ]
 
 #: The value meaning "work it out from what is installed".
@@ -46,14 +47,38 @@ EDITORS: tuple = (
     ("vscode", "Visual Studio Code", "code", "-g {path}:{line}"),
     ("cursor", "Cursor", "cursor", "-g {path}:{line}"),
     ("vscodium", "VSCodium", "codium", "-g {path}:{line}"),
-    ("sublime", "Sublime Text", "subl", "{path}:{line}"),
+    # Order 0y §2c names the order: VS Code, then Notepad++, then Sublime.
     ("notepadpp", "Notepad++", "notepad++", "-n{line} {path}"),
+    ("sublime", "Sublime Text", "subl", "{path}:{line}"),
     ("idea", "IntelliJ IDEA", "idea", "--line {line} {path}"),
     ("pycharm", "PyCharm", "pycharm", "--line {line} {path}"),
     ("vim", "Vim", "vim", "+{line} {path}"),
     ("nvim", "Neovim", "nvim", "+{line} {path}"),
     ("emacs", "Emacs", "emacs", "+{line} {path}"),
 )
+
+#: The value meaning "do not use an editor": the file opens in its usual program.
+NONE = "none"
+
+#: Editors that run *inside* a terminal. Started from a window with no console
+#: they need one of their own, or they run where nobody can see them (order 0y
+#: §2c; `workers.editor_creationflags` reads this).
+TERMINAL_EDITORS = frozenset({"vim", "nvim"})
+
+
+def label_for(command: Sequence[str]) -> str:
+    """The editor's name in words for a command line, or its program's name.
+
+    Pure. Used for the one sentence said when an editor would not start.
+    """
+    program = str(command[0]) if command else ""
+    stem = program.replace("\\", "/").rpartition("/")[2].lower()
+    stem = stem.rpartition(".")[0] if "." in stem else stem
+    for _value, label, executable, _template in EDITORS:
+        if stem == executable.lower():
+            return label
+    return stem or "The editor"
+
 
 #: Where these install on Windows when they are not on `PATH`, relative to a
 #: program-files root. Same shape and same reason as the converters' table.

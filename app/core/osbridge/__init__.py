@@ -46,7 +46,8 @@ from __future__ import annotations
 from app.core.osbridge._platform import is_macos, is_windows
 from app.core.osbridge.cloudfs import is_cloud_placeholder
 from app.core.osbridge.launch import (
-    hidden_console_flags, open_with_default_app, show_in_file_manager,
+    hidden_console_flags, new_console_flags, open_with_default_app,
+    show_in_file_manager,
 )
 from app.core.osbridge.pathnames import (
     case_sensitive,
@@ -69,6 +70,7 @@ from app.core.osbridge.priority import (
 __all__ = [
     "is_windows", "is_macos",
     "open_with_default_app", "show_in_file_manager", "hidden_console_flags",
+    "new_console_flags",
     "lower_this_thread", "restore_this_thread", "lower_process_priority",
     "default_data_folder", "venv_python_display", "venv_pip_display",
     "is_cloud_placeholder",

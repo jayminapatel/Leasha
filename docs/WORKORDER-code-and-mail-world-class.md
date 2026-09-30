@@ -88,6 +88,26 @@ surface feel finished, to the people who use it.
 > keystroke on this repository's 3,467 passages, under 40 ms at 2,000+ in the test. New columns Match,
 > Line and Code appear only once something is typed. Tests: `tests/unit/test_code_search.py` (10).
 
+> **2026-09-30, 2c built.** Most of it was already in the tree and unused: the editor table and command
+> builder (`app/ui/editors.py`), the finder for editors not on `PATH` (`osbridge/programs.py`), and the
+> setting with its control in Settings (`CODE_EDITOR`, `CODE_EDITOR_COMMAND`, `widgets/editor_box.py`).
+> **The "Editor for code" setting is that existing one**, labelled "Open code results in" under
+> "Opening code results" (Automatic, an installed editor, None, or a command of the person's own); no
+> second setting was added and its label was not reworded. What was missing was every caller: nothing
+> ran `command_for`, so Enter handed the file to its usual program whatever the setting said, and the
+> Code table had no Enter key at all. Built: `CodeResults.open_selected` sends a row that knows its
+> line (a Definition, a Mention, a git hit in the checkout) as `open_at_requested(path, line)`; Enter on
+> the table does what a double-click does; `workers.open_at_line` (on a worker, never the UI thread)
+> builds the command, starts the editor with no console window, and otherwise opens the file in its
+> usual program and says so with the line number; `MainWindow._open_code_at` reads the setting in
+> force, so a choice just made in Settings applies to the next Enter without a restart. A row with no
+> line opens as before. The editor order is now the one written here (VS Code, Notepad++, Sublime;
+> Cursor and VSCodium sit with VS Code). The row menu gained "Copy path and line", which the Settings
+> note already promised. A terminal editor (Vim, Neovim) is given a console of its own
+> (`osbridge.new_console_flags`) - **UNCONFIRMED on a real window**, as is A5. On this machine
+> Automatic resolves to `...\Microsoft VS Code\bin\code.CMD -g <path>:<line>` (the command was built
+> and read, not run). Tests: `tests/unit/test_code_open_at_line.py` (20); no test starts an editor.
+
 Today typing matches **file names and paths** (`browse_files` scoped to code). Finding where a
 function is used means leaving for the Search tab and adding the Code chip. For a developer that is
 the main question, so it belongs in the Code tab's own box.
@@ -102,7 +122,7 @@ the main question, so it belongs in the Code tab's own box.
 - [x] **2b** Each content row shows the **line number** and **one line of code** with the word
       highlighted. The line number is computed from the passage's `char_start` in the stored text
       (no file read), so it costs nothing extra on screen and stays correct after indexing.
-- [ ] **2c** **Open at the line.** Enter (or double-click) opens the file in the person's editor at
+- [x] **2c** **Open at the line.** Enter (or double-click) opens the file in the person's editor at
       that line when one is found - VS Code (`code -g path:line`), then Notepad++ (`-n`), then
       Sublime (`path:line`) - otherwise the default program. A new "Editor for code" setting
       (Automatic, or a program chosen by the person) under Settings, per non-negotiable #11.

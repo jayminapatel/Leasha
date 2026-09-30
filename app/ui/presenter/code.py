@@ -639,4 +639,8 @@ def git_result_row(row: Any, repo_root: str) -> Any:
         full_path=full,
         preview_text=(f"{row.subject}\n\n{row.author}   {row.date}   {row.commit}"
                       if row.kind == "commit" else row.text),
+        # Order 0y §2c: a hit in the checkout is a place, so Enter can open the
+        # editor at it. A historical hit has no file, and so no line to go to.
+        line=str(row.line_no) if (full and row.line_no) else "",
+        line_no=int(row.line_no or 0) if full else 0,
     )

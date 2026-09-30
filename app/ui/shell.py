@@ -67,7 +67,9 @@ from app.ui.rail_state import (
 # reads this file and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import index_counts
-from app.ui.workers import CallableWorker, open_async, open_in_explorer, run
+from app.ui.workers import (
+    CallableWorker, open_async, open_at_line_async, open_in_explorer, run,
+)
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
 
@@ -657,6 +659,7 @@ class MainWindow(QMainWindow):
         self.code_view.error.connect(self._show_error)
         self.code_view.search_repo_requested.connect(self._search_repo)
         self.code_view.open_requested.connect(self._open_path)
+        self.code_view.open_at_requested.connect(self._open_code_at)
         self.code_view.reveal_requested.connect(
             lambda path: self._open_path(path, reveal=True))
         self.code_view.indexing_requested.connect(
@@ -1994,6 +1997,21 @@ class MainWindow(QMainWindow):
         # version and `files_view` had its own, blocking, copy; one function now,
         # so a third caller cannot get it wrong.
         open_async(path, reveal=reveal, on_error=self._show_error)
+
+    def _open_code_at(self, path: str, line: int) -> None:
+        """A code result, in the person's editor, at its line. Order 0y §2c.
+
+        Which editor is the "Open code results in" setting, read now rather
+        than at startup so a choice just made applies to this Enter. Finding
+        and starting the editor happen on a worker (`workers.open_at_line`).
+        """
+        chosen = {key: str(self._settings_overrides.get(
+                      key, getattr(self._settings, key, "")) or "")
+                  for key in ("code_editor", "code_editor_command")}
+        open_at_line_async(path, line, choice=chosen["code_editor"] or "auto",
+                           custom=chosen["code_editor_command"],
+                           on_error=self._show_error,
+                           on_note=lambda text: self.notify(text, 10_000))
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)
