@@ -350,6 +350,43 @@ def test_eta_never_claims_a_number_it_does_not_have() -> None:
     assert format_eta(1000, files_per_minute=0) == "estimating…"
 
 
+@pytest.mark.parametrize("rate", [0.067, 0.001, 0.2, 0.49, 0.5, float("nan")])
+def test_a_rate_that_prints_as_zero_never_gives_a_number(rate: float) -> None:
+    """The 2026-09-12 run: 0.067 files a minute, shown as "0 files/min" and,
+    on the same line, "about 1823 days". A rate the line prints as nothing is
+    treated as nothing."""
+    if rate == rate:                               # not for the not-a-number
+        assert f"{rate:,.0f}" == "0", "this rate is not one that prints as 0"
+    assert format_eta(175_000, files_per_minute=rate) == "estimating…"
+
+
+@pytest.mark.parametrize("rate", [0.51, 0.6, 1, 1.4])
+def test_the_smallest_rate_that_prints_as_a_number_still_gets_an_eta(rate: float) -> None:
+    """The other side of the same line: once the rate reads "1 files/min" the
+    arithmetic is shown, however long it comes to. Only a printed 0 is withheld."""
+    assert f"{rate:,.0f}" == "1"
+    assert format_eta(175_000, files_per_minute=rate).startswith("about ")
+
+
+def test_the_progress_line_never_pairs_no_rate_with_years() -> None:
+    """The same thing where a person reads it: one file in the last quarter of
+    an hour, 175,000 to go."""
+    from app.index.pipeline import IndexStats
+    from app.ui.presenter import progress_text
+
+    stats = IndexStats(indexed=1_000, seen=1_000)
+    stats.sample(now=0.0)
+    stats.indexed += 1
+    stats.sample(now=900.0)
+    assert stats.recent_files_per_minute == pytest.approx(1 / 15)
+
+    _headline, detail = progress_text(stats, total_estimate=176_001)
+
+    assert "0 files/min (last 15 min)" in detail
+    assert "estimating…" in detail
+    assert "day" not in detail and "about" not in detail
+
+
 # --- the skipped-files panel ------------------------------------------------
 
 def test_skips_are_grouped_biggest_first() -> None:

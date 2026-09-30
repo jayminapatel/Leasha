@@ -23,11 +23,26 @@ import pytest
 from app.core.errors import AppErrorException, guard
 from app.core.logging import setup_logging
 from app.core.single_instance import SingleInstance
+from tests import private_locks
+
+
+#: `python -m app.cli`, the way a person runs it.
+CLI = [sys.executable, "-m", "app.cli"]
+
+#: The same entry point, started so that the single-instance lock it takes is
+#: this test run's own and not the machine's. Only the `lock` command needs it.
+#: 2026-09-30: with Leasha open, `lock` was refused by the owner's real window
+#: and acceptance 3 failed before it had tested anything; and while it held the
+#: lock for its eight seconds, the owner's Leasha could not have been started.
+#: `tests/private_locks.py` explains why this is done in the test and not by
+#: the application.
+CLI_WITH_PRIVATE_LOCKS = private_locks.through_private_locks(CLI)
 
 
 def run_cli(project_root: Path, *args: str, env_file: Path | None = None,
-            timeout: float = 60.0) -> subprocess.CompletedProcess:
-    command = [sys.executable, "-m", "app.cli"]
+            timeout: float = 60.0,
+            base: list[str] | None = None) -> subprocess.CompletedProcess:
+    command = list(base or CLI)
     if env_file is not None:
         command += ["--env", str(env_file)]
     command += list(args)
@@ -94,7 +109,7 @@ def test_acceptance_3_second_instance_refuses_to_start(
 ) -> None:
     """Two copies cannot share one index, so the second must refuse."""
     first = subprocess.Popen(
-        [sys.executable, "-m", "app.cli", "--env", str(temp_env), "lock", "--hold", "8"],
+        [*CLI_WITH_PRIVATE_LOCKS, "--env", str(temp_env), "lock", "--hold", "8"],
         cwd=str(project_root), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     try:
@@ -109,7 +124,8 @@ def test_acceptance_3_second_instance_refuses_to_start(
                 pytest.fail(f"first instance exited early: {first.stderr.read() if first.stderr else ''}")
         assert "LOCK ACQUIRED" in line, "first instance never acquired the lock"
 
-        second = run_cli(project_root, "lock", "--hold", "1", env_file=temp_env, timeout=30)
+        second = run_cli(project_root, "lock", "--hold", "1", env_file=temp_env, timeout=30,
+                         base=CLI_WITH_PRIVATE_LOCKS)
 
         assert second.returncode == 1, "the second instance should have refused to start"
         combined = second.stdout + second.stderr

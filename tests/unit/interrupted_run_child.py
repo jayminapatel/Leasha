@@ -17,6 +17,13 @@ from pathlib import Path
 
 
 def main(db: str, root: str, lock_dir: str) -> None:
+    # The run lock this takes is the test run's own, never the machine's:
+    # `lock_dir` only places a lock file on Linux and macOS, and on Windows
+    # this process was taking the real index mutex. See that module.
+    from tests import private_locks
+
+    private_locks.install()
+
     from app.core.run_lock import COMMAND_LINE, IndexRunLock
     from app.index.pipeline import Pipeline, PipelineConfig
     from app.index.walker import WalkConfig

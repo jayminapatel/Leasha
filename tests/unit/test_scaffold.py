@@ -14,6 +14,7 @@ nothing connects the two.
 from __future__ import annotations
 
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -218,17 +219,48 @@ def test_the_generated_module_compiles(tree: Path):
     compile(source, "cadx.py", "exec")
 
 
-def test_the_generated_module_passes_the_projects_own_lint(tree: Path):
-    ruff = shutil.which("ruff")
-    if ruff is None:
-        pytest.skip("ruff is not installed")
+def _ruff(*arguments: str):
+    """Run the ruff that belongs to the Python running these tests.
 
+    2026-09-30: this used `shutil.which("ruff")`, which asks `PATH`. The
+    project's ruff is pinned in `requirements-dev.txt` and lives in the venv,
+    whose `Scripts` folder is only on `PATH` when the venv has been activated.
+    So the test either skipped (nothing on `PATH` - it looked green and checked
+    nothing) or ran whatever other ruff the machine had: on the owner's laptop,
+    a different version belonging to a system-wide Python 3.14. `python -m ruff`
+    is the pinned one or none, the same way `test_no_undefined_names.py` asks.
+    """
     import subprocess
 
-    apply(plan(spec(), tree))
-    result = subprocess.run(
-        [ruff, "check", "--isolated", "--select", "E,F",
-         str(tree / "app" / "extract" / "cadx.py")],
+    return subprocess.run(
+        [sys.executable, "-m", "ruff", *arguments],
         capture_output=True, text=True, check=False,
     )
+
+
+@pytest.mark.parametrize("overrides", [
+    {},                                   # a reader with its own library
+    {"module": "", "package": ""},        # a standard-library reader
+], ids=["with-a-library", "standard-library-only"])
+def test_the_generated_module_passes_the_projects_own_lint(tree: Path, overrides):
+    """Both shapes the generator writes, because each had its own unused import:
+    the library one imported the library and never used it, the other imported
+    `raise_error` and `Requirement` for blocks it had left out."""
+    if _ruff("--version").returncode != 0:
+        pytest.skip("ruff is not installed in this environment")
+
+    apply(plan(spec(**overrides), tree))
+    result = _ruff("check", "--isolated", "--select", "E,F",
+                   str(tree / "app" / "extract" / "cadx.py"))
     assert result.returncode == 0, result.stdout
+
+
+def test_a_standard_library_reader_imports_nothing_it_does_not_use(tree: Path):
+    """The same fact without ruff, so it is checked where ruff is not installed."""
+    apply(plan(spec(module="", package=""), tree))
+    text = (tree / "app" / "extract" / "cadx.py").read_text(encoding="utf-8")
+
+    header = text.split("class CadxExtractor")[0]
+    assert "raise_error" not in header.split('"""')[-1]
+    assert "format_health" not in text
+    assert "from app.core.errors import make_error\n" in text

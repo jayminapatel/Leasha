@@ -329,8 +329,22 @@ def test_the_governor_still_reports_failure_in_its_own_words():
 
 @pytest.fixture()
 def mac_disk(monkeypatch, tmp_path, on):
-    """A pretend Mac: `/Applications` and Homebrew's bin folders under tmp_path."""
+    """A pretend Mac: `/Applications` and Homebrew's bin folders under tmp_path.
+
+    **A Mac has no `ProgramFiles` (2026-09-30).** Switching `sys.platform` does
+    not remove the real machine's environment. `editors.installed` and
+    `media_open._executable_in_folders` try the Windows folders first and only
+    then the Mac ones; the Windows search does not ask which system it is on,
+    it reads `ProgramFiles`, `LOCALAPPDATA` and the rest, which on a real Mac
+    are simply not set. Run on a Windows machine they *are* set, so two tests
+    here were answered with that machine's own `Code.exe` and `vlc.exe` instead
+    of the pretend Mac's - green on Linux, red on any Windows laptop with VS
+    Code or VLC installed. Taking the variables away for the test is what
+    "pretend to be a Mac" has to include.
+    """
     on("darwin")
+    for variable in (*programs.WINDOWS_PROGRAM_ROOT_VARIABLES, "LOCALAPPDATA"):
+        monkeypatch.delenv(variable, raising=False)
     apps, brew, local = tmp_path / "Applications", tmp_path / "homebrew", tmp_path / "local"
     for folder in (apps, brew, local):
         folder.mkdir()
@@ -437,6 +451,56 @@ def test_media_players_are_found_on_a_mac(mac_disk):
     assert media_open._executable_in_folders(by_name["VLC"]) == str(vlc)
     assert media_open._executable_in_folders(by_name["MPC-HC"]) is None
     assert programs.find_player_on_macos(by_name["PotPlayer"]) is None
+
+
+@pytest.fixture()
+def windows_programs_on_the_host(monkeypatch, tmp_path):
+    """The machine the tests run on has VS Code and VLC installed, Windows-style.
+
+    Built under `tmp_path` and pointed at by the same variables Windows sets,
+    so the two tests above fail the same way on Linux as they did on the
+    owner's laptop. Asked for *before* `mac_disk`, as the real environment is
+    there before any fixture runs.
+    """
+    machine, user = tmp_path / "Program Files", tmp_path / "AppData" / "Local"
+    code = user / "Programs" / "Microsoft VS Code" / "Code.exe"
+    vlc = machine / "VideoLAN" / "VLC" / "vlc.exe"
+    for program in (code, vlc):
+        program.parent.mkdir(parents=True)
+        program.write_bytes(b"")
+    monkeypatch.setenv("ProgramFiles", str(machine))
+    monkeypatch.setenv("LOCALAPPDATA", str(user))
+    return SimpleNamespace(code=code, vlc=vlc)
+
+
+def test_the_fake_windows_installs_are_ones_the_search_really_finds(
+        windows_programs_on_the_host, monkeypatch):
+    """Without this the next test could pass because the bait was never bait."""
+    from app.core import media_open
+    from app.ui import editors
+
+    monkeypatch.setattr(editors.shutil, "which", lambda name: None)
+    by_name = {player.name: player for player in media_open.KNOWN_PLAYERS}
+    assert editors.installed("code") == str(windows_programs_on_the_host.code)
+    assert (media_open._executable_in_folders(by_name["VLC"])
+            == str(windows_programs_on_the_host.vlc))
+
+
+def test_a_pretend_mac_never_answers_with_the_hosts_windows_programs(
+        windows_programs_on_the_host, mac_disk, monkeypatch):
+    """The two Mac tests above must not depend on what this machine has installed."""
+    from app.core import media_open
+    from app.ui import editors
+
+    monkeypatch.setattr(editors.shutil, "which", lambda name: None)
+    by_name = {player.name: player for player in media_open.KNOWN_PLAYERS}
+    assert editors.installed("code") is None
+    assert media_open._executable_in_folders(by_name["VLC"]) is None
+
+    code = mac_disk.make("Visual Studio Code.app/Contents/Resources/app/bin/code")
+    vlc = mac_disk.make("VLC.app/Contents/MacOS/VLC")
+    assert editors.installed("code") == str(code)
+    assert media_open._executable_in_folders(by_name["VLC"]) == str(vlc)
 
 
 def test_every_mac_converter_is_an_allowed_program():
