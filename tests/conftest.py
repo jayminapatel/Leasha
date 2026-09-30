@@ -321,9 +321,17 @@ def no_window_is_collected_while_it_paints():
     observation.
 
     With the collector off for the length of a test the window lives until
-    pytest-qt closes it, and the one collection afterwards happens outside any
+    pytest-qt closes it, and the collection afterwards happens outside any
     paint. A test that wants a collection still calls `gc.collect()` itself.
     Proved by the pair above: 139 every time without this, 0 with it.
+
+    **Only the young generations are collected after each test.** A full
+    collection there walks everything the run has ever kept - and windows are
+    deliberately kept (`gui_mainwindow`) - so it cost more with every test:
+    81 s against 32 s for six files, and a whole run that had taken 25
+    minutes was at 56% after an hour. What a test leaves behind is new, so
+    generation 1 reaches it; the old generation is still collected by Python
+    itself between tests, where the collector is on.
     """
     import gc
 
@@ -332,4 +340,4 @@ def no_window_is_collected_while_it_paints():
     yield
     if was_enabled:
         gc.enable()
-    gc.collect()
+    gc.collect(1)
