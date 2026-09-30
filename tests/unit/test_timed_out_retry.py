@@ -326,7 +326,20 @@ def test_a_retry_reads_the_file_under_the_longer_limit_and_nothing_else(
     assert sum(1 for _ in retry.store.iter_files()) == 6
     assert any("Reading 1 timed-out .txt file again, with 10 times the usual "
                "time limit." in str(n) for n in stats.notices)
+    # Marked, so what follows a run in the window can tell (`was_retry`).
+    assert timed_out_retry.was_retry(stats)
+    assert stats.resolved["retry_timed_out"] == ".txt, 10 times the usual limit"
+    assert stats.as_dict()["resolved"]["retry_timed_out"]
     retry.store.close()
+
+
+def test_an_ordinary_run_is_not_taken_for_a_retry(tmp_path) -> None:
+    root = _corpus(tmp_path / "docs", files=1)
+    pipeline = _pipeline(root, tmp_path / "index.db")
+    stats, _ = _run(pipeline)
+    assert not timed_out_retry.was_retry(stats)
+    assert not timed_out_retry.was_retry(None)
+    pipeline.store.close()
 
 
 def test_the_longer_limit_is_for_that_run_only(
@@ -582,3 +595,106 @@ def test_a_retry_from_the_command_line_that_times_out_again_says_the_limit(
     with SqliteStore(_index_db(cli_env)) as store:
         (row,) = store.timed_out_files("txt")
     assert "on this retry (2 times the usual 1 s)" in row["skip_detail"]
+
+# ---------------------------------------------------------------------------
+# The separate indexing process
+# ---------------------------------------------------------------------------
+
+def test_the_flags_for_the_indexing_process_round_trip() -> None:
+    from app.cli import build_parser
+    from app.cli.index import _retry_asked
+    from app.index.child_run import child_command
+
+    assert timed_out_retry.child_arguments(None) == []
+    for retry in (RetryTimedOut("pdf", 6), RetryTimedOut("", 4), RetryTimedOut(None, 2.5)):
+        argv = child_command([], extra=timed_out_retry.child_arguments(retry))
+        args = build_parser().parse_args(argv[argv.index("index"):])
+        assert args.roots == []
+        assert _retry_asked(args) == (retry, None), argv
+
+
+def test_a_retry_through_the_indexing_process(tmp_path) -> None:
+    """The real `app.cli index --events jsonl` child, as the window starts it
+    with "Index in a separate process" on: an ordinary run times a slow file
+    out, and a retry run reads that file and only that file."""
+    import textwrap
+    import threading
+
+    from app.index.child_run import ChildIndexRun, child_command
+    from tests.unit.test_file_watch import PROJECT
+
+    corpus = _corpus(tmp_path / "docs", files=3)
+    (corpus / "slow.txt").write_text("the slow pump station report", encoding="utf-8")
+    env_file = tmp_path / ".env"
+    env_file.write_text(
+        f"DATA_PATH={(tmp_path / 'data').as_posix()}\n"
+        f"LOG_PATH={(tmp_path / 'logs').as_posix()}\n"
+        "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\nINDEX_CPU_PERCENT=0\n"
+        "INDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n", encoding="utf-8")
+    locks = tmp_path / "locks"
+    locks.mkdir()
+    opened = tmp_path / "opened.txt"
+    # `python -m app.cli ...` becomes `python -c <the same, with a slow reader
+    # that also notes every file it is asked for>`.
+    program = textwrap.dedent("""
+        import sys, time
+        import app.index.pipeline as pipeline_module
+        real = pipeline_module.extract
+        def extract(path, **kwargs):
+            with open(OPENED, "a", encoding="utf-8") as handle:
+                handle.write(str(path).replace(chr(92), "/").rsplit("/", 1)[-1] + "\\n")
+            if str(path).endswith("slow.txt"):
+                until = time.monotonic() + 3.0
+                while time.monotonic() < until:
+                    sum(range(1000))
+            return real(path, **kwargs)
+        pipeline_module.extract = extract
+        from app.cli import main
+        sys.exit(main(sys.argv[1:]))
+    """).replace("OPENED", repr(str(opened)))
+
+    def child(roots, extra):
+        argv = child_command(roots, env_file=env_file, workers=1,
+                             extra=[*extra, "--fake-embedder-for-bench"])
+        assert argv[1:3] == ["-m", "app.cli"]
+        argv = [argv[0], "-c", program, *argv[3:]]
+        env = dict(os.environ, TMPDIR=str(locks), PYTHONPATH=str(PROJECT))
+        run = ChildIndexRun(argv, env=env, cwd=PROJECT,
+                            stderr_path=tmp_path / "child-stderr.log")
+        outcome: dict = {}
+
+        def target() -> None:
+            try:
+                outcome["stats"] = run.run(on_progress=lambda _stats: None)
+            except BaseException as exc:            # noqa: BLE001
+                outcome["error"] = exc
+
+        thread = threading.Thread(target=target, daemon=True)
+        thread.start()
+        thread.join(240)
+        if thread.is_alive():
+            run.shutdown(grace_s=5)
+            pytest.fail("the child run never finished")
+        if "error" in outcome:
+            raise outcome["error"]
+        return outcome["stats"]
+
+    first = child([corpus], [])
+    assert first.indexed == 3
+    assert first.skipped_by_code.get("ERR_FILE_TIMEOUT") == 1
+
+    opened.write_text("", encoding="utf-8")
+    retry = timed_out_retry.child_arguments(RetryTimedOut("txt", 8))
+    second = child([], retry)
+    assert second.seen == 1 and second.indexed == 1
+    assert not second.skipped_by_code
+    assert opened.read_text(encoding="utf-8").split() == ["slow.txt"], (
+        "the child read the group and nothing else")
+    assert any("Reading 1 timed-out .txt file again" in str(n) for n in second.notices)
+    assert timed_out_retry.was_retry(second) and not timed_out_retry.was_retry(first), (
+        "the mark crosses the pipe with the rest of the stats")
+    from app.core.config import load_settings
+
+    with SqliteStore(load_settings(env_file).fts_db) as store:
+        assert store.timed_out_groups() == []
+        assert sum(1 for _ in store.iter_files()) == 4

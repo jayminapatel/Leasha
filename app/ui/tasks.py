@@ -658,6 +658,13 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
         _log.debug("no status funnel: {}", exc)
     # 3c: archives a run stopped inside. Stats each one, so on the worker too.
     payload["part_read"] = read_part_read_archives(store)
+    # Order 0z F3: the timed-out files by type, for the panel that offers to
+    # read a type again. Its own guard, as the funnel has: absent means "not
+    # read", and the panel then leaves what it shows alone.
+    try:
+        payload["timed_out"] = store.timed_out_groups()
+    except Exception as exc:                     # noqa: BLE001 - one panel of the page
+        _log.debug("no timed-out groups: {}", exc)
 
     if settings is None:
         return payload

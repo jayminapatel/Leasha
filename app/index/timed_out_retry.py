@@ -65,14 +65,17 @@ __all__ = [
     "DEFAULT_FACTOR",
     "MAX_FACTOR",
     "MIN_FACTOR",
+    "RESOLVED_KEY",
     "RetryPlan",
     "RetryTimedOut",
+    "child_arguments",
     "clamp_factor",
     "group_words",
     "normalise_group",
     "plan",
     "retry_pipeline",
     "said",
+    "was_retry",
 ]
 
 log = logger.bind(component="index.timed_out_retry")
@@ -92,6 +95,12 @@ MAX_FACTOR = 100
 
 #: What the command line and the child process write for "every group".
 ALL_GROUPS = "*"
+
+#: The key a retry leaves in `IndexStats.resolved` - "what this run was
+#: configured with" - so whoever is handed the finished stats can tell. It
+#: travels with the stats from the separate indexing process like every other
+#: field (`run_events.StatsRebuilder`). See `was_retry`.
+RESOLVED_KEY = "retry_timed_out"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -138,6 +147,33 @@ def normalise_group(text: Any) -> Optional[str]:
     if value.lower() in (ALL_GROUPS, "all"):
         return None
     return value.lstrip(".").lower()
+
+
+def child_arguments(retry: Optional[RetryTimedOut]) -> list[str]:
+    """The `app.cli index` flags that ask for this retry, for the window's
+    separate indexing process (`child_run.child_command(extra=...)`). None for
+    no retry: no flags.
+
+    Written with `=` so an empty group - files with no extension - is still
+    an argument, and so nothing after it can be taken for the group.
+    """
+    if retry is None:
+        return []
+    group = ALL_GROUPS if retry.group is None else retry.group
+    return [f"--retry-timed-out={group}",
+            f"--time-limit-factor={clamp_factor(retry.factor):g}"]
+
+
+def was_retry(stats: Any) -> bool:
+    """Was this finished run a retry of timed-out files?
+
+    For what follows a run in the window. A retry reads a handful of the
+    slowest files in the index, by construction: it is not a measurement of
+    the machine (so the tuner must not learn from it), and it is not a text
+    pass (so nothing should be said about the pictures pass after it).
+    """
+    resolved = getattr(stats, "resolved", None)
+    return bool(isinstance(resolved, dict) and resolved.get(RESOLVED_KEY))
 
 
 def group_words(group: Optional[str]) -> str:
@@ -220,6 +256,15 @@ def _retry_pipeline_class() -> type:
                 read_order="found",
                 walk=dataclasses.replace(self.config.walk, roots=[], extensions=None),
             )
+
+        def run(self, *, on_progress: Any = None) -> Any:
+            stats = super().run(on_progress=on_progress)
+            # Marked, for whoever is handed the stats - see `was_retry`.
+            kind = group_words(self.retry.group) or "every type"
+            stats.resolved = dict(
+                stats.resolved or {},
+                **{RESOLVED_KEY: f"{kind}, {self.retry.factor:g} times the usual limit"})
+            return stats
 
         def _plan_roots(self, stats: Any) -> None:
             # The run's thread, before the producer starts: the one place a

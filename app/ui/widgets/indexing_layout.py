@@ -36,6 +36,7 @@ from app.ui.widgets.indexing_workers import IndexingWorkers
 from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 from app.ui.widgets.status_funnel import StatusFunnel
+from app.ui.widgets.timed_out_panel import TimedOutPanel
 
 __all__ = [
     "assemble_pages", "paint_finished", "paint_progress", "paint_resting_headline",
@@ -108,6 +109,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     for first, second in zip(chain, chain[1:]):
         QWidget.setTabOrder(first, second)
     status_layout.addWidget(view.archives)
+    # Order 0z F3: the files that ran out of time, by type, each with "Retry
+    # with a longer time limit". Made here rather than in the view, which is
+    # at its line guard; `view.timed_out` is set on the view exactly as if it
+    # had been. Hidden until the index holds one.
+    view.timed_out = TimedOutPanel()
+    status_layout.addWidget(view.timed_out)
     status_layout.addWidget(view.skips, stretch=1)
     # **Spare height goes below everything, not between the lines.** While
     # the skips panel has nothing to show it is hidden, and its stretch goes
@@ -183,6 +190,10 @@ def paint_totals(view: Any, payload: dict) -> None:
     if funnel is not None:
         # Read on the same worker as the rest of the payload - no second read.
         funnel.show_counts(payload.get("funnel"))
+    timed_out = getattr(view, "timed_out", None)
+    if timed_out is not None:
+        # Order 0z F3. Also from this payload; `None` (not read) changes nothing.
+        timed_out.show_groups(payload.get("timed_out"))
     paint_resting_headline(view, payload, running=running)
     stats = payload.get("stats") or {}
     try:

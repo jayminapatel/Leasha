@@ -737,6 +737,8 @@ class MainWindow(QMainWindow):
             self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
             self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
             self.indexing_view.rescan_archives_requested.connect(self._rescan_archives)
+            # Order 0z F3: "Retry with a longer time limit" on a timed-out type.
+            self.indexing_view.timed_out.retryRequested.connect(self._retry_timed_out)
             self.indexing_view.scan_requested.connect(self._scan_corpus)
             self.indexing_view.stop_requested_externally.connect(self._stop_external_run)
 
@@ -1125,6 +1127,9 @@ class MainWindow(QMainWindow):
 
     def _index_resolve_failed(self, error: Any) -> None:
         self.index_ctl._index_resolve_failed(error)
+
+    def _retry_timed_out(self, group: str, factor: float) -> None:
+        self.index_ctl._retry_timed_out(group, factor)
 
     def _reset_index(self) -> None:
         self.index_ctl._reset_index()

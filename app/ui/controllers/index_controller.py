@@ -213,6 +213,12 @@ class IndexController(QObject):
         """
         if str(getattr(self._w._settings, "index_ocr_pass", "")) != "after-run":
             return
+        from app.index.timed_out_retry import was_retry
+
+        if was_retry(_stats):
+            # Order 0z F3: a retry read a few timed-out files. It was not the
+            # text pass, so "Text is indexed" would not be true of it.
+            return
         self._w.notify(
             "Text is indexed. Images and scans are still to read - press Start "
             "again to do those.", 30_000)
@@ -251,7 +257,13 @@ class IndexController(QObject):
         try:
             from app.core.compute_profile import cached_profile
             from app.index.autotune import learn
+            from app.index.timed_out_retry import was_retry
 
+            if was_retry(stats):
+                # Order 0z F3: a retry reads the slowest files in the index, by
+                # construction. It is not a measurement of this computer, and
+                # it must not move a tuning setting: "nothing is saved".
+                return
             profile = cached_profile(self._w._store, self._w._settings.data_path)
             found = learn(self._w._store, profile, stats,
                           mode=self._w.indexing_view.tuning.current_mode(),
@@ -679,12 +691,55 @@ class IndexController(QObject):
         box.exec()
         return box.clickedButton() is stop
 
+    def _retry_timed_out(self, group: str, factor: float) -> None:
+        r"""Order 0z F3: "Retry with a longer time limit" on one timed-out type.
+
+        The same two steps as Start - resolve the tuning numbers on a worker,
+        then build the run in `_index_resolved` - so a retry is built from the
+        same settings, in the window or in the separate indexing process,
+        whichever is switched on. What differs is `retry`: the run reads that
+        type's timed-out files and nothing else, and gives each `factor` times
+        its usual limit (`app/index/timed_out_retry.py`). No setting is saved.
+
+        **One run at a time, whoever started it**: `is_running` is true for a
+        run in this window and for one another process holds the run lock for,
+        and the run itself still takes that lock (`IndexWorker`, or the child).
+        A retry is never queued behind a run - it says so and is pressed again.
+        """
+        from app.index.resolve import resolve_for_run
+        from app.index.timed_out_retry import RetryTimedOut
+        from app.ui.presenter.timed_out import RETRY_BUSY
+
+        view = self._w.indexing_view
+        if view.is_running():
+            self._w.notify(RETRY_BUSY, 8_000)
+            return
+        if self._w._resolving_index:
+            return
+        retry = RetryTimedOut(group=str(group or ""), factor=float(factor))
+        self._w._resolving_index = True
+        view.start_button.setEnabled(False)
+        self._show_preparing(True)
+        worker = CallableWorker(resolve_for_run, self._w._settings, self._w._store,
+                                component="ui.index.resolve")
+        # Straight to this controller, not back out through the window: the
+        # window's `_index_resolved` takes four arguments and other code
+        # replaces it with that shape.
+        worker.signals.finished.connect(
+            lambda tuned: self._index_resolved(tuned, [], None, False, retry=retry))
+        worker.signals.failed.connect(self._w._index_resolve_failed)
+        run(QThreadPool.globalInstance(), worker)
+
     def _index_resolved(self, tuned: Any, chosen: list[str],
-                        roots: Optional[list[str]], recheck_archives: bool) -> None:
+                        roots: Optional[list[str]], recheck_archives: bool,
+                        *, retry: Any = None) -> None:
         """Build the Pipeline and hand it to `IndexingView`. Back on the GUI thread.
 
         Everything `_start_indexing` did after calling `resolve_for_run`, moved
         here unchanged - only *when* it runs changed, not what it does.
+
+        `retry` (order 0z F3) is a `RetryTimedOut` for "Retry with a longer
+        time limit", and None for every other run.
         """
         from app.index.clip_embedder import ClipImageEmbedder
         from app.index.embedder import Embedder
@@ -710,7 +765,7 @@ class IndexController(QObject):
         # line is the in-process path, unchanged.
         if bool(getattr(self._w._settings, "index_separate_process", False)):
             self._w.indexing_view.start(
-                self._child_run(tuned, chosen, roots, recheck_archives),
+                self._child_run(tuned, chosen, roots, recheck_archives, retry=retry),
                 total_estimate=self._w._scan_total(chosen))
             repaint_totals(self._w.indexing_view)
             return
@@ -731,6 +786,14 @@ class IndexController(QObject):
             ClipImageEmbedder.from_settings(self._w._settings)
             if self._w._image_vectors is not None else None
         )
+        if retry is not None:
+            # Order 0z F3: the same construction below, of a `Pipeline` that
+            # reads the timed-out files and nothing else. The local name is
+            # re-pointed, not the call replaced, so the one construction site
+            # stays the one `test_ui_responsiveness` watches.
+            from app.index.timed_out_retry import retry_pipeline
+
+            Pipeline = retry_pipeline(retry)     # noqa: N806 - a class, still
         pipeline = Pipeline(
             self._w._store, self._w._vectors,
             Embedder.from_settings(self._w._settings, threads=tuned.onnx_threads),
@@ -819,7 +882,7 @@ class IndexController(QObject):
         repaint_totals(self._w.indexing_view)
 
     def _child_run(self, tuned: Any, chosen: list[str], roots: Optional[list[str]],
-                   recheck_archives: bool) -> Any:
+                   recheck_archives: bool, *, retry: Any = None) -> Any:
         r"""A `ChildIndexRun` carrying what the in-process `Pipeline` would get.
 
         Each in-process choice above has its counterpart here, so switching
@@ -833,6 +896,8 @@ class IndexController(QObject):
         * **every setting, from this window's live copy** (`settings_
           environment`), because the Tuning shelf changes that copy the moment
           a control moves and the in-process run has always read it;
+        * "Retry with a longer time limit" (`retry`, order 0z F3), as the two
+          flags the command line takes for it;
         * the `.env` it came from, for anything else the child reads.
 
         Builds a command and an environment and touches nothing on disk, so
@@ -845,6 +910,7 @@ class IndexController(QObject):
         from app.index.child_run import (
             CHILD_STDERR_NAME, ChildIndexRun, child_command, settings_environment,
         )
+        from app.index.timed_out_retry import child_arguments
 
         settings = self._w._settings
         cloud = (self._w.settings_view.current_cloud_content_roots()
@@ -853,7 +919,8 @@ class IndexController(QObject):
             chosen, env_file=getattr(settings, "env_file", None),
             prune=roots is None, recheck_archives=recheck_archives,
             workers=int(getattr(tuned, "workers", 0) or 0),
-            cloud_content_keys=cloud, first=self._first_folders())
+            cloud_content_keys=cloud, first=self._first_folders(),
+            extra=child_arguments(retry))
         env = dict(os.environ)
         env.update(settings_environment(settings))
         log_path = getattr(settings, "log_path", None)
