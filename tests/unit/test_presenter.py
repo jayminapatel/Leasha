@@ -856,3 +856,21 @@ def test_a_row_on_an_offline_media_volume_keeps_its_volume_and_relative_path():
     assert (row.volume_id, row.relative_path) == (7, "reports/q3.txt")
     plain = to_row(ordinary, [])
     assert (plain.volume_id, plain.relative_path) == (None, "")
+
+
+def test_no_group_of_skipped_files_shows_a_placeholder():
+    """2026-09-30: 22 of the 55 registered sentences reached the "N files
+    skipped - review" panel as written in the registry - "'these files' was
+    skipped after {took}: {reason}." - because a group has no single time,
+    reason or member to put there. Every code is tried, so a sentence added to
+    the registry later cannot bring a brace back."""
+    from app.core.errors import ERROR_REGISTRY
+
+    for group in group_skips({code: 2 for code in ERROR_REGISTRY}):
+        shown = f"{group.message} {group.suggestion}"
+        assert "{" not in shown and "}" not in shown, (group.code, shown)
+
+    timed_out = group_skips({"ERR_FILE_TIMEOUT": 3})[0]
+    assert timed_out.message == (
+        "'these files' was skipped after the time allowed: "
+        "each file's own reason is on its row.")

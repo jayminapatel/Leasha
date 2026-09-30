@@ -5,6 +5,7 @@ Layer: L5. Part of the presenter package; imports no Qt.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Mapping, Optional
 
@@ -40,6 +41,31 @@ class SkipGroup:
         return self.code in {"ERR_FILE_LOCKED", "ERR_OUTLOOK_BUSY", "ERR_CLOUD_ONLY"}
 
 
+#: What a group row says where one file's row would name its own detail.
+#:
+#: **2026-09-30.** `group_skips` filled only `path`, `ext` and `folder`, so 22
+#: of the 55 registered sentences reached the "N files skipped - review" panel
+#: with their placeholders showing: "'these files' was skipped after {took}:
+#: {reason}." A group has no single time, reason or member - each file's own
+#: is on its row - so these stand in for them. `_GROUP_ANY` covers a field
+#: added to the registry later, so a brace can never reach the page again.
+GROUP_WORDS: dict[str, str] = {
+    "took": "the time allowed",
+    "reason": "each file's own reason is on its row",
+    "member": "a file",
+    "binary": "a converter",
+    "model": "chosen in Settings",
+    "allowed": "the programs Leasha lists",
+    "depth": "a set number of",
+}
+_GROUP_ANY = "…"
+_PLACEHOLDER = re.compile(r"\{\w+\}")
+
+
+def _no_placeholders(text: str) -> str:
+    return _PLACEHOLDER.sub(_GROUP_ANY, text or "")
+
+
 def group_skips(
     summary: dict[str, int],
     *,
@@ -60,12 +86,13 @@ def group_skips(
     for code, count in summary.items():
         if not count:
             continue
-        error = make_error(code, "ui", path="these files", ext="?", folder="?")
+        error = make_error(code, "ui", path="these files", ext="?", folder="?",
+                           **GROUP_WORDS)
         groups.append(SkipGroup(
             code=code,
             count=int(count),
-            message=error.message,
-            suggestion=error.suggestion,
+            message=_no_placeholders(error.message),
+            suggestion=_no_placeholders(error.suggestion),
             action_type=error.action_type.value,
             action_payload=error.action_payload,
             examples=list((examples or {}).get(code, []))[:5],

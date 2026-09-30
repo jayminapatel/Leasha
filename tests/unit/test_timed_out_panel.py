@@ -200,6 +200,11 @@ def window(tmp_path, monkeypatch):
     _timed_out(store, str(tmp_path / "b.pdf"))
     started: list = []
     built.indexing_view.start = lambda pipeline, **kw: started.append(pipeline)
+    # The window reads its totals as it opens, and `refresh_totals` does nothing
+    # while a read is still going - so that one is let finish first. Without
+    # this the page kept the opening read, taken before the two rows existed
+    # (found 2026-09-30, once another thread's work made that read slower).
+    _pump(app)
     built.indexing_view.refresh_totals(store, built._settings)
     _pump(app)
     try:
