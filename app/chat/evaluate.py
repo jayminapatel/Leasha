@@ -777,6 +777,28 @@ def _pick_models(settings: Any, requested: str, force_fake: bool) -> tuple[Any, 
 
     if force_fake:
         return FakeLLM("extractive"), "FakeLLM (extractive)", False, "Forced with --chat-fake."
+
+    # **The engine the app answers with, unless a model was named** (2026-09-30).
+    # `CHAT_ENGINE` has been `onnx` by default since 2026-09-29 - the chat model
+    # inside Leasha - and this command still measured Ollama whatever it said, so
+    # the number that decides whether Chat ships described an engine nobody was
+    # using. With no `--chat-model`, the engine in the settings is measured; one
+    # model serves every role there, exactly as `ChatEngine._client_for` does it.
+    # `--chat-model NAME` still means an Ollama model, as its help says.
+    inside_note = ""
+    if not requested:
+        from app.llm.engines import ONNX, engine_of, text_model
+
+        if engine_of(settings) == ONNX:
+            inside = text_model(settings, timeout=300.0)
+            if inside.has_model():
+                inside.warm()
+                return (inside, f"{inside.serving()} - the model inside Leasha (ONNX)",
+                        True, "")
+            inside_note = ("CHAT_ENGINE is onnx but the chat model inside Leasha is not "
+                           "downloaded (Settings, Models, Chat, Download), so Ollama was "
+                           "asked instead. ")
+
     from app.chat.llm import OllamaLLM
     from app.chat.roles import resolve_roles
     from app.llm.ollama import OllamaClient
@@ -787,8 +809,8 @@ def _pick_models(settings: Any, requested: str, force_fake: bool) -> tuple[Any, 
     probe = OllamaLLM(OllamaClient(url, configured))
     if not probe.health(force=True):
         return (FakeLLM("extractive"), "FakeLLM (extractive)", False,
-                f"Nothing answered at {url}, so the deterministic FakeLLM stood in. Start Ollama "
-                "and run again to measure a real model.")
+                f"{inside_note}Nothing answered at {url}, so the deterministic FakeLLM stood in. "
+                "Start Ollama and run again to measure a real model.")
     installed = probe.available_models()
     roles = resolve_roles(
         installed, configured=configured, answerer=requested,
@@ -809,11 +831,11 @@ def _pick_models(settings: Any, requested: str, force_fake: bool) -> tuple[Any, 
            "answerer": client(roles.answerer)}
     if not llm["answerer"].has_model():
         return (FakeLLM("extractive"), "FakeLLM (extractive)", False,
-                f"Ollama is running but '{roles.answerer}' is not installed "
+                f"{inside_note}Ollama is running but '{roles.answerer}' is not installed "
                 f"(ollama pull {roles.answerer}), so the FakeLLM stood in.")
     for name in roles.distinct():
         client(name).warm()
-    return llm, roles.answerer, True, "; ".join(roles.notes)
+    return llm, f"{roles.answerer} (Ollama)", True, inside_note + "; ".join(roles.notes)
 
 
 def run_cli(args: Any) -> int:

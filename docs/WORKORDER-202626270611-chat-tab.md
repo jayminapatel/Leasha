@@ -590,6 +590,19 @@ codebase:
   quality on 7–8B justifies it, else the router keeps synthesis questions
   in extract-and-quote mode until the GPU machine (an honest downgrade the
   user never sees as an error).
+> **2026-09-30, 4c on the owner's laptop: not measured; the command could not have measured the
+> engine the app now uses, and that is fixed.** `evaluate --chat` built its models from Ollama whatever
+> `CHAT_ENGINE` said (`_pick_models`), and `CHAT_ENGINE` has been `onnx` - the model inside Leasha -
+> since 2026-09-29. So no latency in this file describes today's default. Now, with no `--chat-model`,
+> the engine in the settings answers (one model for every role, as `ChatEngine` does it), the report's
+> heading names the copy on disk (`OnnxLLM.serving()`: here "Qwen 2.5 1.5B Instruct, 4-bit", the only
+> chat copy in `D:\Leasha\Data\models`), and `--chat-model NAME` still means an Ollama model. The run
+> itself was not started: the owner needed the machine for a real index run. **No figure was taken, so
+> 4c stays open.** What remains, on a quiet machine: `venv\Scripts\python.exe -m app.cli evaluate
+> --chat --chat-runs 3 --json` (96 questions each run; it builds its own fixture in a temporary folder -
+> `run_cli` - and reads no document of the owner's). It loads the model before the first question, so
+> the cold first call has to be timed apart (a fresh process, first question only). Tick 4c only if the
+> first narration line is under 1 s and the first-answer-text p95 is recorded.
 - [ ] **4c** latency: first narration line <1s, first answer token p95
   measured and recorded; the loop's visible steps make honest latency feel
   fast — but measure anyway.

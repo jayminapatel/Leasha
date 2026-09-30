@@ -231,3 +231,18 @@ def test_a_chat_model_named_by_its_caller_is_the_one_tried_first(state):
     assert OnnxLLM(None, gemma)._copies()[0].key == gemma
     assert OnnxLLM(None)._copies()[0].key == "qwen2.5-1.5b-instruct-q4"
     assert OnnxLLM(None, "qwen2.5:1.5b")._copies()[0].key == "qwen2.5-1.5b-instruct-q4"
+
+
+def test_the_chat_model_names_the_copy_on_disk_that_answers(state, tmp_path):
+    """2026-09-30, chat order 4b/4c: `model` is the choice and falls back to the
+    int8 key, so a measurement named the wrong file. `serving()` names the copy
+    that is actually downloaded, and says nothing when none is."""
+    from app.ort.llm import OnnxLLM
+
+    cache = tmp_path / "models"
+    assert OnnxLLM(cache).serving() == ""
+    four_bit = catalogue.load(state).by_key("qwen2.5-1.5b-instruct-q4")
+    _place(cache, four_bit, revision=four_bit.revision or "rev1")
+    llm = OnnxLLM(cache)
+    assert llm.model == "qwen2.5-1.5b-instruct"          # the choice: still the old key
+    assert "4-bit" in llm.serving() and llm.has_model()
