@@ -81,7 +81,12 @@ log = logger.bind(component="search.translate")
 #: willing to wait - it runs off the UI thread, and the first call of a session
 #: also pays for loading the model into memory. A budget shorter than the work
 #: is not responsiveness, it is a feature that never runs.
-TRANSLATE_TIMEOUT_S = 30.0
+#:
+#: **45s since 2026-09-30.** That was written for Ollama. The model inside
+#: Leasha, now the default, took 35.1s for its first answer on the owner's
+#: laptop (7.7s of it loading) and 8.6s afterwards, so 30s was shorter than the
+#: work on every first call. `llm/models.suggested_timeout_s` moved with it.
+TRANSLATE_TIMEOUT_S = 45.0
 
 #: Tokens the model may generate. A query is a handful of words - `from:chris
 #: licence` is four tokens - and `clean_output` discards everything after the

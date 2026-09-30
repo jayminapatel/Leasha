@@ -166,12 +166,16 @@ def suggested_timeout_s(billions: Optional[float]) -> int:
     # then timed out in the GUI, because the first call of a session also loads
     # the model into memory and that is where the time goes. A budget that only
     # works on the second attempt is not a budget.
+    # **And again, 2026-09-30, for the model inside Leasha.** Qwen 2.5 1.5B at
+    # 4 bits on the owner's processor: 35.1s for the first press after starting
+    # (7.7s of it loading), 8.6s after that. 30s gave up on every first press.
+    # The two sizes above it, and the unknown one, moved up to stay in order.
     if billions is None:
-        return 45
+        return 50
     if billions <= 2:
-        return 30
+        return 45
     if billions <= 4:
-        return 40
+        return 50
     if billions <= 9:
         return 60
     if billions <= 20:

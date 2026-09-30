@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.45 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.46 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -216,6 +216,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   or says it ran out of time. On the owner's laptop the first press after starting takes about 35
   seconds (the model has to load) and later ones about 9, so with "Give it up to" at 29 s a first
   press can still report that it gave up.
+- **Query interpretation is given longer by default**: 45 seconds for the smallest models (it was
+  30), which is more than the 35 a first answer took on the owner's laptop. A time you have set
+  yourself in "Give it up to" is kept; the small button beside the box returns it to the new
+  default.
 - A file type added from Settings › File types › Add file type now arrives clean: the generated reader
   no longer contains imports it does not use.
 - Tests, not the app: the test suite no longer takes Leasha's real window lock or index-run lock, so

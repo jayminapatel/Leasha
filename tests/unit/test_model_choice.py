@@ -297,3 +297,16 @@ def test_naming_the_model_inside_leasha_is_the_same_by_either_spelling(tmp_path)
     assert llm.model == hub.QWEN_1_5B.key
     llm.model = "a model nobody has heard of"      # as `set_model`: left as it was
     assert llm.model == hub.QWEN_1_5B.key
+
+
+def test_the_smallest_model_s_budget_clears_its_measured_cold_start():
+    """2026-09-30, the owner's laptop, the model inside Leasha (Qwen 2.5 1.5B,
+    4-bit, on the processor): the first Test press after starting took 35.1 s,
+    7.7 s of it loading the model, and later presses 8.6 s. The suggestion for
+    that size was 30 s - the very thing the note in `suggested_timeout_s` warns
+    about, "a budget that only works on the second attempt". The numbers there
+    had been measured against Ollama, which is quicker to a first answer."""
+    from app.search.translate import TRANSLATE_TIMEOUT_S
+
+    assert suggested_timeout_s(1.5) > 35.1
+    assert TRANSLATE_TIMEOUT_S > 35.1
