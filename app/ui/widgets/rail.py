@@ -35,12 +35,13 @@ from typing import Any, Optional
 from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
 from PyQt6.QtWidgets import (
-    QButtonGroup, QFrame, QHBoxLayout, QLabel, QProgressBar, QSizePolicy,
+    QButtonGroup, QFrame, QHBoxLayout, QLabel, QSizePolicy,
     QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.ui.rail_state import PillState
 from app.ui.widgets.icons import icon as themed_icon
+from app.ui.widgets.shimmer_bar import ShimmerBar
 
 __all__ = ["Rail", "RAIL_WIDTH", "ICON_SIZE"]
 
@@ -121,7 +122,9 @@ class _Pill(QFrame):
         # Wraps rather than clips: "Needs attention" and "Up to date" are
         # wider than 60px at a large font.
         self.headline.setWordWrap(True)
-        self.bar = QProgressBar()
+        # 2026-09-30: a `ShimmerBar`, so the 2px line under the pill moves while
+        # a run is going, as the Indexing page's bar does.
+        self.bar = ShimmerBar()
         self.bar.setTextVisible(False)
         self.bar.setRange(0, 1)
         self.bar.setValue(0)
@@ -154,6 +157,7 @@ class _Pill(QFrame):
         self._tone = getattr(state, "tone", "quiet") or "quiet"
         self._busy = bool(state.busy)
         self.bar.setVisible(self._busy and not self._compact)
+        self.bar.set_active(self._busy)
         if state.busy and fraction is None:
             self.bar.setRange(0, 0)               # Qt's moving bar
         else:

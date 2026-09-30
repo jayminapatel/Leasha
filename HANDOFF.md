@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.23 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.24 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -65,7 +65,18 @@ line, no traceback and no window.
   it; `doctor.py`'s Outlook check **started Outlook** (Settings' health check and the test
   suite run it) - it reads `HKCR\Outlook.Application\CLSID` now. `ui:pst_backend` set to
   `auto` on the owner's word (was `outlook`; 12 of 20 archives timed out through Outlook).
-- **Open fault:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
+- **Later still - fixed and tested (not yet seen in the owner's window):** (1) the `.exe`
+  "stored online only" skip - 0x40000 is also FILE_ATTRIBUTE_EA, which Smart App Control's
+  `$KERNEL.PURGE.ESBCACHE` sets on checked executables; `cloudfs.attributes_say_placeholder`
+  counts RECALL_ON_OPEN only on a reparse point, a stale `ERR_CLOUD_ONLY` row is rewritten,
+  and a NAME_ONLY upsert clears old skip codes; (2) zipped-attachment members kept their own
+  keys (`archive.attachment_key`); (3) every close sat in `exec()` until the watchdog killed
+  it at 300 s (both of the owner's closes that day) - `closeEvent` now posts `quit()` and logs
+  what is still visible; the close harness exits with or without the fix, so the live cause
+  is **not reproduced** - the next close's log says whether it worked; (4) the progress bar
+  (`widgets/shimmer_bar.py`). The run at 09:44 stopped at `2009.pst` because the window was
+  closed at 09:58; 2010-2025 are not indexed yet - the next run carries on.
+- **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the
   cause is in the window's run and is not yet found.

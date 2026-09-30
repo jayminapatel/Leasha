@@ -1273,6 +1273,14 @@ class SqliteStore:
                         ELSE COALESCE(excluded.content_hash, files.content_hash)
                     END,
                     status       = excluded.status,
+                    -- 2026-09-30: a NAME_ONLY row says "nothing went wrong, no
+                    -- reader", so a skip left from an earlier pass is cleared
+                    -- with it (a local file once misread as a cloud one kept
+                    -- `ERR_CLOUD_ONLY` beside its new status).
+                    skip_code    = CASE WHEN excluded.status = 'NAME_ONLY'
+                                        THEN NULL ELSE files.skip_code END,
+                    skip_detail  = CASE WHEN excluded.status = 'NAME_ONLY'
+                                        THEN NULL ELSE files.skip_detail END,
                     source_kind  = excluded.source_kind,
                     -- COALESCE, so a caller that does not know about
                     -- repositories - `_record_skip`, the PST path, any test -

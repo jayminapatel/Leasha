@@ -40,6 +40,7 @@ from typing import Any, Iterable, Iterator, Optional
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
 from app.extract import junk_images, progress, reading
+from app.extract.archive import attachment_key
 from app.extract.base import Document, SourceKind, looks_locked, with_closing_warning
 from app.extract.email_files import build_email_document, html_to_text
 
@@ -1007,7 +1008,9 @@ def _each_attachment(
                     _not_read(report, policy, name, message_key, why)
                     continue
             for document in documents:
-                document.virtual_path = f"{message_key}/attachments/{name}"
+                # The member's own path kept after the attachment's (2026-09-30).
+                document.virtual_path = attachment_key(
+                    message_key, name, document.virtual_path, target)
                 document.source_kind = SourceKind.PST_MESSAGE
                 document.meta.setdefault("attachment_of", message_key)
                 document.meta.setdefault("attachment_name", name)

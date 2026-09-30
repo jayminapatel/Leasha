@@ -40,9 +40,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
-from app.core.osbridge.cloudfs import is_dataless
+from app.core.osbridge.cloudfs import attributes_say_placeholder, is_dataless
 from app.core.osbridge.pathnames import case_sensitive, path_key
-from app.core.winfs import CLOUD_PLACEHOLDER_MASK
 
 __all__ = [
     "Candidate",
@@ -174,7 +173,9 @@ class Candidate:
     @property
     def is_cloud_placeholder(self) -> bool:
         """True if reading this file would pull it down from the cloud."""
-        if self.attributes and self.attributes & CLOUD_PLACEHOLDER_MASK:
+        # `attributes_say_placeholder`, not `& CLOUD_PLACEHOLDER_MASK` (2026-09-30):
+        # the mask called every checked `.exe` a cloud file - see cloudfs.
+        if attributes_say_placeholder(self.attributes):
             return True
         # A Mac's iCloud placeholder: the same question, asked of the flags the
         # stat already returned - reading the file to find out would download it.

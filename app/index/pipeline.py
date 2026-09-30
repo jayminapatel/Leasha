@@ -2916,6 +2916,16 @@ class Pipeline:
                 # nothing to say about its contents.
                 return UNCHANGED
             if (record is not None
+                    and record.status == FileStatus.SKIPPED
+                    and record.skip_code == "ERR_CLOUD_ONLY"
+                    and not getattr(candidate, "is_cloud_placeholder", False)):
+                # 2026-09-30: a row that says "stored online only" for a file
+                # the walk no longer calls a placeholder is rewritten, not kept.
+                # The rule below would settle it forever - which is how two
+                # local `.exe` files, misread as cloud files (see cloudfs),
+                # would have stayed skipped after the fix.
+                return None
+            if (record is not None
                     and record.status in (FileStatus.NAME_ONLY, FileStatus.SKIPPED)
                     and record.mtime_ns == candidate.mtime_ns
                     and record.size_bytes == candidate.size_bytes):

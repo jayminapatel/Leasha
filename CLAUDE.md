@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.0 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -52,6 +52,31 @@ Bug fixes and measured performance work are exempt.
 exemption list.
 
 **Task list before starting.** One task per item, so progress is watchable live.
+
+**Fix what you find (owner, 2026-09-30).** A bug or fault met while working is fixed
+in the same session, with a test, and reported at close-out - not listed back as a
+question. Ask only when the owner's input is genuinely needed: their data, their
+accounts, anything destructive, or a product decision only they can make. New work
+orders still wait for the owner (above).
+
+## Where a session runs (2026-09-30)
+
+From 6 October new Cowork tasks run in the cloud; they reach this laptop's connected
+folders, commands and apps only while the desktop app is open.
+
+| What | Lives in | Travels by |
+|---|---|---|
+| Code, docs, work orders | GitHub `jayminapatel/Leasha`, branch `main` - the only master | a cloud session clones and pushes; the laptop runs `git pull` |
+| Laptop working copy + venv | `D:\Local\GDrive\SearchProject` today; `D:\SearchProject`, outside Google Drive, is the recommended target (owner to confirm) | git only - never Drive sync |
+| The owner's index and models | `D:\Leasha\Data` | never synced, never in git |
+| Release builds | a Google Drive folder outside the repo | Drive sync brings them to the laptop |
+
+**A cloud (Linux) session can do**: code, docs, pure-Python tests. **It cannot see**:
+the real Windows window, Outlook/PST, DirectML, Smart App Control, the owner's data.
+A red Windows-only test there proves nothing; mark such claims *UNVERIFIED on
+Windows*, or run them on the laptop through the desktop app (`venv\Scripts\python.exe`
+in the working copy) while it is open. Never write into the laptop working copy
+through Drive; push to GitHub and pull.
 
 ## Close-out
 

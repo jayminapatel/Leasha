@@ -427,3 +427,23 @@ def test_a_name_only_row_is_reexamined_once_its_type_becomes_readable(tmp_path):
         assert second.indexed == 1
 
         assert [r["path"] for r in store.search_bm25("commissioning")]
+
+
+def test_a_stale_cloud_only_row_for_a_local_file_is_rewritten(tmp_path):
+    """2026-09-30: two local `.exe` files were misread as cloud placeholders (the
+    extended-attribute bit Smart App Control sets - see `cloudfs`). After the fix
+    their `ERR_CLOUD_ONLY` rows, same date and size, must not stay settled."""
+    from app.core.errors import make_error
+
+    root = tmp_path / "root"
+    root.mkdir()
+    exe = root / "pstfree.exe"
+    exe.write_bytes(b"MZ" + b"\0" * 64)
+    stat = exe.stat()
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_id = store.upsert_file(str(exe), size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns,
+                                    ext="exe", status=FileStatus.PENDING)
+        store.mark_skipped(file_id, make_error("ERR_CLOUD_ONLY", "test", path=str(exe)))
+        _pipeline(store, root).run()
+        (record,) = list(store.iter_files())
+    assert record.status == FileStatus.NAME_ONLY and record.skip_code is None

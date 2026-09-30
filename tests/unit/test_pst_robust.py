@@ -387,3 +387,28 @@ def test_the_reader_line_shows_the_counts() -> None:
     [line] = worker_lines(stats, now=300.0)
     assert line.startswith("Reader 1: Archive2019.pst")
     assert line.endswith("· 12,400 Indexed · 3 Failed · 3 min 20 s")
+
+
+def test_files_inside_a_zipped_attachment_keep_their_own_keys(tmp_path) -> None:
+    """2026-09-30, the owner's `2009.pst`: every file inside `marathon_AMS.zip`
+    got the attachment's key, so the pipeline warned "duplicate key" and made
+    them unique with `#10`, `#11`... Each member now keeps its path after the
+    attachment's; a plain attachment keeps the plain key."""
+    import zipfile
+
+    from app.extract.archive import attachment_key
+    from app.extract.base import extract
+
+    saved = tmp_path / "marathon_AMS.zip"
+    with zipfile.ZipFile(saved, "w") as archive:
+        archive.writestr("docs/a.txt", "first member")
+        archive.writestr("docs/b.txt", "second member")
+    keys = [attachment_key("pst://2009/42", saved.name, d.virtual_path, saved)
+            for d in extract(saved)]
+    assert len(keys) == len(set(keys)) == 2
+    assert all(k.startswith("pst://2009/42/attachments/marathon_AMS.zip/") for k in keys)
+    plain = tmp_path / "report.txt"
+    plain.write_text("x", encoding="utf-8")
+    (doc,) = list(extract(plain))
+    assert attachment_key("pst://2009/42", "report.txt", doc.virtual_path, plain) \
+        == "pst://2009/42/attachments/report.txt"

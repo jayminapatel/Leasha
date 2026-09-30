@@ -19,6 +19,8 @@ has not happened.
    block actually move under the stylesheet (see the `QProgressBar::chunk`
    comment in `theme.py`) - that is kept exactly as it was, and Qt's own style
    animation drives it, not this file.
+   *2026-09-30: no longer Qt's block - `ShimmerBar`, which this class now
+   extends, paints and animates the busy segment itself.*
 2. **The total changed -> jump, don't glide.** A new total means the old
    position means something else now (a busy bar became a counted one, or a
    phase ended). Sliding from the old number would draw a fraction that was
@@ -58,7 +60,9 @@ import time
 from typing import Optional
 
 from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QProgressBar, QWidget
+from PyQt6.QtWidgets import QWidget
+
+from app.ui.widgets.shimmer_bar import ShimmerBar
 
 __all__ = ["GlidingBar", "GLIDE_S", "FRAME_MS"]
 
@@ -76,8 +80,11 @@ GLIDE_S = 0.25
 FRAME_MS = 50
 
 
-class GlidingBar(QProgressBar):
-    """A `QProgressBar` with one extra method, `glide_to(value, total)`."""
+class GlidingBar(ShimmerBar):
+    """A `QProgressBar` with one extra method, `glide_to(value, total)`.
+
+    2026-09-30: painted as a `ShimmerBar` (gradient fill, a sweep while a run
+    is going, a gliding segment while busy) - see `widgets/shimmer_bar.py`."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

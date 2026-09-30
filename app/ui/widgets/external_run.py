@@ -61,6 +61,7 @@ def paint_external(view: Any, record: Any, *, locked: bool) -> None:
         snapshot, total_estimate=getattr(view, "_total_estimate", 0))
     view.bar.setRange(0, total)
     view.bar.setValue(value)
+    view.bar.set_active(True)          # another process's run is going
 
     headline, detail = external_run_text(record)
     view.headline.setText(headline)
@@ -87,5 +88,6 @@ def _go_idle(view: Any) -> None:
     view._stopping = False
     view.bar.setRange(0, 1)
     view.bar.setValue(0)
+    view.bar.set_active(False)
     view.headline.setText("Nothing is indexing.")
     view.detail.setText("")

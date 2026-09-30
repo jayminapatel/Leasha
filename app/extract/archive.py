@@ -386,6 +386,26 @@ def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Docum
         log.warning("member {} failed: {}", member_key, exc)
 
 
+def attachment_key(message_key: str, name: str, virtual_path: Optional[str],
+                   saved_as: Optional[Path]) -> str:
+    r"""The key of one document read from a mail attachment.
+
+    `{message}/attachments/{name}`, and - when the attachment was itself an
+    archive - the member's path inside it after that. **2026-09-30:** both PST
+    readers set every document of an attachment to the first part only, so the
+    files inside a zipped attachment all shared one key; the pipeline made them
+    unique with `#10`, `#11`... and warned "the extractor is not setting
+    virtual_path" (seen on the owner's `2009.pst`). `saved_as` is where the
+    attachment was written out to be read, which is what an archive member's
+    key starts with.
+    """
+    base = f"{message_key}/attachments/{name}"
+    if not virtual_path or saved_as is None:
+        return base
+    inner = _inside(virtual_path, saved_as)
+    return f"{base}/{inner}" if inner and inner != str(virtual_path) else base
+
+
 def _inside(member_key: str, archive_path: Path) -> str:
     """The member's path *within* the archive.
 

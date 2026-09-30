@@ -27,6 +27,19 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   locks them against direct reading. The check now reads the registry instead.
 - **A chat model chosen by name is the one that loads.** The chat engine inside Leasha accepted
   a model and then loaded Qwen regardless.
+- **Programs are no longer skipped as "stored online only".** Windows marks an executable that
+  Smart App Control has checked with the same attribute bit a cloud file uses when it is
+  recalled on open. Leasha read every such `.exe` as a cloud file. That bit now counts only on
+  a real cloud placeholder (a reparse point), and a row wrongly skipped this way is rewritten
+  on the next run.
+- **Files inside a zipped email attachment each keep their own entry.** They all shared the
+  attachment's, and the index had to patch them apart with `#10`, `#11`.
+- **Closing Leasha ends it.** After closing, the program stayed running for five minutes,
+  holding the index, until its own watchdog ended it; opening Leasha again in that time was
+  refused. It now ends as soon as it has tidied up, and logs anything still holding it.
+- **The progress bar shows the run is alive**: a gradient fill with a light sweeping across it
+  while indexing, a gliding segment while the size of the job is not yet known, and still
+  when nothing is happening. The thin bar under the Index button does the same.
 - Gemma 3 1B and Llama 3.2 1B were checked on a real laptop: both chat, and neither understands
   searches as well as Qwen. Gemma is listed with that note; Llama is not offered.
 

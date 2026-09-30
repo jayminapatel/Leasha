@@ -2340,6 +2340,36 @@ class MainWindow(QMainWindow):
                 after_close()
             except Exception as exc:                     # noqa: BLE001
                 _log.warning("closing: the exit watchdog did not start: {}", exc)
+        # **2026-09-30: end the event loop outright; do not wait for Qt to notice.**
+        # This is a real shutdown (close-to-tray returned at the top), and the
+        # teardown above is done. Both of the owner's closes that day logged
+        # "closing: took 20.2s" and then sat in `application.exec()` until the
+        # exit watchdog ended the process 300 s later - holding the stores and
+        # the single-instance lock, so a relaunch in that window was refused.
+        # Leaving it to "last visible window closed" has failed before with no
+        # visible pop-out (see `close_windows.py`, the nine-hour incident), and
+        # the tray icon on real Windows is one more thing that can count as a
+        # window. Posted, not called, so `closeEvent` finishes first.
+        from PyQt6.QtWidgets import QApplication
+
+        application = QApplication.instance()
+        if application is not None:
+            # Not reproduced off the owner's session (the close harness exits
+            # either way), so what else Qt still counts as open is logged: the
+            # next lingering close names its holder instead of being guessed at.
+            try:
+                from PyQt6.QtGui import QGuiApplication
+
+                still = [f"{type(w).__name__}:{w.objectName() or '-'}"
+                         for w in QApplication.topLevelWidgets() if w.isVisible()]
+                still += [f"QWindow:{w.objectName() or w.title() or '-'}"
+                          for w in QGuiApplication.topLevelWindows()
+                          if w.isVisible() and w is not self.windowHandle()]
+                _log.info("closing: asking the event loop to end; still visible: {}",
+                          ", ".join(still) or "nothing")
+            except Exception:                            # noqa: BLE001 - a log line
+                pass
+            QTimer.singleShot(0, application.quit)
 
     def _drain_workers(self) -> None:
         """Wait for the thread pool, keeping the UI alive while it empties.

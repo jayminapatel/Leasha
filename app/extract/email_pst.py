@@ -48,6 +48,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Protoco
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
+from app.extract.archive import attachment_key
 from app.extract.base import Document, SourceKind, looks_locked, register, with_closing_warning
 from app.extract.email_files import build_email_document
 
@@ -228,7 +229,9 @@ def _attachment_documents(
                         policy.left_unread(why)
                         continue
                 for document in documents:
-                    document.virtual_path = f"{message_key}/attachments/{name}"
+                    # The member's own path kept after the attachment's (2026-09-30).
+                    document.virtual_path = attachment_key(
+                        message_key, name, document.virtual_path, target)
                     document.source_kind = SourceKind.PST_MESSAGE
                     document.meta.setdefault("attachment_of", message_key)
                     document.meta.setdefault("attachment_name", name)

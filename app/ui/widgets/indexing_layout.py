@@ -335,6 +335,7 @@ def paint_finished(view: Any, stats: Any) -> None:
     finished_whole = not view._stopping and not getattr(stats, "stopped_early", None)
     view.bar.setRange(0, 1)
     view.bar.setValue(1 if finished_whole else 0)
+    view.bar.set_active(False)
     view.progressed.emit("finished", int(getattr(stats, "indexed", 0) or 0),
                          1, 1, False, not finished_whole, "")
     headline, detail = finished_text(stats)

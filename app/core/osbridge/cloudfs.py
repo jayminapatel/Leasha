@@ -23,6 +23,16 @@ system keeps for every file:
 A file "pinned" with 'Always keep on this device' has none of them and is read
 normally. A dehydrated placeholder has RECALL_ON_DATA_ACCESS.
 
+**2026-09-30 - 0x00040000 alone is not a placeholder.** The same bit is
+`FILE_ATTRIBUTE_EA`: the file carries extended attributes. Smart App Control
+and Code Integrity write one (`$KERNEL.PURGE.ESBCACHE`) onto every executable
+they have checked, so two plain local `.exe` files on the owner's laptop were
+skipped as "stored online only" on every run. A real cloud file is a reparse
+point (`FILE_ATTRIBUTE_REPARSE_POINT`, 0x400) placed by the sync engine, so
+RECALL_ON_OPEN now counts only together with it; OFFLINE and
+RECALL_ON_DATA_ACCESS count on their own, as before. See
+`attributes_say_placeholder`.
+
 **macOS** marks one with a *flag* instead: `SF_DATALESS` (0x40000000) in the
 file's `st_flags`, which Python's `os.stat` reports on a Mac. Apple's
 documentation describes it as "file is a dataless object" - the contents live
@@ -49,6 +59,8 @@ __all__ = [
     "FILE_ATTRIBUTE_RECALL_ON_OPEN",
     "FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS",
     "CLOUD_PLACEHOLDER_MASK",
+    "FILE_ATTRIBUTE_REPARSE_POINT",
+    "attributes_say_placeholder",
     "SF_DATALESS",
     "file_attributes",
     "file_flags",
@@ -68,6 +80,25 @@ CLOUD_PLACEHOLDER_MASK = (
     | FILE_ATTRIBUTE_RECALL_ON_OPEN
     | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
 )
+
+FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400
+
+
+def attributes_say_placeholder(attributes: Optional[int]) -> bool:
+    """True if these Windows attribute bits mark a cloud placeholder.
+
+    OFFLINE or RECALL_ON_DATA_ACCESS on their own; RECALL_ON_OPEN only on a
+    reparse point, because the same bit on an ordinary file means "has extended
+    attributes" (see the module notes, 2026-09-30). `CLOUD_PLACEHOLDER_MASK`
+    stays for anyone who wants every bit, but is no longer the test.
+    """
+    if not attributes:
+        return False
+    if attributes & (FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS):
+        return True
+    return bool(attributes & FILE_ATTRIBUTE_RECALL_ON_OPEN
+                and attributes & FILE_ATTRIBUTE_REPARSE_POINT)
+
 
 #: macOS's "the contents are not on this disk" flag, from Apple's
 #: `<sys/stat.h>`. Written out as a number because Python's `stat` module does
@@ -133,7 +164,7 @@ def is_cloud_placeholder(path: Path, attributes: Optional[int] = None) -> bool:
         if attributes is None and is_macos():
             return is_dataless(file_flags(path))
         return False
-    return bool(bits & CLOUD_PLACEHOLDER_MASK)
+    return attributes_say_placeholder(bits)
 
 
 def describe_placeholder(attributes: Optional[int]) -> str:

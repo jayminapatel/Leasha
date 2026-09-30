@@ -295,6 +295,7 @@ class IndexingView(QWidget):
         # and grows its own denominator from `seen` on the first progress tick.
         self.bar.setRange(0, max(1, total_estimate))
         self.bar.setValue(0)
+        self.bar.set_active(True)           # the sweep: see widgets/shimmer_bar
         self.controls.show_running()
         self.headline.setText("Indexing…")
         show_now(self, None)
@@ -377,6 +378,7 @@ class IndexingView(QWidget):
         # back a moment later, so the panel contradicts itself.
         self.bar.setRange(0, 1)
         self.bar.setValue(0)
+        self.bar.set_active(False)
         self.headline.setText(error.message)
         self.detail.setText(error.suggestion)
         show_now(self, None)
@@ -387,6 +389,7 @@ class IndexingView(QWidget):
     def _on_done(self) -> None:
         self._worker = None
         self._stopping = False
+        self.bar.set_active(False)
         self.controls.show_idle()
 
     # -- the panels below the bar -------------------------------------------
