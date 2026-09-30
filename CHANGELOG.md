@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.40 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.41 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -18,6 +18,77 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
+
+### Indexing on Windows is several times faster, and a rerun with nothing changed takes seconds (2026-09-30)
+
+- An index run checked the battery, the disk and what else the computer was doing before every single
+  file. On Windows that check takes about 26-30 ms, so it was the slowest step of the whole run: about
+  35 files a second however many readers were working. It now checks four times a second. Pause still
+  takes effect on the very next file.
+- Measured on a made-up corpus of 9,002 text files on a busy laptop (the owner's, with other test runs
+  going): a full run went from about 250-280 s to about 50-95 s, and a rerun with nothing changed in
+  the "As found" order from 207 s to 2 s.
+
+### Files are indexed as soon as they are saved - off until you switch it on (order 0z F1, 2026-09-30)
+
+- Switch on "Index files as soon as they are saved" on the Indexing page, under Schedule, and a file
+  you save, rename or delete is in the index a few seconds later. No full run is needed.
+- Mailboxes (.pst, .ost) and folders marked Archive still wait for the ordinary run. Files kept only
+  in the cloud are never downloaded.
+- While it is on, a folder that contains an indexed folder cannot be renamed or moved; switch it off
+  first.
+- From the command line: `app.cli watch`.
+- Measured with a stand-in for the meaning model, on a shared machine: a saved file was findable about
+  2.2 s later, 2 s of which is a deliberate wait for the saving to settle. Watching 4,000 folders used
+  about a thousandth of one processor core.
+
+### Timed-out files can be read again with a longer time limit (order 0z F3, 2026-09-30)
+
+- The Indexing page now lists the files that ran out of time, by type, under "Timed-out files". Each
+  type has a button, "Retry with a longer time limit".
+- A retry reads only those files. Each one is given four times its usual limit, or the number you set
+  in the box beside the list.
+- Nothing is saved. The limits on the Tuning shelf stay as they are, and the next ordinary run uses
+  them.
+- A file that runs out of time again stays timed out, and says what it was given. A file that has
+  changed since is read with the usual limit.
+- It works with the window's own run and with "Index in a separate process". If a run is already
+  going, the button says so and starts nothing.
+- From the command line: `app.cli timed-out` lists them, and `app.cli index --retry-timed-out pdf
+  --time-limit-factor 4` reads a type again. Leave the type out for all of them.
+- A retry does not change what Auto tuning has learned about this computer.
+
+### A mail archive that is cut off says what it had read (2026-09-30)
+
+- When an archive is skipped for making no progress, or you press Force skip on it, the log now gives
+  its counts, for example `Archive2019.pst: 12,399 Indexed · 1 TimedOut`. The messages already read
+  are kept, as before. (The 29 September entries below say TimedOut "is reserved and not yet set" and
+  "appears once that records its first file"; it is set now.)
+- An archive working through a message with many attachments that cannot be read, or are held for the
+  pictures pass, is no longer mistaken for one that has stopped.
+- The line of counts per status on the Indexing page stood still until the run ended when indexing ran
+  in its own process. It now refreshes every few seconds, as it does otherwise.
+
+### Code tab: open at the line, history as it is found, every repository, and commits (order 0y, 2026-09-30)
+
+- **Code results open in your editor, at the line.** Press Enter or double-click a Definition or
+  Mention in the Code tab and the file opens in your editor at that line. Leasha looks for Visual
+  Studio Code, then Notepad++, then Sublime Text. You can choose the editor, or type a command of your
+  own, in Settings under "Opening code results". With no editor it opens the file as before and tells
+  you the line. The row menu has "Copy path and line".
+- **History search answers as it goes.** Rows appear as git finds them, newest first, and the line
+  above counts them: "Searching history… 12 found so far". Stop keeps what it had found.
+- **History search covers every repository.** Leave out `/repo` and Leasha searches all of them, two
+  at a time, and merges the results by date. A repository that cannot be searched is named; the rest
+  still answer. `app.cli gitsearch --every-repo` does the same.
+- **A commit opens as a commit.** Select a history row and the preview shows the message, who made it
+  and when, the files it changed, and the change itself with the text you searched for highlighted.
+- **Stop really stops git on Windows.** Stopping a history search ended a small launcher and left git
+  running to the end. It now ends within a third of a second.
+- The last history row no longer waits for git to finish, and the "Search history" button no longer
+  stays as "Stop" if you type a file search while history is still running.
+- In history results the Repository column now shows the repository; the commit's short id and author
+  are in Where.
 
 ### Fixed, 2026-09-30
 
@@ -55,6 +126,18 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   ui.doctor ... without valid JSON" every time: the check printed a description of the machine in
   front of its answer, and the window could not read the answer past it. The description now
   travels inside the answer. The diagnostics bundle reads the same output and is mended with it.
+- **The Indexing page no longer shows "0 files/min" next to an estimate of years.** When a run has
+  slowed to less than one file a minute, the time remaining now reads "estimating…" instead of a
+  figure such as "about 1823 days". Faster runs are estimated exactly as before.
+- **The list of skipped files no longer shows `{took}` or `{reason}`.** For 22 kinds of skip the
+  "N files skipped — review" panel printed the sentence with its blanks unfilled. A group now reads,
+  for example, "'these files' was skipped after the time allowed: each file's own reason is on its row."
+- A file type added from Settings › File types › Add file type now arrives clean: the generated reader
+  no longer contains imports it does not use.
+- Tests, not the app: the test suite no longer takes Leasha's real window lock or index-run lock, so
+  running it with Leasha open or indexing neither fails the tests nor can refuse a real run; it no
+  longer downloads a model; and the Mac program-finding tests no longer depend on what is installed
+  on the machine running them.
 
 ### A Models box: see, remove, choose and find models
 
