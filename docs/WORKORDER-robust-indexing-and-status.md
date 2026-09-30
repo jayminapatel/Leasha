@@ -88,7 +88,59 @@ at the end.
 
 ## Lane F - later, in this order
 
-- [ ] **F1** Watch the indexed folders for changes, so a file saved a moment ago can be found.
+> **2026-09-30, F1 built.** Off by default, pending the owner's check on his own folders: the
+> switch is "Index files as soon as they are saved" on the Indexing page's Schedule shelf
+> (`INDEX_WATCH_FOLDERS`).
+>
+> *What was built.* `app/index/folder_watch.py` (Qt-free): a source per indexed folder, a buffer
+> that waits for each path to go quiet (2 s; 15 s at most for a path that never does), and
+> `BatchIndexer`, which asks the disk what is true and hands the files to the ordinary pipeline
+> through a new `PipelineConfig.candidate_source` - the same classify, read, embed and write path
+> as any run, no second indexer. On Windows the source is `ReadDirectoryChangesW` through pywin32
+> (`app/core/osbridge/dirwatch.py`, one handle per folder, 64KB buffer); elsewhere, and for a
+> folder Windows will not watch, the folder is listed and compared, never more than a tenth of
+> the time. An overflow, a folder that came back, or more than 2,000 paths waiting under one
+> folder becomes "look at the whole folder": a walk of it, with the clean-up pass limited to it
+> (`PipelineConfig.prune_under`). A batch takes the index-run lock only while it writes and waits
+> in the buffer while a run holds it, while on battery (the owner's setting) or after an error -
+> kept, never dropped. `walker.PathRules` answers the walker's exclusions for one path; a test
+> walks a tree both ways and fails if they differ. Command line first: `app.cli watch`. The window
+> runs that command as a child process (`app/index/watch_child.py`, `app/ui/folder_watch.py`),
+> so nothing is read or embedded in the window's process; closing the window ends it.
+>
+> *Decisions.* (1) Mailboxes (`.pst`, `.ost`, `.olm`, `.mbox`) are left to the ordinary run - one
+> that Outlook has open changes every few seconds; a new one is recorded by name. (2) Cloud
+> placeholders are never downloaded by the watch, whatever the folder's opt-in. (3) Folders
+> marked Archive are not watched. (4) Starting the watch walks nothing: what changed while it was
+> off is the ordinary run's job. (5) A watched batch does not replace "the last run" record, and
+> skips the work that grows with the whole index (backlog catch-up, forced vector compaction,
+> the completions file) - `PipelineConfig.light`.
+>
+> *Tests.* `tests/unit/test_folder_watch.py` (31: gathering, overflow, exclusions, the lock,
+> battery, deletes, the real Windows notification), `tests/integration/
+> test_folder_watch_acceptance.py` (9: a real file saved, edited, renamed and deleted through the
+> real watcher and pipeline, both sources; folders; rescan; mailboxes; locked files),
+> `tests/unit/test_cli_watch.py` (4, one starting the real child process),
+> `tests/unit/test_folder_watch_ui.py` (13: the setting, the switch pressed in the real window,
+> the child's supervision).
+>
+> *Measured* 2026-09-30 on the owner's laptop (12 logical processors, Windows 11), temporary
+> folders and a temporary index, **with other test runs on the machine at the time** (system CPU
+> 30% at the start, 100% at the end) and the fake embedding model, so the meaning model's own
+> time is not in these figures: save to findable by words, Windows notifications, median 2.19 s
+> over 11 files (2.14-2.24 s; 2.0 s of it is the quiet time, the batch itself 0.20 s); by
+> comparison with a 2 s interval, 3.5 s - at the default 30 s interval, up to about half a
+> minute. Idle cost of watching 4,000 folders holding 20,000 files: Windows notifications 0.06 s
+> of processor time in 60 s (0.10% of one core), no memory growth; the whole `app.cli watch`
+> process idle over 3,000 folders 0.016 s in 60 s, 134MB resident with no model loaded;
+> comparison 7.9 s in 123 s (6.4% of one core, each listing 6-9 s on the loaded machine), 13MB.
+>
+> *Known cost, measured.* While the watch is on, a folder **above** an indexed folder cannot be
+> renamed or moved (Windows answers "Access is denied"); the indexed folder itself can. The
+> setting's help text says so. **Not verified:** the owner's real folders, a network share, a
+> Google Drive or OneDrive folder, and the real model's time per file.
+
+- [x] **F1** Watch the indexed folders for changes, so a file saved a moment ago can be found.
 - [ ] **F2** Mail results grouped by conversation, with the parent message shown when only an
       attachment matched (overlaps order 0y §4c).
 - [ ] **F3** "Retry with a longer time limit" on a group of timed-out files (needs B).
