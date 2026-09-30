@@ -1057,7 +1057,11 @@ def check_nightly_status() -> Check:
 # Runner
 # ---------------------------------------------------------------------------
 
-def run_all(quick: bool = False) -> list[Check]:
+def run_all(quick: bool = False, machine: Optional[list[str]] = None) -> list[Check]:
+    """Every check, in order. `machine` collects the profile lines instead of
+    printing them - `--json` hands it one, because anything printed before the
+    JSON made the output unreadable to the window's health check (2026-09-30:
+    `ERR_UNEXPECTED ... exited 0 without valid JSON`, on every run)."""
     checks: list[Check] = [
         check_python(),
         check_in_venv(),
@@ -1079,10 +1083,14 @@ def run_all(quick: bool = False) -> list[Check]:
     ]
     # The machine, before the checks that depend on it - so a wrong detection
     # is read first rather than inferred from a surprising result below.
-    print()
-    print("Machine")
-    for line in compute_profile_lines():
-        print(line)
+    profile = compute_profile_lines()
+    if machine is None:
+        print()
+        print("Machine")
+        for line in profile:
+            print(line)
+    else:
+        machine.extend(profile)
     # Optional: an adapter present with no DirectML provider is a WARN, not a
     # print-only line under "Machine" above that "cannot fail a run" - see
     # the function's own docstring for the three-way distinction.
@@ -1111,7 +1119,8 @@ def main() -> int:
     parser.add_argument("--quick", action="store_true", help="skip model loading (much faster)")
     args = parser.parse_args()
 
-    checks = run_all(quick=args.quick)
+    machine: list[str] = []
+    checks = run_all(quick=args.quick, machine=machine if args.json else None)
     hard_failures = [c for c in checks if not c.ok and not c.optional]
     soft_failures = [c for c in checks if not c.ok and c.optional]
 
@@ -1120,6 +1129,7 @@ def main() -> int:
             "ready": not hard_failures,
             "required_failures": len(hard_failures),
             "optional_failures": len(soft_failures),
+            "machine": machine,
             "checks": [asdict(c) for c in checks],
         }, indent=2))
         return 1 if hard_failures else 0

@@ -223,3 +223,18 @@ def test_a_pinned_model_cache_still_wins(tmp_path, monkeypatch):
     assert doctor.check_embedding_model().ok
 
     assert seen == [str(pinned)]
+
+
+# -- the window's health check gets JSON and nothing else (2026-09-30) ------------
+
+def test_the_windows_health_check_can_read_what_doctor_prints():
+    """Owner, 2026-09-30: Settings' health check showed `ERR_UNEXPECTED ...
+    doctor.py exited 0 without valid JSON`. `run_all` printed the "Machine"
+    block to standard output before the JSON, so `--json` was never JSON. This
+    runs the same call the window makes, so the two cannot drift apart again."""
+    from app.ui import tasks
+
+    report = tasks.doctor_report()
+
+    assert report["checks"], "no checks came back"
+    assert any(line.lstrip().startswith("CPU") for line in report["machine"])

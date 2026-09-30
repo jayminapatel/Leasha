@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.29 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.30 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -141,6 +141,11 @@ line, no traceback and no window.
   26 of the ones fetched here still reach the old commits. Nobody but GitHub Support can
   remove those; the owner decides between asking Support, making the repository private, or
   deleting and recreating it.
+- **Settings' health check failed on every run, since 27 August** (`cf6dcb8` added a "Machine"
+  block that `doctor.run_all` printed before the JSON, so `doctor.py --json` was never JSON; the
+  owner saw `ERR_UNEXPECTED ... ui.doctor` on 2026-09-30). `--json` now carries those lines as
+  `"machine"`. `test_the_windows_health_check_can_read_what_doctor_prints` makes the window's
+  own call. No restart needed: the window starts `doctor.py` afresh each time.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the
