@@ -83,6 +83,9 @@ class ModelManagerBox(QGroupBox):
         self.delete_button.clicked.connect(lambda _c=False: self._delete_selected())
         self.clean_button = QPushButton("Remove copies nothing uses")
         self.clean_button.setObjectName("modelsClean")
+        self.clean_button.setToolTip("Remove every downloaded model that no job uses, after "
+                                     "asking. Models in use are never touched; anything removed "
+                                     "can be downloaded again.")
         self.clean_button.clicked.connect(lambda _c=False: self._remove_unused())
         self.recommended_button = QPushButton("Use recommended models")
         self.recommended_button.setObjectName("modelsRecommended")

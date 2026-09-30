@@ -976,6 +976,7 @@
     <Content Include="app\ort\catalogue.json" />
     <Content Include="app\ort\catalogue_hf.json" />
     <Content Include="app\storage\schema.sql" />
+    <Content Include="archive\README.md" />
     <Content Include="archive\SESSION_CLOSE_2026-09-04.md" />
     <Content Include="archive\docs\HANDOFF-github.md" />
     <Content Include="archive\docs\HANDOFF-thread-merge.md" />

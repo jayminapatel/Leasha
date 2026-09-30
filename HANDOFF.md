@@ -36,7 +36,11 @@ processes and was five points of failure before a single search ran.
 > the table below as that path. Code travels by git only; release builds go to
 > `D:\Local\GDrive\Leasha\Releases\<version>\`, and Drive sync carries them. The old
 > copy's leftovers are in `D:\Local\Archive\SearchProject-2026-09-30`. See `CLAUDE.md`,
-> *Where a session runs*.
+> *Where a session runs*. **Rebuilding a venv:** `pip install` of the old `pip freeze`
+> ended on the CPU `onnxruntime` (DirectML gone, `doctor` WARN); `pip install
+> --force-reinstall --no-deps onnxruntime-directml==1.24.4` **last** put it back, as
+> `install.ps1` does. A desktop shortcut `Leasha.lnk` starts the new copy
+> (`venv\Scripts\pythonw.exe -m app.main`; icon in `%LOCALAPPDATA%\Leasha`).
 
 | What | Where |
 |---|---|
@@ -84,6 +88,15 @@ line, no traceback and no window.
   is **not reproduced** - the next close's log says whether it worked; (4) the progress bar
   (`widgets/shimmer_bar.py`). The run at 09:44 stopped at `2009.pst` because the window was
   closed at 09:58; 2010-2025 are not indexed yet - the next run carries on.
+- **Evening - the move and the full suite.** The working copy is `D:\Local\GitHub\SearchProject`
+  (see section 2). Full unit suite from the new copy, with a guard that refuses any COM
+  launch: **11,247 passed, 12 failed, and no test tried to start Outlook.** Six failures
+  predate today (converter `.doc`, embedder-quantised x2 offline, osbridge Mac x2, scaffold
+  lint; start-indexing notice). Fixed: the Models box's buttons were missing from
+  `buttons.BUTTONS` and one lacked a tooltip (order 1c's own omission); `Leasha.pyproj` was
+  generated before `archive/README.md` was tracked; `test_chat_tab_qt`'s `ask` helper could
+  click Send while it was still disabled under load, so the "saved conversation" test read an
+  empty chat - it now waits for Send and for the question to register.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the

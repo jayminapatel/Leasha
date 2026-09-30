@@ -95,8 +95,16 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
 
 
 def ask(c, text: str) -> None:
+    # 2026-09-30: wait for Send to be live, then for the question to register. In a
+    # full-suite run the click could land while Send was still disabled; it was
+    # dropped, `answered` then returned at once (nothing was being answered), and
+    # the saved conversation was the empty "New chat" - a failure of the test's
+    # timing, not of the page.
+    _wait(c.qtbot, lambda: c.view.box.send_button.isEnabled())
+    users = len([t for t in c.ctl.session.turns if t.role == "user"])
     c.view.box.edit.setPlainText(text)
     c.qtbot.mouseClick(c.view.box.send_button, Qt.MouseButton.LeftButton)
+    _wait(c.qtbot, lambda: len([t for t in c.ctl.session.turns if t.role == "user"]) > users)
 
 
 def answered(c) -> None:

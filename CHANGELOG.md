@@ -40,6 +40,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **The progress bar shows the run is alive**: a gradient fill with a light sweeping across it
   while indexing, a gliding segment while the size of the job is not yet known, and still
   when nothing is happening. The thin bar under the Index button does the same.
+- The Models box's buttons now follow the app's button style (icons; "Remove copies nothing
+  uses" is marked as a deleting button), and each says what it does when hovered.
+- Photo tags no longer claim to need `transformers`; they need ONNX Runtime and the Florence-2
+  download, which is what they use.
+- Files nothing used were moved to `archive/`, each with the reason, in `archive/README.md`.
 - Gemma 3 1B and Llama 3.2 1B were checked on a real laptop: both chat, and neither understands
   searches as well as Qwen. Gemma is listed with that note; Llama is not offered.
 

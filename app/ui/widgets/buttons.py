@@ -125,6 +125,12 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Name the people in your photos…": ("users", "secondary"),
     # Beside every model drop-down (widgets/model_download.py, 2026-09-29).
     "Download": ("file-down", "secondary"),
+    # The Models box (widgets/model_manager.py, order 1c, 2026-09-30). They were
+    # added without entries here, which test_button_system caught on 2026-09-30.
+    # "Remove copies nothing uses" shows its size, so it is matched in PREFIXES.
+    "Use recommended models": ("rotate-ccw", "secondary"),
+    "Use this": ("check", "secondary"),
+    "Update the list from Hugging Face": ("refresh-cw", "secondary"),
     # -- Settings › Storage & maintenance ------------------------------------
     "Move or change index location…": ("move", "secondary"),
     "Change the meaning model…": ("brain", "secondary"),
@@ -201,6 +207,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
 #: 'Holiday disk'") is matched by how its label starts.
 PREFIXES: dict[str, tuple[str, str]] = {
     "Yes — same as": ("check", "primary"),
+    # "Remove copies nothing uses (3.4 GB)": it deletes files, so it is danger.
+    "Remove copies nothing uses": ("trash-2", "danger"),
 }
 
 
