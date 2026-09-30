@@ -126,7 +126,7 @@ def status_report(settings: Any) -> dict[str, Any]:
         },
         "fix": {
             "av": r"venv\Scripts\python.exe -m pip install av==18.1.0",
-            "faster_whisper": r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1",
+            "faster_whisper": r"venv\Scripts\python.exe -m pip install av==18.1.0",   # 2026-09-29: PyAV reads the sound
             "model": transcribe.download_command(config.model),
         },
         "video_ready": all(tools.values()),
@@ -147,7 +147,7 @@ def _print_status(report: dict[str, Any]) -> None:
         print(f"  {name:<14} {where or 'NOT FOUND'}")
     if not all(report["tools"].values()):
         print(f"      fix: {report['fix']['av']}")
-    print(f"  {'faster-whisper':<14} "
+    print(f"  {'speech engine':<14} "     # 2026-09-29: ONNX Runtime; was faster-whisper
           f"{'installed' if report['faster_whisper_installed'] else 'NOT INSTALLED'}")
     if not report["faster_whisper_installed"]:
         print(f"      fix: {report['fix']['faster_whisper']}")
@@ -289,7 +289,7 @@ def add_media_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
                    help="what is installed and what is switched on (the default "
                         "when no file is given)")
     p.add_argument("--transcribe", action="store_true",
-                   help="also transcribe the speech (needs faster-whisper and a model)")
+                   help="also transcribe the speech (needs a downloaded speech model)")
     p.add_argument("--model", choices=("tiny", "base", "small", "medium"),
                    help="speech model to use instead of TRANSCRIBE_MODEL")
     p.add_argument("--find", metavar="TEXT",

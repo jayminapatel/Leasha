@@ -87,7 +87,8 @@ class PreviewWindow(QWidget):
                  body_provider: Any = None, siblings: Any = (),
                  index: int = 0, store: Any = None,
                  ollama_url: str = "http://127.0.0.1:11434",
-                 ollama_vision_model: str = "llava") -> None:
+                 ollama_vision_model: str = "llava",
+                 chat_engine: str = "onnx") -> None:
         # No parent: a parented widget with a window flag still minimises with
         # its owner, and a pinned document that vanishes with the main window
         # is not pinned. The same reasoning `log_window` records.
@@ -127,6 +128,9 @@ class PreviewWindow(QWidget):
         self._store = store
         self._ollama_url = ollama_url
         self._ollama_vision_model = ollama_vision_model
+        #: `CHAT_ENGINE` (2026-09-29): Describe is Florence-2 inside Leasha
+        #: unless this says `ollama`. Told, like the address, never read from disk.
+        self._chat_engine = chat_engine
         self._describe_file_id = getattr(row, "file_id", None)
         self._describe_generation = 0
 
@@ -518,7 +522,7 @@ class PreviewWindow(QWidget):
         generation = self._describe_generation
         worker = CallableWorker(
             _describe_status, self._store, self._describe_file_id,
-            self._ollama_url, self._ollama_vision_model,
+            self._ollama_url, self._ollama_vision_model, self._chat_engine,
             component="ui.preview.describe")
         worker.signals.finished.connect(
             lambda status, g=generation: self._describe_status_ready(status, g))
@@ -552,7 +556,7 @@ class PreviewWindow(QWidget):
         worker = CallableWorker(
             _describe_and_store, self._store, self._describe_file_id,
             self._display_path, self._ollama_url, self._ollama_vision_model,
-            component="ui.preview.describe")
+            self._chat_engine, component="ui.preview.describe")
         worker.signals.finished.connect(
             lambda caption, g=generation: self._describe_done(caption, g))
         worker.signals.failed.connect(
@@ -839,8 +843,18 @@ class _DescribeStatus:
     already_described: bool
 
 
+def _describe_client(ollama_url: str, ollama_model: str, engine: str) -> Any:
+    """Worker thread: what Describe asks. `CHAT_ENGINE` (2026-09-29) decides -
+    Florence-2 inside Leasha by default, or the Ollama vision model."""
+    from types import SimpleNamespace
+
+    from app.llm.engines import vision_model
+
+    return vision_model(SimpleNamespace(chat_engine=engine), url=ollama_url, model=ollama_model)
+
+
 def _describe_status(store: Any, file_id: int, ollama_url: str,
-                      ollama_model: str) -> "_DescribeStatus":
+                      ollama_model: str, engine: str = "onnx") -> "_DescribeStatus":
     """Work order 0i section 3a. Runs off the UI thread - see `_check_describe`.
 
     Module-level, not a method: `CallableWorker` runs it in a thread pool
@@ -848,13 +862,12 @@ def _describe_status(store: Any, file_id: int, ollama_url: str,
     it obvious nothing here reaches back into the widget.
     """
     from app.extract.vision_caption import available, unavailable_reason
-    from app.llm.ollama import OllamaClient
 
     try:
         already = bool(store.has_ai_caption(int(file_id)))
     except Exception:                             # noqa: BLE001 - a check, never a crash
         already = False
-    client = OllamaClient(url=ollama_url, model=ollama_model)
+    client = _describe_client(ollama_url, ollama_model, engine)
     ok = available(client)
     return _DescribeStatus(
         available=ok, reason="" if ok else unavailable_reason(client),
@@ -862,7 +875,7 @@ def _describe_status(store: Any, file_id: int, ollama_url: str,
 
 
 def _describe_and_store(store: Any, file_id: int, path: str, ollama_url: str,
-                         ollama_model: str) -> Optional[str]:
+                         ollama_model: str, engine: str = "onnx") -> Optional[str]:
     """Work order 0i section 3a. Runs off the UI thread - see `_describe`.
 
     Returns the caption on success, `None` on anything else - a bad photo,
@@ -871,9 +884,8 @@ def _describe_and_store(store: Any, file_id: int, path: str, ollama_url: str,
     result reaching `_describe_failed` must never be a traceback.
     """
     from app.extract.vision_caption import describe_image
-    from app.llm.ollama import OllamaClient
 
-    client = OllamaClient(url=ollama_url, model=ollama_model)
+    client = _describe_client(ollama_url, ollama_model, engine)
     try:
         result = describe_image(Path(path), client)
         if result is None:

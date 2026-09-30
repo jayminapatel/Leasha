@@ -258,7 +258,7 @@ class Settings(BaseModel):
 
     # --- optional Ollama ----------------------------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "mistral"
+    ollama_model: str = "qwen2.5:1.5b"      # the tested Ollama model (2026-09-30); was "mistral"
     #: Work order 0i section 3. A separate model from `ollama_model`: query
     #: translation wants a small, fast text model; Describe and the caption
     #: trickle need a vision-capable one (llava/qwen-vl class).
@@ -276,6 +276,8 @@ class Settings(BaseModel):
     #: The web is OFF unless switched on, and only Chat may use it (owner,
     #: 2026-09-20). See `app/chat/web.py` for what may leave the machine.
     chat_web_enabled: bool = False
+    #: `onnx` (the model runs inside Leasha, `app/ort/llm.py`) or `ollama`.
+    chat_engine: str = "onnx"
     chat_web_provider: str = "auto"
     chat_web_ask_first: bool = True
     chat_web_show_query: bool = True
@@ -498,6 +500,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "CHAT_CONTEXT_TOKENS",
     "CHAT_STYLE_NOTE",
     "CHAT_WEB_ENABLED",
+    "CHAT_ENGINE",
     "CHAT_WEB_PROVIDER",
     "CHAT_WEB_ASK_FIRST",
     "CHAT_WEB_SHOW_QUERY",
@@ -660,7 +663,7 @@ def load_settings(
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
-            ollama_model=values.get("OLLAMA_MODEL") or "mistral",
+            ollama_model=values.get("OLLAMA_MODEL") or "qwen2.5:1.5b",
             ollama_vision_model=values.get("OLLAMA_VISION_MODEL") or "llava",
             chat_model=(values.get("CHAT_MODEL") or "").strip(),
             chat_router_model=(values.get("CHAT_ROUTER_MODEL") or "").strip(),
@@ -673,6 +676,8 @@ def load_settings(
             chat_style_note=(values.get("CHAT_STYLE_NOTE") or "").strip(),
             chat_web_enabled=_as_bool(
                 "CHAT_WEB_ENABLED", values.get("CHAT_WEB_ENABLED", "false")),
+            chat_engine=("ollama" if (values.get("CHAT_ENGINE") or "").strip().lower() == "ollama"
+                         else "onnx"),
             chat_web_provider=(values.get("CHAT_WEB_PROVIDER") or "auto").strip().lower(),
             chat_web_ask_first=_as_bool(
                 "CHAT_WEB_ASK_FIRST", values.get("CHAT_WEB_ASK_FIRST", "true")),

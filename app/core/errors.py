@@ -170,6 +170,37 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # The chat model running inside Leasha on ONNX Runtime (`app/ort/llm.py`,
+    # 2026-09-29), the default beside Ollama. Its own codes, because every
+    # sentence of the Ollama ones - "Ollama is not running", "ollama serve" -
+    # would send somebody to a program this engine does not use. Callers that
+    # branch on ERR_OLLAMA_TIMEOUT branch on ERR_LOCAL_MODEL_TIMEOUT too.
+    "ERR_LOCAL_MODEL_MISSING": _Spec(
+        message="The chat model {model} is not downloaded yet, so AI answers are unavailable. "
+                "Search still works normally.",
+        suggestion=(
+            "Open Settings, Models, and press Download beside the chat model. It is "
+            "fetched once and then works without the internet."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_LOCAL_MODEL_FAILED": _Spec(
+        message="The chat model could not be started, so AI answers are unavailable. "
+                "Search still works normally.",
+        suggestion=(
+            "Restart Leasha. If it happens again, download the model again from "
+            "Settings, Models, or switch the chat engine to Ollama there."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_LOCAL_MODEL_TIMEOUT": _Spec(
+        message="The chat model did not finish within {timeout_s}s. Search still works normally.",
+        suggestion=(
+            "It runs on this computer's processor, and a first answer also loads the "
+            "model. Try again, or allow it longer in Settings."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # --- file types, converters and OCR -----------------------------------
     "ERR_CLOUD_STUB": _Spec(
         message="'{path}' is a link to a Google Docs file, not the document itself.",
@@ -245,15 +276,18 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # 2026-09-29, corrected: named faster-whisper and its pip command. Speech runs
+    # on ONNX Runtime now; the part that can be missing is PyAV, which reads sound.
     "ERR_TRANSCRIBE_UNAVAILABLE": _Spec(
-        message="Speech-to-text is switched on, but the faster-whisper package is not installed.",
+        message="Speech-to-text is switched on, but the PyAV package, which reads the sound, "
+                "is not installed.",
         suggestion=(
             "Recordings and the spoken part of videos are findable by name only until it is "
             "installed. Everything else is unaffected. After installing, run indexing again "
             "with 'retry skipped'."
         ),
         action_type=ActionType.RUN_COMMAND,
-        action_payload=r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1",
+        action_payload=r"venv\Scripts\python.exe -m pip install av==18.1.0",
     ),
     "ERR_TRANSCRIBE_MODEL_MISSING": _Spec(
         message="The speech model '{model}' is not downloaded, so '{path}' was not transcribed.",
@@ -263,10 +297,9 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "then on. Then run indexing again with 'retry skipped'."
         ),
         action_type=ActionType.RUN_COMMAND,
-        action_payload=(
-            'venv\\Scripts\\python.exe -c "from faster_whisper import download_model; '
-            'download_model(\'base\')"'
-        ),
+        # 2026-09-29, corrected: was a faster-whisper download command; the model
+        # is the ONNX export now, fetched by the Download button in Settings.
+        action_payload=("Settings, Videos and recordings, Speech model size, Download"),
     ),
     "ERR_TRANSCRIBE_FAILED": _Spec(
         message="Transcribing '{path}' did not work.",

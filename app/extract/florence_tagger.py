@@ -32,8 +32,19 @@ installed) is normal and never fatal - `available()` answers without loading
 anything, exactly like `ocr.available()`. No DirectML path yet: the work
 order allows an ONNX port later "for speed"; this is the CPU baseline it
 asks to be measured against first.
-"""
 
+**2026-09-29 - on ONNX Runtime, not torch** (owner: "all should be onnx by
+default"). Windows' Smart App Control blocked torch's unsigned DLL on the
+owner's laptop, and would on any machine where it is on. The same model now
+runs from the `onnx-community/Florence-2-base` export through `app/ort/
+florence.py`, int8, on the processor. Measured on the owner's laptop against
+the torch path on four photos: identical tags, captions of the same quality
+in slightly different words, 11-14 s a photo either way, and 4.4 s to load
+against 22.4 s. The "CPU only" and "No DirectML path yet" paragraphs above
+describe the torch path; see `app/ort/session.py` for why the int8 graphs
+still run on the processor. `available()` now means "ONNX Runtime is here and
+the model is downloaded"; nothing is fetched while indexing.
+"""
 from __future__ import annotations
 
 import threading
@@ -46,13 +57,12 @@ from app.core.logging import logger
 
 log = logger.bind(component="extract.florence_tagger")
 
-__all__ = ["FlorenceResult", "tag_image", "available", "MODEL_ID"]
+__all__ = ["FlorenceResult", "tag_image", "describe", "available", "MODEL_ID"]
 
 MODEL_ID = "microsoft/Florence-2-base"
 ENGINE_LOAD_ATTEMPTS = 3
 
-_model: Any = None
-_processor: Any = None
+_engine: Any = None
 _engine_lock = threading.Lock()
 _engine_failed = False
 _engine_attempts = 0
@@ -67,42 +77,62 @@ class FlorenceResult:
     elapsed_s: float
 
 
+def _settings() -> tuple[Optional[Path], str]:
+    """The model cache and `EMBED_DEVICE`. An extractor is handed a path and
+    nothing else, so it reads them itself - the way `ocr.py` does."""
+    try:
+        from app.core.config import load_settings
+
+        settings = load_settings(create_dirs=False, check_writable=False)
+        cache = getattr(settings, "model_cache", None)
+        return (Path(cache) if cache else None), str(getattr(settings, "embed_device", "auto"))
+    except Exception:                              # noqa: BLE001 - never blocks indexing
+        return None, "auto"
+
+
 def available() -> bool:
-    """Is Florence-2 tagging usable here? Never raises, never loads the model."""
+    """Is Florence-2 tagging usable here? Never raises, never loads the model.
+
+    2026-09-29: ONNX Runtime and the downloaded `onnx-community/Florence-2-base`
+    graphs, not torch and transformers - see the module note.
+    """
     try:
         import importlib.util
 
-        return (
-            importlib.util.find_spec("torch") is not None
-            and importlib.util.find_spec("transformers") is not None
-        )
+        from app.ort import hub
+
+        if importlib.util.find_spec("onnxruntime") is None:
+            return False
+        cache, _device = _settings()
+        from app.ort import catalogue
+
+        return catalogue.best("photo", cache) is not None
     except Exception:                              # noqa: BLE001
         return False
 
 
-def _load() -> Optional[tuple[Any, Any]]:
-    """The model and processor, loaded once. `None` when they cannot be."""
-    global _model, _processor, _engine_failed, _engine_attempts
+def _load() -> Any:
+    """The ONNX Florence-2, loaded once. `None` when it cannot be."""
+    global _engine, _engine_failed, _engine_attempts
 
-    if _model is not None or _engine_failed:
-        return (_model, _processor) if _model is not None else None
-
+    if _engine is not None or _engine_failed:
+        return _engine
     with _engine_lock:
-        if _model is not None or _engine_failed:
-            return (_model, _processor) if _model is not None else None
+        if _engine is not None or _engine_failed:
+            return _engine
         try:
-            import torch
-            from transformers import AutoModelForCausalLM, AutoProcessor
+            from app.ort.florence import OnnxFlorence
 
             started = time.monotonic()
-            model = AutoModelForCausalLM.from_pretrained(
-                MODEL_ID, trust_remote_code=True, torch_dtype=torch.float32,
-            )
-            processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
-            model.eval()
-            _model, _processor = model, processor
-            log.info("Florence-2 tagging model loaded in {:.1f}s ({})",
-                     time.monotonic() - started, MODEL_ID)
+            cache, device = _settings()
+            engine = OnnxFlorence.from_cache(cache, device=device)
+            if engine is None:
+                raise FileNotFoundError(
+                    "the Florence-2 ONNX model is not downloaded - Settings, Models, "
+                    "photo tags, Download")
+            _engine = engine
+            log.info("Florence-2 tagging model loaded in {:.1f}s (ONNX, {})",
+                     time.monotonic() - started, "graphics card" if engine.on_gpu else "processor")
         except Exception as exc:                    # noqa: BLE001 - absence is normal
             _engine_attempts += 1
             _engine_failed = _engine_attempts >= ENGINE_LOAD_ATTEMPTS
@@ -110,52 +140,48 @@ def _load() -> Optional[tuple[Any, Any]]:
             level("Florence-2 tagging model did not load (attempt {} of {}): {}: {}",
                   _engine_attempts, ENGINE_LOAD_ATTEMPTS, type(exc).__name__, exc)
             return None
-    return _model, _processor
+    return _engine
 
 
-def _run_task(model: Any, processor: Any, image: Any, task: str,
-              max_new_tokens: int) -> dict:
-    """One Florence-2 `generate()` call for one task prompt."""
-    import torch
-
-    inputs = processor(text=task, images=image, return_tensors="pt")
-    with torch.no_grad():
-        generated_ids = model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=inputs["pixel_values"],
-            max_new_tokens=max_new_tokens,
-            num_beams=1,
-            do_sample=False,
-        )
-    text = processor.batch_decode(generated_ids, skip_special_tokens=False)[0]
-    return processor.post_process_generation(
-        text, task=task, image_size=(image.width, image.height))
+def reset() -> None:
+    """Forget the loaded model and any remembered failure (after a download)."""
+    global _engine, _engine_failed, _engine_attempts
+    with _engine_lock:
+        _engine, _engine_failed, _engine_attempts = None, False, 0
 
 
 def tag_image(path: Path) -> Optional[FlorenceResult]:
     """Caption + tags for one photo-class image. Never raises."""
-    loaded = _load()
-    if loaded is None:
+    engine = _load()
+    if engine is None:
         return None
-    model, processor = loaded
 
     started = time.monotonic()
     try:
         from PIL import Image
 
         with Image.open(path) as im:
-            image = im.convert("RGB")
-            caption_out = _run_task(model, processor, image, "<DETAILED_CAPTION>", 128)
-            caption = str(caption_out.get("<DETAILED_CAPTION>", "")).strip()
-
-            od_out = _run_task(model, processor, image, "<OD>", 128)
-            od = od_out.get("<OD>")
-            labels = od.get("labels", []) if isinstance(od, dict) else []
-            tags = tuple(dict.fromkeys(
-                str(label).strip().lower() for label in labels if str(label).strip()))
+            caption, tags = engine.caption_and_tags(im.convert("RGB"))
     except Exception as exc:                        # noqa: BLE001 - one image, not the run
         log.debug("Florence-2 tagging failed on {}: {}: {}",
-                  path.name, type(exc).__name__, exc)
+                  Path(path).name, type(exc).__name__, exc)
         return None
 
     return FlorenceResult(caption=caption, tags=tags, elapsed_s=time.monotonic() - started)
+
+
+def describe(path: Path) -> Optional[str]:
+    """A paragraph about one picture - Describe, when the chat engine is ONNX.
+    Never raises; `None` when the model is absent or the image unreadable."""
+    engine = _load()
+    if engine is None:
+        return None
+    try:
+        from PIL import Image
+
+        with Image.open(path) as im:
+            return engine.describe(im.convert("RGB")) or None
+    except Exception as exc:                        # noqa: BLE001
+        log.debug("Florence-2 describe failed on {}: {}: {}",
+                  Path(path).name, type(exc).__name__, exc)
+        return None

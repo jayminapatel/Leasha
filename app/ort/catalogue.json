@@ -1,0 +1,373 @@
+{
+  "format": 1,
+  "version": "2026-09-30.2",
+  "note": "The models Leasha runs itself on ONNX Runtime. Only entries with a 'verified' record are recommended; 'rank' orders copies of one job, best first. Revisions and sha256 are pinned: a download must match them.",
+  "models": [
+    {
+      "key": "florence-2-base",
+      "job": "photo",
+      "runner": "florence",
+      "rank": 1,
+      "label": "Florence-2 base (photo tags and captions)",
+      "repo": "onnx-community/Florence-2-base",
+      "revision": "d59e079711c57174f29265539fb4cc9f0f335916",
+      "graphs": [
+        "vision_encoder",
+        "embed_tokens",
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 1035,
+      "licence": "MIT",
+      "sha256": {
+        "onnx/vision_encoder.onnx": "2c7464fce495ea43b415b48afe7dbe84a9ebbe0cfe3c31fdd81c6dd66b39ff75",
+        "onnx/embed_tokens.onnx": "fec0fd20276af861afb6a23a11544bf1378c05e2a41001b610cc281e244c4b20",
+        "onnx/encoder_model.onnx": "b155b5a0e56a4244c62060751bb1b70dfe481015d0dbfa6d19b1912d9e58da0d",
+        "onnx/decoder_model_merged.onnx": "6d6e1266d7f94f5d4ec9cc07d9c1f7b3e47049c9b0de7bbe82a91e62dfd152af",
+        "config.json": "74efbe2299e13cfcc9e083861eae4a943d76f784ddd595d85e779d189cf0a574",
+        "generation_config.json": "25dc666f44506e0a63f5de2d191e5809b251527b282ff4951fad9840556407b3",
+        "tokenizer.json": "d69dcdb2323e124ac4f800cb9863ddccea0d7bb11e16125e8df3bd60f2f8aeac"
+      },
+      "verified": {
+        "on": "2026-09-30",
+        "machine": "Intel Core i7-1365U, Iris Xe, Windows 11 (the owner's laptop)",
+        "result": "3.6-5.8 s a photo (vision graph on the graphics card); same tags as the torch path; captions matched between graphics card and processor."
+      },
+      "description": "Microsoft's Florence-2 (base), full precision: writes a caption and object tags for each photo, and the paragraph Describe shows. Its picture part runs on the graphics card. About 1 GB. MIT licence.",
+      "source": "verified"
+    },
+    {
+      "key": "florence-2-base-int8",
+      "job": "photo",
+      "runner": "florence",
+      "rank": 2,
+      "label": "Florence-2 base, smaller copy (photo tags and captions)",
+      "repo": "onnx-community/Florence-2-base",
+      "revision": "d59e079711c57174f29265539fb4cc9f0f335916",
+      "graphs": [
+        "vision_encoder",
+        "embed_tokens",
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "_int8",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 260,
+      "licence": "MIT",
+      "sha256": {
+        "onnx/vision_encoder_int8.onnx": "ec0649c0307316190b6b91ffb4582c82bb3ed19202b66395990fe340c27c07e5",
+        "onnx/embed_tokens_int8.onnx": "8818c58a214e53bf7e22c48bb4674c2fa3112b9539c3ce4075a2eac797b1ef74",
+        "onnx/encoder_model_int8.onnx": "a0459867dc116e8e49f53073e368e45c21169d0b0dd7dc350abed06926e0d835",
+        "onnx/decoder_model_merged_int8.onnx": "7ffecf4dd98784308878fd52a7f95ed64f5ed025b4785f6f105450be8fe2be04",
+        "config.json": "74efbe2299e13cfcc9e083861eae4a943d76f784ddd595d85e779d189cf0a574",
+        "generation_config.json": "25dc666f44506e0a63f5de2d191e5809b251527b282ff4951fad9840556407b3",
+        "tokenizer.json": "d69dcdb2323e124ac4f800cb9863ddccea0d7bb11e16125e8df3bd60f2f8aeac"
+      },
+      "verified": {
+        "on": "2026-09-29",
+        "machine": "Intel Core i7-1365U, Iris Xe, Windows 11 (the owner's laptop)",
+        "result": "11.4-13.6 s a photo on the processor; same tags as the torch path. Smaller download; used when it is the copy on disk."
+      },
+      "description": "The same Florence-2 model, compressed to about 260 MB. Same tags, slightly weaker captions, about three times slower; for when disk space matters more than speed.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-base",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 1,
+      "label": "Whisper base (speech to text)",
+      "repo": "onnx-community/whisper-base",
+      "revision": "1846881b6b3a3024392c1eea3ad983695bc23925",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 291,
+      "licence": "MIT",
+      "sha256": {
+        "onnx/encoder_model.onnx": "a9f3b752833b49e880dec91ee5b6d936112be7c3ea07c221024ba493439f46fe",
+        "onnx/decoder_model_merged.onnx": "514903744bb1b45803ec571af99b31110491c6f77b0a154825866995fb124b73",
+        "config.json": "f4d0608f7d918166da7edb3e188de5ef1bfe70d9802e785d271fd88111e9cf4b",
+        "generation_config.json": "61070cf8de25b1e9256e8e102ded49d8d24a8369ed36ef84fdf21549e68125a0",
+        "tokenizer.json": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+      },
+      "verified": {
+        "on": "2026-09-29",
+        "machine": "Intel Core i7-1365U, Iris Xe, Windows 11 (the owner's laptop)",
+        "result": "Every word of a test clip right, language detected, resume correct; 80 s clip in 4.1 s (encoder on the graphics card)."
+      },
+      "size": "base",
+      "description": "OpenAI's Whisper (base), full precision: turns speech in recordings and videos into searchable text with times, in many languages. About 280 MB.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-base-int8",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 2,
+      "label": "Whisper base (speech to text)",
+      "repo": "onnx-community/whisper-base",
+      "revision": "1846881b6b3a3024392c1eea3ad983695bc23925",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "_int8",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 77,
+      "licence": "MIT",
+      "sha256": {
+        "onnx/encoder_model_int8.onnx": "ca6177401f86a2c6b4dc5f7fc02fbca680678906bd0c22f6d89f0b80f124253f",
+        "onnx/decoder_model_merged_int8.onnx": "fa3ef9902734ce5ae6f9ef2bdb2ba9a6c4b5785b09f4f420ce036573dc9d090b",
+        "config.json": "f4d0608f7d918166da7edb3e188de5ef1bfe70d9802e785d271fd88111e9cf4b",
+        "generation_config.json": "61070cf8de25b1e9256e8e102ded49d8d24a8369ed36ef84fdf21549e68125a0",
+        "tokenizer.json": "27fc476bfe7f17299480be2273fc0608e4d5a99aba2ab5dec5374b4482d1a566"
+      },
+      "verified": {
+        "on": "2026-09-29",
+        "machine": "Intel Core i7-1365U, Iris Xe, Windows 11 (the owner's laptop)",
+        "result": "Every word of the test clip right, as full precision; 7.0-9.5 s for the 80 s clip on the processor (slower than full precision, smaller)."
+      },
+      "size": "base",
+      "description": "The same Whisper base model compressed to about 75 MB: the same words in tests, a little slower on a processor.",
+      "source": "verified"
+    },
+    {
+      "key": "qwen2.5-1.5b-instruct-q4",
+      "job": "chat",
+      "runner": "decoder-chat",
+      "rank": 1,
+      "label": "Qwen 2.5 1.5B Instruct, 4-bit (chat, Interpret)",
+      "repo": "onnx-community/Qwen2.5-1.5B-Instruct",
+      "revision": "6287331f475a3e20e8c879be8fd4bf3551ad9d34",
+      "graphs": [
+        "model"
+      ],
+      "suffix": "_q4",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "extra": [],
+      "approx_mb": 1705,
+      "licence": "Apache-2.0",
+      "sha256": {
+        "onnx/model_q4.onnx": "70c24509f760fed9a8f50391165c46a87660197028a42c4547763f1c173ddea6",
+        "config.json": "215eb99c4955b0c42ea9f6e0980d922c228950c5dbc09bde6dc451fbba4d21f3",
+        "generation_config.json": "f7e7ce458658b2d40d9eb213b91b77a8bf698845ab89360976722d7ac46928a3",
+        "tokenizer.json": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf",
+        "tokenizer_config.json": "7e88129d9769a0b14b1587a7d5e829fe93ac0e1511636471fdfc0811951418e6"
+      },
+      "verified": {
+        "on": "2026-09-30",
+        "machine": "Intel Core i7-1365U, Iris Xe, Windows 11 (the owner's laptop)",
+        "result": "Interpret and planner JSON gave the same answers as Ollama's qwen2.5:1.5b; Chat 5.1 tokens/s; Interpret 9.4 s warm, 14.4 s cold."
+      },
+      "prompt_format": "chatml",
+      "description": "Alibaba's Qwen 2.5 (1.5 billion parameters), 4-bit: answers Chat and rewrites a sentence into a search for Interpret. Checked against the same model in Ollama. About 1.7 GB. Apache-2.0 licence.",
+      "source": "verified"
+    },
+    {
+      "key": "qwen2.5-1.5b-instruct",
+      "job": "chat",
+      "runner": "decoder-chat",
+      "rank": 9,
+      "label": "Qwen 2.5 1.5B Instruct (chat, Interpret)",
+      "repo": "onnx-community/Qwen2.5-1.5B-Instruct",
+      "revision": "6287331f475a3e20e8c879be8fd4bf3551ad9d34",
+      "graphs": [
+        "model"
+      ],
+      "suffix": "_int8",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json",
+        "tokenizer_config.json"
+      ],
+      "extra": [],
+      "approx_mb": 1510,
+      "licence": "Apache-2.0",
+      "sha256": {
+        "onnx/model_int8.onnx": "ee8364373c6fb35644c67fd8127cbee6c3d98ac889f8bb32ea4ac04a29650787",
+        "config.json": "215eb99c4955b0c42ea9f6e0980d922c228950c5dbc09bde6dc451fbba4d21f3",
+        "generation_config.json": "f7e7ce458658b2d40d9eb213b91b77a8bf698845ab89360976722d7ac46928a3",
+        "tokenizer.json": "a8506e7111b80c6d8635951a02eab0f4e1a8e4e5772da83846579e97b16f61bf",
+        "tokenizer_config.json": "7e88129d9769a0b14b1587a7d5e829fe93ac0e1511636471fdfc0811951418e6"
+      },
+      "verified": null,
+      "prompt_format": "chatml",
+      "offered": false,
+      "note": "checked 2026-09-30: gave wrong answers for Interpret and JSON",
+      "description": "The same Qwen 2.5 model, compressed differently (int8). Kept only as a fallback: it answered Interpret wrongly when checked.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-tiny",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 5,
+      "label": "Whisper tiny (speech to text)",
+      "repo": "onnx-community/whisper-tiny",
+      "revision": "",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 152,
+      "licence": "MIT",
+      "sha256": {},
+      "verified": null,
+      "size": "tiny",
+      "description": "OpenAI's Whisper (tiny), full precision, about 152 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-small",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 5,
+      "label": "Whisper small (speech to text)",
+      "repo": "onnx-community/whisper-small",
+      "revision": "",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 968,
+      "licence": "MIT",
+      "sha256": {},
+      "verified": null,
+      "size": "small",
+      "description": "OpenAI's Whisper (small), full precision, about 968 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-medium",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 5,
+      "label": "Whisper medium (speech to text)",
+      "repo": "onnx-community/whisper-medium-ONNX",
+      "revision": "",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [],
+      "approx_mb": 3057,
+      "licence": "MIT",
+      "sha256": {},
+      "verified": null,
+      "size": "medium",
+      "description": "OpenAI's Whisper (medium), full precision, about 3,057 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-large-v3-turbo",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 5,
+      "label": "Whisper large-v3-turbo (speech to text)",
+      "repo": "onnx-community/whisper-large-v3-turbo",
+      "revision": "",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [
+        "onnx/encoder_model.onnx_data"
+      ],
+      "approx_mb": 3236,
+      "licence": "MIT",
+      "sha256": {},
+      "verified": null,
+      "size": "large-v3-turbo",
+      "description": "OpenAI's Whisper (large-v3-turbo), full precision, about 3,236 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
+      "source": "verified"
+    },
+    {
+      "key": "whisper-large-v3",
+      "job": "speech",
+      "runner": "whisper",
+      "rank": 5,
+      "label": "Whisper large-v3 (speech to text)",
+      "repo": "onnx-community/whisper-large-v3-ONNX",
+      "revision": "",
+      "graphs": [
+        "encoder_model",
+        "decoder_model_merged"
+      ],
+      "suffix": "",
+      "required": [
+        "config.json",
+        "generation_config.json",
+        "tokenizer.json"
+      ],
+      "extra": [
+        "onnx/encoder_model.onnx_data",
+        "onnx/decoder_model_merged.onnx_data"
+      ],
+      "approx_mb": 6177,
+      "licence": "MIT",
+      "sha256": {},
+      "verified": null,
+      "size": "large-v3",
+      "description": "OpenAI's Whisper (large-v3), full precision, about 6,177 MB. Larger sizes are more accurate and much slower on a processor. Not checked on a real machine.",
+      "source": "verified"
+    }
+  ]
+}

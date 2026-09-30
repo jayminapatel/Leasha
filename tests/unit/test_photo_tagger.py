@@ -709,7 +709,10 @@ def test_caption_trickle_resumes_after_a_kill_mid_drain(tmp_path, monkeypatch):
         import dataclasses
 
         first = _pipeline(store, people_recognition_enabled=False)
-        first.config = dataclasses.replace(first.config, caption_trickle_enabled=True)
+        # The trickle is Ollama's; with the default engine inside Leasha it does not run
+        # (Florence-2 already describes each photo while indexing - 2026-09-29).
+        first.config = dataclasses.replace(first.config, caption_trickle_enabled=True,
+                                           chat_engine="ollama")
         # Interrupt after the first photo of the first (and only) batch -
         # batch_size in the drain is 8, so this corpus of 4 is one batch;
         # the per-file stop check inside that batch is what this proves.
@@ -733,7 +736,8 @@ def test_caption_trickle_resumes_after_a_kill_mid_drain(tmp_path, monkeypatch):
         # A fresh pipeline (a fresh process, after the "crash") finishes it.
         monkeypatch.setattr(vision_caption, "describe_image", real_describe)
         second = _pipeline(store, people_recognition_enabled=False)
-        second.config = dataclasses.replace(second.config, caption_trickle_enabled=True)
+        second.config = dataclasses.replace(second.config, caption_trickle_enabled=True,
+                                            chat_engine="ollama")
         stats2 = IndexStats()
         second._drain_caption_trickle(stats2)
 

@@ -175,6 +175,8 @@ class SettingsView(SettingsShelves, QWidget):
         self.vision_field = VisionModelField(
             self.vision_model, url=str(getattr(settings, "ollama_url", "") or ""),
             saved=str(getattr(settings, "ollama_vision_model", "") or ""))
+        from app.llm.engines import engine_of
+        self.vision_field.set_engine(engine_of(settings), getattr(settings, "model_cache", None))
         self.vision_model.activated.connect(
             lambda _i: self.settings_changed.emit(
                 {"OLLAMA_VISION_MODEL": self.vision_model.value()}))

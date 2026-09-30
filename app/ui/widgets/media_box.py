@@ -38,7 +38,10 @@ NOT_LISTED = "(current, not in the list)"
 __all__ = ["MediaBox", "tools_sentence", "speech_sentence", "model_sentence"]
 
 PYAV_INSTALL = r"venv\Scripts\python.exe -m pip install av==18.1.0"
-WHISPER_INSTALL = r"venv\Scripts\python.exe -m pip install faster-whisper==1.2.1"
+#: 2026-09-29: speech runs inside Leasha on ONNX Runtime; what it needs installed
+#: is PyAV, which reads the sound. Was "pip install faster-whisper==1.2.1" - a
+#: false instruction once faster-whisper was no longer used, so corrected, not kept.
+WHISPER_INSTALL = PYAV_INSTALL
 
 
 #: What reading a video's pictures costs. **Measured 2026-09-20**, and the
@@ -66,18 +69,22 @@ def tools_sentence(status: dict[str, Optional[str]]) -> str:
 
 
 def speech_sentence(installed: bool) -> str:
+    # 2026-09-29, corrected: these named the faster-whisper package, which the
+    # speech engine no longer uses (it runs inside Leasha on ONNX Runtime).
     if installed:
-        return "Speech to text: the faster-whisper package is installed."
-    return ("Speech to text: the faster-whisper package is not installed, so "
-            "recordings are findable by name only. To install it, run: "
+        return "Speech to text: ready - it runs inside Leasha."
+    return ("Speech to text: the PyAV package, which reads the sound, is not installed, "
+            "so recordings are findable by name only. To install it, run: "
             f"{WHISPER_INSTALL}")
 
 
 def model_sentence(model: str, present: bool) -> str:
     if present:
         return f"Speech model '{model}': downloaded."
+    # 2026-09-29, corrected: "to fetch it once, run: <command>" - the fetch is the
+    # Download button now, and `download_command` says where it is.
     return (f"Speech model '{model}': not downloaded. Leasha never downloads "
-            f"anything by itself - to fetch it once, run: "
+            f"anything by itself - to fetch it once: "
             f"{transcribe.download_command(model)}")
 
 
@@ -109,8 +116,8 @@ class MediaBox(QGroupBox):
             "Turns speech into searchable text with the time it was said, for "
             "voice memos, calls and the sound of videos. Off by default - it "
             "takes a good fraction of the recording's own length on this "
-            "computer, done slowly in the background and resumable. Needs the "
-            "faster-whisper package and a speech model.")
+            "computer, done slowly in the background and resumable. Needs a "
+            "speech model, downloaded once below.")    # was "the faster-whisper package and ..." (2026-09-29)
 
         self.model = QComboBox()
         self.model.setObjectName("TRANSCRIBE_MODEL")

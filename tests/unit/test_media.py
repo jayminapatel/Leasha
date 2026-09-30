@@ -658,7 +658,8 @@ def test_a_recording_with_no_speech_package_and_no_pyav_says_what_to_install(tmp
         list(extract(make_wav(tmp_path)))
     error = caught.value.error
     assert error.code == "ERR_TRANSCRIBE_UNAVAILABLE"
-    assert "pip install faster-whisper" in error.action_payload
+    # 2026-09-29: speech runs on ONNX Runtime; what can be missing is PyAV.
+    assert "pip install av" in error.action_payload
 
 
 def test_a_missing_model_is_named_and_never_downloaded(tmp_path, monkeypatch):
@@ -879,8 +880,9 @@ def test_a_media_box_holds_all_five_and_says_what_is_missing(monkeypatch):
     # The cost, in minutes and from the measured figures, is always on show.
     assert "What it costs" in box.cost_note.text()
     assert transcribe.cost_sentence() in box.cost_note.text()
-    assert "pip install faster-whisper" in box.speech_note.text()
-    assert "download_model('small')" in box.model_note.text()
+    assert "pip install av" in box.speech_note.text()    # 2026-09-29: was faster-whisper
+    # 2026-09-29: the Download button, not a command (speech runs on ONNX Runtime).
+    assert "'small'" in box.model_note.text() and "press Download" in box.model_note.text()
     assert "restart" in box.restart_note.text().lower() or "starts" in box.restart_note.text()
     assert "ready" in tools_sentence({"av": "18.1.0"}) and "18.1.0" in tools_sentence({"av": "18.1.0"})
     assert "downloaded" in model_sentence("base", True)
@@ -915,7 +917,8 @@ def test_the_status_report_is_honest_on_a_bare_machine(monkeypatch, tmp_path):
     assert report["video_ready"] is False and report["audio_ready"] is False
     assert report["model_downloaded"] is False
     assert report["settings"]["VIDEO_INDEXING_ENABLED"] is False
-    assert "install av==18.1.0" in report["fix"]["av"] and "faster-whisper" in report["fix"]["faster_whisper"]
+    # 2026-09-29: the speech fix is PyAV too (it reads the sound for the ONNX engine).
+    assert "install av==18.1.0" in report["fix"]["av"] and "install av" in report["fix"]["faster_whisper"]
     assert report["speech_throughput"]["realtime_factor"] == transcribe.MEASURED_REALTIME_FACTOR
 
 

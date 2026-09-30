@@ -52,6 +52,7 @@
     <Folder Include="app\extract" />
     <Folder Include="app\index" />
     <Folder Include="app\llm" />
+    <Folder Include="app\ort" />
     <Folder Include="app\reports" />
     <Folder Include="app\search" />
     <Folder Include="app\shell" />
@@ -260,9 +261,20 @@
     <Compile Include="app\index\video_frames.py" />
     <Compile Include="app\index\walker.py" />
     <Compile Include="app\llm\__init__.py" />
+    <Compile Include="app\llm\engines.py" />
     <Compile Include="app\llm\models.py" />
     <Compile Include="app\llm\ollama.py" />
     <Compile Include="app\main.py" />
+    <Compile Include="app\ort\__init__.py" />
+    <Compile Include="app\ort\catalogue.py" />
+    <Compile Include="app\ort\discover.py" />
+    <Compile Include="app\ort\florence.py" />
+    <Compile Include="app\ort\generate.py" />
+    <Compile Include="app\ort\hub.py" />
+    <Compile Include="app\ort\inventory.py" />
+    <Compile Include="app\ort\llm.py" />
+    <Compile Include="app\ort\session.py" />
+    <Compile Include="app\ort\whisper.py" />
     <Compile Include="app\reports\__init__.py" />
     <Compile Include="app\reports\inheritance.py" />
     <Compile Include="app\reports\space.py" />
@@ -434,6 +446,7 @@
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\model_download.py" />
+    <Compile Include="app\ui\widgets\model_manager.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
     <Compile Include="app\ui\widgets\number_field.py" />
@@ -716,6 +729,7 @@
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_model_dropdowns.py" />
+    <Compile Include="tests\unit\test_model_manager_qt.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_nightly.py" />
@@ -738,6 +752,11 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
+    <Compile Include="tests\unit\test_ort_florence.py" />
+    <Compile Include="tests\unit\test_ort_generate.py" />
+    <Compile Include="tests\unit\test_ort_llm.py" />
+    <Compile Include="tests\unit\test_ort_models_manage.py" />
+    <Compile Include="tests\unit\test_ort_whisper.py" />
     <Compile Include="tests\unit\test_osbridge.py" />
     <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_osbridge_pathnames.py" />
@@ -851,6 +870,7 @@
     <Compile Include="tests\unit\test_speed_work.py" />
     <Compile Include="tests\unit\test_spelling.py" />
     <Compile Include="tests\unit\test_splash.py" />
+    <Compile Include="tests\unit\test_splash_handoff.py" />
     <Compile Include="tests\unit\test_spreadsheet_preview.py" />
     <Compile Include="tests\unit\test_sqlite_bounded_connection.py" />
     <Compile Include="tests\unit\test_stages.py" />
@@ -919,6 +939,9 @@
     <Compile Include="tools\bench_results_paint.py" />
     <Compile Include="tools\extract_speed.py" />
     <Compile Include="tools\grab_ui.py" />
+    <Compile Include="tools\measure_ollama_chat.py" />
+    <Compile Include="tools\measure_onnx_chat.py" />
+    <Compile Include="tools\measure_onnx_photo.py" />
     <Compile Include="tools\nightly.py" />
     <Compile Include="tools\nightly_probe.py" />
     <Compile Include="tools\reader_recall.py" />
@@ -942,6 +965,8 @@
     <Content Include="SESSION_CLOSE_2026-09-04.md" />
     <Content Include="add-to-path.cmd" />
     <Content Include="add-to-path.ps1" />
+    <Content Include="app\ort\catalogue.json" />
+    <Content Include="app\ort\catalogue_hf.json" />
     <Content Include="app\storage\schema.sql" />
     <Content Include="assets\icons\arrow-right-left.svg" />
     <Content Include="assets\icons\bookmark.svg" />
@@ -1088,7 +1113,9 @@
     <Content Include="docs\WORKORDER-inbound-ui-fixes.md" />
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
+    <Content Include="docs\WORKORDER-model-manager-2026-09-30.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
+    <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />

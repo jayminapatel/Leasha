@@ -205,6 +205,13 @@ PyWavelets==1.9.0
 prompt_toolkit==3.0.53
 
 # --- Optional: Florence-2 photo tagging (work order 0i section 1a) --------
+# DATED NOTE, 2026-09-29 - NOT NEEDED ANY MORE; the text below is kept as the
+# record. Photo tags run the same model on ONNX Runtime (already installed
+# above) from the `onnx-community/Florence-2-base` export - `app/ort/
+# florence.py`. torch and transformers are not used by anything in Leasha now:
+# Windows' Smart App Control blocked torch's unsigned DLL on the owner's
+# laptop, which is why the move was made. The model is fetched by the Download
+# button in Settings (about 260 MB), never while indexing.
 # Install to give photo-class images (no OCR text at all) an AI-written
 # caption and tags, instead of leaving them unsearchable.
 #     venv\Scripts\python.exe -m pip install --index-url https://download.pytorch.org/whl/cpu torch
@@ -305,6 +312,14 @@ prompt_toolkit==3.0.53
 #   It arrives with faster-whisper (which requires av>=11); listing it first
 #   installs the version this application was measured against.
 #       venv\Scripts\python.exe -m pip install av==18.1.0
+#
+#   DATED NOTE, 2026-09-29 - faster-whisper is NOT NEEDED ANY MORE; the text
+#   below is kept as the record. Speech runs Whisper on ONNX Runtime from the
+#   `onnx-community/whisper-*` exports (`app/ort/whisper.py`), fetched by the
+#   Download button in Settings. CTranslate2 (an unsigned DLL, the same Smart
+#   App Control risk as torch) is no longer loaded. PyAV above IS still needed:
+#   it decodes the audio, so install it on its own when speech is wanted.
+#   tokenizers and huggingface-hub arrive with fastembed.
 #
 #   faster-whisper==1.2.1 - for speech to text (voice memos, calls, the sound of
 #   a video). MIT. Checked against PyPI 2026-09-19: 1.2.1 is the newest release;

@@ -32,7 +32,7 @@ from PyQt6.QtWidgets import (
 
 from app.core.branding import window_title
 from app.core.logging import logger
-from app.llm.ollama import OllamaClient
+from app.llm.engines import text_model
 from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
 from app.ui.later import later
 from app.ui.code_view import CodeView
@@ -303,7 +303,9 @@ class MainWindow(QMainWindow):
             stored == "on" if stored
             else bool(self._read_state("ui:ollama_model", ""))
         )
-        self._ollama = OllamaClient(settings.ollama_url, model)
+        # `CHAT_ENGINE` (2026-09-29): the model inside Leasha by default, or
+        # Ollama. `text_model` returns an object with Ollama's methods either way.
+        self._ollama = text_model(settings, model)
         translator = QueryTranslator(
             self._ollama,
             timeout_s=float(budget) if budget.isdigit() else TRANSLATE_TIMEOUT_S,
@@ -1629,7 +1631,8 @@ class MainWindow(QMainWindow):
                 ollama_url=str(getattr(
                     self._settings, "ollama_url", "http://127.0.0.1:11434")),
                 ollama_vision_model=str(
-                    getattr(self._settings, "ollama_vision_model", "llava")))
+                    getattr(self._settings, "ollama_vision_model", "llava")),
+                chat_engine=str(getattr(self._settings, "chat_engine", "onnx")))
             window.remember.connect(self._remember_log_window)
             window.open_requested.connect(self._open_path)
             window.reveal_requested.connect(

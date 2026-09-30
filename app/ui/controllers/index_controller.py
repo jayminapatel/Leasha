@@ -786,6 +786,7 @@ class IndexController(QObject):
                     self._w._settings, "ollama_url", "http://127.0.0.1:11434")),
                 ollama_vision_model=str(
                     getattr(self._w._settings, "ollama_vision_model", "llava")),
+                chat_engine=str(getattr(self._w._settings, "chat_engine", "onnx")),
                 people_recognition_enabled=bool(getattr(
                     self._w._settings, "people_recognition_enabled", False)),
                 # Work order 202626270515: video and audio, off unless the

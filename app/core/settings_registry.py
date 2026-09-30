@@ -536,7 +536,10 @@ SETTINGS: tuple[Setting, ...] = (
              "leaving it unreachable costs nothing but the Interpret button.",
     ),
     Setting(
-        key="OLLAMA_MODEL", label="Local model", kind="text", default="mistral",
+        # Default 2026-09-30: qwen2.5:1.5b, the model checked on the owner's laptop
+        # (Interpret and planner JSON correct, 1-8 s). Was "mistral", never checked
+        # here. "Restore defaults" brings back the tested choice.
+        key="OLLAMA_MODEL", label="Local model", kind="text", default="qwen2.5:1.5b",
         group="Models", surface="settings.models",
         help="Any model you have pulled in Ollama.",
     ),
@@ -634,6 +637,19 @@ SETTINGS: tuple[Setting, ...] = (
              "name, a passage, an email or your conversation. Searching and indexing "
              "never use the web.",
     ),
+    # Owner, 2026-09-29: "all should be onnx by default ... for chat it should be
+    # configurable to use ollama or onnx". One choice for every model that writes
+    # text - Chat, Interpret, and Describe for a single picture.
+    Setting(
+        key="CHAT_ENGINE", label="Chat, Interpret and Describe run on",
+        kind="choice", default="onnx", group="Models", surface="settings.models",
+        choices=("onnx", "ollama"),
+        restart=True,
+        help="Inside Leasha: the chat model runs in this application, with nothing "
+             "else to install - download it once in this section. Ollama: a separate "
+             "program you install and run, with its own choice of models. Search "
+             "never uses either.",
+    ),
     Setting(
         key="CHAT_WEB_PROVIDER", label="Web search service",
         kind="choice", default="auto", group="Models", surface="settings.models",
@@ -729,9 +745,11 @@ SETTINGS: tuple[Setting, ...] = (
              "spare graphics card, an hour of recordings takes about 5 minutes "
              "of the processor when nothing else is running and up to about 25 "
              "when it is busy. It is done slowly in the background, and can be "
-             "stopped and resumed without starting the recording again. Needs the "
-             "faster-whisper package and a speech model downloaded once; Leasha "
-             "never downloads anything by itself.",
+             "stopped and resumed without starting the recording again. Needs a "
+             "speech model downloaded once; Leasha never downloads anything by "
+             "itself.",
+             # 2026-09-29, corrected: said "Needs the faster-whisper package and a
+             # speech model" - speech now runs inside Leasha on ONNX Runtime.
     ),
     Setting(
         key="TRANSCRIBE_MODEL", label="Speech model size",
