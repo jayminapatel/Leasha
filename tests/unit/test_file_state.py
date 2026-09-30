@@ -291,3 +291,29 @@ def test_a_progress_tick_refreshes_on_a_worker_throttled(qtbot, store) -> None:
     assert funnel.tick(view, stats) is False
     # No run in this process: nothing to read from.
     assert funnel.tick(SimpleNamespace(_worker=None), stats) is False
+
+
+def test_a_run_in_a_separate_process_keeps_the_funnel_live(qtbot, store) -> None:
+    """Order 0z A3, audit of 2026-09-30. With "Index in a separate process" on
+    the run is a `ChildIndexRun`, whose `store` is None, so every tick was
+    turned away and the line stood still until the run ended. It now reads
+    through the window's own store, which the run carries as `read_store`.
+    Fails on the code as it was (`tick` returned False)."""
+    from types import SimpleNamespace
+
+    from app.index.child_run import ChildIndexRun
+    from app.ui.widgets.status_funnel import StatusFunnel
+
+    _corpus(store)
+    run = ChildIndexRun(["python", "-m", "app.cli", "index"])
+    assert run.store is None and run.read_store is None
+    funnel = StatusFunnel()
+    qtbot.addWidget(funnel)
+    view = SimpleNamespace(_worker=SimpleNamespace(pipeline=run))
+    stats = SimpleNamespace(seen=0, indexed=0, unchanged=0, skipped=0,
+                            workers={"1": {"file": "x.pdf"}})
+    assert funnel.tick(view, stats) is False, "no store at all: still nothing to read"
+    run.read_store = store
+    assert funnel.tick(view, stats) is True
+    qtbot.waitUntil(lambda: "Reading 1" in funnel.text(), timeout=5000)
+    assert funnel.text().startswith("Indexed 4 · ")

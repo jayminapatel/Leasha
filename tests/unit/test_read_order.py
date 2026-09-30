@@ -354,6 +354,49 @@ def test_a_large_scan_goes_to_disk_and_is_tidied_away(tmp_path: Path, monkeypatc
     assert not list(data.glob("leasha-worklist-*")), "the spill file was removed"
 
 
+def test_the_machine_is_read_a_few_times_a_second_not_once_a_file(tmp_path: Path) -> None:
+    """Order 0z E4, measured on Windows 2026-09-30. The walker asked the
+    resource governor before every file, and one ask reads the process table:
+    26-30ms on the owner's laptop against 1.76ms in the Linux sandbox. That
+    held a whole run to about 35 files a second, and a rerun with nothing
+    changed took 207s for 9,002 files in the "as found" order.
+
+    Fails on the code as it was: 500 asks, 500 reads of the machine."""
+    import time
+
+    from app.index.pipeline import SCAN_GOVERNOR_S, IndexStats
+    from app.index.resources import ResourceGovernor, Snapshot
+
+    reads: list[int] = []
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, tmp_path)
+        pipeline.governor = ResourceGovernor(
+            pipeline.config.resolved_limits(),
+            probe=lambda: reads.append(1) or Snapshot())
+        stats = IndexStats()
+
+        started = time.monotonic()
+        assert all(pipeline._governor_allows(stats) for _ in range(500))
+        took = time.monotonic() - started
+        assert 1 <= len(reads) <= 2 + took / SCAN_GOVERNOR_S, (
+            f"{len(reads)} reads of the machine for 500 files in {took:.2f}s")
+
+        # The interval is respected, not skipped for good.
+        before = len(reads)
+        time.sleep(SCAN_GOVERNOR_S + 0.05)
+        assert pipeline._governor_allows(stats)
+        assert len(reads) == before + 1
+
+        # **The person's pause is never made to wait for the interval.** It is
+        # a flag, not a measurement: the very next file notices it. (A stop is
+        # asked for first - `request_stop` lets go of a pause - so the wait
+        # the pause starts ends at once instead of holding this test.)
+        assert pipeline._governor_allows(stats) is True
+        pipeline.request_stop()
+        pipeline.governor.pause_manually()
+        assert pipeline._governor_allows(stats) is False
+
+
 # ---------------------------------------------------------------------------
 # The setting, and "Index this folder first", reach the run
 # ---------------------------------------------------------------------------

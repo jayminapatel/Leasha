@@ -26,64 +26,194 @@ at the end.
 
 ## Lane A - one status vocabulary, visible everywhere
 
-- [ ] **A1** One Qt-free vocabulary of single words - Discovered, Queued, Reading, Indexed, Skipped,
+> **2026-09-30, audited.** A1, A2 and A3 ticked; A4 carried. Read, and run on the Windows laptop:
+> `tests/unit/test_file_state.py` and `tests/unit/test_status_column.py`, 46 passed.
+>
+> - **A1** `app/core/file_state.py` (`derive`, `explain`): the eleven words, each with its sentence,
+>   no Qt. Discovered and Reading are live numbers only. **Duplicate has its word and sentence and
+>   is never shown on a row**, because the store records no duplicate: identical loose files are
+>   each read, and a repeated attachment inside an archive gets no row (it is counted on the
+>   archive's line, C4). `DUPLICATE_CODES` is empty, and is where a code goes if that changes.
+> - **A2** Search: `tasks.result_statuses`, one `store.file_states` read for the page, on the worker
+>   that decorates it; the word is drawn beside the date. Files and Mail: `presenter/rows.py`, from
+>   the status and skip code the row already carries. Code: `presenter/code.py`.
+> - **A3** `widgets/status_funnel.py`, `tasks.status_funnel_counts`, `SqliteStore.status_counts`.
+>   Three indexed statements, not the one grouped query the item names: one `GROUP BY` over status,
+>   code and volume reads every row of `files`, and
+>   `test_the_funnel_statements_use_the_indexes_they_claim` holds the three plans. **Fixed in this
+>   audit:** with "Index in a separate process" on, the line stood still until the run ended; it
+>   now reads through the window's own store (`ChildIndexRun.read_store`).
+> - **A4, not ticked.** Mail and Files are built (`presenter/rows.capped_total`,
+>   `tasks.browse_messages_page`, `tasks.browse_files_page`): "Showing 500 of 12,431 messages",
+>   counted to 100,000, and "Showing 200 of 3,412 files", counted to 10,000. **Search is missing**:
+>   its line reads "N result(s)" with no total (`presenter/search.status_line`). What would close
+>   it: the owner's answer to what the total of a ranked list counts (files holding the words, or
+>   also those found by meaning), then a bounded count on the search worker and the same sentence.
+
+- [x] **A1** One Qt-free vocabulary of single words - Discovered, Queued, Reading, Indexed, Skipped,
       Failed, TimedOut, Offline, NameOnly, Duplicate, Deferred - derived from what the store already
       records (status, skip code, volume state), each with a one-sentence explanation.
-- [ ] **A2** A Status column in every results list (Search, Files, Mail, Code), with the explanation
+- [x] **A2** A Status column in every results list (Search, Files, Mail, Code), with the explanation
       as its tooltip. No per-row query on the interface thread.
-- [ ] **A3** A live funnel on the Indexing page: the count of each status, from one grouped query on
+- [x] **A3** A live funnel on the Indexing page: the count of each status, from one grouped query on
       a worker.
 - [ ] **A4** A list capped at a limit says so with the total: "Showing 500 of 12,431 messages".
       Mail first (the owner's report), then Files and Search.
 
 ## Lane B - a time limit on every file
 
-- [ ] **B1** A time limit per file, by kind; for mail archives a limit on *no progress*, never on
+> **2026-09-30, audited.** B1, B2 and B3 ticked. Read, and run on the Windows laptop:
+> `tests/unit/test_file_watch.py` and `tests/unit/test_force_skip_button.py`, 29 passed.
+>
+> - **B1** `app/index/file_watch.py` (`limit_kind`, `Watchdog._verdict`): text and code 120 s ("Time
+>   limit per file"); other single documents ten times that; `.pst`, `.ost`, `.mbox`, `.olm` and
+>   `.zip` no total limit, and 600 s of no progress ("Skip a mailbox or archive after no progress
+>   for"); video and recordings none. **Fixed in this audit:** "no progress" did not look at
+>   `Frame.beat` (C3), so a `.pst` working through one message's attachments that gave no document
+>   could be cut off while it was working (`FileWatch.signature`).
+> - **B2** the row is SKIPPED with `ERR_FILE_TIMEOUT` and reads TimedOut; a reader process is ended
+>   (`ReaderProcess.kill_child`); an in-process reader is interrupted, or left behind and replaced
+>   when it is inside native code (`Pipeline._replace_worker`); the next run leaves the file alone.
+> - **B3** `widgets/indexing_workers.py`, `indexing_controls.force_skip_reader`, then
+>   `Pipeline.force_skip` or `ChildIndexRun.force_skip` (`skip <reader>` to the indexing process;
+>   `test_force_skip_through_the_indexing_process` runs a real one).
+> - Not seen here: the real window, and a hung Outlook (COM) read (HANDOFF, "Time limits and Force
+>   skip").
+> - The 29 is a clean run; most runs here were not clean.
+>   `test_a_hung_reader_process_is_ended_and_the_thread_moves_on` failed in five of seven runs of
+>   its file and in six of seven runs on its own, while five other test runs shared the machine
+>   (the processor read 87% to 100% busy whenever it was looked at). It fails the same way on the
+>   code as it stood before this audit (three runs of three), so it is the load and not a change.
+>   With its 1 s limit a fresh reader process takes longer than the limit to start, so the files
+>   after the stuck one time out too: a reader process's start-up counts against its first file.
+>   At the shipped 120 s that is nothing; on a busy machine this is not a reliable test.
+
+- [x] **B1** A time limit per file, by kind; for mail archives a limit on *no progress*, never on
       total time.
-- [ ] **B2** A file past its limit is recorded as `ERR_FILE_TIMEOUT` (status TimedOut); its reader is
+- [x] **B2** A file past its limit is recorded as `ERR_FILE_TIMEOUT` (status TimedOut); its reader is
       ended (reader processes) or abandoned (in-process), and the run carries on.
-- [ ] **B3** "Force skip" on each worker line of the Indexing page, in-process and in the separate
+- [x] **B3** "Force skip" on each worker line of the Indexing page, in-process and in the separate
       indexing process.
 
 ## Lane C - PST that is fast and keeps going (libpff)
 
+> **2026-09-30, audited.** C2, C3, C4 and C5 ticked; C1 carried. Read, and run on the Windows
+> laptop: `tests/unit/test_pst_robust.py`, `test_pst_libpff.py`, `test_pst_resilience.py` and
+> `test_live_progress.py`, 106 passed. They run on a stand-in for libpff, as written; the real
+> library (`pypff` 20231205) is installed here.
+>
+> - **C1, not ticked.** Measured once, on Linux, on the public 14 MB Enron sample (71 messages, 70
+>   attachments; CHANGELOG): about 0.27 s a read with OCR taken out, 20-27 s with it, so OCR was
+>   about 80% of the time, and `get_attachment` about 2 ms a call. **Not seen in this audit:** the
+>   only `.pst` files on this machine are the owner's, and no command times the libpff path. What
+>   would close it: the owner's archive on Windows (HANDOFF, "Your own `.pst` through libpff"),
+>   written here as messages a second with its conditions.
+> - **C2** `pst_libpff._attachments` (each attachment fetched once), `_readable_type` (a type nothing
+>   reads is turned down by name, one answer per extension per archive), the hash taken before the
+>   write (a duplicate is never written), `_Scratch` (one folder per archive). **No reader takes
+>   bytes** - every one takes a path - so an attachment that is read still passes through one file.
+>   Measured against its parent on Linux (CHANGELOG). Two of the three on this laptop, 300
+>   attachments of 20 KB a round, best of five rounds, the processor about 93% busy with other test
+>   runs: a folder per attachment 2.0 ms each against 1.5 ms in the one folder; a `.url` written
+>   and handed to the reader 4.6 ms against 0.013 ms turned down by name. The third, one fetch
+>   instead of two, needs a real archive.
+> - **C3** `_each_attachment` catches everything around a reader; `_walk_folders` is iterative, with
+>   loop, depth (64) and failures-in-a-row (200) guards; `_messages` has the same run-of-failures
+>   guard and leaves a message it has already read; `frame.n` and `Frame.beat` move for every item.
+> - **C4** `Frame.counts` on the reader's line (`presenter/live_progress.worker_lines`) and one line
+>   when the archive ends (`Pipeline._after_container`, `presenter/activity.status_counts_text`).
+>   **Built in this audit:** TimedOut was reserved and nothing set it, and an archive cut off by
+>   the no-progress limit or a Force skip logged no line at all. It now logs one, with the item it
+>   was cut off on: `2019.pst: 1 Indexed · 1 TimedOut`. A Stop or a Pause still logs nothing.
+> - **C5** `app/extract/reading.py` and `app/index/held_archives.py`: held on the text pass, read by
+>   the pictures pass, once. **libpff only:** through Outlook (MAPI) an attached picture is still
+>   read on the text pass (HANDOFF says so).
+
 - [ ] **C1** Measured: messages a second on the libpff path, and where the time goes.
-- [ ] **C2** Faster: attachments read without a temporary file where the reader can take bytes, and
+- [x] **C2** Faster: attachments read without a temporary file where the reader can take bytes, and
       repeated property reads cached - each measured against its parent.
-- [ ] **C3** Reliable: one bad message or attachment costs only that item, with a reason; loop and
+- [x] **C3** Reliable: one bad message or attachment costs only that item, with a reason; loop and
       cycle guards on corrupt folders; progress advances for every item, skipped ones included.
-- [ ] **C4** Per-message status inside PST progress, and at the end of each archive in the activity
+- [x] **C4** Per-message status inside PST progress, and at the end of each archive in the activity
       log: `Archive2019.pst: 12,400 Indexed · 3 Failed · 12 Duplicate`.
-- [ ] **C5** Attachment images wait for the pictures pass, exactly as loose images do.
+- [x] **C5** Attachment images wait for the pictures pass, exactly as loose images do.
 
 ## Lane D - the junk-image filter (after C)
+
+> **2026-09-30, audited.** D1 to D5 ticked. Read, and run on the Windows laptop:
+> `tests/unit/test_junk_images.py` and `tests/unit/test_phash.py`, 60 passed.
+>
+> - **D1** `junk_images.ImageBook`, kept in `image_hashes` (schema v29) by
+>   `app/index/image_book.py`: five sightings and fewer than three words, across archives and runs.
+>   Duplicate attachments: within one archive, as the note below decides (`seen_hashes` in
+>   `pst_libpff._each_attachment`).
+> - **D2** `junk_images.is_inline` and `decorative`; the reason is on the archive's line in the log
+>   ("12 decorative pictures") and the count is the row "Pictures in mail not read" on the Indexing
+>   page. **libpff only:** the Outlook (MAPI) reader does not see the inline marks, so D2 does not
+>   run there; D1, D3 and D4 do (`test_the_outlook_path_applies_d1_and_d3_but_never_d2`).
+> - **D3** `junk_images.settle` and `count_words`. **D4** `perceptual_hash` and
+>   `ImageBook.looks_like_repeated_logo`, with the hash size of `app/index/phash.py`. **D5**
+>   `INDEX_JUNK_IMAGE_FILTER`, "Leave out signature logos and icons in email"
+>   (`widgets/long_run_box.py`).
+> - Not seen here: a real signature in a modern `.pst`, and the Outlook (MAPI) reader (HANDOFF,
+>   "Signature pictures in your own mail").
 
 > **2026-09-29, decided (owner: "you decide"; built in PR #31).** "Duplicate attachments are
 > not indexed twice" stays **within one archive**, as before. Across archives it could lose an
 > attachment when the archive holding its first copy is re-read or deleted, and the saving is small
 > next to D1's. Revisit only with a way to move the kept copy when its archive goes.
 
-- [ ] **D1** One hash list for images across every archive and run: an image seen five or more times
+- [x] **D1** One hash list for images across every archive and run: an image seen five or more times
       that gave fewer than three words is not read again, and duplicate attachments are not indexed
       twice.
-- [ ] **D2** Inline, hidden or `cid:` attachments that are also tiny or divider-shaped are recorded by
+- [x] **D2** Inline, hidden or `cid:` attachments that are also tiny or divider-shaped are recorded by
       name only, with a reason ("decorative image, not read") and a count on the Indexing page.
 > **2026-09-29, owner decision.** D3 applies to photos too: short text such as a sign in a photo
 > is not kept. Asked because the Enron sample lost one real sign ("ASTEL Heaven") to D3; answer "no"
 > to keeping it.
 
-- [ ] **D3** Fewer than three words after OCR: the text is not indexed and the hash joins D1.
-- [ ] **D4** Near-identical logos, by perceptual hash (`app/index/phash.py`).
-- [ ] **D5** A setting to switch the filter off.
+- [x] **D3** Fewer than three words after OCR: the text is not indexed and the hash joins D1.
+- [x] **D4** Near-identical logos, by perceptual hash (`app/index/phash.py`).
+- [x] **D5** A setting to switch the filter off.
 
 ## Lane E - the order things are read in
 
-- [ ] **E1** Scan, then sort, then read: the owner's chosen folders first; then newest first, mail
+> **2026-09-30, audited.** E1 to E4 ticked. Read, and run on the Windows laptop:
+> `tests/unit/test_read_order.py` and `tests/unit/test_read_order_ui.py`, 27 passed.
+>
+> - **E1** `app/index/read_order.py` (`sort_key`, `WorkList`) and `Pipeline._produce` /
+>   `_read_in_order`. The pictures and media passes are not touched by it. **E2**
+>   `widgets/roots_box.py`, kept as `ui:index_first_folders`; `priority_roots` in the window's run,
+>   `--first` to the indexing process, and read by `app.cli index` when no `--first` is given. The
+>   button is on the folder list (Settings › What's indexed), not on the Indexing page. **E3**
+>   `INDEX_ORDER`, "Order files are read in"; `app.cli index --order newest|found`.
+> - **E4, on Linux** (commit 3a4a070; 9,002 made-up files dated over 8 years, fake embedder, 2
+>   readers, full speed, three runs, as found then newest first): first 1,000 files 13.5-17.5 s,
+>   then 6.3-6.7 s; the newest 1,000 all read 67.9-71.2 s, then 6.5-6.9 s; whole run 68.4-72.2 s,
+>   then 67.3-68.5 s; rerun with nothing changed 18.1-20.7 s, then 0.8-1.2 s.
+> - **E4, on this Windows laptop** (i7-1365U, 12 logical processors, between 87% and 100% busy with
+>   other test runs throughout, so treat every figure as indicative; the same shape of corpus,
+>   9,002 text files, 21 MB, a fresh throwaway index each run). One run each, the code as merged on
+>   2026-09-29: as found - first 1,000 files 19.5 s, the newest 1,000 all read 250.8 s, whole run
+>   251.4 s, rerun with nothing changed 207.3 s; newest first - 38.4 s, 41.2 s, 278.4 s, 1.8 s.
+> - **Found by that measurement, and fixed in this audit.** Both orders read about 35 files a second
+>   whatever the number of readers, because the walker asked the resource governor before every
+>   file and one ask costs 26-30 ms on this machine (531 processes; psutil's walk of the process
+>   table for child processes) against the 1.76 ms of the Linux sandbox. The machine is now read at
+>   most every 0.25 s (`Pipeline._governor_allows`); the person's Pause is still noticed on every
+>   file. Two runs each with that change: as found - first 1,000 files 4.8 and 5.9 s, the newest
+>   1,000 all read 54.3 and 55.3 s, whole run 54.7 and 56.0 s, rerun 1.9 and 2.0 s; newest first -
+>   6.6 and 12.0 s, 7.2 and 12.9 s, 48.4 and 96.1 s (the slower run with the processor at 100%),
+>   rerun 1.1 and 4.3 s.
+> - Not seen here: the owner's real corpus and the real window (HANDOFF, "Newest first, and
+>   "Index this folder first"").
+
+- [x] **E1** Scan, then sort, then read: the owner's chosen folders first; then newest first, mail
       and files mixed; then small before large; pictures and media keep their later passes.
-- [ ] **E2** "Index this folder first" on the Indexing page, in order, honoured by the window, the
+- [x] **E2** "Index this folder first" on the Indexing page, in order, honoured by the window, the
       command line and the separate indexing process.
-- [ ] **E3** A setting for the order: "newest first (mixed)" or "as found".
-- [ ] **E4** Measured: time until the first 1,000 files are searchable, total run time, and a
+- [x] **E3** A setting for the order: "newest first (mixed)" or "as found".
+- [x] **E4** Measured: time until the first 1,000 files are searchable, total run time, and a
       no-change rerun - before and after.
 
 ## Lane F - later, in this order

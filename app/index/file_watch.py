@@ -24,8 +24,8 @@ The limit depends on the kind of file (`limit_kind`):
 * **Mailboxes and archives** (`STALL_READERS`: `.pst`/`.ost`, `.mbox`, `.olm`,
   `.zip`): **no total limit at all.** A 30GB `.pst` can rightly take hours.
   What is limited instead is *no progress*: no new document and no movement in
-  the reader's own position (`app.extract.progress` frames, `frame.n`) for
-  `INDEX_STALL_LIMIT_S`.
+  the reader's own position (`app.extract.progress` frames, `frame.n` and
+  `frame.beat`) for `INDEX_STALL_LIMIT_S`.
 * **Video and recordings** (`UNLIMITED_READERS`): no limit. Transcription
   runs at a few times real time and says nothing while it works; any fixed
   limit would cut off a long recording that was working. Force skip still
@@ -349,10 +349,19 @@ class FileWatch:
         return self.read_s + running
 
     def signature(self) -> tuple:
-        """Where the reader is: documents so far and its frames' positions."""
+        """Where the reader is: documents so far and its frames' positions.
+
+        `beat` as well as `n` (order 0z audit, 2026-09-30). Inside one message
+        of a `.pst`, `n` stands still while the attachments are read, and an
+        attachment that is skipped, held, a duplicate or unreadable hands over
+        no document - so a message with a long run of those looked like "no
+        progress" and the whole archive could be cut off while it was working.
+        `Frame.beat` rises for every item, and was added for exactly this.
+        """
         frames = getattr(self.slot, "frames", None) or []
         return (self.documents, getattr(self.slot, "item", 0),
-                tuple((getattr(f, "n", 0), getattr(f, "where", ""))
+                tuple((getattr(f, "n", 0), getattr(f, "where", ""),
+                       getattr(f, "beat", 0))
                       for f in list(frames)))
 
 

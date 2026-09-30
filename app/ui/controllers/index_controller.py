@@ -857,10 +857,14 @@ class IndexController(QObject):
         env = dict(os.environ)
         env.update(settings_environment(settings))
         log_path = getattr(settings, "log_path", None)
-        return ChildIndexRun(
+        run = ChildIndexRun(
             argv, env=env, cwd=project_root(),
             stderr_path=(Path(log_path) / CHILD_STDERR_NAME) if log_path else None,
             low_priority=bool(getattr(settings, "index_low_priority", True)))
+        # Order 0z A3: the page's status counts stay live during this run too.
+        # An attribute, no I/O; the reads are a worker's (`StatusFunnel`).
+        run.read_store = getattr(self._w, "_store", None)
+        return run
 
     def _first_folders(self) -> list[str]:
         """2026-09-29: the folder list's "Index this folder first", in order,

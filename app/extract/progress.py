@@ -116,9 +116,12 @@ READER_STAGES = (
 #: * Skipped - nothing to read: an empty message, an attachment of a type
 #:   nothing reads, one with no text, or one over the size ceiling.
 #: * Failed - could not be read; the reason is in the log.
-#: * TimedOut - reserved for a per-item time limit. **Nothing sets it yet**: a
-#:   libpff call cannot be interrupted from Python, so a limit has to live
-#:   outside the reader (the per-file limit).
+#: * TimedOut - the item an archive was cut off on. **No reader sets it**: a
+#:   libpff call cannot be interrupted from Python, so the limit lives
+#:   outside the reader (the per-file limit, `app/index/file_watch.py`). The
+#:   pipeline adds the one `TimedOut` to the archive's counts line when that
+#:   limit, or a Force skip, ends the read (`Pipeline._after_container`,
+#:   2026-09-30).
 #: * Duplicate - an attachment whose bytes were already read in this archive.
 #: * Held - a picture left for the pictures pass (`app.extract.reading`).
 STATUS_INDEXED = "Indexed"

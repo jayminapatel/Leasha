@@ -1062,6 +1062,12 @@ HOLD_POLL_S = 0.05
 #: drain, so asking four times a second still honours a pause, a battery, a
 #: full disk or Stop within a quarter of a second. A constant: nobody would
 #: tune it, and the evidence that would change it is a probe that got cheaper.
+#:
+#: **2026-09-30: the same interval now holds while files are read**
+#: (`_governor_allows`). "Once a file was harmless there" was true of the
+#: sandbox and not of Windows: measured on the owner's laptop, one ask is
+#: 26-30ms, nearly all of it psutil's walk of the process table for child
+#: processes, and once a file that was the slowest step of the whole run.
 SCAN_GOVERNOR_S = 0.25
 
 #: 2026-09-20. Least time between two looks at `PipelineConfig.pause_file`.
@@ -1676,6 +1682,8 @@ class Pipeline:
         self.__dict__.pop("_held_archive_book", None)
         # Order 0z lane D: so is the junk-image book.
         self.__dict__.pop("_image_book_store", None)
+        # A new run reads the machine before its first file (`_governor_allows`).
+        self.__dict__.pop("_next_governor_ask", None)
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -2325,8 +2333,27 @@ class Pipeline:
         return sequence
 
     def _governor_allows(self, stats: IndexStats) -> bool:
-        """Wait out a pause; False when the run must stop, having said why."""
+        """Wait out a pause; False when the run must stop, having said why.
+
+        **The machine is read at most once every `SCAN_GOVERNOR_S`, not once a
+        file** (2026-09-30, order 0z E4 measured on Windows). One ask reads the
+        process table, and on the owner's laptop that is 26-30ms (531
+        processes) against 1.76ms in the Linux sandbox the per-file ask was
+        judged in. Asked for every file, it held the whole run to about 35
+        files a second whatever the number of readers, and made a rerun with
+        nothing changed take 207s for 9,002 files in the "as found" order.
+
+        The person's own pause is not a measurement and is still noticed on
+        every file: `_person_paused` reads a flag, never the machine.
+        """
+        now = time.monotonic()
+        if (now < self.__dict__.get("_next_governor_ask", 0.0)
+                and not self._person_paused()):
+            return True
         verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        # Counted from the end of the wait: a pause that has just been waited
+        # out is not followed at once by another look.
+        self.__dict__["_next_governor_ask"] = time.monotonic() + SCAN_GOVERNOR_S
         self._copy_pause_state(stats)
         if verdict.action != "stop":
             return True
@@ -3481,16 +3508,39 @@ class Pipeline:
                     total = self._stats_ref.pictures_not_read
                     for reason, n in policy.not_read.items():
                         total[reason] = total.get(reason, 0) + int(n)
-            if finished and policy.counts:
+            # Order 0z C4, audit of 2026-09-30: an archive cut off by the
+            # no-progress limit or a Force skip keeps the messages it read, so
+            # it gets its counts line too, with the item it was cut off on as
+            # the one `TimedOut`. A Stop or a Pause still logs nothing - that
+            # read carries on next run.
+            cut_off = not finished and self._cut_off_by_limit(candidate)
+            if (finished or cut_off) and policy.counts:
                 # "Skipped:decorative=24" beside "Skipped=30": the presenter
                 # shows why, in brackets after the word (order 0z lane D).
                 counts = dict(policy.counts)
+                if cut_off:
+                    word = reader_progress.STATUS_TIMED_OUT
+                    counts[word] = counts.get(word, 0) + 1
                 for reason, n in policy.not_read.items():
                     counts[f"{reader_progress.STATUS_SKIPPED}:{reason}"] = n
                 self._record(KIND_ARCHIVE_COUNTS, candidate.path.name,
                              detail=encode_counts(counts))
         except Exception as exc:                        # noqa: BLE001 - bookkeeping only
             self._log.debug("could not note {}: {}", candidate.path.name, exc)
+
+    def _cut_off_by_limit(self, candidate: Candidate) -> bool:
+        """Was this thread's read of `candidate` ended by a time limit or a
+        Force skip (`file_watch`), rather than by a Stop or a Pause?
+
+        Asked from the reader's own thread while its stream closes, which is
+        before the worker loop calls `watch.end()` - so the verdict is still on
+        the watch. False for a pipeline with no watchdog.
+        """
+        watch = getattr(self._worker_slots(), "watch", None)
+        if watch is None:
+            return False
+        with watch.lock:
+            return watch.cancel is not None and watch.candidate is candidate
 
     def _image_book(self) -> PersistentImageBook:
         """This run's junk-image book, made on first use; loads nothing until a
