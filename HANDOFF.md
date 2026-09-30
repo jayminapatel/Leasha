@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.28 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.29 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -135,6 +135,12 @@ line, no traceback and no window.
   `git filter-branch` cannot do this on Windows (an old commit holds a path named
   `D:\SearchProject\logs/README.txt`, which no Windows index accepts); the objects were
   rewritten directly.
+- **Not finished: GitHub's pull-request refs still hold the ledgers.** Checked after the
+  force-push: no branch or tag on GitHub reaches `_Knowledge`, but the repository is public
+  (the API answers without signing in) and its 33 `refs/pull/*` refs are GitHub's own -
+  26 of the ones fetched here still reach the old commits. Nobody but GitHub Support can
+  remove those; the owner decides between asking Support, making the repository private, or
+  deleting and recreating it.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the
