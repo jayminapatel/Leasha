@@ -129,6 +129,59 @@ at the end.
 >   the pictures pass, once. **libpff only:** through Outlook (MAPI) an attached picture is still
 >   read on the text pass (HANDOFF says so).
 
+> **2026-09-30, writing measured.** Lane C measured reading a `.pst`; this is the other half, writing
+> what was read into the index. **The cost of writing a message rose with every message already
+> there, and it no longer does.**
+>
+> - **How it was measured.** Seeded, made-up mail (headers, threads, a growing address book, 1.5
+>   passages a message) written through the store's own calls (`upsert_file`, `replace_chunks`,
+>   `set_message`, then `mark_embedded` and `mark_indexed_many`), grouped the way `Pipeline._consume`
+>   groups them, into a throwaway database on `C:`. This laptop, Python 3.12.10, SQLite 3.49.1, three
+>   runs of each version taken in turn, the machine 25-83% busy with other work. Figures are the
+>   writing process's own processor time for 1,000 messages, median (lowest-highest of the three).
+>   No real mail, no `.pst`, no embedding model: this is the database's share only.
+> - **Before:** 0.85 s (0.70-1.95) with 1,000 messages in the index, 1.07 (0.92-2.44) at 5,000, 2.51
+>   (1.94-4.03) at 10,000, 4.32 (2.97-7.04) at 15,000, 4.30 (3.34-9.67) at 20,000; the first 20,000
+>   took 64 s (47-109). The same writes with no word index at all: 0.24-0.41 s, flat, to 30,000. One
+>   run meant to reach 100,000 was stopped at the owner's halt after 58 minutes, by the size of its
+>   database at about 69,000 (an estimate; the machine was then fully busy).
+> - **Cause, from SQLite itself.** Its statement profile (`sqlite3_trace_v2`) put the time in one
+>   statement FTS5 runs on its own table to remove a piece of the index it has merged away,
+>   `DELETE FROM chunks_fts_data WHERE id>=? AND id<=?`: 0.12 ms a call at 2,000 messages, 2.4 ms at
+>   10,000, 13.9 ms at 20,000, about 1,650 calls for every 1,000 messages (and the same statement on
+>   `messages_fts_data`: 0.06, 1.9 and 10.1 ms, about 1,090 calls). `EXPLAIN QUERY PLAN` says `SCAN`:
+>   the whole table is read each time. The reason is a row in `sqlite_stat1` saying the table holds 2
+>   rows, written by the `ANALYZE` that four migrations run on a new, still-empty database; with no
+>   such row the same statement is `SEARCH ... USING INTEGER PRIMARY KEY`. `PRAGMA optimize` never
+>   corrected it (tried, 20,000 rows later). Second, smaller cause: an `INSERT` on a table with a
+>   trigger opens a savepoint, and FTS5 writes what it holds at every savepoint, so each passage and
+>   each message became its own piece of the index inside the transaction, however many documents
+>   shared it - about 3,850 and 6,500 index pages written for every 1,000 messages, and the 1,090
+>   and 1,650 removals above.
+> - **Fixed, two changes, no schema change** (`SqliteStore._forget_fts_statistics`, `._deferred`).
+>   The store removes the planner's row counts for FTS5's own tables when it opens (a few rows; no
+>   passage is read) and after `PRAGMA optimize`. And inside a batch the index rows of new passages
+>   and new messages are written once, at the end, in the same transaction, instead of row by row
+>   through the triggers. **After:** 0.56 s (0.40-0.88) at 1,000, 1.11 (0.49-1.39) at 10,000, 1.11
+>   (0.64-1.46) at 20,000, 0.79 (0.72-1.73) at 30,000, and 0.98 at 50,000 in one further run; the
+>   first 30,000 took 48 s (24-54). The scan alone fixed: 1.00, 1.81, 1.70, 1.48 s at 1,000, 10,000,
+>   20,000, 30,000. Writing once a batch alone: 0.57, 0.79, 1.52, 0.88. The removal statement is now
+>   about 50 calls for every 1,000 messages at 0.2-0.3 ms each.
+> - **Proved by** `tests/unit/test_fts_planner_statistics.py` (the plan, on the connection that
+>   writes; the steps SQLite takes to write 200 messages into an index of 2,200 against one of 200:
+>   1.02 times, 1.54 on a database left as it was) and `tests/unit/test_fts_deferred_writes.py` (the
+>   same mail written both ways gives the same rows, terms and searches, substring searches
+>   included; a process killed inside a batch at three different points leaves both indexes in step
+>   with their tables, by FTS5's own check).
+> - **Found on the way:** a bulk run that *finished* (`INDEX_BULK_FTS=on`, "Always bulk-load") put
+>   the triggers back and never indexed what it had written; only a killed run was rebuilt.
+>   `restore_fts_triggers` now rebuilds. Reproduced and pinned in `test_fts_bulk_recovery.py`.
+> - **Not seen here:** whether the owner's own index has the 2-row counts. It has if it was created
+>   new by any build since schema v5; it has not if `ANALYZE` last ran in a migration while it held
+>   mail. The log says which the first time this build opens it: `the query planner no longer holds
+>   row counts for the word index's own tables (... chunks_fts_data=2 ...)`. And nothing above is a
+>   real archive: messages a second through libpff, with the model, remains C1.
+
 - [ ] **C1** Measured: messages a second on the libpff path, and where the time goes.
 - [x] **C2** Faster: attachments read without a temporary file where the reader can take bytes, and
       repeated property reads cached - each measured against its parent.
