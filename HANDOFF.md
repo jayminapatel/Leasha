@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.34 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.35 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -178,6 +178,23 @@ finished by helper threads in worktrees, merged by one thread. Merged to `main` 
   when `LEASHA_REAL_EMBED_CACHE` names a model folder (they pass against
   `D:\Leasha\Data\models`), and are skipped with that reason otherwise - which removes the
   two standing "embedder-quantised, offline" failures.
+- **The full unit suite on the merged code, 21:08-21:32, quiet machine, Leasha closed:
+  11,764 passed, 1 failed, 116 skipped, no crash** (`34908ba`; counted from the progress
+  marks). The run before it (`9e3ddb5`) had four failures, each passing alone: the hardware-
+  notice test (the test was wrong - it demanded an empty status line, which the window's own
+  status sentence fills; fixed, and it failed the same way on the morning's code); a chat test
+  that found the previous test's question in its conversation (the shared window was reset
+  while the previous test's save could still be in flight; the fixture now waits - **not
+  reproduced in isolation**, but it did not recur); the Search page keyboard test (Enter on a
+  grouped result - did not recur, nothing changed for it, so it is intermittent); and the one
+  that remains. **Still failing in a whole run only:**
+  `test_converter.py::test_on_windows_a_doc_really_converts` - LibreOffice produces no `.doc`.
+  It passes alone, as a whole file, after every file that precedes it (73 files), and with
+  every file collected and only it run. The test threw away what LibreOffice said; it now
+  puts the exit code, output and folder listing in its failure message, so the next whole
+  run explains itself. Do not guess at it before reading that. **The crash guard's first
+  version ran a full collection after every test and tripled the run time** (56% after an
+  hour); it collects generation 1 only now, and a whole run takes about 25 minutes again.
 - **Not seen in the real window - the owner's checks.** None of today's work has been looked
   at in the real window. In order of risk:
   1. **"Open in Outlook"** has never run against Outlook. Try it once on an archive indexed

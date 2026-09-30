@@ -391,16 +391,20 @@ def test_on_windows_a_doc_really_converts(tmp_path):
     profile_dir = tmp_path / "lo-profile"
     profile_dir.mkdir()
     profile_url = "file:///" + str(profile_dir.resolve()).replace("\\", "/")
-    subprocess.run(
+    ran = subprocess.run(
         [RESOLVED_SOFFICE, f"-env:UserInstallation={profile_url}",
          "--headless", "--convert-to", "doc",
          "--outdir", str(tmp_path), str(source)],
         capture_output=True, timeout=300, check=False,
     )
     produced = tmp_path / "leeds.doc"
+    # 2026-09-30: what LibreOffice said is in the message. This fails in a
+    # whole-suite run and passes alone, and it used to throw the evidence away.
     assert produced.is_file(), (
         "LibreOffice resolved but produced no .doc - the converter is "
-        "advertised in Settings and would fail on every file")
+        "advertised in Settings and would fail on every file. "
+        f"exit {ran.returncode}; stdout {ran.stdout[-600:]!r}; stderr {ran.stderr[-600:]!r}; "
+        f"folder now holds {sorted(q.name for q in tmp_path.iterdir())}")
 
     rule = load_rules().converter_for(".doc")
     with convert(produced, rule) as result:
