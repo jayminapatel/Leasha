@@ -616,6 +616,12 @@ def indexer_for(store, root: Path, lock_name: str, tmp_path: Path, **options) ->
     def never_called():
         raise AssertionError("nothing here should need the model")
 
+    # On mains and idle unless a test says otherwise. The real probe read this
+    # laptop's own power state, so `test_a_batch_with_work_is_refused_while_the_
+    # lock_is_held` failed whenever the tests were run on battery (2026-09-30).
+    from app.index.resources import Snapshot
+    options.setdefault("probe", lambda: Snapshot())
+
     return BatchIndexer(
         store, vectors=None, embedder=options.pop("embedder", never_called),
         config=lambda roots: PipelineConfig(walk=WalkConfig(roots=list(roots))),

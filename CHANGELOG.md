@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.43 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.44 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -18,6 +18,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
+
+### Indexing no longer gets slower the more you have indexed (2026-09-30)
+
+- Writing 1,000 messages to the index took under a second of processor time with 1,000 already there
+  and over four seconds with 20,000, and kept climbing. It now takes about a second however large the
+  index is (measured to 50,000 messages of made-up mail on the owner's laptop, shared with other work).
+  Nothing about search changes, and an existing index needs no rebuild.
+- The cause was the index's own housekeeping reading the whole word index each time it tidied a
+  piece of it, because of a row count recorded while the index was still empty. Leasha now discards
+  that count each time it opens the index, and writes the word-index entries for new messages and
+  passages once per batch rather than once per row.
+- "Word index: Always bulk-load" left everything a finished run had indexed missing from keyword
+  search; only an interrupted run was repaired. A finished bulk run now rebuilds the word index
+  before it ends.
 
 ### Indexing faults found and fixed on the way (2026-09-30)
 

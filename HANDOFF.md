@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.32 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.33 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -135,6 +135,23 @@ finished by helper threads in worktrees, merged by one thread. Merged to `main` 
   Ollama on 2026-09-20; the ONNX default has never been scored against the floors.
 - **Whether writing mail slows as the index grows is still being measured** by a helper thread
   in its worktree; nothing from it is merged.
+- **Later still - it does, and it is fixed and merged.** Writing 1,000 messages cost 0.85 s of
+  processor time at 1,000 indexed and 4.30 s at 20,000, rising in a straight line. Cause: the
+  `ANALYZE` that migrations v5, v6, v13 and v19 run on a *new, empty* database leaves
+  `sqlite_stat1` saying the FTS5 shadow tables hold 2 rows, so SQLite scans the whole shadow
+  table each time FTS5 removes a merged segment (0.115 ms a call at 2,000 messages, 13.9 ms at
+  20,000) - and `PRAGMA optimize` never corrects it. `SqliteStore._forget_fts_statistics`
+  deletes those rows on open and after `optimize`; `_deferred` writes the index rows of new
+  passages and messages once per `batch()`, in the same transaction, with triggers off on the
+  writing connection only. No schema change; `SqliteStore.defer_fts = False` is the off switch.
+  After: about 1 s per 1,000, flat to 50,000. Proven: identical index and search results both
+  ways, and FTS5's own integrity check after a process killed at three points inside a batch
+  (`tests/unit/test_fts_deferred_writes.py`, `test_fts_planner_statistics.py`). **On the
+  owner's index:** the first start logs "the query planner no longer holds row counts for the
+  word index's own tables (...)"; `chunks_fts_data=2` there means his index was affected.
+  Order 0x 5d's larger page cache was very probably compensating for this same scan
+  (unconfirmed). `files_fts` still writes a segment per file; `optimize_fts` never merges
+  `messages_fts`.
 - **The full unit suite has NOT been run on the merged code.** Each merge was followed by the
   test files it touched. One attempt was stopped at 17% after 30 minutes on a saturated machine
   (four failures seen, names not captured). **Known crash, not fixed:**
