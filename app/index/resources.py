@@ -58,6 +58,13 @@ __all__ = [
 
 log = logger.bind(component="index.resources")
 
+#: Least seconds between two walks of the process table for this process's
+#: children (`SystemProbe._children_cpu_percent`, which has the measurements).
+#: A constant (non-negotiable 11): the walk is the probe's whole cost, a run
+#: asks four times a second, and nothing a person could notice depends on a
+#: new child being counted within a quarter of a second rather than one.
+CHILD_LIST_S = 1.0
+
 #: Consecutive memory polls with no meaningful drop before the level being
 #: waited for is accepted as resident rather than transient.
 SETTLE_POLLS = 3
@@ -323,6 +330,13 @@ class SystemProbe:
         self._index_path = index_path
         self._process = None
         self._warned = False
+        #: This process's children, **kept from one read to the next**, keyed
+        #: by pid and creation time. See `_children_cpu_percent` for why they
+        #: must be kept and not asked for afresh.
+        self._children: dict = {}
+        #: `time.monotonic()` before which the process table is not walked
+        #: again for the list of children (`CHILD_LIST_S`).
+        self._children_listed_until = 0.0
 
     @property
     def index_path(self) -> Optional[Path]:
@@ -390,6 +404,10 @@ class SystemProbe:
                 # reading is 0.0 by psutil's contract (nothing to compare
                 # against yet); it is accurate from the second reading, which
                 # is soon enough for a converter that runs for seconds.
+                #
+                # 2026-09-30: "from the second reading" needs the *same object*
+                # to be read twice, and it never was - so none of this had
+                # ever subtracted anything. See `_children_cpu_percent`.
                 own += self._children_cpu_percent(psutil) / cores
         except Exception:                       # noqa: BLE001
             cpu = own = None
@@ -422,29 +440,82 @@ class SystemProbe:
         Children exit between being listed and being read - a converter
         finishing is the ordinary case, not an error - so each one is read
         under its own guard and a vanished child simply contributes nothing.
-        `children(recursive=True)` walks the process table once. Measured in
-        the Linux sandbox with six real children: 0.28ms for the walk, 0.41ms
-        for the whole `read()` - against a 2s poll. **Measured on the owner's
-        Windows machine 2026-09-20, which the sandbox figure had only guessed
-        at: 25-35ms** with 597 processes on the box, with or without children
-        (the cost is the snapshot, not the children). Ten times the guess, and
-        still about 1.5% of a 2s poll - so it is not worth caching, and it is
-        not the cause of anything that looks like a stall. When indexing
-        appears to hang on a busy machine it is this governor *working*:
-        `wait_while_throttled` pauses while other processes hold the CPU.
-        `test_the_probe_stays_cheap_with_children` guards the probe's own
-        arithmetic with a fake psutil.
+
+        **The `Process` objects are kept from one read to the next
+        (2026-09-30).** They were not, and so this never subtracted anything.
+        `psutil`'s `children()` builds a *new* `Process` for every child on
+        every call, and `cpu_percent(interval=None)` answers 0.0 the first
+        time it is asked of an object - it has nothing to compare against
+        yet. Asked once and thrown away, every child read 0.0 for ever.
+        Tested for real on the owner's laptop (12 logical processors): with a
+        child burning one core, this probe reported Leasha's own use as
+        0.07-0.21% of the machine while the child was truly using 7.2-7.7% of
+        it. So a converter, a reader process or a transcription counted as
+        "other programs", and the governor paused Leasha for being busy with
+        its own work - the very thing the 2026-09-08 change was for. Now each
+        child is kept under its pid **and creation time** (Windows reuses
+        pids), asked again on the next read, and dropped when it has gone. A
+        child's first reading is still 0.0; it is right from the second.
+
+        **What it costs, and why the list is not fetched every time.** The
+        cost is the walk of the process table that lists the children, not
+        the children. Measured on the owner's laptop on 2026-09-30, with 550
+        to 570 processes on the machine: the walk alone 39 ms (28 to 52 over
+        30 walks), a whole `read()` that walks 44 ms (31 to 61), and a
+        `read()` that does not walk 0.8 to 0.9 ms - everything in `read()`
+        but the walk is under a millisecond. (2026-09-20, 597 processes:
+        25-35 ms a read, which agrees.) Those figures were taken with other
+        work running; with every core busy the same calls were seen waiting
+        hundreds of milliseconds for a turn, which is the machine and not
+        the probe, so no figure from those runs is quoted here.
+
+        That cost was argued here to be "about 1.5% of a 2s poll", and it
+        was, for the governor's own two-second poll. But since 2026-09-30 a
+        run asks the governor every `pipeline.SCAN_GOVERNOR_S` = 0.25 s while
+        it scans and while it reads (`Pipeline._governor_allows`): four walks
+        a second, 120 to 180 ms of every second on the thread that asks -
+        about 12 to 18% of it. So the list is fetched at most once every
+        `CHILD_LIST_S`, and between fetches the kept children are asked
+        directly: one walk and three sub-millisecond reads a second, about
+        35 to 50 ms, 3.5 to 5%.
+
+        What that changes in the answer: a child is first noticed up to
+        `CHILD_LIST_S` after it starts, where it used to be listed on the next
+        read. Its first reading is 0.0 either way, and the governor pauses for
+        CPU only after `busy_seconds` (5 s) of it, so one more second before a
+        new converter is counted cannot cause or prevent a pause by itself.
+
+        `test_a_real_busy_child_is_counted_as_our_own_load` holds the
+        subtraction against a real child; the tests around it hold the
+        keeping, the dropping and the once-a-second walk with a psutil-shaped
+        fake.
         """
+        kept = self._children
+        now = time.monotonic()
+        if now >= self._children_listed_until:
+            self._children_listed_until = now + CHILD_LIST_S
+            try:
+                listed = self._process.children(recursive=True)
+            except Exception:                   # noqa: BLE001 - keep what we have
+                listed = None
+            if listed is not None:
+                fresh: dict = {}
+                for child in listed:
+                    try:
+                        created = getattr(child, "create_time", None)
+                        key = (child.pid, created() if callable(created) else None)
+                    except Exception:           # noqa: BLE001 - gone already
+                        continue
+                    # The object that has been read before, where there is one.
+                    fresh[key] = kept.get(key, child)
+                kept = self._children = fresh
+
         total = 0.0
-        try:
-            children = self._process.children(recursive=True)
-        except Exception:                       # noqa: BLE001
-            return 0.0
-        for child in children:
+        for key, child in list(kept.items()):
             try:
                 total += child.cpu_percent(interval=None)
             except Exception:                   # noqa: BLE001 - NoSuchProcess, AccessDenied
-                continue
+                kept.pop(key, None)
         return total
 
     def lower_priority(self) -> bool:

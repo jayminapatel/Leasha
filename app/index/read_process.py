@@ -109,6 +109,16 @@ PROCESS_READERS = frozenset({
 _FRAMES_EVERY_S = 0.25
 #: Seconds `close()` waits for a child to leave by itself before ending it.
 _CLOSE_WAIT_S = 2.0
+#: How long a child is given to say it is ready (`ReaderProcess.wait_ready`).
+#: A constant (non-negotiable 11). A fresh interpreter and the reader imports
+#: take about a second on a quiet machine and were measured at over two on
+#: this laptop under load (2026-09-30); a minute is far past anything a
+#: working start takes, and short enough that a child which can never start -
+#: a broken install, a security product holding the interpreter - costs a
+#: minute once per reader, after which that reader reads in its own thread.
+START_LIMIT_S = 60.0
+#: How often `wait_ready` looks up from its wait, to notice a stop.
+_READY_POLL_S = 0.05
 
 _HEADER = struct.Struct("<I")
 
@@ -179,12 +189,33 @@ class RemoteDocument:
         self.warnings = warnings
 
 
+class _Hello:
+    """One child's first message: has it said it is ready, or gone without?"""
+
+    __slots__ = ("done", "ready")
+
+    def __init__(self) -> None:
+        #: Set once the child's first message has arrived, or its pipe closed.
+        self.done = threading.Event()
+        self.ready = False
+
+
 class ReaderProcess:
     r"""One child that reads files for one extraction thread.
 
     Used only from the thread that owns it. `start()` launches the child
-    without waiting for it; the first `read()` waits for it to say it is ready,
-    so the child's start-up overlaps the walk.
+    without waiting for it, so the child's start-up overlaps the walk;
+    `wait_ready()` waits for it to say it is ready, for a bounded time.
+
+    **Start-up is not reading (2026-09-30).** `read()` used to send the file
+    and wait for the child's "ready" in the same loop as the file's documents,
+    so the seconds a child took to start were the first file's reader time -
+    and the file watchdog (`file_watch`) times a file by exactly that. A
+    child slower to start than the limit timed out the file it was started
+    for; and since a child that is ended for a time-out is replaced by a fresh
+    one, which has to start in its turn, *every file after the first stuck one
+    timed out too*. The pipeline now waits for the child (`wait_ready`) before
+    the file's clock starts, under this module's own `START_LIMIT_S`.
     """
 
     def __init__(self, *, low_priority: bool = True, python: Optional[str] = None,
@@ -193,7 +224,8 @@ class ReaderProcess:
         self.python = python or sys.executable
         self._popen = popen
         self._proc: Any = None
-        self._ready = False
+        #: The current child's `_Hello`, or None when there is no child.
+        self._hello: Optional[_Hello] = None
         #: Numbers each file sent, so a progress copy the child sent just as
         #: one file finished is never shown against the next one.
         self._sequence = 0
@@ -248,16 +280,70 @@ class ReaderProcess:
         # The folder that holds the `app` package, so `-m` finds it whatever
         # the window's own working folder is.
         here = Path(__file__).resolve().parents[2]
-        self._proc = self._popen(
+        proc = self._proc = self._popen(
             self.argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, cwd=str(here), close_fds=True,
         )
-        self._ready = False
+        hello = self._hello = _Hello()
         self.started += 1
+        # The child's first message is read here, off the owning thread, so
+        # that waiting for it can be bounded and can notice a stop: a read
+        # from a pipe cannot be given a time limit, but an `Event` can.
+        # Nothing else reads the pipe until `hello.done` is set.
+        threading.Thread(target=_await_hello, args=(proc, hello),
+                         name="read-process-hello", daemon=True).start()
+
+    @property
+    def ready(self) -> bool:
+        """True when there is a child and it has said it is ready to read."""
+        proc, hello = self._proc, self._hello
+        return bool(proc is not None and hello is not None and hello.ready
+                    and proc.poll() is None)
+
+    def wait_ready(self, *, cancelled: Optional[Callable[[], bool]] = None) -> bool:
+        r"""Start a child if there is none, and wait until it is ready to read.
+
+        True when it is. False when `cancelled()` said to stop waiting (the
+        run is stopping); the child is left as it is, for `close()`.
+
+        **Bounded by `START_LIMIT_S`.** A child that has not said it is ready
+        by then, or that ended before saying so, is ended and
+        `ERR_READER_PROCESS_START` is raised - which says what happened and
+        what the pipeline does about it. No file is named, because no file
+        was involved: nothing had been sent to the child yet.
+        """
+        self.start()
+        proc, hello = self._proc, self._hello
+        limit = float(START_LIMIT_S)
+        began = time.monotonic()
+        while not hello.done.wait(_READY_POLL_S):
+            if cancelled is not None and cancelled():
+                return False
+            if time.monotonic() - began >= limit:
+                self._abandon()
+                raise AppErrorException(make_error(
+                    "ERR_READER_PROCESS_START", "index.read_process",
+                    why=f"it was not ready after {limit:.0f} seconds",
+                    details=f"No 'ready' from the reader process in {limit:.0f}s; "
+                            "it was ended."))
+        if hello.ready:
+            return True
+        code = None
+        try:
+            code = proc.wait(timeout=_CLOSE_WAIT_S)
+        except Exception:                              # noqa: BLE001
+            pass
+        self._abandon()
+        raise AppErrorException(make_error(
+            "ERR_READER_PROCESS_START", "index.read_process",
+            why="it ended before it was ready",
+            details=f"The reader process exited with code {code} before saying "
+                    "it was ready."))
 
     def close(self) -> None:
         """Ask the child to leave, and end it if it does not. Never raises."""
         proc, self._proc = self._proc, None
+        self._hello = None
         if proc is None:
             return
         try:
@@ -274,6 +360,7 @@ class ReaderProcess:
     def _abandon(self) -> None:
         """End the child now: it is part-way through a file nobody wants."""
         proc, self._proc = self._proc, None
+        self._hello = None
         if proc is not None:
             self._kill(proc)
             self._close_pipes(proc)
@@ -316,7 +403,10 @@ class ReaderProcess:
         """
         if self._busy:
             self._abandon()
-        self.start()
+        # For a caller that did not wait first (the pipeline does, before the
+        # file's clock starts - see the class docstring). A no-op when the
+        # child is already ready.
+        self.wait_ready()
         proc = self._proc
         self._busy = True
         self._killed = False
@@ -334,9 +424,7 @@ class ReaderProcess:
                 if message is None:
                     raise self._ended(path)
                 kind = message[0]
-                if kind == "ready":
-                    self._ready = True
-                elif kind == "frames":
+                if kind == "frames":
                     if frames is not None and message[1] == sequence:
                         frames[:] = [_frame_from(item) for item in message[2]]
                 elif kind == "doc":
@@ -375,6 +463,21 @@ class ReaderProcess:
         return AppErrorException(make_error(
             "ERR_READER_PROCESS_ENDED", "index.read_process", path=str(path),
             details=f"The reader process exited with code {code}."))
+
+
+def _await_hello(proc: Any, hello: _Hello) -> None:
+    """Read one child's first message - "ready" - and say it has arrived.
+
+    Runs on a thread of its own, started with the child. It ends when the
+    message arrives or the pipe closes (the child ended, or was ended), so it
+    never outlives the child.
+    """
+    try:
+        message = _read(proc.stdout)
+    except Exception:                                  # noqa: BLE001 - the pipe went
+        message = None
+    hello.ready = bool(message) and message[0] == "ready"
+    hello.done.set()
 
 
 def _frame_from(item: dict[str, Any]) -> Any:
@@ -443,6 +546,20 @@ def _serve(inbound: Any, outbound: Any) -> None:
     reader_progress.attach(stack)
     sender = _FrameSender(stack, send)
     sender.start()
+    # **Ready means ready to read (2026-09-30).** The readers register
+    # themselves the first time the registry is asked a question
+    # (`app/extract/__init__.py`), which in a child was the first file sent to
+    # it: measured on this laptop, 0.4-0.8 s of the first read, 1.2-1.7 s with
+    # every core busy, against 3-5 ms for the reads after it. That is start-up,
+    # and the file watchdog was timing it as the first file's reading. Asked
+    # here instead, before "ready" - the same imports, only earlier, so
+    # nothing is loaded that the first file would not have loaded anyway.
+    try:
+        from app.extract import supported_extensions
+
+        supported_extensions()
+    except Exception:                                  # noqa: BLE001 - the first read reports it
+        pass
     send(("ready", os.getpid()))
 
     while True:

@@ -2656,6 +2656,36 @@ class SqliteStore:
         ).fetchall()
         return [int(row[0]) for row in rows]
 
+    def case_twins(self) -> list[tuple[int, str, str]]:
+        """`(id, path, source_kind)` of file and archive rows whose path is
+        matched by another row's in everything but letter case.
+
+        2026-09-30, for the index run's clean-up (`Pipeline._old_spellings`):
+        `files.path` is compared exactly, so a file renamed `Report.docx` ->
+        `report.docx` on a disk that ignores case gets a second row and keeps
+        the first. This only *finds* such pairs; whether two spellings are one
+        file is the pipeline's question (`osbridge.pathnames.path_key`), not
+        this table's - on a disk that respects case they are two files.
+
+        One pass over the file and archive rows (`idx_files_source_kind`; mail
+        messages are not read), sorted in SQLite, and only the twins come back
+        - none at all on an ordinary run. SQLite's `lower()` folds `A`-`Z`
+        only, so two spellings that differ in an accented letter are not
+        found here.
+        """
+        rows = self.conn.execute(
+            """
+            SELECT id, path, source_kind FROM files
+            WHERE source_kind IN ('file', 'archive')
+              AND lower(path) IN (
+                    SELECT lower(path) FROM files
+                    WHERE source_kind IN ('file', 'archive')
+                    GROUP BY lower(path) HAVING COUNT(*) > 1)
+            ORDER BY lower(path), id
+            """
+        ).fetchall()
+        return [(int(row[0]), str(row[1]), str(row[2])) for row in rows]
+
     def skipped_summary(self) -> dict[str, int]:
         """Counts by skip_code, for the 'N files skipped - review' panel."""
         rows = self.conn.execute(

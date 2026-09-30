@@ -639,19 +639,68 @@ def with_closing_warning(
 
     `closing` runs after the source is exhausted and may itself raise
     `AppErrorException` - the case where nothing at all could be read.
-    """
-    held: Optional[Document] = None
-    for document in documents:
-        if held is not None:
-            yield held
-        held = document
 
-    warning = closing()
-    if held is None:
-        return
-    if warning is not None:
-        held.warnings = (*held.warnings, warning)
-    yield held
+    **The one held back is never lost (2026-09-30).** It used to be, two ways.
+    A read that was cut off - the no-progress limit, a Force skip - closed this
+    generator with the newest message still inside it, and a generator being
+    closed cannot yield: the last message read before every cut-off never
+    reached the index. And a source that raised part-way took the held message
+    with it. Now:
+
+    * the document in hand is always named on the read's `reading.Reading`
+      (`hold`), where the pipeline takes it when it cuts the read off
+      (`Pipeline._kept_in_hand`) - from its own thread, or from the watchdog's
+      when the reader is stuck in native code and its thread cannot be reached;
+    * when the source raises an ordinary exception, the held document is
+      handed on first and the exception follows on the next `next()`.
+    """
+    from app.extract import reading
+
+    policy = reading.current()
+    cell = policy.hold()
+    held: Optional[Document] = None
+    source = iter(documents)
+    try:
+        while True:
+            try:
+                document = next(source)
+            except StopIteration:
+                break
+            except Exception:
+                # Not `BaseException`: a thread told to let go of its file
+                # (`file_watch.FileTimedOut`) must leave at once, and the
+                # pipeline takes the document from `cell` instead.
+                if held is not None:
+                    last, held = held, None
+                    cell[0] = None
+                    yield last
+                raise
+            # Read, and not handed on, from here until it is itself yielded:
+            # across the `yield` below and across the next read.
+            cell[0] = document
+            if held is not None:
+                yield held
+            held = document
+
+        warning = closing()
+        if held is None:
+            return
+        if warning is not None:
+            held.warnings = (*held.warnings, warning)
+        cell[0] = None
+        yield held
+    except BaseException as exc:
+        # An exception raised *into* the thread to make it let go unwinds
+        # this generator before the pipeline can ask what it was holding, so
+        # for that one case the cell is left where it is - the `Reading` it
+        # sits on lasts exactly as long as the file. Closing, finishing and
+        # an ordinary failure all give the cell back.
+        if not isinstance(exc, (Exception, GeneratorExit)):
+            cell = None
+        raise
+    finally:
+        if cell is not None:
+            policy.release(cell)
 
 
 def reads_by_ocr(path: Path) -> bool:

@@ -201,6 +201,37 @@ def test_the_closing_warning_helper_tolerates_an_empty_source() -> None:
     assert list(with_closing_warning(iter(()), lambda: None)) == []
 
 
+def test_a_source_that_fails_part_way_still_hands_on_the_message_it_had_read() -> None:
+    """`with_closing_warning` holds the newest document back. When its source
+    raised, that one - read whole, before the failure - went with the
+    exception. Fails on the code as it was (`["one"]`)."""
+    def source():
+        yield _doc("one")
+        yield _doc("two")
+        raise OSError("the archive went away")
+
+    seen: list[str] = []
+    with pytest.raises(OSError):
+        for document in with_closing_warning(source(), lambda: None):
+            seen.append(document.meta["subject"])
+    assert seen == ["one", "two"]
+
+
+def test_the_document_held_back_can_be_asked_for() -> None:
+    """What the pipeline takes when it cuts a read off (a time limit, a Force
+    skip): the document the reader has read and not yet handed on."""
+    from app.extract import reading
+
+    with reading.reading() as policy:
+        stream = with_closing_warning(
+            iter([_doc("one"), _doc("two"), _doc("three")]), lambda: None)
+        assert next(stream).meta["subject"] == "one"
+        assert [d.meta["subject"] for d in policy.take_in_hand()] == ["two"]
+        assert policy.take_in_hand() == [], "taken once"
+        stream.close()
+        assert policy.in_hand == [], "a closed reader holds nothing"
+
+
 # --- an archive held open: fall back to Outlook -------------------------------
 
 def _locked() -> AppErrorException:

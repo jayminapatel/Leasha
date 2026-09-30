@@ -104,6 +104,7 @@ from app.index.live_progress import (
 )
 from app.index.file_watch import (
     GRACE_S,
+    LIMIT_STALL,
     ORPHANED,
     FileCancelled,
     FileTimedOut,
@@ -1121,6 +1122,22 @@ WRITE_GROUP_MAX_DOCS = 256
 #: second is well under the 0.25 s the lag monitor calls a stall, and long
 #: enough that commits are no longer a measurable share of the run.
 WRITE_GROUP_MAX_S = 0.1
+
+
+def _kept_on_cut_off(watch: Any, item: Any) -> bool:
+    """Is `item` a message its reader handed over as its archive was cut off?
+
+    Such a message is kept (`Pipeline._kept_in_hand` says why). Only a
+    document of a mailbox or archive: not an error, not the archive's closing
+    marker - an archive that was cut off is not marked as read - and nothing
+    from a thread that was already replaced, whose file is recorded.
+    """
+    return (getattr(watch, "kind", None) == LIMIT_STALL
+            and not getattr(watch, "orphaned", False)
+            and getattr(item, "error", None) is None
+            and not getattr(item, "file_marker", False)
+            and not getattr(item, "name_only", False)
+            and bool(getattr(item, "chunks", None)))
 
 
 def _is_transient_partial(warning: Any) -> bool:
@@ -3257,6 +3274,9 @@ class Pipeline:
             #: started another in its place - this one leaves after this file.
             replaced = False
             try:
+                # 2026-09-30: before the first `watch.enter()`, so a reader
+                # process's start-up is never this file's reader time.
+                self._reader_ready(candidate)
                 # **Worker-seconds, kept apart from wall time on purpose.**
                 # This is real and worth having - "extraction cost 40
                 # worker-minutes" answers a question - but it is not a
@@ -3284,7 +3304,15 @@ class Pipeline:
                                 watch.leave(finished=True)
                             break
                         if watch is not None:
-                            watch.leave()
+                            try:
+                                watch.leave()
+                            except FileCancelled:
+                                # 2026-09-30: the reader handed this message
+                                # over in the instant its archive was cut off.
+                                # It was read; it is kept, like the rest.
+                                if _kept_on_cut_off(watch, item):
+                                    self._offer(results, item)
+                                raise
                     finally:
                         self._clock.add_worker(
                             "extract", time.perf_counter() - started)
@@ -3318,6 +3346,10 @@ class Pipeline:
                     replaced = True
                 elif verdict is not None:
                     self._record(KIND_WARNING, verdict.message, detail="timed_out")
+                    # Before the error, as every message before it was: what
+                    # the reader had read and not yet handed on.
+                    for kept in self._kept_in_hand(watch):
+                        self._offer(results, kept)
                     self._offer(results, _Extracted(
                         candidate=candidate, content_hash=digest, error=verdict))
                 else:
@@ -3448,6 +3480,11 @@ class Pipeline:
         self._left_behind.add(watch.thread_id)
         if candidate is not None and error is not None:
             self._record(KIND_WARNING, error.message, detail="timed_out")
+            # 2026-09-30: the stuck thread cannot hand over what its reader
+            # had read and was holding back, so this thread does. The stuck
+            # thread is not running Python, so nothing else touches these.
+            for kept in self._kept_in_hand(watch):
+                self._offer(results, kept)
             self._offer(results, _Extracted(
                 candidate=candidate, content_hash=watch.digest, error=error))
         board = getattr(getattr(self, "_stats_ref", None), "board", None)
@@ -3467,6 +3504,75 @@ class Pipeline:
             daemon=True)
         self._replacement_workers.append(worker)
         worker.start()
+
+    def _reader_ready(self, candidate: Candidate) -> None:
+        r"""Wait for this thread's reader process before `candidate`'s clock starts.
+
+        2026-09-30. The file watchdog times a file by the seconds its thread
+        spends waiting on the reader (`FileWatch.enter`/`leave`), and
+        `ReaderProcess.read` used to wait for a child's start-up inside that.
+        So a child slower to start than the limit - a loaded machine, a short
+        limit - timed out the file it was started for; and because a child
+        ended for a time-out is replaced by a fresh one that must start in its
+        turn, every file after one stuck file timed out as well.
+
+        The wait happens here instead, outside the clock, and only when there
+        is something to wait for: a reader process that is not ready and a
+        file that would be read in it. It is bounded by the reader's own
+        `START_LIMIT_S` and gives up at once if the run is stopping.
+
+        **A process that will not start costs no file.** It is reported once
+        (`ERR_READER_PROCESS_START`) and this thread reads its files itself
+        for the rest of the run, which is what it does with "Read files in
+        separate processes" off. Trying again for every file would cost the
+        start-up limit per file.
+        """
+        slots = self._worker_slots()
+        reader = getattr(slots, "reader", None)
+        if reader is None or reader.ready or not reads_in_process(candidate.path):
+            return
+        try:
+            reader.wait_ready(cancelled=self._stop.is_set)
+        except AppErrorException as exc:
+            slots.reader = None
+            watch = getattr(slots, "watch", None)
+            if watch is not None:
+                watch.reader = None
+            reader.close()
+            error = exc.error
+            self._log.warning("{} | {}", error.message, error.suggestion)
+            self._record(KIND_WARNING, error.message, detail=error.code)
+            self._stats_ref.warned_by_code[error.code] = (
+                self._stats_ref.warned_by_code.get(error.code, 0) + 1)
+
+    def _kept_in_hand(self, watch: Optional[FileWatch]) -> list[_Extracted]:
+        """What a cut-off mailbox or archive had read and not yet handed on.
+
+        2026-09-30. A reader that attaches a closing warning to its last
+        message holds the newest one back (`base.with_closing_warning`), so it
+        is always one message ahead of the index. When a time limit or a Force
+        skip ended the read, that message went with the reader: read, counted
+        as Indexed, and never indexed. It is kept now - "the messages already
+        read are kept" includes the last of them.
+
+        **Mailboxes and archives only** (`LIMIT_STALL`). Any other file is one
+        document, and one that ran out of time is recorded as timed out, not
+        half-indexed. Never raises: keeping one more message must not cost the
+        record of the cut-off itself.
+
+        The cost is cutting that one message into passages with no limit on
+        it - milliseconds for a message, and finite for any text.
+        """
+        take = getattr(watch, "in_hand", None)
+        if take is None or getattr(watch, "kind", None) != LIMIT_STALL:
+            return []
+        try:
+            return list(take())
+        except Exception as exc:                        # noqa: BLE001 - see above
+            self._log.warning("could not keep the last message read from {}: {}",
+                              getattr(getattr(watch.candidate, "path", None),
+                                      "name", watch.candidate), exc)
+            return []
 
     def _time_limit_factor(self, candidate: Candidate) -> float:
         """Order 0z F3: how many times the usual time limit this file is given.
@@ -3708,66 +3814,110 @@ class Pipeline:
         #: Work order `pst-resilience` 4a. Set when the archive came up short
         #: for a reason that will pass (Outlook was busy) - see below.
         retry_next_pass = False
+        #: How many documents the reader has handed over so far.
+        received = 0
+
+        def wrap(index: int, document: Any,
+                 chunks: list[dict[str, Any]]) -> Optional[_Extracted]:
+            """One document of this file as the consumer takes it, or None for
+            one with no text. Shared by the loop below and by `in_hand`, so a
+            document kept after a cut-off is keyed exactly as any other."""
+            nonlocal produced, retry_next_pass
+            if any(_is_transient_partial(w) for w in document.warnings):
+                retry_next_pass = True
+
+            if not chunks:
+                # One empty message in an archive is ordinary and silent.
+                # An empty *file* is a finding worth reporting - it is the
+                # scanned PDF case, and the person needs to know why their
+                # document is not searchable.
+                return None
+
+            key = document.key
+            # **The real fix belongs here, not only in `row_key`.** An
+            # extractor's `Document.key` already defaults to
+            # `str(candidate.path)` for an ordinary single-document file,
+            # so by the time `row_key`'s fallback ran, `key` was already
+            # truthy and the volume-safe branch never fired - found by
+            # `test_the_same_volume_walked_at_two_mount_points_is_one_row`
+            # returning the real, letter-bearing path. Only substituted
+            # when the extractor left the default in place: a multi-
+            # document extractor's own `virtual_path` (an archive member,
+            # a mail message) must never be overridden here.
+            if (key == str(candidate.path)
+                    and candidate.volume_id is not None
+                    and candidate.relative_path is not None):
+                key = _candidate_row_key(candidate)
+            if key in seen_keys:
+                # An extractor yielding many documents must give each a
+                # `virtual_path`. Without one they all share the file's path,
+                # every message overwrites the last, and the archive ends up
+                # as a single row holding only its final email - silently.
+                # Made unique rather than dropped: losing mail to a bug in an
+                # extractor is far worse than an ugly key, and the warning
+                # names the file so it can be fixed.
+                self._log.warning(
+                    "{} produced document {} with a duplicate key {!r}; "
+                    "the extractor is not setting virtual_path",
+                    candidate.path.name, index, key,
+                )
+                key = f"{key}#{index}"
+            seen_keys.add(key)
+
+            produced += 1
+            self._stats_ref.current_item = produced
+            if slot is not None:
+                slot.item = produced
+            return _Extracted(
+                candidate=candidate,
+                content_hash=digest,
+                key=key,
+                chunks=chunks,
+                meta=document.meta,
+                source_kind=document.source_kind,
+                warnings=document.warnings,
+                first_of_file=(index == 0),
+                resume_key=resume_key,
+            )
+
+        # 2026-09-30: what a cut-off read had read and not handed on. A reader
+        # that holds a document back (`base.with_closing_warning`) names it on
+        # this read's `Reading`; `_kept_in_hand` calls this when a time limit
+        # or a Force skip ends the file, from this thread or - for a reader
+        # stuck in native code - from the watchdog's.
+        #
+        # **Not the document whose text was being cut into passages** when the
+        # cut-off came. That one is the item the read was cut off on: cutting
+        # it again here would run with no limit on it, and it may be the very
+        # thing that was taking too long.
+        policy = reader_reading.current()
+
+        def in_hand() -> list[_Extracted]:
+            nonlocal received
+            kept: list[_Extracted] = []
+            for document in policy.take_in_hand():
+                item = wrap(received, document, self._passages(document, None))
+                received += 1
+                if item is not None:
+                    kept.append(item)
+            return kept
+
+        watch = getattr(self._worker_slots(), "watch", None)
+        if watch is not None:
+            watch.in_hand = in_hand
         try:
             for index, (document, chunks) in enumerate(
                 self._read_documents(candidate, resume_from, resume_extra, slot)
             ):
-                if any(_is_transient_partial(w) for w in document.warnings):
-                    retry_next_pass = True
-
-                if not chunks:
-                    # One empty message in an archive is ordinary and silent.
-                    # An empty *file* is a finding worth reporting - it is the
-                    # scanned PDF case, and the person needs to know why their
-                    # document is not searchable.
-                    continue
-
-                key = document.key
-                # **The real fix belongs here, not only in `row_key`.** An
-                # extractor's `Document.key` already defaults to
-                # `str(candidate.path)` for an ordinary single-document file,
-                # so by the time `row_key`'s fallback ran, `key` was already
-                # truthy and the volume-safe branch never fired - found by
-                # `test_the_same_volume_walked_at_two_mount_points_is_one_row`
-                # returning the real, letter-bearing path. Only substituted
-                # when the extractor left the default in place: a multi-
-                # document extractor's own `virtual_path` (an archive member,
-                # a mail message) must never be overridden here.
-                if (key == str(candidate.path)
-                        and candidate.volume_id is not None
-                        and candidate.relative_path is not None):
-                    key = _candidate_row_key(candidate)
-                if key in seen_keys:
-                    # An extractor yielding many documents must give each a
-                    # `virtual_path`. Without one they all share the file's path,
-                    # every message overwrites the last, and the archive ends up
-                    # as a single row holding only its final email - silently.
-                    # Made unique rather than dropped: losing mail to a bug in an
-                    # extractor is far worse than an ugly key, and the warning
-                    # names the file so it can be fixed.
-                    self._log.warning(
-                        "{} produced document {} with a duplicate key {!r}; "
-                        "the extractor is not setting virtual_path",
-                        candidate.path.name, index, key,
-                    )
-                    key = f"{key}#{index}"
-                seen_keys.add(key)
-
-                produced += 1
-                self._stats_ref.current_item = produced
-                if slot is not None:
-                    slot.item = produced
-                yield _Extracted(
-                    candidate=candidate,
-                    content_hash=digest,
-                    key=key,
-                    chunks=chunks,
-                    meta=document.meta,
-                    source_kind=document.source_kind,
-                    warnings=document.warnings,
-                    first_of_file=(index == 0),
-                    resume_key=resume_key,
-                )
+                if watch is not None and watch.orphaned:
+                    # A thread left behind in native code that has come back.
+                    # Its file is recorded and what it held was kept by the
+                    # thread that gave up on it; nothing more is wanted.
+                    raise FileCancelled()
+                received = index + 1
+                item = wrap(index, document, chunks)
+                if item is not None:
+                    yield item
         except AppErrorException as exc:
             if rereading_held:
                 # Order 0z lane C. The archive's own row belongs to the text
@@ -3841,22 +3991,26 @@ class Pipeline:
             return
         for document in extract(candidate.path, resume_from=resume_from,
                                 resume_extra=resume_extra):
-            chunks: list[dict[str, Any]] = []
-            # 0x 3a: "chunking" while the text is cut into passages. Two
-            # plain stores per document; nothing is formatted here.
-            if slot is not None:
-                slot.stage = STAGE_CHUNKING
-            for ordinal, chunk in enumerate(chunk_document(document)):
-                chunks.append({
-                    "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
-                    "char_start": chunk.char_start, "char_end": chunk.char_end,
-                    # Adoptions §6a. `None` for everything that is not a
-                    # spreadsheet, which is nearly every document.
-                    "label": chunk.label,
-                })
-            if slot is not None:
-                slot.stage = STAGE_READING
-            yield document, chunks
+            yield document, self._passages(document, slot)
+
+    def _passages(self, document: Any, slot: Any) -> list[dict[str, Any]]:
+        """One document's text cut into passages, as the writer takes them."""
+        chunks: list[dict[str, Any]] = []
+        # 0x 3a: "chunking" while the text is cut into passages. Two
+        # plain stores per document; nothing is formatted here.
+        if slot is not None:
+            slot.stage = STAGE_CHUNKING
+        for ordinal, chunk in enumerate(chunk_document(document)):
+            chunks.append({
+                "ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                "char_start": chunk.char_start, "char_end": chunk.char_end,
+                # Adoptions §6a. `None` for everything that is not a
+                # spreadsheet, which is nearly every document.
+                "label": chunk.label,
+            })
+        if slot is not None:
+            slot.stage = STAGE_READING
+        return chunks
 
     # -- stage 3: embed and write (one thread: this one) --------------------
 
@@ -6353,7 +6507,142 @@ class Pipeline:
         # thousand messages searchable for ever, every one of them opening to
         # nothing. Collected before deleting, for the same reason as above.
         doomed.extend(self._doomed_inside_archives(seen, archived))
+        # 2026-09-30: and the row left under a file's *old spelling* after a
+        # rename that changed only letter case - see `_old_spellings`.
+        already = set(doomed)
+        doomed.extend(file_id for file_id in self._old_spellings(seen, archived)
+                      if file_id not in already)
         return self._delete_in_batches(doomed)
+
+    def _old_spellings(self, seen: set[str], archived: Any) -> list[int]:
+        r"""Ids of rows left under a spelling their file no longer has.
+
+        2026-09-30. `Report.docx` renamed to `report.docx`, on a disk that
+        ignores letter case (Windows; a Mac by default), is one file with a
+        new spelling. But a row is found by its exact path, so the next run
+        found none for `report.docx` and indexed it as a new file; and the
+        clean-up above compares `path_key`s, so the old row's key *was* seen
+        and the old row stayed. Two rows for one file, two results for one
+        search, and nothing that would ever remove the first.
+
+        **The rules are section 7's** (`docs/WORKORDER-overhaul-and-mac-ready.md`,
+        `osbridge.pathnames`): two paths are one file when their `path_key`s
+        are equal, which already folds case on Windows and in a folder that
+        ignores it, and keeps it in a folder that respects it - where
+        `Report.docx` and `report.docx` really are two files and are never
+        touched here. Stored paths are not rewritten; the old row is deleted
+        and the new one, written by this run or an earlier one, stays.
+
+        **Decided from the rows, not remembered from the walk**, so it does not
+        matter which run met the new spelling or whether that run reached its
+        clean-up: any complete run puts it right, including for a rename made
+        before this existed.
+
+        A row goes only when all of this holds, and on any doubt none does:
+
+        * another row has the same `path_key` and a different spelling;
+        * this walk saw the file (`seen`), so the disk was there to be asked;
+        * the other spelling is the one **this walk produces** and this one is
+          not. The walk spells a path as the indexed folder is written in
+          Settings, then as the disk lists each name below it - so that is
+          what is compared: the row must begin with an indexed folder exactly
+          as configured, and each part below it that differs between the two
+          rows must be in its folder's own listing. (`exists()` cannot tell:
+          on such a disk every spelling "exists". And "what the disk calls
+          it" alone would be wrong for the folder itself - with `d:\docs`
+          typed for a folder the disk calls `D:\Docs`, the walk's rows say
+          `d:\docs`, and deleting those would re-index the folder every run.)
+          Only the parts that differ are asked about, so a short
+          (`PROGRA~1`) name or a link elsewhere in the path decides nothing.
+
+        An old-spelt archive takes its members with it, as a deleted one does
+        in `_doomed_inside_archives`.
+
+        Not covered, and said so rather than guessed at: a mail archive's
+        messages are keyed by the archive's name (`pst://Mail/...`), not its
+        path, so a `.pst` renamed by case alone is read again under the new
+        name and its old messages are not found here.
+        """
+        from app.index.archives import files_under
+
+        try:
+            twins = self.store.case_twins()
+        except Exception as exc:                        # noqa: BLE001 - tidying only
+            self._log.debug("could not look for re-spelt files: {}", exc)
+            return []
+        if not twins:
+            return []
+
+        scope = self._prune_scope()
+        #: Each indexed folder as this walk spelt it: its text with a trailing
+        #: separator, to match a row's beginning exactly, and its parts.
+        roots = [(str(root).rstrip("\\/") + os.sep, Path(root).parts)
+                 for root in (self.config.walk.roots or [])]
+        listings: dict[str, Optional[frozenset]] = {}
+
+        def listed(folder: Path) -> Optional[frozenset]:
+            """The names in `folder` exactly as the disk spells them, or None."""
+            key = str(folder)
+            if key not in listings:
+                try:
+                    with os.scandir(folder) as entries:
+                        listings[key] = frozenset(entry.name for entry in entries)
+                except OSError:
+                    listings[key] = None
+            return listings[key]
+
+        groups: dict[str, list[tuple[int, str]]] = {}
+        for file_id, path, _kind in twins:
+            key = path_key(path)
+            if key in seen:                 # a real file this walk reached
+                groups.setdefault(key, []).append((file_id, path))
+
+        gone: list[int] = []
+        gone_paths: list[str] = []
+        for rows in groups.values():
+            if len(rows) < 2:
+                continue
+            if any((scope is not None and files_under(path, scope) is None)
+                   or (archived and files_under(path, archived) is not None)
+                   for _id, path in rows):
+                continue
+            parts = [Path(path).parts for _id, path in rows]
+            if len({len(one) for one in parts}) != 1:
+                continue
+            differing = [index for index in range(len(parts[0]))
+                         if len({one[index] for one in parts}) > 1]
+            current: list[Optional[bool]] = []
+            for (_id, path), one in zip(rows, parts, strict=True):
+                # The longest indexed folder this row begins with, exactly.
+                depth = max((len(root_parts) for root_text, root_parts in roots
+                             if path.startswith(root_text)), default=0)
+                spelt: Optional[bool] = depth > 0
+                for index in differing:
+                    if not spelt or index < depth:
+                        continue
+                    names = listed(Path(*one[:index]))
+                    if names is None:
+                        spelt = None        # cannot tell: nothing in this group goes
+                    elif one[index] not in names:
+                        spelt = False
+                current.append(spelt)
+            if None in current or True not in current:
+                continue
+            for (file_id, path), spelt in zip(rows, current, strict=True):
+                if not spelt:
+                    gone.append(file_id)
+                    gone_paths.append(path)
+
+        if gone_paths:
+            inside = tuple(path.rstrip("\\/") + sep
+                           for path in gone_paths for sep in ("\\", "/"))
+            gone.extend(file_id for file_id, path, kind in twins
+                        if kind == "archive" and path.startswith(inside))
+            self._log.info(
+                "{} row(s) removed for files renamed by letter case only (the "
+                "row under the new spelling is kept), first: {}",
+                len(gone), Path(gone_paths[0]).name)
+        return gone
 
     def _prune_scope(self) -> Optional[list]:
         """`config.prune_under` as a list, or None for the whole index (0z F1)."""

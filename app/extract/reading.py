@@ -71,9 +71,18 @@ class Reading:
       is off (order 0z lane D).
     * `not_read` - pictures the filter left unread, per `junk_images.REASONS`
       code. Each is also one `Skipped` in `counts`.
+    * `in_hand` - documents that have been **read and not yet handed on**
+      (2026-09-30). `base.with_closing_warning` holds the newest document
+      back, so the reader is always one ahead of what the pipeline has seen. A
+      read that is cut off (a time limit, a Force skip) closes the reader with
+      that one still inside it, where nothing could reach it, and the last
+      message read was lost. Whoever holds a document says so here (`hold`),
+      and the pipeline takes them when it cuts a read off (`take_in_hand`).
+      One cell per holder, oldest holder first - which is also oldest
+      document first.
     """
 
-    __slots__ = ("images", "held", "counts", "junk", "not_read")
+    __slots__ = ("images", "held", "counts", "junk", "not_read", "in_hand")
 
     def __init__(self, images: str = IMAGES_READ, junk: Any = True) -> None:
         self.images = images
@@ -81,6 +90,38 @@ class Reading:
         self.counts: dict[str, int] = {}
         self.junk: Optional[Any] = _book(junk)
         self.not_read: dict[str, int] = {}
+        self.in_hand: list[list[Any]] = []
+
+    def hold(self) -> list[Any]:
+        """A one-place cell for a document read and not yet handed on.
+
+        The holder writes the document into `cell[0]` while it has it and
+        `None` once it has handed it on, and gives the cell back with `release`.
+        """
+        cell: list[Any] = [None]
+        self.in_hand.append(cell)
+        return cell
+
+    def release(self, cell: list[Any]) -> None:
+        """The holder has finished, however it finished."""
+        for index in range(len(self.in_hand) - 1, -1, -1):
+            if self.in_hand[index] is cell:
+                del self.in_hand[index]
+                break
+
+    def take_in_hand(self) -> list[Any]:
+        """Every document read and not yet handed on, oldest first - taken.
+
+        Taken rather than read, so a document is only ever kept once. Usable
+        from another thread (the file watchdog, for a reader stuck in native
+        code): each step is a single list or item operation.
+        """
+        taken: list[Any] = []
+        for cell in list(self.in_hand):
+            document, cell[0] = cell[0], None
+            if document is not None:
+                taken.append(document)
+        return taken
 
     def left_unread(self, reason: str) -> None:
         """One picture was not read (or its text not kept) for `reason`."""

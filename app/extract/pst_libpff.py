@@ -455,17 +455,19 @@ def _read_archive(
         # However the read ended - finished, failed or abandoned - the pipeline
         # gets the counts for its end-of-archive log line (order 0z lane C),
         # and the scratch folder goes.
-        counts = dict(frame.counts)
-        if not finished and counts.get(progress.STATUS_INDEXED, 0) > 0:
-            # `with_closing_warning` holds the newest document back, to hang
-            # the archive's warning on the last one. A read that is abandoned
-            # (a time limit, a Force skip) never hands that one on, so the
-            # last item counted as Indexed was not indexed, and the line in
-            # the log must not say it was. One too few, rather than one too
-            # many, in the one case this cannot see: abandoned part-way
-            # through an attachment that holds several files.
-            counts[progress.STATUS_INDEXED] -= 1
-        policy.counts = counts
+        #
+        # **The counts are what the reader counted, with no allowance
+        # (2026-09-30).** This used to take one off Indexed for an abandoned
+        # read, because `with_closing_warning` holds the newest document back
+        # and a read that was cut off never handed it on - it was counted and
+        # not indexed. It is handed on now (`Reading.in_hand`, taken by
+        # `Pipeline._kept_in_hand`), so everything counted here as Indexed
+        # reached the index, and the old allowance would make the line one too
+        # low. The one case left: a cut-off that lands while the pipeline is
+        # cutting a message's text into passages loses that message, which
+        # this reader had already counted - one too many, for a Force skip
+        # pressed in those few milliseconds.
+        policy.counts = dict(frame.counts)
         scratch.close()
         try:
             archive.close()

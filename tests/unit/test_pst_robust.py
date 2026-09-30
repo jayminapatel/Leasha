@@ -394,15 +394,149 @@ def test_an_archive_cut_off_by_the_time_limit_still_logs_its_counts(
 
     assert stats.skipped_by_code.get("ERR_FILE_TIMEOUT") == 1
     assert rows[str(mail_root / "2019.pst")] == ("SKIPPED", "ERR_FILE_TIMEOUT")
-    # **The line counts what was indexed, not what the reader got through.**
-    # The reader read two messages; the second was still held back for the
-    # archive's closing warning (`with_closing_warning`) when the read was cut
-    # off, so it never reached the index. One message row, "1 Indexed".
+    # **The line counts what was indexed, and that is what the reader got
+    # through.** Corrected 2026-09-30 - the test, because the product was
+    # wrong: this used to expect one message and "1 Indexed", which pinned a
+    # fault. The second message was read and then lost, because
+    # `with_closing_warning` was still holding it back when the read was cut
+    # off. It is handed on now, so the count needs no allowance.
     messages = sorted(path for path in rows if path.startswith("pst://"))
-    assert messages == ["pst://2019/1"]
+    assert messages == ["pst://2019/1", "pst://2019/2"]
     [line] = [e for e in stats.activity.entries() if e.kind == KIND_ARCHIVE_COUNTS]
-    assert decode_counts(line.detail) == {"Indexed": 1, "TimedOut": 1}
-    assert activity_text(line) == "2019.pst: 1 Indexed · 1 TimedOut"
+    assert decode_counts(line.detail) == {"Indexed": 2, "TimedOut": 1}
+    assert activity_text(line) == "2019.pst: 2 Indexed · 1 TimedOut"
+
+
+def _cut_off_run(tmp_path, mail_root, *, before_run=None, **limits):
+    """One run over `mail_root`'s archive: its message rows, the rows a search
+    for "Valve" finds, the archive's skip code and its counts lines."""
+    with SqliteStore(tmp_path / "index.db") as store:
+        config = PipelineConfig(walk=WalkConfig(roots=[mail_root]), workers=1,
+                                ocr_mode="text", **limits)
+        pipeline = Pipeline(store, NullVectors(), fake_embedder(), config)
+        if before_run is not None:
+            before_run(pipeline)
+        stats = pipeline.run()
+        rows = sorted(row["path"] for row in store.conn.execute(
+            "SELECT path FROM files WHERE path LIKE 'pst://%'").fetchall())
+        found = sorted({hit["path"] for hit in store.search_bm25("Valve")})
+        skip = store.conn.execute(
+            "SELECT skip_code FROM files WHERE path = ?",
+            (str(mail_root / "2019.pst"),)).fetchone()["skip_code"]
+    counts = [decode_counts(e.detail) for e in stats.activity.entries()
+              if e.kind == KIND_ARCHIVE_COUNTS]
+    return stats, rows, found, skip, counts
+
+
+def test_the_last_message_read_before_a_cut_off_is_searchable(
+        tmp_path, mail_root, monkeypatch) -> None:
+    """The fault of 2026-09-30: the no-progress limit cut an archive off and
+    the last message read before it was never indexed. Fails on the code as it
+    was (one row, `pst://2019/1`)."""
+    import time
+
+    from app.index import file_watch
+
+    monkeypatch.setattr(file_watch, "TICK_S", 0.05)
+
+    class Stalls(FakeFolder):
+        def get_sub_message(self, index):
+            if index == 2:
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    time.sleep(0.01)
+                raise AssertionError("the no-progress limit never cut the archive off")
+            return super().get_sub_message(index)
+
+    install_fake(monkeypatch, FakeFolder("", children=[
+        Stalls("Inbox", messages=[_msg(1), _msg(2), _msg(3)])]))
+    _stats, rows, found, skip, counts = _cut_off_run(
+        tmp_path, mail_root, stall_limit_s=0.5)
+
+    assert skip == "ERR_FILE_TIMEOUT"
+    assert rows == ["pst://2019/1", "pst://2019/2"]
+    assert found == ["pst://2019/1", "pst://2019/2"], "both can be searched for"
+    assert counts == [{"Indexed": 2, "TimedOut": 1}]
+
+
+def test_a_force_skip_between_two_messages_keeps_the_one_already_read(
+        tmp_path, mail_root, monkeypatch) -> None:
+    """Force skip pressed while the thread is handing a message to the writer,
+    not inside the reader: nothing is raised in the thread, its next read is
+    refused, and the stream is closed - with the reader one message ahead of
+    what it had handed on. That message is kept too. Fails on the code as it
+    was (one row)."""
+    from app.index import file_watch
+
+    monkeypatch.setattr(file_watch, "TICK_S", 0.05)
+    fetched: list[int] = []
+
+    class Counts(FakeFolder):
+        def get_sub_message(self, index):
+            fetched.append(index)
+            return super().get_sub_message(index)
+
+    install_fake(monkeypatch, FakeFolder("", children=[
+        Counts("Inbox", messages=[_msg(1), _msg(2), _msg(3), _msg(4)])]))
+    pressed: list[bool] = []
+
+    def press_on_the_first_message(pipeline) -> None:
+        real = pipeline._offer
+
+        def offer(results, item):
+            if getattr(item, "key", "") == "pst://2019/1" and not pressed:
+                # On the extraction thread, outside the reader: exactly where
+                # a thread waits when the writer is the slow part.
+                slot = pipeline._worker_slots().watch.slot
+                pressed.append(pipeline._watchdog.request_skip(slot.id))
+                pipeline._watchdog.check()
+            real(results, item)
+
+        pipeline._offer = offer
+
+    _stats, rows, found, skip, counts = _cut_off_run(
+        tmp_path, mail_root, before_run=press_on_the_first_message)
+
+    assert pressed == [True]
+    assert skip == "ERR_FILE_TIMEOUT"
+    assert fetched == [0, 1], "nothing more was read after the skip"
+    assert rows == ["pst://2019/1", "pst://2019/2"]
+    assert found == ["pst://2019/1", "pst://2019/2"]
+    assert counts == [{"Indexed": 2, "TimedOut": 1}]
+
+
+def test_an_archive_stuck_in_native_code_keeps_the_message_already_read(
+        tmp_path, mail_root, monkeypatch) -> None:
+    """The likeliest real stall: libpff inside its own C code, where nothing
+    can be raised. The thread is left behind and replaced, and the message it
+    had read and not yet handed on is indexed by the thread that gives up on
+    it. Fails on the code as it was (one row)."""
+    import threading
+
+    from app.index import file_watch
+
+    monkeypatch.setattr(file_watch, "TICK_S", 0.05)
+    monkeypatch.setattr(file_watch, "GRACE_S", 0.5)
+    gate = threading.Event()
+
+    class StuckInNative(FakeFolder):
+        def get_sub_message(self, index):
+            if index == 2:
+                gate.wait(60)             # a lock wait, in C: not interruptible
+            return super().get_sub_message(index)
+
+    install_fake(monkeypatch, FakeFolder("", children=[
+        StuckInNative("Inbox", messages=[_msg(1), _msg(2), _msg(3)])]))
+    try:
+        stats, rows, found, skip, _counts = _cut_off_run(
+            tmp_path, mail_root, stall_limit_s=0.5)
+    finally:
+        gate.set()
+
+    assert stats.skipped_by_code.get("ERR_FILE_TIMEOUT") == 1
+    assert skip == "ERR_FILE_TIMEOUT"
+    assert rows == ["pst://2019/1", "pst://2019/2"]
+    assert found == ["pst://2019/1", "pst://2019/2"]
 
 
 def test_a_stopped_archive_logs_no_counts_line(tmp_path, mail_root, monkeypatch) -> None:
