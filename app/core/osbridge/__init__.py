@@ -34,6 +34,8 @@ The operations, and the module each lives in:
     pathnames.py  which separator a path uses; whether a folder's disk
                   treats `Report.docx` and `report.docx` as one file
     cloudfs.py    is this file a cloud placeholder (OneDrive / iCloud)?
+    dirwatch.py   be told when something changes under a folder (imported
+                  where it is used, not from this package's top level)
 
 **Cheap to import.** Only the standard library and the app's logger are used,
 and anything Windows-only (`ctypes.WinDLL`) is imported inside the function

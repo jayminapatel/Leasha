@@ -253,6 +253,19 @@ SETTINGS: tuple[Setting, ...] = (
         default="02:00", group="Schedule", surface="indexing.schedule",
         help="24-hour time. Used when the schedule is set to daily.",
     ),
+    # Work order 0z, F1 (`app/index/folder_watch.py`). With the schedule
+    # because it answers the same question - when does the index catch up -
+    # and off by default until the owner has seen it on their own folders.
+    Setting(
+        key="INDEX_WATCH_FOLDERS", label="Index files as soon as they are saved",
+        kind="bool", default=False, group="Schedule", surface="indexing.schedule",
+        help="Watches the folders you index and adds a file a few seconds after "
+             "it is saved, renamed or deleted, without a full run. Mailboxes "
+             "(.pst, .ost) and folders marked Archive are left to the ordinary "
+             "run, and files kept only in the cloud are never downloaded. While "
+             "it is on, a folder that contains an indexed folder cannot be "
+             "renamed or moved; switch this off first.",
+    ),
 
     # --- Tuning: how fast a run goes, and how much of the machine it takes --
     #

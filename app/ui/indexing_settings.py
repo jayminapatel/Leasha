@@ -21,6 +21,7 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QTime, pyqtSignal
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QGroupBox,
@@ -38,9 +39,28 @@ class IndexingSettings(QGroupBox):
     """The schedule: whether a run happens without being asked, and when."""
 
     schedule_changed = pyqtSignal(object)      # a SchedulePolicy
+    #: Work order 0z F1: "Index files as soon as they are saved" was switched.
+    watch_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("When to index", parent)
+
+        # Work order 0z F1. A new control with a new label. Off by default:
+        # the owner switches it on after seeing it on their own folders.
+        self.watch = QCheckBox("Index files as soon as they are saved")
+        self.watch.setObjectName("INDEX_WATCH_FOLDERS")
+        self.watch.setToolTip(
+            "Watches the folders you index and adds a file a few seconds after\n"
+            "it is saved, renamed or deleted, without a full run. Mailboxes\n"
+            "(.pst, .ost) and folders marked Archive are left to the ordinary\n"
+            "run, and files kept only in the cloud are never downloaded.\n\n"
+            "While it is on, a folder that contains an indexed folder cannot\n"
+            "be renamed or moved; switch this off first.")
+        self.watch.toggled.connect(self.watch_toggled)
+        #: What the watch is doing, in a sentence. Empty while it is off.
+        self.watch_status = QLabel("")
+        self.watch_status.setObjectName("folderWatchStatus")
+        self.watch_status.setWordWrap(True)
 
         self.schedule = QComboBox()
         self.schedule.setToolTip(
@@ -93,6 +113,12 @@ class IndexingSettings(QGroupBox):
         index_form.addRow("Every", self.interval_hours)
         index_form.addRow("At", self.daily_at)
         index_form.addRow(self.schedule_status)
+        index_form.addRow(self.watch)
+        index_form.addRow(self.watch_status)
+
+    def set_watch_status(self, text: str) -> None:
+        """One sentence about the folder watch, under its switch."""
+        self.watch_status.setText(text)
 
     def load_indexing(self, settings: Any) -> None:
         """Fill the controls from Settings, without emitting on the way in.
@@ -103,10 +129,11 @@ class IndexingSettings(QGroupBox):
         """
         from app.core.config import parse_daily_at
 
-        widgets = (self.schedule, self.interval_hours, self.daily_at)
+        widgets = (self.schedule, self.interval_hours, self.daily_at, self.watch)
         for widget in widgets:
             widget.blockSignals(True)
         try:
+            self.watch.setChecked(bool(getattr(settings, "index_watch_folders", False)))
             mode = str(getattr(settings, "index_schedule", "manual"))
             index = self.schedule.findData(mode)
             self.schedule.setCurrentIndex(index if index >= 0 else 0)

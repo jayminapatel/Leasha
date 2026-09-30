@@ -201,6 +201,10 @@ class MainWindow(QMainWindow):
         #: connected to a controller's bound method outlives no reference.
         self.settings_ctl = SettingsController(self)
         self.index_ctl = IndexController(self)
+        # Work order 0z F1: "Index files as soon as they are saved". Builds
+        # nothing until `_start_background_work` - see `app/ui/folder_watch.py`.
+        from app.ui.folder_watch import FolderWatchControl
+        self.folder_watch = FolderWatchControl(self)
 
         # Work order 0r item 1c, second clause: if the CLIP text-tower
         # embedder's model cache is emptied mid-life (a moved index, a
@@ -779,6 +783,11 @@ class MainWindow(QMainWindow):
             # the index-tuning order for why they were separated from Settings.
             self.indexing_view.schedule_box.load_indexing(settings)
             self.indexing_view.schedule_box.schedule_changed.connect(self._schedule_changed)
+            # 0z F1: the folder watch's switch, and the two things that change
+            # which folders it watches.
+            self.indexing_view.schedule_box.watch_toggled.connect(self.folder_watch.toggled)
+            self.settings_view.roots_changed.connect(self.folder_watch.folders_changed)
+            self.settings_view.root_modes_changed.connect(self.folder_watch.folders_changed)
             self.indexing_view.tuning.load(settings)
             # **Both arrive as registry keys**, which `_limits_changed` wants as
             # `Settings` field names - it upper-cases them for `.env` and applies
@@ -914,6 +923,9 @@ class MainWindow(QMainWindow):
                 indexing_view.tuning.start_detection(settings.data_path)
                 indexing_view.tuning.set_last_run(self._last_run_record())
                 self._refresh_tuning_status()
+                # 0z F1: starts the folder watch if its switch is on (off by
+                # default). A process of its own; nothing here waits for it.
+                self.folder_watch.apply()
             self._warm_translator()
             self._warm_models()
             if settings_view is not None:
@@ -2324,6 +2336,11 @@ class MainWindow(QMainWindow):
         # nothing imported that is not already loaded) on a normal close.
         from app.index.child_run import end_all_children
         stage("index process", end_all_children)
+        # 0z F1: nor may the folder watch. Asked to stop, then given a few
+        # seconds; nothing to do when the switch is off.
+        from app.index.watch_child import end_all_watch_children
+        stage("folder watch", self.folder_watch.shutdown)
+        stage("folder watch process", end_all_watch_children)
         stage("recorder", self.recorder.close)
         stage("engine", self._engine.close)
 

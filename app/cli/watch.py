@@ -115,6 +115,8 @@ class _Reporter:
             return error.render()
         if kind == "error":
             return data["error"].render()
+        if kind == "idle":
+            return f"Nothing to watch: {data.get('reason', '')}."
         return ""                                # "pending" is not worth a line
 
 
@@ -153,11 +155,13 @@ def cmd_watch(args: argparse.Namespace) -> int:
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
             ImageVectorStore(settings.vector_path) as image_vectors:
         tuned = resolve_for_run(settings, store)
-        if not named:
+        if not named or getattr(args, "live_only", False):
             # Folders marked Archive are the owner's "this does not change".
             roots = live_roots(roots, store)
         if not roots:
             reporter.event("idle", {"reason": "every indexed folder is marked Archive"})
+            if machine:
+                reporter.event("stopped", {"batches": 0, "indexed": 0, "removed": 0})
             return EXIT_OK
 
         def config(for_roots: list) -> Any:
@@ -254,6 +258,9 @@ def add_watch_parser(sub: argparse._SubParsersAction,
     parser.add_argument("--events", choices=("jsonl",), default=None,
                         help="write one JSON object per line instead of words, and "
                              "stop when standard input ends (used by the window)")
+    parser.add_argument("--live-only", action="store_true",
+                        help="leave out any named folder that is marked Archive "
+                             "(always so for the saved folders)")
     parser.add_argument("--quiet", action="store_true", help="say nothing per update")
     parser.add_argument("--fake-embedder-for-bench", action="store_true",
                         help=argparse.SUPPRESS)
