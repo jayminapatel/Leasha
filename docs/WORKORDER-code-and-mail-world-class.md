@@ -186,6 +186,15 @@ the main question, so it belongs in the Code tab's own box.
 > looked at in the real window** (owner check). Tests: `tests/unit/test_commit_preview.py` (13), and
 > `show_commit` against invented and real git in `tests/unit/test_git_streaming.py`.
 
+> **2026-09-30, §3 run end to end without a screen.** The Code tab was built offscreen with a real
+> event loop, the real worker pool and real git, over three "repositories" (this checkout, a second
+> checkout of it, and a folder that is not a repository): the first row was drawn 0.17 s in, four rows
+> by 0.41 s, git finished at 2.02 s, every draw happened on the interface thread, the summary named
+> the folder that could not be searched, the shared commits were listed once, and selecting the first
+> row drew its commit with the highlight. Drawing the largest page the pane can be given (3,000 diff
+> lines, 448,037 characters) costs 88 ms on the interface thread; building it costs 15 ms on the
+> worker. None of this replaces the owner's look at the real window (A1, A2, A5, A6).
+
 - [x] **3a** **Streaming.** Rows appear as git prints them (`Popen`, read line by line on a
       worker), newest first, with a live line: `Searching history… 12 found so far`.
 - [x] **3b** **Every repository at once** when none is named: one git process per repository, at
