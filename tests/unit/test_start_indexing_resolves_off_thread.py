@@ -238,7 +238,13 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
         # `test_a_resolution_failure_shows_the_same_error_dialog_a_synchronous_
         # one_would` and is unchanged.
         assert not built._resolving_index, "the in-flight flag must be cleared"
-        assert built.toast.current_text() == "", (
+        # **2026-09-30: "cleared" means that notice is gone, not that the line
+        # is empty.** The same line carries the status sentence, and the window's
+        # own status refresh ("0 files  ·  0 chunks indexed") can land on it once
+        # the notice has gone - which it does whenever this test runs after the
+        # others in this file. Asserting an empty line failed on that, in every
+        # whole-file run and in the suite, while saying nothing about the notice.
+        assert "Checking your hardware" not in built.toast.current_text(), (
             "the 'Checking your hardware' notice must be cleared when resolution ends")
         assert len(handed) == 1, (
             "the resolved Pipeline must be handed to IndexingView.start exactly once")

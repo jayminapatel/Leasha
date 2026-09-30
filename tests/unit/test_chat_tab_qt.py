@@ -61,6 +61,14 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     """The Chat tab, reset to a fresh conversation with a fake engine."""
     app, window, store, engine = gui_mainwindow
     ctl, view = window.chat_ctl, window.chat_view
+    # 2026-09-30: let the previous test's answer, save and title finish before
+    # the conversation is replaced. The window is shared by the whole module,
+    # and a save still in flight put the *previous* conversation back after the
+    # reset below - in a full-suite run `test_a_reply_that_stopped_part_way...`
+    # found "first question" from the test before it in its own session.
+    _wait(qtbot, lambda: ctl._ask is None and not getattr(ctl, "_saving", False)
+          and not getattr(ctl, "_pending", None))
+    gui_pump(app)
     fake = FakeChatEngine()
     backend = FakeSessionBackend()
     ctl._sessions = ChatSessions(backend)
