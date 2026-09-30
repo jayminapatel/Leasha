@@ -52,6 +52,34 @@ def _term_pattern(terms: Sequence[str]) -> Optional[re.Pattern[str]]:
     return re.compile(r"\b(" + "|".join(cleaned) + r")", re.IGNORECASE)
 
 
+def term_spans(text: str, terms: Sequence[str], *, utf16: bool = False) -> list[tuple[int, int]]:
+    r"""Where the searched words are in `text`: `(start, end)` pairs, in order.
+
+    Order 0y section 4b: the preview highlights the same characters a result's
+    snippet does, so this is `_term_pattern` over the whole text rather than a
+    second rule. Unlike `build_snippet` the text is not flattened first - the
+    positions must be the document's own.
+
+    `utf16=True` gives the positions Qt counts in. A `QTextCursor` position is
+    a UTF-16 unit, and a character outside the basic plane (most emoji) is two
+    of those and one Python character, so after one every highlight would sit a
+    character early.
+    """
+    if not text:
+        return []
+    pattern = _term_pattern(terms)
+    if pattern is None:
+        return []
+    spans = [(match.start(), match.end()) for match in pattern.finditer(text)
+             if match.end() > match.start()]
+    if not utf16 or not spans or text.isascii() or max(text) <= "￿":
+        return spans
+    offsets = [0]
+    for character in text:
+        offsets.append(offsets[-1] + (2 if character > "￿" else 1))
+    return [(offsets[start], offsets[end]) for start, end in spans]
+
+
 def build_snippet(
     text: str,
     terms: Sequence[str],

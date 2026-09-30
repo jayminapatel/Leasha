@@ -121,10 +121,43 @@ the main question, so it belongs in the Code tab's own box.
 
 ## 4. Mail: a preview people recognise
 
-- [ ] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
+> **2026-09-30, 4a built.** A message is previewed as a message from every list whose pane holds a
+> store (Mail and Search): `preview_loader.mail_preview` asks `messages` by `file_id` on the worker,
+> and the pane draws `widgets/mail_card.py` in place of its title line - subject as a heading, the
+> sender large with the address beside it, recipients, the date in words, one chip per attachment.
+> The words are decided without Qt in the new `presenter/mail.py`; the day is worded by
+> `timeline_words.day_heading` with the time added (no second formatter). The typed body is now the
+> message's own words only; Select All and Copy still give the plain `From: ...` block and the
+> message (`MailBody`), and "Pin in a window" is unchanged. A Mail row draws its card at once from
+> the row, before the read lands, so arrowing the list does not flick between a title and a card.
+> **Three limits, each from what the index holds, none fixed here:** (1) To and Cc are one list in
+> `messages.recipients`, so the card shows them on one line labelled "To" with a tooltip saying so -
+> showing Cc apart needs a schema column and a re-index; (2) the readers keep the sender's address
+> and drop the display name, so the large line is usually the address; (3) attachment names are read
+> back from the `Attachments:` line the indexer writes above a message's text, split on ", " - a
+> file name holding ", " becomes two chips. Tests: `tests/unit/test_mail_preview_card.py` (27).
+> Grabbed to a PNG, light and dark, and looked at: the card reads as an email header; the chips
+> needed 4px of padding to round (Qt draws no rounding under 22px tall).
+
+> **2026-09-30, 4b built - and what "as the file preview does" turned out to mean.** The file
+> preview had Ctrl+F (a find box: type a word, Enter steps) and nothing else: no searched word was
+> highlighted on its own and F3 was bound nowhere (`Key_F3` did not appear under `app/`). So it is
+> built once, in the pane, for a file and a message alike: `widgets/search_marks.py` paints the
+> searched words over the text in the find box's own colour and F3 / Shift+F3 step between them,
+> wrapping; a line above the text says `3 matches of what you searched for - F3 for the next,
+> Shift+F3 for the previous`, then `2 of 3`. Which characters count is `snippets.term_spans` - the
+> result snippets' own rule (a word from its start, any case), with positions corrected to Qt's
+> UTF-16 counting so a word after an emoji is highlighted where it is. The words come from the list
+> the pane is attached to: Search's typed terms (`ResultsView.explain_context`), and on the Mail tab
+> the `/subject` value plus any plain words typed (`presenter.mail.mail_terms`). While the find box
+> is open with something typed, the highlight and F3 are its; closing it puts the searched words
+> back. Plain text only (a message, a text file): an HTML or Markdown preview keeps Ctrl+F.
+> Tests: `tests/unit/test_mail_preview_marks.py` (19), A8 among them on the Mail tab.
+
+- [x] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
       beside it, To and Cc, the date in words (*Tuesday 2 January 2024, 09:00*), the subject as a
       heading, and attachments as chips. The plain `From: ...` block remains what Copy produces.
-- [ ] **4b** **The searched words highlighted** in the body, with next and previous (F3 and
+- [x] **4b** **The searched words highlighted** in the body, with next and previous (F3 and
       Shift+F3), exactly as the file preview does.
 - [ ] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
       list (sender, date, first line) from `messages.conversation`, which is already indexed.

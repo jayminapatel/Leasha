@@ -60,6 +60,7 @@ from app.ui.preview_loader import (
 )
 from app.ui.widgets.epub_view import EpubView
 from app.ui.widgets.highlight import CodeHighlighter, language_for
+from app.ui.widgets.mail_card import MailBody, MailCardView
 from app.ui.widgets.spreadsheet_view import SpreadsheetView
 from app.ui.workers import CallableWorker, run
 from app.ui.widgets.buttons import ROW_SPACING, style_all
@@ -94,6 +95,12 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
     if reveal is not None:
         pane.reveal_requested.connect(reveal.emit)
     pane.store = store
+    # Order 0y section 4b: the words to highlight. The Search list already
+    # answers "what was typed" for its "why is this here" menu
+    # (`explain_context`); a list without one highlights nothing until its
+    # view sets `terms_provider` itself, as Mail does.
+    pane.terms_provider = lambda: (
+        (getattr(results, "explain_context", None) or (lambda: ((), None)))()[0])
     results.selected.connect(pane.show_row)
 
     split = QSplitter(Qt.Orientation.Horizontal)
@@ -200,8 +207,14 @@ class PreviewPane(QWidget):
         self._facts_grid.setVerticalSpacing(3)
         self.facts.setVisible(False)
 
+        # Order 0y section 4a: a message's header, drawn as a card. It stands
+        # where the title and the facts stand for a file; `_show_mail` swaps them.
+        self.mail = MailCardView()
+
         # --- the renderers, one per kind, swapped rather than rebuilt
-        self.text = QTextBrowser()
+        # `MailBody` is a `QTextBrowser` that, for a message, copies the plain
+        # `From: ...` block with the text - see its docstring.
+        self.text = MailBody()
         self.text.setOpenExternalLinks(False)
         self.text.setOpenLinks(False)
         self.text.setAccessibleName("Preview")
@@ -294,11 +307,28 @@ class PreviewPane(QWidget):
         # second Escape shortcut here made the two ambiguous and neither fired.
         self.find = attach_find(self, self.text, window_escape=False)
 
+        # Order 0y section 4b: the searched words, highlighted in whatever text
+        # is shown - a file or a message, one implementation - with F3 and
+        # Shift+F3. `terms_provider` is set by whoever attaches the pane to a
+        # list and answers "which words?" at the moment a preview is drawn; it
+        # reads nothing but what the list already holds.
+        from app.ui.widgets.search_marks import SearchMarks
+
+        self.terms_provider: Any = None
+        self.marks = SearchMarks(self, self.text, self.find)
+        self.match_note = QLabel("")
+        self.match_note.setObjectName("resultMeta")
+        self.match_note.setAccessibleName("Searched words found")
+        self.match_note.setVisible(False)
+        self.marks.changed.connect(self._show_match_note)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.title)
         layout.addWidget(self.subtitle)
         layout.addWidget(self.facts)
+        layout.addWidget(self.mail)
         layout.addWidget(self.notice)
+        layout.addWidget(self.match_note)
         layout.addWidget(self.stack, 1)
         layout.addWidget(self.find)
 
@@ -425,6 +455,8 @@ class PreviewPane(QWidget):
         self.subtitle.setText("Select a result to preview it here.")
         self.notice.setVisible(False)
         self._show_facts(())
+        self._show_mail(None)
+        self.marks.clear()
         self.text.setPlainText("")
         self.stack.setCurrentWidget(self.text)
         self.open_button.setEnabled(False)
@@ -443,13 +475,18 @@ class PreviewPane(QWidget):
         # nonsense, and a count of matches in a file nobody is looking at any
         # more is worse.
         self.find.clear()
+        self.marks.clear()
         # Named immediately, rendered shortly: the heading must follow the
         # selection at once or the pane looks a step behind the list.
         self.title.setText(str(getattr(row, "name", "") or getattr(row, "path", "")))
         self.subtitle.setText("Loading…")
         self.notice.setVisible(False)
         from app.ui.inspector import preview_facts
+        from app.ui.presenter.mail import card_from_row
         self._show_facts(preview_facts(row))
+        # A Mail row can draw its card at once, from what the list already
+        # shows; anything else gets the title back until the read says more.
+        self._show_mail(card_from_row(row))
         self.open_button.setEnabled(True)
         self.reveal_button.setEnabled(bool(getattr(row, "path", "")))
         self.pop_button.setEnabled(True)
@@ -472,6 +509,37 @@ class PreviewPane(QWidget):
             self._facts_grid.addWidget(key, n, 0, Qt.AlignmentFlag.AlignTop)
             self._facts_grid.addWidget(val, n, 1)
         self.facts.setVisible(bool(facts))
+
+    def _show_mail(self, card: Any) -> None:
+        """Order 0y section 4a: the header card for a message, or the title
+        line for anything else. One of the two is on screen, never both - the
+        card already says the subject, and saying it twice is noise."""
+        mail = card is not None
+        if mail:
+            self.mail.show_card(card)
+            self._show_facts(())
+        else:
+            self.mail.setVisible(False)
+            self.text.copy_header = ""
+        self.title.setVisible(not mail)
+        self.subtitle.setVisible(not mail)
+
+    def _show_match_note(self) -> None:
+        """Order 0y section 4b: how many of the searched words are in this
+        text, and which keys move between them. Hidden when there are none."""
+        where = self.marks.position()
+        self.match_note.setText(
+            f"{where} of what you searched for — F3 for the next, "
+            "Shift+F3 for the previous" if where else "")
+        self.match_note.setVisible(bool(where))
+
+    def _searched_words(self) -> Any:
+        """The words to highlight, from the list this pane is attached to."""
+        try:
+            return list(self.terms_provider() or ()) if self.terms_provider else []
+        except Exception as exc:                 # noqa: BLE001 - decoration
+            _log.debug("no searched words for the preview: {}", exc)
+            return []
 
     def retint(self, colours: dict) -> None:
         """The highlighter's colours. The three buttons' icons are the button
@@ -503,6 +571,8 @@ class PreviewPane(QWidget):
             return                  # the selection moved on; this is stale
 
         self.subtitle.setText(preview.subtitle or "")
+        mail = preview.meta.get("mail") if preview.error is None else None
+        self._show_mail(mail.card if mail is not None else None)
         notice = preview.notice
         if preview.truncated:
             notice = (notice + "  " if notice else "") + (
@@ -527,9 +597,15 @@ class PreviewPane(QWidget):
             # Set the language *before* the text: `setPlainText` triggers a
             # rehighlight, and doing it the other way round paints the file
             # twice - once with the previous file's grammar.
-            self._highlight_as(preview.path)
-            self.text.setPlainText(preview.body)
+            # A message types only its own words: the card above carries the
+            # headers, and `copy_header` puts them back for Copy.
+            self._highlight_as(None if mail is not None else preview.path)
+            self.text.copy_header = mail.copy_header if mail is not None else ""
+            self.text.setPlainText(mail.body if mail is not None else preview.body)
             self.stack.setCurrentWidget(self.text)
+            # 4b: plain text only - a message or a text file. A formatted
+            # document (HTML, Markdown) keeps Ctrl+F, whose search is Qt's own.
+            self.marks.show(self._searched_words())
         elif preview.kind == KIND_MARKDOWN:
             # Workspace §4a. `setMarkdown` rather than `setPlainText`: a `.md`
             # file is prose with structure in it, and showing the literal `#`

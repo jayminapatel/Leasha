@@ -477,6 +477,17 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
 #factLabel {{ color: {text_faint}; font-size: {small}; }}
 #factValue {{ color: {text}; font-size: {small}; }}
 
+/* **The mail header card** (order 0y section 4a): a message's subject as a
+   heading, its sender large, each attachment a chip; a hairline under the
+   block, as the facts header has. */
+#mailCard {{ border: none; border-bottom: 1px solid {divider}; }}
+#mailSubject {{ color: {text}; font-size: {large}; font-weight: 600; }}
+#mailSender {{ color: {text}; font-size: {large}; }}
+#mailChip {{
+    background: {chip_bg}; color: {chip_text};
+    border-radius: {radius_pill}; padding: 4px 10px; font-size: {small};
+}}
+
 /* **Toasts** (§6): inverted ground, one line, bottom-centre. The dot carries
    the level alongside the text, never instead of it. */
 #toast {{

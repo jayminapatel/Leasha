@@ -1,0 +1,214 @@
+r"""The mail preview, in words: the header card, the conversation, the original.
+
+Layer: L5. Part of the presenter package; imports no Qt.
+
+Order 0y section 4 ("Mail: a preview people recognise"). Everything here is a
+decision about what to say - who a message is from, how its date reads, which
+line stands for it in a conversation, what "open the original" means for it -
+so it is decided here, where a test can reach it, and drawn by
+`app/ui/widgets/mail_card.py`.
+
+**What the index holds decides what the card can say**, and three facts about
+it are worth knowing before changing anything:
+
+* `messages.sender` is usually a bare address. The readers keep the address and
+  drop the display name, so the card shows the address as the name rather than
+  inventing "Dave Smith" out of `dave.smith@...`.
+* `messages.recipients` is one list, To first and then Cc. The index does not
+  record which is which, so the card shows them as one line.
+* Attachment names are not a column. They are in the first lines of the stored
+  text, which every mail reader writes through `build_email_document`:
+  `Subject:`, `From:`, `To:`, `Attachments:`, a blank line, then the message.
+  `split_index_headers` reads that block back.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Any, Mapping, Optional
+
+from app.reports.timeline_words import day_heading
+
+__all__ = [
+    "MailCard", "mail_card", "card_from_row", "sent_in_words", "split_index_headers",
+    "INDEX_HEADER_LABELS", "NO_SUBJECT", "UNNAMED_ATTACHMENT", "RECIPIENTS_LABEL",
+    "mail_terms",
+]
+
+#: What a message with an empty subject is called - the Mail list's own words
+#: (`rows.mail_rows`), so the card and the row beside it agree.
+NO_SUBJECT = "(no subject)"
+
+#: The chip for a message the index knows has an attachment but not its name
+#: (a message indexed without the `Attachments:` line).
+UNNAMED_ATTACHMENT = "Attachment"
+
+#: The label beside the recipients. "To", as the Mail list's column and the
+#: plain header block already say; the tooltip says that Cc is in the same list.
+RECIPIENTS_LABEL = "To"
+RECIPIENTS_TIP = ("Everyone this message was sent to. The index keeps To and Cc "
+                  "as one list, so they are shown together.")
+
+#: The lines `build_email_document` writes above a message's text, in its order.
+INDEX_HEADER_LABELS: tuple[str, ...] = ("Subject", "From", "To", "Attachments")
+
+
+@dataclass(frozen=True, slots=True)
+class MailCard:
+    """What the header card says. Every field may be empty; empty is not drawn."""
+
+    #: The large line: a display name, or the address when that is all there is.
+    sender_name: str = ""
+    #: Beside the name. Empty when the name line already is the address.
+    sender_address: str = ""
+    #: To, then Cc - one list, as the index holds them.
+    recipients: tuple[str, ...] = ()
+    #: "Tuesday 2 January 2024, 09:00", or "" when the message has no date.
+    date_words: str = ""
+    subject: str = NO_SUBJECT
+    #: One chip each.
+    attachments: tuple[str, ...] = ()
+
+
+def sent_in_words(sent_at: Any) -> str:
+    """A message's date as a person would say it: *Tuesday 2 January 2024, 09:00*.
+
+    The day is worded by `timeline_words.day_heading` - the one place the
+    application already says a day in full - with the time added. Local time,
+    like the Mail list's Date column. `""` for a message with no date: a blank
+    is honest, and 1 January 1970 is a claim.
+    """
+    try:
+        seconds = int(sent_at)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    try:
+        moment = datetime.fromtimestamp(seconds)
+    except (OverflowError, OSError, ValueError):
+        return ""
+    return f"{day_heading(moment)}, {moment:%H:%M}"
+
+
+def split_index_headers(text: Any) -> tuple[dict[str, str], str]:
+    r"""`({label: value}, the message's own text)` from one message's stored text.
+
+    Only the block at the very top is taken, and only lines carrying the labels
+    the indexer writes, in the order it writes them - so a message that quotes
+    `From: somebody` further down keeps it, and text with no such block comes
+    back whole with an empty dictionary.
+    """
+    body = str(text or "")
+    block, separator, rest = body.partition("\n\n")
+    found: dict[str, str] = {}
+    position = 0
+    for line in block.split("\n"):
+        label, colon, value = line.partition(": ")
+        try:
+            index = INDEX_HEADER_LABELS.index(label, position)
+        except ValueError:
+            return {}, body                  # not the indexer's block after all
+        if not colon:
+            return {}, body
+        found[label] = value.strip()
+        position = index + 1
+    if not found:
+        return {}, body
+    return found, (rest if separator else "")
+
+
+def _split_sender(value: Any) -> tuple[str, str]:
+    """`(name, address)`. A bare address is the name, with nothing beside it."""
+    text = str(value or "").strip()
+    if "<" in text and text.endswith(">"):
+        name, _, address = text.partition("<")
+        name = name.strip().strip('"').strip()
+        address = address[:-1].strip()
+        if name and address and name != address:
+            return name, address
+        return (name or address), ""
+    return text, ""
+
+
+def _recipient_list(value: Any) -> tuple[str, ...]:
+    """Every recipient, from the JSON array the store holds. Never raises."""
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return ()
+        if text.startswith("["):
+            try:
+                value = json.loads(text)
+            except ValueError:
+                return (text,)               # not JSON after all; show what is there
+        else:
+            return (text,)
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(str(item).strip() for item in value if str(item or "").strip())
+
+
+def mail_card(message: Optional[Mapping[str, Any]], stored_text: Any = "") -> MailCard:
+    """The card for one `messages` row, with attachment names from its stored text."""
+    message = message or {}
+    name, address = _split_sender(message.get("sender"))
+    headers, _body = split_index_headers(stored_text)
+    named = tuple(part.strip() for part in headers.get("Attachments", "").split(", ")
+                  if part.strip())
+    if not named and message.get("has_attach"):
+        named = (UNNAMED_ATTACHMENT,)
+    return MailCard(
+        sender_name=name, sender_address=address,
+        recipients=_recipient_list(message.get("recipients")),
+        date_words=sent_in_words(message.get("sent_at")),
+        subject=str(message.get("subject") or "").strip() or NO_SUBJECT,
+        attachments=named,
+    )
+
+
+def card_from_row(row: Any) -> Optional[MailCard]:
+    """A first card from the Mail list's own row, before the message is read.
+
+    The row carries the sender, the recipients as the column shows them, the
+    date and the subject, which is enough to draw the card the moment the
+    selection moves - so arrowing down the list does not flick between a title
+    line and a card. The read that follows fills in the rest. `None` for a row
+    that is not a Mail row; the pane keeps its title for those.
+    """
+    if row is None or not getattr(row, "file_id", None):
+        return None
+    if not hasattr(row, "sender") or not hasattr(row, "subject"):
+        return None
+    name, address = _split_sender(getattr(row, "sender", ""))
+    return MailCard(
+        sender_name=name, sender_address=address,
+        recipients=_recipient_list(getattr(row, "recipients", "")),
+        date_words=sent_in_words(getattr(row, "sent_at", 0)),
+        subject=str(getattr(row, "subject", "") or "").strip() or NO_SUBJECT,
+        attachments=(UNNAMED_ATTACHMENT,) if getattr(row, "has_attachment", False) else (),
+    )
+
+
+def mail_terms(parsed: Any) -> list[str]:
+    """The words to highlight in a message previewed from the Mail tab.
+
+    Order 0y section 4b. The Mail list filters on header fields, so its
+    "searched words" are the `/subject` value and any plain words typed beside
+    the filters - which the list says it ignored, and which are still what the
+    person is looking for in the message they open. A sender or a recipient is
+    not highlighted: the card already shows who.
+    """
+    if parsed is None:
+        return []
+    words = [*(getattr(parsed, "subjects", ()) or ()),
+             *(getattr(parsed, "terms", ()) or ()),
+             *(getattr(parsed, "phrases", ()) or ())]
+    seen: list[str] = []
+    for word in words:
+        word = str(word or "").strip()
+        if word and word not in seen:
+            seen.append(word)
+    return seen

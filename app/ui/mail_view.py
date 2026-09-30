@@ -44,6 +44,7 @@ from app.search.query import parse_query
 from app.ui.presenter import (
     MAIL_COMMANDS, mail_filters, mail_rows, mail_summary, with_date_problems,
 )
+from app.ui.presenter.mail import mail_terms
 from app.ui.preview_loader import mail_body, quoted_notice
 from app.ui.tasks import browse_messages_page
 from app.ui.view_options import (
@@ -170,8 +171,10 @@ class MailView(QWidget):
         # `_message_body` rather than from the file, because a PST is a hundred
         # thousand messages in one file and there is nothing on disk to open
         # for any one of them.
+        # `store=` (order 0y section 4): with it the pane reads a message as a
+        # message - the header card, its conversation, its original.
         self.preview, self.split = attach_preview(
-            self.results, lambda _row: self._open_selected(), self.error.emit)
+            self.results, lambda _row: self._open_selected(), self.error.emit, store=store)
         # **The message, not the indexed text on its own.** `stored_text`
         # returns what the index holds - so a reply arrived with its headers
         # missing, its quoted thread gone with nothing saying so, and a blank
@@ -181,6 +184,8 @@ class MailView(QWidget):
         self.preview.body_provider = lambda row: mail_body(store, row)
         self.preview.notice_provider = lambda row: quoted_notice(
             getattr(row, "quoted_removed", None))
+        # 0y section 4b: what to highlight in the message - see `mail_terms`.
+        self.preview.terms_provider = lambda: mail_terms(getattr(self, "_parsed", None))
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
