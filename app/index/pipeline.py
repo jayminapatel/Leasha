@@ -1062,6 +1062,12 @@ HOLD_POLL_S = 0.05
 #: drain, so asking four times a second still honours a pause, a battery, a
 #: full disk or Stop within a quarter of a second. A constant: nobody would
 #: tune it, and the evidence that would change it is a probe that got cheaper.
+#:
+#: **2026-09-30: the same interval now holds while files are read**
+#: (`_governor_allows`). "Once a file was harmless there" was true of the
+#: sandbox and not of Windows: measured on the owner's laptop, one ask is
+#: 26-30ms, nearly all of it psutil's walk of the process table for child
+#: processes, and once a file that was the slowest step of the whole run.
 SCAN_GOVERNOR_S = 0.25
 
 #: 2026-09-20. Least time between two looks at `PipelineConfig.pause_file`.
@@ -1676,6 +1682,8 @@ class Pipeline:
         self.__dict__.pop("_held_archive_book", None)
         # Order 0z lane D: so is the junk-image book.
         self.__dict__.pop("_image_book_store", None)
+        # A new run reads the machine before its first file (`_governor_allows`).
+        self.__dict__.pop("_next_governor_ask", None)
         # Work order 0h §2a: same reasoning, for pending pHashes.
         self._pending_phashes = {}
 
@@ -2325,8 +2333,27 @@ class Pipeline:
         return sequence
 
     def _governor_allows(self, stats: IndexStats) -> bool:
-        """Wait out a pause; False when the run must stop, having said why."""
+        """Wait out a pause; False when the run must stop, having said why.
+
+        **The machine is read at most once every `SCAN_GOVERNOR_S`, not once a
+        file** (2026-09-30, order 0z E4 measured on Windows). One ask reads the
+        process table, and on the owner's laptop that is 26-30ms (531
+        processes) against 1.76ms in the Linux sandbox the per-file ask was
+        judged in. Asked for every file, it held the whole run to about 35
+        files a second whatever the number of readers, and made a rerun with
+        nothing changed take 207s for 9,002 files in the "as found" order.
+
+        The person's own pause is not a measurement and is still noticed on
+        every file: `_person_paused` reads a flag, never the machine.
+        """
+        now = time.monotonic()
+        if (now < self.__dict__.get("_next_governor_ask", 0.0)
+                and not self._person_paused()):
+            return True
         verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        # Counted from the end of the wait: a pause that has just been waited
+        # out is not followed at once by another look.
+        self.__dict__["_next_governor_ask"] = time.monotonic() + SCAN_GOVERNOR_S
         self._copy_pause_state(stats)
         if verdict.action != "stop":
             return True
