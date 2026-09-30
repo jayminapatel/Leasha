@@ -150,9 +150,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Iterable
 
-from app.core.errors import make_error, raise_error
-from app.core.format_health import Requirement
-from app.extract.base import Document, DocumentBuilder, register
+from app.core.errors import {error_names}
+{requirement_import}from app.extract.base import Document, DocumentBuilder, register
 
 
 class {class_name}:
@@ -223,7 +222,9 @@ _REQUIRES_BLOCK = '''    #: Declared so Settings and `doctor.py` can report this
 '''
 
 _IMPORT_BLOCK = '''        try:
-            import {module}  # noqa: PLC0415 - lazy by design, see the docstring
+            # F401 ("imported but unused") is silenced only until the parsing
+            # below uses the library; take `,F401` off this line once it does.
+            import {module}  # noqa: PLC0415,F401 - lazy by design, see the docstring
         except ImportError:
             raise_error(
                 "ERR_UNSUPPORTED_TYPE", "extract.{name}",
@@ -234,6 +235,16 @@ _IMPORT_BLOCK = '''        try:
 
 _NO_IMPORT_BLOCK = '''        # No third-party library: this reads the file with the standard library.
 '''
+
+#: The generated module imports only the names it uses, because an unused
+#: import is a lint error in a file nobody has touched yet - and the first
+#: thing anybody does with a generated file is run the linter over it. A reader
+#: with a library needs `raise_error` (for "the library is not installed") and
+#: `Requirement` (to declare it); a standard-library reader needs neither.
+#: Found 2026-09-30: both variants failed `ruff --select E,F` as generated.
+_ERROR_NAMES_WITH_LIBRARY = "make_error, raise_error"
+_ERROR_NAMES_WITHOUT = "make_error"
+_REQUIREMENT_IMPORT = "from app.core.format_health import Requirement\n"
 
 
 # ---------------------------------------------------------------------------
@@ -317,12 +328,18 @@ def _render_module(spec: ExtractorSpec) -> str:
             name=spec.name,
             package=spec.package or spec.module,
         )
+        error_names = _ERROR_NAMES_WITH_LIBRARY
+        requirement_import = _REQUIREMENT_IMPORT
     else:
         requires = ""
         imports = _NO_IMPORT_BLOCK
+        error_names = _ERROR_NAMES_WITHOUT
+        requirement_import = ""
 
     return MODULE_TEMPLATE.format(
         title=f"{listed} files, read for their text.",
+        error_names=error_names,
+        requirement_import=requirement_import,
         class_name=spec.class_name,
         summary=f"{listed} files.",
         name=spec.name,
