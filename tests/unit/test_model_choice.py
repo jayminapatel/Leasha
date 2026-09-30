@@ -263,3 +263,37 @@ def test_the_test_button_builds_a_translator_that_is_switched_on():
         "and returned the fallback"
     )
     assert "switched off" not in (getattr(result, "note", "") or "")
+
+
+def test_the_test_button_works_with_the_model_inside_leasha(tmp_path):
+    """Owner, 2026-09-30: pressing Test gave `[ERR_UNEXPECTED] An unexpected
+    error occurred in ui.models`. The probe names its model with `client.model
+    = ...`; the Ollama client takes that, and `OnnxLLM.model` was a property
+    with no setter - so with the chat engine inside Leasha, which is the
+    default, every press raised `AttributeError` before a model was asked
+    anything. The stand-in client above has a plain attribute, which is why
+    the test beside this one never saw it.
+
+    An empty cache here, so nothing loads: what is asserted is that the press
+    reaches the translator and comes back with an answer it can show."""
+    from app.ort import hub
+    from app.ort.llm import OnnxLLM
+    from app.ui.widgets.model_box import ModelBox
+
+    box = ModelBox.__new__(ModelBox)              # no Qt: only the worker body
+    box._client_factory = lambda: OnnxLLM(tmp_path)
+
+    result = box._translate(hub.QWEN_1_5B.key, 5)
+
+    assert hasattr(result, "changed"), "the press must come back with a result to show"
+
+
+def test_naming_the_model_inside_leasha_is_the_same_by_either_spelling(tmp_path):
+    from app.ort import hub
+    from app.ort.llm import OnnxLLM
+
+    llm = OnnxLLM(tmp_path)
+    llm.model = hub.QWEN_1_5B.key
+    assert llm.model == hub.QWEN_1_5B.key
+    llm.model = "a model nobody has heard of"      # as `set_model`: left as it was
+    assert llm.model == hub.QWEN_1_5B.key

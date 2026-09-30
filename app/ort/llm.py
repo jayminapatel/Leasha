@@ -231,6 +231,13 @@ class OnnxLLM:
     def model(self) -> str:
         return self._model
 
+    @model.setter
+    def model(self, name: str) -> None:
+        # The Ollama client's `model` is a plain attribute, and Settings' Test
+        # button names its model by assigning it. With no setter here that
+        # raised `AttributeError` on every press (2026-09-30).
+        self.set_model(name)
+
     def set_model(self, name: str) -> None:
         chosen = hub.by_key(name)
         if chosen is not None and chosen.key != self._model:

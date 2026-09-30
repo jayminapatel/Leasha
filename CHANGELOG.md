@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.44 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.45 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -210,6 +210,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **The list of skipped files no longer shows `{took}` or `{reason}`.** For 22 kinds of skip the
   "N files skipped — review" panel printed the sentence with its blanks unfilled. A group now reads,
   for example, "'these files' was skipped after the time allowed: each file's own reason is on its row."
+- **The Test button for query interpretation works with the model inside Leasha.** It ended with
+  "An unexpected error occurred in ui.models" on every press: the button named its model in a way
+  only the Ollama connection accepted. It now runs the model and shows what your sentence became,
+  or says it ran out of time. On the owner's laptop the first press after starting takes about 35
+  seconds (the model has to load) and later ones about 9, so with "Give it up to" at 29 s a first
+  press can still report that it gave up.
 - A file type added from Settings › File types › Add file type now arrives clean: the generated reader
   no longer contains imports it does not use.
 - Tests, not the app: the test suite no longer takes Leasha's real window lock or index-run lock, so
