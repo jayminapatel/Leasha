@@ -69,6 +69,7 @@ class CodeView(QWidget):
     #: A repository to search the *contents* of, handed to the search tab.
     search_repo_requested = pyqtSignal(str)
     open_requested = pyqtSignal(str)
+    open_at_requested = pyqtSignal(str, int)     # order 0y §2c: path, line
     reveal_requested = pyqtSignal(str)
     indexing_requested = pyqtSignal()
 
@@ -127,6 +128,7 @@ class CodeView(QWidget):
         self.results = CodeResults(self)
         self.results.error.connect(self.error)
         self.results.open_requested.connect(self.open_requested)
+        self.results.open_at_requested.connect(self.open_at_requested)
         self.results.reveal_requested.connect(self.reveal_requested)
         self.results.search_repo_requested.connect(self.search_repo_requested)
         # Order 0y §1c: the row menu's "Ignore this repository".

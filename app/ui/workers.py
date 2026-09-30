@@ -16,6 +16,7 @@ every other layer honours.
 
 from __future__ import annotations
 
+import subprocess
 from collections.abc import Callable
 from typing import Any
 
@@ -23,10 +24,13 @@ from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
 
 from app.core.errors import AppError, to_app_error
 from app.core.logging import logger
+from app.core.osbridge import hidden_console_flags, new_console_flags
 
 __all__ = [
     "CallableWorker",
     "open_async",
+    "open_at_line",
+    "open_at_line_async",
     "open_row_async",
     "IndexWorker",
     "SearchWorker",
@@ -257,6 +261,111 @@ def open_media_async(path: str, seconds: Any, *, on_error: Any = None,
     if not path:
         return
     worker = CallableWorker(open_media_at, path, seconds, component=component)
+
+    def _done(result: Any) -> None:
+        if isinstance(result, AppError):
+            if on_error is not None:
+                on_error(result)
+        elif result and on_note is not None:
+            on_note(str(result))
+
+    worker.signals.finished.connect(_done)
+    if on_error is not None:
+        worker.signals.failed.connect(on_error)
+    run(QThreadPool.globalInstance(), worker)
+
+
+def editor_creationflags(command: Any) -> int:
+    """How Windows should start this editor command. Order 0y §2c.
+
+    A window editor gets **no console**: VS Code's `code` is a small console
+    program that starts the real window, and from `pythonw.exe` it would flash a
+    black box. An editor that lives in a terminal (`editors.TERMINAL_EDITORS`)
+    gets **a console of its own**, or it would run where nobody can see it.
+    """
+    from app.ui.editors import TERMINAL_EDITORS
+
+    program = str(command[0]) if command else ""
+    stem = program.replace("\\", "/").rpartition("/")[2].lower()
+    stem = stem.rpartition(".")[0] if "." in stem else stem
+    return new_console_flags() if stem in TERMINAL_EDITORS else hidden_console_flags()
+
+
+def start_editor(command: Any) -> None:
+    """Start an editor and do not wait for it. **Worker thread only.**"""
+    subprocess.Popen(list(command), shell=False,
+                     creationflags=editor_creationflags(command))
+
+
+def open_at_line(path: str, line: Any, *, choice: str = "auto", custom: str = "",
+                 launch: Any = None, fallback: Any = None) -> Any:
+    r"""Open a code result in the person's editor, at its line. Order 0y §2c.
+
+    Worker body for `open_at_line_async`. Returns an `AppError`, or a sentence
+    worth saying, or None - the same contract as `open_media_at`.
+
+    `choice` and `custom` are the two settings (`CODE_EDITOR`,
+    `CODE_EDITOR_COMMAND`); `editors.command_for` turns them into a command.
+    When there is no command - nothing installed, or the person chose "None" -
+    the file opens in its usual program, which is what Enter did before. When
+    nothing was *found* that is said, with the line: somebody who pressed Enter
+    on line 512 is owed the number if they land on line 1.
+
+    `launch` and `fallback` are injected by the tests, which never start a
+    real editor.
+    """
+    from pathlib import Path
+
+    from app.ui import editors
+
+    start = launch if launch is not None else start_editor
+    plain = fallback if fallback is not None else open_in_explorer
+    number = max(1, int(line or 1))
+    try:
+        exists = Path(path).exists()
+    except OSError:
+        exists = False
+    if not exists:
+        # One wording for a file that has gone, whichever way it was opened.
+        return open_in_explorer(path, select=False)
+
+    wanted = str(choice or editors.AUTO).strip().lower()
+    own = str(custom or "").strip()
+    command = (None if (wanted == editors.NONE and not own)
+               else editors.command_for(wanted, path, number, custom=own))
+    note = None
+    if command:
+        try:
+            start(command)
+            return None
+        except Exception as exc:                    # noqa: BLE001 - fall back to a plain open
+            _log.warning("the editor would not start ({}: {}); opening plainly",
+                         type(exc).__name__, exc)
+            note = (f"{editors.label_for(command)} would not start, so this opened "
+                    f"in its usual program. What you searched for is at line {number}.")
+    elif wanted != editors.NONE:
+        note = (f"No code editor was found, so this opened in its usual program. "
+                f"What you searched for is at line {number}. Choose an editor in "
+                f"Settings, under “Opening code results”.")
+
+    error = plain(path, select=False)
+    return error if error is not None else note
+
+
+def open_at_line_async(path: str, line: Any, *, choice: str = "auto", custom: str = "",
+                       on_error: Any = None, on_note: Any = None,
+                       component: str = "ui.open") -> None:
+    """`open_at_line` on a worker. Never blocks the UI (non-negotiable #5).
+
+    Finding the editor is stat calls and starting it is a process start - the
+    same two costs `open_async` keeps off the interface thread.
+    """
+    from PyQt6.QtCore import QThreadPool
+
+    if not path:
+        return
+    worker = CallableWorker(open_at_line, path, line, choice=choice, custom=custom,
+                            component=component)
 
     def _done(result: Any) -> None:
         if isinstance(result, AppError):

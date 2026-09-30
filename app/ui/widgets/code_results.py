@@ -25,6 +25,7 @@ from typing import Any, Optional
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
+from app.ui.editors import copyable
 from app.ui.view_options import apply_to_table, available_columns
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
@@ -76,6 +77,8 @@ class CodeResults(QWidget):
 
     error = pyqtSignal(object)
     open_requested = pyqtSignal(str)
+    #: Order 0y §2c: a row that knows its line - the path, and the line.
+    open_at_requested = pyqtSignal(str, int)
     reveal_requested = pyqtSignal(str)
     search_repo_requested = pyqtSignal(str)
     #: Order 0y §1c: "Ignore this repository", with the repository's name.
@@ -95,6 +98,9 @@ class CodeResults(QWidget):
             aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         self.table.setAccessibleName("Code files and repository history")
         self.table.itemDoubleClicked.connect(lambda _i: self.open_selected())
+        # Order 0y §2c: Enter opens the row, as a double-click does. The table
+        # had no key for it, which fails the keyboard-only requirement.
+        self.table.installEventFilter(self)
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -150,9 +156,30 @@ class CodeResults(QWidget):
         return str(getattr(self.table.current_row(), "repo", "") or "")
 
     def open_selected(self) -> None:
-        path = getattr(self.table.current_row(), "full_path", "")
-        if path:
+        """Open the highlighted row: at its line when it has one (order 0y §2c).
+
+        A row that knows its line - a Definition, a Mention, a git hit in the
+        checkout - is a place, and goes to the person's editor. A row with no
+        line opens as it always did. A historical row has no file and opens
+        nothing; its commit is in the preview pane.
+        """
+        row = self.table.current_row()
+        path = str(getattr(row, "full_path", "") or "")
+        line = int(getattr(row, "line_no", 0) or 0)
+        if path and line > 0:
+            self.open_at_requested.emit(path, line)
+        elif path:
             self.open_requested.emit(path)
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
+        """Enter opens the selected row - the same rule `files_view` has."""
+        from PyQt6.QtCore import QEvent
+
+        if watched is self.table and event.type() == QEvent.Type.KeyPress:
+            if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+                self.open_selected()
+                return True
+        return super().eventFilter(watched, event)
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu as every other list - see widgets/file_menu.py."""
@@ -165,15 +192,19 @@ class CodeResults(QWidget):
 
         path = str(getattr(row, "full_path", "") or "")
         name = str(getattr(row, "repo", "") or "")
+        line = int(getattr(row, "line_no", 0) or 0)
         show_for(self.table, point, path, FileActions(
             # **A historical hit has no file on disk.** The version that
             # matched is gone, so the menu leaves those out rather than
             # offering a command that fails.
-            open_file=(lambda: self.open_requested.emit(path)) if path else None,
+            open_file=self.open_selected if path else None,
             reveal=(lambda: self.reveal_requested.emit(path)) if path else None,
             search_inside=((lambda: self.search_repo_requested.emit(name))
                            if name else None),
-            copy=[("Copy repository name", name), ("Copy full path", path)],
+            copy=[("Copy repository name", name), ("Copy full path", path)]
+            # Order 0y §2c: what the Settings note has long promised - `path:line`,
+            # which pastes into a terminal, a chat message or another editor.
+            + ([("Copy path and line", copyable(path, line))] if path and line else []),
             extra=[("Ignore this repository",
                     "This folder is not really a repository. Its files stay "
                     "indexed and searchable; they stop counting as code. "

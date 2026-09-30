@@ -439,13 +439,18 @@ def test_editors_find_vs_code_on_a_mac(mac_disk, monkeypatch):
 
     code = mac_disk.make("Visual Studio Code.app/Contents/Resources/app/bin/code")
     monkeypatch.setattr(editors.shutil, "which", lambda name: None)
+    # 2026-09-30: a Mac has no Program Files. Without this the test found the
+    # real VS Code on a Windows machine that has one, and failed there.
+    monkeypatch.setattr(programs, "find_editor_on_windows", lambda name: None)
     assert editors.installed("code") == str(code)
     assert ("vscode", "Visual Studio Code", str(code)) in editors.detect()
 
 
-def test_media_players_are_found_on_a_mac(mac_disk):
+def test_media_players_are_found_on_a_mac(mac_disk, monkeypatch):
     from app.core import media_open
 
+    # 2026-09-30: as above - the real VLC on a Windows machine answered first.
+    monkeypatch.setattr(programs, "find_player_on_windows", lambda player: None)
     vlc = mac_disk.make("VLC.app/Contents/MacOS/VLC")
     by_name = {player.name: player for player in media_open.KNOWN_PLAYERS}
     assert media_open._executable_in_folders(by_name["VLC"]) == str(vlc)

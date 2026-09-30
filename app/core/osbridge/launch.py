@@ -36,7 +36,8 @@ from typing import Union
 
 from app.core.osbridge._platform import is_macos, is_windows
 
-__all__ = ["open_with_default_app", "show_in_file_manager", "hidden_console_flags"]
+__all__ = ["open_with_default_app", "show_in_file_manager", "hidden_console_flags",
+           "new_console_flags"]
 
 PathLike = Union[str, "os.PathLike[str]"]
 
@@ -52,6 +53,20 @@ def hidden_console_flags() -> int:
     """
     if is_windows():
         return int(getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+    return 0
+
+
+def new_console_flags() -> int:
+    """`creationflags` for a program that needs a console window of its own.
+
+    Order 0y §2c. The opposite case to `hidden_console_flags`: an editor that
+    lives in a terminal (Vim, Neovim) started from a window with no console
+    would run hidden, where nobody can type into it. `CREATE_NEW_CONSOLE` gives
+    it a window. Only Windows reads the flag, so elsewhere this is 0.
+    (UNCONFIRMED on a real window: no terminal editor was started to check it.)
+    """
+    if is_windows():
+        return int(getattr(subprocess, "CREATE_NEW_CONSOLE", 0x00000010))
     return 0
 
 

@@ -282,6 +282,13 @@ class SettingsController(QObject):
                     self._w._settings_overrides[key.lower()] = value
             self._w._apply_hotkey()
 
+        # Order 0y §2c: the editor a code result opens in is read at the moment
+        # of opening (`MainWindow._open_code_at`), so a choice just made applies
+        # to the very next Enter.
+        for key, value in values.items():
+            if key.startswith("CODE_EDITOR"):
+                self._w._settings_overrides[key.lower()] = value
+
         # Reranking is the one that can take effect without a restart, and the
         # one people most want to see change - the rest are read when the thing
         # that uses them next starts.

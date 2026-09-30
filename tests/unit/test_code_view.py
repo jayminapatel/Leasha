@@ -201,12 +201,23 @@ def test_the_summary_names_the_switch_that_made_it_slow(view):
 
 # --- Enter runs the slow one ------------------------------------------------
 
-def test_enter_with_several_repositories_and_no_name_asks_rather_than_guesses(view):
-    """Picking the first would be a guess presented as an answer."""
+def test_enter_with_several_repositories_and_no_name_searches_them_all(view, monkeypatch):
+    """Picking the first would be a guess presented as an answer.
+
+    2026-09-30, order 0y §3b: this used to assert that the tab *asked* for a
+    name ("Name a repository first"). The order replaces that answer with a
+    search of every repository, so neither a guess nor a question is needed.
+    A name that matches no repository is still asked about - see
+    `test_code_history_live.py`.
+    """
+    started: dict = {}
+    monkeypatch.setattr("app.ui.widgets.git_tree.run",
+                        lambda _pool, worker: started.setdefault("work", worker))
     view.input.setText("x /history")
     view.start()
 
-    assert "/repo" in view.summary.text()
+    assert "Name a repository" not in view.summary.text()
+    assert [name for name, _root in started["work"]._args[0]] == ["leasha", "my tools"]
 
 
 def test_enter_with_a_named_repository_starts_a_git_run(view, monkeypatch):

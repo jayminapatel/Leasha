@@ -819,7 +819,13 @@ def _history_plan(query: GitQuery) -> GitPlan:
             # commit subject can contain anything except a newline, and a
             # separator that can appear in the data is a parser that is wrong
             # on somebody's repository and right on yours.
-            "--pretty=format:%H\t%ad\t%an\t%s"]
+            #
+            # **`tformat`, not `format`** (order 0y section 3a). `format` puts the
+            # newline *between* commits, so a row's line is only complete when
+            # git finds the next one - the last row of a search arrived when git
+            # ended (measured: at 4.2 s of 4.2 s, against 1.1 s of 4.5 s with
+            # `tformat`, which ends every row with its own newline).
+            "--pretty=tformat:%H\t%ad\t%an\t%s"]
 
     if query.track_renames:
         argv.append("--find-renames")
