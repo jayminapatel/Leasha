@@ -80,6 +80,43 @@ NO_REPO = -1
 WRITE_CACHE_FLOOR_KIB = 16 * 1024
 WRITE_CACHE_CEILING_KIB = 256 * 1024
 
+#: 2026-09-30. SQLite's per-connection switch for triggers, by its number in
+#: Python's `sqlite3` (3.12 and later). None on an older Python, where
+#: `SqliteStore` then writes the keyword index row by row as it always did.
+#: See `SqliteStore._deferred`.
+_TRIGGER_SWITCH = getattr(sqlite3, "SQLITE_DBCONFIG_ENABLE_TRIGGER", None)
+
+#: 2026-09-30. The most passages whose keyword-index rows wait in memory for
+#: the end of one `batch()`. Past it they are handed to the index there and
+#: then, still inside the same transaction, so one enormous document cannot
+#: hold its whole text twice. A group of mail messages is a few hundred rows;
+#: this is for the 5,000-page PDF.
+FTS_DEFER_MAX_ROWS = 2_000
+
+
+class _DeferredFts:
+    """Keyword-index rows one thread's open `batch()` has still to write.
+
+    See `SqliteStore._deferred` for what this is for. Per thread, like the
+    connection it belongs to, and only ever non-empty inside a `batch()`.
+    """
+
+    __slots__ = ("chunks", "chunk_files", "messages", "triggers_off", "broken")
+
+    def __init__(self) -> None:
+        #: `(chunk id, text, symbols)` - exactly what `chunks_ai` would pass.
+        self.chunks: list[tuple[int, Any, Any]] = []
+        #: The files those passages belong to, so a second write to one of
+        #: them in the same batch is noticed.
+        self.chunk_files: set[int] = set()
+        #: file id -> `(subject, sender, recipients)`, what `messages_ai` passes.
+        self.messages: dict[int, tuple[Any, Any, Any]] = {}
+        #: Whether this thread's connection has its triggers switched off.
+        self.triggers_off = False
+        #: Set when writing the waiting rows failed part-way: the batch can no
+        #: longer be committed, only rolled back.
+        self.broken = False
+
 
 #: Scheme prefix for a volume-backed file's synthetic `files.path`. Never a
 #: real URL and never opened as one - `resolve.py` recognises the prefix and
@@ -772,6 +809,18 @@ class SqliteStore:
         #: Whether `messages_fts` exists, once asked. None means "not asked".
         #: A property of the file, so one answer serves every connection.
         self._message_index: Optional[bool] = None
+        #: 2026-09-30. Whether a `batch()` writes the keyword-index rows of
+        #: new passages and new messages once, at its end, instead of one at a
+        #: time through the triggers - see `_deferred`. True is the fast way;
+        #: False is the way every release before this wrote them, kept so the
+        #: two can be compared (`tests/unit/test_fts_deferred_writes.py`
+        #: proves they give the same index) and as a switch if a fault is ever
+        #: suspected. Read when a batch first writes a passage or a message.
+        self.defer_fts = True
+        #: True between `drop_fts_triggers` and the triggers coming back: a
+        #: bulk run has taken the keyword index out of step on purpose and
+        #: rebuilds it at the end, so nothing is written to it meanwhile.
+        self._content_triggers_dropped = False
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -872,7 +921,94 @@ class SqliteStore:
                 # schema into existence twice.
                 apply_migrations(conn)
                 self._migrated = True
+                # 2026-09-30: before any other connection is opened, so every
+                # one of them reads the statistics without these rows.
+                if self._forget_fts_statistics(conn):
+                    # This connection read them when it opened, and SQLite
+                    # keeps a table's row count once read - deleting the row
+                    # does not take it back (tried, with and without
+                    # `ANALYZE sqlite_master`). Only a connection opened
+                    # afterwards is free of it, and on the command line this
+                    # is the very connection the indexer writes with.
+                    self._open.remove(conn)
+                    conn.close()
+                    self._local.conn = self._new_connection()
         return self
+
+    #: The tables FTS5 keeps behind each of its indexes (`<name>_data` ...).
+    _FTS_SHADOW_SUFFIXES = ("data", "idx", "docsize", "content", "config")
+
+    def _forget_fts_statistics(self, conn: sqlite3.Connection) -> int:
+        r"""Take FTS5's own tables out of the planner's statistics. Never raises.
+
+        **This is why writing got slower as the index grew** (measured
+        2026-09-30, order 0z, "writing measured"). `ANALYZE` records a row
+        count for every table that has rows, and four migrations run it - on
+        a new database, while it is still empty. At that moment
+        `chunks_fts_data`, `messages_fts_data` and `files_fts_data` hold two
+        rows each (FTS5's own bookkeeping), and `sqlite_stat1` says so for as
+        long as nothing analyses them again. `PRAGMA optimize` does not: it
+        only revisits tables whose queries it saw on the connection it runs
+        on, and these are written by the indexer's.
+
+        FTS5 removes a merged piece of its index with
+        `DELETE FROM <name>_data WHERE id>=? AND id<=?`. Told the table has
+        two rows, SQLite's planner reads the whole table to find them
+        (`SCAN`), where with no statistics at all it goes straight to the
+        rows (`SEARCH ... USING INTEGER PRIMARY KEY`). FTS5 runs that
+        statement for every piece it merges away, so each message written
+        read the whole of two indexes that grow with every message: at 10,000
+        messages 2.4 ms a call, twenty times what it was at 2,000, and most of
+        the time writing took.
+
+        Nothing FTS5 asks of these tables is answered better with statistics
+        - every one of its statements is a lookup or a range on a primary key
+        - so the rows are removed rather than refreshed, which also cannot go
+        stale again. **A connection that has already read a row keeps its
+        count**; only one opened afterwards is free of it, which is why
+        `connect()` does this before any other connection exists and then
+        replaces its own. Called when the store opens and after
+        `PRAGMA optimize`. An index that has the rows loses them the first
+        time it is opened by this build: a few rows deleted from a table of a
+        few dozen, no passage or message read.
+
+        Returns how many rows were removed.
+        """
+        try:
+            if conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE name = 'sqlite_stat1'"
+            ).fetchone() is None:
+                return 0
+            indexes = [row[0] for row in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' "
+                "AND lower(sql) LIKE 'create virtual table%using fts5%'")]
+            shadow = [f"{name}_{suffix}" for name in indexes
+                      for suffix in self._FTS_SHADOW_SUFFIXES]
+            if not shadow:
+                return 0
+            marks = ", ".join("?" * len(shadow))
+            found = conn.execute(
+                f"SELECT tbl, stat FROM sqlite_stat1 WHERE tbl IN ({marks})", shadow
+            ).fetchall()
+            if not found:
+                return 0
+            conn.execute(f"DELETE FROM sqlite_stat1 WHERE tbl IN ({marks})", shadow)
+            # The counts are logged because they say whether this index was
+            # affected: a `_data` table recorded with a handful of rows was
+            # being read whole on every merge; one recorded in the thousands
+            # was not. Said out loud only for an index that has something
+            # in it: a new database always has them, and that is not news.
+            indexed = conn.execute("SELECT 1 FROM chunks LIMIT 1").fetchone() is not None
+            _log.log(
+                "INFO" if indexed else "DEBUG",
+                "the query planner no longer holds row counts for the word "
+                "index's own tables ({} removed: {})", len(found),
+                ", ".join(f"{row[0]}={row[1]}" for row in found
+                          if str(row[0]).endswith("_data")) or "none of them data tables")
+            return len(found)
+        except Exception as exc:                  # noqa: BLE001 - speed only
+            _log.debug("could not tidy the planner's statistics: {}", exc)
+            return 0
 
     def size_write_cache(self) -> int:
         r"""Give this thread's connection a page cache big enough to write with.
@@ -974,6 +1110,9 @@ class SqliteStore:
         try:
             with self.write() as conn:
                 conn.execute("PRAGMA optimize")
+                # 2026-09-30: whatever it has just recorded about FTS5's own
+                # tables must not stay - see `_forget_fts_statistics`.
+                self._forget_fts_statistics(conn)
             return True
         except Exception as exc:                  # noqa: BLE001 - see the docstring
             _log.warning(
@@ -1098,16 +1237,28 @@ class SqliteStore:
         return read_version(self.conn)
 
     @contextmanager
-    def write(self) -> Iterator[sqlite3.Connection]:
+    def write(self, *, deferring: bool = False) -> Iterator[sqlite3.Connection]:
         """One serialised write transaction. Rolls back on any exception.
 
         **Joins an open `batch()` rather than nesting inside it.** SQLite has
         no nested transactions, so a `write()` called while a batch is open on
         this thread would otherwise commit the batch early - turning the
         grouping into a lie without failing.
+
+        **`deferring` is for the three writes that know about `_deferred`**
+        (`upsert_file`, `replace_chunks`, `set_message`). Every other write
+        that joins a batch first has the waiting keyword-index rows written
+        and the triggers switched back on, so it runs against exactly the
+        database it would have found before 2026-09-30 - whatever it deletes,
+        updates or inserts. Nothing has to be remembered when a new write
+        method is added: it is safe by default, and only slower if it happens
+        to run between two documents of a bulk write.
         """
         if getattr(self._local, "batch_depth", 0):
-            yield self.conn
+            conn = self.conn
+            if not deferring:
+                self._finish_deferred(conn)
+            yield conn
             return
 
         with self._write_lock:
@@ -1162,13 +1313,166 @@ class SqliteStore:
             self._local.bumped = False
             try:
                 yield conn
+                # 2026-09-30: the keyword-index rows that waited for the end
+                # of the batch, written in the same transaction as the rows
+                # they index - so the commit below lands both or neither.
+                # Inside the `try`: if this fails the whole batch rolls back.
+                self._finish_deferred(conn)
             except BaseException:
+                self._abandon_deferred(conn)
                 conn.execute("ROLLBACK")
                 raise
             else:
                 conn.execute("COMMIT")
             finally:
                 self._local.batch_depth = 0
+                self._local.deferred = None
+
+    # -- the keyword index, written once per batch ---------------------------
+
+    def _deferred(self) -> Optional[_DeferredFts]:
+        r"""Where this thread's batch keeps keyword-index rows until its end.
+
+        None when nothing may wait: outside a `batch()`, with `defer_fts` off,
+        during a bulk run that dropped the triggers, or on a Python too old to
+        switch a connection's triggers.
+
+        **Why rows wait at all (measured 2026-09-30, order 0z, "writing
+        measured").** `chunks_fts` and `messages_fts` are kept in step by
+        triggers. FTS5 gathers what a transaction writes in memory and writes
+        it to the index as one piece (a "segment") at the commit - unless a
+        statement opens a savepoint first, when it writes what it holds there
+        and then (`fts5SavepointMethod`). Every `INSERT` on a table with a
+        trigger opens one. So with the triggers doing the work, **each passage
+        and each message became its own segment, however many documents shared
+        the transaction**, and FTS5 then merged those segments sixteen at a
+        time: about 3,850 and 6,500 index pages written for every 1,000
+        messages, and 1,090 and 1,650 segments removed, against roughly a
+        fifth of the pages and about 50 removals when the rows wait. (What
+        made the cost *rise* with the index was each removal reading the whole
+        table - `_forget_fts_statistics`. This is the smaller change: with
+        that fixed, 1,000 messages took 1.5-1.8 s of processor time written
+        through the triggers and 0.8-1.1 s written this way, this laptop,
+        20,000-30,000 messages in the index.)
+
+        **What happens instead.** Inside a batch, a passage or message that is
+        *new* is inserted with this connection's triggers switched off
+        (`sqlite3.Connection.setconfig`, which also makes SQLite prepare the
+        affected statements again, so a cached statement cannot keep its
+        trigger), and the row its trigger would have written is kept here. At
+        the end of the batch the rows are written to the index with one
+        `executemany` - no trigger, no savepoint, one segment - the triggers
+        are switched back on, and the batch commits.
+
+        **What is not changed, and why it is safe.**
+
+        * The schema, the triggers and the index's contents are what they
+          were: the rows written are the rows the triggers would have written
+          (`test_fts_deferred_writes.py` builds the same mail both ways and
+          compares every search).
+        * The content rows and their index rows are in **one transaction**. A
+          run killed at any point leaves both or neither; there is nothing to
+          repair and no flag to read on the next start.
+        * The triggers are only ever off on the writing thread's own
+          connection, only inside its batch, and only for inserts of rows
+          known to be new. A file that already has passages, a message that
+          already has a row, and every other write (`write()` without
+          `deferring`) get the waiting rows written and the triggers back on
+          first, and then run as they always did.
+        * Another thread or process sees nothing until the commit, as before.
+
+        **The one thing that is different inside the batch:** a keyword search
+        run by the writing thread itself, on its own connection, before the
+        batch ends would not see that batch's new rows. Nothing does that -
+        the indexer's writing thread does not search - and every other
+        connection only ever saw committed rows.
+        """
+        local = self._local
+        if not getattr(local, "batch_depth", 0):
+            return None
+        state = getattr(local, "deferred", None)
+        if state is not None:
+            return state
+        if (not self.defer_fts or self._content_triggers_dropped
+                or _TRIGGER_SWITCH is None):
+            return None
+        state = local.deferred = _DeferredFts()
+        return state
+
+    @staticmethod
+    def _switch_triggers(conn: sqlite3.Connection, state: _DeferredFts, *, on: bool) -> None:
+        """Switch this connection's triggers, if they are not already that way."""
+        if state.triggers_off == (not on):
+            return
+        # Through the connection's own guard where it has one, so a window
+        # closing under the indexer is reported as that and not as a bug.
+        guarded = getattr(conn, "_call", None)
+        if guarded is not None:
+            guarded(sqlite3.Connection.setconfig, conn, _TRIGGER_SWITCH, on)
+        else:
+            conn.setconfig(_TRIGGER_SWITCH, on)   # type: ignore[arg-type]
+        state.triggers_off = not on
+
+    def _index_deferred(self, conn: sqlite3.Connection, state: _DeferredFts) -> None:
+        """Write the waiting rows to the keyword index. The triggers stay as they are.
+
+        Two `executemany` calls straight into the FTS tables: what `chunks_ai`
+        and `messages_ai` do, a row at a time, for a row they are told about.
+        """
+        if state.broken:
+            raise AppErrorException(make_error(
+                "ERR_UNEXPECTED", "storage.sqlite",
+                details="The keyword index could not be written earlier in this "
+                        "batch, so the batch cannot be committed.",
+            ))
+        if not state.chunks and not state.messages:
+            return
+        try:
+            if state.chunks:
+                conn.executemany(
+                    "INSERT INTO chunks_fts(rowid, text, symbols) VALUES (?, ?, ?)",
+                    state.chunks)
+            if state.messages:
+                conn.executemany(
+                    "INSERT INTO messages_fts(rowid, subject, sender, recipients) "
+                    "VALUES (?, ?, ?, ?)",
+                    [(file_id, *values) for file_id, values in state.messages.items()])
+        except BaseException:
+            # Some rows may be in and some not, and nothing here can tell
+            # which. The batch must not commit; `batch()` rolls it back.
+            state.broken = True
+            raise
+        state.chunks = []
+        state.chunk_files.clear()
+        state.messages = {}
+
+    def _finish_deferred(self, conn: sqlite3.Connection) -> None:
+        """Waiting rows written, triggers on: the database as any write expects it."""
+        state = getattr(self._local, "deferred", None)
+        if state is None:
+            return
+        try:
+            self._index_deferred(conn, state)
+        finally:
+            self._switch_triggers(conn, state, on=True)
+
+    def _abandon_deferred(self, conn: sqlite3.Connection) -> None:
+        """The batch is being rolled back: forget the waiting rows. Never raises.
+
+        The rows they index are rolled back with it, so there is nothing to
+        write. The triggers go back on whatever else happens - a connection
+        left with them off would stop keeping the keyword index at all.
+        """
+        state = getattr(self._local, "deferred", None)
+        if state is None:
+            return
+        state.chunks = []
+        state.chunk_files.clear()
+        state.messages = {}
+        try:
+            self._switch_triggers(conn, state, on=True)
+        except Exception as exc:                  # noqa: BLE001 - a rollback must go on
+            _log.warning("could not switch the index triggers back on: {}", exc)
 
     # -- files ---------------------------------------------------------------
 
@@ -1251,7 +1555,9 @@ class SqliteStore:
         ext = (ext if ext is not None else as_path.suffix).lower().lstrip(".") or ""
         parent_dir = parent_dir if parent_dir is not None else str(as_path.parent)
 
-        with self.write() as conn:
+        # `deferring`: a row in `files` has no trigger, and no keyword-index
+        # row of its own that could be waiting - see `_deferred`.
+        with self.write(deferring=True) as conn:
             conn.execute(
                 """
                 INSERT INTO files
@@ -1539,7 +1845,11 @@ class SqliteStore:
             # interrupted run knows it needs rebuilding on resume.
             self.set_state("fts_dirty", "1")
             with self.write() as conn:
-                return self._suspend_content_triggers(conn)
+                dropped = self._suspend_content_triggers(conn)
+            # From here until they come back nothing writes the keyword index,
+            # `_deferred` included: the run rebuilds it whole at its end.
+            self._content_triggers_dropped = bool(dropped)
+            return dropped
         except Exception as exc:                  # noqa: BLE001
             _log.warning(
                 "FTS content triggers could not be dropped, "
@@ -1551,6 +1861,19 @@ class SqliteStore:
 
         Returns whether the restore succeeded. A failure is logged but does not
         fail the run — the triggers are optional optimizations, not required.
+
+        **2026-09-30: and rebuilds the two indexes, in the same transaction.**
+        It did not. A bulk run that *finished* ("Word index: Always bulk-load",
+        `INDEX_BULK_FTS=on`) put the triggers back, cleared the dirty flag and
+        merged - and nothing ever indexed what the run had written while the
+        triggers were away, so every passage and message of that run was
+        missing from keyword search for good. Only a run that was *killed* got
+        the rebuild, from `check_and_rebuild_fts_if_dirty`. Reproduced at the
+        store (`test_a_finished_bulk_run_can_be_searched`). The rebuild reads
+        `chunks` and `messages`; no file is read again. It is the whole index,
+        so it takes as long as the index is large - which is what a bulk load
+        is. If it fails this returns False, the caller leaves the dirty flag
+        set, and the next run repairs it.
         """
         if not trigger_sql:
             return False
@@ -1559,6 +1882,13 @@ class SqliteStore:
                 for sql in trigger_sql:
                     if sql:
                         conn.execute(sql)
+                conn.execute("INSERT INTO chunks_fts(chunks_fts) VALUES('rebuild')")
+                if conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name = 'messages_fts'"
+                ).fetchone() is not None:
+                    conn.execute(
+                        "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
+            self._content_triggers_dropped = False
             return True
         except Exception as exc:                  # noqa: BLE001
             _log.warning(
@@ -1597,6 +1927,7 @@ class SqliteStore:
                             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
                     except sqlite3.OperationalError:
                         pass
+                self._content_triggers_dropped = False
                 self.set_state("fts_dirty", "")
                 _log.info("word index rebuilt successfully")
             except Exception as exc:                  # noqa: BLE001
@@ -2762,11 +3093,35 @@ class SqliteStore:
 
         Replacing rather than appending keeps re-indexing a changed file
         idempotent, and the triggers keep chunks_fts in step automatically.
+
+        **2026-09-30: inside a `batch()`, a file with no passages yet has its
+        keyword-index rows written at the end of the batch** rather than one
+        at a time by `chunks_ai` - see `_deferred` for why that is the
+        difference between a flat cost and one that rises with the index. A
+        file that already has passages (a changed document, a forced re-read)
+        takes the path it always took: the waiting rows are written, the
+        triggers go back on, and the DELETE and the INSERTs below are mirrored
+        by them.
         """
-        with self.write() as conn:
-            conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+        with self.write(deferring=True) as conn:
+            state = self._deferred()
+            if state is not None and (
+                file_id in state.chunk_files
+                or conn.execute(
+                    "SELECT 1 FROM chunks WHERE file_id = ? LIMIT 1", (file_id,)
+                ).fetchone() is not None
+            ):
+                state = None
+            if state is None:
+                # Not a new file, or nothing may wait: exactly as before.
+                self._finish_deferred(conn)
+                conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+            elif chunks:
+                # New: there is nothing to delete, and no trigger to fire.
+                self._switch_triggers(conn, state, on=False)
             ids: list[int] = []
             for ordinal, chunk in enumerate(chunks):
+                symbols = symbol_tokens(chunk["text"])
                 cursor = conn.execute(
                     """
                     INSERT INTO chunks (file_id, ordinal, text, symbols,
@@ -2782,7 +3137,7 @@ class SqliteStore:
                         # `ResetPasswordHandler`. Empty for prose - see
                         # app/core/identifiers.py for why this is not the
                         # whole text again.
-                        symbol_tokens(chunk["text"]),
+                        symbols,
                         chunk.get("char_start"),
                         chunk.get("char_end"),
                         chunk.get("page"),
@@ -2793,6 +3148,13 @@ class SqliteStore:
                     ),
                 )
                 ids.append(int(cursor.lastrowid))
+                if state is not None:
+                    # What `chunks_ai` would have been handed for this row.
+                    state.chunks.append((ids[-1], chunk["text"], symbols))
+            if state is not None and ids:
+                state.chunk_files.add(file_id)
+                if len(state.chunks) >= FTS_DEFER_MAX_ROWS:
+                    self._index_deferred(conn, state)
             self._bump_generation(conn)
         return ids
 
@@ -3452,7 +3814,24 @@ class SqliteStore:
             else defaults.get(name)
             for name in columns
         ]
-        with self.write() as conn:
+        # 2026-09-30: inside a `batch()` a message with no row yet has its
+        # header-index row written at the end of the batch, not by
+        # `messages_ai` - the same change as `replace_chunks`, for the same
+        # reason (`_deferred`). A message that already has a row is updated
+        # with the triggers on, as it always was. Where `messages_fts` could
+        # not be built there are no mail triggers and nothing to write.
+        with self.write(deferring=True) as conn:
+            state = self._deferred() if self._has_message_index() else None
+            if state is not None:
+                if (file_id in state.messages
+                        or conn.execute(
+                            "SELECT 1 FROM messages WHERE file_id = ?", (file_id,)
+                        ).fetchone() is not None):
+                    # Already has a row: `messages_au` must see this update.
+                    self._finish_deferred(conn)
+                    state = None
+                else:
+                    self._switch_triggers(conn, state, on=False)
             conn.execute(
                 f"INSERT INTO messages (file_id, {', '.join(columns)}) "
                 f"VALUES (?, {', '.join('?' * len(columns))}) "
@@ -3460,6 +3839,11 @@ class SqliteStore:
                 + ", ".join(f"{c} = excluded.{c}" for c in columns),
                 (file_id, *values),
             )
+            if state is not None:
+                bound = dict(zip(columns, values))
+                # What `messages_ai` would have been handed for this row.
+                state.messages[file_id] = (
+                    bound["subject"], bound["sender"], bound["recipients"])
 
     def get_message(self, file_id: int) -> Optional[dict[str, Any]]:
         row = self.conn.execute("SELECT * FROM messages WHERE file_id = ?", (file_id,)).fetchone()

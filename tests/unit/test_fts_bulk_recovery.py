@@ -73,6 +73,42 @@ def test_a_resume_after_an_interrupted_bulk_run_can_index_the_next_chunk(tmp_pat
         store.close()
 
 
+def test_a_finished_bulk_run_can_be_searched(tmp_path):
+    """2026-09-30. A bulk run that was *not* interrupted put the triggers back,
+    cleared the flag and merged - and never indexed what it had written while
+    the triggers were away. Only a killed run was ever rebuilt. Everything a
+    finished "Always bulk-load" run indexed was missing from keyword search."""
+    store = SqliteStore(tmp_path / "t.db").connect()
+    try:
+        _add(store, "C:/a.txt", "alpha document")
+        restore = store.drop_fts_triggers()                # the bulk run starts ...
+        with store.batch():                                # ... writes, grouped as the indexer groups ...
+            _add(store, "C:/b.txt", "bravo document")
+        file_id = store.upsert_file("D:/Mail/a.pst#1", size_bytes=1, mtime_ns=1,
+                                    source_kind="pst_message")
+        store.set_message(file_id, subject="charlie subject", sender="dave@acme.com",
+                          recipients="[]")
+        assert not _hits(store, "bravo"), "nothing is indexed while the triggers are away"
+
+        assert store.restore_fts_triggers(restore)         # ... and finishes
+        store.set_state("fts_dirty", "")
+        store.optimize_fts()
+
+        assert _hits(store, "alpha") and _hits(store, "bravo"), (
+            "what a finished bulk run wrote is not searchable")
+        if store._has_message_index():                     # noqa: SLF001
+            assert [row["file_id"] for row in store.browse_messages(subject="harlie")] == [file_id]
+            with store.write() as conn:
+                conn.execute("INSERT INTO messages_fts(messages_fts, rank) "
+                             "VALUES('integrity-check', 1)")
+        with store.write() as conn:
+            conn.execute("INSERT INTO chunks_fts(chunks_fts, rank) VALUES('integrity-check', 1)")
+        _add(store, "C:/c.txt", "delta document")          # and indexing goes on as usual
+        assert _hits(store, "delta")
+    finally:
+        store.close()
+
+
 def test_the_mail_triggers_come_back_too(tmp_path):
     store = SqliteStore(tmp_path / "t.db").connect()
     try:
