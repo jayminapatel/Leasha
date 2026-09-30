@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.42 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.43 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -18,6 +18,48 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
+
+### Indexing faults found and fixed on the way (2026-09-30)
+
+- **A graphics-card failure no longer leaves passages that can never be found by meaning.** When the
+  graphics driver failed part-way through, some passages were stored with an empty meaning-vector and
+  nothing said so. Such a batch is now done again on the processor, and the run says so. (On the
+  owner's laptop the graphics card failed this way in three runs out of three on 30 September.)
+- **The last message read before a mail archive is cut off is kept.** When an archive is skipped for
+  making no progress, or with Force skip, the last message read before the cut-off is now indexed and
+  searchable. It used to be lost. The archive's line in the log counts exactly what was indexed, for
+  example "2 Indexed · 1 TimedOut".
+- **A slow-starting reader no longer times files out.** With "Read files in separate processes" on, a
+  reader process that is slow to start no longer causes the file it was started for to be skipped as
+  timed out, nor every file after one stuck file. A file's time limit starts when its reader is ready.
+  If a reader process cannot start at all, Leasha says so once and reads those files itself; nothing
+  is skipped.
+- **Renaming a file so that only the letter case changes no longer leaves two entries for it**
+  (`Report.docx` to `report.docx`). The old one is removed at the end of the next complete index run.
+  The first complete run may report rows removed for earlier renames; these are index rows, never
+  files.
+- **Leasha no longer pauses itself for its own work.** Its converters, reader processes and
+  transcription were counted as "other programs" when deciding whether the machine is busy. Checking
+  how busy the machine is also costs about a third of what it did during a run.
+- **Indexing on the processor with the ordinary model file embeds about a fifth faster** (22% measured
+  on a busy laptop), with exactly the same vectors: passages of similar length go to the model
+  together. It is not applied to the smaller model file, whose vectors would change, or on the
+  graphics card.
+- `app.cli evaluate --chat` now measures the chat engine chosen in Settings (the model inside Leasha by
+  default) and names it in the report. `--chat-model` still selects an Ollama model.
+
+### Lists and the preview pane (2026-09-30)
+
+- **The Mail list opens newest first.** It was being shown in order of sender, Z to A, with a sort
+  arrow on "From" that nobody had clicked; `/oldest` and `/newest` now visibly do what they say.
+- **"Show in folder" for a message from a mail archive** opens the folder holding the archive file,
+  with it selected. It is greyed out when Leasha does not know which archive the message came from.
+- **"Show in folder" now works in the Files, Mail and Code tabs.** It was clickable there and did
+  nothing. In Code it is greyed out for a result from history, which has no file on disk.
+- **Large lists draw faster.** Filling Files, Mail or Code no longer sorts the rows twice; on a
+  2,000-row history result the sorting step went from about a third of a second to a few milliseconds.
+- Nothing to see: a Files, Mail or Code tab that is closed is released straight away rather than kept
+  in memory.
 
 ### Indexing on Windows is several times faster, and a rerun with nothing changed takes seconds (2026-09-30)
 

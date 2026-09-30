@@ -1,6 +1,6 @@
 # Work order (One thread): a window that never waits, an indexer that shows its work, and code that is ready for a Mac
 
-**Doc version:** 1.4 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Thread:** One thread, run as a master thread that coordinates helper threads (each in
 its own git worktree) and merges their work
 **Status:** RELEASED by the owner 2026-09-27, with the instruction to build all of it.

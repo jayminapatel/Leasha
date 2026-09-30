@@ -1,6 +1,6 @@
 # Work order (One thread): the Chat tab — ask your archive, and every answer has receipts
 
-**Doc version:** 1.4 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Thread:** One thread (new tab + Search/LLM layers + eval harness)
 
 > **Dated note, 2026-09-20 - the Status line below is corrected; it said HELD and

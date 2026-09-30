@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.31 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.32 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -107,6 +107,43 @@ finished by helper threads in worktrees, merged by one thread. Merged to `main` 
   moves_on` fails on a busy machine; a case-only rename may leave two rows; the governor may
   count Leasha's own helper processes as other programs); and the measurements for 0x 5c and
   2d and the chat order's 4b and 4c.
+- **Later the same day - three of those four are merged; the list above is superseded for them.**
+  (1) Let-go Files/Mail/Code views are freed at once (`tests/unit/test_views_are_freed.py`; the
+  holding path was the width watcher's closure over the header, plus every `lambda: self...` a
+  view handed its own children - `view_options.weak_slot`). `SearchView` still outlives its last
+  reference. The Mail list opens newest first (it was sorted by sender, Z to A, by Qt's default
+  header indicator). (2) The four indexing faults were all real and are fixed: the held-back
+  document reaches the index on a cut-off (`Reading.hold` / `Pipeline._kept_in_hand`); a file's
+  clock starts when its reader process is ready (`Pipeline._reader_ready`, bounded by
+  `START_LIMIT_S`, `ERR_READER_PROCESS_START`); a case-only rename replaces the row
+  (`Pipeline._old_spellings`, `SqliteStore.case_twins` - **the first complete run on the real
+  index may log rows removed for earlier renames: index rows, never files**); the governor's
+  probe keeps its `Process` objects, so Leasha's own children are subtracted (nothing had been
+  subtracted since 2026-09-08), and walks the process table at most once a second. (3) Order 0x
+  5c is ticked: shortest-first batches on the processor with the ordinary model file, 22%
+  faster, vectors identical to the last bit; off for the int8 file (its vectors move, 41%
+  faster - the owner's decision) and on the graphics card.
+- **DirectML embedding failed three runs out of three on this laptop's Iris Xe on 30 September**
+  (`887A0005`, device suspended), each time within the first two batches, and the call before
+  the failure returned empty vectors without raising. That is fixed (the batch is redone on the
+  processor and the run says so), but **an index built on the graphics card before this fix may
+  hold passages with empty vectors** - not checked against the owner's index. `EMBED_DEVICE=auto`
+  still picks the graphics card; whether it should on this laptop is the owner's decision.
+- **Not measured, left for a quiet machine** (the owner called a halt to testing to run a real
+  index): order 0x 2d on Windows, the chat order's 4c latency and 4b floors. The commands are
+  in each order's 2026-09-30 note. The 84.0% / 97.1% in the chat order were `mistral` through
+  Ollama on 2026-09-20; the ONNX default has never been scored against the floors.
+- **Whether writing mail slows as the index grows is still being measured** by a helper thread
+  in its worktree; nothing from it is merged.
+- **The full unit suite has NOT been run on the merged code.** Each merge was followed by the
+  test files it touched. One attempt was stopped at 17% after 30 minutes on a saturated machine
+  (four failures seen, names not captured). **Known crash, not fixed:**
+  `tests/unit/test_number_fields.py` and `tests/unit/test_timed_out_panel.py` in one process
+  end in a Windows access violation inside `ShimmerBar.paintEvent` (`painter.setPen`, painter
+  active) at `test_the_panel_is_hidden_until_something_has_timed_out`; each file passes alone,
+  no single test of the first file sets it up, and it reproduces on `0e1f89e`. It will end a
+  whole-suite run at that point until it is understood. Also still downloading a model when the
+  network is up: `tests/unit/test_embedder_quantised_wiring.py`.
 - **Not seen in the real window - the owner's checks.** None of today's work has been looked
   at in the real window. In order of risk:
   1. **"Open in Outlook"** has never run against Outlook. Try it once on an archive indexed

@@ -899,6 +899,7 @@
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_shell.py" />
     <Compile Include="tests\unit\test_shimmer_bar.py" />
+    <Compile Include="tests\unit\test_show_in_folder.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
@@ -958,6 +959,7 @@
     <Compile Include="tests\unit\test_vector_store_deferred.py" />
     <Compile Include="tests\unit\test_view_options.py" />
     <Compile Include="tests\unit\test_viewer_suffixes.py" />
+    <Compile Include="tests\unit\test_views_are_freed.py" />
     <Compile Include="tests\unit\test_vision_caption.py" />
     <Compile Include="tests\unit\test_volume_picker.py" />
     <Compile Include="tests\unit\test_vs_project.py" />
