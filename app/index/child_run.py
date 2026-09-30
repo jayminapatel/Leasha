@@ -300,6 +300,11 @@ class ChildIndexRun:
         # The attributes a window reads or sets on a pipeline - see above.
         self.config = SimpleNamespace(limits=SimpleNamespace(low_priority=bool(low_priority)))
         self.store = None
+        #: The window's own store, for **reading** while the child writes: the
+        #: Indexing page's status counts refresh from it during the run (order
+        #: 0z A3). Kept apart from `store`, which stays None so that nothing
+        #: in the window takes this run for one it may write through or lock.
+        self.read_store: Any = None
         self.thread_priority_only = False
         self.run_owner: Any = None
         self.ui_lag: Any = None

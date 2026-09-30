@@ -143,6 +143,9 @@ def test_start_hands_the_marks_and_the_order_to_the_run(tmp_path, separate) -> N
             pairs = [run.argv[i + 1] for i, word in enumerate(run.argv)
                      if word == "--first"]
             assert pairs == [str(Path(b)), str(Path(a))]
+            # Order 0z A3 (2026-09-30): the page's status counts read through
+            # the window's store while the other process writes.
+            assert run.store is None and run.read_store is built._store
         else:
             assert list(run.config.walk.priority_roots) == [Path(b), Path(a)]
             assert run.config.read_order == "found"

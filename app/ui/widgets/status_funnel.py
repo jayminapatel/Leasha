@@ -107,9 +107,14 @@ class StatusFunnel(QLabel):
 
         The run's own pipeline holds the store it writes to; its connection is
         per thread (`SqliteStore.conn`), so the worker reads through its own.
-        A run in another process has no pipeline here and is left to the
-        page's other refreshes.
+        A run in another process (`ChildIndexRun`) holds no store to write to;
+        it carries the window's own as `read_store`, and the counts are read
+        from that while the other process writes (2026-09-30 - before this a
+        separate-process run left the line unchanged until the run ended).
         """
         worker = getattr(view, "_worker", None)
-        store = getattr(getattr(worker, "pipeline", None), "store", None)
+        run = getattr(worker, "pipeline", None)
+        store = getattr(run, "store", None)
+        if store is None:
+            store = getattr(run, "read_store", None)
         return self.refresh(store, stats)
