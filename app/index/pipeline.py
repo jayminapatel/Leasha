@@ -3481,16 +3481,39 @@ class Pipeline:
                     total = self._stats_ref.pictures_not_read
                     for reason, n in policy.not_read.items():
                         total[reason] = total.get(reason, 0) + int(n)
-            if finished and policy.counts:
+            # Order 0z C4, audit of 2026-09-30: an archive cut off by the
+            # no-progress limit or a Force skip keeps the messages it read, so
+            # it gets its counts line too, with the item it was cut off on as
+            # the one `TimedOut`. A Stop or a Pause still logs nothing - that
+            # read carries on next run.
+            cut_off = not finished and self._cut_off_by_limit(candidate)
+            if (finished or cut_off) and policy.counts:
                 # "Skipped:decorative=24" beside "Skipped=30": the presenter
                 # shows why, in brackets after the word (order 0z lane D).
                 counts = dict(policy.counts)
+                if cut_off:
+                    word = reader_progress.STATUS_TIMED_OUT
+                    counts[word] = counts.get(word, 0) + 1
                 for reason, n in policy.not_read.items():
                     counts[f"{reader_progress.STATUS_SKIPPED}:{reason}"] = n
                 self._record(KIND_ARCHIVE_COUNTS, candidate.path.name,
                              detail=encode_counts(counts))
         except Exception as exc:                        # noqa: BLE001 - bookkeeping only
             self._log.debug("could not note {}: {}", candidate.path.name, exc)
+
+    def _cut_off_by_limit(self, candidate: Candidate) -> bool:
+        """Was this thread's read of `candidate` ended by a time limit or a
+        Force skip (`file_watch`), rather than by a Stop or a Pause?
+
+        Asked from the reader's own thread while its stream closes, which is
+        before the worker loop calls `watch.end()` - so the verdict is still on
+        the watch. False for a pipeline with no watchdog.
+        """
+        watch = getattr(self._worker_slots(), "watch", None)
+        if watch is None:
+            return False
+        with watch.lock:
+            return watch.cancel is not None and watch.candidate is candidate
 
     def _image_book(self) -> PersistentImageBook:
         """This run's junk-image book, made on first use; loads nothing until a

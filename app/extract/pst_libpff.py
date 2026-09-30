@@ -444,16 +444,28 @@ def _read_archive(
     seen_hashes: set[str] = set(seen_attachments or ())
     scratch = _Scratch()
 
+    finished = False
     try:
         yield from with_closing_warning(
             _messages(root, path, store_name, skip, report, seen_hashes,
                       resume_from=max(0, int(resume_from or 0)),
                       frame=frame, policy=policy, scratch=scratch), closing)
+        finished = True
     finally:
         # However the read ended - finished, failed or abandoned - the pipeline
         # gets the counts for its end-of-archive log line (order 0z lane C),
         # and the scratch folder goes.
-        policy.counts = dict(frame.counts)
+        counts = dict(frame.counts)
+        if not finished and counts.get(progress.STATUS_INDEXED, 0) > 0:
+            # `with_closing_warning` holds the newest document back, to hang
+            # the archive's warning on the last one. A read that is abandoned
+            # (a time limit, a Force skip) never hands that one on, so the
+            # last item counted as Indexed was not indexed, and the line in
+            # the log must not say it was. One too few, rather than one too
+            # many, in the one case this cannot see: abandoned part-way
+            # through an attachment that holds several files.
+            counts[progress.STATUS_INDEXED] -= 1
+        policy.counts = counts
         scratch.close()
         try:
             archive.close()

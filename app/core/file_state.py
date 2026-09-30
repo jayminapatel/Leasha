@@ -111,9 +111,9 @@ DEFERRED_CODES: frozenset[str] = frozenset({
     "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
 })
 
-#: The per-file time limit's code. **Nothing writes it yet** - the time limit
-#: is being added separately and will record this code - so the word is wired
-#: now and lights up the moment the first file is set aside with it.
+#: The per-file time limit's code. Written by `app/index/file_watch.py` (order
+#: 0z lane B) when a file passes its limit or somebody presses Force skip; the
+#: row is SKIPPED with this code, and reads here as TimedOut.
 TIMEOUT_CODES: frozenset[str] = frozenset({"ERR_FILE_TIMEOUT"})
 
 #: **Empty: nothing in the index records a duplicate today.** A PST message

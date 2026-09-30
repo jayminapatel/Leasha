@@ -360,6 +360,73 @@ def test_held_pictures_are_read_by_the_pictures_pass_and_only_once(
     assert _Picture.calls == ["site-photo.fakepic"], "read once, not every pictures pass"
 
 
+def test_an_archive_cut_off_by_the_time_limit_still_logs_its_counts(
+        tmp_path, mail_root, monkeypatch) -> None:
+    """Order 0z C4, audit of 2026-09-30. `TimedOut` had a word and nothing set
+    it: an archive the no-progress limit cut off kept the messages it had read
+    and logged no counts line at all. Fails on the code as it was (no
+    `KIND_ARCHIVE_COUNTS` entry)."""
+    import time
+
+    from app.index import file_watch
+
+    monkeypatch.setattr(file_watch, "TICK_S", 0.05)
+
+    class Stalls(FakeFolder):
+        def get_sub_message(self, index):
+            if index == 2:
+                # A reader gone round in circles, in Python. Bounded, so a
+                # watchdog that never came would fail this test, not hang it.
+                deadline = time.monotonic() + 30
+                while time.monotonic() < deadline:
+                    time.sleep(0.01)
+                raise AssertionError("the no-progress limit never cut the archive off")
+            return super().get_sub_message(index)
+
+    install_fake(monkeypatch, FakeFolder("", children=[
+        Stalls("Inbox", messages=[_msg(1), _msg(2), _msg(3)])]))
+    with SqliteStore(tmp_path / "index.db") as store:
+        config = PipelineConfig(walk=WalkConfig(roots=[mail_root]), workers=1,
+                                ocr_mode="text", stall_limit_s=0.5)
+        stats = Pipeline(store, NullVectors(), fake_embedder(), config).run()
+        rows = {row["path"]: (row["status"], row["skip_code"]) for row in store.conn.execute(
+            "SELECT path, status, skip_code FROM files").fetchall()}
+
+    assert stats.skipped_by_code.get("ERR_FILE_TIMEOUT") == 1
+    assert rows[str(mail_root / "2019.pst")] == ("SKIPPED", "ERR_FILE_TIMEOUT")
+    # **The line counts what was indexed, not what the reader got through.**
+    # The reader read two messages; the second was still held back for the
+    # archive's closing warning (`with_closing_warning`) when the read was cut
+    # off, so it never reached the index. One message row, "1 Indexed".
+    messages = sorted(path for path in rows if path.startswith("pst://"))
+    assert messages == ["pst://2019/1"]
+    [line] = [e for e in stats.activity.entries() if e.kind == KIND_ARCHIVE_COUNTS]
+    assert decode_counts(line.detail) == {"Indexed": 1, "TimedOut": 1}
+    assert activity_text(line) == "2019.pst: 1 Indexed · 1 TimedOut"
+
+
+def test_a_stopped_archive_logs_no_counts_line(tmp_path, mail_root, monkeypatch) -> None:
+    """The other half of the rule above: a Stop is not a time-out. That read
+    carries on next run, so it says nothing yet."""
+    holder: dict = {}
+
+    class Stops(FakeFolder):
+        def get_sub_message(self, index):
+            if index == 1:
+                holder["pipeline"].request_stop()
+            return super().get_sub_message(index)
+
+    install_fake(monkeypatch, FakeFolder("", children=[
+        Stops("Inbox", messages=[_msg(1), _msg(2), _msg(3)])]))
+    with SqliteStore(tmp_path / "index.db") as store:
+        config = PipelineConfig(walk=WalkConfig(roots=[mail_root]), workers=1,
+                                ocr_mode="text", stall_limit_s=0.5)
+        holder["pipeline"] = Pipeline(store, NullVectors(), fake_embedder(), config)
+        stats = holder["pipeline"].run()
+    assert [e for e in stats.activity.entries() if e.kind == KIND_ARCHIVE_COUNTS] == []
+    assert stats.skipped_by_code.get("ERR_FILE_TIMEOUT") is None
+
+
 # --- the words -------------------------------------------------------------------
 
 def test_the_counts_read_as_single_words_in_the_owner_s_order() -> None:
