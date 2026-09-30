@@ -871,6 +871,9 @@ class MailPreview:
     #: message on its own - and the line above them.
     conversation: tuple = ()
     conversation_heading: str = ""
+    #: 4d: `presenter.mail.OriginalTarget` - where the full message can be
+    #: opened - or `None` when nowhere can. Deciding it opens nothing.
+    original: Any = None
 
 
 def _conversation(store: Any, message: Any, file_id: int) -> tuple[tuple, str]:
@@ -918,7 +921,9 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     if not message:
         return None
 
-    from app.ui.presenter.mail import UNNAMED_ATTACHMENT, mail_card, split_index_headers
+    from app.ui.presenter.mail import (
+        UNNAMED_ATTACHMENT, mail_card, original_target, split_index_headers,
+    )
     from app.ui.presenter.rows import mail_rows
 
     stored = stored_text(store, file_id)
@@ -940,6 +945,7 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
         copy_header=f"{header}{_COPY_RULE}" if header else "",
         quoted_removed=message.get("quoted_removed"),
         conversation=lines, conversation_heading=heading,
+        original=original_target(message, listed.path),
     )
 
 

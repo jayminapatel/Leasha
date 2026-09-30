@@ -37,6 +37,7 @@ __all__ = [
     "mail_terms",
     "ConversationLine", "conversation_lines", "conversation_heading", "first_line",
     "CONVERSATION_SHOWN",
+    "OriginalTarget", "original_target", "OPEN_IN_OUTLOOK", "OPEN_IN_OUTLOOK_TIP",
 ]
 
 #: What a message with an empty subject is called - the Mail list's own words
@@ -277,6 +278,56 @@ def conversation_lines(rows: Any, current_id: Any, *, shown: int = CONVERSATION_
         )
         for row, source in zip(listed, rows, strict=True)
     )
+
+
+# ---------------------------------------------------------------------------
+# 4d - the original
+# ---------------------------------------------------------------------------
+
+OPEN_IN_OUTLOOK = "Open in Outlook"
+OPEN_IN_OUTLOOK_TIP = (
+    "Shows this message in Outlook, with everything the preview leaves out. "
+    "Outlook opens the archive the message is in and keeps it open.")
+OPEN_FILE = "Open"
+
+#: Mail that is one message in one file, which its own program can open.
+MESSAGE_FILE_SUFFIXES = (".eml", ".msg", ".emlx")
+#: Archives Outlook opens.
+OUTLOOK_ARCHIVE_SUFFIXES = (".pst", ".ost")
+
+
+@dataclass(frozen=True, slots=True)
+class OriginalTarget:
+    """What "open the original" means for one message."""
+
+    #: `"outlook"` - shown by Outlook, by its identifier in an archive;
+    #: `"file"` - a message file, opened by whatever program owns it.
+    kind: str
+    #: The button's words.
+    label: str
+    entry_id: str = ""
+    store_path: str = ""
+    path: str = ""
+
+
+def original_target(message: Optional[Mapping[str, Any]], path: Any) -> Optional[OriginalTarget]:
+    """Where the full message can be opened, or `None` when nowhere can.
+
+    A message read out of a `.pst` or `.ost` has an identifier and the archive
+    it came from: Outlook can show it. A `.eml`, `.msg` or `.emlx` is a file.
+    Anything else - a message inside an mbox or an `.olm` - is neither, and
+    gets no button rather than one that fails.
+    """
+    message = message or {}
+    text = str(path or "")
+    entry_id = str(message.get("entry_id") or "").strip()
+    archive = str(message.get("store_path") or "").strip()
+    if entry_id and archive.lower().endswith(OUTLOOK_ARCHIVE_SUFFIXES):
+        return OriginalTarget(kind="outlook", label=OPEN_IN_OUTLOOK, entry_id=entry_id,
+                              store_path=archive, path=text)
+    if text.lower().endswith(MESSAGE_FILE_SUFFIXES) and "://" not in text:
+        return OriginalTarget(kind="file", label=OPEN_FILE, path=text)
+    return None
 
 
 def mail_terms(parsed: Any) -> list[str]:

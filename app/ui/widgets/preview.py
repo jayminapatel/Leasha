@@ -286,8 +286,21 @@ class PreviewPane(QWidget):
 
         self.open_button = QPushButton("Open")
         self.open_button.setToolTip("Open the file in the application that owns it")
-        self.open_button.clicked.connect(
-            lambda _c=False: self._row is not None and self.open_requested.emit(self._row))
+        self.open_button.clicked.connect(self._open_clicked)
+
+        # Order 0y section 4d: the original of a previewed message. Shown only
+        # for a message Outlook can show; a message that is a file (`.eml`,
+        # `.msg`) is opened by "Open" above. **Nothing is opened by previewing**
+        # - only by these two buttons' clicks. `outlook_launcher` is the seam
+        # a test replaces; `None` means the real one, looked up on the click.
+        from app.ui.presenter.mail import OPEN_IN_OUTLOOK, OPEN_IN_OUTLOOK_TIP
+
+        self._original: Any = None
+        self.outlook_launcher: Any = None
+        self.original_button = QPushButton(OPEN_IN_OUTLOOK)
+        self.original_button.setToolTip(OPEN_IN_OUTLOOK_TIP)
+        self.original_button.setVisible(False)
+        self.original_button.clicked.connect(self._open_original)
 
         # **Debounced, not immediate.** Arrowing down a list of fifty results
         # otherwise starts fifty reads, forty-nine of which nobody sees.
@@ -342,6 +355,7 @@ class PreviewPane(QWidget):
         buttons = QHBoxLayout()
         buttons.setSpacing(ROW_SPACING)
         buttons.addWidget(self.open_button)
+        buttons.addWidget(self.original_button)
         buttons.addWidget(self.reveal_button)
         buttons.addWidget(self.pop_button)
         buttons.addStretch(1)
@@ -459,6 +473,7 @@ class PreviewPane(QWidget):
         self.notice.setVisible(False)
         self._show_facts(())
         self._show_mail(None)
+        self._show_original(None)
         self.marks.clear()
         self.text.setPlainText("")
         self.stack.setCurrentWidget(self.text)
@@ -479,6 +494,7 @@ class PreviewPane(QWidget):
         # more is worse.
         self.find.clear()
         self.marks.clear()
+        self._show_original(None)       # the last message's original is not this row's
         # Named immediately, rendered shortly: the heading must follow the
         # selection at once or the pane looks a step behind the list.
         self.title.setText(str(getattr(row, "name", "") or getattr(row, "path", "")))
@@ -526,6 +542,30 @@ class PreviewPane(QWidget):
             self.text.copy_header = ""
         self.title.setVisible(not mail)
         self.subtitle.setVisible(not mail)
+
+    def _show_original(self, target: Any) -> None:
+        """4d: remember where the full message can be opened, and offer the
+        Outlook button when that is Outlook. Opens nothing."""
+        self._original = target
+        self.original_button.setVisible(getattr(target, "kind", "") == "outlook")
+
+    def _open_clicked(self, _checked: bool = False) -> None:
+        """"Open". For a message that is a file, the file itself; otherwise
+        whatever the list this pane belongs to means by opening a row."""
+        if self._row is None:
+            return
+        if getattr(self._original, "kind", "") == "file":
+            self._open_original()
+            return
+        self.open_requested.emit(self._row)
+
+    def _open_original(self, _checked: bool = False) -> None:
+        """A click, and only a click: hand the message to Outlook or to the
+        program that owns its file, on a worker."""
+        from app.ui.widgets.mail_open import open_original_async
+
+        open_original_async(self._original, on_error=self.error.emit,
+                            outlook=self.outlook_launcher)
 
     def _show_match_note(self) -> None:
         """Order 0y section 4b: how many of the searched words are in this
@@ -576,6 +616,7 @@ class PreviewPane(QWidget):
         self.subtitle.setText(preview.subtitle or "")
         mail = preview.meta.get("mail") if preview.error is None else None
         self._show_mail(mail.card if mail is not None else None)
+        self._show_original(mail.original if mail is not None else None)
         if mail is not None:
             # 4c: read with the message, on the worker - drawn here.
             self.mail.show_conversation(mail.conversation_heading, mail.conversation)

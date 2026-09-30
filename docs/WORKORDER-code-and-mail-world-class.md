@@ -172,6 +172,22 @@ the main question, so it belongs in the Code tab's own box.
 > but too near it, which is why the list is 25. Tests: `tests/unit/test_mail_conversation.py`
 > (19), A7 among them.
 
+> **2026-09-30, 4d built; A9 itself is the owner's check.** `presenter.mail.original_target` decides
+> what a message's original is: a message with an `entry_id` from a `.pst`/`.ost` gets a new button,
+> "Open in Outlook"; a `.eml`/`.msg`/`.emlx` file is opened by the pane's existing "Open" (which on
+> the Mail tab used to search inside it instead); a message inside an mbox or `.olm` gets neither,
+> rather than a button that fails. **Nothing is opened by previewing** - only by the click, on a
+> worker (`widgets/mail_open.py`), through a seam: the pane's `outlook_launcher` is a stand-in in
+> every test and the real `osbridge.outlook.show_in_outlook` otherwise. **Outlook was not started
+> to build or test this**, so the real launcher is *(UNCONFIRMED against a real Outlook)*: it uses
+> `Namespace.AddStore` when the archive is not already in Outlook's list (Outlook then keeps it
+> open - the tooltip says so), `GetItemFromID` and `Display`. One thing the owner's check must
+> cover: **the libpff reader stores a message's number inside the archive, not Outlook's
+> identifier**, so `pst_entry_id` builds the identifier from the archive's root folder identifier
+> with its last four bytes replaced (the published layout of a `.pst` identifier); a libpff message
+> with no number cannot be opened and says so. A failure is `ERR_OUTLOOK_OPEN` (new), with a way
+> out. The quoted-text notice stays. Tests: `tests/unit/test_mail_open_original.py` (15).
+
 - [x] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
       beside it, To and Cc, the date in words (*Tuesday 2 January 2024, 09:00*), the subject as a
       heading, and attachments as chips. The plain `From: ...` block remains what Copy produces.
@@ -180,7 +196,7 @@ the main question, so it belongs in the Code tab's own box.
 - [x] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
       list (sender, date, first line) from `messages.conversation`, which is already indexed.
       Clicking one shows it in the same pane. One indexed query, on a worker.
-- [ ] **4d** **Open the original.** "Open in Outlook" for a message from Outlook (its `entry_id`),
+- [x] **4d** **Open the original.** "Open in Outlook" for a message from Outlook (its `entry_id`),
       "Open" for a `.eml`/`.msg` file, so the full message - including the quoted text the index
       deliberately does not hold - is one click away. The honest quoted-text notice stays.
 
