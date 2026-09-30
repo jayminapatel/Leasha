@@ -637,6 +637,16 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # Order 0y section 4d: "Open in Outlook" on a previewed message.
+    "ERR_OUTLOOK_OPEN": _Spec(
+        message="Outlook could not show this message from '{path}'.",
+        suggestion=(
+            "Check that classic Outlook is installed and that it can open that archive "
+            "(File > Open & Export > Open Outlook Data File), then press the button again. "
+            "The message's own text is still in the preview."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # --- Layer 2 additions --------------------------------------------------
     "ERR_FILE_TOO_LARGE": _Spec(
         message="'{path}' is larger than the limit for its type.",

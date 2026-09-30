@@ -205,15 +205,82 @@ the main question, so it belongs in the Code tab's own box.
 
 ## 4. Mail: a preview people recognise
 
-- [ ] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
+> **2026-09-30, 4a built.** A message is previewed as a message from every list whose pane holds a
+> store (Mail and Search): `preview_loader.mail_preview` asks `messages` by `file_id` on the worker,
+> and the pane draws `widgets/mail_card.py` in place of its title line - subject as a heading, the
+> sender large with the address beside it, recipients, the date in words, one chip per attachment.
+> The words are decided without Qt in the new `presenter/mail.py`; the day is worded by
+> `timeline_words.day_heading` with the time added (no second formatter). The typed body is now the
+> message's own words only; Select All and Copy still give the plain `From: ...` block and the
+> message (`MailBody`), and "Pin in a window" is unchanged. A Mail row draws its card at once from
+> the row, before the read lands, so arrowing the list does not flick between a title and a card.
+> **Three limits, each from what the index holds, none fixed here:** (1) To and Cc are one list in
+> `messages.recipients`, so the card shows them on one line labelled "To" with a tooltip saying so -
+> showing Cc apart needs a schema column and a re-index; (2) the readers keep the sender's address
+> and drop the display name, so the large line is usually the address; (3) attachment names are read
+> back from the `Attachments:` line the indexer writes above a message's text, split on ", " - a
+> file name holding ", " becomes two chips. Tests: `tests/unit/test_mail_preview_card.py` (27).
+> Grabbed to a PNG, light and dark, and looked at: the card reads as an email header; the chips
+> needed 4px of padding to round (Qt draws no rounding under 22px tall).
+
+> **2026-09-30, 4b built - and what "as the file preview does" turned out to mean.** The file
+> preview had Ctrl+F (a find box: type a word, Enter steps) and nothing else: no searched word was
+> highlighted on its own and F3 was bound nowhere (`Key_F3` did not appear under `app/`). So it is
+> built once, in the pane, for a file and a message alike: `widgets/search_marks.py` paints the
+> searched words over the text in the find box's own colour and F3 / Shift+F3 step between them,
+> wrapping; a line above the text says `3 matches of what you searched for - F3 for the next,
+> Shift+F3 for the previous`, then `2 of 3`. Which characters count is `snippets.term_spans` - the
+> result snippets' own rule (a word from its start, any case), with positions corrected to Qt's
+> UTF-16 counting so a word after an emoji is highlighted where it is. The words come from the list
+> the pane is attached to: Search's typed terms (`ResultsView.explain_context`), and on the Mail tab
+> the `/subject` value plus any plain words typed (`presenter.mail.mail_terms`). While the find box
+> is open with something typed, the highlight and F3 are its; closing it puts the searched words
+> back. Plain text only (a message, a text file): an HTML or Markdown preview keeps Ctrl+F.
+> Tests: `tests/unit/test_mail_preview_marks.py` (19), A8 among them on the Mail tab.
+
+> **2026-09-30, 4c built.** `SqliteStore.conversation_messages` is the one statement, on
+> `idx_messages_conv`, returning the Mail list's own row shape plus the start of each message's first
+> passage (a correlated lookup on `idx_chunks_file_ord`, inside the same statement). It is asked on
+> the preview's worker with the message (`preview_loader._conversation`) and drawn under the card:
+> `4 messages in this conversation`, then one line each - sender, date as the Mail list writes it,
+> the message's first line - oldest first, the one on show in bold. Clicking a line previews that
+> message in the same pane, by the route a row selected in the list takes; the list stays, to go
+> back by. A message on its own shows no list. **The list holds the newest 25**: a conversation key
+> is whatever the mail said, and an archive with no threading headers falls back to the subject
+> line, so one key can be thousands of unrelated messages; past 25 the heading says `More than 25
+> messages in this conversation - the newest 25 are listed`. **Measured** (section 5, budget under
+> 20 ms): over a synthetic store of 40,000 messages in 10,000 conversations, query and wording
+> together, median of 7 warm - 0.6 to 0.9 ms for a conversation of four, 3.0 ms for one longer than
+> the list (the worst case: 26 first passages read). On this machine while five other threads were
+> running tests, with the list then at 50, the same test read 7 ms and 17 ms - inside the budget
+> but too near it, which is why the list is 25. Tests: `tests/unit/test_mail_conversation.py`
+> (19), A7 among them.
+
+> **2026-09-30, 4d built; A9 itself is the owner's check.** `presenter.mail.original_target` decides
+> what a message's original is: a message with an `entry_id` from a `.pst`/`.ost` gets a new button,
+> "Open in Outlook"; a `.eml`/`.msg`/`.emlx` file is opened by the pane's existing "Open" (which on
+> the Mail tab used to search inside it instead); a message inside an mbox or `.olm` gets neither,
+> rather than a button that fails. **Nothing is opened by previewing** - only by the click, on a
+> worker (`widgets/mail_open.py`), through a seam: the pane's `outlook_launcher` is a stand-in in
+> every test and the real `osbridge.outlook.show_in_outlook` otherwise. **Outlook was not started
+> to build or test this**, so the real launcher is *(UNCONFIRMED against a real Outlook)*: it uses
+> `Namespace.AddStore` when the archive is not already in Outlook's list (Outlook then keeps it
+> open - the tooltip says so), `GetItemFromID` and `Display`. One thing the owner's check must
+> cover: **the libpff reader stores a message's number inside the archive, not Outlook's
+> identifier**, so `pst_entry_id` builds the identifier from the archive's root folder identifier
+> with its last four bytes replaced (the published layout of a `.pst` identifier); a libpff message
+> with no number cannot be opened and says so. A failure is `ERR_OUTLOOK_OPEN` (new), with a way
+> out. The quoted-text notice stays. Tests: `tests/unit/test_mail_open_original.py` (15).
+
+- [x] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
       beside it, To and Cc, the date in words (*Tuesday 2 January 2024, 09:00*), the subject as a
       heading, and attachments as chips. The plain `From: ...` block remains what Copy produces.
-- [ ] **4b** **The searched words highlighted** in the body, with next and previous (F3 and
+- [x] **4b** **The searched words highlighted** in the body, with next and previous (F3 and
       Shift+F3), exactly as the file preview does.
-- [ ] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
+- [x] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
       list (sender, date, first line) from `messages.conversation`, which is already indexed.
       Clicking one shows it in the same pane. One indexed query, on a worker.
-- [ ] **4d** **Open the original.** "Open in Outlook" for a message from Outlook (its `entry_id`),
+- [x] **4d** **Open the original.** "Open in Outlook" for a message from Outlook (its `entry_id`),
       "Open" for a `.eml`/`.msg` file, so the full message - including the quoted text the index
       deliberately does not hold - is one click away. The honest quoted-text notice stays.
 

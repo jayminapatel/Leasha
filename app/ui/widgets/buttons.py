@@ -166,6 +166,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Skip": ("x", "secondary"),
     # -- The preview pane and the pinned window --------------------------------
     "Open": ("external-link", "primary"),
+    # Order 0y section 4d: the original of a previewed message.
+    "Open in Outlook": ("mail", "secondary"),
     "Show in folder": ("folder-open", "secondary"),
     "Pin in a window": ("bookmark", "secondary"),
     "Rotate": ("rotate-cw", "secondary"),

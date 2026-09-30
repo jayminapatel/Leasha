@@ -98,6 +98,14 @@ class ViewPreferences:
     #: it reads a file for every row the selection touches. Somebody who wants
     #: it asks for it, with `Ctrl+P` or the View menu.
     preview: bool = False
+    #: One row per conversation rather than one per message. Order 0z F2.
+    #:
+    #: **Off by default.** The Mail list is a table people scan and sort, one
+    #: message a row, and the Search list already folds a document's passages;
+    #: folding replies together is a second thing to ask for, from the View
+    #: menu. Nothing is hidden by it: the summary still counts messages, and a
+    #: folded row says how many it stands for.
+    group_by_conversation: bool = False
     #: `{column key: pixels}` for columns somebody has dragged.
     #:
     #: **Empty means "fit to the contents", which is the starting state.** A
@@ -277,6 +285,7 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
         group_by_document=flag("group", True),
         show_scores=flag("scores", False),
         preview=flag("preview", False),
+        group_by_conversation=flag("conversations", False),
         widths=tuple(sorted(widths)),
     )
 
@@ -290,6 +299,7 @@ def prefs_to_state(prefs: ViewPreferences, prefix: str) -> dict[str, str]:
         f"{prefix}:group": "on" if prefs.group_by_document else "off",
         f"{prefix}:scores": "on" if prefs.show_scores else "off",
         f"{prefix}:preview": "on" if prefs.preview else "off",
+        f"{prefix}:conversations": "on" if prefs.group_by_conversation else "off",
         f"{prefix}:widths": ",".join(f"{key}={int(size)}"
                                      for key, size in prefs.widths),
     }
@@ -357,6 +367,7 @@ def build_menu(
     on_change: Any,
     grouping: bool = False,
     on_fit: Any = None,
+    conversations: bool = False,
 ) -> Any:
     """The "View" menu: which columns, how tight, how big.
 
@@ -442,6 +453,32 @@ def build_menu(
         scores.toggled.connect(
             lambda checked: on_change(replace(prefs, show_scores=checked)))
         menu.addAction(scores)
+
+    if grouping or conversations:
+        # Order 0z F2. Wherever mail is listed: Search (beside "One row per
+        # document") and Mail. A list of files has no conversations to fold.
+        if not grouping:
+            menu.addSection("Results")
+        threads = QAction("One row per conversation", menu)
+        threads.setCheckable(True)
+        threads.setChecked(prefs.group_by_conversation)
+        threads.setToolTip(
+            "Replies are folded under one message of their conversation.\n"
+            "The row says how many it stands for, and the count under the "
+            "list still counts every message."
+        )
+
+        def fold(checked: bool) -> None:
+            chosen = replace(prefs, group_by_conversation=checked)
+            # Somebody who has picked their columns has a list of them, and a
+            # column added since is not on it - so folding would hide the one
+            # column that says how many messages a row stands for.
+            if checked and chosen.columns and "messages" in order:
+                chosen = chosen.with_column("messages", True, order=order)
+            on_change(chosen)
+
+        threads.toggled.connect(fold)
+        menu.addAction(threads)
 
     # **Outside `if grouping:`, and it should never have been inside it.**
     #
@@ -566,6 +603,7 @@ def button(
     on_change: Any = None,
     grouping: bool = False,
     table: Any = None,
+    conversations: bool = False,
 ) -> Any:
     """A "View" button that owns its own preferences, menu and persistence.
 
@@ -619,7 +657,7 @@ def button(
         menu = build_menu(
             widget, widget.prefs, columns=columns,
             available=widget.available, on_change=changed, grouping=grouping,
-            on_fit=refit,
+            on_fit=refit, conversations=conversations,
         )
         menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
 

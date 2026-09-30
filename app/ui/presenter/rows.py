@@ -218,6 +218,13 @@ class MailRow:
     has_attachment: bool = False
     #: The one-word Status column - see `FileRow.status`.
     status: str = ""
+    #: Order 0z F2. The conversation this message belongs to, as the index
+    #: recorded it (`""` when it recorded none), and - only on a row standing
+    #: for a folded conversation (`presenter.mail.fold_conversations`) - how
+    #: many of the listed messages it stands for, as text and as a number.
+    conversation: str = ""
+    thread: str = ""
+    thread_count: int = 0
 
 
 def mail_rows(
@@ -252,6 +259,7 @@ def mail_rows(
             has_attachment=attached,
             quoted_removed=row.get("quoted_removed"),
             status=derive(row.get("status"), row.get("skip_code")),
+            conversation=str(row.get("conversation") or "").strip(),
         ))
     return out
 
