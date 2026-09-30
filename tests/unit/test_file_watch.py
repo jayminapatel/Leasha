@@ -342,6 +342,50 @@ def test_a_mailbox_that_stops_making_progress_is_cut_off_and_keeps_its_mail(
     pipeline.store.close()
 
 
+def test_an_archive_working_through_one_messages_attachments_is_not_stalled() -> None:
+    """Order 0z audit, 2026-09-30: lanes B and C were built side by side and
+    never joined. Inside one message of a `.pst` the frame's `n` stands still
+    while its attachments are read, and an attachment that is skipped, held, a
+    duplicate or unreadable hands over no document - only `Frame.beat` moves.
+    The watchdog did not look at `beat`, so a message with a long run of such
+    attachments was "no progress" and the archive was cut off while working.
+    Fails on the code as it was (cut off at the second look)."""
+    from types import SimpleNamespace
+
+    from app.extract import progress
+
+    frame = progress.Frame("pst", "Archive2019.pst", unit="message")
+    frame.n, frame.where = 1, "Inbox"
+    ended: list[int] = []
+    # A stand-in reader process, so letting go ends "it" rather than raising
+    # an exception into the thread running this test.
+    reader = SimpleNamespace(reading=True, kill_child=lambda: ended.append(1))
+    now = [1_000.0]
+    watchdog = file_watch.Watchdog(stall_limit_s=10, clock=lambda: now[0])
+    watch = file_watch.FileWatch(slot=SimpleNamespace(id=1, item=0, frames=[frame]),
+                                 reader=reader)
+    watchdog.add(watch)
+    watch.begin(SimpleNamespace(path=Path("Archive2019.pst")), None,
+                file_watch.LIMIT_STALL)
+    watch.enter()
+    watchdog.check()
+
+    # Five attachments, six seconds each, none of them a document: 30 s in
+    # all against a limit of 10, and never 10 s without one of them ending.
+    for _ in range(5):
+        now[0] += 6
+        frame.count(progress.STATUS_SKIPPED)
+        watchdog.check()
+        assert watch.cancel is None, "an item ended - that is progress"
+    assert ended == []
+
+    # And one that really does stop moving is still cut off.
+    now[0] += 11
+    watchdog.check()
+    assert watch.cancel is not None and watch.cancel.code == "ERR_FILE_TIMEOUT"
+    assert ended == [1]
+
+
 def test_force_skip_in_process_skips_that_readers_file(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs", files=3)
