@@ -520,9 +520,18 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
     setup_logging(settings.log_path)
     log = logger.bind(component="cli.index")
 
+    # Order 0z F3: `--retry-timed-out`. None for an ordinary run.
+    retry, problem = _retry_asked(args)
+    if problem is not None:
+        return refuse(problem)
+    if retry is not None and not machine and not _say_retry(settings, retry):
+        return EXIT_OK
+
     roots = [Path(root).expanduser() for root in (args.roots or [])]
     from_settings = False
-    if not roots:
+    # A retry walks nothing - its files come from the ledger - so it neither
+    # needs folders nor falls back to the saved ones.
+    if not roots and retry is None:
         # **Falls back to what the window is configured to index.**
         #
         # The same setting had two sources of truth: the window saves "Folders
@@ -540,7 +549,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         roots = [Path(root).expanduser() for root in saved]
         from_settings = bool(roots)
 
-    if not roots:
+    if not roots and retry is None:
         return refuse(make_error(
             "ERR_CONFIG_INVALID", "cli.index",
             key="roots", reason="no folders to index",
@@ -732,7 +741,14 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
             IndexRunLock(store, owner=owner), \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
             ImageVectorStore(settings.vector_path) as image_vectors:
-        pipeline = Pipeline(
+        build = Pipeline
+        if retry is not None:
+            # The same construction and the same config; only what is read,
+            # and for how long, differs. See `app/index/timed_out_retry.py`.
+            from app.index.timed_out_retry import retry_pipeline
+
+            build = retry_pipeline(retry)
+        pipeline = build(
             store, vectors, embedder, config,
             image_embedder=image_embedder, image_vectors=image_vectors,
         )
@@ -829,7 +845,8 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         said = advice(stats.stages, on_gpu=settings.embed_device == "gpu")
         if said:
             print(f"          {said}")
-    if _images_pass_follows(settings) and _ocr_mode(args, settings) == "text":
+    if (retry is None and _images_pass_follows(settings)
+            and _ocr_mode(args, settings) == "text"):
         # **Said, not started.** A second pass over a scanned corpus is hours;
         # launching it without asking, from a command somebody ran to index
         # their documents, is the kind of surprise that gets an application
@@ -893,6 +910,139 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         return EXIT_ERROR
 
     log.info("index complete: {}", payload)
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# Order 0z F3: timed-out files - listing them, and reading a group again
+# ---------------------------------------------------------------------------
+
+def _retry_asked(args: argparse.Namespace) -> tuple:
+    """`(RetryTimedOut, None)` for `--retry-timed-out`, `(None, None)` for an
+    ordinary run, or `(None, AppError)` when what was typed cannot be meant."""
+    from app.index.timed_out_retry import (
+        DEFAULT_FACTOR, MAX_FACTOR, MIN_FACTOR, RetryTimedOut, normalise_group,
+    )
+
+    typed = getattr(args, "retry_timed_out", None)
+    factor = getattr(args, "time_limit_factor", None)
+    if typed is None:
+        if factor is not None:
+            return None, make_error(
+                "ERR_CONFIG_INVALID", "cli.index", key="--time-limit-factor",
+                reason="it only applies to a retry of timed-out files",
+                suggestion="Add --retry-timed-out, or leave --time-limit-factor "
+                           "out. The limit for ordinary runs is 'Time limit per "
+                           "file' on the Indexing page's Tuning shelf.")
+        return None, None
+    if any(mark in str(typed) for mark in ("\\", "/", ":")) or getattr(args, "roots", None):
+        return None, make_error(
+            "ERR_CONFIG_INVALID", "cli.index", key="--retry-timed-out",
+            reason="a retry reads the timed-out files wherever they are, so it "
+                   "takes a file type, not a folder",
+            suggestion="Run `app.cli timed-out` to see the types, then for "
+                       "example: app.cli index --retry-timed-out pdf")
+    if factor is None:
+        factor = DEFAULT_FACTOR
+    if not MIN_FACTOR <= factor <= MAX_FACTOR:
+        return None, make_error(
+            "ERR_CONFIG_INVALID", "cli.index", key="--time-limit-factor",
+            reason=f"{factor:g} is not between {MIN_FACTOR} and {MAX_FACTOR}",
+            suggestion=f"Give a number of times the usual limit, such as "
+                       f"{DEFAULT_FACTOR}. For no limit at all, set 'Time limit "
+                       f"per file' to 0 on the Indexing page's Tuning shelf.")
+    return RetryTimedOut(group=normalise_group(typed), factor=float(factor)), None
+
+
+def _timed_out_groups(settings: Settings) -> list:
+    """The store's timed-out groups, or none for an index not yet made. Opens
+    the index only if it exists: a listing must not create one."""
+    from app.storage.sqlite_store import SqliteStore
+
+    if not Path(settings.fts_db).is_file():
+        return []
+    with SqliteStore(settings.fts_db) as store:
+        return store.timed_out_groups()
+
+
+def _type_words(ext: str) -> str:
+    return f".{ext}" if ext else "(no extension)"
+
+
+def _say_retry(settings: Settings, retry) -> bool:
+    """Say what a retry is about to read. False when there is nothing to read,
+    having said so - before the model is loaded or the lock is taken."""
+    from app.index.timed_out_retry import group_words
+
+    groups = _timed_out_groups(settings)
+    count = sum(g["count"] for g in groups
+                if retry.group is None or g["ext"] == retry.group)
+    kind = group_words(retry.group)
+    kind = f"{kind} " if kind else ""
+    if not count:
+        print(f"Nothing to read again: no timed-out {kind}files.")
+        if groups:
+            print("  Timed out: " + ", ".join(
+                f"{_type_words(g['ext'])} x{g['count']:,}" for g in groups))
+        return False
+    print(f"Reading {count:,} timed-out {kind}file(s) again, each with "
+          f"{retry.factor:g} times its usual time limit.")
+    print("  For this run only: the saved limits are not changed, and no other "
+          "file is read.")
+    return True
+
+
+def cmd_timed_out(args: argparse.Namespace) -> int:
+    """List the timed-out files, by type. Read-only: no lock, nothing written.
+
+    The command-line half of the Indexing page's "Timed-out files" panel
+    (non-negotiable 8): the same groups from the same query, and the command
+    that reads one again.
+    """
+    from app.index.timed_out_retry import DEFAULT_FACTOR, normalise_group
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    groups = _timed_out_groups(settings)
+    total = sum(g["count"] for g in groups)
+    wanted = getattr(args, "type", None)
+    group = normalise_group(wanted)              # None: every type
+    files: list = []
+    if wanted is not None and groups:
+        with SqliteStore(settings.fts_db) as store:
+            files = store.timed_out_files(group)
+
+    if args.json:
+        payload: dict = {"total": total, "groups": groups}
+        if wanted is not None:
+            payload["files"] = files
+        print(json.dumps(payload, indent=2))
+        return EXIT_OK
+
+    if not groups:
+        print("No files are timed out.")
+        return EXIT_OK
+    if wanted is not None:
+        kind = "all types" if group is None else _type_words(group)
+        print(f"Timed out  {len(files):,} file(s), {kind}")
+        for row in files:
+            print(f"  {row['path']}")
+            if row["skip_detail"]:
+                print(f"    {row['skip_detail']}")
+        return EXIT_OK
+
+    print(f"Timed out  {total:,} file(s), by type")
+    for group in groups:
+        print(f"  {_type_words(group['ext']):<16}{group['count']:>8,}   "
+              f"e.g. {group['example']}")
+    print()
+    print("Read a type again with a longer time limit, for that run only:")
+    example = groups[0]["ext"] or '""'
+    print(f"  app.cli index --retry-timed-out {example} "
+          f"--time-limit-factor {DEFAULT_FACTOR}")
+    print("Leave the type out to read them all again. `app.cli timed-out TYPE` "
+          "lists the files.")
     return EXIT_OK
 
 
@@ -1133,6 +1283,21 @@ def add_index_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
              "run costs hours. Use this after changing what the machine can do -\n"
              "installing LibreOffice, adding a library, raising a size ceiling.\n"
              "Far cheaper than --force, which re-indexes everything.")
+    # Order 0z F3. `nargs="?"`: the flag alone is every timed-out file, and
+    # the window's child process writes `--retry-timed-out=TYPE` (with `=`, so
+    # an empty TYPE - files with no extension - survives).
+    p_index.add_argument(
+        "--retry-timed-out", nargs="?", const="*", default=None, metavar="TYPE",
+        help="read the timed-out files again, with a longer time limit for\n"
+             "this run only, and read nothing else. TYPE is a file type from\n"
+             "`app.cli timed-out` (pdf, pst, ...); leave it out for all of\n"
+             "them. A file that times out again stays timed out; one that\n"
+             "has changed since is read with the usual limit.")
+    p_index.add_argument(
+        "--time-limit-factor", type=float, metavar="N", default=None,
+        help="with --retry-timed-out: how many times the usual limit each\n"
+             "file is given (default 4; 1 to 100). The saved limits are not\n"
+             "changed.")
     # 2026-09-20. **The pause, as a file rather than a verb.**
     #
     # Pausing is something you do to a run that is already going, and one
@@ -1173,6 +1338,21 @@ def add_index_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentP
     p_index.add_argument("--fake-embedder-for-bench", action="store_true",
                          help=argparse.SUPPRESS)
     p_index.set_defaults(func=cmd_index)
+    # Order 0z F3: `timed-out`, the listing that goes with `--retry-timed-out`.
+    # Registered from here, beside the flag it serves.
+    add_timed_out_parser(sub, common)
+
+
+def add_timed_out_parser(sub: argparse._SubParsersAction,
+                         common: argparse.ArgumentParser) -> None:
+    p_timed = sub.add_parser(
+        "timed-out", parents=[common],
+        help="list the files that ran out of time, by type")
+    p_timed.add_argument(
+        "type", nargs="?", default=None, metavar="TYPE",
+        help="list each file of this type (pdf, pst, ...; * for all) with "
+             "what was recorded, in place of the counts")
+    p_timed.set_defaults(func=cmd_timed_out)
 
 
 def add_reembed_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

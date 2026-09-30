@@ -449,3 +449,136 @@ def test_a_retry_config_walks_and_prunes_nothing(tmp_path) -> None:
     assert retry.config.archives is False and retry.config.retry_locked is False
     assert retry.retry.factor == timed_out_retry.MAX_FACTOR
     retry.store.close()
+
+# ---------------------------------------------------------------------------
+# The command line (non-negotiable 8)
+# ---------------------------------------------------------------------------
+
+def _cli(capsys, *argv):
+    from app.cli import main
+
+    code = main(list(argv))
+    captured = capsys.readouterr()
+    return code, captured.out, captured.err
+
+
+@pytest.fixture()
+def cli_env(temp_env: Path) -> Path:
+    """`temp_env` with a 1 s limit for text (the smallest a setting can hold)
+    and nothing that would pause a run on a busy test machine."""
+    with temp_env.open("a", encoding="utf-8") as handle:
+        handle.write("\nINDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n"
+                     "INDEX_CPU_PERCENT=0\nMIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n")
+    return temp_env
+
+
+def _index_db(env_file: Path) -> Path:
+    from app.core.config import load_settings
+
+    return Path(load_settings(env_file).fts_db)
+
+
+def test_the_flags_parse_as_documented() -> None:
+    from app.cli import build_parser
+
+    parse = build_parser().parse_args
+    assert parse(["index"]).retry_timed_out is None
+    assert parse(["index", "--retry-timed-out"]).retry_timed_out == "*"
+    args = parse(["index", "--retry-timed-out", "pdf", "--time-limit-factor", "6"])
+    assert args.retry_timed_out == "pdf" and args.time_limit_factor == 6.0
+    # As the window's child process writes it, no-extension group included.
+    assert parse(["index", "--retry-timed-out=", "--"]).retry_timed_out == ""
+    assert parse(["timed-out"]).func.__name__ == "cmd_timed_out"
+    assert parse(["timed-out", "pdf"]).type == "pdf"
+
+
+@pytest.mark.parametrize("argv,said", [
+    (["index", "--time-limit-factor", "4", "D:/x"], "only applies to a retry"),
+    (["index", "--retry-timed-out", "D:/Docs"], "a file type, not a folder"),
+    (["index", "--retry-timed-out", "pdf", "D:/Docs"], "a file type, not a folder"),
+    (["index", "--retry-timed-out", "--time-limit-factor", "0"], "not between 1 and 100"),
+    (["index", "--retry-timed-out", "--time-limit-factor", "500"], "not between 1 and 100"),
+])
+def test_what_cannot_be_meant_is_refused_with_the_fix(capsys, cli_env, argv, said) -> None:
+    code, _out, err = _cli(capsys, "--env", str(cli_env), *argv)
+    assert code == 1
+    assert said in err and "ERR_CONFIG_INVALID" in err
+
+
+def test_a_retry_with_nothing_timed_out_says_so_and_is_not_an_error(
+        capsys, cli_env) -> None:
+    code, out, _err = _cli(capsys, "--env", str(cli_env), "index", "--retry-timed-out")
+    assert code == 0
+    assert "Nothing to read again: no timed-out files." in out
+    assert not _index_db(cli_env).exists(), "asking did not create an index"
+    code, out, _err = _cli(capsys, "--env", str(cli_env), "timed-out")
+    assert code == 0 and "No files are timed out." in out
+
+
+def test_the_command_line_lists_and_retries_a_group(
+        capsys, cli_env, tmp_path, monkeypatch, fast_watchdog) -> None:
+    env = ["--env", str(cli_env)]
+    calls: list[str] = []
+    root = _corpus(tmp_path / "docs", files=3)
+    (root / "slow.txt").write_text("the slow pump station report", encoding="utf-8")
+    _patch_extract(monkeypatch, "slow.txt", _slow_reader(2.5, calls))
+
+    code, out, _err = _cli(capsys, *env, "index", str(root), "--quiet",
+                           "--workers", "1", "--fake-embedder-for-bench")
+    assert code == 0 and "ERR_FILE_TIMEOUT" in out
+
+    # The listing: the counts, the command, and then the files of one type.
+    code, out, _err = _cli(capsys, *env, "timed-out")
+    assert code == 0
+    assert "Timed out  1 file(s), by type" in out and ".txt" in out
+    assert "app.cli index --retry-timed-out txt --time-limit-factor 4" in out
+    _code, out, _err = _cli(capsys, *env, "--json", "timed-out", "txt")
+    listed = json.loads(out)
+    assert listed["total"] == 1 and listed["groups"][0]["ext"] == "txt"
+    assert Path(listed["files"][0]["path"]).name == "slow.txt"
+    assert "longer than 1 s" in listed["files"][0]["skip_detail"]
+
+    # A type with nothing timed out: said, with what there is, and no run.
+    code, out, _err = _cli(capsys, *env, "index", "--retry-timed-out", "pdf")
+    assert code == 0
+    assert "Nothing to read again: no timed-out .pdf files." in out
+    assert "Timed out: .txt x1" in out
+
+    # The retry: five times the 1 s limit is enough for a 2.5 s read.
+    every: list[str] = []
+    _spy_on_every_read(monkeypatch, every)
+    code, out, _err = _cli(capsys, *env, "index", "--retry-timed-out", ".TXT",
+                           "--time-limit-factor", "5", "--quiet",
+                           "--workers", "1", "--fake-embedder-for-bench")
+    assert code == 0
+    assert "Reading 1 timed-out .txt file(s) again, each with 5 times its usual" in out
+    assert "Indexed   1 document(s)" in out
+    assert "Files     1 seen" in out
+    assert every == ["slow.txt"], "no other file was opened"
+
+    with SqliteStore(_index_db(cli_env)) as store:
+        assert store.timed_out_groups() == []
+        assert sum(1 for _ in store.iter_files()) == 4, "nothing was pruned"
+    from app.core.config import load_settings
+
+    assert load_settings(cli_env).index_file_time_limit_s == 1, "the setting is as it was"
+    code, out, _err = _cli(capsys, *env, "timed-out")
+    assert "No files are timed out." in out
+
+
+def test_a_retry_from_the_command_line_that_times_out_again_says_the_limit(
+        capsys, cli_env, tmp_path, monkeypatch, fast_watchdog) -> None:
+    env = ["--env", str(cli_env)]
+    root = _corpus(tmp_path / "docs", files=1)
+    (root / "stuck.txt").write_text("never read", encoding="utf-8")
+    _patch_extract(monkeypatch, "stuck.txt", _stuck_in_python)
+    common = ("--quiet", "--workers", "1", "--fake-embedder-for-bench")
+    _cli(capsys, *env, "index", str(root), *common)
+    code, out, _err = _cli(capsys, *env, "--json", "index", "--retry-timed-out",
+                           "--time-limit-factor", "2", *common)
+    payload = json.loads(out)
+    assert payload["skipped_by_code"] == {"ERR_FILE_TIMEOUT": 1}
+    assert payload["seen"] == 1 and payload["deleted"] == 0
+    with SqliteStore(_index_db(cli_env)) as store:
+        (row,) = store.timed_out_files("txt")
+    assert "on this retry (2 times the usual 1 s)" in row["skip_detail"]
