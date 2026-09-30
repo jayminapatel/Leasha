@@ -3180,7 +3180,8 @@ class Pipeline:
             if slot is not None:
                 slot.begin(candidate.path)       # 0x 3c: once per file
             if watch is not None:
-                watch.begin(candidate, digest, limit_kind(candidate.path))
+                watch.begin(candidate, digest, limit_kind(candidate.path),
+                            self._time_limit_factor(candidate))
             stream = None
             #: 0z lane B: set when the watchdog gave up on this thread and
             #: started another in its place - this one leaves after this file.
@@ -3396,6 +3397,14 @@ class Pipeline:
             daemon=True)
         self._replacement_workers.append(worker)
         worker.start()
+
+    def _time_limit_factor(self, candidate: Candidate) -> float:
+        """Order 0z F3: how many times the usual time limit this file is given.
+
+        1 for every run but a retry with a longer limit, which answers for
+        the files it is retrying (`app/index/timed_out_retry.py`).
+        """
+        return 1.0
 
     def force_skip(self, slot_id: Any) -> bool:
         """The Indexing page's Force skip: skip reader `slot_id`'s current file.
