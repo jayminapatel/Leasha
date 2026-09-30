@@ -40,6 +40,14 @@ def format_count(value: int) -> str:
     return f"{value:,}"
 
 
+#: The largest files-per-minute that the progress line prints as "0": it is
+#: written with no decimal places (`f"{rate:,.0f}"` in `progress_text`), and
+#: half rounds down to 0. Fixed, not a setting: it is a fact about that format,
+#: and `test_a_rate_that_prints_as_zero_never_gives_a_number` fails if the two
+#: ever disagree.
+RATE_THAT_PRINTS_AS_ZERO = 0.5
+
+
 def format_eta(remaining: int, *, files_per_minute: float) -> str:
     """A human ETA from a measured rate.
 
@@ -50,7 +58,20 @@ def format_eta(remaining: int, *, files_per_minute: float) -> str:
     """
     if remaining <= 0:
         return "done"
-    if files_per_minute <= 0:
+    # **A rate that prints as 0 is no rate to divide by** (2026-09-30).
+    #
+    # This used to test `files_per_minute <= 0`, which let through every rate
+    # between nothing and one. On 2026-09-12 a run that had lost its graphics
+    # provider managed 0.067 files a minute; the progress line printed that as
+    # "0 files/min" and, beside it, "about 1823 days" - the same number shown
+    # once as nothing and once as five years. One file in the last quarter of
+    # an hour is not a speed the rest of the run can be measured by: the next
+    # file may take a second. So it gets what a rate of exactly 0 has always
+    # got, and the line reads "0 files/min · estimating…".
+    #
+    # Written as "not above" so that a rate that is not a number at all lands
+    # here too, instead of raising from the arithmetic below.
+    if not files_per_minute > RATE_THAT_PRINTS_AS_ZERO:
         return "estimating…"
 
     minutes = remaining / files_per_minute
