@@ -62,6 +62,12 @@ def _release(widget) -> None:
     `test_the_cli_search_applies_date`, depending only on how many objects
     earlier test files had allocated. Deleting the widget here takes its
     timers with it, at a point that is not inside anything else.
+
+    **2026-09-30: needed for the Search view only.** The Files, Mail and Code
+    views are freed at once when let go - the cause is fixed and pinned in
+    `test_views_are_freed.py` - so their tests here no longer call this. The
+    Search view was measured the same day and still outlives its last
+    reference, so its two tests keep the explicit delete.
     """
     from PyQt6 import sip
 
@@ -194,7 +200,6 @@ def test_files_offers_date_and_applies_it(qapp, store):
             "march report.txt", "july report.txt", "march.py"}
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- Mail --------------------------------------------------------------------
@@ -219,7 +224,6 @@ def test_mail_offers_date_and_applies_it_to_the_sent_date(qapp, store):
         assert [row.subject for row in view._rows] == ["May quote"]
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- Code --------------------------------------------------------------------
@@ -240,7 +244,6 @@ def test_code_offers_date_and_applies_it_to_repository_files(qapp, store):
         assert _table_names(view.results.table) == {"march.py"}
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- The mini-search ---------------------------------------------------------
@@ -387,7 +390,6 @@ def test_the_other_tabs_say_it_on_their_summary_line(qapp, store, tab):
         assert view.summary.text().startswith(f"⚠ {SAID}")
     finally:
         view.shutdown()
-        _release(view)
 
 
 def test_the_notice_comes_first_and_cannot_inject_markup():

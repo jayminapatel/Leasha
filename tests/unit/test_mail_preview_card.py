@@ -415,12 +415,9 @@ def pump(ms: int = 5_000) -> None:
         QThreadPool.globalInstance().waitForDone(ms)
 
 
-def release(widget) -> None:
-    """Delete the view now - see `test_date_everywhere._release` for why."""
-    from PyQt6 import sip
-
-    if not sip.isdeleted(widget):
-        sip.delete(widget)
+# 2026-09-30: `release(view)`, which deleted a Mail view by hand, has gone from
+# here and from the mail test files that borrowed it. A view that is let go is
+# freed at once now - the cause is fixed and pinned in `test_views_are_freed.py`.
 
 
 def preview_now(pane, row) -> None:
@@ -450,4 +447,3 @@ def test_a_message_selected_in_the_mail_tab_shows_its_card(qapp, store) -> None:
         assert view.preview.text.toPlainText() == "The trip is on Friday."
     finally:
         view.shutdown()
-        release(view)

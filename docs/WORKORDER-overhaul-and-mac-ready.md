@@ -275,6 +275,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 
 ## 6. Search in every box
 
+> **2026-09-30, the last sentence of the note below is out of date: the cause is fixed.** A Files,
+> Mail or Code view that is let go is now freed at once, by reference count, with its window and its
+> column-width timer. Traced with `gc.get_referents`, what held a view was the registry that stops
+> the timer crash (`view_options._WATCHERS`): it keeps each width watcher's tick function, which
+> closed over the table's header (Files, Mail) and the View button (Code), and from those the view's
+> own `lambda ...: self...` slots led back to the view - so it was never freed, not even by
+> `gc.collect()`. The watcher now holds only weak references to the table and the button, and the
+> views hand their children methods or `view_options.weak_slot` callbacks instead of lambdas that
+> close over `self`. Pinned by `tests/unit/test_views_are_freed.py`, which lets each view go with
+> the cyclic collector switched off; the timer-crash test
+> (`test_a_watcher_whose_python_side_was_collected_does_not_crash_on_its_next_tick`) is unchanged
+> and green. The explicit deletes have gone from the Files, Mail and Code tests, each shown freed
+> without one; the Search view was measured too, still outlives its last reference, and keeps its
+> explicit delete in `test_date_everywhere.py` and `test_date_forms_every_box.py`.
+
 > **2026-09-27, 6a-6c built.** `/between` is `/date` under another name: `between:A and B` and
 > `A to B` are joined into `A..B` before parsing (`query.join_between_words`), so it reaches the same
 > after/before everywhere, Mail's sent date included, and is offered in every box's `/` menu.

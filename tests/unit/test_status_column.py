@@ -36,12 +36,9 @@ def _pump(ms: int = 5_000) -> None:
         QThreadPool.globalInstance().waitForDone(ms)
 
 
-def _release(widget) -> None:
-    """Delete the view now - see `test_date_everywhere._release` for why."""
-    from PyQt6 import sip
-
-    if not sip.isdeleted(widget):
-        sip.delete(widget)
+# 2026-09-30: the `_release(view)` that deleted each view by hand has gone. A
+# Files or Mail view that is let go is freed at once now - the cause is fixed
+# and pinned in `test_views_are_freed.py`.
 
 
 @pytest.fixture()
@@ -93,7 +90,6 @@ def test_files_shows_a_status_word_with_its_sentence(qapp, store) -> None:
         assert COLUMNS[-1][0] == "folder"
     finally:
         view.shutdown()
-        _release(view)
 
 
 def test_files_says_the_total_when_the_page_is_full(qapp, store, monkeypatch) -> None:
@@ -110,7 +106,6 @@ def test_files_says_the_total_when_the_page_is_full(qapp, store, monkeypatch) ->
         assert view.summary.text().startswith("Showing 2 of 3 files — narrow it with /type")
     finally:
         view.shutdown()
-        _release(view)
 
 
 def test_the_files_worker_counts_only_a_full_page(store) -> None:
@@ -150,7 +145,6 @@ def test_mail_shows_the_status_word(qapp, store) -> None:
         assert "status" in view._available
     finally:
         view.shutdown()
-        _release(view)
 
 
 def test_mail_says_how_many_in_total_when_capped(qapp, store, monkeypatch) -> None:
@@ -171,7 +165,6 @@ def test_mail_says_how_many_in_total_when_capped(qapp, store, monkeypatch) -> No
         assert view.summary.text().startswith("1 message")
     finally:
         view.shutdown()
-        _release(view)
 
 
 def test_the_mail_count_uses_the_same_filters_as_the_list(store) -> None:

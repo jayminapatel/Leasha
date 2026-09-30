@@ -303,7 +303,7 @@ def _column(view, key: str) -> int:
 
 def test_the_mail_tab_folds_when_the_view_menu_says_so(qapp, store) -> None:
     from app.ui.mail_view import MailView
-    from tests.unit.test_mail_preview_card import pump, release
+    from tests.unit.test_mail_preview_card import pump
 
     _mailbox(store)
     view = MailView(store)
@@ -333,12 +333,11 @@ def test_the_mail_tab_folds_when_the_view_menu_says_so(qapp, store) -> None:
         assert view.summary.text().startswith("4 messages")
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_a_capped_folded_list_still_says_how_many_messages(qapp, store, monkeypatch) -> None:
     from app.ui import mail_view
-    from tests.unit.test_mail_preview_card import pump, release
+    from tests.unit.test_mail_preview_card import pump
 
     _mailbox(store)
     monkeypatch.setattr(mail_view, "PAGE_SIZE", 3)
@@ -352,7 +351,6 @@ def test_a_capped_folded_list_still_says_how_many_messages(qapp, store, monkeypa
             "Folded into 2 conversations  ·  Showing 3 of 4 messages — narrow it with")
     finally:
         view.shutdown()
-        release(view)
 
 
 def test_the_view_menu_offers_it_on_mail_and_on_search(qapp) -> None:
@@ -403,7 +401,7 @@ def test_the_pane_open_button_acts_on_the_message_on_show(qapp, store) -> None:
     """Found building 4c: after a click in the conversation list the message on
     show is not the row selected in the table, and Open acted on the table's."""
     from app.ui.mail_view import MailView
-    from tests.unit.test_mail_preview_card import pump, release
+    from tests.unit.test_mail_preview_card import pump
 
     _mailbox(store)
     view = MailView(store)
@@ -419,4 +417,3 @@ def test_the_pane_open_button_acts_on_the_message_on_show(qapp, store) -> None:
         assert searched == ["pst://A/T0"]
     finally:
         view.shutdown()
-        release(view)

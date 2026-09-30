@@ -791,7 +791,11 @@ def _empty_then_filled(app, prefs, text: str):
         def remember_width(self, key, pixels):
             recorded.append((key, pixels))
 
-    remember_widths(table, _Button(), COLUMNS_3)
+    # 2026-09-30: kept on the table. The watcher now holds its button weakly
+    # (`view_options._WATCHERS`), so a button nobody else holds is gone at
+    # once and `recorded == []` below would pass whatever the watcher did.
+    table.kept_button = _Button()
+    remember_widths(table, table.kept_button, COLUMNS_3)
     apply_to_table(table, prefs, columns=COLUMNS_3, available=AVAILABLE_3)
     table.setRowCount(3)
     for row in range(3):

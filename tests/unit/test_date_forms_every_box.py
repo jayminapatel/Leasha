@@ -148,6 +148,9 @@ def _release(widget) -> None:
     the collector has already cleared, which is a native crash in whichever
     test happens to be running. `test_date_everywhere._release` has the same
     note; deleting here takes the timers with the widget, deterministically.
+
+    **2026-09-30: needed for the Search view only** - see the same dated note
+    in `test_date_everywhere._release`. Files, Mail and Code are freed at once.
     """
     from PyQt6 import sip
 
@@ -243,7 +246,6 @@ def test_files_box_applies_between_and_a_date_range(qapp, qtbot, store):
             "july report.txt", "may report.txt", "later.py"}
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- Mail --------------------------------------------------------------------
@@ -265,7 +267,6 @@ def test_mail_box_applies_between_and_a_date_range_to_the_sent_date(qapp, qtbot,
         assert [row.subject for row in view._rows] == ["July quote"]
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- Code (the index meaning) -------------------------------------------------
@@ -292,7 +293,6 @@ def test_code_box_applies_between_and_a_date_range_to_repository_files(qapp, qtb
         assert _table_names(view.results.table) == {"later.py"}
     finally:
         view.shutdown()
-        _release(view)
 
 
 # --- The mini-search ---------------------------------------------------------

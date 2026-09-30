@@ -26,7 +26,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.editors import copyable
-from app.ui.view_options import apply_to_table, available_columns
+from app.ui.view_options import apply_to_table, available_columns, weak_slot
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
@@ -97,7 +97,9 @@ class CodeResults(QWidget):
             [heading for _k, heading, _a, _r in COLUMNS], ranked=True,
             aligns=["right" if right else "left" for *_rest, right in COLUMNS])
         self.table.setAccessibleName("Code files and repository history")
-        self.table.itemDoubleClicked.connect(lambda _i: self.open_selected())
+        # 2026-09-30: methods and `weak_slot`, never `lambda: self...` - see
+        # `view_options.weak_slot` for the view that could not be freed.
+        self.table.itemDoubleClicked.connect(self.open_selected)
         # Order 0y §2c: Enter opens the row, as a double-click does. The table
         # had no key for it, which fails the keyboard-only requirement.
         self.table.installEventFilter(self)
@@ -106,12 +108,12 @@ class CodeResults(QWidget):
 
         header = self.table.horizontalHeader()
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        header.customContextMenuRequested.connect(
-            lambda point: self.view_menu_requested.emit(
-                header.mapToGlobal(point)))
+        header.customContextMenuRequested.connect(weak_slot(self, lambda results, point: (
+            results.view_menu_requested.emit(
+                results.table.horizontalHeader().mapToGlobal(point)))))
 
         self.preview, self.split = attach_preview(
-            self.table, lambda _row: self.open_selected(), self.error.emit)
+            self.table, self.open_selected, self.error.emit)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -155,8 +157,11 @@ class CodeResults(QWidget):
     def selected_repo(self) -> str:
         return str(getattr(self.table.current_row(), "repo", "") or "")
 
-    def open_selected(self) -> None:
+    def open_selected(self, _from: Any = None) -> None:
         """Open the highlighted row: at its line when it has one (order 0y §2c).
+
+        `_from` is whatever a signal sent along - the cell double-clicked, the
+        preview pane's row - and is not used.
 
         A row that knows its line - a Definition, a Mention, a git hit in the
         checkout - is a place, and goes to the person's editor. A row with no

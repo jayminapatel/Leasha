@@ -43,7 +43,7 @@ from app.ui.presenter import (
 )
 from app.ui.tasks import browse_files_page
 from app.ui.view_options import (
-    apply_to_table, available_columns, button as view_button,
+    apply_to_table, available_columns, button as view_button, weak_slot,
 )
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
@@ -106,6 +106,13 @@ def _first_cell(item: Any, row: Any) -> None:
         item.setToolTip(row.note)
 
 
+def _header_data(store: Any) -> tuple:
+    """The filename count and the volumes, read on a worker. **A function of
+    the store, not a method**: the worker holds what it runs until the
+    collector next passes, and a method would hold the view with it."""
+    return store.count_named_files(), store.distinct_value_counts("on", limit=40)
+
+
 class FilesView(QWidget):
     """A filename browser: type, get files, double-click to open."""
 
@@ -157,7 +164,12 @@ class FilesView(QWidget):
         # Double-click opens the file; right-click offers everything else; Enter
         # does what double-click does, because a keyboard user should never have
         # to reach for the mouse to act on a result they have already selected.
-        self.results.itemDoubleClicked.connect(lambda _item: self._open_selected())
+        #
+        # **2026-09-30: methods and `weak_slot`, never `lambda: self...`.** A
+        # callback that closes over `self`, held by one of this view's own
+        # children, is a cycle, and it kept a view that had been let go alive -
+        # see `view_options.weak_slot`. `tests/unit/test_views_are_freed.py`.
+        self.results.itemDoubleClicked.connect(self._open_selected)
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(self._on_context_menu)
         self.results.installEventFilter(self)
@@ -165,8 +177,8 @@ class FilesView(QWidget):
         # header rather than in Settings, because it is a preference about this
         # table and the table is where people look for it.
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        header.customContextMenuRequested.connect(
-            lambda point: self.view_button.show_menu(header.mapToGlobal(point)))
+        header.customContextMenuRequested.connect(weak_slot(self, lambda view, point: (
+            view.view_button.show_menu(view.results.horizontalHeader().mapToGlobal(point)))))
 
         self.view_button = view_button(
             self, store, PREFS_KEY,
@@ -186,8 +198,7 @@ class FilesView(QWidget):
         # shortcut and same behaviour as the search tab: the owner's rule is
         # that a feature helping one search area is applied to the others.
         self.preview, self.split = attach_preview(
-            self.results, lambda _row: self._open_selected(), self.error.emit,
-            store=store)
+            self.results, self._open_selected, self.error.emit, store=store)
 
         # §3c: the volume picker - names with counts, the slash-menu's
         # own `on` catalogue reused rather than a second list.
@@ -241,13 +252,10 @@ class FilesView(QWidget):
     def refresh_summary(self) -> None:
         """Count the indexed filenames and repopulate the volume picker (§3c),
         on one worker - every tab switch and after every index run."""
-        worker = CallableWorker(self._header_data, component="ui.files.count")
+        worker = CallableWorker(_header_data, self._store, component="ui.files.count")
         worker.signals.finished.connect(self._show_header_data)
         worker.signals.failed.connect(lambda _e: None)   # a label, not a search
         run(QThreadPool.globalInstance(), worker)
-
-    def _header_data(self) -> tuple:
-        return self._store.count_named_files(), self._store.distinct_value_counts("on", limit=40)
 
     def _show_header_data(self, result: tuple) -> None:
         total, values = result
@@ -322,9 +330,9 @@ class FilesView(QWidget):
         worker = CallableWorker(   # the page, its total and its offline volumes
             browse_files_page, self._store, parsed, limit=200, component="ui.files",
         )
-        worker.signals.finished.connect(
-            lambda rows, g=generation: self._show(rows, g, text)
-        )
+        # `weak_slot`: a finished worker and its slots wait for the collector.
+        worker.signals.finished.connect(weak_slot(
+            self, lambda view, rows, g=generation: view._show(rows, g, text)))
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
@@ -382,7 +390,9 @@ class FilesView(QWidget):
         path = str(getattr(row, "path", "") or "") if row is not None else ""
         return path or None
 
-    def _open_selected(self) -> None:
+    def _open_selected(self, _from: Any = None) -> None:
+        """Open the highlighted row. `_from` is whatever a signal sent along -
+        the cell double-clicked, the preview pane's row - and is not used."""
         self._open(self.results.current_row(), reveal=False)
 
     def _reveal_selected(self) -> None:
