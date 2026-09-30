@@ -64,7 +64,7 @@ class ScriptedDecoder:
 def fake_llm(monkeypatch, reply: str, **kw) -> OnnxLLM:
     client = OnnxLLM(None, **kw)
     loaded = SimpleNamespace(decoder=ScriptedDecoder(reply), tokenizer=CharTokenizer(),
-                             eos=[EOS], on_gpu=False)
+                             eos=[EOS], on_gpu=False, prompt_format="chatml")
     monkeypatch.setattr(client, "_ensure", lambda: loaded)
     client._fake = loaded
     return client

@@ -387,8 +387,11 @@ def test_a_file_model_downloads_in_a_child_running_the_applications_own_loader(t
     assert any("Downloading" in s for s in said)
 
 
-def test_the_speech_model_goes_where_transcribe_loads_it_from(tmp_path):
+def test_the_speech_model_goes_where_transcribe_loads_it_from(tmp_path, monkeypatch):
     started: list = []
+    # The child is faked and writes nothing, so the checksum check that follows a
+    # real download (2026-09-30) is not what this test is about.
+    monkeypatch.setattr(model_fetch, "_check_download", lambda *a, **k: None)
     model_fetch.fetch("speech", "base", model_cache=tmp_path,
                       popen=lambda argv, **k: started.append(argv) or _FakeChild(0))
     # 2026-09-29: the ONNX export of that size, into MODEL_CACHE like every ONNX
@@ -396,6 +399,7 @@ def test_the_speech_model_goes_where_transcribe_loads_it_from(tmp_path):
     assert started[0][3] == "onnx-community/whisper-base"
     assert started[0][4] == str(tmp_path)
     assert "snapshot_download" in started[0][2] and "onnx/encoder_model.onnx" in started[0][5]
+    assert started[0][6], "the pinned revision from catalogue.json is passed"
 
 
 def test_stop_kills_the_child(tmp_path):

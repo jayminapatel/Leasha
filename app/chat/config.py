@@ -93,7 +93,7 @@ class ChatSettings:
     answer_model: str = ""
     ollama_url: str = "http://127.0.0.1:11434"
     #: The application-wide model, which every empty role inherits.
-    ollama_model: str = "mistral"
+    ollama_model: str = "qwen2.5:1.5b"      # the tested Ollama model (2026-09-30)
     #: `onnx` - the chat model inside Leasha (`app/ort/llm.py`) - or `ollama`
     #: (`CHAT_ENGINE`, 2026-09-29), and the model folder and processor it uses.
     engine: str = "onnx"
@@ -184,7 +184,7 @@ class ChatSettings:
             "ollama_url": str(_pick(settings, "ollama_url", "OLLAMA_URL",
                                     default="http://127.0.0.1:11434")).strip(),
             "ollama_model": str(_pick(settings, "ollama_model", "OLLAMA_MODEL",
-                                      default="mistral")).strip() or "mistral",
+                                      default="qwen2.5:1.5b")).strip() or "qwen2.5:1.5b",
             "tuning_mode": mode,
             # 2026-09-29: which engine answers, and where its model lives.
             "engine": ("ollama" if str(_pick(settings, "chat_engine", "CHAT_ENGINE",

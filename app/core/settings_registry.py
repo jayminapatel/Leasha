@@ -536,7 +536,10 @@ SETTINGS: tuple[Setting, ...] = (
              "leaving it unreachable costs nothing but the Interpret button.",
     ),
     Setting(
-        key="OLLAMA_MODEL", label="Local model", kind="text", default="mistral",
+        # Default 2026-09-30: qwen2.5:1.5b, the model checked on the owner's laptop
+        # (Interpret and planner JSON correct, 1-8 s). Was "mistral", never checked
+        # here. "Restore defaults" brings back the tested choice.
+        key="OLLAMA_MODEL", label="Local model", kind="text", default="qwen2.5:1.5b",
         group="Models", surface="settings.models",
         help="Any model you have pulled in Ollama.",
     ),

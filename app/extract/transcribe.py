@@ -343,6 +343,26 @@ def _classify_load_failure(exc: BaseException, model: str, path: str) -> AppErro
     ))
 
 
+def _chosen_speech(model_dir: Optional[Path]) -> Optional[tuple[Any, Path]]:
+    """The speech model a person picked with "Use this" in Settings, Models
+    (2026-09-30) - a language-tuned Whisper, say - when it is on disk. Its catalogue
+    entry says it is a Whisper export, so the same engine loads it."""
+    try:
+        from app.ort import catalogue, hub
+
+        key = catalogue.chosen("speech")
+        entry = catalogue.load().by_key(key) if key else None
+        if entry is None or entry.runner != "whisper":
+            return None
+        for folder in _cache_dirs(model_dir):
+            found = hub.resolve(entry.model(), folder) if folder else None
+            if found is not None:
+                return entry.model(), found
+    except Exception:                                   # noqa: BLE001 - the size then decides
+        return None
+    return None
+
+
 def load_engine(model: str, model_dir: Optional[Path], *, path: str = "") -> TranscriberEngine:
     """The engine for `model`, loaded once per process and remembered.
 
@@ -376,7 +396,7 @@ def load_engine(model: str, model_dir: Optional[Path], *, path: str = "") -> Tra
 
             # **The line that keeps this offline**: `resolve_size` only reads
             # the model cache (`hub.resolve`); nothing here can download.
-            found = resolve_size(model, _cache_dirs(model_dir))
+            found = _chosen_speech(model_dir) or resolve_size(model, _cache_dirs(model_dir))
             if found is None:
                 folders = ", ".join(str(d) for d in _cache_dirs(model_dir))
                 raise FileNotFoundError(

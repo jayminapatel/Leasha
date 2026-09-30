@@ -112,6 +112,10 @@ class SettingsShelves:
         self.chat_box.changed.connect(self.settings_changed)
         self.media_box = MediaBox(settings)
         self.media_box.changed.connect(self.settings_changed)
+        # Every model on this computer and every one Leasha can run (2026-09-30).
+        from app.ui.widgets.model_manager import ModelManagerBox
+
+        self.model_manager = ModelManagerBox(settings)
 
         self.storage_box = StorageBox(settings)
         self.data_path = self.storage_box.data_path
@@ -239,7 +243,7 @@ class SettingsShelves:
                                       behaviour, self.file_types)),
             (CATEGORY_SEARCH, (self.search_box, self.search_behaviour,
                                self.editor_box, privacy)),
-            (CATEGORY_MODELS, (self.models, self.photo_people_box,
+            (CATEGORY_MODELS, (self.model_manager, self.models, self.photo_people_box,
                                self.chat_box, self.media_box)),
             (CATEGORY_APPEARANCE, (self.window_box,)),
         )

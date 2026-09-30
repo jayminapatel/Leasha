@@ -258,7 +258,7 @@ class Settings(BaseModel):
 
     # --- optional Ollama ----------------------------------------------------
     ollama_url: str = "http://127.0.0.1:11434"
-    ollama_model: str = "mistral"
+    ollama_model: str = "qwen2.5:1.5b"      # the tested Ollama model (2026-09-30); was "mistral"
     #: Work order 0i section 3. A separate model from `ollama_model`: query
     #: translation wants a small, fast text model; Describe and the caption
     #: trickle need a vision-capable one (llava/qwen-vl class).
@@ -663,7 +663,7 @@ def load_settings(
             search_plain_words=_as_bool(
                 "SEARCH_PLAIN_WORDS", values.get("SEARCH_PLAIN_WORDS", "true")),
             ollama_url=values.get("OLLAMA_URL") or "http://127.0.0.1:11434",
-            ollama_model=values.get("OLLAMA_MODEL") or "mistral",
+            ollama_model=values.get("OLLAMA_MODEL") or "qwen2.5:1.5b",
             ollama_vision_model=values.get("OLLAMA_VISION_MODEL") or "llava",
             chat_model=(values.get("CHAT_MODEL") or "").strip(),
             chat_router_model=(values.get("CHAT_ROUTER_MODEL") or "").strip(),

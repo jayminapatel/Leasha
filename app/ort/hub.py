@@ -42,6 +42,9 @@ class OnnxModel:
     approx_mb: int = 0
     licence: str = ""
     extra: tuple[str, ...] = field(default_factory=tuple)
+    #: The pinned repository revision (2026-09-30, `catalogue.json`); "" means
+    #: whatever snapshot is on disk. Downloads fetch exactly this revision.
+    revision: str = ""
 
     def graph_file(self, graph: str) -> str:
         return f"onnx/{graph}{self.suffix}.onnx"
@@ -114,7 +117,18 @@ def resolve_any(models: tuple[OnnxModel, ...], cache_dir: Optional[Path]
 
 
 def by_key(key: str) -> Optional[OnnxModel]:
-    return next((m for m in MODELS if m.key == str(key or "").strip()), None)
+    """A model by key: the catalogue's entry (with its pinned revision) when it has
+    one, else the built-in definition above."""
+    wanted = str(key or "").strip()
+    try:
+        from app.ort.catalogue import load
+
+        entry = load().by_key(wanted)
+        if entry is not None:
+            return entry.model()
+    except Exception:                                  # noqa: BLE001 - fall back to built-ins
+        pass
+    return next((m for m in MODELS if m.key == wanted), None)
 
 
 def _snapshots(repo: str, cache_dir: Path) -> list[Path]:
@@ -130,7 +144,11 @@ def resolve(model: OnnxModel, cache_dir: Optional[Path]) -> Optional[Path]:
     """The folder holding every file `model` needs, or None. Offline; never raises."""
     if not cache_dir:
         return None
-    for snapshot in _snapshots(model.repo, Path(cache_dir)):
+    snapshots = _snapshots(model.repo, Path(cache_dir))
+    if model.revision:
+        # The pinned revision first; another complete snapshot still serves.
+        snapshots.sort(key=lambda p: p.name != model.revision)
+    for snapshot in snapshots:
         try:
             if all((snapshot / name).is_file() for name in model.files()):
                 return snapshot
@@ -158,4 +176,4 @@ def fetch(model: OnnxModel, cache_dir: Path, *,
     _log.info("downloading {} ({} files, about {} MB) from {}", model.key, len(patterns),
               model.approx_mb, model.repo)
     return Path(snapshot_download(model.repo, cache_dir=str(cache_dir),
-                                  allow_patterns=patterns))
+                                  allow_patterns=patterns, revision=model.revision or None))

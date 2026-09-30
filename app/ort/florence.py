@@ -149,12 +149,14 @@ class OnnxFlorence:
 
     @classmethod
     def from_cache(cls, cache_dir: Optional[Path], *, device: str = "auto") -> Optional["OnnxFlorence"]:
-        """Full precision when it is downloaded, the int8 copy otherwise."""
-        found = hub.resolve_any((hub.FLORENCE, hub.FLORENCE_INT8), cache_dir)
+        """The catalogue's best photo copy on disk (full precision first)."""
+        from app.ort import catalogue
+
+        found = catalogue.best("photo", cache_dir)
         if found is None:
             return None
-        model, folder = found
-        return cls(folder, model=model, device=device)
+        entry, folder = found
+        return cls(folder, model=entry.model(), device=device)
 
     def _embed(self, ids: list[int]) -> np.ndarray:
         return self.embed.session.run(None, {"input_ids": np.array([ids], dtype=np.int64)})[0]

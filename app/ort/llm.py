@@ -77,6 +77,66 @@ def chatml(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = Non
     return "".join(parts)
 
 
+def _system_and_rest(messages: Sequence[Mapping[str, str]],
+                     system: Optional[str]) -> tuple[str, list[Mapping[str, str]]]:
+    rows = list(messages)
+    if rows and rows[0].get("role") == "system":
+        return str(rows[0].get("content") or ""), rows[1:]
+    return system or DEFAULT_SYSTEM, rows
+
+
+def llama3(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = None) -> str:
+    """Llama 3's format (`<|start_header_id|>role<|end_header_id|>`)."""
+    sys_text, rows = _system_and_rest(messages, system)
+    parts = ["<|begin_of_text|>",
+             f"<|start_header_id|>system<|end_header_id|>\n\n{sys_text}<|eot_id|>"]
+    for row in rows:
+        parts.append(f"<|start_header_id|>{row.get('role') or 'user'}<|end_header_id|>\n\n"
+                     f"{row.get('content') or ''}<|eot_id|>")
+    parts.append("<|start_header_id|>assistant<|end_header_id|>\n\n")
+    return "".join(parts)
+
+
+def gemma(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = None) -> str:
+    """Gemma's format. It has no system turn: the system text leads the first user turn,
+    as Gemma's own template does; the assistant is called `model`."""
+    sys_text, rows = _system_and_rest(messages, system)
+    parts, lead = ["<bos>"], sys_text
+    for row in rows:
+        role = "model" if row.get("role") == "assistant" else "user"
+        content = str(row.get("content") or "")
+        if lead and role == "user":
+            content, lead = f"{lead}\n\n{content}", ""
+        parts.append(f"<start_of_turn>{role}\n{content}<end_of_turn>\n")
+    parts.append("<start_of_turn>model\n")
+    return "".join(parts)
+
+
+def phi3(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = None) -> str:
+    """Phi-3's format (`<|user|>`, `<|assistant|>`, `<|end|>`)."""
+    sys_text, rows = _system_and_rest(messages, system)
+    parts = [f"<|system|>\n{sys_text}<|end|>\n"]
+    for row in rows:
+        parts.append(f"<|{row.get('role') or 'user'}|>\n{row.get('content') or ''}<|end|>\n")
+    parts.append("<|assistant|>\n")
+    return "".join(parts)
+
+
+#: Prompt format name -> builder, and the tokens that end a turn in it. A chat
+#: model's format is in its catalogue entry (read from the model's own chat
+#: template when the list is updated from Hugging Face, 2026-09-30).
+FORMATS = {"chatml": chatml, "llama3": llama3, "gemma": gemma, "phi3": phi3}
+END_TOKENS = {"chatml": ("<|im_end|>", "<|endoftext|>"),
+              "llama3": ("<|eot_id|>", "<|end_of_text|>"),
+              "gemma": ("<end_of_turn>", "<eos>"),
+              "phi3": ("<|end|>", "<|endoftext|>")}
+
+
+def format_prompt(fmt: str, messages: Sequence[Mapping[str, str]], *,
+                  system: Optional[str] = None) -> str:
+    return FORMATS.get(fmt or "chatml", chatml)(messages, system=system)
+
+
 def first_json(text: str) -> str:
     """The first balanced `{...}` in `text`, or `text` unchanged. What `json_mode`
     promised callers through Ollama: a string that parses."""
@@ -112,8 +172,11 @@ def first_json(text: str) -> str:
 class _Loaded:
     """One model's session, tokenizer and end tokens."""
 
-    def __init__(self, folder: Path, model: hub.OnnxModel, device: str) -> None:
+    def __init__(self, folder: Path, model: hub.OnnxModel, device: str,
+                 prompt_format: str = "chatml") -> None:
         from tokenizers import Tokenizer
+
+        self.prompt_format = prompt_format if prompt_format in FORMATS else "chatml"
 
         config = json.loads((folder / "config.json").read_text(encoding="utf-8"))
         try:
@@ -131,7 +194,7 @@ class _Loaded:
         self.tokenizer = Tokenizer.from_file(str(folder / "tokenizer.json"))
         eos = generation.get("eos_token_id", config.get("eos_token_id", []))
         self.eos = [int(e) for e in (eos if isinstance(eos, list) else [eos])]
-        for token in ("<|im_end|>", "<|endoftext|>"):
+        for token in END_TOKENS[self.prompt_format]:
             found = self.tokenizer.token_to_id(token)
             if found is not None and found not in self.eos:
                 self.eos.append(found)
@@ -199,10 +262,39 @@ class OnnxLLM:
         ))
 
     def _copies(self) -> tuple[hub.OnnxModel, ...]:
-        """The copies of the chosen model, best first: the 4-bit one when it is the
-        Qwen chat model and on disk (see `hub.QWEN_1_5B_Q4`), then int8."""
-        spec = self._spec()
-        return (hub.QWEN_1_5B_Q4, spec) if spec is hub.QWEN_1_5B else (spec,)
+        """The chat copies to try, best first: the catalogue's chat entries (verified
+        first, by rank - the 4-bit Qwen leads, `catalogue.json`), falling back to the
+        built-in definitions when the catalogue cannot be read."""
+        try:
+            from app.ort import catalogue
+
+            cat = catalogue.load()
+            rows = cat.for_job("chat")
+            ordered = [e for e in rows if e.is_verified] + [e for e in rows if not e.is_verified]
+            picked = catalogue.chosen("chat")          # "Use this" (2026-09-30) goes first
+            if picked and cat.by_key(picked) is not None:
+                ordered = [cat.by_key(picked)] + [e for e in ordered if e.key != picked]
+            if ordered:
+                return tuple(e.model() for e in ordered)
+        except Exception:                               # noqa: BLE001 - built-ins below
+            pass
+        return (hub.QWEN_1_5B_Q4, hub.QWEN_1_5B)
+
+    @staticmethod
+    def _format_of(key: str) -> str:
+        """The chat format the catalogue records for this copy (ChatML if none)."""
+        try:
+            from app.ort import catalogue
+
+            entry = catalogue.load().by_key(key)
+            return (entry.prompt_format if entry is not None and entry.prompt_format
+                    else "chatml")
+        except Exception:                               # noqa: BLE001
+            return "chatml"
+
+    def _prompt(self, messages: Sequence[Mapping[str, str]], *,
+                system: Optional[str] = None) -> str:
+        return format_prompt(self._ensure().prompt_format, messages, system=system)
 
     def _ensure(self) -> _Loaded:
         with self._lock:
@@ -214,7 +306,7 @@ class OnnxLLM:
             spec, folder = found
             try:
                 started = time.monotonic()
-                self._loaded = _Loaded(folder, spec, self.device)
+                self._loaded = _Loaded(folder, spec, self.device, self._format_of(spec.key))
                 self._loaded_key = self._model      # the choice, whichever copy served it
                 self._load_error = None
                 _log.info("{} loaded in {:.1f}s on the {}", spec.key, time.monotonic() - started,
@@ -338,7 +430,7 @@ class OnnxLLM:
     def stream(self, prompt: str, *, temperature: float = 0.0, timeout: Optional[float] = None,
                max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
                should_stop: Optional[Callable[[], bool]] = None) -> Iterator[str]:
-        text = chatml([{"role": "user", "content": prompt}])
+        text = self._prompt([{"role": "user", "content": prompt}])
         yield from self._until_stop(self._tokens(text, temperature=temperature,
                                                  max_tokens=max_tokens, timeout=timeout,
                                                  should_stop=should_stop), stop)
@@ -348,7 +440,7 @@ class OnnxLLM:
                     stop: Optional[list[str]] = None,
                     should_stop: Optional[Callable[[], bool]] = None,
                     think: Optional[str] = None) -> Iterator[str]:
-        text = chatml(messages)
+        text = self._prompt(messages)
         yield from self._until_stop(self._tokens(text, temperature=temperature,
                                                  max_tokens=max_tokens, timeout=timeout,
                                                  should_stop=should_stop), stop)
@@ -369,7 +461,7 @@ class OnnxLLM:
                 details="the chat model cannot see pictures; Describe uses the photo model"))
         started = time.monotonic()
         limit = float(timeout or self.timeout)
-        text = chatml([{"role": "user", "content": prompt}],
+        text = self._prompt([{"role": "user", "content": prompt}],
                       system=JSON_SYSTEM if json_mode else None)
         # **The reply is started for it.** Ollama's `format: json` constrains
         # decoding with a grammar; this cannot, so the answer begins with "{"

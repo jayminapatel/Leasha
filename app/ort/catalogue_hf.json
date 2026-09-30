@@ -1,0 +1,6190 @@
+{
+ "format": 1,
+ "version": "2026-09-30",
+ "note": "Found by 'Update the list from Hugging Face'. Not checked on a real machine.",
+ "models": [
+  {
+   "key": "hf:onnx-community/AFM-4.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "AFM-4.5B-ONNX (4-bit)",
+   "repo": "onnx-community/AFM-4.5B-ONNX",
+   "revision": "3c9026ff30bf456bc5817fc06b19bc27484ca354",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1"
+   ],
+   "approx_mb": 2786,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Chat and Interpret: AFM-4.5B-ONNX, built on arcee-ai/AFM-4.5B. About 2,786 MB; licence apache-2.0; 17 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/AMD-OLMo-1B-SFT-DPO:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "AMD-OLMo-1B-SFT-DPO (4-bit)",
+   "repo": "onnx-community/AMD-OLMo-1B-SFT-DPO",
+   "revision": "0282f7af5ad69cd962aadf8ba2bd81ce789fe9f5",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 18,
+   "description": "Chat and Interpret: AMD-OLMo-1B-SFT-DPO, built on amd/AMD-OLMo-1B-SFT-DPO. About 1,033 MB; 18 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Arch-Function-1.5B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Arch-Function-1.5B (4-bit)",
+   "repo": "onnx-community/Arch-Function-1.5B",
+   "revision": "7d7f36ee1f6a26820d5b8200c58234cfb2dac0ce",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1688,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 21,
+   "description": "Chat and Interpret: Arch-Function-1.5B, built on katanemo/Arch-Function-1.5B. About 1,688 MB; licence other; 21 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Atomight-V2.2-UltraThink-0.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Atomight-V2.2-UltraThink-0.5B-ONNX (4-bit)",
+   "repo": "onnx-community/Atomight-V2.2-UltraThink-0.5B-ONNX",
+   "revision": "837c5d741a71d7349bc36545851b5339b599a8d6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 815,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 16,
+   "description": "Chat and Interpret: Atomight-V2.2-UltraThink-0.5B-ONNX, built on NovatasticRoScript/Atomight-V2.2-UltraThink-0.5B. About 815 MB; licence mit; 16 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Baguettotron-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Baguettotron-ONNX (4-bit)",
+   "repo": "onnx-community/Baguettotron-ONNX",
+   "revision": "15554aeb75fd702a88004fcd578044430cacd9ef",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 315,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 44,
+   "description": "Chat and Interpret: Baguettotron-ONNX, built on PleIAs/Baguettotron. About 315 MB; licence apache-2.0; 44 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Biggie-SmoLlm-0.4B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Biggie-SmoLlm-0.4B-ONNX (4-bit)",
+   "repo": "onnx-community/Biggie-SmoLlm-0.4B-ONNX",
+   "revision": "5abfde356bba6074a408e72e538c33e9b80c3a23",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 369,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Chat and Interpret: Biggie-SmoLlm-0.4B-ONNX, built on nisten/Biggie-SmoLlm-0.4B. About 369 MB; 14 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Bitnet-SmolLM-135M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Bitnet-SmolLM-135M-ONNX (4-bit)",
+   "repo": "onnx-community/Bitnet-SmolLM-135M-ONNX",
+   "revision": "1775a6835acc75d43d2478e5450a80293e9c5521",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 161,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 24,
+   "description": "Chat and Interpret: Bitnet-SmolLM-135M-ONNX, built on ighoshsubho/Bitnet-SmolLM-135M. About 161 MB; 24 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Bonsai-1.7B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Bonsai-1.7B-ONNX (4-bit)",
+   "repo": "onnx-community/Bonsai-1.7B-ONNX",
+   "revision": "3f3cf1759daf66342d26610488b9931f2fafcb29",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1068,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 805,
+   "description": "Chat and Interpret: Bonsai-1.7B-ONNX, built on prism-ml/Bonsai-1.7B-unpacked. About 1,068 MB; licence apache-2.0; 805 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/DogeAI-v1.5-Coder-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "DogeAI-v1.5-Coder-ONNX (4-bit)",
+   "repo": "onnx-community/DogeAI-v1.5-Coder-ONNX",
+   "revision": "293d988e85e6992757bba100d1f51d5050fc9356",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 801,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Chat and Interpret: DogeAI-v1.5-Coder-ONNX, built on AxionLab-official/DogeAI-v1.5-Coder. About 801 MB; licence apache-2.0; 12 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/Falcon-H1-Tiny-90M-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Falcon-H1-Tiny-90M-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Falcon-H1-Tiny-90M-Instruct-ONNX",
+   "revision": "330a401293cdaf7628eab9e7fb5d5ad9615bd9cc",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 130,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 265,
+   "description": "Chat and Interpret: Falcon-H1-Tiny-90M-Instruct-ONNX, built on tiiuae/Falcon-H1-Tiny-90M-Instruct. About 130 MB; licence other; 265 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Falcon-H1-Tiny-Multilingual-100M-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Falcon-H1-Tiny-Multilingual-100M-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Falcon-H1-Tiny-Multilingual-100M-Instruct-ONNX",
+   "revision": "a8bbc41337a7133ead2ebf15dd696326c4529589",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 148,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 64,
+   "description": "Chat and Interpret: Falcon-H1-Tiny-Multilingual-100M-Instruct-ONNX, built on tiiuae/Falcon-H1-Tiny-Multilingual-100M-Instruct. About 148 MB; licence other; 64 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Falcon3-1B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Falcon3-1B-Instruct (4-bit)",
+   "repo": "onnx-community/Falcon3-1B-Instruct",
+   "revision": "95f6c65f4faff4529337fb3fda049510eea12436",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1867,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 39,
+   "description": "Chat and Interpret: Falcon3-1B-Instruct, built on tiiuae/Falcon3-1B-Instruct. About 1,867 MB; 39 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-base:full",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-base (full)",
+   "repo": "onnx-community/Florence-2-base",
+   "revision": "d59e079711c57174f29265539fb4cc9f0f335916",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1036,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 3750,
+   "description": "Photo tags and captions (Florence-2): Florence-2-base, built on microsoft/Florence-2-base. About 1,036 MB; licence mit; 3,750 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-base:int8",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-base (int8)",
+   "repo": "onnx-community/Florence-2-base",
+   "revision": "d59e079711c57174f29265539fb4cc9f0f335916",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 262,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 3750,
+   "description": "Photo tags and captions (Florence-2): Florence-2-base, built on microsoft/Florence-2-base. About 262 MB; licence mit; 3,750 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-base-ft:full",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-base-ft (full)",
+   "repo": "onnx-community/Florence-2-base-ft",
+   "revision": "e88a44eaf3791a35eae0c5a47b3dbcd36e67eb6f",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1036,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 30111,
+   "description": "Photo tags and captions (Florence-2): Florence-2-base-ft, built on microsoft/Florence-2-base-ft. About 1,036 MB; licence mit; 30,111 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-base-ft:int8",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-base-ft (int8)",
+   "repo": "onnx-community/Florence-2-base-ft",
+   "revision": "e88a44eaf3791a35eae0c5a47b3dbcd36e67eb6f",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 262,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 30111,
+   "description": "Photo tags and captions (Florence-2): Florence-2-base-ft, built on microsoft/Florence-2-base-ft. About 262 MB; licence mit; 30,111 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-large:full",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-large (full)",
+   "repo": "onnx-community/Florence-2-large",
+   "revision": "b7751295927207b2a8c2f354af8baadea5b0404b",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 3142,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 251,
+   "description": "Photo tags and captions (Florence-2): Florence-2-large, built on microsoft/Florence-2-large. About 3,142 MB; licence mit; 251 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-large:int8",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-large (int8)",
+   "repo": "onnx-community/Florence-2-large",
+   "revision": "b7751295927207b2a8c2f354af8baadea5b0404b",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 791,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 251,
+   "description": "Photo tags and captions (Florence-2): Florence-2-large, built on microsoft/Florence-2-large. About 791 MB; licence mit; 251 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-large-ft:full",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-large-ft (full)",
+   "repo": "onnx-community/Florence-2-large-ft",
+   "revision": "04ace74913c28d7ec94af32cee5c111a10126b6f",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 3142,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1362,
+   "description": "Photo tags and captions (Florence-2): Florence-2-large-ft, built on microsoft/Florence-2-large-ft. About 3,142 MB; licence mit; 1,362 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Florence-2-large-ft:int8",
+   "job": "photo",
+   "runner": "florence",
+   "rank": 5,
+   "label": "Florence-2-large-ft (int8)",
+   "repo": "onnx-community/Florence-2-large-ft",
+   "revision": "04ace74913c28d7ec94af32cee5c111a10126b6f",
+   "graphs": [
+    "vision_encoder",
+    "embed_tokens",
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 791,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1362,
+   "description": "Photo tags and captions (Florence-2): Florence-2-large-ft, built on microsoft/Florence-2-large-ft. About 791 MB; licence mit; 1,362 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/Home-FunctionGemma-270m-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Home-FunctionGemma-270m-ONNX (4-bit)",
+   "repo": "onnx-community/Home-FunctionGemma-270m-ONNX",
+   "revision": "a1b66bff542ac3527423adf655518b868afabfd6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 801,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Chat and Interpret: Home-FunctionGemma-270m-ONNX, built on acon96/Home-FunctionGemma-270m. About 801 MB; licence gemma; 22 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-1.2B-Extract-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-1.2B-Extract-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-1.2B-Extract-ONNX",
+   "revision": "705acab9b3c6afbe078073e9d8437d8c909fc565",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1161,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 27,
+   "description": "Chat and Interpret: LFM2-1.2B-Extract-ONNX, built on LiquidAI/LFM2-1.2B-Extract. About 1,161 MB; licence other; 27 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-1.2B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-1.2B-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-1.2B-ONNX",
+   "revision": "10c318187a13834138d57b1c110f4d9efb4895a7",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 811,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 737,
+   "description": "Chat and Interpret: LFM2-1.2B-ONNX, built on LiquidAI/LFM2-1.2B. About 811 MB; licence other; 737 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-1.2B-RAG-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-1.2B-RAG-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-1.2B-RAG-ONNX",
+   "revision": "b299363e6bf477b681d8a4fbf7079650f21259e3",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1161,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 33,
+   "description": "Chat and Interpret: LFM2-1.2B-RAG-ONNX, built on LiquidAI/LFM2-1.2B-RAG. About 1,161 MB; licence other; 33 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-1.2B-Tool-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-1.2B-Tool-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-1.2B-Tool-ONNX",
+   "revision": "1992998ab37ef9db120f1589181db465e0f037ad",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1161,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 53,
+   "description": "Chat and Interpret: LFM2-1.2B-Tool-ONNX, built on LiquidAI/LFM2-1.2B-Tool. About 1,161 MB; licence other; 53 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-2.6B-Exp-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-2.6B-Exp-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-2.6B-Exp-ONNX",
+   "revision": "8d19f98b5953a154dee59020e78b46be0426c9f7",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1666,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Chat and Interpret: LFM2-2.6B-Exp-ONNX, built on LiquidAI/LFM2-2.6B-Exp. About 1,666 MB; licence other; 14 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-2.6B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-2.6B-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-2.6B-ONNX",
+   "revision": "9655cd41239618886d6ebf9b4ff20b892b295f78",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1996,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 84,
+   "description": "Chat and Interpret: LFM2-2.6B-ONNX, built on LiquidAI/LFM2-2.6B. About 1,996 MB; licence other; 84 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-350M-Extract-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-350M-Extract-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-350M-Extract-ONNX",
+   "revision": "0b32c95b4a83dada48e803beb8e48e2e37e927a2",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 459,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 242,
+   "description": "Chat and Interpret: LFM2-350M-Extract-ONNX, built on LiquidAI/LFM2-350M-Extract. About 459 MB; licence other; 242 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-350M-Math-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-350M-Math-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-350M-Math-ONNX",
+   "revision": "0b8a8b01a61a39eff28221232f9e6734b6e842b5",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 459,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 30,
+   "description": "Chat and Interpret: LFM2-350M-Math-ONNX, built on LiquidAI/LFM2-350M-Math. About 459 MB; licence other; 30 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-350M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-350M-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-350M-ONNX",
+   "revision": "1888d143147cd4f17d4b75a60f9bc8a568e2342d",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 280,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 761,
+   "description": "Chat and Interpret: LFM2-350M-ONNX, built on LiquidAI/LFM2-350M. About 280 MB; licence other; 761 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-700M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-700M-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-700M-ONNX",
+   "revision": "2afe8f54262107d02c5fb3195282010d8379251b",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 533,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 450,
+   "description": "Chat and Interpret: LFM2-700M-ONNX, built on LiquidAI/LFM2-700M. About 533 MB; licence other; 450 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2-8B-A1B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2-8B-A1B-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2-8B-A1B-ONNX",
+   "revision": "eada19fa5741bb82378eea6b636914d7bffebbce",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1",
+    "onnx/model_q4.onnx_data_2"
+   ],
+   "approx_mb": 5076,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Chat and Interpret: LFM2-8B-A1B-ONNX, built on LiquidAI/LFM2-8B-A1B. About 5,076 MB; licence other; 22 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/LFM2.5-350M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "LFM2.5-350M-ONNX (4-bit)",
+   "repo": "onnx-community/LFM2.5-350M-ONNX",
+   "revision": "2c07371c2e84776cad597f3d813b7d306d292aea",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 280,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 4242,
+   "description": "Chat and Interpret: LFM2.5-350M-ONNX, built on LiquidAI/LFM2.5-350M. About 280 MB; licence other; 4,242 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Llama-3.2-1B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-3.2-1B (4-bit)",
+   "repo": "onnx-community/Llama-3.2-1B",
+   "revision": "e14cf18d6dcb4b211e6843db9982ab1aa9e6acc3",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1583,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 149,
+   "description": "Chat and Interpret: Llama-3.2-1B, built on meta-llama/Llama-3.2-1B. About 1,583 MB; licence llama3.2; 149 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llama-3.2-1B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-3.2-1B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Llama-3.2-1B-Instruct-ONNX",
+   "revision": "14007543b6dc92de88daf96a9aa85d2f95ace6ef",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1614,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 4188,
+   "description": "Chat and Interpret: Llama-3.2-1B-Instruct-ONNX, built on meta-llama/Llama-3.2-1B-Instruct. About 1,614 MB; licence llama3.2; 4,188 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llama-3.2-3B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-3.2-3B (4-bit)",
+   "repo": "onnx-community/Llama-3.2-3B",
+   "revision": "0f3914885da0659ba49a8fcbd1cf09ce4f673058",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 3185,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 68,
+   "description": "Chat and Interpret: Llama-3.2-3B, built on meta-llama/Llama-3.2-3B. About 3,185 MB; licence llama3.2; 68 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llama-3.2-3B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-3.2-3B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Llama-3.2-3B-Instruct-ONNX",
+   "revision": "cab364e7d0e1de7aa09e3abc932be92361c5b55f",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1"
+   ],
+   "approx_mb": 3248,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 2072,
+   "description": "Chat and Interpret: Llama-3.2-3B-Instruct-ONNX, built on meta-llama/Llama-3.2-3B-Instruct. About 3,248 MB; licence llama3.2; 2,072 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llama-3.2-3B-Instruct-onnx-web:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-3.2-3B-Instruct-onnx-web (4-bit)",
+   "repo": "onnx-community/Llama-3.2-3B-Instruct-onnx-web",
+   "revision": "8ddaf6b6764ff2916a807e3c2ec0b5a441192473",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2508,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Chat and Interpret: Llama-3.2-3B-Instruct-onnx-web. About 2,508 MB; licence llama3.2; 17 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llama-Guard-3-1B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llama-Guard-3-1B (4-bit)",
+   "repo": "onnx-community/Llama-Guard-3-1B",
+   "revision": "7ceb91f8dd2bf3248309a2f9e3022a560095d937",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1739,
+   "licence": "llama3.2",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 33,
+   "description": "Chat and Interpret: Llama-Guard-3-1B, built on meta-llama/Llama-Guard-3-1B. About 1,739 MB; licence llama3.2; 33 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Llasa-1B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Llasa-1B-ONNX (4-bit)",
+   "repo": "onnx-community/Llasa-1B-ONNX",
+   "revision": "d701c8f29e41cf7a2de6ac05622fc016a3519b50",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2126,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Chat and Interpret: Llasa-1B-ONNX, built on HKUSTAudio/Llasa-1B. About 2,126 MB; 12 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/Minueza-2-96M-Instruct-Variant-10-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Minueza-2-96M-Instruct-Variant-10-ONNX (4-bit)",
+   "repo": "onnx-community/Minueza-2-96M-Instruct-Variant-10-ONNX",
+   "revision": "b2167c707438a971b668d2d71761ea0549e49f56",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 127,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 15,
+   "description": "Chat and Interpret: Minueza-2-96M-Instruct-Variant-10-ONNX, built on Felladrin/Minueza-2-96M-Instruct-Variant-10. About 127 MB; licence apache-2.0; 15 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/N1-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "N1-ONNX (4-bit)",
+   "repo": "onnx-community/N1-ONNX",
+   "revision": "2bdee41744a7162fa38feff960e95c8d66192e50",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Chat and Interpret: N1-ONNX, built on GoofyLM/N1. About 172 MB; 12 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/NuExtract-1.5-tiny-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "NuExtract-1.5-tiny-ONNX (4-bit)",
+   "repo": "onnx-community/NuExtract-1.5-tiny-ONNX",
+   "revision": "051dfb0fba73508c4e94e302238f907616e8d588",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 45,
+   "description": "Chat and Interpret: NuExtract-1.5-tiny-ONNX, built on numind/NuExtract-1.5-tiny. About 734 MB; licence mit; 45 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Olmo-3-7B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Olmo-3-7B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Olmo-3-7B-Instruct-ONNX",
+   "revision": "64cf5a8d2dac83c3b889d44c422de2ae3e2b2e7d",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1"
+   ],
+   "approx_mb": 3759,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 23,
+   "description": "Chat and Interpret: Olmo-3-7B-Instruct-ONNX, built on allenai/Olmo-3-7B-Instruct. About 3,759 MB; licence apache-2.0; 23 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Olmo-Hybrid-Think-SFT-7B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Olmo-Hybrid-Think-SFT-7B-ONNX (4-bit)",
+   "repo": "onnx-community/Olmo-Hybrid-Think-SFT-7B-ONNX",
+   "revision": "ef14853d69074fed9d86dd877f51f19450c233e1",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1",
+    "onnx/model_q4.onnx_data_2"
+   ],
+   "approx_mb": 4566,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Chat and Interpret: Olmo-Hybrid-Think-SFT-7B-ONNX, built on allenai/Olmo-Hybrid-Think-SFT-7B. About 4,566 MB; licence apache-2.0; 11 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/OpenMath-Nemotron-1.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "OpenMath-Nemotron-1.5B-ONNX (4-bit)",
+   "repo": "onnx-community/OpenMath-Nemotron-1.5B-ONNX",
+   "revision": "335a523e792d01ef4e94e38d0b77884b48745e66",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1875,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 7,
+   "description": "Chat and Interpret: OpenMath-Nemotron-1.5B-ONNX, built on nvidia/OpenMath-Nemotron-1.5B. About 1,875 MB; 7 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Phi-3-vision-128k-instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Phi-3-vision-128k-instruct (4-bit)",
+   "repo": "onnx-community/Phi-3-vision-128k-instruct",
+   "revision": "a3d49404d7aa5915d7a221b5f7275a2cef060e17",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2269,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 43,
+   "description": "Chat and Interpret: Phi-3-vision-128k-instruct, built on microsoft/Phi-3-vision-128k-instruct. About 2,269 MB; 43 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Phi-3.5-mini-instruct-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Phi-3.5-mini-instruct-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/Phi-3.5-mini-instruct-ONNX-GQA",
+   "revision": "71d5a90ca1c54ffb7ca7a0a56c99dbc67ac5946e",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2645,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 48,
+   "description": "Chat and Interpret: Phi-3.5-mini-instruct-ONNX-GQA, built on microsoft/Phi-3.5-mini-instruct. About 2,645 MB; 48 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Phi-3.5-vision-instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Phi-3.5-vision-instruct (4-bit)",
+   "repo": "onnx-community/Phi-3.5-vision-instruct",
+   "revision": "cb958f41f88543a563e34013fed0d4891f4991bf",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2269,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 203,
+   "description": "Chat and Interpret: Phi-3.5-vision-instruct, built on microsoft/Phi-3.5-vision-instruct. About 2,269 MB; 203 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Phi-4-mini-instruct-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Phi-4-mini-instruct-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/Phi-4-mini-instruct-ONNX-GQA",
+   "revision": "94132999c7b4b52c24b8a80ee0dafd850ed101a1",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data",
+    "onnx/model_q4.onnx_data_1",
+    "onnx/model_q4.onnx_data_2"
+   ],
+   "approx_mb": 4315,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 43,
+   "description": "Chat and Interpret: Phi-4-mini-instruct-ONNX-GQA, built on microsoft/Phi-4-mini-instruct. About 4,315 MB; 43 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Phi-4-mini-instruct-ONNX-MHA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Phi-4-mini-instruct-ONNX-MHA (4-bit)",
+   "repo": "onnx-community/Phi-4-mini-instruct-ONNX-MHA",
+   "revision": "128b67aef45b46a4fe379a232b926557e071c798",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 4316,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 21,
+   "description": "Chat and Interpret: Phi-4-mini-instruct-ONNX-MHA, built on microsoft/Phi-4-mini-instruct. About 4,316 MB; 21 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/Pleias-Nano:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Pleias-Nano (4-bit)",
+   "repo": "onnx-community/Pleias-Nano",
+   "revision": "1318e7e4e212f6b11ce68446466c3f81393e6896",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1145,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Chat and Interpret: Pleias-Nano, built on PleIAs/Pleias-Nano. About 1,145 MB; 19 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Pleias-Pico:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Pleias-Pico (4-bit)",
+   "repo": "onnx-community/Pleias-Pico",
+   "revision": "a4437f2ca2a16d7a4bf8104d5906175d2e043d26",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 427,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 20,
+   "description": "Chat and Interpret: Pleias-Pico, built on PleIAs/Pleias-Pico. About 427 MB; 20 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen-Dumb-Merged-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen-Dumb-Merged-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen-Dumb-Merged-ONNX",
+   "revision": "8c719acecd5eb796d1954638171be4e803788868",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 815,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 725,
+   "description": "Chat and Interpret: Qwen-Dumb-Merged-ONNX, built on shimbaaa/Qwen-Dumb-Merged. About 815 MB; licence apache-2.0; 725 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen1.5-0.5B-Chat-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen1.5-0.5B-Chat-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen1.5-0.5B-Chat-ONNX",
+   "revision": "6d413dd9a252749e0760902c93331e3e4e65b73c",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 778,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 231,
+   "description": "Chat and Interpret: Qwen1.5-0.5B-Chat-ONNX, built on Qwen/Qwen1.5-0.5B-Chat. About 778 MB; 231 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen1.5-0.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen1.5-0.5B-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen1.5-0.5B-ONNX",
+   "revision": "db614f674b5aa60078f9c0bc3b8d91969d784578",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 778,
+   "licence": "other",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 21,
+   "description": "Chat and Interpret: Qwen1.5-0.5B-ONNX, built on Qwen/Qwen1.5-0.5B. About 778 MB; licence other; 21 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2-0.5B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2-0.5B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2-0.5B-Instruct-ONNX",
+   "revision": "a9a2d1512f7fb9901a46b9b4d0f7146528b28c1e",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 76,
+   "description": "Chat and Interpret: Qwen2-0.5B-Instruct-ONNX, built on Qwen/Qwen2-0.5B-Instruct. About 734 MB; licence apache-2.0; 76 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2-0.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2-0.5B-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2-0.5B-ONNX",
+   "revision": "b4c8e41aef7f5a3a01db1d81d6bab14bbbf48312",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Chat and Interpret: Qwen2-0.5B-ONNX, built on Qwen/Qwen2-0.5B. About 734 MB; 17 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B",
+   "revision": "bae5ceaee026f0d0592858b2bd27645a06f19c42",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 750,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 318,
+   "description": "Chat and Interpret: Qwen2.5-0.5B, built on Qwen/Qwen2.5-0.5B. About 750 MB; 318 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct",
+   "revision": "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 750,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 31346,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct, built on Qwen/Qwen2.5-0.5B-Instruct. About 750 MB; 31,346 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct-Gensyn-Swarm-mammalian_lithe_barracuda-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct-Gensyn-Swarm-mammalian_lithe_barracuda-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct-Gensyn-Swarm-mammalian_lithe_barracuda-ONNX",
+   "revision": "44b16608708b06a71e48aab1c50971119dade8be",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct-Gensyn-Swarm-mammalian_lithe_barracuda-ONNX, built on Agoboy/Qwen2.5-0.5B-Instruct-Gensyn-Swarm-mammalian_lithe_barracuda. About 734 MB; 11 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct-ONNX-GQA",
+   "revision": "edd101deb0836b6e017a1fbb92ac10baf0a1f448",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 741,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 35,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct-ONNX-GQA, built on Qwen/Qwen2.5-0.5B-Instruct. About 741 MB; 35 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct-ONNX-MHA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct-ONNX-MHA (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct-ONNX-MHA",
+   "revision": "86b5364f578144e49e6fdb8ac063404017f4b2c6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 741,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 43,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct-ONNX-MHA, built on Qwen/Qwen2.5-0.5B-Instruct. About 741 MB; 43 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct-abliterated-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct-abliterated-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct-abliterated-ONNX",
+   "revision": "ecacc921aafc50a1121d6ca5c576cecefc4d6c7b",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 33,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct-abliterated-ONNX, built on huihui-ai/Qwen2.5-0.5B-Instruct-abliterated. About 734 MB; licence apache-2.0; 33 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-0.5B-Instruct-abliterated-v3-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-0.5B-Instruct-abliterated-v3-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2.5-0.5B-Instruct-abliterated-v3-ONNX",
+   "revision": "74e0c74520b2a9266202ed4761bce6f67d2eecf1",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 734,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 24,
+   "description": "Chat and Interpret: Qwen2.5-0.5B-Instruct-abliterated-v3-ONNX, built on huihui-ai/Qwen2.5-0.5B-Instruct-abliterated-v3. About 734 MB; licence apache-2.0; 24 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-1.5B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-1.5B (4-bit)",
+   "repo": "onnx-community/Qwen2.5-1.5B",
+   "revision": "2f22601b5f019719e5be6b339e08b808ba33b154",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1705,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 55,
+   "description": "Chat and Interpret: Qwen2.5-1.5B, built on Qwen/Qwen2.5-1.5B. About 1,705 MB; 55 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-1.5B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-1.5B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-1.5B-Instruct",
+   "revision": "6287331f475a3e20e8c879be8fd4bf3551ad9d34",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1705,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 3786,
+   "description": "Chat and Interpret: Qwen2.5-1.5B-Instruct, built on Qwen/Qwen2.5-1.5B-Instruct. About 1,705 MB; 3,786 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Coder-0.5B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Coder-0.5B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Coder-0.5B-Instruct",
+   "revision": "f0292f665fd307846ff3c318a91a1bc29d091492",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 822,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1328,
+   "description": "Chat and Interpret: Qwen2.5-Coder-0.5B-Instruct, built on Qwen/Qwen2.5-Coder-0.5B-Instruct. About 822 MB; 1,328 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Coder-0.5B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Coder-0.5B-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Coder-0.5B-ONNX",
+   "revision": "c0bbc5c5a8c86c9aa4e2e6e3cbd23219042b2351",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 741,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 38,
+   "description": "Chat and Interpret: Qwen2.5-Coder-0.5B-ONNX, built on Qwen/Qwen2.5-Coder-0.5B. About 741 MB; 38 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Coder-1.5B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Coder-1.5B (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Coder-1.5B",
+   "revision": "19387fa58c09d0afee6dee136dd775067d0a27bd",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1705,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Chat and Interpret: Qwen2.5-Coder-1.5B, built on Qwen/Qwen2.5-Coder-1.5B. About 1,705 MB; 22 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Coder-1.5B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Coder-1.5B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Coder-1.5B-Instruct",
+   "revision": "1f4ea7cca7dd86b4933bc69a9876a7ea094f3794",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1827,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 672,
+   "description": "Chat and Interpret: Qwen2.5-Coder-1.5B-Instruct, built on Qwen/Qwen2.5-Coder-1.5B-Instruct. About 1,827 MB; licence apache-2.0; 672 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Coder-3B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Coder-3B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Coder-3B-Instruct",
+   "revision": "8a73f297ce5cd63aedf6bea2c0aec2bff8ea55b5",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 3043,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 417,
+   "description": "Chat and Interpret: Qwen2.5-Coder-3B-Instruct, built on Qwen/Qwen2.5-Coder-3B-Instruct. About 3,043 MB; 417 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Math-1.5B:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Math-1.5B (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Math-1.5B",
+   "revision": "b6d40eacd172a8a1322e7622386b855a628762e1",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1677,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Chat and Interpret: Qwen2.5-Math-1.5B, built on Qwen/Qwen2.5-Math-1.5B. About 1,677 MB; 14 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-Math-1.5B-Instruct:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-Math-1.5B-Instruct (4-bit)",
+   "repo": "onnx-community/Qwen2.5-Math-1.5B-Instruct",
+   "revision": "29b745e87b28faa666ea598ee43b4db439144be6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1677,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 38,
+   "description": "Chat and Interpret: Qwen2.5-Math-1.5B-Instruct, built on Qwen/Qwen2.5-Math-1.5B-Instruct. About 1,677 MB; 38 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen2.5-infill-test-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen2.5-infill-test-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen2.5-infill-test-ONNX",
+   "revision": "57d66733979e215ebc643e569fc08fd8ecd0deb6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 733,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 10,
+   "description": "Chat and Interpret: Qwen2.5-infill-test-ONNX, built on KingNish/Qwen2.5-infill-test. About 733 MB; 10 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen3-0.6B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen3-0.6B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen3-0.6B-Instruct-ONNX",
+   "revision": "54250909aca286a05b9d013c8af7a21859ee6ead",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 950,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 935,
+   "description": "Chat and Interpret: Qwen3-0.6B-Instruct-ONNX, built on minpeter/Qwen3-0.6B-Instruct. About 950 MB; licence apache-2.0; 935 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen3-0.6B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen3-0.6B-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen3-0.6B-ONNX",
+   "revision": "da1453100cf3ff33ef56d17983fc7a8648706db6",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 877,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 8841,
+   "description": "Chat and Interpret: Qwen3-0.6B-ONNX, built on Qwen/Qwen3-0.6B. About 877 MB; 8,841 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen3-0.6B-heretic-abliterated-uncensored-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen3-0.6B-heretic-abliterated-uncensored-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen3-0.6B-heretic-abliterated-uncensored-ONNX",
+   "revision": "be5bc98b6b04a451d7fb820c8974810eda1ded44",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 950,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 51,
+   "description": "Chat and Interpret: Qwen3-0.6B-heretic-abliterated-uncensored-ONNX, built on DavidAU/Qwen3-0.6B-heretic-abliterated-uncensored. About 950 MB; 51 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/Qwen3-1.7B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "Qwen3-1.7B-ONNX (4-bit)",
+   "repo": "onnx-community/Qwen3-1.7B-ONNX",
+   "revision": "cc6a06a21d614e9b8e92a6adfab1074d4e7d2438",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 2048,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1647,
+   "description": "Chat and Interpret: Qwen3-1.7B-ONNX, built on Qwen/Qwen3-1.7B. About 2,048 MB; 1,647 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmallThinker-3B-Preview-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmallThinker-3B-Preview-ONNX (4-bit)",
+   "repo": "onnx-community/SmallThinker-3B-Preview-ONNX",
+   "revision": "798e44351af53c3e863aba81eb013ce8d820c886",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 2858,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Chat and Interpret: SmallThinker-3B-Preview-ONNX, built on PowerInfer/SmallThinker-3B-Preview. About 2,858 MB; 14 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM-135M-Instruct-FP32-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM-135M-Instruct-FP32-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM-135M-Instruct-FP32-ONNX",
+   "revision": "c9f4c0dc3e5f4cc30265c0d4f1fc5bd87d6ded8e",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 189,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Chat and Interpret: SmolLM-135M-Instruct-FP32-ONNX, built on modularai/SmolLM-135M-Instruct-FP32. About 189 MB; 11 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM-135M-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM-135M-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM-135M-Instruct-ONNX",
+   "revision": "7e78273381b84cc2dae12daceb53552c8b115eef",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 733,
+   "description": "Chat and Interpret: SmolLM-135M-Instruct-ONNX, built on HuggingFaceTB/SmolLM-135M-Instruct. About 172 MB; 733 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM-135M-Instruct-fp16-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM-135M-Instruct-fp16-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM-135M-Instruct-fp16-ONNX",
+   "revision": "77c6c94b301493cce148f378e5a93f239a0f332a",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 189,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 36,
+   "description": "Chat and Interpret: SmolLM-135M-Instruct-fp16-ONNX, built on mlx-community/SmolLM-135M-Instruct-fp16. About 189 MB; licence apache-2.0; 36 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM-135M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM-135M-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM-135M-ONNX",
+   "revision": "f4acdf4c16b4deaee4cc6659fd3e32e44ecc37fd",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 330,
+   "description": "Chat and Interpret: SmolLM-135M-ONNX, built on HuggingFaceTB/SmolLM-135M. About 172 MB; 330 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM-360M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM-360M-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM-360M-ONNX",
+   "revision": "d0bace75f3a7fa849bf7a7082801c7d3a9b90169",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 369,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 18,
+   "description": "Chat and Interpret: SmolLM-360M-ONNX, built on HuggingFaceTB/SmolLM-360M. About 369 MB; 18 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM2-135M-Instruct-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM2-135M-Instruct-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/SmolLM2-135M-Instruct-ONNX-GQA",
+   "revision": "4622e1d79184ea906d69dc88fca479db019fa32a",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 390,
+   "description": "Chat and Interpret: SmolLM2-135M-Instruct-ONNX-GQA, built on HuggingFaceTB/SmolLM2-135M-Instruct. About 174 MB; 390 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM2-135M-Instruct-ONNX-MHA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM2-135M-Instruct-ONNX-MHA (4-bit)",
+   "repo": "onnx-community/SmolLM2-135M-Instruct-ONNX-MHA",
+   "revision": "5b6682c7c9df18f004bfb7e635cba3f3d98537d8",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1526,
+   "description": "Chat and Interpret: SmolLM2-135M-Instruct-ONNX-MHA, built on HuggingFaceTB/SmolLM2-135M-Instruct. About 174 MB; 1,526 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM2-135M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM2-135M-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM2-135M-ONNX",
+   "revision": "d0ae6834f1df45e0e95b5fdae95e536f9ca7cd3f",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1045,
+   "description": "Chat and Interpret: SmolLM2-135M-ONNX, built on HuggingFaceTB/SmolLM2-135M. About 174 MB; 1,045 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM2-135M-humanized-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM2-135M-humanized-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM2-135M-humanized-ONNX",
+   "revision": "6638602b313d5ee4f1ac2c2c98195e18be1ac1e2",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Chat and Interpret: SmolLM2-135M-humanized-ONNX, built on AssistantsLab/SmolLM2-135M-humanized. About 172 MB; 11 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/SmolLM2-360M-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "SmolLM2-360M-ONNX (4-bit)",
+   "repo": "onnx-community/SmolLM2-360M-ONNX",
+   "revision": "539c1088be2dcd673c39059d25a6bc4aec625504",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 369,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 391,
+   "description": "Chat and Interpret: SmolLM2-360M-ONNX, built on HuggingFaceTB/SmolLM2-360M. About 369 MB; licence apache-2.0; 391 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/TinySwallow-1.5B-Instruct-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "TinySwallow-1.5B-Instruct-ONNX (4-bit)",
+   "repo": "onnx-community/TinySwallow-1.5B-Instruct-ONNX",
+   "revision": "d47ca0ec0f5f9f43917f5932b3850c06fbe3736f",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 1688,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 50,
+   "description": "Chat and Interpret: TinySwallow-1.5B-Instruct-ONNX, built on SakanaAI/TinySwallow-1.5B-Instruct. About 1,688 MB; 50 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/distil-qwen3-0.6b-text2sql-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "distil-qwen3-0.6b-text2sql-ONNX (4-bit)",
+   "repo": "onnx-community/distil-qwen3-0.6b-text2sql-ONNX",
+   "revision": "9acf817021776eeb88c27af2f6c0625f0a4e420c",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 950,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 16,
+   "description": "Chat and Interpret: distil-qwen3-0.6b-text2sql-ONNX, built on distil-labs/distil-qwen3-0.6b-text2sql. About 950 MB; licence apache-2.0; 16 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/english-TTS0V1-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "english-TTS0V1-ONNX (4-bit)",
+   "repo": "onnx-community/english-TTS0V1-ONNX",
+   "revision": "7be2f722e2afc19aec187c330b820a6ea0e8d980",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 782,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 29,
+   "description": "Chat and Interpret: english-TTS0V1-ONNX, built on devhem/english-TTS0V1. About 782 MB; 29 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/englishtts-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "englishtts-ONNX (4-bit)",
+   "repo": "onnx-community/englishtts-ONNX",
+   "revision": "4d1a4d34e58cdf468243f2bb9418d97024ac2dd8",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 782,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 15,
+   "description": "Chat and Interpret: englishtts-ONNX, built on devhem/englishtts. About 782 MB; 15 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/ewre324-Thinker-SmolLM2-135M-Instruct-Reasoning-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "ewre324-Thinker-SmolLM2-135M-Instruct-Reasoning-ONNX (4-bit)",
+   "repo": "onnx-community/ewre324-Thinker-SmolLM2-135M-Instruct-Reasoning-ONNX",
+   "revision": "2fa53b906f97514324ae2e0310df026a3fdf6dab",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Chat and Interpret: ewre324-Thinker-SmolLM2-135M-Instruct-Reasoning-ONNX, built on ewre324/ewre324-Thinker-SmolLM2-135M-Instruct-Reasoning. About 172 MB; 17 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/functiongemma-270m-it-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "functiongemma-270m-it-ONNX (4-bit)",
+   "repo": "onnx-community/functiongemma-270m-it-ONNX",
+   "revision": "ba3c872ede162a5c4ab753f509b2260af5587143",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 764,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 255,
+   "description": "Chat and Interpret: functiongemma-270m-it-ONNX, built on google/functiongemma-270m-it. About 764 MB; licence gemma; 255 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/functiongemma-270m-it-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "functiongemma-270m-it-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/functiongemma-270m-it-ONNX-GQA",
+   "revision": "ff5f0a33701e366f76408068d95464574acebd81",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 764,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 43,
+   "description": "Chat and Interpret: functiongemma-270m-it-ONNX-GQA, built on google/functiongemma-270m-it. About 764 MB; licence gemma; 43 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/gemma-3-1b-it-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "gemma-3-1b-it-ONNX (4-bit)",
+   "repo": "onnx-community/gemma-3-1b-it-ONNX",
+   "revision": "a58439f40017d3b99c7d378ff525e54e0ba08ebf",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 820,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 1932,
+   "description": "Chat and Interpret: gemma-3-1b-it-ONNX, built on google/gemma-3-1b-it. About 820 MB; licence gemma; 1,932 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/gemma-3-1b-it-ONNX-GQA:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "gemma-3-1b-it-ONNX-GQA (4-bit)",
+   "repo": "onnx-community/gemma-3-1b-it-ONNX-GQA",
+   "revision": "d8ea201246f6ce6f94e4dbb1d8354bdd1d6732a0",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 820,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 442,
+   "description": "Chat and Interpret: gemma-3-1b-it-ONNX-GQA, built on google/gemma-3-1b-it. About 820 MB; 442 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/gemma-3-270m-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "gemma-3-270m-ONNX (4-bit)",
+   "repo": "onnx-community/gemma-3-270m-ONNX",
+   "revision": "f432e832a60ad22394057c85d45ed5007da3f571",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 801,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 261,
+   "description": "Chat and Interpret: gemma-3-270m-ONNX, built on google/gemma-3-270m. About 801 MB; licence gemma; 261 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/gemma-3-270m-it-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "gemma-3-270m-it-ONNX (4-bit)",
+   "repo": "onnx-community/gemma-3-270m-it-ONNX",
+   "revision": "2dbbfdb1b59bd034eb959428c6a7da9dd7ea27f0",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [
+    "onnx/model_q4.onnx_data"
+   ],
+   "approx_mb": 308,
+   "licence": "gemma",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 2073,
+   "description": "Chat and Interpret: gemma-3-270m-it-ONNX, built on google/gemma-3-270m-it. About 308 MB; licence gemma; 2,073 downloads. Not checked on a real machine.",
+   "prompt_format": "gemma"
+  },
+  {
+   "key": "hf:onnx-community/glm-edge-1.5b-chat-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "glm-edge-1.5b-chat-ONNX (4-bit)",
+   "repo": "onnx-community/glm-edge-1.5b-chat-ONNX",
+   "revision": "98e456ae8642028b5049861d116ce46092d1a631",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1269,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 36,
+   "description": "Chat and Interpret: glm-edge-1.5b-chat-ONNX, built on THUDM/glm-edge-1.5b-chat. About 1,269 MB; 36 downloads. Not checked on a real machine.",
+   "prompt_format": "phi3"
+  },
+  {
+   "key": "hf:onnx-community/helium-1-preview-2b-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "helium-1-preview-2b-ONNX (4-bit)",
+   "repo": "onnx-community/helium-1-preview-2b-ONNX",
+   "revision": "5b88bc7be2c5c27399bf340fd52a0cf9f4cb2d0e",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1691,
+   "licence": "cc-by-4.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Chat and Interpret: helium-1-preview-2b-ONNX, built on kyutai/helium-1-preview-2b. About 1,691 MB; licence cc-by-4.0; 22 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/ipa-whisper-base-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "ipa-whisper-base-ONNX (full)",
+   "repo": "onnx-community/ipa-whisper-base-ONNX",
+   "revision": "a8ab94748a6e6a0b637e54528478e6d9653bce83",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 277,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 28,
+   "description": "Speech to text (Whisper): ipa-whisper-base-ONNX, built on neurlang/ipa-whisper-base, for en, zh, de, es. About 277 MB; licence apache-2.0; 28 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/ipa-whisper-base-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "ipa-whisper-base-ONNX (int8)",
+   "repo": "onnx-community/ipa-whisper-base-ONNX",
+   "revision": "a8ab94748a6e6a0b637e54528478e6d9653bce83",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 28,
+   "description": "Speech to text (Whisper): ipa-whisper-base-ONNX, built on neurlang/ipa-whisper-base, for en, zh, de, es. About 174 MB; licence apache-2.0; 28 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-base-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-base-ONNX (full)",
+   "repo": "onnx-community/kb-whisper-base-ONNX",
+   "revision": "c55e1df3a2f5e3abaf0c35abbe3c8dc3189e2195",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 277,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 41,
+   "description": "Speech to text (Whisper): kb-whisper-base-ONNX, built on KBLab/kb-whisper-base. About 277 MB; 41 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-base-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-base-ONNX (int8)",
+   "repo": "onnx-community/kb-whisper-base-ONNX",
+   "revision": "c55e1df3a2f5e3abaf0c35abbe3c8dc3189e2195",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 41,
+   "description": "Speech to text (Whisper): kb-whisper-base-ONNX, built on KBLab/kb-whisper-base. About 174 MB; 41 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-large-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-large-ONNX (full)",
+   "repo": "onnx-community/kb-whisper-large-ONNX",
+   "revision": "88070b45a2575d8995e34c38c4e973a589498aaa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data",
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 5891,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): kb-whisper-large-ONNX, built on KBLab/kb-whisper-large. About 5,891 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-large-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-large-ONNX (int8)",
+   "repo": "onnx-community/kb-whisper-large-ONNX",
+   "revision": "88070b45a2575d8995e34c38c4e973a589498aaa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1738,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): kb-whisper-large-ONNX, built on KBLab/kb-whisper-large. About 1,738 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-medium-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-medium-ONNX (full)",
+   "repo": "onnx-community/kb-whisper-medium-ONNX",
+   "revision": "9864f6e532476a3cf30cf28f25831bb4fdffd351",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2916,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): kb-whisper-medium-ONNX, built on KBLab/kb-whisper-medium. About 2,916 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-medium-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-medium-ONNX (int8)",
+   "repo": "onnx-community/kb-whisper-medium-ONNX",
+   "revision": "9864f6e532476a3cf30cf28f25831bb4fdffd351",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 940,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): kb-whisper-medium-ONNX, built on KBLab/kb-whisper-medium. About 940 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-small-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-small-ONNX (full)",
+   "repo": "onnx-community/kb-whisper-small-ONNX",
+   "revision": "5177ba59f043488a8bcf102e650ffa8d454aed48",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 72,
+   "description": "Speech to text (Whisper): kb-whisper-small-ONNX, built on KBLab/kb-whisper-small. About 923 MB; 72 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-small-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-small-ONNX (int8)",
+   "repo": "onnx-community/kb-whisper-small-ONNX",
+   "revision": "5177ba59f043488a8bcf102e650ffa8d454aed48",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 72,
+   "description": "Speech to text (Whisper): kb-whisper-small-ONNX, built on KBLab/kb-whisper-small. About 388 MB; 72 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-tiny-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-tiny-ONNX (full)",
+   "repo": "onnx-community/kb-whisper-tiny-ONNX",
+   "revision": "7b613f21a08eb56429420a486c47bd8a66dbe507",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 57,
+   "description": "Speech to text (Whisper): kb-whisper-tiny-ONNX, built on KBLab/kb-whisper-tiny. About 144 MB; 57 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kb-whisper-tiny-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kb-whisper-tiny-ONNX (int8)",
+   "repo": "onnx-community/kb-whisper-tiny-ONNX",
+   "revision": "7b613f21a08eb56429420a486c47bd8a66dbe507",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 57,
+   "description": "Speech to text (Whisper): kb-whisper-tiny-ONNX, built on KBLab/kb-whisper-tiny. About 114 MB; 57 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kotoba-whisper-bilingual-v1.0-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kotoba-whisper-bilingual-v1.0-ONNX (full)",
+   "repo": "onnx-community/kotoba-whisper-bilingual-v1.0-ONNX",
+   "revision": "64ed7e5c60395bc670137b534d2aeac43a513e6d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 2886,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 27,
+   "description": "Speech to text (Whisper): kotoba-whisper-bilingual-v1.0-ONNX, built on kotoba-tech/kotoba-whisper-bilingual-v1.0. About 2,886 MB; 27 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kotoba-whisper-bilingual-v1.0-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kotoba-whisper-bilingual-v1.0-ONNX (int8)",
+   "repo": "onnx-community/kotoba-whisper-bilingual-v1.0-ONNX",
+   "revision": "64ed7e5c60395bc670137b534d2aeac43a513e6d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 982,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 27,
+   "description": "Speech to text (Whisper): kotoba-whisper-bilingual-v1.0-ONNX, built on kotoba-tech/kotoba-whisper-bilingual-v1.0. About 982 MB; 27 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kotoba-whisper-v2.2-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kotoba-whisper-v2.2-ONNX (full)",
+   "repo": "onnx-community/kotoba-whisper-v2.2-ONNX",
+   "revision": "6da07195e83145e4fca2a8a1ba6f4c2e837b3798",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 2886,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 867,
+   "description": "Speech to text (Whisper): kotoba-whisper-v2.2-ONNX, built on kotoba-tech/kotoba-whisper-v2.2. About 2,886 MB; 867 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/kotoba-whisper-v2.2-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "kotoba-whisper-v2.2-ONNX (int8)",
+   "repo": "onnx-community/kotoba-whisper-v2.2-ONNX",
+   "revision": "6da07195e83145e4fca2a8a1ba6f4c2e837b3798",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 982,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 867,
+   "description": "Speech to text (Whisper): kotoba-whisper-v2.2-ONNX, built on kotoba-tech/kotoba-whisper-v2.2. About 982 MB; 867 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-ONNX",
+   "revision": "45e540e620d312335cac4714b9c8bbba4765a332",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data"
+   ],
+   "approx_mb": 4906,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-ONNX, built on efficient-speech/lite-whisper-large-v3. About 4,906 MB; licence apache-2.0; 14 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-ONNX",
+   "revision": "45e540e620d312335cac4714b9c8bbba4765a332",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1492,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 14,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-ONNX, built on efficient-speech/lite-whisper-large-v3. About 1,492 MB; licence apache-2.0; 14 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-acc-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-acc-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-acc-ONNX",
+   "revision": "25e8f890b7289c7ec9a71101782a51e6d0d714c1",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data"
+   ],
+   "approx_mb": 5107,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-acc-ONNX, built on efficient-speech/lite-whisper-large-v3-acc. About 5,107 MB; licence apache-2.0; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-acc-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-acc-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-acc-ONNX",
+   "revision": "25e8f890b7289c7ec9a71101782a51e6d0d714c1",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1542,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-acc-ONNX, built on efficient-speech/lite-whisper-large-v3-acc. About 1,542 MB; licence apache-2.0; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-fast-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-fast-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-fast-ONNX",
+   "revision": "8790cfa07961c70a104ac56ffb1359bec75beeb1",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data"
+   ],
+   "approx_mb": 4642,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-fast-ONNX, built on efficient-speech/lite-whisper-large-v3-fast. About 4,642 MB; licence apache-2.0; 22 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-fast-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-fast-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-fast-ONNX",
+   "revision": "8790cfa07961c70a104ac56ffb1359bec75beeb1",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1426,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-fast-ONNX, built on efficient-speech/lite-whisper-large-v3-fast. About 1,426 MB; licence apache-2.0; 22 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-ONNX",
+   "revision": "877432e56f7047ae4fabd2e13befdca14b3f973e",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2089,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 57,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo. About 2,089 MB; licence apache-2.0; 57 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-ONNX",
+   "revision": "877432e56f7047ae4fabd2e13befdca14b3f973e",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 784,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 57,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo. About 784 MB; licence apache-2.0; 57 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-acc-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-acc-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-acc-ONNX",
+   "revision": "4d4fdf8ed3a5e7b5ac9ff1c029dd5db38a8b90c6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2268,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 55,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-acc-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo-acc. About 2,268 MB; licence apache-2.0; 55 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-acc-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-acc-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-acc-ONNX",
+   "revision": "4d4fdf8ed3a5e7b5ac9ff1c029dd5db38a8b90c6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 829,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 55,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-acc-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo-acc. About 829 MB; licence apache-2.0; 55 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-fast-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-fast-ONNX (full)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-fast-ONNX",
+   "revision": "e1da53014278ff108001c6b6079af68ee5dee88c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1858,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 49,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-fast-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo-fast. About 1,858 MB; licence apache-2.0; 49 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/lite-whisper-large-v3-turbo-fast-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "lite-whisper-large-v3-turbo-fast-ONNX (int8)",
+   "repo": "onnx-community/lite-whisper-large-v3-turbo-fast-ONNX",
+   "revision": "e1da53014278ff108001c6b6079af68ee5dee88c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 726,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 49,
+   "description": "Speech to text (Whisper): lite-whisper-large-v3-turbo-fast-ONNX, built on efficient-speech/lite-whisper-large-v3-turbo-fast. About 726 MB; licence apache-2.0; 49 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/llama-3.2-1b-medical-notes-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "llama-3.2-1b-medical-notes-ONNX (4-bit)",
+   "repo": "onnx-community/llama-3.2-1b-medical-notes-ONNX",
+   "revision": "546e3483c483e52bbe4f62d92a79dafed785a4bb",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1583,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 16,
+   "description": "Chat and Interpret: llama-3.2-1b-medical-notes-ONNX, built on Johnyquest7/llama-3.2-1b-medical-notes. About 1,583 MB; 16 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/nb-llama-3.2-1B-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "nb-llama-3.2-1B-ONNX (4-bit)",
+   "repo": "onnx-community/nb-llama-3.2-1B-ONNX",
+   "revision": "70d2399eff30ccdcfa5a04ae9024c4ea95840c48",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1583,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 13,
+   "description": "Chat and Interpret: nb-llama-3.2-1B-ONNX, built on NbAiLab/nb-llama-3.2-1B. About 1,583 MB; 13 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/nb-whisper-base-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "nb-whisper-base-ONNX (full)",
+   "repo": "onnx-community/nb-whisper-base-ONNX",
+   "revision": "9bdce3acaeb772f968d0271cab8c72d883123cc9",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 277,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 298,
+   "description": "Speech to text (Whisper): nb-whisper-base-ONNX, built on NbAiLab/nb-whisper-base, for no, nb, nn, en. About 277 MB; licence apache-2.0; 298 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/nb-whisper-base-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "nb-whisper-base-ONNX (int8)",
+   "repo": "onnx-community/nb-whisper-base-ONNX",
+   "revision": "9bdce3acaeb772f968d0271cab8c72d883123cc9",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 298,
+   "description": "Speech to text (Whisper): nb-whisper-base-ONNX, built on NbAiLab/nb-whisper-base, for no, nb, nn, en. About 174 MB; licence apache-2.0; 298 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/nb-whisper-small-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "nb-whisper-small-ONNX (full)",
+   "repo": "onnx-community/nb-whisper-small-ONNX",
+   "revision": "307f92865a516f11c7801c9dfe39ac7591fa5d34",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 45,
+   "description": "Speech to text (Whisper): nb-whisper-small-ONNX, built on NbAiLab/nb-whisper-small, for no, nb, nn, en. About 923 MB; licence apache-2.0; 45 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/nb-whisper-small-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "nb-whisper-small-ONNX (int8)",
+   "repo": "onnx-community/nb-whisper-small-ONNX",
+   "revision": "307f92865a516f11c7801c9dfe39ac7591fa5d34",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 45,
+   "description": "Speech to text (Whisper): nb-whisper-small-ONNX, built on NbAiLab/nb-whisper-small, for no, nb, nn, en. About 388 MB; licence apache-2.0; 45 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/oxy-1-micro:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "oxy-1-micro (4-bit)",
+   "repo": "onnx-community/oxy-1-micro",
+   "revision": "d0f9d2d0af64eb42773609d94016a069b3888110",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 1688,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Chat and Interpret: oxy-1-micro, built on oxyapi/oxy-1-micro. About 1,688 MB; 11 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/tiny-random-LlamaForCausalLM-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "tiny-random-LlamaForCausalLM-ONNX (4-bit)",
+   "repo": "onnx-community/tiny-random-LlamaForCausalLM-ONNX",
+   "revision": "6c740230819622316aaab04234ffa38059a8607b",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 26,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 908,
+   "description": "Chat and Interpret: tiny-random-LlamaForCausalLM-ONNX. About 26 MB; 908 downloads. Not checked on a real machine.",
+   "prompt_format": "llama3"
+  },
+  {
+   "key": "hf:onnx-community/trlm-135m-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "trlm-135m-ONNX (4-bit)",
+   "repo": "onnx-community/trlm-135m-ONNX",
+   "revision": "d3bb32d2cbe416275e4c2813bc2af5c7604d5b2f",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 172,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 13,
+   "description": "Chat and Interpret: trlm-135m-ONNX, built on Shekswess/trlm-135m. About 172 MB; 13 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/turn-detector-GQA-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "turn-detector-GQA-ONNX (4-bit)",
+   "repo": "onnx-community/turn-detector-GQA-ONNX",
+   "revision": "ba1c260156c42fd1c77030329733a1dec75d47ba",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 591,
+   "description": "Chat and Interpret: turn-detector-GQA-ONNX, built on livekit/turn-detector. About 174 MB; 591 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/turn-detector-ONNX:4-bit",
+   "job": "chat",
+   "runner": "decoder-chat",
+   "rank": 5,
+   "label": "turn-detector-ONNX (4-bit)",
+   "repo": "onnx-community/turn-detector-ONNX",
+   "revision": "5ef57d71e223ee53b08ffcce961f1b1cbb04d1f4",
+   "graphs": [
+    "model"
+   ],
+   "suffix": "_q4",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json",
+    "tokenizer_config.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 28,
+   "description": "Chat and Interpret: turn-detector-ONNX, built on livekit/turn-detector. About 174 MB; 28 downloads. Not checked on a real machine.",
+   "prompt_format": "chatml"
+  },
+  {
+   "key": "hf:onnx-community/whisper-base:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base (full)",
+   "repo": "onnx-community/whisper-base",
+   "revision": "1846881b6b3a3024392c1eea3ad983695bc23925",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 278,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 96916,
+   "description": "Speech to text (Whisper): whisper-base, built on openai/whisper-base. About 278 MB; 96,916 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base (int8)",
+   "repo": "onnx-community/whisper-base",
+   "revision": "1846881b6b3a3024392c1eea3ad983695bc23925",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 73,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 96916,
+   "description": "Speech to text (Whisper): whisper-base, built on openai/whisper-base. About 73 MB; 96,916 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base-ONNX (full)",
+   "repo": "onnx-community/whisper-base-ONNX",
+   "revision": "e2227b9835949f10a62424b0a84b5ed5b62e1267",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 277,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 94,
+   "description": "Speech to text (Whisper): whisper-base-ONNX, built on openai/whisper-base. About 277 MB; 94 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base-ONNX (int8)",
+   "repo": "onnx-community/whisper-base-ONNX",
+   "revision": "e2227b9835949f10a62424b0a84b5ed5b62e1267",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 94,
+   "description": "Speech to text (Whisper): whisper-base-ONNX, built on openai/whisper-base. About 174 MB; 94 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base-ar-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base-ar-ONNX (full)",
+   "repo": "onnx-community/whisper-base-ar-ONNX",
+   "revision": "25313142f8b6d3654c10368419595ca22b0bed65",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 277,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 6,
+   "description": "Speech to text (Whisper): whisper-base-ar-ONNX, built on Mohamed2210/whisper-base-ar. About 277 MB; 6 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base-ar-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base-ar-ONNX (int8)",
+   "repo": "onnx-community/whisper-base-ar-ONNX",
+   "revision": "25313142f8b6d3654c10368419595ca22b0bed65",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 174,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 6,
+   "description": "Speech to text (Whisper): whisper-base-ar-ONNX, built on Mohamed2210/whisper-base-ar. About 174 MB; 6 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base_timestamped:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base_timestamped (full)",
+   "repo": "onnx-community/whisper-base_timestamped",
+   "revision": "608c49e61301901684bc36cac8f74b95ff6b5a8e",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 278,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 20248,
+   "description": "Speech to text (Whisper): whisper-base_timestamped, built on openai/whisper-base. About 278 MB; 20,248 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-base_timestamped:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-base_timestamped (int8)",
+   "repo": "onnx-community/whisper-base_timestamped",
+   "revision": "608c49e61301901684bc36cac8f74b95ff6b5a8e",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 73,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 20248,
+   "description": "Speech to text (Whisper): whisper-base_timestamped, built on openai/whisper-base. About 73 MB; 20,248 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-hindi-small-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-hindi-small-ONNX (full)",
+   "repo": "onnx-community/whisper-hindi-small-ONNX",
+   "revision": "af7e93b780198dec2a4867887c03912ac3cbae31",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 25,
+   "description": "Speech to text (Whisper): whisper-hindi-small-ONNX, built on vasista22/whisper-hindi-small. About 923 MB; 25 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-hindi-small-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-hindi-small-ONNX (int8)",
+   "repo": "onnx-community/whisper-hindi-small-ONNX",
+   "revision": "af7e93b780198dec2a4867887c03912ac3cbae31",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 25,
+   "description": "Speech to text (Whisper): whisper-hindi-small-ONNX, built on vasista22/whisper-hindi-small. About 388 MB; 25 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-kannada-base-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-kannada-base-ONNX (full)",
+   "repo": "onnx-community/whisper-kannada-base-ONNX",
+   "revision": "2e673bab8c5cfb54045a6e311abd423e1c062118",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 379,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 149,
+   "description": "Speech to text (Whisper): whisper-kannada-base-ONNX, built on vasista22/whisper-kannada-base, for kn. About 379 MB; licence apache-2.0; 149 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-kannada-base-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-kannada-base-ONNX (int8)",
+   "repo": "onnx-community/whisper-kannada-base-ONNX",
+   "revision": "2e673bab8c5cfb54045a6e311abd423e1c062118",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 322,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 149,
+   "description": "Speech to text (Whisper): whisper-kannada-base-ONNX, built on vasista22/whisper-kannada-base, for kn. About 322 MB; licence apache-2.0; 149 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-fa-v1-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-fa-v1-ONNX (full)",
+   "repo": "onnx-community/whisper-large-fa-v1-ONNX",
+   "revision": "7086057933227d590821e4690bb41cb9d9c417a4",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3340,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Speech to text (Whisper): whisper-large-fa-v1-ONNX, built on vhdm/whisper-large-fa-v1, for fa. About 3,340 MB; licence mit; 22 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-fa-v1-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-fa-v1-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-fa-v1-ONNX",
+   "revision": "7086057933227d590821e4690bb41cb9d9c417a4",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1524,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 22,
+   "description": "Speech to text (Whisper): whisper-large-fa-v1-ONNX, built on vhdm/whisper-large-fa-v1, for fa. About 1,524 MB; licence mit; 22 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v2-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v2-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v2-ONNX",
+   "revision": "e6a53cfc81b2c8f77b6d660440fba22b336f5281",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data",
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 5890,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 32,
+   "description": "Speech to text (Whisper): whisper-large-v2-ONNX, built on openai/whisper-large-v2. About 5,890 MB; 32 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v2-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v2-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v2-ONNX",
+   "revision": "e6a53cfc81b2c8f77b6d660440fba22b336f5281",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1737,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 32,
+   "description": "Speech to text (Whisper): whisper-large-v2-ONNX, built on openai/whisper-large-v2. About 1,737 MB; 32 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-ONNX",
+   "revision": "3b6257ad5e67aa523c7c07f4fea04d445eecc4a6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data",
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 5891,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 462,
+   "description": "Speech to text (Whisper): whisper-large-v3-ONNX, built on openai/whisper-large-v3. About 5,891 MB; 462 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-ONNX",
+   "revision": "3b6257ad5e67aa523c7c07f4fea04d445eecc4a6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1738,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 462,
+   "description": "Speech to text (Whisper): whisper-large-v3-ONNX, built on openai/whisper-large-v3. About 1,738 MB; 462 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-chinese-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-chinese-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-chinese-ONNX",
+   "revision": "860d50f435e89d51b9b293ea8e1cd3e6311b3403",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5,
+   "description": "Speech to text (Whisper): whisper-large-v3-chinese-ONNX. About 144 MB; 5 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-chinese-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-chinese-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-chinese-ONNX",
+   "revision": "860d50f435e89d51b9b293ea8e1cd3e6311b3403",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5,
+   "description": "Speech to text (Whisper): whisper-large-v3-chinese-ONNX. About 114 MB; 5 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo",
+   "revision": "360ebcde2559d60bb474678be3c1de9ef347d01a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 21756,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo, built on openai/whisper-large-v3-turbo. About 3,086 MB; 21,756 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo",
+   "revision": "360ebcde2559d60bb474678be3c1de9ef347d01a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1035,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 21756,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo, built on openai/whisper-large-v3-turbo. About 1,035 MB; 21,756 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo-ONNX",
+   "revision": "f2d0148f21bb07751a7e6e9a4377e1ae7146607f",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 727,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-ONNX. About 3,086 MB; 727 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo-ONNX",
+   "revision": "f2d0148f21bb07751a7e6e9a4377e1ae7146607f",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 727,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-ONNX. About 1,033 MB; 727 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-german-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-german-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo-german-ONNX",
+   "revision": "7a86cb9d63ad2517468c15fdac7dc9bb6d2abaed",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 61,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-german-ONNX, built on primeline/whisper-large-v3-turbo-german. About 3,086 MB; 61 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-german-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-german-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo-german-ONNX",
+   "revision": "7a86cb9d63ad2517468c15fdac7dc9bb6d2abaed",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 61,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-german-ONNX, built on primeline/whisper-large-v3-turbo-german. About 1,033 MB; 61 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-korean-ggml-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-korean-ggml-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo-korean-ggml-ONNX",
+   "revision": "3e4f353bf0d9a8da8ad273c084f0fae524c64dfa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 27,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-korean-ggml-ONNX, built on royshilkrot/whisper-large-v3-turbo-korean-ggml. About 3,086 MB; 27 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-korean-ggml-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-korean-ggml-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo-korean-ggml-ONNX",
+   "revision": "3e4f353bf0d9a8da8ad273c084f0fae524c64dfa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 27,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-korean-ggml-ONNX, built on royshilkrot/whisper-large-v3-turbo-korean-ggml. About 1,033 MB; 27 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-russian-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-russian-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo-russian-ONNX",
+   "revision": "eb0f8fca31076c927cb4ca93a10c8f9150d411eb",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3340,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 15,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-russian-ONNX, built on coriollon/whisper-large-v3-turbo-russian, for ru, en. About 3,340 MB; licence apache-2.0; 15 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-russian-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-russian-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo-russian-ONNX",
+   "revision": "eb0f8fca31076c927cb4ca93a10c8f9150d411eb",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1524,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 15,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-russian-ONNX, built on coriollon/whisper-large-v3-turbo-russian, for ru, en. About 1,524 MB; licence apache-2.0; 15 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-swiss-german-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-swiss-german-ONNX (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo-swiss-german-ONNX",
+   "revision": "9814a21b327fd85d4088e0db9ff2b9fad58d86d4",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-swiss-german-ONNX, built on Flurin17/whisper-large-v3-turbo-swiss-german. About 3,086 MB; 17 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo-swiss-german-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo-swiss-german-ONNX (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo-swiss-german-ONNX",
+   "revision": "9814a21b327fd85d4088e0db9ff2b9fad58d86d4",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 17,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo-swiss-german-ONNX, built on Flurin17/whisper-large-v3-turbo-swiss-german. About 1,033 MB; 17 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo_timestamped:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo_timestamped (full)",
+   "repo": "onnx-community/whisper-large-v3-turbo_timestamped",
+   "revision": "b3f77bf9a8c4d5ea3415827033d1ffea7955fd9a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3087,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5935,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo_timestamped, built on openai/whisper-large-v3-turbo. About 3,087 MB; 5,935 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-large-v3-turbo_timestamped:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-large-v3-turbo_timestamped (int8)",
+   "repo": "onnx-community/whisper-large-v3-turbo_timestamped",
+   "revision": "b3f77bf9a8c4d5ea3415827033d1ffea7955fd9a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1035,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5935,
+   "description": "Speech to text (Whisper): whisper-large-v3-turbo_timestamped, built on openai/whisper-large-v3-turbo. About 1,035 MB; 5,935 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium-ONNX (full)",
+   "repo": "onnx-community/whisper-medium-ONNX",
+   "revision": "d3978248a6b5de6df7ec29ddfbde3993845fa806",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2916,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 506,
+   "description": "Speech to text (Whisper): whisper-medium-ONNX. About 2,916 MB; 506 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium-ONNX (int8)",
+   "repo": "onnx-community/whisper-medium-ONNX",
+   "revision": "d3978248a6b5de6df7ec29ddfbde3993845fa806",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 940,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 506,
+   "description": "Speech to text (Whisper): whisper-medium-ONNX. About 940 MB; 506 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium-fr-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium-fr-ONNX (full)",
+   "repo": "onnx-community/whisper-medium-fr-ONNX",
+   "revision": "833cc0a87aded1f746e9769ae835f6791b60513d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2916,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5,
+   "description": "Speech to text (Whisper): whisper-medium-fr-ONNX, built on Ycharo/whisper-medium-fr. About 2,916 MB; 5 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium-fr-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium-fr-ONNX (int8)",
+   "repo": "onnx-community/whisper-medium-fr-ONNX",
+   "revision": "833cc0a87aded1f746e9769ae835f6791b60513d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 940,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5,
+   "description": "Speech to text (Whisper): whisper-medium-fr-ONNX, built on Ycharo/whisper-medium-fr. About 940 MB; 5 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium_timestamped:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium_timestamped (full)",
+   "repo": "onnx-community/whisper-medium_timestamped",
+   "revision": "9fe933aaa6b0244316eb961f36d33dfedf0c0b0c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2916,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 930,
+   "description": "Speech to text (Whisper): whisper-medium_timestamped, built on openai/whisper-medium. About 2,916 MB; licence mit; 930 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-medium_timestamped:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-medium_timestamped (int8)",
+   "repo": "onnx-community/whisper-medium_timestamped",
+   "revision": "9fe933aaa6b0244316eb961f36d33dfedf0c0b0c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 2042,
+   "licence": "mit",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 930,
+   "description": "Speech to text (Whisper): whisper-medium_timestamped, built on openai/whisper-medium. About 2,042 MB; licence mit; 930 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-native-children-3-dutch-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-native-children-3-dutch-ONNX (full)",
+   "repo": "onnx-community/whisper-native-children-3-dutch-ONNX",
+   "revision": "30d1cc479fdc19f9473080f4abe4b4bb679ceed7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/decoder_model_merged.onnx_data",
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 5890,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 4,
+   "description": "Speech to text (Whisper): whisper-native-children-3-dutch-ONNX, built on golesheed/whisper-native-children-3-dutch. About 5,890 MB; 4 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-native-children-3-dutch-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-native-children-3-dutch-ONNX (int8)",
+   "repo": "onnx-community/whisper-native-children-3-dutch-ONNX",
+   "revision": "30d1cc479fdc19f9473080f4abe4b4bb679ceed7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1737,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 4,
+   "description": "Speech to text (Whisper): whisper-native-children-3-dutch-ONNX, built on golesheed/whisper-native-children-3-dutch. About 1,737 MB; 4 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-podlodka-turbo-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-podlodka-turbo-ONNX (full)",
+   "repo": "onnx-community/whisper-podlodka-turbo-ONNX",
+   "revision": "21548138a7b45dd550b2c6b6d7fe6d05c327e927",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [
+    "onnx/encoder_model.onnx_data"
+   ],
+   "approx_mb": 3086,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Speech to text (Whisper): whisper-podlodka-turbo-ONNX, built on bond005/whisper-podlodka-turbo. About 3,086 MB; 12 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-podlodka-turbo-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-podlodka-turbo-ONNX (int8)",
+   "repo": "onnx-community/whisper-podlodka-turbo-ONNX",
+   "revision": "21548138a7b45dd550b2c6b6d7fe6d05c327e927",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1033,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Speech to text (Whisper): whisper-podlodka-turbo-ONNX, built on bond005/whisper-podlodka-turbo. About 1,033 MB; 12 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small (full)",
+   "repo": "onnx-community/whisper-small",
+   "revision": "36050c46d777d46dc4b5f43f6d90574fc38f8732",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 112201,
+   "description": "Speech to text (Whisper): whisper-small, built on openai/whisper-small. About 923 MB; 112,201 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small (int8)",
+   "repo": "onnx-community/whisper-small",
+   "revision": "36050c46d777d46dc4b5f43f6d90574fc38f8732",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 238,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 112201,
+   "description": "Speech to text (Whisper): whisper-small, built on openai/whisper-small. About 238 MB; 112,201 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ONNX (full)",
+   "repo": "onnx-community/whisper-small-ONNX",
+   "revision": "d946fdacaf9d70f84e964dd7a78394721a771fad",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 75,
+   "description": "Speech to text (Whisper): whisper-small-ONNX, built on openai/whisper-small. About 923 MB; 75 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-ONNX",
+   "revision": "d946fdacaf9d70f84e964dd7a78394721a771fad",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 75,
+   "description": "Speech to text (Whisper): whisper-small-ONNX, built on openai/whisper-small. About 388 MB; 75 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ar-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ar-ONNX (full)",
+   "repo": "onnx-community/whisper-small-ar-ONNX",
+   "revision": "32cff3448800909a774299c286c350197f4d2f7d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 9,
+   "description": "Speech to text (Whisper): whisper-small-ar-ONNX, built on ayoubkirouane/whisper-small-ar. About 923 MB; 9 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ar-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ar-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-ar-ONNX",
+   "revision": "32cff3448800909a774299c286c350197f4d2f7d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 9,
+   "description": "Speech to text (Whisper): whisper-small-ar-ONNX, built on ayoubkirouane/whisper-small-ar. About 388 MB; 9 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-cantonese-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-cantonese-ONNX (full)",
+   "repo": "onnx-community/whisper-small-cantonese-ONNX",
+   "revision": "ee6a82ef30b6193579ce54cf2bcffbb0f88209aa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 26,
+   "description": "Speech to text (Whisper): whisper-small-cantonese-ONNX, built on alvanlii/whisper-small-cantonese. About 923 MB; 26 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-cantonese-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-cantonese-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-cantonese-ONNX",
+   "revision": "ee6a82ef30b6193579ce54cf2bcffbb0f88209aa",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 26,
+   "description": "Speech to text (Whisper): whisper-small-cantonese-ONNX, built on alvanlii/whisper-small-cantonese. About 388 MB; 26 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-chinese-2-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-chinese-2-ONNX (full)",
+   "repo": "onnx-community/whisper-small-chinese-2-ONNX",
+   "revision": "25e7e964aa88b5a09b39375bb9d4684415b3928c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): whisper-small-chinese-2-ONNX. About 923 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-chinese-2-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-chinese-2-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-chinese-2-ONNX",
+   "revision": "25e7e964aa88b5a09b39375bb9d4684415b3928c",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 19,
+   "description": "Speech to text (Whisper): whisper-small-chinese-2-ONNX. About 388 MB; 19 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-cv11-french-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-cv11-french-ONNX (full)",
+   "repo": "onnx-community/whisper-small-cv11-french-ONNX",
+   "revision": "496926652b0f25f6065b3bdb54e69d733e412fa2",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 72,
+   "description": "Speech to text (Whisper): whisper-small-cv11-french-ONNX, built on bofenghuang/whisper-small-cv11-french. About 923 MB; 72 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-cv11-french-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-cv11-french-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-cv11-french-ONNX",
+   "revision": "496926652b0f25f6065b3bdb54e69d733e412fa2",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 72,
+   "description": "Speech to text (Whisper): whisper-small-cv11-french-ONNX, built on bofenghuang/whisper-small-cv11-french. About 388 MB; 72 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-fa-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-fa-ONNX (full)",
+   "repo": "onnx-community/whisper-small-fa-ONNX",
+   "revision": "f8427a5ea7755dd334e57475c3e58e0672cb7a88",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 1075,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 24,
+   "description": "Speech to text (Whisper): whisper-small-fa-ONNX, built on aictsharif/whisper-small-fa, for fa. About 1,075 MB; licence apache-2.0; 24 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-fa-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-fa-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-fa-ONNX",
+   "revision": "f8427a5ea7755dd334e57475c3e58e0672cb7a88",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 827,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 24,
+   "description": "Speech to text (Whisper): whisper-small-fa-ONNX, built on aictsharif/whisper-small-fa, for fa. About 827 MB; licence apache-2.0; 24 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ita-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ita-ONNX (full)",
+   "repo": "onnx-community/whisper-small-ita-ONNX",
+   "revision": "e1c821784504ab56da902fd26e62ada2799f8be8",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 34,
+   "description": "Speech to text (Whisper): whisper-small-ita-ONNX, built on litus-ai/whisper-small-ita. About 923 MB; 34 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-ita-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-ita-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-ita-ONNX",
+   "revision": "e1c821784504ab56da902fd26e62ada2799f8be8",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 34,
+   "description": "Speech to text (Whisper): whisper-small-ita-ONNX, built on litus-ai/whisper-small-ita. About 388 MB; 34 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-tonga-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-tonga-ONNX (full)",
+   "repo": "onnx-community/whisper-small-tonga-ONNX",
+   "revision": "9b20f3a2bafaa12ace278b397642c189e9b36b27",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 923,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 7,
+   "description": "Speech to text (Whisper): whisper-small-tonga-ONNX, built on chiyo123/whisper-small-tonga. About 923 MB; 7 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small-tonga-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small-tonga-ONNX (int8)",
+   "repo": "onnx-community/whisper-small-tonga-ONNX",
+   "revision": "9b20f3a2bafaa12ace278b397642c189e9b36b27",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 388,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 7,
+   "description": "Speech to text (Whisper): whisper-small-tonga-ONNX, built on chiyo123/whisper-small-tonga. About 388 MB; 7 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small_timestamped:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small_timestamped (full)",
+   "repo": "onnx-community/whisper-small_timestamped",
+   "revision": "65caa70f294b46e1c33ff820aae6b16d048ab818",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 924,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 10142,
+   "description": "Speech to text (Whisper): whisper-small_timestamped, built on openai/whisper-small. About 924 MB; 10,142 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-small_timestamped:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-small_timestamped (int8)",
+   "repo": "onnx-community/whisper-small_timestamped",
+   "revision": "65caa70f294b46e1c33ff820aae6b16d048ab818",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 237,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 10142,
+   "description": "Speech to text (Whisper): whisper-small_timestamped, built on openai/whisper-small. About 237 MB; 10,142 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny (full)",
+   "repo": "onnx-community/whisper-tiny",
+   "revision": "ff4177021cc41f7db950912b73ea4fdf7d01d8e7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 41192,
+   "description": "Speech to text (Whisper): whisper-tiny, built on openai/whisper-tiny. About 144 MB; 41,192 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny (int8)",
+   "repo": "onnx-community/whisper-tiny",
+   "revision": "ff4177021cc41f7db950912b73ea4fdf7d01d8e7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 39,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 41192,
+   "description": "Speech to text (Whisper): whisper-tiny, built on openai/whisper-tiny. About 39 MB; 41,192 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ONNX (full)",
+   "repo": "onnx-community/whisper-tiny-ONNX",
+   "revision": "ea7c447ab3780e36818661384dea74a8e6b82fc6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 152,
+   "description": "Speech to text (Whisper): whisper-tiny-ONNX, built on openai/whisper-tiny. About 144 MB; 152 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ONNX (int8)",
+   "repo": "onnx-community/whisper-tiny-ONNX",
+   "revision": "ea7c447ab3780e36818661384dea74a8e6b82fc6",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 152,
+   "description": "Speech to text (Whisper): whisper-tiny-ONNX, built on openai/whisper-tiny. About 114 MB; 152 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ar-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ar-ONNX (full)",
+   "repo": "onnx-community/whisper-tiny-ar-ONNX",
+   "revision": "abca0d608b269acca781941fced9ec4b728eab83",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Speech to text (Whisper): whisper-tiny-ar-ONNX, built on saralameri/whisper-tiny-ar. About 144 MB; 11 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ar-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ar-ONNX (int8)",
+   "repo": "onnx-community/whisper-tiny-ar-ONNX",
+   "revision": "abca0d608b269acca781941fced9ec4b728eab83",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 11,
+   "description": "Speech to text (Whisper): whisper-tiny-ar-ONNX, built on saralameri/whisper-tiny-ar. About 114 MB; 11 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ar-tashkeel-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ar-tashkeel-ONNX (full)",
+   "repo": "onnx-community/whisper-tiny-ar-tashkeel-ONNX",
+   "revision": "2f79720077555d7245f68802f0a17ed8ae2888d7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Speech to text (Whisper): whisper-tiny-ar-tashkeel-ONNX, built on WajeehAzeemX/whisper-tiny-ar-tashkeel. About 144 MB; 12 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-ar-tashkeel-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-ar-tashkeel-ONNX (int8)",
+   "repo": "onnx-community/whisper-tiny-ar-tashkeel-ONNX",
+   "revision": "2f79720077555d7245f68802f0a17ed8ae2888d7",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 12,
+   "description": "Speech to text (Whisper): whisper-tiny-ar-tashkeel-ONNX, built on WajeehAzeemX/whisper-tiny-ar-tashkeel. About 114 MB; 12 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-fa-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-fa-ONNX (full)",
+   "repo": "onnx-community/whisper-tiny-fa-ONNX",
+   "revision": "d352bd19a333bf9f3e9f208480c447a2701fe88a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 220,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 26,
+   "description": "Speech to text (Whisper): whisper-tiny-fa-ONNX, built on aictsharif/whisper-tiny-fa, for fa. About 220 MB; licence apache-2.0; 26 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-fa-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-fa-ONNX (int8)",
+   "repo": "onnx-community/whisper-tiny-fa-ONNX",
+   "revision": "d352bd19a333bf9f3e9f208480c447a2701fe88a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 199,
+   "licence": "apache-2.0",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 26,
+   "description": "Speech to text (Whisper): whisper-tiny-fa-ONNX, built on aictsharif/whisper-tiny-fa, for fa. About 199 MB; licence apache-2.0; 26 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-zh-HK-ONNX:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-zh-HK-ONNX (full)",
+   "repo": "onnx-community/whisper-tiny-zh-HK-ONNX",
+   "revision": "b563b45484507c3ab24ef3ff7bf37e4c5ba56c5a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 144,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 8,
+   "description": "Speech to text (Whisper): whisper-tiny-zh-HK-ONNX, built on souljoy/whisper-tiny-zh-HK. About 144 MB; 8 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny-zh-HK-ONNX:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny-zh-HK-ONNX (int8)",
+   "repo": "onnx-community/whisper-tiny-zh-HK-ONNX",
+   "revision": "b563b45484507c3ab24ef3ff7bf37e4c5ba56c5a",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 114,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 8,
+   "description": "Speech to text (Whisper): whisper-tiny-zh-HK-ONNX, built on souljoy/whisper-tiny-zh-HK. About 114 MB; 8 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny_timestamped:full",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny_timestamped (full)",
+   "repo": "onnx-community/whisper-tiny_timestamped",
+   "revision": "517244293732ee2d58139af5814231b7e6830a0d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 145,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5928,
+   "description": "Speech to text (Whisper): whisper-tiny_timestamped, built on openai/whisper-tiny. About 145 MB; 5,928 downloads. Not checked on a real machine."
+  },
+  {
+   "key": "hf:onnx-community/whisper-tiny_timestamped:int8",
+   "job": "speech",
+   "runner": "whisper",
+   "rank": 5,
+   "label": "whisper-tiny_timestamped (int8)",
+   "repo": "onnx-community/whisper-tiny_timestamped",
+   "revision": "517244293732ee2d58139af5814231b7e6830a0d",
+   "graphs": [
+    "encoder_model",
+    "decoder_model_merged"
+   ],
+   "suffix": "_int8",
+   "required": [
+    "config.json",
+    "generation_config.json",
+    "tokenizer.json"
+   ],
+   "extra": [],
+   "approx_mb": 39,
+   "licence": "",
+   "sha256": {},
+   "verified": null,
+   "source": "huggingface",
+   "downloads": 5928,
+   "description": "Speech to text (Whisper): whisper-tiny_timestamped, built on openai/whisper-tiny. About 39 MB; 5,928 downloads. Not checked on a real machine."
+  }
+ ]
+}

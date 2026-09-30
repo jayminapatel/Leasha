@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.20 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.21 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -77,6 +77,11 @@ line, no traceback and no window.
   with the last prompt's start reused and 10 threads, Interpret takes 9-15 s (Ollama 1-8 s), Chat
   ~5 tokens/s. Item 7 is closed; Downloads fetch q4. What order 1b still needs: item 9 (one real
   index run with photo tags and speech) and item 10 (PR, owner merges).
+- **2026-09-30 - order 1c (`docs/WORKORDER-model-manager-2026-09-30.md`), same branch.** A model
+  catalogue as data (`app/ort/catalogue.json`: pinned revisions, sha256, verified records,
+  descriptions), a shipped Hugging Face list (220 models) with an "Update the list" button
+  (`app/ort/discover.py`), and a Models box in Settings (Delete, Use this, Use recommended,
+  Remove unused). The laptop's unused 3.4 GB of models went to the **Recycle Bin**, not deleted.
 - **Smart App Control is now OFF on the owner's laptop** (the owner's decision), so torch and
   rawpy load there again. It is still on for most people - see the Traps.
 - Order 1a: §0-§1 done (0.6's "system-Python launcher" was the venv's own redirector - one Leasha,

@@ -111,7 +111,8 @@ _CHILD_CODE = {
              "os.environ.setdefault('HF_HUB_DOWNLOAD_TIMEOUT', '30'); "
              "from huggingface_hub import snapshot_download; "
              "snapshot_download(sys.argv[1], cache_dir=sys.argv[2], "
-             "allow_patterns=json.loads(sys.argv[3]))"),
+             "allow_patterns=json.loads(sys.argv[3]), "
+             "revision=(sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None))"),
 }
 
 
@@ -263,7 +264,45 @@ def _child_args(kind: str, name: str, folder: Path) -> list[str]:
     from app.ort.hub import _SIDE_FILES
 
     model = _onnx_model(name) if kind == "onnx" else _speech_model(name)
-    return [model.repo, str(folder), json.dumps(list(model.files()) + list(_SIDE_FILES))]
+    # The pinned revision (catalogue.json) when there is one - 2026-09-30.
+    revision = getattr(model, "revision", "") or _catalogue_revision(model.key)
+    return [model.repo, str(folder), json.dumps(list(model.files()) + list(_SIDE_FILES)),
+            revision]
+
+
+def _catalogue_entry(key: str) -> Any:
+    try:
+        from app.ort.catalogue import load
+
+        return load().by_key(key)
+    except Exception:                              # noqa: BLE001 - no catalogue, no pin
+        return None
+
+
+def _catalogue_revision(key: str) -> str:
+    entry = _catalogue_entry(key)
+    return entry.revision if entry is not None else ""
+
+
+def _check_download(kind: str, name: str, folder: Path) -> None:
+    """After an ONNX download: every file matches the catalogue's sha256, or the
+    download is refused - a changed or tampered file never becomes the model."""
+    if kind not in ("onnx", "speech"):
+        return
+    model = _onnx_model(name) if kind == "onnx" else _speech_model(name)
+    entry = _catalogue_entry(model.key) if model is not None else None
+    if entry is None or not entry.sha256:
+        return
+    from app.ort import hub
+    from app.ort.catalogue import verify_files
+
+    snapshot = hub.resolve(entry.model(), folder)
+    wrong = verify_files(entry, snapshot) if snapshot is not None else list(entry.sha256)
+    if wrong:
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details=("the downloaded files do not match the checked copy: "
+                     + ", ".join(wrong[:3]))))
 
 
 def _fetch_in_child(kind: str, name: str, folder: Path,
@@ -316,6 +355,8 @@ def _fetch_in_child(kind: str, name: str, folder: Path,
         last = lines[-1:] or [f"exit code {child.returncode}"]
         raise AppErrorException(make_error(
             "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name, details=last[0][:400]))
+    on_progress(f"Checking {name}...")
+    _check_download(kind, name, folder)
     return DONE
 
 

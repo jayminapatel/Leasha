@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.37 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 4.38 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -18,6 +18,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 ## [Unreleased]
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
+
+### A Models box: see, remove, choose and find models
+
+- Settings, Models now lists every model on this computer - what it is for, which copy, how big,
+  and whether it is in use - with Delete, and one button that removes everything nothing uses.
+  On the owner's laptop that was 3.4 GB of the 7.2 GB.
+- Below it, every model Leasha can run: the ones checked on a real computer first (marked
+  recommended), then the rest from Hugging Face (220 today: speech in many languages, and chat
+  models from the Qwen, Gemma, Llama and SmolLM families), each with a short description and a
+  Download button. "Update the list from Hugging Face" refreshes it; nothing goes online
+  otherwise. Models not checked here are marked so and never become the default.
+- "Use this" makes a downloaded model the one a job uses; "Use recommended models" puts every
+  job back on the checked ones. Downloads fetch exactly the checked version and are verified
+  against it.
+- The Ollama model now defaults to qwen2.5:1.5b, the one checked with Interpret, instead of
+  mistral.
 
 ### Every model runs inside Leasha, and Chat can use Ollama or not
 
