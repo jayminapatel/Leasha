@@ -267,6 +267,7 @@ class PreviewWindow(QWidget):
         self.reveal_button = self._button(
             "Show in folder", "Opens the folder with this file selected.",
             lambda: self.reveal_requested.emit(self._path))
+        self._offer_folder()
 
         bar = QHBoxLayout()
         for widget in (self.rotate, self.zoom_out, self.zoom_in, self.fit,
@@ -761,11 +762,21 @@ class PreviewWindow(QWidget):
         self._row = row
         self._path = str(getattr(row, "path", "") or "")
         self._display_path = self._path
+        self._offer_folder()
         self._view = View(turn=read_turn(self._state, self._path),
                           page=int(getattr(row, "page", 0) or 0))
         self.setWindowTitle(self._title_for(row))
         self.setToolTip(self._path or self.windowTitle())
         self.reload()
+
+    def _offer_folder(self) -> None:
+        """2026-09-30: "Show in folder" only for a row that is a real file. A
+        pinned message out of a mail archive has an address (`pst://...`) for
+        a path and no file of its own; the button used to be on for it and
+        ask Explorer for something that is not there."""
+        from app.ui.presenter.rows import file_of_row
+
+        self.reveal_button.setEnabled(bool(file_of_row(self._row)))
 
     def _restore(self, state: Any) -> None:
         """Size and pin, from the app's own state. Never raises."""
