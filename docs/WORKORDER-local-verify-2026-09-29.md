@@ -1,9 +1,9 @@
 # Work order (local Windows session): bring the laptop up to date and prove the 29 September merge
 
-**Doc version:** 1.0 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Created:** 2026-09-29 · **Layer:** none new - verification of L2/L3/L5 already merged
 **Thread:** One Claude Code session running **on the owner's laptop** (Claude Desktop or `claude remote-control`), able to run PowerShell there
-**Status:** RELEASED *(owner, 2026-09-29: "can you write a work order i will start a new session locally")*
+**Status:** DROPPED *(owner, 2026-09-30: "forget it as after this changes we are going to start fresh")* - was RELEASED *(owner, 2026-09-29: "can you write a work order i will start a new session locally")*
 
 ## Why
 

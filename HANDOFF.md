@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.30 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.31 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,69 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-09-30 (late) - the finishing pass. Read this before the entries below; where they
+disagree, this is newer.** The owner asked for everything that did not depend on him to be
+finished by helper threads in worktrees, merged by one thread. Merged to `main` and pushed:
+
+- **Order 0y is complete (15/0).** Code tab: Enter opens the file in the editor at the line
+  (the existing "Open code results in" setting is the order's "Editor for code" - no second
+  setting was added), history rows arrive as git finds them, every repository is searched
+  when none is named, and a history row previews as its commit. **Stop never ended git on
+  Windows** (the `git` on `PATH` is a launcher; killing it left the real git running) - fixed
+  by starting `mingw64\bin\git.exe` directly (`osbridge.programs.git_program`). Mail: the
+  header card, searched words highlighted with F3 / Shift+F3 (text files too), the
+  conversation list, "Open in Outlook", and a PST message selected in Search no longer
+  previews as a missing file.
+- **Order 0z is 22/2.** Lanes A-E were built on 29 September and never ticked; each item was
+  proven against code and tests and ticked. Built today: F1 folder watching (`app.cli watch`,
+  "Index files as soon as they are saved", **off by default**), F2 "One row per conversation"
+  (View menu, **off by default**), F3 "Retry with a longer time limit". **Open:** A4 - Search
+  has no "Showing N of total" (needs the owner's answer on what the total of a ranked list
+  counts); C1 - messages a second on the libpff path on Windows (needs the owner's archive).
+- **The governor was asked before every file**, and on Windows one ask is 26-30 ms (a walk of
+  the process table), which held any run to about 35 files a second. It is asked at most every
+  0.25 s now; the person's Pause is still seen on every file. Synthetic 9,002-file corpus on
+  this laptop, shared and noisy: 251 s to 55 s, an unchanged rerun 207 s to 2 s.
+- **Tests no longer touch the machine's real locks** (`tests/private_locks.py`, a session
+  fixture in `tests/conftest.py`): a run with Leasha open or indexing neither fails nor can
+  refuse a real run. This supersedes "the index-run lock in that file is still the real one"
+  below. The two Mac tests in `test_osbridge` and the scaffold lint test pass; the scaffold
+  generator really did emit unused imports.
+- **Tests no longer download a model** (`test_cli_wiring`, `test_date_everywhere`): an empty
+  temporary `MODEL_CACHE` meant a 130 MB fetch per run on a networked machine.
+- **Fixed on the way:** `format_eta` at a rate that prints as 0 ("about 1823 days"); the
+  skipped-files panel printing `{took}` / `{reason}` for 22 of 55 codes (the stand-in words in
+  `presenter/indexing.GROUP_WORDS` are this thread's, not the owner's - his to reword); an
+  archive cut off by the limit logging no counts; a mailbox working through one message's
+  attachments being taken for stalled; the status counts standing still in a separate-process
+  run.
+- **Still running when this was written, not yet merged:** freeing let-go Files/Mail/Code
+  views; whether writing mail slows as the index grows (one observation of 6-15 ms a message
+  past 6,000 rows, via the `messages_ai` trigger - unmeasured until that thread reports); four
+  indexing faults (the last message before a cut-off is lost; a reader process's start-up is
+  charged to its first file, which is why `test_a_hung_reader_process_is_ended_and_the_thread_
+  moves_on` fails on a busy machine; a case-only rename may leave two rows; the governor may
+  count Leasha's own helper processes as other programs); and the measurements for 0x 5c and
+  2d and the chat order's 4b and 4c.
+- **Not seen in the real window - the owner's checks.** None of today's work has been looked
+  at in the real window. In order of risk:
+  1. **"Open in Outlook"** has never run against Outlook. Try it once on an archive indexed
+     through Outlook and once on one indexed through libpff (the identifier is converted for
+     libpff, and only the arithmetic is tested). Outlook keeps the archive attached afterwards,
+     which is the state that blocks direct reading. Arrowing through Mail must never start it.
+  2. **Indexing speed** after the governor change on a real run; pull the power lead (it should
+     pause within a second and say why); Pause stops the readers at once.
+  3. **Folder watching** (switch it on under Indexing, Schedule): save, rename, delete; a bulk
+     copy; Outlook open on a `.pst` under an indexed folder must not be re-read constantly; a
+     Drive, OneDrive or network folder (never tested); a folder above an indexed folder cannot
+     be renamed while it is on; no watch process left after closing Leasha.
+  4. **Code tab:** no console flash on a history search; Enter opens VS Code at the line
+     (a path with a space); Esc keeps the rows found and leaves no `git.exe`; the commit
+     preview's colours in both themes.
+  5. **Mail:** the card in the real font, both themes; F3; the conversation list; folding.
+  6. **Indexing page:** "Timed-out files" and its retry, the status counts moving with
+     "Index in a separate process" on, a Force skip on a `.pst` logging `n Indexed · 1 TimedOut`.
 
 **2026-09-30 (evening) - 1b and 1c merged; the lines below that say otherwise are superseded.**
 - `main` is on the laptop and on GitHub at `bea16e7` (orders 1b and 1c merged straight to

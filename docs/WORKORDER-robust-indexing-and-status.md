@@ -1,6 +1,6 @@
 # Work order (One thread, with helpers): robust indexing, one status everywhere, and PST that keeps going
 
-**Doc version:** 1.1 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Created:** 2026-09-29 · **Layer:** L2/L3/L5 - `app/index/`, `app/extract/pst_libpff.py`, `app/core/`, `app/ui/`
 **Thread:** A coordinating thread with helper threads in worktrees, one PR per lane, each merged by the owner
 **Status:** RELEASED *(owner, 2026-09-29: "build it all")*

@@ -1,9 +1,9 @@
 # Work order (One thread): the Code tab and the mail preview, world class
 
-**Doc version:** 1.2 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 **Created:** 2026-09-27 · **Layer:** L1/L4/L5 - `app/search/gitsearch.py`, `app/search/gitquery.py`, `app/ui/code_view.py`, `app/ui/widgets/code_results.py`, `app/ui/widgets/git_tree.py`, `app/ui/presenter/code.py`, `app/ui/preview_loader.py`, `app/ui/mail_view.py`, `app/storage/sqlite_store.py`
 **Thread:** One thread, in small PRs, each merged by the owner
-**Status:** RELEASED *(owner, 2026-09-27: "design it ... and build straight away")*
+**Status:** SHIPPED *(2026-09-30, every box ticked)* - was RELEASED *(owner, 2026-09-27: "design it ... and build straight away")*
 
 ## Why
 
