@@ -35,6 +35,8 @@ __all__ = [
     "MailCard", "mail_card", "card_from_row", "sent_in_words", "split_index_headers",
     "INDEX_HEADER_LABELS", "NO_SUBJECT", "UNNAMED_ATTACHMENT", "RECIPIENTS_LABEL",
     "mail_terms",
+    "ConversationLine", "conversation_lines", "conversation_heading", "first_line",
+    "CONVERSATION_SHOWN",
 ]
 
 #: What a message with an empty subject is called - the Mail list's own words
@@ -189,6 +191,91 @@ def card_from_row(row: Any) -> Optional[MailCard]:
         date_words=sent_in_words(getattr(row, "sent_at", 0)),
         subject=str(getattr(row, "subject", "") or "").strip() or NO_SUBJECT,
         attachments=(UNNAMED_ATTACHMENT,) if getattr(row, "has_attachment", False) else (),
+    )
+
+
+# ---------------------------------------------------------------------------
+# 4c - the conversation
+# ---------------------------------------------------------------------------
+
+#: How many messages the list under the card holds. A short list by design: it
+#: is there to move between the replies of one exchange, and a key shared by
+#: hundreds of messages (an archive threaded by subject line) is not that.
+CONVERSATION_SHOWN = 25
+
+#: Characters of a message's first line shown in the list.
+FIRST_LINE_CHARS = 120
+
+
+@dataclass(frozen=True, slots=True)
+class ConversationLine:
+    """One message in the list under the card."""
+
+    #: The Mail list's own row for it (`rows.MailRow`) - what the pane is given
+    #: when the line is clicked, so it previews, opens and pins like any other.
+    row: Any
+    sender: str = ""
+    #: As the Mail list's Date column writes it.
+    when: str = ""
+    first_line: str = ""
+    #: The message now on show.
+    current: bool = False
+
+    @property
+    def text(self) -> str:
+        """`Dave Smith · 02 Jan 09:00 — The trip is on Friday.`"""
+        head = " · ".join(part for part in (self.sender, self.when) if part)
+        if head and self.first_line:
+            return f"{head} — {self.first_line}"
+        return head or self.first_line
+
+
+def first_line(stored_text: Any, *, limit: int = FIRST_LINE_CHARS) -> str:
+    """The first thing a message says: its first non-empty line, after the
+    index's own header lines, cut at a word when it is long."""
+    _headers, body = split_index_headers(stored_text)
+    for line in body.split("\n"):
+        line = " ".join(line.split())
+        if not line:
+            continue
+        if len(line) <= limit:
+            return line
+        cut = line[:limit]
+        space = cut.rfind(" ")
+        return (cut[:space] if space > limit // 2 else cut).rstrip() + "…"
+    return ""
+
+
+def conversation_heading(count: int, *, shown: int = CONVERSATION_SHOWN) -> str:
+    """`4 messages in this conversation`. `""` for a message on its own - a
+    list of one is the message already on show."""
+    count = int(count or 0)
+    if count < 2:
+        return ""
+    if count > shown:
+        return (f"More than {shown:,} messages in this conversation — "
+                f"the newest {shown:,} are listed")
+    return f"{count:,} messages in this conversation"
+
+
+def conversation_lines(rows: Any, current_id: Any, *, shown: int = CONVERSATION_SHOWN,
+                       now: Optional[float] = None) -> tuple[ConversationLine, ...]:
+    """Store rows (`conversation_messages`, oldest first) to list lines.
+
+    Given one more row than `shown` - how the caller learns there were more -
+    the oldest is dropped, so the list is the newest `shown`.
+    """
+    from app.ui.presenter.rows import mail_rows
+
+    rows = list(rows or ())[-shown:]
+    listed = mail_rows(rows, now=now)
+    return tuple(
+        ConversationLine(
+            row=row, sender=row.sender, when=row.sent,
+            first_line=first_line(source.get("opening")),
+            current=row.file_id == current_id,
+        )
+        for row, source in zip(listed, rows, strict=True)
     )
 
 

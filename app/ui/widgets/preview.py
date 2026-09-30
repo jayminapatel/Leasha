@@ -210,6 +210,9 @@ class PreviewPane(QWidget):
         # Order 0y section 4a: a message's header, drawn as a card. It stands
         # where the title and the facts stand for a file; `_show_mail` swaps them.
         self.mail = MailCardView()
+        # 4c: a message clicked in the conversation list is shown here, in the
+        # same pane, by the same route as a row selected in the list beside it.
+        self.mail.message_chosen.connect(self.show_row)
 
         # --- the renderers, one per kind, swapped rather than rebuilt
         # `MailBody` is a `QTextBrowser` that, for a message, copies the plain
@@ -573,6 +576,9 @@ class PreviewPane(QWidget):
         self.subtitle.setText(preview.subtitle or "")
         mail = preview.meta.get("mail") if preview.error is None else None
         self._show_mail(mail.card if mail is not None else None)
+        if mail is not None:
+            # 4c: read with the message, on the worker - drawn here.
+            self.mail.show_conversation(mail.conversation_heading, mail.conversation)
         notice = preview.notice
         if preview.truncated:
             notice = (notice + "  " if notice else "") + (

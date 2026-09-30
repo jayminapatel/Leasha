@@ -1804,6 +1804,48 @@ class SqliteStore:
         )
         return {int(row["file_id"]): dict(row) for row in rows}
 
+    def conversation_messages(
+        self, conversation: Optional[str], *, limit: int = 26
+    ) -> list[dict[str, Any]]:
+        """The messages of one conversation, oldest first. Order 0y section 4c.
+
+        **One statement, on `idx_messages_conv`.** The rows carry what
+        `browse_messages` returns for a message - so the Mail list's own row
+        shape can be built from them - plus `opening`, the start of each
+        message's first passage, for the line that stands for it in the list.
+        That is a lookup on `idx_chunks_file_ord` per message listed, inside
+        the same statement, never a second round trip.
+
+        **Bounded, newest kept.** A conversation key is whatever the mail said
+        it was, and an archive with no threading headers falls back to the
+        subject line - so "Hello" can be ten thousand unrelated messages. The
+        newest `limit` are returned (oldest of them first); a caller that wants
+        to know whether there were more asks for one more than it shows.
+
+        `[]` for a message with no conversation: `NULL` and `''` are "not
+        known", not a conversation every such message shares.
+        """
+        key = str(conversation or "").strip()
+        if not key:
+            return []
+        rows = self.conn.execute(
+            """
+            SELECT m.file_id, m.subject, m.sender, m.recipients, m.sent_at,
+                   m.has_attach, m.store_path, m.entry_id, m.conversation,
+                   m.quoted_removed,
+                   f.path, f.size_bytes, f.status, f.skip_code,
+                   (SELECT substr(c.text, 1, 2000) FROM chunks c
+                     WHERE c.file_id = m.file_id AND c.ordinal = 0) AS opening
+            FROM messages m
+            JOIN files f ON f.id = m.file_id
+            WHERE m.conversation = ?
+            ORDER BY m.sent_at IS NULL, m.sent_at DESC, m.file_id DESC
+            LIMIT ?
+            """,
+            (key, max(1, int(limit))),
+        ).fetchall()
+        return [dict(row) for row in reversed(rows)]
+
     def count_messages(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
         return int(row["n"]) if row else 0

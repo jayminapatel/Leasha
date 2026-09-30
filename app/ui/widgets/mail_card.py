@@ -22,11 +22,13 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QMimeData, Qt
+from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QListWidget,
+    QListWidgetItem,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -36,6 +38,9 @@ from app.ui.presenter.mail import RECIPIENTS_LABEL, RECIPIENTS_TIP, MailCard
 from app.ui.widgets.flow_layout import FlowLayout
 
 __all__ = ["MailCardView", "MailBody"]
+
+#: Rows of the conversation list on show at once; a longer one scrolls.
+CONVERSATION_ROWS = 4
 
 _SELECTABLE = (Qt.TextInteractionFlag.TextSelectableByMouse
                | Qt.TextInteractionFlag.TextSelectableByKeyboard)
@@ -55,6 +60,10 @@ def _label(name: str, *, wrap: bool = False) -> QLabel:
 
 class MailCardView(QFrame):
     """The card. `show_card` fills it; an empty part is not drawn."""
+
+    #: 4c: a message in the conversation list was clicked. Carries the Mail
+    #: list's own row for it; the pane previews that row in place.
+    message_chosen = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -101,6 +110,30 @@ class MailCardView(QFrame):
         layout.addWidget(self.recipients_row)
         layout.addWidget(self.date)
         layout.addWidget(self.chips)
+
+        # 4c: the other messages of the conversation, to move between. A short
+        # list - it scrolls past a handful of rows rather than pushing the
+        # message itself off the pane.
+        self.conversation_box = QWidget()
+        self.conversation_heading = QLabel("")
+        self.conversation_heading.setObjectName("mailConversationHeading")
+        self.conversation = QListWidget()
+        self.conversation.setObjectName("mailConversation")
+        self.conversation.setAccessibleName("Messages in this conversation")
+        self.conversation.setToolTip("Click a message to read it here.")
+        self.conversation.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.conversation.setTextElideMode(Qt.TextElideMode.ElideRight)
+        self.conversation.setUniformItemSizes(True)
+        self.conversation.itemClicked.connect(self._chosen)
+        self.conversation.itemActivated.connect(self._chosen)
+        box = QVBoxLayout(self.conversation_box)
+        box.setContentsMargins(0, 6, 0, 0)
+        box.setSpacing(3)
+        box.addWidget(self.conversation_heading)
+        box.addWidget(self.conversation)
+        self.conversation_box.setVisible(False)
+        layout.addWidget(self.conversation_box)
         self.setVisible(False)
 
     def show_card(self, card: MailCard) -> None:
@@ -116,6 +149,43 @@ class MailCardView(QFrame):
         self.date.setVisible(bool(card.date_words))
         self._show_chips(card.attachments)
         self.setVisible(True)
+
+    def show_conversation(self, heading: str, lines: Any) -> None:
+        """4c: the list under the card, or nothing for a message on its own.
+
+        Kept apart from `show_card` on purpose: the card can be drawn from a
+        Mail row the moment the selection moves, but the conversation is only
+        known once the message has been read - and redrawing the list empty in
+        between would make it blink on every arrow key.
+        """
+        lines = tuple(lines or ())
+        self.conversation.clear()
+        for line in lines:
+            item = QListWidgetItem(line.text)
+            item.setData(Qt.ItemDataRole.UserRole, line.row)
+            item.setToolTip(line.text)
+            if line.current:
+                # Bold, not only selected: the selection moves when the list is
+                # clicked, and which message is on show must survive greyscale.
+                font = item.font()
+                font.setBold(True)
+                item.setFont(font)
+            self.conversation.addItem(item)
+        shown = bool(heading and lines)
+        if shown:
+            self.conversation_heading.setText(heading)
+            row_height = max(18, self.conversation.sizeHintForRow(0))
+            rows = min(len(lines), CONVERSATION_ROWS)
+            self.conversation.setFixedHeight(row_height * rows + 6)
+            current = next((n for n, line in enumerate(lines) if line.current), -1)
+            if current >= 0:
+                self.conversation.scrollToItem(self.conversation.item(current))
+        self.conversation_box.setVisible(shown)
+
+    def _chosen(self, item: Any) -> None:
+        row = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
+        if row is not None:
+            self.message_chosen.emit(row)
 
     def chip_texts(self) -> list[str]:
         """The attachment chips, as drawn. For a test, and for a screen reader's

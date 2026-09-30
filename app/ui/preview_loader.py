@@ -867,6 +867,32 @@ class MailPreview:
     #: `messages.quoted_removed`: how much quoted text the index left out, or
     #: `None` when the message does not know - see `quoted_notice`.
     quoted_removed: Optional[int] = None
+    #: 4c: `presenter.mail.ConversationLine`s, oldest first - empty for a
+    #: message on its own - and the line above them.
+    conversation: tuple = ()
+    conversation_heading: str = ""
+
+
+def _conversation(store: Any, message: Any, file_id: int) -> tuple[tuple, str]:
+    """`(lines, heading)` for the list under the card. **Worker. Never raises.**
+
+    One query (`SqliteStore.conversation_messages`), asked for one row more
+    than the list shows so the heading can say when there were more.
+    """
+    from app.ui.presenter.mail import (
+        CONVERSATION_SHOWN, conversation_heading, conversation_lines,
+    )
+
+    try:
+        rows = store.conversation_messages(
+            message.get("conversation"), limit=CONVERSATION_SHOWN + 1)
+    except Exception as exc:                    # noqa: BLE001 - the list, not the message
+        _log.debug("no conversation for file {}: {}", file_id, exc)
+        return (), ""
+    heading = conversation_heading(len(rows))
+    if not heading:
+        return (), ""
+    return conversation_lines(rows, file_id), heading
 
 
 def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
@@ -908,10 +934,12 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     if named and listed.attachment:
         listed = replace(listed, attachment=named)
     header = mail_header(listed)
+    lines, heading = _conversation(store, message, file_id)
     return MailPreview(
         file_id=file_id, card=card, body=body or NO_MESSAGE_TEXT,
         copy_header=f"{header}{_COPY_RULE}" if header else "",
         quoted_removed=message.get("quoted_removed"),
+        conversation=lines, conversation_heading=heading,
     )
 
 

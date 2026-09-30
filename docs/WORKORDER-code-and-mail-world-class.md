@@ -154,12 +154,30 @@ the main question, so it belongs in the Code tab's own box.
 > back. Plain text only (a message, a text file): an HTML or Markdown preview keeps Ctrl+F.
 > Tests: `tests/unit/test_mail_preview_marks.py` (19), A8 among them on the Mail tab.
 
+> **2026-09-30, 4c built.** `SqliteStore.conversation_messages` is the one statement, on
+> `idx_messages_conv`, returning the Mail list's own row shape plus the start of each message's first
+> passage (a correlated lookup on `idx_chunks_file_ord`, inside the same statement). It is asked on
+> the preview's worker with the message (`preview_loader._conversation`) and drawn under the card:
+> `4 messages in this conversation`, then one line each - sender, date as the Mail list writes it,
+> the message's first line - oldest first, the one on show in bold. Clicking a line previews that
+> message in the same pane, by the route a row selected in the list takes; the list stays, to go
+> back by. A message on its own shows no list. **The list holds the newest 25**: a conversation key
+> is whatever the mail said, and an archive with no threading headers falls back to the subject
+> line, so one key can be thousands of unrelated messages; past 25 the heading says `More than 25
+> messages in this conversation - the newest 25 are listed`. **Measured** (section 5, budget under
+> 20 ms): over a synthetic store of 40,000 messages in 10,000 conversations, query and wording
+> together, median of 7 warm - 0.6 to 0.9 ms for a conversation of four, 3.0 ms for one longer than
+> the list (the worst case: 26 first passages read). On this machine while five other threads were
+> running tests, with the list then at 50, the same test read 7 ms and 17 ms - inside the budget
+> but too near it, which is why the list is 25. Tests: `tests/unit/test_mail_conversation.py`
+> (19), A7 among them.
+
 - [x] **4a** **A header card**, drawn rather than typed: the sender's name large with the address
       beside it, To and Cc, the date in words (*Tuesday 2 January 2024, 09:00*), the subject as a
       heading, and attachments as chips. The plain `From: ...` block remains what Copy produces.
 - [x] **4b** **The searched words highlighted** in the body, with next and previous (F3 and
       Shift+F3), exactly as the file preview does.
-- [ ] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
+- [x] **4c** **The conversation.** Under the header, `4 messages in this conversation`: a short
       list (sender, date, first line) from `messages.conversation`, which is already indexed.
       Clicking one shows it in the same pane. One indexed query, on a worker.
 - [ ] **4d** **Open the original.** "Open in Outlook" for a message from Outlook (its `entry_id`),

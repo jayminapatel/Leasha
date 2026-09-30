@@ -483,6 +483,8 @@ QToolButton#numberReset {{ padding: 0px; border: none; }}
 #mailCard {{ border: none; border-bottom: 1px solid {divider}; }}
 #mailSubject {{ color: {text}; font-size: {large}; font-weight: 600; }}
 #mailSender {{ color: {text}; font-size: {large}; }}
+#mailConversationHeading {{ color: {text_dim}; font-size: {small}; font-weight: 600; }}
+#mailConversation {{ font-size: {small}; }}
 #mailChip {{
     background: {chip_bg}; color: {chip_text};
     border-radius: {radius_pill}; padding: 4px 10px; font-size: {small};
