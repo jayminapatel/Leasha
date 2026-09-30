@@ -6507,7 +6507,142 @@ class Pipeline:
         # thousand messages searchable for ever, every one of them opening to
         # nothing. Collected before deleting, for the same reason as above.
         doomed.extend(self._doomed_inside_archives(seen, archived))
+        # 2026-09-30: and the row left under a file's *old spelling* after a
+        # rename that changed only letter case - see `_old_spellings`.
+        already = set(doomed)
+        doomed.extend(file_id for file_id in self._old_spellings(seen, archived)
+                      if file_id not in already)
         return self._delete_in_batches(doomed)
+
+    def _old_spellings(self, seen: set[str], archived: Any) -> list[int]:
+        r"""Ids of rows left under a spelling their file no longer has.
+
+        2026-09-30. `Report.docx` renamed to `report.docx`, on a disk that
+        ignores letter case (Windows; a Mac by default), is one file with a
+        new spelling. But a row is found by its exact path, so the next run
+        found none for `report.docx` and indexed it as a new file; and the
+        clean-up above compares `path_key`s, so the old row's key *was* seen
+        and the old row stayed. Two rows for one file, two results for one
+        search, and nothing that would ever remove the first.
+
+        **The rules are section 7's** (`docs/WORKORDER-overhaul-and-mac-ready.md`,
+        `osbridge.pathnames`): two paths are one file when their `path_key`s
+        are equal, which already folds case on Windows and in a folder that
+        ignores it, and keeps it in a folder that respects it - where
+        `Report.docx` and `report.docx` really are two files and are never
+        touched here. Stored paths are not rewritten; the old row is deleted
+        and the new one, written by this run or an earlier one, stays.
+
+        **Decided from the rows, not remembered from the walk**, so it does not
+        matter which run met the new spelling or whether that run reached its
+        clean-up: any complete run puts it right, including for a rename made
+        before this existed.
+
+        A row goes only when all of this holds, and on any doubt none does:
+
+        * another row has the same `path_key` and a different spelling;
+        * this walk saw the file (`seen`), so the disk was there to be asked;
+        * the other spelling is the one **this walk produces** and this one is
+          not. The walk spells a path as the indexed folder is written in
+          Settings, then as the disk lists each name below it - so that is
+          what is compared: the row must begin with an indexed folder exactly
+          as configured, and each part below it that differs between the two
+          rows must be in its folder's own listing. (`exists()` cannot tell:
+          on such a disk every spelling "exists". And "what the disk calls
+          it" alone would be wrong for the folder itself - with `d:\docs`
+          typed for a folder the disk calls `D:\Docs`, the walk's rows say
+          `d:\docs`, and deleting those would re-index the folder every run.)
+          Only the parts that differ are asked about, so a short
+          (`PROGRA~1`) name or a link elsewhere in the path decides nothing.
+
+        An old-spelt archive takes its members with it, as a deleted one does
+        in `_doomed_inside_archives`.
+
+        Not covered, and said so rather than guessed at: a mail archive's
+        messages are keyed by the archive's name (`pst://Mail/...`), not its
+        path, so a `.pst` renamed by case alone is read again under the new
+        name and its old messages are not found here.
+        """
+        from app.index.archives import files_under
+
+        try:
+            twins = self.store.case_twins()
+        except Exception as exc:                        # noqa: BLE001 - tidying only
+            self._log.debug("could not look for re-spelt files: {}", exc)
+            return []
+        if not twins:
+            return []
+
+        scope = self._prune_scope()
+        #: Each indexed folder as this walk spelt it: its text with a trailing
+        #: separator, to match a row's beginning exactly, and its parts.
+        roots = [(str(root).rstrip("\\/") + os.sep, Path(root).parts)
+                 for root in (self.config.walk.roots or [])]
+        listings: dict[str, Optional[frozenset]] = {}
+
+        def listed(folder: Path) -> Optional[frozenset]:
+            """The names in `folder` exactly as the disk spells them, or None."""
+            key = str(folder)
+            if key not in listings:
+                try:
+                    with os.scandir(folder) as entries:
+                        listings[key] = frozenset(entry.name for entry in entries)
+                except OSError:
+                    listings[key] = None
+            return listings[key]
+
+        groups: dict[str, list[tuple[int, str]]] = {}
+        for file_id, path, _kind in twins:
+            key = path_key(path)
+            if key in seen:                 # a real file this walk reached
+                groups.setdefault(key, []).append((file_id, path))
+
+        gone: list[int] = []
+        gone_paths: list[str] = []
+        for rows in groups.values():
+            if len(rows) < 2:
+                continue
+            if any((scope is not None and files_under(path, scope) is None)
+                   or (archived and files_under(path, archived) is not None)
+                   for _id, path in rows):
+                continue
+            parts = [Path(path).parts for _id, path in rows]
+            if len({len(one) for one in parts}) != 1:
+                continue
+            differing = [index for index in range(len(parts[0]))
+                         if len({one[index] for one in parts}) > 1]
+            current: list[Optional[bool]] = []
+            for (_id, path), one in zip(rows, parts, strict=True):
+                # The longest indexed folder this row begins with, exactly.
+                depth = max((len(root_parts) for root_text, root_parts in roots
+                             if path.startswith(root_text)), default=0)
+                spelt: Optional[bool] = depth > 0
+                for index in differing:
+                    if not spelt or index < depth:
+                        continue
+                    names = listed(Path(*one[:index]))
+                    if names is None:
+                        spelt = None        # cannot tell: nothing in this group goes
+                    elif one[index] not in names:
+                        spelt = False
+                current.append(spelt)
+            if None in current or True not in current:
+                continue
+            for (file_id, path), spelt in zip(rows, current, strict=True):
+                if not spelt:
+                    gone.append(file_id)
+                    gone_paths.append(path)
+
+        if gone_paths:
+            inside = tuple(path.rstrip("\\/") + sep
+                           for path in gone_paths for sep in ("\\", "/"))
+            gone.extend(file_id for file_id, path, kind in twins
+                        if kind == "archive" and path.startswith(inside))
+            self._log.info(
+                "{} row(s) removed for files renamed by letter case only (the "
+                "row under the new spelling is kept), first: {}",
+                len(gone), Path(gone_paths[0]).name)
+        return gone
 
     def _prune_scope(self) -> Optional[list]:
         """`config.prune_under` as a list, or None for the whole index (0z F1)."""

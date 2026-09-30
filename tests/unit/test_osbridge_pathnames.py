@@ -452,6 +452,206 @@ def test_a_deleted_spelling_is_pruned_and_its_twin_kept(two_by_case, tmp_path):
     assert left == ["report.txt"]
 
 
+# --- a rename that changes only the letter case (2026-09-30) --------------------
+
+def _aged(path: Path, text: str) -> Path:
+    """Written, and backdated so the run does not re-read it as just edited."""
+    import time
+
+    path.write_text(text, encoding="utf-8")
+    stamp = time.time() - 3600
+    os.utime(path, (stamp, stamp))
+    return path
+
+
+@pytest.fixture
+def renamed_by_case(tmp_path):
+    """A folder that ignores letter case (Windows, a default Mac disk)."""
+    root = tmp_path / "Docs"
+    root.mkdir()
+    if _disk_respects_case(root):
+        pytest.skip("this machine's temporary folder keeps letter case apart")
+    _aged(root / "Report.txt", "The quarterly turbine inspection found nothing.")
+    _aged(root / "other.txt", "Minutes of the allotment society.")
+    return root
+
+
+def _rows_and_hits(store, word: str):
+    rows = sorted(Path(r.path).name for r in store.iter_files())
+    hits = sorted({Path(hit["path"]).name for hit in store.search_bm25(word)})
+    return rows, hits
+
+
+def test_a_case_only_rename_replaces_the_row_and_does_not_add_a_second(
+        renamed_by_case, tmp_path):
+    """`Report.txt` renamed to `report.txt` is one file with a new spelling.
+
+    Reported by reading on 2026-09-30, reproduced here: the row is looked up
+    by its exact spelling (no row, so the file is indexed as new) while the
+    clean-up compares lower-cased keys (the old row's key was seen, so it is
+    kept) - two rows for one file, and two results for one search. Fails on
+    the code as it was (`['Report.txt', 'other.txt', 'report.txt']`).
+    """
+    from app.storage.sqlite_store import SqliteStore
+
+    root = renamed_by_case
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root).run()
+        first = _rows_and_hits(store, "turbine")
+
+        os.rename(root / "Report.txt", root / "report.txt")
+        assert sorted(os.listdir(root)) == ["other.txt", "report.txt"], (
+            "the disk really holds the new spelling")
+        stats = _pipeline(store, root).run()
+        second = _rows_and_hits(store, "turbine")
+
+        _pipeline(store, root).run()
+        third = _rows_and_hits(store, "turbine")
+
+    assert first == (["Report.txt", "other.txt"], ["Report.txt"])
+    assert second == (["other.txt", "report.txt"], ["report.txt"])
+    assert stats.deleted == 1, "the old spelling's row, and only that"
+    assert third == second, "and a further run changes nothing"
+
+
+def test_a_file_that_is_not_renamed_is_never_taken_for_its_own_old_spelling(
+        renamed_by_case, tmp_path):
+    """The other side of the rule: an ordinary second run, with a new file
+    beside the old ones, deletes nothing."""
+    from app.storage.sqlite_store import SqliteStore
+
+    root = renamed_by_case
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root).run()
+        _aged(root / "REPORT-2.txt", "A second turbine report.")
+        stats = _pipeline(store, root).run()
+        rows, hits = _rows_and_hits(store, "turbine")
+
+    assert rows == ["REPORT-2.txt", "Report.txt", "other.txt"]
+    assert hits == ["REPORT-2.txt", "Report.txt"]
+    assert not stats.deleted
+
+
+def _paths(store) -> list[str]:
+    return sorted(str(r.path) for r in store.iter_files())
+
+
+def test_a_folder_renamed_by_case_only_takes_its_files_rows_with_it(
+        renamed_by_case, tmp_path):
+    from app.storage.sqlite_store import SqliteStore
+
+    root = renamed_by_case
+    (root / "Minutes").mkdir()
+    _aged(root / "Minutes" / "may.txt", "The turbine hall roof was discussed.")
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root).run()
+        os.rename(root / "Minutes", root / "minutes")
+        stats = _pipeline(store, root).run()
+        paths = _paths(store)
+        hits = sorted({hit["path"] for hit in store.search_bm25("roof")})
+
+    assert str(root / "minutes" / "may.txt") in paths
+    assert str(root / "Minutes" / "may.txt") not in paths
+    assert hits == [str(root / "minutes" / "may.txt")]
+    assert stats.deleted == 1
+
+
+def test_a_folder_typed_in_another_case_than_the_disk_s_is_not_reindexed_every_run(
+        renamed_by_case, tmp_path):
+    """The walk spells a path as the folder was typed, not as the disk spells
+    it. A clean-up that kept "what the disk calls it" would delete the rows
+    this walk has just written and index the folder again, on every run."""
+    from app.storage.sqlite_store import SqliteStore
+
+    root = renamed_by_case
+    typed = root.parent / root.name.lower()          # `docs` for the disk's `Docs`
+    assert str(typed) != str(root) and typed.exists()
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, typed).run()
+        first = _paths(store)
+        again = _pipeline(store, typed).run()
+        second = _paths(store)
+
+        # And the spelling in Settings corrected later: one row a file still,
+        # under the spelling now walked.
+        moved = _pipeline(store, root).run()
+        third = _paths(store)
+        settled = _pipeline(store, root).run()
+
+    assert first == sorted([str(typed / "Report.txt"), str(typed / "other.txt")])
+    assert second == first and again.indexed == 0 and not again.deleted
+    assert third == sorted([str(root / "Report.txt"), str(root / "other.txt")])
+    assert moved.deleted == 2
+    assert settled.indexed == 0 and not settled.deleted
+
+
+def test_an_archive_renamed_by_case_only_takes_its_members_rows_with_it(
+        renamed_by_case, tmp_path):
+    import time
+    import zipfile
+
+    from app.index.embedder import Embedder, l2_normalise
+    from app.index.pipeline import Pipeline, PipelineConfig
+    from app.index.walker import WalkConfig
+    from app.storage.sqlite_store import SqliteStore
+
+    root = renamed_by_case
+    with zipfile.ZipFile(root / "Backup.zip", "w") as archive:
+        archive.writestr("q3/notes.txt", "Northern pump station commissioning report")
+    stamp = time.time() - 3600
+    os.utime(root / "Backup.zip", (stamp, stamp))
+
+    def pipeline(store):
+        def encode(texts):
+            return [l2_normalise([math.sin(abs(hash(t)) % 100 + i) for i in range(8)])
+                    for t in texts]
+        return Pipeline(store, _NullVectors(), Embedder(dim=8, encoder=encode),
+                        PipelineConfig(walk=WalkConfig(
+                            roots=[root], extensions=frozenset({".txt", ".zip"})),
+                            workers=1))
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline(store).run()
+        before = [p for p in _paths(store) if "ackup.zip" in p]
+        os.rename(root / "Backup.zip", root / "backup.zip")
+        pipeline(store).run()
+        after = [p for p in _paths(store) if "ackup.zip" in p]
+        hits = sorted({hit["path"] for hit in store.search_bm25("commissioning")})
+
+    assert len(before) == 2 and all("Backup.zip" in p for p in before), before
+    assert len(after) == 2 and all("backup.zip" in p for p in after), after
+    assert len(hits) == 1 and "backup.zip" in hits[0]
+
+
+def test_two_spellings_that_are_two_files_are_never_taken_for_a_rename(
+        monkeypatch, tmp_path):
+    """Section 7's rule, held from the other side: where a folder respects
+    letter case, `path_key` keeps it, so `Report.txt` and `report.txt` have
+    two keys and the clean-up for re-spelt files has nothing to say about
+    them. This disk cannot hold both, so the rule is given directly: keys
+    that keep their case. (The real thing, on a disk that can, is
+    `test_a_whole_index_run_keeps_both_files_and_a_rerun_prunes_neither`.)"""
+    from app.index import pipeline as pipeline_module
+    from app.storage.sqlite_store import FileStatus, SqliteStore
+
+    root = tmp_path / "Docs"
+    root.mkdir()
+    (root / "Report.txt").write_text("upper", encoding="utf-8")
+    monkeypatch.setattr(pipeline_module, "path_key", str)
+    with SqliteStore(tmp_path / "index.db") as store:
+        for name in ("Report.txt", "report.txt"):
+            store.upsert_file(str(root / name), size_bytes=5, mtime_ns=1,
+                              status=FileStatus.INDEXED)
+        twins = store.case_twins()
+        pipeline = _pipeline(store, root)
+        seen = {str(root / "Report.txt"), str(root / "report.txt")}
+        doomed = pipeline._old_spellings(seen, None)
+
+    assert sorted(Path(path).name for _id, path, _kind in twins) == [
+        "Report.txt", "report.txt"]
+    assert doomed == []
+
+
 def test_archive_resume_keys_are_unchanged_on_windows(monkeypatch):
     """A cursor saved on the owner's machine must still be found (0w 3b)."""
     import hashlib
