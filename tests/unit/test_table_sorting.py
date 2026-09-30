@@ -514,3 +514,60 @@ def test_qt_sorts_the_moment_sorting_is_switched_on(qapp, monkeypatch):
     assert plain(0) == ["a", "b", "c"] and calls[0] > 0
     calls[0] = 0
     assert plain(-1) == ["b", "c", "a"] and calls[0] == 0
+
+
+# ---------------------------------------------------------------------------
+# 2026-09-30 - a list nobody has sorted stays in the order it was filled in
+# ---------------------------------------------------------------------------
+
+def test_an_unranked_list_nobody_has_sorted_keeps_the_order_it_was_given(qapp):
+    r"""Mail's table. Qt's header starts out pointing at column 0, descending,
+    and sorts by it the moment sorting is switched on - so the list arrived in
+    order of its first column, Z to A, under an arrow nobody had asked for,
+    while `sort_order` said it was unsorted."""
+    table = _table()                                    # unranked, as Mail's is
+
+    assert _names(table) == ["beta", "alpha", "gamma"], "the order it was filled in"
+    assert table.sort_order is None
+    assert not table.horizontalHeader().isSortIndicatorShown()
+
+    _fill(table, list(reversed(ROWS)))                  # and after a refresh
+    assert _names(table) == ["gamma", "alpha", "beta"]
+
+
+def test_an_unranked_list_still_sorts_when_a_heading_is_clicked(qapp):
+    table = _table()
+    _click(table, 0)
+    assert _names(table) == ["alpha", "beta", "gamma"]
+
+    _fill(table, list(reversed(ROWS)))                  # the chosen sort survives
+    assert _names(table) == ["alpha", "beta", "gamma"]
+
+
+def test_the_mail_tab_opens_newest_first(qapp, tmp_path):
+    """End to end: the list the Mail tab shows is the list the index returned."""
+    from PyQt6.QtCore import QThreadPool
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.mail_view import COLUMNS, MailView
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        for day, sender in enumerate(["bob@x.org", "dave@x.org", "alice@x.org", "carol@x.org"]):
+            message = store.upsert_file(f"pst://box/E{day}", size_bytes=5, mtime_ns=1,
+                                        source_kind="pst_message")
+            store.mark_indexed(message)
+            store.set_message(message, subject=f"Day {day}", sender=sender,
+                              sent_at=1_700_000_000 + day * 86_400)
+        view = MailView(store)
+        try:
+            view._timer.stop()
+            for _ in range(10):
+                QThreadPool.globalInstance().waitForDone(5_000)
+                qapp.processEvents()
+            subject = [key for key, *_ in COLUMNS].index("subject")
+            shown = [view.results.item(row, subject).text()
+                     for row in range(view.results.rowCount())]
+            assert shown == ["Day 3", "Day 2", "Day 1", "Day 0"], shown
+            assert not view.results.horizontalHeader().isSortIndicatorShown()
+        finally:
+            view.shutdown()

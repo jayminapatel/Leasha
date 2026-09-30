@@ -327,19 +327,23 @@ class ResultTable(QTableWidget):
           order and `_stamp_rank` numbered them as they stand, so they are
           already in relevance order. The indicator is pointed at no column,
           which gives Qt nothing to compare, and no sort happens at all.
-        * **An unranked list nobody has sorted**: as it was.
+        * **An unranked list nobody has sorted** (Mail): the same, and for it
+          this was a fault rather than a cost. Qt's header starts out pointing
+          at column 0, descending, so switching sorting on put the Mail list
+          in order of sender, Z to A, with an arrow on "From" - when the list
+          had been asked for newest first, and `sort_order` said nobody had
+          sorted it. It now stays in the order it was filled in, with no arrow
+          until somebody clicks a heading.
         """
         header = self.horizontalHeader()
         if self._sort is not None:
             column, order = self._sort
             header.setSortIndicator(column, order)
             self.setSortingEnabled(True)
-        elif self.ranked:
+        else:
             header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
             self.setSortingEnabled(True)
             header.setSortIndicatorShown(False)
-        else:
-            self.setSortingEnabled(True)
 
     def row_object(self, row: int) -> Any:
         """The object behind a row index, or None.
