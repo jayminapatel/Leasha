@@ -66,6 +66,12 @@ def no_model_can_be_fetched(monkeypatch):
     and on 2026-09-30 it hung a suite for fourteen minutes when the network
     dropped mid-download. The constructors now fail as they do with no network,
     which is the branch these tests are about."""
+    refuse_model_fetch(monkeypatch)
+
+
+def refuse_model_fetch(monkeypatch) -> None:
+    """Make loading a model fail as it does with no network. For any test whose
+    `MODEL_CACHE` is temporary and empty (`env_file` above)."""
     def refuse(*_args, **_kwargs):
         raise OSError("no network in tests: the model is not in the temporary cache")
 

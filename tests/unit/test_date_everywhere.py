@@ -312,13 +312,20 @@ def test_the_date_values_say_the_period_they_cover():
 
 # --- The command line (non-negotiable #8) ------------------------------------
 
-def test_the_cli_search_applies_date(tmp_path, capsys):
+def test_the_cli_search_applies_date(tmp_path, capsys, monkeypatch):
     r"""`app.cli search "date:2017"` - the same parse, the same filter, and the
-    applied range in the JSON, so a headless check sees what the window does."""
+    applied range in the JSON, so a headless check sees what the window does.
+
+    2026-09-30: the model cache here is temporary and empty, so on a machine
+    with a network `search` fetched the meaning model on every run, and hung
+    when the network dropped. The fetch is refused, as in `test_cli_wiring`;
+    the date filter under test is on the keyword side."""
     import json
 
     from app import cli
-    from tests.unit.test_cli_wiring import env_file, parser_for
+    from tests.unit.test_cli_wiring import env_file, parser_for, refuse_model_fetch
+
+    refuse_model_fetch(monkeypatch)
 
     env = env_file(tmp_path)
     cli.cmd_init(parser_for(["init", "--env", env]))
@@ -405,10 +412,11 @@ def test_the_notice_comes_first_and_cannot_inject_markup():
     assert with_date_problems("3 files", parse_query("date:2017")) == "3 files"
 
 
-def test_the_cli_says_it_too(tmp_path, capsys):
+def test_the_cli_says_it_too(tmp_path, capsys, monkeypatch):
     from app import cli
-    from tests.unit.test_cli_wiring import env_file, parser_for
+    from tests.unit.test_cli_wiring import env_file, parser_for, refuse_model_fetch
 
+    refuse_model_fetch(monkeypatch)      # as above: an empty temporary model cache
     env = env_file(tmp_path)
     cli.cmd_init(parser_for(["init", "--env", env]))
     capsys.readouterr()
