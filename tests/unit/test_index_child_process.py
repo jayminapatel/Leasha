@@ -158,6 +158,39 @@ def test_pause_holds_the_run_and_stop_ends_it_cleanly(setup) -> None:
         assert read_unfinished_run(store, lock_dir=setup["locks"]) is None
 
 
+def test_the_child_takes_the_test_runs_own_lock_not_the_machines(setup) -> None:
+    """The real indexer, started by a test, must not hold Leasha's real run lock.
+
+    2026-09-30: it did. `TMPDIR` above only moves a lock *file*, which is the
+    Linux and macOS lock; on Windows the child took the machine-wide mutex, so
+    these tests would fail while the owner was indexing and could refuse the
+    owner's run while they ran. `tests/private_locks.py` now starts every
+    `ChildIndexRun` through itself. Proved from this side: this process asks
+    only about the test run's private name, so it can see the child's run
+    only if that is the name the child took.
+    """
+    from app.core.run_lock import INDEX_MUTEX_NAME, is_indexing
+    from tests import private_locks
+
+    run = _child(setup)
+    assert run.argv[1:4] == ["-m", "tests.private_locks", "app.cli"]
+    assert private_locks.private_name(INDEX_MUTEX_NAME) != INDEX_MUTEX_NAME
+    run.pause()
+    seen: list = []
+    thread, outcome = _start(run, seen)
+    try:
+        _wait_for(lambda: any(getattr(s, "paused_by_person", False) for s in seen))
+        with SqliteStore(setup["db"]) as store:
+            assert is_indexing(store, lock_dir=setup["locks"]), (
+                "the child's run lock is not the one this test run uses")
+    finally:
+        run.request_stop()
+        thread.join(90)
+    assert "stats" in outcome, outcome.get("error")
+    with SqliteStore(setup["db"]) as store:
+        assert not is_indexing(store, lock_dir=setup["locks"])
+
+
 def test_a_killed_child_is_reported_and_the_next_run_carries_on(setup) -> None:
     run = _child(setup)
     run.pause()
@@ -183,6 +216,8 @@ def test_a_killed_child_is_reported_and_the_next_run_carries_on(setup) -> None:
 _PARENT = textwrap.dedent("""
     import os, sys, threading, time
     sys.path.insert(0, {project!r})
+    from tests import private_locks
+    private_locks.install_everywhere()   # this stand-in window starts a real indexer
     from app.index.child_run import ChildIndexRun
     argv = {argv!r}
     run = ChildIndexRun(argv, env=dict(os.environ, TMPDIR={locks!r}),

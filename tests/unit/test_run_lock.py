@@ -80,19 +80,87 @@ def window_name():
     return f"{GUI_MUTEX_NAME}.test-{uuid.uuid4().hex}"
 
 
+@pytest.fixture()
+def index_name():
+    """The run lock under a name of this test's own, as `window_name` is.
+
+    The real `INDEX_MUTEX_NAME` is machine-wide and is held for as long as an
+    index run lasts - hours, on the owner's machine. Taken by name here, every
+    test below failed while a real run was going, and a real run that started
+    while one of them held it was refused. `lock_dir` does not help: it is
+    where the lock *file* goes on Linux and macOS, and a Windows mutex has no
+    folder. What the tests prove - two runs exclude each other, a dead
+    process's record locks nothing - is true of any name;
+    `test_the_two_locks_are_not_the_same_name` pins the real ones.
+
+    `tests/private_locks.py` already keeps the whole suite off the real names.
+    A name per test is on top of that: it also keeps these tests apart from a
+    window some earlier test left open, whose four-second probe of the run
+    lock is what `CONTENTION_WAIT_S` was added to wait out.
+    """
+    return f"{INDEX_MUTEX_NAME}.test-{uuid.uuid4().hex}"
+
+
+@pytest.fixture()
+def held_for_real(locks):
+    r"""Hold one of the machine's real locks, from a thread, for a few lines.
+
+        with held_for_real(INDEX_MUTEX_NAME):
+            ...                    # a real index run is going, as far as
+                                   # anything on this machine can tell
+
+    **If somebody else already has it, that is just as good** - Leasha being
+    open is exactly that for the window's lock - so a refusal is not a
+    failure here; either way the name is held while the body runs.
+
+    From a thread because a Windows mutex belongs to the thread that took it:
+    the same thread asking again is given it again, which would prove nothing.
+    Kept to a few lines because the owner's own Leasha can see this one.
+    """
+    import contextlib
+    import threading
+
+    from tests import private_locks
+
+    @contextlib.contextmanager
+    def hold(name: str):
+        ready, done = threading.Event(), threading.Event()
+
+        def holder() -> None:
+            lock = private_locks.real(name, lock_dir=locks)
+            try:
+                lock.acquire()
+            except AppErrorException:
+                pass                     # held already, by the real thing
+            ready.set()
+            done.wait(30)
+            lock.release()
+
+        thread = threading.Thread(target=holder, name=f"holds {name}")
+        thread.start()
+        try:
+            assert ready.wait(10), "the holder thread never started"
+            yield
+        finally:
+            done.set()
+            thread.join(10)
+
+    return hold
+
+
 # ---------------------------------------------------------------------------
 # The two halves of the property
 # ---------------------------------------------------------------------------
 
-def test_two_index_runs_exclude_each_other(store, locks):
-    with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks):
+def test_two_index_runs_exclude_each_other(store, locks, index_name):
+    with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         with pytest.raises(AppErrorException) as raised:
-            IndexRunLock(store, owner=GUI, lock_dir=locks).acquire()
+            IndexRunLock(store, owner=GUI, name=index_name, lock_dir=locks).acquire()
 
     assert raised.value.error.code == "ERR_INDEX_RUNNING"
 
 
-def test_an_open_window_does_not_block_an_index_run(store, locks, window_name):
+def test_an_open_window_does_not_block_an_index_run(store, locks, window_name, index_name):
     r"""**The reported bug, stated as the thing that must now be possible.**
 
     The window's lock and the run lock are different mutexes. Holding the first
@@ -101,7 +169,7 @@ def test_an_open_window_does_not_block_an_index_run(store, locks, window_name):
     window = SingleInstance(window_name, lock_dir=locks)
     window.acquire()
     try:
-        with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks) as held:
+        with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks) as held:
             assert held.acquired, "an open window still blocks indexing"
     finally:
         window.release()
@@ -123,16 +191,69 @@ def test_the_two_locks_are_not_the_same_name():
     assert INDEX_MUTEX_NAME != GUI_MUTEX_NAME
 
 
-def test_the_lock_is_released_even_when_the_run_raises(store, locks):
+def test_a_real_index_run_elsewhere_does_not_reach_the_tests(store, locks, held_for_real):
+    r"""**The owner indexing must not turn the suite red, and the reverse.**
+
+    With the machine's real run lock held - which is what a real `app.cli
+    index` or the window's own run looks like from outside - a run lock taken
+    *the way the application takes it*, with no name given, is still free
+    here, and nothing reads as "a run is going on". That is
+    `tests/private_locks.py`: in a test process the real name is not the name
+    asked for. No `name=` below, on purpose - this is every test that reaches
+    the lock through `cmd_index`, `IndexWorker` or a window's four-second
+    probe, none of which can pass one.
+    """
+    from tests import private_locks
+
+    with held_for_real(INDEX_MUTEX_NAME):
+        # The bait is real: asked for by its real name, it is refused.
+        with pytest.raises(AppErrorException):
+            private_locks.real(INDEX_MUTEX_NAME, lock_dir=locks).acquire()
+
+        assert not is_indexing(store, lock_dir=locks), (
+            "a test saw the machine's real index run as its own")
+        with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks) as run:
+            assert run.acquired, "a real index run elsewhere blocked a test"
+            # And this test's run is a run, to anything else in this process.
+            assert is_indexing(store, lock_dir=locks)
+
+
+def test_an_open_leasha_does_not_reach_the_tests(locks, held_for_real):
+    """The same for the window's lock, which Leasha holds all day."""
+    from tests import private_locks
+
+    with held_for_real(GUI_MUTEX_NAME):
+        with pytest.raises(AppErrorException):
+            private_locks.real(GUI_MUTEX_NAME, lock_dir=locks).acquire()
+
+        with SingleInstance(GUI_MUTEX_NAME, lock_dir=locks) as window:
+            assert window.acquired, "Leasha being open blocked a test's window"
+            with pytest.raises(AppErrorException):
+                SingleInstance(lock_dir=locks).acquire()      # still one window
+
+
+def test_a_test_process_cannot_ask_for_a_real_name_by_accident():
+    """What the two tests above rest on, said directly."""
+    from app.core.single_instance import DEFAULT_MUTEX_NAME
+
+    for real in (INDEX_MUTEX_NAME, GUI_MUTEX_NAME, DEFAULT_MUTEX_NAME):
+        asked = SingleInstance(real).name
+        assert asked != real and asked.startswith(real)
+    assert SingleInstance().name == SingleInstance(GUI_MUTEX_NAME).name
+    # Any other name is left exactly as given.
+    assert SingleInstance("handover-test").name == "handover-test"
+
+
+def test_the_lock_is_released_even_when_the_run_raises(store, locks, index_name):
     with pytest.raises(ValueError):
-        with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks):
+        with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
             raise ValueError("the run failed")
 
-    with IndexRunLock(store, owner=GUI, lock_dir=locks) as second:
+    with IndexRunLock(store, owner=GUI, name=index_name, lock_dir=locks) as second:
         assert second.acquired, "a failed run kept the lock"
 
 
-def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks):
+def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks, index_name):
     r"""**A probe is not a holder.** `is_indexing` answers by taking the lock and
     letting it straight go, and an open window asks it every four seconds on a
     worker. A run starting inside that instant was refused as "already in
@@ -150,7 +271,7 @@ def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks
     taken = threading.Event()
 
     def probe() -> None:
-        held = SingleInstance(INDEX_MUTEX_NAME, lock_dir=locks).acquire()
+        held = SingleInstance(index_name, lock_dir=locks).acquire()
         taken.set()
         threading.Event().wait(0.25)
         held.release()
@@ -160,7 +281,7 @@ def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks
     try:
         assert taken.wait(5), "the probe never took the lock"
         assert 0.25 < CONTENTION_WAIT_S, "the wait would not outlast this probe"
-        with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks) as run:
+        with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks) as run:
             assert run.acquired
     finally:
         prober.join(5)
@@ -170,7 +291,7 @@ def test_a_probe_in_flight_is_waited_out_rather_than_named_as_a_run(store, locks
 # The record describes; the mutex decides
 # ---------------------------------------------------------------------------
 
-def test_a_record_left_by_a_dead_process_does_not_lock_anything(store, locks):
+def test_a_record_left_by_a_dead_process_does_not_lock_anything(store, locks, index_name):
     r"""**A paper lock is worse than no lock.**
 
     A process killed mid-run leaves its row in `index_state` and has its mutex
@@ -181,15 +302,15 @@ def test_a_record_left_by_a_dead_process_does_not_lock_anything(store, locks):
     publish(store, owner=COMMAND_LINE, started_at=1.0, stats=None)
     assert active_run(store) is not None, "the fixture did not write a record"
 
-    assert not is_indexing(store, lock_dir=locks)
-    with IndexRunLock(store, owner=GUI, lock_dir=locks) as held:
+    assert not is_indexing(store, lock_dir=locks, name=index_name)
+    with IndexRunLock(store, owner=GUI, name=index_name, lock_dir=locks) as held:
         assert held.acquired
 
 
-def test_the_refusal_names_who_is_holding_it(store, locks):
-    with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks):
+def test_the_refusal_names_who_is_holding_it(store, locks, index_name):
+    with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         with pytest.raises(AppErrorException) as raised:
-            IndexRunLock(store, owner=GUI, lock_dir=locks).acquire()
+            IndexRunLock(store, owner=GUI, name=index_name, lock_dir=locks).acquire()
 
     rendered = raised.value.error.render()
     assert COMMAND_LINE in rendered, (
@@ -204,9 +325,9 @@ def test_the_holder_description_survives_a_missing_or_broken_record(store):
     assert describe_holder(store) == "another process"
 
 
-def test_releasing_takes_the_description_down_with_it(store, locks):
+def test_releasing_takes_the_description_down_with_it(store, locks, index_name):
     """Otherwise the next reader sees a run the mutex says is over."""
-    with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks):
+    with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         assert active_run(store) is not None
 
     assert active_run(store) is None
@@ -285,7 +406,7 @@ def test_a_stop_can_be_asked_for_and_seen(store):
     assert not stop_requested(store)
 
 
-def test_taking_the_lock_clears_a_stale_stop(store, locks):
+def test_taking_the_lock_clears_a_stale_stop(store, locks, index_name):
     r"""**Otherwise yesterday's Stop halts tomorrow's run before it starts.**
 
     Which looks exactly like indexing being broken, and leaves no trace saying
@@ -293,7 +414,7 @@ def test_taking_the_lock_clears_a_stale_stop(store, locks):
     """
     request_stop(store)
 
-    with IndexRunLock(store, owner=COMMAND_LINE, lock_dir=locks):
+    with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         assert not stop_requested(store)
 
 

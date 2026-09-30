@@ -34,6 +34,12 @@ FILES = 120
 def main(scratch: Path) -> int:
     faulthandler.dump_traceback_later(DUMP_AFTER, exit=True)
 
+    # The window below probes the run lock every four seconds, by its real
+    # name; with the owner's own run going it would draw somebody else's run.
+    from tests import private_locks
+
+    private_locks.install()
+
     from PyQt6.QtCore import QTimer
     from PyQt6.QtWidgets import QApplication, QWidget
 

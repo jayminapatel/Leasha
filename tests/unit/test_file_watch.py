@@ -492,6 +492,8 @@ def test_force_skip_through_the_indexing_process(tmp_path) -> None:
     # `python -m app.cli ...` becomes `python -c <the same, with a stuck reader>`.
     program = textwrap.dedent("""
         import sys
+        from tests import private_locks
+        private_locks.install()          # this is a real index run: not the machine's lock
         import app.index.pipeline as pipeline_module
         real = pipeline_module.extract
         def extract(path, **kwargs):

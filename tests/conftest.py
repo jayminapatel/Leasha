@@ -159,6 +159,30 @@ def _repository_detection_stops_at_the_test_tree(tmp_path_factory) -> Iterator[N
 
 
 @pytest.fixture(autouse=True, scope="session")
+def _the_machines_own_locks_are_left_alone() -> Iterator[None]:
+    """No test takes Leasha's real window lock or its real index-run lock.
+
+    Both are machine-wide Windows mutexes, and `lock_dir` / `TMPDIR` - how the
+    tests thought they were isolated - only place a lock *file* on Linux and
+    macOS. So on the owner's laptop an open Leasha failed the tests that
+    needed the window's lock, a real index run would have failed every test
+    that needed the run lock, and a test holding it could have refused the
+    owner's real run (2026-09-30). `tests/private_locks.py` has the whole
+    story; `tests/unit/test_run_lock.py` holds the real locks and proves
+    nothing here notices.
+
+    Session-wide and autouse because most of the tests that reach a lock never
+    name it: they call `cmd_index`, start an `IndexWorker`, or build a window
+    whose four-second timer probes the run lock. Not undone at the end - the
+    process is ending, and a window left open by a test is still probing.
+    """
+    from tests import private_locks
+
+    private_locks.install_everywhere()
+    yield
+
+
+@pytest.fixture(autouse=True, scope="session")
 def _pin_ocr_to_the_processor() -> Iterator[None]:
     """`ocr._device` is a module default that only the entry points set, so the
     environment variable above never reaches it in a test process."""

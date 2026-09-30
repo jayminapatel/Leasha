@@ -276,13 +276,18 @@ def active_run(store: Any) -> Optional[dict[str, Any]]:
     return found if isinstance(found, dict) else None
 
 
-def is_indexing(store: Any, *, lock_dir: Any = None) -> bool:
+def is_indexing(store: Any, *, lock_dir: Any = None,
+                name: str = INDEX_MUTEX_NAME) -> bool:
     """Is a run genuinely under way anywhere on this machine?
 
     Asks the **mutex**, because that is the thing an operating system releases
     when a process dies. The record is only consulted for the words.
+
+    `name` is the same argument `IndexRunLock` takes, and for the same reason:
+    a test asks about a lock of its own rather than the machine's. Nothing in
+    the application passes it.
     """
-    probe = SingleInstance(INDEX_MUTEX_NAME, lock_dir=lock_dir)
+    probe = SingleInstance(name, lock_dir=lock_dir)
     try:
         probe.acquire()
     except AppErrorException:
