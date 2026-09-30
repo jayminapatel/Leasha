@@ -183,6 +183,15 @@ def limit_kind(path: Any) -> str:
     return LIMIT_LONG
 
 
+def _factor(value: Any) -> float:
+    """A usable multiple of the limit: a positive number, else 1."""
+    try:
+        factor = float(value)
+    except (TypeError, ValueError):
+        return 1.0
+    return factor if factor > 0 else 1.0
+
+
 def duration_words(seconds: float) -> str:
     """`45 s`, `3 min 20 s`, `2 h 5 min`. For the error message, not the UI."""
     total = max(0, int(round(float(seconds))))
@@ -243,6 +252,10 @@ class FileWatch:
         self.candidate: Any = None
         self.digest: Optional[str] = None
         self.kind = LIMIT_NONE
+        #: Order 0z F3: how many times the usual limit this one file is given.
+        #: 1 for every file except one being retried with a longer limit
+        #: (`app/index/timed_out_retry.py`).
+        self.factor = 1.0
         self.started = 0.0
         #: `time.monotonic()` when the current `next()` began; 0 outside one.
         self.reading_since = 0.0
@@ -266,13 +279,15 @@ class FileWatch:
 
     # -- the extraction thread's side ------------------------------------------
 
-    def begin(self, candidate: Any, digest: Optional[str], kind: str) -> None:
+    def begin(self, candidate: Any, digest: Optional[str], kind: str,
+              factor: float = 1.0) -> None:
         now = time.monotonic()
         with self.lock:
             self.token += 1
             self.candidate = candidate
             self.digest = digest
             self.kind = kind
+            self.factor = _factor(factor)
             self.started = now
             self.reading_since = 0.0
             self.read_s = 0.0
@@ -530,31 +545,43 @@ class Watchdog:
                               details=f"Force skip, by {by}.")
         if not watch.reading_since:
             return None
-        seconds = limit = 0.0
+        seconds = limit = usual = 0.0
         reason = ""
+        # Order 0z F3: a file being retried is given `factor` times the usual
+        # limit. 1 for every other file, which leaves each sentence below
+        # exactly as it was.
+        factor = watch.factor
         if watch.kind == LIMIT_STALL and self.stall_limit_s:
-            seconds, limit = now - watch.last_progress, self.stall_limit_s
+            usual = self.stall_limit_s
+            seconds, limit = now - watch.last_progress, usual * factor
             reason = (f"nothing new was read from it for "
                       f"{duration_words(limit)}, the limit for a mailbox or archive")
         elif watch.kind == LIMIT_QUICK and self.file_limit_s:
-            seconds, limit = watch.reader_seconds(now), self.file_limit_s
+            usual = self.file_limit_s
+            seconds, limit = watch.reader_seconds(now), usual * factor
             reason = (f"reading it took longer than {duration_words(limit)}, "
                       "the limit for a text or code file")
         elif watch.kind == LIMIT_LONG and self.file_limit_s:
-            seconds, limit = (watch.reader_seconds(now),
-                              self.file_limit_s * LONG_FACTOR)
+            usual = self.file_limit_s * LONG_FACTOR
+            seconds, limit = watch.reader_seconds(now), usual * factor
             reason = (f"reading it took longer than {duration_words(limit)}, "
                       "the limit for a document of this kind")
         if not limit or seconds < limit:
             return None
+        details = (f"limit={watch.kind} {limit:.0f}s; reader {seconds:.1f}s; "
+                   f"documents so far {watch.documents}")
+        if factor != 1.0:
+            # The row says what this file was given, so a second timeout is
+            # not read as "the retry changed nothing".
+            reason += (f" on this retry ({factor:g} times the usual "
+                       f"{duration_words(usual)})")
+            details += f"; retry x{factor:g} of {usual:.0f}s"
         self.timed_out += 1
         log.warning("{} timed out ({} limit, {:.0f}s): {}",
                     Path(str(path)).name, watch.kind, limit, reason)
         return make_error(
             "ERR_FILE_TIMEOUT", "index.file_watch", path=str(path), took=took,
-            reason=reason,
-            details=(f"limit={watch.kind} {limit:.0f}s; reader {seconds:.1f}s; "
-                     f"documents so far {watch.documents}"))
+            reason=reason, details=details)
 
     def _let_go(self, watch: FileWatch) -> None:
         """Free the thread: end its reader process, or raise inside it."""

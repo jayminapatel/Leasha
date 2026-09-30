@@ -221,7 +221,22 @@ at the end.
 - [ ] **F1** Watch the indexed folders for changes, so a file saved a moment ago can be found.
 - [ ] **F2** Mail results grouped by conversation, with the parent message shown when only an
       attachment matched (overlaps order 0y §4c).
-- [ ] **F3** "Retry with a longer time limit" on a group of timed-out files (needs B).
+> **2026-09-30, F3 built.** A retry is an index run that walks nothing: its only candidates are
+> one group of timed-out files, read back from the ledger with one statement on the skip index
+> (`SqliteStore.timed_out_groups` / `timed_out_files`; `app/index/timed_out_retry.py`). A group
+> is a file type, because the limit is by type. Each file in it is given N times its usual limit
+> (4 unless asked otherwise) through the file watch, for that run only - no setting is written. A
+> file that times out again stays TimedOut and its sentence says what it was given; one that has
+> changed since is read with the usual limit; one that has gone is left to the clean-up. Command
+> line first: `app.cli timed-out [TYPE]` lists them, and `app.cli index --retry-timed-out [TYPE]
+> [--time-limit-factor N]` reads them again. Window: a "Timed-out files" panel on the Indexing
+> page's Status shelf, one row per type with the button, for the window's own run and for "Index
+> in a separate process", refused with a sentence while any run holds the run lock. A retry does
+> not teach the tuner and is not followed by the images-pass notice. **Not covered:** timed-out
+> files on an Offline Media drive - their rows are not paths on disk, and a rescan of that drive
+> is what reads them. *UNVERIFIED on the real window* (built and tested offscreen).
+
+- [x] **F3** "Retry with a longer time limit" on a group of timed-out files (needs B).
 
 ## Not in this order, by decision
 

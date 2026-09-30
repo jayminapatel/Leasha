@@ -2464,6 +2464,74 @@ class SqliteStore:
             params.append(int(limit))
         return [row["path"] for row in self.conn.execute(sql, params).fetchall()]
 
+    # -- timed-out files (order 0z F3) ----------------------------------------
+    #
+    # Which rows count: the ones `app.core.file_state` calls TimedOut - a
+    # SKIPPED or FAILED row whose code is in `TIMEOUT_CODES` - that are whole
+    # files on an ordinary drive. `source_kind = 'file'` keeps a message inside
+    # a mailbox out (the limit is on the mailbox, and its row is the mailbox's);
+    # `volume_id IS NULL` keeps Offline Media's rows out, whose `path` is not a
+    # path on disk (`volume_synthetic_path`) and which a rescan of that drive
+    # reads, not an index run.
+    #
+    # **The unary `+` is load-bearing.** It tells SQLite not to use an index
+    # for that term, which leaves `skip_code` - the partial `idx_files_skip`,
+    # a few rows - as the only way in. Without it the planner chose
+    # `idx_files_source_kind` (`source_kind = 'file'`: most of the table) for
+    # the grouped statement and would be free to choose `idx_files_ext` (every
+    # `.pdf` in the corpus) for the other; `test_timed_out_retry.py` caught
+    # the first and holds both.
+
+    _TIMED_OUT_WHERE = ("skip_code IN ({codes}) AND +status IN ('SKIPPED', 'FAILED') "
+                        "AND +source_kind = 'file' AND +volume_id IS NULL")
+
+    def _timed_out_where(self) -> tuple[str, list[Any]]:
+        from app.core.file_state import TIMEOUT_CODES
+
+        codes = sorted(TIMEOUT_CODES)
+        return (self._TIMED_OUT_WHERE.format(codes=",".join("?" * len(codes))),
+                list(codes))
+
+    def timed_out_groups(self) -> list[dict[str, Any]]:
+        """The timed-out files, one row per file type, most files first.
+
+        `[{"ext": "pdf", "count": 12, "example": "D:/Docs/big.pdf"}, ...]` -
+        `ext` as `files.ext` holds it (no dot; `""` for a file with none).
+        **By type because the limit is by type**: text and code get one limit,
+        documents ten times it, mailboxes and archives a limit on no progress
+        (`app/index/file_watch.py`), so "every .pdf that timed out" is a group
+        that one longer limit suits.
+
+        One statement, answered from the partial `idx_files_skip` - the rows
+        that carry the code, never the table (`test_timed_out_retry.py` holds
+        the plan).
+        """
+        where, params = self._timed_out_where()
+        rows = self.conn.execute(
+            f"SELECT ext, COUNT(*) AS n, MIN(path) AS example FROM files "
+            f"WHERE {where} GROUP BY ext ORDER BY n DESC, ext", params)
+        return [{"ext": row["ext"] or "", "count": int(row["n"]),
+                 "example": row["example"]} for row in rows]
+
+    def timed_out_files(self, ext: Optional[str] = None) -> list[dict[str, Any]]:
+        """The timed-out files of one type (`ext`, as `timed_out_groups` names
+        it), or all of them for None. Oldest row first.
+
+        Each is `{"path", "size_bytes", "mtime_ns", "skip_detail"}`: the size
+        and date the file had when it timed out, so a caller can tell a file
+        that has changed since, and the sentence recorded with it.
+        """
+        where, params = self._timed_out_where()
+        if ext is not None:
+            where += " AND +ext = ?"
+            params.append(str(ext))
+        rows = self.conn.execute(
+            f"SELECT path, size_bytes, mtime_ns, skip_detail FROM files "
+            f"WHERE {where} ORDER BY id", params)
+        return [{"path": row["path"], "size_bytes": int(row["size_bytes"]),
+                 "mtime_ns": int(row["mtime_ns"]),
+                 "skip_detail": row["skip_detail"] or ""} for row in rows]
+
     def iter_files(
         self, status: Optional[str] = None, *, source_kind: Optional[str] = None,
         volume_id: Optional[int] = None,
