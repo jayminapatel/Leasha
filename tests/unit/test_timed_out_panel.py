@@ -319,3 +319,11 @@ def test_a_finished_retry_teaches_the_tuner_nothing_and_offers_no_images_pass(
         assert len(said) == 1 and said[0].startswith("Text is indexed.")
     finally:
         del built.notify
+
+
+def test_nothing_is_collected_in_the_middle_of_a_test() -> None:
+    """The guard in `tests/conftest.py` - see `no_window_is_collected_while_it_
+    paints`. This file is where its absence ended the test process."""
+    import gc
+
+    assert not gc.isenabled()

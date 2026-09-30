@@ -299,3 +299,37 @@ def _no_florence_model_load(request, monkeypatch):
     except Exception:                            # noqa: BLE001 - not importable, nothing to guard
         return
     monkeypatch.setattr(florence_tagger, "_load", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def no_window_is_collected_while_it_paints():
+    """The cyclic collector is off while a test runs, and runs once after it.
+
+    **Found 2026-09-30.** `test_number_fields.py` and `test_timed_out_panel.py`
+    in one process ended in a Windows access violation inside
+    `ShimmerBar.paintEvent`, at `painter.setPen`, with an active painter. Each
+    file passed alone; so did the pair with any extra line ahead of the painter.
+
+    The cause: a test builds a top-level widget as a local and shows it.
+    pytest-qt keeps only a weak reference, and processes events *after* the
+    test function has returned - so the widget is painted while nothing holds
+    it. Its signal connections put it in a reference cycle, so it waits for the
+    collector, and the allocations of a paint are what trigger the collector:
+    the window is deleted from inside its own child's `paintEvent`. Whether the
+    threshold falls inside a paint depends on everything allocated before it,
+    which is why it needed a particular file in front and vanished under
+    observation.
+
+    With the collector off for the length of a test the window lives until
+    pytest-qt closes it, and the one collection afterwards happens outside any
+    paint. A test that wants a collection still calls `gc.collect()` itself.
+    Proved by the pair above: 139 every time without this, 0 with it.
+    """
+    import gc
+
+    was_enabled = gc.isenabled()
+    gc.disable()
+    yield
+    if was_enabled:
+        gc.enable()
+    gc.collect()

@@ -26,12 +26,28 @@ except (ImportError, OSError) as exc:
     pytest.skip(f"onnxruntime.quantization cannot load here: {exc}",
                 allow_module_level=True)
 
+import os
+
 from app.index.embedder import Embedder
+
+#: **2026-09-30: the real model is read from a folder the person names, never
+#: fetched.** These two tests pointed the embedder at an empty temporary folder,
+#: so every run downloaded the model - 130 MB on a networked machine, a failure
+#: on one without (two of the suite's standing "offline" failures), and a hang
+#: when the network dropped part-way. `test_embedder.py` already had the
+#: convention: set `LEASHA_REAL_EMBED_CACHE` to a model folder (for example the
+#: index's own `models` folder) and they run against the real model; leave it
+#: unset and they are skipped, saying so.
+REAL_CACHE = os.environ.get("LEASHA_REAL_EMBED_CACHE", "")
+needs_the_real_model = pytest.mark.skipif(
+    not REAL_CACHE,
+    reason="set LEASHA_REAL_EMBED_CACHE to a folder holding the embedding model")
 
 
 @pytest.mark.slow
-def test_the_quantised_path_produces_a_correctly_shaped_unit_vector(tmp_path):
-    plain = Embedder(cache_dir=str(tmp_path), device="cpu", quantised=False)
+@needs_the_real_model
+def test_the_quantised_path_produces_a_correctly_shaped_unit_vector():
+    plain = Embedder(cache_dir=REAL_CACHE, device="cpu", quantised=False)
     vectors = plain.embed(["a boiler quote from last winter"])
 
     assert len(vectors) == 1
@@ -41,7 +57,8 @@ def test_the_quantised_path_produces_a_correctly_shaped_unit_vector(tmp_path):
 
 
 @pytest.mark.slow
-def test_the_quantised_path_agrees_closely_with_the_unquantised_one(tmp_path):
+@needs_the_real_model
+def test_the_quantised_path_agrees_closely_with_the_unquantised_one():
     r"""The correctness guard this order's own risk actually needs: not
     that quantising runs without raising, but that ranking is not quietly
     broken. Cosine similarity to the fp16 embedding of the same sentence
@@ -52,10 +69,10 @@ def test_the_quantised_path_agrees_closely_with_the_unquantised_one(tmp_path):
     import numpy as np
 
     text = "a boiler quote Dave sent last winter"
-    plain = Embedder(cache_dir=str(tmp_path), device="cpu", quantised=False)
+    plain = Embedder(cache_dir=REAL_CACHE, device="cpu", quantised=False)
     plain_vector = np.asarray(plain.embed([text])[0])
 
-    quantised = Embedder(cache_dir=str(tmp_path), device="cpu", quantised=True)
+    quantised = Embedder(cache_dir=REAL_CACHE, device="cpu", quantised=True)
     quantised_vector = np.asarray(quantised.embed([text])[0])
 
     assert quantised.choice is not None, "the quantised path must actually load a model"
@@ -79,6 +96,9 @@ def test_a_gpu_choice_never_asks_for_a_quantised_copy(tmp_path, monkeypatch):
         return backends.Choice(device="gpu", providers=("DmlExecutionProvider",),
                               why="stand-in for a graphics card")
 
+    from tests.unit.test_cli_wiring import refuse_model_fetch
+
+    refuse_model_fetch(monkeypatch)        # an empty temporary cache: no download
     called: list = []
     monkeypatch.setattr(backends, "choose", fake_choose)
     monkeypatch.setattr(

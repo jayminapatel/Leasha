@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.33 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.34 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -161,6 +161,23 @@ finished by helper threads in worktrees, merged by one thread. Merged to `main` 
   no single test of the first file sets it up, and it reproduces on `0e1f89e`. It will end a
   whole-suite run at that point until it is understood. Also still downloading a model when the
   network is up: `tests/unit/test_embedder_quantised_wiring.py`.
+- **Evening, after the restart - that crash is understood and fixed; read this before the two
+  lines above.** A test builds a top-level widget as a local and shows it; pytest-qt keeps only
+  a weak reference and processes events *after* the test function returns, so the widget is
+  painted while nothing holds it. Its signal connections put it in a reference cycle, and the
+  allocations of a paint are what trigger the cyclic collector - the window was deleted from
+  inside its own child's `paintEvent`. Proved by experiment (the pair ended 139 every time;
+  0 with the collector off for the length of a test, 0 when the paint held `self.window()`;
+  still 139 with a collection between tests, with pytest-qt's message capture off, and with a
+  check that the painter was active). `tests/conftest.py` now switches the collector off while
+  each test runs and collects once afterwards (`no_window_is_collected_while_it_paints`).
+  **The same hazard exists in the application** for any top-level window shown without a
+  Python reference or a parent - not audited. This is very likely the "native crash in one Qt
+  test" the PST-resilience order recorded on a memory-starved machine (unconfirmed).
+  `test_embedder_quantised_wiring.py` no longer downloads: its two real-model tests run only
+  when `LEASHA_REAL_EMBED_CACHE` names a model folder (they pass against
+  `D:\Leasha\Data\models`), and are skipped with that reason otherwise - which removes the
+  two standing "embedder-quantised, offline" failures.
 - **Not seen in the real window - the owner's checks.** None of today's work has been looked
   at in the real window. In order of risk:
   1. **"Open in Outlook"** has never run against Outlook. Try it once on an archive indexed
