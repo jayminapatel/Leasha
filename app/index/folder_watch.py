@@ -1111,6 +1111,7 @@ class FolderWatcher:
     told what happens, in plain data, from the watcher's own threads:
 
     * `"watching"` - `{"root", "backend"}`, once per folder when it starts;
+    * `"ready"` - `{"folders"}`, once every folder is really being noticed;
     * `"problem"` - `{"root", "error"}` (an `AppError`), or `error=None` when
       the folder is being watched again;
     * `"pending"` - `{"count"}`, when changes are waiting to go quiet;
@@ -1222,7 +1223,11 @@ class FolderWatcher:
     # -- the dispatcher ------------------------------------------------------------
 
     def _dispatch(self) -> None:
+        said_ready = False
         while not self._stop.wait(self._tick_s):
+            if not said_ready and all(s.ready.is_set() for s in self.sources):
+                said_ready = True
+                self._say("ready", {"folders": len(self.sources)})
             try:
                 self.step()
             except Exception as exc:             # noqa: BLE001 - the watch must not die

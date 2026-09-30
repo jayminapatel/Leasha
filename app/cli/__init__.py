@@ -63,6 +63,7 @@ from app.cli.offline_media import add_offline_media_parser
 from app.cli.ollama import add_ollama_parser
 from app.cli.report import add_report_parser
 from app.cli.timeline import add_timeline_parser
+from app.cli.watch import add_watch_parser, cmd_watch  # noqa: F401
 from app.cli.repos import add_gitsearch_parser, add_repos_parser
 from app.cli.scan import add_scan_parser
 from app.cli.search import (
@@ -156,6 +157,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_extract_parser(sub, common)
     add_scan_parser(sub, common)
     add_index_parser(sub, common)
+    add_watch_parser(sub, common)
     add_convert_parser(sub, common)
     add_files_parser(sub, common)
     add_gitsearch_parser(sub, common)
