@@ -962,6 +962,13 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
     if store is not None and getattr(row, "volume_id", None) is not None:
         return volume_preview(row, store)
 
+    # Order 0y §3c: a history row is a commit. It has no file on disk to read;
+    # `git show` is run here - on this worker, and only for the selected row.
+    if getattr(row, "commit", "") and getattr(row, "repo_root", ""):
+        from app.ui.commit_preview import commit_preview
+
+        return commit_preview(row)
+
     body = str(getattr(row, "preview_text", "") or "")
     if not body and body_provider is not None:
         try:

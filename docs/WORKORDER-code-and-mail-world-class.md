@@ -165,11 +165,32 @@ the main question, so it belongs in the Code tab's own box.
 > checkouts and a folder that is not a repository); **A1 and A2 on the real window are the owner's.**
 > Tests: `tests/unit/test_git_streaming.py` (38), `tests/unit/test_code_history_live.py` (26).
 
+> **2026-09-30, 3c built.** A history row now carries its commit, the repository folder and the text
+> that was searched for (`presenter.git_result_row`). `preview_loader.load_preview_for` sends such a row
+> to `app/ui/commit_preview.py`, which runs `gitsearch.show_commit` - one `git show --raw --patch -m
+> --first-parent`, read line by line and ended at 3,000 diff lines - and builds the page: the subject
+> as a heading, the message, the author with the date in words (*Tuesday 2 January 2024, 09:00*), the
+> commit id, `3 files changed` with Added / Modified / Deleted / Renamed beside each, and the diff with
+> added lines green, removed lines red and the searched text dark on yellow wherever it occurs
+> (whatever its capitals). Everything that came from the repository is escaped, so markup in a commit
+> message is shown and not obeyed. It runs on the pane's own worker after the pane's usual 200 ms
+> pause, so only the selected row ever starts git; a diff that was cut says so, and a commit git
+> cannot show leaves the row's own three lines with git's reason above them. A merge shows what it
+> brought in (against its first parent). A changed line from `/added-only` or `/removed-only` is
+> history too: it used to preview today's file, and now shows its commit. `app.cli gitsearch --repo
+> <folder> --show <id>` prints the same headless. **Measured:** 413 ms from selection to a finished
+> page for a real commit of this repository (26,941 characters of page), on the worker. **Not
+> built:** the pane does not scroll to the first highlighted place, and F3 does not step between
+> them - Ctrl+F in the pane finds the text; §4b builds next/previous for mail and the same keys could
+> serve here. The highlight colours were chosen to read on a light and a dark page but were **not
+> looked at in the real window** (owner check). Tests: `tests/unit/test_commit_preview.py` (13), and
+> `show_commit` against invented and real git in `tests/unit/test_git_streaming.py`.
+
 - [x] **3a** **Streaming.** Rows appear as git prints them (`Popen`, read line by line on a
       worker), newest first, with a live line: `Searching history… 12 found so far`.
 - [x] **3b** **Every repository at once** when none is named: one git process per repository, at
       most two at a time, results merged by date. Today it answers "Name a repository first".
-- [ ] **3c** **A commit opens as a commit.** Selecting a history row shows, in the preview pane:
+- [x] **3c** **A commit opens as a commit.** Selecting a history row shows, in the preview pane:
       the message, author and date, the files changed, and the diff with the searched text
       highlighted (`git show`, on a worker, only when selected).
 
