@@ -79,12 +79,14 @@ at the end.
 >   `test_force_skip_through_the_indexing_process` runs a real one).
 > - Not seen here: the real window, and a hung Outlook (COM) read (HANDOFF, "Time limits and Force
 >   skip").
-> - The 29 is the best of seven runs. `test_a_hung_reader_process_is_ended_and_the_thread_moves_on`
->   failed in four of them, while five other test runs shared the machine (the processor read 87%
->   to 100% busy whenever it was looked at): with its 1 s limit a fresh reader process took longer
->   than the limit to start, so the files after the stuck one timed out too. A reader process's
->   start-up counts against its first file. At the shipped 120 s that is nothing, and the test
->   passed when it was run on its own; on a busy machine it is not a reliable test.
+> - The 29 is a clean run; most runs here were not clean.
+>   `test_a_hung_reader_process_is_ended_and_the_thread_moves_on` failed in five of seven runs of
+>   its file and in six of seven runs on its own, while five other test runs shared the machine
+>   (the processor read 87% to 100% busy whenever it was looked at). It fails the same way on the
+>   code as it stood before this audit (three runs of three), so it is the load and not a change.
+>   With its 1 s limit a fresh reader process takes longer than the limit to start, so the files
+>   after the stuck one time out too: a reader process's start-up counts against its first file.
+>   At the shipped 120 s that is nothing; on a busy machine this is not a reliable test.
 
 - [x] **B1** A time limit per file, by kind; for mail archives a limit on *no progress*, never on
       total time.
