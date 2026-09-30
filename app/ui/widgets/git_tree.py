@@ -40,10 +40,11 @@ from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import GitScope
-from app.ui.workers import CallableWorker, run
+from app.ui.workers import CallableWorker, _emit, run
 
 __all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
-           "ROLE_SCOPE", "paint_repo_state"]
+           "ROLE_SCOPE", "paint_repo_state", "draw_git_progress",
+           "fill_keeping_selection"]
 
 _log = logger.bind(component="ui.gittree")
 
@@ -433,12 +434,17 @@ def draw_git_result(view: Any, found: Any) -> None:
     beside the tree: everything it renders is a git row rather than an indexed
     one, and `git_result_row` is the shape both panes agree on.
     """
-    from app.ui.presenter import code_route, git_result_row, git_summary, repo_root_for
+    from app.ui.presenter import (
+        code_route, git_result_row, git_stopped_summary, git_summary, repo_root_for,
+    )
 
+    root = repo_root_for(view._repos, code_route(view.input.text()).repo)
+    needle = str(getattr(view, "_git_needle", "") or "")
+    rows = [git_result_row(row, root, needle) for row in found.rows]
     if getattr(found, "stopped", False):
-        view.summary.setText(
-            "History search stopped. Press Enter or “Search history” to run it again.")
-        view._fill([])
+        # Order 0y §3a: what was found before the Stop stays on screen.
+        view.summary.setText(git_stopped_summary(found))
+        fill_keeping_selection(view, rows)
         return
     if not found.ok:
         # Never silent: git's own message about a bad revision or pattern is the
@@ -448,9 +454,66 @@ def draw_git_result(view: Any, found: Any) -> None:
         view._fill([])
         return
 
-    root = repo_root_for(view._repos, code_route(view.input.text()).repo)
-    view._fill([git_result_row(row, root) for row in found.rows])
+    fill_keeping_selection(view, rows)
     view.summary.setText(git_summary(found))
+
+
+def fill_keeping_selection(view: Any, rows: list) -> None:
+    """Redraw the list without moving what the person has selected. Order 0y §3a.
+
+    Rows arrive while somebody may already be reading one. A plain refill
+    re-announces the selection on every batch, so the preview pane would start
+    over - and its `git show` with it - several times a second. The row that was
+    selected is found again and kept, with the table's signals held while it is;
+    only when it is no longer in the list is the new selection announced.
+    """
+    table = view.results.table
+    keep = table.current_row()
+    held = table.blockSignals(True)
+    found = False
+    try:
+        view._fill(rows)
+        if keep is not None:
+            for index in range(table.rowCount()):
+                if table.row_object(index) == keep:
+                    table.setCurrentCell(index, 0)
+                    found = True
+                    break
+    finally:
+        table.blockSignals(held)
+    if not found:
+        table.selected.emit(table.current_row())
+
+
+def draw_git_progress(view: Any, progress: Any, generation: int) -> None:
+    """Rows git has found so far, and the live line above them. Order 0y §3a.
+
+    Called on the interface thread for each report from the worker; it draws
+    and nothing else. A report from a search that has been replaced or stopped
+    (`_generation` moved on) is dropped.
+    """
+    from app.ui.presenter import (
+        LIVE_ROW_LIMIT, git_live_line, git_live_rows, git_result_row,
+    )
+
+    if generation != view._generation:
+        return
+    needle = str(getattr(view, "_git_needle", "") or "")
+    new = [git_result_row(row, row.root, needle) for row in progress.rows]
+    first = not getattr(view, "_git_started", False)
+    if new or first:
+        view._git_started = True
+        view._git_live = git_live_rows(getattr(view, "_git_live", []), new,
+                                       many=progress.repos_total > 1)
+        # Only the newest are listed while it runs, and the list is redrawn
+        # only when those have changed - see `presenter.LIVE_ROW_LIMIT`.
+        shown = view._git_live[:LIVE_ROW_LIMIT]
+        if first or shown != getattr(view, "_git_shown", None):
+            view._git_shown = shown
+            fill_keeping_selection(view, shown)
+    view.summary.setText(git_live_line(
+        progress.found, progress.repos_done, progress.repos_total,
+        history=getattr(view, "_git_history", True)))
 
 
 #: The Stop button's tooltip while a history search runs (order 0y §1b).
@@ -508,11 +571,13 @@ def start_git_search(view: Any, route: Any) -> None:
     # made `monkeypatch.setattr("...git_tree.run", ...)` bind a name this
     # function never looked at - so the test saw nothing start, correctly.
     from app.search.gitquery import build, parse_git_query
-    from app.search.gitsearch import StopFlag, run_query
-    from app.ui.presenter import repo_root_for
+    from app.search.gitsearch import StopFlag, search_repositories
+    from app.ui.presenter import git_needle, repo_targets
 
-    root = repo_root_for(view._repos, route.repo)
-    if not root:
+    # Order 0y §3b: no repository named means every repository. Only a name
+    # that matches none of them is still answered with the sentence below.
+    targets = repo_targets(view._repos, route.repo)
+    if not targets:
         view.summary.setText(
             "Name a repository first — /repo <name> — so git knows which "
             "checkout to read. The Repository column lists them."
@@ -533,10 +598,27 @@ def start_git_search(view: Any, route: Any) -> None:
     stop_git_search(view)
     view._git_stop = StopFlag()
     git_search_running(view, True)
-    worker = CallableWorker(run_query, root, query, stop=view._git_stop,
-                            component="ui.code.git")
+    # Order 0y §3a: rows are drawn as git prints them. The worker reports
+    # through `progress`; `draw_git_progress` is the only thing that draws.
+    view._git_live, view._git_started = [], False
+    view._git_needle, view._git_history = git_needle(query), query.wants_history()
+    # `relay` runs on the worker's thread and only emits; `_emit` is the
+    # workers' own guarded emit, so a report after the window has closed is
+    # dropped rather than raised.
+    relay = lambda progress: _emit(worker.signals, "progress", progress)  # noqa: E731
+    worker = CallableWorker(search_repositories, targets, query, stop=view._git_stop,
+                            on_progress=relay, component="ui.code.git")
+    worker.signals.progress.connect(
+        lambda progress, g=generation: draw_git_progress(view, progress, g))
     worker.signals.finished.connect(
         lambda found, g=generation: view._show_git(found, g))
     worker.signals.failed.connect(lambda _e: git_search_running(view, False))
     worker.signals.failed.connect(view.error.emit)
+    # 2026-09-30: the button goes back to "Search history" when *this* search
+    # ends, whatever the list is showing by then. Typing a plain file search
+    # while git ran moved `_generation` on, the result was (rightly) dropped,
+    # and the button read "Stop" until somebody pressed it.
+    worker.signals.done.connect(
+        lambda flag=view._git_stop: git_search_running(view, False)
+        if view._git_stop is flag else None)
     run(QThreadPool.globalInstance(), worker)

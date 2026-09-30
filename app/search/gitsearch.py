@@ -33,11 +33,14 @@ the same pattern used for COM, Qt and the resource probe.
 
 from __future__ import annotations
 
+import queue
+import re
 import shutil
 import subprocess
 import threading
 import time
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field, replace
 from functools import partial
 from pathlib import Path
@@ -45,6 +48,7 @@ from typing import Any, Optional
 
 from app.core.logging import logger
 from app.core.osbridge import hidden_console_flags
+from app.core.osbridge.programs import git_program
 
 __all__ = [
     "DEFAULT_DEPTHS",
@@ -55,6 +59,12 @@ __all__ = [
     "STOPPED_EXIT",
     "StopFlag",
     "run_query",
+    "stream_query",
+    "search_repositories",
+    "show_commit",
+    "CommitDetail",
+    "GitProgress",
+    "MAX_PARALLEL_REPOS",
     "DEFAULT_TIMEOUT_S",
     "GitResult",
     "Measurement",
@@ -128,7 +138,7 @@ def _run(args: Sequence[str], cwd: Path | None, timeout: float,
     """
     try:
         proc = subprocess.Popen(
-            list(args), cwd=str(cwd) if cwd else None,
+            _real(args), cwd=str(cwd) if cwd else None,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
             text=True, encoding="utf-8", errors="replace",
             creationflags=hidden_console_flags(),
@@ -150,6 +160,131 @@ def _run(args: Sequence[str], cwd: Path | None, timeout: float,
                 return 124, "", f"timed out after {timeout:.0f}s"
             continue
         return proc.returncode, out, err
+
+
+def _real(args: Sequence[str]) -> list[str]:
+    """The argument list with `git` replaced by the program to start.
+
+    2026-09-30: on Windows the `git` on `PATH` is a launcher, and ending it left
+    the real git running - so Stop (§1b) returned only when git had finished.
+    See `osbridge.programs.git_program`. The recorded command still says `git`,
+    which is what somebody types to reproduce it.
+    """
+    out = list(args)
+    if out and out[0] == "git":
+        out[0] = git_program()
+    return out
+
+
+def _stream(args: Sequence[str], cwd: Path | None, timeout: float,
+            on_line: Callable[[str], Any],
+            stop: Optional[StopFlag] = None) -> tuple[int, str]:
+    """Run git and hand over each line **as it is printed**. Order 0y §3a.
+
+    Returns `(exit code, stderr)`. `on_line(line)` is called on this thread for
+    every line of output, in order; when it returns something true, that was
+    enough (the row limit) and git is ended - reported as exit 0.
+
+    **Why two helper threads.** Reading a pipe blocks until there is a line, so
+    a git that has printed nothing yet could not be stopped from the thread
+    that is reading it. One thread reads the output into a queue; this one takes
+    from the queue in `_STOP_POLL_S` steps and looks at the Stop flag and the
+    clock in between, which is what keeps §1b's half second. The other drains
+    stderr, because a git with a lot to say there would otherwise block on a
+    full pipe and never finish.
+
+    The same hidden-console flag as `_run`, and the same exit codes:
+    `STOPPED_EXIT` for a Stop, 124 for the time limit, 127 when git could not be
+    started.
+    """
+    try:
+        proc = subprocess.Popen(
+            _real(args), cwd=str(cwd) if cwd else None,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            text=True, encoding="utf-8", errors="replace", bufsize=1,
+            creationflags=hidden_console_flags(),
+        )
+    except OSError as exc:
+        return 127, str(exc)
+
+    lines: "queue.Queue[Optional[str]]" = queue.Queue()
+    said: list[str] = []
+    over = threading.Event()
+
+    def read_output() -> None:
+        try:
+            for line in proc.stdout:                # type: ignore[union-attr]
+                # Once the search is over, what is still arriving is read and
+                # dropped: a program that outlives its launcher (see
+                # `git_program`) must not fill memory, nor block on a full pipe.
+                if not over.is_set():
+                    lines.put(line)
+        except (OSError, ValueError):               # the pipe was closed under us
+            pass
+        finally:
+            lines.put(None)
+
+    def read_errors() -> None:
+        try:
+            said.append(proc.stderr.read())         # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+
+    readers = [threading.Thread(target=read_output, daemon=True),
+               threading.Thread(target=read_errors, daemon=True)]
+    for reader in readers:
+        reader.start()
+
+    deadline = time.monotonic() + timeout
+    ended = ""                                       # why it was cut short, if it was
+    while True:
+        if stop is not None and stop.stopped:
+            ended = "stopped"
+            break
+        if time.monotonic() >= deadline:
+            ended = "timeout"
+            break
+        try:
+            line = lines.get(timeout=_STOP_POLL_S)
+        except queue.Empty:
+            continue
+        if line is None:
+            break
+        if on_line(line.rstrip("\r\n")):
+            ended = "enough"
+            break
+
+    over.set()
+    if ended:
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5.0)
+    except subprocess.TimeoutExpired:
+        pass
+    # A short wait only: when git was cut short its pipes close at once, and
+    # a reader that is somehow still busy is a daemon and must not hold a Stop.
+    for reader in readers:
+        reader.join(timeout=0.2 if ended else 5.0)
+    # Closed only once its reader has finished: closing a pipe another thread is
+    # still blocked reading waits for that read, which is the wait being avoided.
+    for reader, pipe in zip(readers, (proc.stdout, proc.stderr)):
+        if reader.is_alive():
+            continue
+        try:
+            pipe.close()                            # type: ignore[union-attr]
+        except (OSError, ValueError):
+            pass
+
+    if ended == "stopped":
+        return STOPPED_EXIT, "stopped"
+    if ended == "timeout":
+        return 124, f"timed out after {timeout:.0f}s"
+    if ended == "enough":
+        return 0, ""
+    return int(proc.returncode or 0), "".join(said)
 
 
 @dataclass(frozen=True)
@@ -389,6 +524,10 @@ class GitRow:
     #: "A" added, "M" modified, "D" deleted, "R" renamed - from --name-status,
     #: and from the +/- of a patch.
     status: str = ""
+    #: Order 0y §3b: which repository the row came from, and its folder. Empty
+    #: from `run_query`, which is given one folder and has no name for it.
+    repo: str = ""
+    root: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -417,6 +556,10 @@ class GitSearchResult:
     truncated: bool = False
     #: Order 0y §1b: somebody pressed Stop (or Esc) before git finished.
     stopped: bool = False
+    #: Order 0y §3b: how many repositories were asked, and the ones that could
+    #: not be searched as `(name, why)`. One that fails never stops the others.
+    repos: int = 1
+    failed: list[tuple[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -424,6 +567,8 @@ class GitSearchResult:
             "elapsed_s": round(self.elapsed_s, 3), "explain": self.explain,
             "command": " ".join(self.command), "error": self.error,
             "truncated": self.truncated, "stopped": self.stopped,
+            "repos": self.repos,
+            "failed": [{"repo": name, "error": why} for name, why in self.failed],
             "rows": [row.as_dict() for row in self.rows],
         }
 
@@ -657,6 +802,391 @@ def run_query(
         # was would put "showing the first 1 of many" under `/introduced`.
         truncated=not plan.first_only and len(rows) >= limit,
     )
+
+
+# ---------------------------------------------------------------------------
+# Order 0y section 3: history that answers as it goes
+# ---------------------------------------------------------------------------
+
+class _LineReader:
+    """The four readers above, fed one line at a time. Order 0y §3a.
+
+    **It calls them rather than copying them**, so a streamed search and
+    `run_query` cannot come to read the same output differently. A patch row
+    and a file-history row need to know which commit and which file they are
+    under; those one or two lines are kept and handed to the batch reader
+    again, in front of each new line.
+    """
+
+    def __init__(self, kind: str, keep: str = "") -> None:
+        from app.search.gitquery import KIND_GREP, KIND_NAME_STATUS, KIND_PATCH
+
+        self._kind = kind
+        self._keep = keep
+        self._grep, self._patch, self._names = KIND_GREP, KIND_PATCH, KIND_NAME_STATUS
+        self._header = ""
+        self._file = ""
+
+    def feed(self, line: str) -> list[GitRow]:
+        if self._kind == self._grep:
+            return _read_grep([line], 1)
+        if _header(line) is not None:
+            self._header, self._file = line, ""
+            if self._kind in (self._patch, self._names):
+                return []
+            return _read_log([line], 1)
+        if self._kind == self._names:
+            return _read_name_status([self._header, line], 1) if self._header else []
+        if self._kind == self._patch:
+            if line.startswith("+++ b/"):
+                self._file = line
+                return []
+            context = [one for one in (self._header, self._file) if one]
+            return _read_patch([*context, line], 1, keep=self._keep)
+        return []
+
+
+def stream_query(
+    repo: Path,
+    query: Any,
+    *,
+    on_rows: Optional[Callable[[list[GitRow]], None]] = None,
+    limit: int = DEFAULT_ROW_LIMIT,
+    timeout: float = SEARCH_TIMEOUT_S,
+    stop: Optional[StopFlag] = None,
+    streamer: Callable[..., tuple[int, str]] = _stream,
+    runner: Runner = _run,
+) -> GitSearchResult:
+    """`run_query`, handing rows over as git prints them. Order 0y §3a.
+
+    `on_rows(rows)` is called on this thread for each row as it is read, so the
+    first row is on its way before git has finished. The result at the end
+    holds every row, exactly as `run_query`'s would.
+
+    **A stopped or timed-out search keeps what it found.** `run_query` returns
+    nothing for a stopped search because it had read nothing; this one has
+    already shown its rows to somebody, and taking them away again when they
+    press Stop would be the wrong way round.
+
+    Never raises, for `run_query`'s reason.
+    """
+    from app.search.gitquery import build
+
+    plan = build(query)
+    lookup = partial(_run, stop=stop) if (stop is not None and runner is _run) else runner
+    plan.argv = _expand_refs(Path(repo), plan, lookup)
+    wanted = 1 if plan.first_only else max(1, int(limit))
+    reader = _LineReader(plan.kind, plan.line_filter)
+    rows: list[GitRow] = []
+
+    def on_line(line: str) -> bool:
+        found = reader.feed(line)[: max(0, wanted - len(rows))]
+        if found:
+            rows.extend(found)
+            if on_rows is not None:
+                on_rows(found)
+        return len(rows) >= wanted
+
+    started = time.perf_counter()
+    if stop is not None and stop.stopped:
+        code, err = STOPPED_EXIT, "stopped"
+    else:
+        try:
+            code, err = streamer(plan.argv, Path(repo), timeout, on_line, stop)
+        except Exception as exc:                 # noqa: BLE001 - never raises
+            code, err = 1_000, f"{type(exc).__name__}: {exc}"
+    elapsed = time.perf_counter() - started
+
+    base = dict(rows=rows, elapsed_s=elapsed, explain=plan.explain,
+                command=tuple(plan.argv))
+    if code == STOPPED_EXIT or (stop is not None and stop.stopped):
+        return GitSearchResult(ok=False, stopped=True, error="stopped", **base)
+    if code not in (0, 1):
+        _log.warning("git search failed ({}): {}", code, err.strip()[:200])
+        return GitSearchResult(ok=False, error=err.strip() or f"git exited {code}", **base)
+    return GitSearchResult(
+        ok=True, truncated=not plan.first_only and len(rows) >= wanted, **base)
+
+
+#: How many repositories are searched at the same moment (order 0y §3b). Each
+#: is a git process diffing history, which is a processor core and a lot of
+#: disk reading; two keeps the window and the rest of the machine usable.
+MAX_PARALLEL_REPOS = 2
+
+
+@dataclass(frozen=True)
+class GitProgress:
+    """What a running search has found since it last said so. Order 0y §3a."""
+
+    #: Only the rows that are new since the last report.
+    rows: tuple[GitRow, ...] = ()
+    #: How many rows there are so far, in all.
+    found: int = 0
+    repos_done: int = 0
+    repos_total: int = 1
+
+
+def _progress_interval(found: int) -> float:
+    """Seconds between reports to the window: often at first, less so later.
+
+    The first row is always reported at once. After that the window's cost
+    decides: drawing the Code list was measured at about 0.6 ms a row
+    (2026-09-30: 47 ms for 50 rows, 99 ms for 200, 1.3 s for 2,000), so rows are
+    handed over four times a second while the list is short, and once a second
+    after that - by when the window only updates its count (it lists the newest
+    200 until the search ends, `presenter.LIVE_ROW_LIMIT`).
+    """
+    return 0.25 if found < 200 else 1.0
+
+
+def _row_key(row: GitRow) -> tuple:
+    return (row.kind, row.commit, row.path, row.status, row.line_no, row.text)
+
+
+def search_repositories(
+    targets: Sequence[tuple[str, str]],
+    query: Any,
+    *,
+    limit: int = DEFAULT_ROW_LIMIT,
+    timeout: float = SEARCH_TIMEOUT_S,
+    stop: Optional[StopFlag] = None,
+    on_progress: Optional[Callable[[GitProgress], None]] = None,
+    max_parallel: int = MAX_PARALLEL_REPOS,
+    streamer: Callable[..., tuple[int, str]] = _stream,
+    runner: Runner = _run,
+) -> GitSearchResult:
+    """One query over every repository in `targets`. Order 0y §3a and §3b.
+
+    `targets` is `(name, folder)` pairs. One git process per repository, at
+    most `max_parallel` at a time; rows are reported through `on_progress` as
+    they are found and the result at the end is merged **newest first**.
+
+    **One repository that fails does not stop the others.** A folder that has
+    moved, a repository being rewritten, a revision one of them does not have:
+    each is a name and a reason in `failed`, and the rows from the rest are the
+    answer. Only when every one fails is the result itself a failure.
+
+    **The same commit is listed once.** Two checkouts of one repository (a
+    second clone, a worktree) both hold it, and a commit's id is the same
+    wherever it is read from.
+
+    The date git prints is the day (`--date=short`), so "newest first" across
+    repositories is exact to the day; rows of the same day keep the order each
+    repository gave them. With one repository nothing is re-ordered at all -
+    git's own order is already the right one.
+
+    Never raises. **Worker thread only**: it starts processes and waits.
+    """
+    targets = [(str(name), str(folder)) for name, folder in targets if str(folder)]
+    total = len(targets)
+    lock = threading.Lock()
+    rows: list[GitRow] = []
+    seen: set[tuple] = set()
+    pending: list[GitRow] = []
+    state: dict[str, Any] = {"done": 0, "last": 0.0, "said": False, "timer": None}
+    outcomes: list[tuple[str, GitSearchResult]] = []
+
+    def later() -> None:
+        with lock:
+            state["timer"] = None
+            if pending:
+                report(force=True)
+
+    def report(force: bool = False) -> None:
+        # Called with the lock held, so reports leave in the order rows arrived.
+        if on_progress is None:
+            pending.clear()
+            return
+        now = time.monotonic()
+        wait = _progress_interval(len(rows))
+        due = (not state["said"]) or now - state["last"] >= wait
+        if not (force or (pending and due)):
+            # **A row held back is still owed.** Without this a row that came
+            # just after a report waited for the *next* row to carry it - and
+            # when git then went quiet for a second, so did the list.
+            if pending and state["timer"] is None:
+                state["timer"] = threading.Timer(wait, later)
+                state["timer"].daemon = True
+                state["timer"].start()
+            return
+        state["said"], state["last"] = True, now
+        try:
+            on_progress(GitProgress(rows=tuple(pending), found=len(rows),
+                                    repos_done=state["done"], repos_total=total))
+        except Exception as exc:                 # noqa: BLE001 - a report, not the search
+            _log.debug("progress report failed: {}", exc)
+        pending.clear()
+
+    def one(name: str, folder: str) -> None:
+        def on_rows(found: list[GitRow]) -> None:
+            with lock:
+                for row in found:
+                    key = _row_key(row)
+                    if row.commit and key in seen:
+                        continue
+                    seen.add(key)
+                    tagged = replace(row, repo=name, root=folder)
+                    rows.append(tagged)
+                    pending.append(tagged)
+                report()
+
+        try:
+            result = stream_query(Path(folder), query, on_rows=on_rows, limit=limit,
+                                  timeout=timeout, stop=stop, streamer=streamer,
+                                  runner=runner)
+        except Exception as exc:                 # noqa: BLE001 - one repository, not the search
+            result = GitSearchResult(ok=False, error=f"{type(exc).__name__}: {exc}")
+        with lock:
+            outcomes.append((name, result))
+            state["done"] += 1
+            report(force=True)
+
+    started = time.perf_counter()
+    if total == 1:
+        one(*targets[0])
+    elif total > 1:
+        with ThreadPoolExecutor(max_workers=max(1, min(int(max_parallel), total)),
+                                thread_name_prefix="gitsearch") as pool:
+            for name, folder in targets:
+                pool.submit(one, name, folder)
+    elapsed = time.perf_counter() - started
+    with lock:
+        if state["timer"] is not None:
+            state["timer"].cancel()
+
+    stopped = (stop is not None and stop.stopped) or any(r.stopped for _n, r in outcomes)
+    failed = [(name, r.error or "git could not run") for name, r in outcomes
+              if not r.ok and not r.stopped]
+    answered = [r for _n, r in outcomes if r.ok]
+    first = next((r for _n, r in outcomes if r.command), None)
+
+    merged = list(rows)
+    if total > 1:
+        # Stable, so rows of the same day stay in the order they were found.
+        merged.sort(key=lambda row: row.date, reverse=True)
+    cap = max(1, int(limit))
+    truncated = any(r.truncated for r in answered) or len(merged) > cap
+
+    explain = first.explain if first is not None else ""
+    if total > 1:
+        explain = f"{explain}, across {total:,} repositories".lstrip(", ")
+    ok = bool(answered) and not stopped
+    error = ""
+    if stopped:
+        error = "stopped"
+    elif not answered:
+        error = "; ".join(f"{name}: {why}" for name, why in failed) or "no repository to search"
+        if total == 1 and failed:
+            error = failed[0][1]
+    return GitSearchResult(
+        ok=ok, rows=merged[:cap], elapsed_s=elapsed, explain=explain,
+        command=first.command if first is not None else (), error=error,
+        truncated=truncated, stopped=stopped, repos=total,
+        failed=failed,
+    )
+
+
+#: A commit's diff is shown up to this many lines. A commit that reformats a
+#: whole tree is a hundred thousand lines nobody reads in a side pane, and the
+#: pane says when it has stopped early.
+SHOW_MAX_LINES = 3_000
+
+#: Separates the message from what follows in `show_commit`'s format: a
+#: character no commit message has a line of on its own.
+_SHOW_MARK = "\x1e"
+
+_SHA = re.compile(r"^[0-9a-fA-F]{4,64}$")
+
+
+@dataclass(frozen=True)
+class CommitDetail:
+    """One commit, as the preview pane shows it. Order 0y §3c."""
+
+    ok: bool = True
+    commit: str = ""
+    author: str = ""
+    email: str = ""
+    #: ISO 8601 with its offset, as git prints `--date=iso-strict`.
+    date: str = ""
+    subject: str = ""
+    body: str = ""
+    #: `(status letter, path, renamed-from or "")` for each file changed.
+    files: tuple[tuple[str, str, str], ...] = ()
+    diff: str = ""
+    #: True when the diff was longer than `SHOW_MAX_LINES` and was cut.
+    truncated: bool = False
+    error: str = ""
+
+
+def show_commit(repo: Path, sha: str, *, max_lines: int = SHOW_MAX_LINES,
+                timeout: float = 30.0,
+                streamer: Callable[..., tuple[int, str]] = _stream) -> CommitDetail:
+    """The message, author, date, files and diff of one commit. Order 0y §3c.
+
+    One `git show`, read line by line so a very large diff is cut at
+    `max_lines` by ending git rather than by reading it all and throwing most
+    away. `--raw` gives the list of files with what happened to each; `-m
+    --first-parent` makes a merge show what it brought in, against its first
+    parent, instead of nothing.
+
+    **Only a commit id is accepted.** The id comes from a row git printed, but
+    it is put on a command line, so anything that is not hexadecimal is refused
+    before git is started.
+
+    Never raises. **Worker thread only.**
+    """
+    wanted = str(sha or "").strip()
+    if not _SHA.match(wanted):
+        return CommitDetail(ok=False, commit=wanted, error="not a commit id")
+
+    mark = "%x1e"
+    command = ["git", "show", "--no-color", "--date=iso-strict",
+               f"--format=%H%n%an%n%ae%n%ad%n%s%n{mark}%n%b%n{mark}",
+               "--raw", "--patch", "--find-renames", "-m", "--first-parent",
+               wanted, "--"]
+    head: list[str] = []
+    body: list[str] = []
+    files: list[tuple[str, str, str]] = []
+    diff: list[str] = []
+    state = {"part": "head", "cut": False}
+
+    def on_line(line: str) -> bool:
+        part = state["part"]
+        if part == "head":
+            if line == _SHOW_MARK:
+                state["part"] = "body"
+            else:
+                head.append(line)
+        elif part == "body":
+            if line == _SHOW_MARK:
+                state["part"] = "files"
+            else:
+                body.append(line)
+        elif part == "files" and not line.startswith("diff "):
+            if line.startswith(":"):
+                meta, *paths = line.split("\t")
+                letter = (meta.split()[-1] or "?")[:1]
+                if paths:
+                    files.append((letter, paths[-1], paths[0] if len(paths) > 1 else ""))
+        else:
+            state["part"] = "diff"
+            if len(diff) >= max(1, int(max_lines)):
+                state["cut"] = True
+                return True
+            diff.append(line)
+        return False
+
+    try:
+        code, err = streamer(command, Path(repo), timeout, on_line, None)
+    except Exception as exc:                     # noqa: BLE001 - never raises
+        code, err = 1_000, f"{type(exc).__name__}: {exc}"
+    if code != 0 or len(head) < 5:
+        return CommitDetail(ok=False, commit=wanted,
+                            error=err.strip() or f"git exited {code}")
+    return CommitDetail(
+        ok=True, commit=head[0], author=head[1], email=head[2], date=head[3],
+        subject=head[4], body="\n".join(body).strip(), files=tuple(files),
+        diff="\n".join(diff), truncated=bool(state["cut"]))
 
 
 #: What `/branch`, `/tag`, `/author` and `/commit` offer once they are chosen.

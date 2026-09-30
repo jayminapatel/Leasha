@@ -131,9 +131,43 @@ the main question, so it belongs in the Code tab's own box.
 
 ## 3. Code: history that answers as it goes
 
-- [ ] **3a** **Streaming.** Rows appear as git prints them (`Popen`, read line by line on a
+> **2026-09-30, 3a and 3b built.** `gitsearch._stream` starts git with `Popen` (the same hidden-console
+> flag as `_run`) and hands over each line as it is printed; a reader thread feeds a queue so the Stop
+> flag and the time limit are looked at every 0.1 s even while git prints nothing. `stream_query` reads
+> those lines with the four readers `run_query` already had (`_LineReader` calls them, so the two cannot
+> disagree). `search_repositories` runs one git per repository, at most two at a time
+> (`MAX_PARALLEL_REPOS`), reports rows as they are found, and merges the result newest first; a
+> repository that fails is named with git's own reason and the others carry on; the same commit seen in
+> two checkouts is listed once. In the window (`widgets/git_tree.py`) no `/repo` now means every
+> repository - only a name that matches none is still answered "Name a repository first" - the live
+> line reads `Searching history… 12 found so far` (with several repositories, `· 1 of 3 repositories
+> searched`), the row somebody has selected stays selected while more arrive, and Stop keeps what had
+> been found. The Repository column holds the repository's name for these rows; a commit's short id
+> and author moved to Where. `app.cli gitsearch --every-repo` does the same headless.
+> **Three things found by measuring.** (1) `--pretty=format:` puts the newline between commits, so a
+> row was only complete when git found the next: the last row of a search arrived when git ended
+> (4.2 s of 4.2 s). It is `tformat:` now (1.1 s of 4.5 s). (2) **§1b's Stop did not end git on
+> Windows.** The `git` on `PATH` is a launcher that starts the real git as a child; `kill()` ended the
+> launcher and the real git read on to the end, holding the pipe - Stop came back 0.8 s to 2.3 s late.
+> `osbridge.programs.git_program()` starts the real git (`mingw64\bin\git.exe`; its output was compared
+> byte for byte with the launcher's for `--version`, `config --list`, `log -S`, `grep`, `show`) and
+> Stop now returns 0.05 s to 0.29 s after it is asked, measured on real git in this repository. An
+> install laid out differently still gets the `git` on `PATH`, and then Stop returns at once but that
+> git may run on to its own end. (3) Drawing the Code list costs about 0.6 ms a row on the interface
+> thread (47 ms for 50 rows, 99 ms for 200, 1.3 s for 2,000), so while git runs the list shows the
+> newest 200 and says so, rows are handed over at most four times a second, and the whole list is
+> drawn once at the end. That final draw of a 2,000-row result is still over a second; it was before
+> this order too, and is not fixed here. **Measured:** first row shown 0.06-0.19 s into a history
+> search that took 1.7-2.2 s (real git, this repository, 3 rows); with the fake git that prints one
+> row and then takes 1 s, the first row is asserted at least 0.7 s before the end. "Newest first"
+> across repositories is exact to the day, because the date git is asked for is the day. A6 is
+> covered headless (`test_rows_from_every_repository_are_merged_newest_first`, and a real run over two
+> checkouts and a folder that is not a repository); **A1 and A2 on the real window are the owner's.**
+> Tests: `tests/unit/test_git_streaming.py` (38), `tests/unit/test_code_history_live.py` (26).
+
+- [x] **3a** **Streaming.** Rows appear as git prints them (`Popen`, read line by line on a
       worker), newest first, with a live line: `Searching history… 12 found so far`.
-- [ ] **3b** **Every repository at once** when none is named: one git process per repository, at
+- [x] **3b** **Every repository at once** when none is named: one git process per repository, at
       most two at a time, results merged by date. Today it answers "Name a repository first".
 - [ ] **3c** **A commit opens as a commit.** Selecting a history row shows, in the preview pane:
       the message, author and date, the files changed, and the diff with the searched text

@@ -67,6 +67,12 @@ class RepoFileRow:
     line_no: int = 0
     #: The line of code itself, for a Definition or Mention row.
     code: str = ""
+    #: Order 0y §3c. A history row is a commit: its id, the repository folder
+    #: git reads it from, and the text that was searched for (highlighted in
+    #: the diff). All empty for a file in the checkout.
+    commit: str = ""
+    repo_root: str = ""
+    needle: str = ""
 
 
 def repo_file_rows(
@@ -422,6 +428,66 @@ def repo_root_for(repos: Iterable[Mapping[str, Any]], name: str) -> str:
     return ""
 
 
+def repo_targets(repos: Iterable[Mapping[str, Any]], name: str) -> list[tuple[str, str]]:
+    """Which repositories a git search covers, as `(name, folder)`. Order 0y §3b.
+
+    A name picks that one repository, by `repo_root_for`'s rule. **No name means
+    every repository** - it used to mean "name a repository first", which made
+    somebody answer a question before they could ask theirs. A name that
+    matches nothing is an empty list, and the caller says so.
+    """
+    rows = [row for row in (repos or ()) if str(row.get("root_path", "") or "")]
+    wanted = (name or "").strip().lower()
+    if wanted:
+        for row in rows:
+            if wanted in str(row.get("name", "")).lower():
+                return [(str(row.get("name", "") or ""), str(row.get("root_path", "")))]
+        return []
+    return [(str(row.get("name", "") or ""), str(row.get("root_path", ""))) for row in rows]
+
+
+def git_needle(query: Any) -> str:
+    """The text a git search looked for, to highlight in a commit (order 0y §3c)."""
+    return str(getattr(query, "declaration_name", "") or getattr(query, "text", "")
+               or getattr(query, "message", "") or "").strip()
+
+
+#: How many rows the list shows while a history search is still running. The
+#: newest are the ones people read first, and redrawing the whole list costs
+#: about 0.6 ms a row on the interface thread (measured 2026-09-30) - 200 rows
+#: is a tenth of a second, 2,000 would be over a second, several times over.
+#: The full list is drawn once, when git has finished.
+LIVE_ROW_LIMIT = 200
+
+
+def git_live_line(found: int, done: int = 0, total: int = 1, *, history: bool = True) -> str:
+    """The line above the list while git is still running. Order 0y §3a.
+
+    `Searching history… 12 found so far`, and with several repositories how
+    many of them have answered. Past `LIVE_ROW_LIMIT` it says that the list is
+    showing only the newest until the search ends - never a quiet truncation.
+    """
+    line = f"Searching{' history' if history else ''}… {int(found):,} found so far"
+    if int(total) > 1:
+        line += f"  ·  {int(done):,} of {int(total):,} repositories searched"
+    if int(found) > LIVE_ROW_LIMIT:
+        line += f"  ·  the newest {LIVE_ROW_LIMIT:,} are listed until it finishes"
+    return line
+
+
+def git_live_rows(shown: list[Any], new: Iterable[Any], *, many: bool) -> list[Any]:
+    """The list after more rows arrive. Order 0y §3a and §3b.
+
+    One repository: git already prints newest first, so new rows go on the end.
+    Several: merged by date, newest first, rows of one day keeping the order
+    they arrived in (`seen` is the day git printed, `2026-09-30`).
+    """
+    rows = [*shown, *new]
+    if many:
+        rows.sort(key=lambda row: str(getattr(row, "seen", "") or ""), reverse=True)
+    return rows
+
+
 def preset_label(preset: str) -> str:
     """A preset's name, in words. `""` for one nobody configured."""
     from app.core.code_types import PRESET_LABELS
@@ -603,12 +669,39 @@ def git_summary(found: Any) -> str:
     if found.truncated:
         parts.append("stopped at the limit — narrow it with /path, /extension "
                      "or /depth")
+    # Order 0y §3b: a repository that could not be searched is named, with
+    # git's own reason - the rows from the others are still the answer.
+    failed = list(getattr(found, "failed", ()) or ())
+    if failed:
+        names = "; ".join(f"{name} ({_one_line(why)})" for name, why in failed[:3])
+        more = f" and {len(failed) - 3:,} more" if len(failed) > 3 else ""
+        parts.append(f"{len(failed):,} repositor{'ies' if len(failed) != 1 else 'y'} "
+                     f"could not be searched: {names}{more}")
     if not found.rows:
         parts.append(f"command: {' '.join(found.command)}")
     return "  ·  ".join(parts)
 
 
-def git_result_row(row: Any, repo_root: str) -> Any:
+def _one_line(text: Any, limit: int = 80) -> str:
+    line = " ".join(str(text or "").split())
+    return line if len(line) <= limit else line[: limit - 1] + "…"
+
+
+def git_stopped_summary(found: Any) -> str:
+    """What to say when a history search was stopped. Order 0y §1b and §3a.
+
+    The sentence §1b released is kept word for word; what a streamed search
+    had already found stays in the list, and is counted in front of it.
+    """
+    stopped = ("History search stopped. Press Enter or “Search history” "
+               "to run it again.")
+    count = len(getattr(found, "rows", ()) or ())
+    if not count:
+        return stopped
+    return f"{count:,} found before it was stopped.  {stopped}"
+
+
+def git_result_row(row: Any, repo_root: str, needle: str = "") -> Any:
     """One git result, in the shape the table and the preview already read.
 
     A hit in the *checkout* has a file to open and preview; a hit in history
@@ -617,12 +710,24 @@ def git_result_row(row: Any, repo_root: str) -> Any:
     result, which reads as a broken preview rather than as a file that is
     genuinely gone.
     """
-    historical = bool(row.commit) and row.kind != "content"
+    # Order 0y §3b: a row from a search over several repositories says which
+    # one it came from, and that folder is the one its path is under.
+    repo_name = str(getattr(row, "repo", "") or "")
+    repo_root = str(getattr(row, "root", "") or "") or repo_root
+    # 2026-09-30: a changed line out of a patch (`/added-only`, `/removed-only`)
+    # carries a commit and is history too. It used to count as a file in the
+    # checkout, and previewed the file as it is today under a line that may no
+    # longer be in it.
+    historical = bool(row.commit) and (row.kind != "content" or row.status in ("+", "-"))
     full = ("" if historical or not row.path
             else str(Path(repo_root) / row.path) if repo_root else row.path)
     where = row.path or ""
     if row.line_no:
         where = f"{where}:{row.line_no}"
+    if repo_name and row.kind == "commit":
+        # The Repository column now holds the repository, so the commit's short
+        # id and its author - which used to sit there - are said here.
+        where = "  ·  ".join(part for part in (row.commit[:8], row.author) if part)
 
     name = row.path.rsplit("/", 1)[-1] if row.path else (row.subject or row.commit[:8])
     return RepoFileRow(
@@ -631,7 +736,10 @@ def git_result_row(row: Any, repo_root: str) -> Any:
         # and a number invented for the column would be a number somebody
         # believes.
         size="",
-        repo=row.commit[:8] if row.kind == "commit" else (row.author or ""),
+        repo=repo_name or (row.commit[:8] if row.kind == "commit" else (row.author or "")),
+        commit=row.commit if historical else "",
+        repo_root=repo_root if historical else "",
+        needle=needle if historical else "",
         kind={"commit": "commit", "change": row.status or "change"}.get(
             row.kind, row.status or "line"),
         seen=row.date or "",

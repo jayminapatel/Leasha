@@ -141,6 +141,18 @@ def cmd_gitsearch(args: argparse.Namespace) -> int:
     """
     if getattr(args, "measure", False):
         return cmd_gitmeasure(args)
+    # Order 0y section 3, headless before the window (non-negotiable 8).
+    if getattr(args, "show", None):
+        return _gitsearch_show(args)
+    if getattr(args, "every_repo", False):
+        return _gitsearch_every_repo(args)
+    if not getattr(args, "repo", None):
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="repo", reason="no repository was named",
+            suggestion=r'Name one: app.cli gitsearch --repo "D:\Project" "pattern" - '
+                       r'or search them all: app.cli gitsearch --every-repo "pattern"',
+        ), args.json)
 
     from app.search.gitquery import build, parse_git_query
     from app.search.gitsearch import (
@@ -222,6 +234,140 @@ def cmd_gitsearch(args: argparse.Namespace) -> int:
               f"narrow it with /path, /extension or /depth to see the rest.")
     if not found.rows:
         print(f"  Nothing matched. The command was: {' '.join(found.command)}")
+    return EXIT_OK
+
+
+def _print_git_row(row: Any) -> None:
+    """One result line, with the repository in front when the row names one."""
+    where = f"[{row.repo}] " if getattr(row, "repo", "") else ""
+    if row.kind == "commit":
+        print(f"  {where}{row.commit[:8]}  {row.date}  {row.author[:20]:<20}  {row.subject}",
+              flush=True)
+    elif row.kind == "change":
+        print(f"  {where}{row.commit[:8]}  {row.status}  {row.path}"
+              + (f"   ({row.text})" if row.text else ""), flush=True)
+    elif row.status in ("+", "-"):
+        print(f"  {where}{row.status} {row.commit[:8]}  {row.path}: {row.text.strip()}",
+              flush=True)
+    else:
+        rev = f"{row.commit}:" if row.commit else ""
+        print(f"  {where}{rev}{row.path}:{row.line_no}: {row.text.strip()}", flush=True)
+
+
+def _gitsearch_every_repo(args: argparse.Namespace) -> int:
+    r"""`gitsearch --every-repo`: one search over every repository in the index.
+
+    Order 0y §3a and §3b. Two git processes at a time; each row is printed as
+    git finds it (so the order on screen is the order found), and the JSON form
+    holds the same rows merged newest first. A repository that cannot be
+    searched is named at the end and does not stop the others.
+
+        app.cli gitsearch --every-repo "CustomerId /history"
+    """
+    from app.search.gitquery import build, parse_git_query
+    from app.search.gitsearch import (
+        DEFAULT_ROW_LIMIT, SEARCH_TIMEOUT_S, git_version, search_repositories,
+    )
+    from app.storage.sqlite_store import SqliteStore
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    if git_version() is None:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="git", reason="git was not found on PATH",
+            suggestion="Install git, or add it to PATH, and run this again.",
+        ), args.json)
+
+    with SqliteStore(settings.fts_db) as store:
+        repos = store.repos_list()
+    targets = [(str(row.get("name") or ""), str(row.get("root_path") or ""))
+               for row in repos if row.get("root_path")]
+    if not targets:
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="every-repo", reason="the index holds no repositories",
+            suggestion="Run `app.cli repos` to see what the last index run found, "
+                       "or name a checkout with --repo.",
+        ), args.json)
+
+    query = parse_git_query(args.pattern, depth=args.depth)
+    if not args.json:
+        print(f"Searching {build(query).explain}, across {len(targets):,} "
+              f"repositor{'ies' if len(targets) != 1 else 'y'}, two at a time.", flush=True)
+
+    def on_progress(progress: Any) -> None:
+        if not args.json:
+            for row in progress.rows:
+                _print_git_row(row)
+
+    found = search_repositories(
+        targets, query, limit=args.limit or DEFAULT_ROW_LIMIT,
+        timeout=args.timeout or SEARCH_TIMEOUT_S, on_progress=on_progress)
+
+    if args.json:
+        print(json.dumps(found.as_dict(), indent=2))
+        return EXIT_OK if found.ok else EXIT_ERROR
+
+    print()
+    for name, why in found.failed:
+        print(f"  Could not search {name}: {' '.join(str(why).split())}", file=sys.stderr)
+    if not found.ok:
+        print(f"git could not run that search: {found.error}", file=sys.stderr)
+        return EXIT_ERROR
+    print(f"  {len(found.rows):,} result{'s' if len(found.rows) != 1 else ''} "
+          f"{found.explain}, in {found.elapsed_s:.2f}s")
+    if found.truncated:
+        print(f"  Stopped at {args.limit or DEFAULT_ROW_LIMIT:,} results - "
+              f"narrow it with /path, /extension or /depth to see the rest.")
+    return EXIT_OK
+
+
+def _gitsearch_show(args: argparse.Namespace) -> int:
+    r"""`gitsearch --show SHA`: one commit as the preview pane shows it. Order 0y §3c.
+
+        app.cli gitsearch --repo D:\Project --show 3b29b7f CustomerId
+    """
+    from app.search.gitsearch import show_commit
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    repo = Path(args.repo).expanduser() if getattr(args, "repo", None) else None
+    if repo is None or not repo.is_dir():
+        return _report(make_error(
+            "ERR_CONFIG_INVALID", "cli.gitsearch",
+            key="repo", reason="--show needs the repository the commit is in",
+            suggestion=r'app.cli gitsearch --repo "D:\Project" --show 3b29b7f "pattern"',
+        ), args.json)
+
+    detail = show_commit(repo, args.show)
+    if args.json:
+        from dataclasses import asdict
+
+        print(json.dumps(asdict(detail), indent=2))
+        return EXIT_OK if detail.ok else EXIT_ERROR
+    if not detail.ok:
+        print(f"git could not show that commit: {detail.error}", file=sys.stderr)
+        return EXIT_ERROR
+
+    print(detail.subject)
+    if detail.body:
+        print()
+        print(detail.body)
+    print()
+    print(f"  {detail.author} <{detail.email}>   {detail.date}   {detail.commit}")
+    print(f"  {len(detail.files):,} file{'s' if len(detail.files) != 1 else ''} changed")
+    for letter, path, old in detail.files:
+        print(f"    {letter}  {path}" + (f"   (renamed from {old})" if old else ""))
+    print()
+    print(detail.diff)
+    wanted = str(args.pattern or "").split(" /")[0].strip()
+    if wanted:
+        hits = sum(1 for line in detail.diff.splitlines() if wanted in line)
+        print()
+        print(f"  \"{wanted}\" is on {hits:,} line{'s' if hits != 1 else ''} of this diff.")
+    if detail.truncated:
+        print("  The diff is longer than this shows; it was cut here.")
     return EXIT_OK
 
 
@@ -423,8 +569,14 @@ def add_gitsearch_parser(sub: argparse._SubParsersAction, common: argparse.Argum
         help='what to look for, with / switches: '
              '"CustomerId /history /extension cs". Run `app.cli commands --git` '
              'for the full list')
-    p_git.add_argument("--repo", required=True, metavar="PATH",
+    p_git.add_argument("--repo", metavar="PATH",
                        help="the git checkout to search")
+    p_git.add_argument("--every-repo", action="store_true",
+                       help="search every repository the index knows instead of one: "
+                            "two at a time, rows printed as they are found")
+    p_git.add_argument("--show", metavar="SHA",
+                       help="print one commit of --repo: its message, author, date, "
+                            "the files it changed and its diff")
     p_git.add_argument("--depth", type=int, default=2000, metavar="N",
                        help="how many commits back to look (default: 2000)")
     p_git.add_argument("--limit", type=int, metavar="N",

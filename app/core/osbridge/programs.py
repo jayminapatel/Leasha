@@ -46,11 +46,12 @@ lookup that fails must never stop an index run or a click.
 from __future__ import annotations
 
 import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Optional, Sequence
 
-from app.core.osbridge._platform import is_macos
+from app.core.osbridge._platform import is_macos, is_windows
 
 __all__ = [
     "WINDOWS_PROGRAM_ROOT_VARIABLES",
@@ -63,6 +64,7 @@ __all__ = [
     "find_converter_on_windows", "find_editor_on_windows", "find_player_on_windows",
     "find_on_macos",
     "find_converter_on_macos", "find_editor_on_macos", "find_player_on_macos",
+    "git_program",
 ]
 
 
@@ -394,3 +396,52 @@ def find_player_on_macos(player: Player) -> Optional[str]:
     if entry is None:
         return None
     return find_on_macos(*entry)
+
+
+# ===========================================================================
+# git: the program behind the launcher (order 0y section 3, 2026-09-30)
+# ===========================================================================
+
+#: Where Git for Windows keeps the real git, relative to its install folder.
+GIT_WINDOWS_REAL = (("mingw64", "bin"), ("clangarm64", "bin"), ("mingw32", "bin"))
+
+_git_program_found: Optional[str] = None
+
+
+def git_program() -> str:
+    """The git to start: the real program, not the launcher in front of it.
+
+    Git for Windows puts a small launcher on `PATH` (`cmd/git.exe` in its
+    install folder) which starts the real git as a child process. Ending the
+    launcher does **not** end that child: the real git reads history to the
+    end, holding the output pipe open, so a history search that was stopped
+    kept its caller waiting. Measured here on 2026-09-30: `kill()` on the
+    launcher closed the pipe 0.8 s to 1.5 s later (when git had finished by
+    itself); `kill()` on the real git closed it at once. The two print the same
+    thing - `--version`, `config --list`, `log -S`, `grep` and `show` were
+    compared byte for byte.
+
+    Off Windows, and for an install laid out some other way, this is whatever
+    `git` is on `PATH`; with no git at all it is the bare word, so the caller's
+    own "git was not found" still happens. Found once and kept, because it is
+    stat calls - **worker thread only**, like everything that starts git.
+    """
+    global _git_program_found
+    if _git_program_found:
+        return _git_program_found
+    found = shutil.which("git")
+    if not found:
+        return "git"
+    if is_windows():
+        launcher = Path(found)
+        if launcher.parent.name.lower() == "cmd":
+            for parts in GIT_WINDOWS_REAL:
+                real = launcher.parent.parent.joinpath(*parts, "git.exe")
+                try:
+                    if real.is_file():
+                        found = str(real)
+                        break
+                except OSError:
+                    continue
+    _git_program_found = found
+    return found
