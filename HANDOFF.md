@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.26 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.27 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -117,6 +117,10 @@ line, no traceback and no window.
   12:18; they now use a name of their own and pass with Leasha open. The index-run lock in
   that file is still the real one. **Never run two pytest runs at once in this copy** - they
   share `.pytest_tmp`, and the second clears the first's files (pass `--basetemp`).
+- **Owner, 2026-09-30: *"promts dont go to github"*.** `_Knowledge/prompt_log/` is gitignored
+  and its twelve tracked ledgers (11-24 September) were removed from the index; every ledger
+  is still on the laptop. **Never commit one again.** The ledgers remain in GitHub's history
+  in the commits before this one until the history itself is rewritten.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the

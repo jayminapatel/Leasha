@@ -42,8 +42,6 @@
     <Folder Include=".github" />
     <Folder Include=".github\workflows" />
     <Folder Include=".vscode" />
-    <Folder Include="_Knowledge" />
-    <Folder Include="_Knowledge\prompt_log" />
     <Folder Include="app" />
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />

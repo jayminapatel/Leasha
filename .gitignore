@@ -137,3 +137,8 @@ tests/fixtures/corrupt/*
 # "Regenerate it; never edit it". `tests/unit/test_docs_versioned.py` skips it too.
 /_Knowledge/prompt_log/views/
 /_Knowledge/prompt_log/*.local-untracked.jsonl.bak
+
+# Owner, 2026-09-30: "promts dont go to github". The ledgers hold every prompt of
+# every session; they stay on the laptop. Twelve (11-24 September) were tracked
+# until this date and were removed from the index, not from disk.
+/_Knowledge/prompt_log/
