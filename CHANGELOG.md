@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.38 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.39 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -47,6 +47,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Files nothing used were moved to `archive/`, each with the reason, in `archive/README.md`.
 - Gemma 3 1B and Llama 3.2 1B were checked on a real laptop: both chat, and neither understands
   searches as well as Qwen. Gemma is listed with that note; Llama is not offered.
+- **The health check no longer downloads models it already has.** On a fresh copy of the
+  project it looked for the search and rerank models in the project folder, found none, and
+  fetched 150 MB from the internet, while the same models sat in the index folder. It now
+  looks where Leasha keeps them (`doctor.model_cache_dir`).
 
 ### A Models box: see, remove, choose and find models
 

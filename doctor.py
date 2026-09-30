@@ -603,10 +603,29 @@ def check_lancedb_roundtrip() -> Check:
         )
 
 
+def model_cache_dir() -> str:
+    """Where the models are: `MODEL_CACHE` if `.env` pins it, else `DATA_PATH\\models`.
+
+    `.env` pins `DATA_PATH` and leaves `MODEL_CACHE` to derive from it
+    (`app/core/config.py`). The two model checks read the key alone and fell
+    back to `<project>\\models`. A working copy that had been installed into
+    still had that folder; a fresh clone does not, so on 2026-09-30 `doctor`
+    went online and fetched 150 MB into the project while the same models sat
+    in the index folder. Stdlib only, like the rest of this file.
+    """
+    pinned = env_path("MODEL_CACHE")
+    if pinned:
+        return pinned
+    data_path = env_path("DATA_PATH")
+    if data_path:
+        return str(Path(data_path) / "models")
+    return str(PROJECT_ROOT / "models")
+
+
 def check_embedding_model(quick: bool = False) -> Check:
     if quick:
         return Check("Embedding model (skipped: --quick)", True, optional=True)
-    model_cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
+    model_cache = model_cache_dir()
     model_name = env_setting("EMBED_MODEL")
     try:
         os.environ["FASTEMBED_CACHE_PATH"] = model_cache
@@ -633,7 +652,7 @@ def check_embedding_model(quick: bool = False) -> Check:
 def check_rerank_model(quick: bool = False) -> Check:
     if quick:
         return Check("Rerank model (skipped: --quick)", True, optional=True)
-    model_cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
+    model_cache = model_cache_dir()
     model_name = env_setting("RERANK_MODEL")
     try:
         os.environ["FASTEMBED_CACHE_PATH"] = model_cache
@@ -670,7 +689,7 @@ def check_onnx_models() -> list[Check]:
 
         cache = str(load_settings(create_dirs=False, check_writable=False).model_cache)
     except Exception:                                  # noqa: BLE001
-        cache = env_path("MODEL_CACHE") or str(PROJECT_ROOT / "models")
+        cache = model_cache_dir()
     engine = (env_setting("CHAT_ENGINE") or "onnx").strip().lower()
     wanted = [(hub.FLORENCE, "photo tags and Describe are", "Settings, Models, photo model")]
     try:

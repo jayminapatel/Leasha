@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.24 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.25 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -97,6 +97,19 @@ line, no traceback and no window.
   generated before `archive/README.md` was tracked; `test_chat_tab_qt`'s `ask` helper could
   click Send while it was still disabled under load, so the "saved conversation" test read an
   empty chat - it now waits for Send and for the question to register.
+- **After the move - checked from the new copy.** `git` level with `origin/main`, no worktrees;
+  `.env` pins `PROJECT_PATH` and `LOG_PATH` to the new folder; the venv was built here and
+  `pip check` is clean; `doctor` READY (DirectML present); `Leasha.lnk` on the desktop points
+  here. **Found and fixed:** `doctor`'s embedding and rerank checks read `MODEL_CACHE` alone
+  and fell back to `<project>\models`, so on the fresh clone they downloaded 150 MB into the
+  working copy - they now use `doctor.model_cache_dir` (`DATA_PATH\models` unless pinned). The
+  stray `models\` folder that run left in the working copy was deleted by the owner.
+  **`D:\Local\GDrive\SearchProject` is gone** - the owner deleted it (it was at the same
+  commit, nothing unpushed, no stash, no venv). Its untracked files (the prompt log, which held 140 lines of
+  30 September the new copy lacks, `.claude\lanes`, the old `.env`) were copied first to
+  `D:\Local\Archive\SearchProject-2026-09-30\old-copy-untracked`. **Owner, 2026-09-30:** he
+  opened Leasha from the new copy and it works; and order 1a is to be left - *"forget it as
+  after this changes we are going to start fresh"*. The register still lists 1a as released.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the

@@ -160,3 +160,66 @@ def test_the_outlook_check_never_starts_outlook(monkeypatch):
     monkeypatch.setattr(doctor, "new_outlook_present", lambda: False)
     check = doctor.check_outlook()
     assert not check.ok and check.optional and "not registered" in check.detail
+
+
+# -- the model checks look where the models are (2026-09-30) ----------------------
+
+def _fake_fastembed(monkeypatch, seen: list[str]):
+    """A `fastembed` that records the cache folder it was handed and fetches nothing."""
+    import sys
+    import types
+
+    class TextEmbedding:
+        def __init__(self, _name, cache_dir=None):
+            seen.append(str(cache_dir))
+
+        def embed(self, texts):
+            return [[0.0] * int(doctor.env_setting("EMBED_DIM")) for _ in texts]
+
+    class TextCrossEncoder:
+        def __init__(self, _name, cache_dir=None):
+            seen.append(str(cache_dir))
+
+        def rerank(self, _query, documents):
+            return [0.0 for _ in documents]
+
+    fastembed = types.ModuleType("fastembed")
+    fastembed.TextEmbedding = TextEmbedding
+    rerank = types.ModuleType("fastembed.rerank")
+    cross = types.ModuleType("fastembed.rerank.cross_encoder")
+    cross.TextCrossEncoder = TextCrossEncoder
+    monkeypatch.setitem(sys.modules, "fastembed", fastembed)
+    monkeypatch.setitem(sys.modules, "fastembed.rerank", rerank)
+    monkeypatch.setitem(sys.modules, "fastembed.rerank.cross_encoder", cross)
+    monkeypatch.setenv("FASTEMBED_CACHE_PATH", "")     # the checks set it; put it back after
+
+
+def test_the_model_checks_read_the_index_folder_when_model_cache_is_not_pinned(
+    tmp_path, monkeypatch
+):
+    """`.env` pins `DATA_PATH` only; `MODEL_CACHE` derives from it. The two
+    checks read the `MODEL_CACHE` key alone and fell back to the project's own `models`.
+    On a fresh clone that folder is absent, so `doctor` went online and fetched
+    150 MB into the working copy while the models sat in the index folder."""
+    monkeypatch.delenv("MODEL_CACHE", raising=False)
+    monkeypatch.setattr(doctor, "ENV", {"DATA_PATH": str(tmp_path)})
+    seen: list[str] = []
+    _fake_fastembed(monkeypatch, seen)
+
+    assert doctor.check_embedding_model().ok
+    assert doctor.check_rerank_model().ok
+
+    assert seen == [str(tmp_path / "models")] * 2
+
+
+def test_a_pinned_model_cache_still_wins(tmp_path, monkeypatch):
+    pinned = tmp_path / "elsewhere"
+    monkeypatch.setattr(
+        doctor, "ENV", {"DATA_PATH": str(tmp_path), "MODEL_CACHE": str(pinned)}
+    )
+    seen: list[str] = []
+    _fake_fastembed(monkeypatch, seen)
+
+    assert doctor.check_embedding_model().ok
+
+    assert seen == [str(pinned)]
