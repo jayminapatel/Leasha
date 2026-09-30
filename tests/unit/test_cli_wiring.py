@@ -57,6 +57,25 @@ def parser_for(argv):
     return parser.parse_args(argv)
 
 
+@pytest.fixture(autouse=True)
+def no_model_can_be_fetched(monkeypatch):
+    """Every test here has an empty, temporary `MODEL_CACHE`, so loading a
+    model means downloading one. Several docstrings below say "a model download
+    cannot happen here", which was true in the sandbox these were written in
+    and false on the owner's laptop: `evaluate --rerank` fetched 130 MB a run,
+    and on 2026-09-30 it hung a suite for fourteen minutes when the network
+    dropped mid-download. The constructors now fail as they do with no network,
+    which is the branch these tests are about."""
+    def refuse(*_args, **_kwargs):
+        raise OSError("no network in tests: the model is not in the temporary cache")
+
+    import fastembed
+    import fastembed.rerank.cross_encoder as cross_encoder
+
+    monkeypatch.setattr(fastembed, "TextEmbedding", refuse)
+    monkeypatch.setattr(cross_encoder, "TextCrossEncoder", refuse)
+
+
 # ---------------------------------------------------------------------------
 # The parser and the functions behind it
 # ---------------------------------------------------------------------------
