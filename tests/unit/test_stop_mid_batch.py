@@ -322,6 +322,124 @@ def test_once_a_batch_was_cut_the_next_is_dropped_without_a_model_call(tmp_path)
     assert model.calls == [CPU_INFER_BATCH], "a batch queued behind a cut one was embedded"
 
 
+# --- a batch taken shortest first (order 0x 5c) --------------------------------
+
+class _QuietStore:
+    """The three store calls `_embed_pending` makes, recorded."""
+
+    def __init__(self) -> None:
+        self.embedded: list[int] = []
+        self.indexed: list[int] = []
+
+    def batch(self):
+        from contextlib import nullcontext
+
+        return nullcontext()
+
+    def mark_embedded(self, ids) -> None:
+        self.embedded.extend(ids)
+
+    def mark_indexed_many(self, file_ids) -> None:
+        self.indexed.extend(file_ids)
+
+
+class _KeepingVectors(RecordingVectors):
+    """`RecordingVectors` that also keeps each passage's vector."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.vector_of: dict[int, list[float]] = {}
+
+    def add(self, *, chunk_ids, file_ids, vectors, **_kw) -> int:
+        for cid, vector in zip(chunk_ids, vectors):
+            self.vector_of[cid] = [float(v) for v in vector]
+        return super().add(chunk_ids=chunk_ids, file_ids=file_ids, vectors=vectors)
+
+
+class _TextModel(Model):
+    """`Model`, keeping the texts of every call and answering by text alone."""
+
+    def __init__(self, stop_after_calls: "int | None" = None) -> None:
+        super().__init__(stop_after_calls)
+        self.texts: list[list[str]] = []
+
+    @staticmethod
+    def vector_for(text: str) -> list[float]:
+        return l2_normalise([math.sin(len(text) * 0.61 + i) for i in range(8)])
+
+    def encode(self, texts):
+        self.texts.append(list(texts))
+        super().encode(texts)                                     # counts, and asks for the stop
+        return [self.vector_for(t) for t in texts]
+
+
+def _pipeline(tmp_path, vectors, model, store) -> Pipeline:
+    config = PipelineConfig(walk=WalkConfig(roots=[tmp_path]), workers=1, embed_batch=1000)
+    pipeline = Pipeline(store, vectors, model.embedder(), config)
+    model.pipeline = pipeline
+    return pipeline
+
+
+def test_a_batch_is_embedded_shortest_first_and_every_vector_lands_on_its_own_passage(tmp_path) -> None:
+    """Order 0x 5c: a model call pads every passage to its longest, so the batch is
+    taken shortest first before it is cut into calls. Nothing else may change:
+    every passage still gets the vector of its own text."""
+    vectors, model, store = _KeepingVectors(), _TextModel(), _QuietStore()
+    pipeline = _pipeline(tmp_path, vectors, model, store)
+    pending = [(i, i, "x" * ((i * 37) % 101 + 1)) for i in range(100)]   # 100 lengths, jumbled
+    wanted = {cid: _TextModel.vector_for(text) for cid, _fid, text in pending}
+
+    pipeline._embed_pending(list(pending))
+
+    assert model.calls == [CPU_INFER_BATCH] * 3 + [4]
+    handed = [len(text) for call in model.texts for text in call]
+    assert handed == sorted(handed), "the calls were not neighbours in length"
+    assert sorted(vectors.rows) == list(range(100)) and sorted(store.indexed) == list(range(100))
+    for cid, vector in wanted.items():
+        assert vectors.vector_of[cid] == pytest.approx(vector), f"passage {cid} got another's vector"
+    assert not pipeline._embed_abandoned
+
+
+def test_a_stop_in_a_batch_taken_shortest_first_writes_whole_files_only(tmp_path) -> None:
+    """The finished passages are scattered through the batch, not its first so-many.
+    A file is written and marked only when every passage of it has a vector."""
+    vectors, model, store = _KeepingVectors(), _TextModel(stop_after_calls=1), _QuietStore()
+    pipeline = _pipeline(tmp_path, vectors, model, store)
+
+    pending: list[tuple[int, int, str]] = []
+    for file_id in range(20, 40):                 # first in the batch: a middling and a long passage
+        pending.append((len(pending), file_id, "m" * (40 + file_id)))
+        pending.append((len(pending), file_id, "L" * (500 + file_id)))
+    for file_id in range(20):                     # then twenty one-passage files, all short
+        pending.append((len(pending), file_id, "s" * (10 + file_id)))
+    pending.append((len(pending), 40, "s" * 10))  # the same words as file 0: embedded once
+    short_ids = {cid for cid, fid, _t in pending if fid < 20 or fid == 40}
+
+    pipeline._embed_pending(pending)
+
+    # One call: the 20 short passages and the 12 shortest middling ones. Files
+    # 20-31 have a vector for one passage of two, so nothing of them is written.
+    assert model.calls == [CPU_INFER_BATCH]
+    assert set(vectors.rows) == short_ids
+    assert sorted(store.indexed) == list(range(20)) + [40]
+    assert set(store.embedded) == short_ids
+    assert pipeline._embed_abandoned and pending == []
+
+
+def test_a_stop_already_asked_for_embeds_the_leading_passages_not_the_shortest(tmp_path) -> None:
+    """The run's final flush happens with the stop flag set: it keeps the first
+    model call's worth in the order the files came, as it did before 5c."""
+    vectors, model, store = _KeepingVectors(), _TextModel(), _QuietStore()
+    pipeline = _pipeline(tmp_path, vectors, model, store)
+    pipeline.request_stop()
+    pending = [(i, i, "x" * (200 - i)) for i in range(50)]           # longest first
+
+    pipeline._embed_pending(pending)
+
+    assert model.texts == [["x" * (200 - i) for i in range(CPU_INFER_BATCH)]]
+    assert sorted(vectors.rows) == list(range(CPU_INFER_BATCH))
+
+
 # --- a worker must never leave the consumer polling for ever -------------------
 
 class _ExitingArchive:

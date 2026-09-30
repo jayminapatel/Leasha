@@ -667,3 +667,161 @@ def test_a_non_transient_error_keeps_the_generic_suggestion_and_the_session() ->
     # 2026-09-08, later: and nothing here retries or latches either.
     assert len(calls) == 1, "a non-transient error must not be retried"
     assert gpu_unreliable() == "", "a non-transient error must not blame the driver"
+
+
+# --- the graphics card answers with empty vectors and no error (2026-09-30) ---
+
+def test_empty_vectors_from_the_graphics_card_are_redone_on_the_processor(flaky, monkeypatch) -> None:
+    """Seen on the owner's laptop: a call came back fast, raised nothing, and 38
+    of its 256 vectors were all zeros; the *next* call raised 887A0005. Left as
+    it was, that batch is written to the index and its passages can never be
+    found by meaning. It is now retried once on the processor, and said."""
+    from app.core.gpu_serialize import gpu_unreliable
+
+    def silent_failure(self, texts, **_options):
+        self.seen.append(list(texts))
+        if self.providers:                                  # the graphics card's session
+            return [[0.0] * 384 if index == 1 else unit(float(index))
+                    for index, _ in enumerate(texts)]
+        return [unit(float(index)) for index, _ in enumerate(texts)]
+
+    monkeypatch.setattr(_FlakyTextEmbedding, "embed", silent_failure)
+    problems: list = []
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY, problems=problems)
+
+    vectors = embedder.embed(["a", "b", "c"])
+
+    assert all(abs(math.sqrt(sum(v * v for v in row)) - 1.0) < 1e-6 for row in vectors.tolist())
+    assert embedder.choice is not None and not embedder.choice.is_gpu
+    assert "empty vector" in gpu_unreliable()
+    assert flaky.instances[1].seen == [["a", "b", "c"]], "the same batch, once, on the processor"
+    assert problems and "graphics driver" in problems[0]
+
+
+def test_a_vector_that_is_not_a_number_from_the_graphics_card_is_redone_too(flaky, monkeypatch) -> None:
+    def not_a_number(self, texts, **_options):
+        if self.providers:
+            return [[float("nan")] * 384 for _ in texts]
+        return [unit(float(index)) for index, _ in enumerate(texts)]
+
+    monkeypatch.setattr(_FlakyTextEmbedding, "embed", not_a_number)
+    embedder = Embedder("fake/flaky-model", profile=GPU_READY)
+    got = embedder.embed(["a"])[0].tolist()
+    assert not any(g != g for g in got) and not embedder.choice.is_gpu
+
+
+# --- passages of similar length share a model call (order 0x 5c) -------------
+
+def _vector_of(text: str, dim: int = 384) -> list[float]:
+    """A unit vector that depends only on the text - so a vector paired with
+    the wrong passage is visible."""
+    return unit(float(len(text)) * 0.37 + float(sum(map(ord, text)) % 97), dim)
+
+
+def _recording_encoder(dim: int = 384):
+    calls: list[list[str]] = []
+
+    def encode(texts):
+        calls.append(list(texts))
+        return [_vector_of(text, dim) for text in texts]
+
+    encode.calls = calls  # type: ignore[attr-defined]
+    return encode
+
+
+def _mixed_lengths(count: int) -> list[str]:
+    """`count` passages whose lengths jump about, all different."""
+    return ["word " * ((index * 37) % 101 + 1) + str(index) for index in range(count)]
+
+
+def test_length_order_is_shortest_first_stable_and_none_when_already_so() -> None:
+    from app.index.embedder import length_order
+
+    assert length_order([]) is None
+    assert length_order(["a", "bb", "ccc"]) is None, "nothing to reorder"
+    assert length_order(["ccc", "a", "bb"]) == [1, 2, 0]
+    # Equal lengths keep the order they came in: the result depends on the
+    # texts alone, never on how a sort happened to break a tie.
+    assert length_order(["bb", "a", "cc", "d"]) == [1, 3, 0, 2]
+
+
+def test_a_batch_over_one_model_call_is_handed_over_shortest_first() -> None:
+    """The model pads each call to its longest passage; neighbours in length
+    in one call means less padding. What comes back is in the caller's order."""
+    from app.index.embedder import CPU_INFER_BATCH
+
+    encoder = _recording_encoder()
+    texts = _mixed_lengths(CPU_INFER_BATCH * 3)
+    got = Embedder(encoder=encoder).embed(texts)
+
+    handed = [len(text) for text in encoder.calls[0]]
+    assert handed == sorted(handed) and sorted(encoder.calls[0]) == sorted(texts)
+    for row, text in zip(got, texts):
+        assert row.tolist() == pytest.approx(_vector_of(text)), "a vector on the wrong passage"
+
+
+def test_one_model_calls_worth_is_left_in_the_order_it_came() -> None:
+    from app.index.embedder import CPU_INFER_BATCH
+
+    encoder = _recording_encoder()
+    texts = _mixed_lengths(CPU_INFER_BATCH)
+    Embedder(encoder=encoder).embed(texts)
+    assert encoder.calls == [texts]
+
+
+def test_the_graphics_card_gets_the_batch_as_it_came() -> None:
+    """It takes the whole batch in one call, so there is nothing to group - and
+    smaller calls of many different sizes are what DirectML is slow at."""
+    from app.index import backends
+    from app.index.embedder import CPU_INFER_BATCH
+
+    encoder = _recording_encoder()
+    embedder = Embedder(encoder=encoder)
+    embedder.choice = backends.Choice(backends.GPU, backends.providers_for(backends.GPU), "test")
+    texts = _mixed_lengths(CPU_INFER_BATCH * 3)
+    got = embedder.embed(texts)
+    assert encoder.calls == [texts]
+    assert got[0].tolist() == pytest.approx(_vector_of(texts[0]))
+
+
+def test_the_smaller_model_file_gets_the_batch_as_it_came() -> None:
+    """Measured 2026-09-30: grouped, the int8 file was 41% faster and every vector
+    moved (cosine down to 0.9939 against its ungrouped self). The order's
+    condition is identical vectors, so that file is left alone."""
+    from app.index.embedder import CPU_INFER_BATCH
+
+    encoder = _recording_encoder()
+    embedder = Embedder(encoder=encoder)
+    assert embedder.groups_by_length
+    embedder._quantised_in_use = True
+    texts = _mixed_lengths(CPU_INFER_BATCH * 3)
+    embedder.embed(texts)
+    assert not embedder.groups_by_length and encoder.calls == [texts]
+
+
+def test_nothing_is_grouped_before_the_model_has_loaded() -> None:
+    """Which processor and which file is not known until then."""
+    assert not Embedder().groups_by_length
+
+
+@pytest.mark.skipif(not __import__("os").environ.get("LEASHA_REAL_EMBED_CACHE"),
+                    reason="set LEASHA_REAL_EMBED_CACHE=<folder holding the downloaded "
+                           "embedding model> to check the real model")
+def test_grouping_by_length_leaves_the_real_models_vectors_identical() -> None:
+    """Order 0x 5c's condition, on the real model: the same passages embedded
+    32 at a time in the order given, and shortest first, give the same vectors
+    **to the last bit** on the processor (measured 2026-09-30, the ordinary
+    model file). Never downloads: the folder must already hold the model."""
+    import os
+
+    import numpy as np
+
+    from app.index.embedder import CPU_INFER_BATCH
+
+    cache = os.environ["LEASHA_REAL_EMBED_CACHE"]
+    texts = _mixed_lengths(CPU_INFER_BATCH * 3)
+    embedder = Embedder(cache_dir=cache, device="cpu")
+    grouped = np.asarray(embedder.embed(texts))
+    plain = np.concatenate([np.asarray(embedder.embed(texts[start:start + CPU_INFER_BATCH]))
+                            for start in range(0, len(texts), CPU_INFER_BATCH)])
+    assert float(np.abs(grouped - plain).max()) == 0.0

@@ -248,6 +248,17 @@ class OnnxLLM:
     def has_model(self) -> bool:
         return hub.resolve_any(self._copies(), self.cache_dir) is not None
 
+    def serving(self) -> str:
+        """The label of the copy on disk that answers, or "" when none is downloaded.
+
+        `model` is the *choice* (a key), and it falls back to the int8 key even
+        when the 4-bit copy is the one loaded - so a measurement that names the
+        model from `model` would name the wrong file. `evaluate --chat` prints
+        this instead (order 202626270611 4b/4c, 2026-09-30).
+        """
+        found = hub.resolve_any(self._copies(), self.cache_dir)
+        return found[0].label if found is not None else ""
+
     def health(self, *, force: bool = False) -> bool:
         """Up means "can answer": the model is downloaded and did not fail to load."""
         return self.has_model() and self._load_error is None

@@ -51,7 +51,7 @@ from app.index import backends
 
 _log = logger.bind(component="index.embedder")
 
-__all__ = ["Embedder", "EMBED_BATCH", "l2_normalise"]
+__all__ = ["Embedder", "EMBED_BATCH", "l2_normalise", "length_order"]
 
 #: Rough download size in bytes, keyed by the model names this application
 #: actually ships with - for progress display only, never for correctness.
@@ -155,6 +155,39 @@ _NORM_TOLERANCE = 1e-3
 Encoder = Callable[[Sequence[str]], Iterable[Sequence[float]]]
 
 
+def length_order(texts: Sequence[str]) -> Optional[list[int]]:
+    """Positions of `texts`, shortest first - or None if they already are.
+
+    **Why anybody wants this (work order 0x item 5c).** One model call pads
+    every passage in it to the longest one, and the model then does its
+    arithmetic on the padding as well. A call that holds a two-line email
+    beside a full page spends most of the email's share on nothing. Taking a
+    batch shortest first before it is cut into calls puts neighbours in length
+    together, so far less is padded.
+
+    **Measured 2026-09-30** on the owner's laptop (i7-1365U, processor, 4
+    threads, real bge-small, 2,048 passages from the synthetic corpus in eight
+    batches of 256, 32 to a call, the two orders alternating batch by batch on
+    a machine other work was also using): padding fell from 34.8% to 13.8% of
+    what the model read, the time from 1,164.6 s to 906.4 s (-22%, median of
+    the eight pairs -27%), and **every one of the 2,048 vectors came back
+    identical to the last bit** - which is the condition the order set. The
+    smaller (int8) file fails that condition and is left alone: see
+    `Embedder.groups_by_length`.
+
+    **Characters, not tokens.** Counting tokens would mean running the
+    tokeniser twice. Character length orders passages the same way closely
+    enough to get the figures above, and costs nothing.
+
+    The sort is stable, so passages of equal length keep their order and the
+    result never depends on anything but the texts.
+    """
+    order = sorted(range(len(texts)), key=lambda index: len(texts[index]))
+    if all(index == position for position, index in enumerate(order)):
+        return None
+    return order
+
+
 def l2_normalise(vector: Sequence[float]) -> list[float]:
     """Scale to unit length. A zero vector is returned unchanged, not divided by."""
     magnitude = math.sqrt(sum(value * value for value in vector))
@@ -208,6 +241,10 @@ class Embedder:
         #: Prefer the quantised model file: several times smaller and faster on
         #: a processor, no gain on a graphics card, a small cost in ranking.
         self.quantised = bool(quantised)
+        #: True once the smaller (int8) file is the one loaded - not merely
+        #: asked for: on the graphics card, or when it cannot be prepared, the
+        #: ordinary file answers instead. See `groups_by_length`.
+        self._quantised_in_use = False
         self._profile = profile
         self._problems = problems
         #: Set once the model loads. `None` until then, so nothing reports a
@@ -359,6 +396,8 @@ class Embedder:
                 self._problems.append(wanted.why)
 
             backends.record_provider("meaning model", self.choice)
+            # Which file is answering - `groups_by_length` needs to know.
+            self._quantised_in_use = quantised_path is not None
             self._encoder = lambda texts: model.embed(
                 list(texts), **self._call_options())
             return self._encoder
@@ -433,6 +472,12 @@ class Embedder:
             return []
 
         encoder = self._ensure_encoder()
+        # Order 0x 5c: shortest first, so each model call pads less. `texts`
+        # from here on is what the model is given (the same passages, so every
+        # count below still holds); the rows are put back before returning.
+        order = self._length_order(texts)
+        if order is not None:
+            texts = [texts[index] for index in order]
         try:
             raw = self._run(encoder, texts)
         except AppErrorException:
@@ -478,6 +523,8 @@ class Embedder:
                     ),
                 )) from exc
             raw = self._retry_on_processor(texts, exc)
+
+        raw = self._redo_empty_from_the_card(raw, texts)
 
         if len(raw) != len(texts):
             raise AppErrorException(make_error(
@@ -544,7 +591,53 @@ class Embedder:
         divide = adrift & (magnitudes != 0.0)
         if divide.any():
             np.divide(block, magnitudes, out=block, where=divide)
+        if order is not None:
+            # Back to the order the caller gave: row `order[k]` of the answer
+            # is the k-th vector the model returned.
+            restored = np.empty_like(block)
+            restored[order] = block
+            block = restored
         return block
+
+    @property
+    def groups_by_length(self) -> bool:
+        """Whether a batch may be taken shortest first (`length_order`).
+
+        Order 0x item 5c allows it only where the vectors come back identical,
+        and that was measured, not assumed (2026-09-30, the owner's laptop):
+
+        * **The ordinary model file on the processor: yes.** 2,048 passages,
+          every vector identical to the last bit, 22% less time.
+        * **The smaller (int8) file: no.** It was 41% faster grouped, and every
+          one of the 2,048 vectors moved - by up to 0.032 in one component,
+          cosine against its ungrouped self as low as 0.9939. That file works
+          out its number ranges per model call, so a passage's vector depends
+          on which passages share the call. That is true of it with or without
+          grouping; grouping would only change which neighbours it gets, and
+          the order's condition is identical vectors.
+        * **The graphics card: no.** It takes the whole batch in one call
+          (`_call_options`), so there is nothing to group.
+        * **Before the model has loaded: no**, because which of the above
+          applies is not known yet.
+
+        An injected encoder (tests) counts as the ordinary file on a processor.
+        """
+        if not self.loaded:
+            return False
+        if self.choice is not None and self.choice.is_gpu:
+            return False
+        return not self._quantised_in_use
+
+    def _length_order(self, texts: Sequence[str]) -> Optional[list[int]]:
+        """The order to hand `texts` to the model in, or None to leave it alone.
+
+        Left alone when `groups_by_length` says so, and when there is **one
+        model call or fewer** (`CPU_INFER_BATCH` passages): every passage is
+        then padded to the same longest one whatever the order.
+        """
+        if len(texts) <= CPU_INFER_BATCH or not self.groups_by_length:
+            return None
+        return length_order(texts)
 
     def _run(self, encoder: Encoder, texts: Sequence[str]) -> list:
         """One inference call, behind the cross-subsystem gate. Raises
@@ -554,6 +647,46 @@ class Embedder:
         # subsystem lock it no longer needs; see `gpu_serialize`.
         with gpu_exclusive(bool(self.choice and self.choice.is_gpu)):
             return list(encoder(texts))
+
+    def _redo_empty_from_the_card(self, raw: list, texts: Sequence[str]) -> list:
+        """A batch the graphics card answered with empty vectors, done again
+        on the processor. Anything else is handed back untouched.
+
+        **Seen twice on the owner's laptop, 2026-09-30** (Iris Xe, DirectML,
+        the real model, machine busy with other work): one call of 256
+        passages came back in about 6 seconds instead of 40, raised nothing,
+        and 38 of its 256 vectors were all zeros. The *next* call was the one
+        that raised `887A0005` ("the GPU device instance has been suspended").
+        So the driver had already failed, and said so one call late - and the
+        batch in between would have been written to the index as it stood: a
+        zero vector is "left alone" by the normalising step below, stored, its
+        passage marked embedded, and that passage can then never be found by
+        meaning. Nothing reports it, because nothing failed.
+
+        No real passage has an all-zero vector (the model's output is
+        normalised to length one), so on the graphics card a zero or
+        not-a-number row is read as the driver failing silently, and the batch
+        takes the same one retry on the processor that a raised driver error
+        takes (`_retry_on_processor`). On the processor nothing changes: a
+        zero vector from there is still returned as it is.
+        """
+        if self.choice is None or not self.choice.is_gpu:
+            return raw
+        import numpy as np  # noqa: PLC0415 - see `embed`
+
+        try:
+            block = np.asarray(raw, dtype=np.float32)
+        except (TypeError, ValueError):
+            return raw                       # not rectangular: `embed` says so
+        if block.ndim != 2 or not len(block):
+            return raw
+        empty = ~np.isfinite(block).all(axis=1) | ~block.any(axis=1)
+        count = int(empty.sum())
+        if not count:
+            return raw
+        return self._retry_on_processor(texts, RuntimeError(
+            f"the graphics card returned {count} empty vector(s) out of "
+            f"{len(texts)} and reported no error"))
 
     def _retry_on_processor(self, texts: Sequence[str],
                             cause: BaseException) -> list:

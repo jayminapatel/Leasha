@@ -163,6 +163,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 - [x] **2c** Crash handling: if the child dies, the page says so in plain words, the run
       carries on from its last saved position when started again (0w's interrupted-run
       notice), and the file it was reading is named.
+> **2026-09-30, 2d on the owner's laptop: the Windows comparison was NOT taken.** The owner needed the
+> machine for a real index run before it could be started, so there are no Windows figures for the
+> window's longest stall or p99, in process or in a separate process, and nothing here suggests a
+> default either way. The one figure taken is not the comparison: the small synthetic corpus (seed 1,
+> 602 files, 2,940 documents, 4,082 passages), **fake embedder**, in process, `--full-speed`, **no
+> heartbeat probe**, 11 workers, Windows 11, i7-1365U (12 logical processors), shared busy machine,
+> the code at `1264ad0`: 57.2 s, 632 files a minute, peak memory 166 MB. How the Linux figures were
+> made, read from `pipeline_bench.py` and the HANDOFF checklist: `app.cli bench-pipeline --probe`, once
+> as it is and once with `--child-process`, on the small and the medium corpus, fake embedder; the
+> probe is the lag monitor's own 50 ms heartbeat on the main thread beside a stand-in window. What
+> remains, on a quiet machine with Leasha not indexing (the child takes the machine-wide index lock,
+> and on Windows the probe shows a small stand-in window on the desktop): three runs each way,
+> alternating, of `venv\Scripts\python.exe -m app.cli bench-pipeline --probe --size medium --corpus
+> D:\LeashaBench\medium --embedder fake --out <file>.json` and the same with `--child-process`; then
+> once each way with `--embedder real`. 2d stays open, and the default stays off.
 - [ ] **2d** Measured, before and after, on the same synthetic corpus: the window's
       longest stall and p99 (the lag monitor) while indexing, files per minute, and memory.
       The change lands only if the window is better and throughput is no worse.
@@ -267,7 +282,46 @@ The design was agreed in conversation first. The owner confirmed every recommend
 > balance. `tests/unit/test_read_process.py` pins same-answer, crash, abandon and end-to-end.
 - [x] **5b** Reading across several processes where reading is CPU-bound, feeding one
       writer. Lands only with a measured gain.
-- [ ] **5c** Embedding: group texts of similar length in a batch so less padding is wasted.
+> **2026-09-30, 5c built and measured on the owner's laptop; landed for the one case where the vectors
+> are identical.** A gathered batch is taken shortest first before it is cut into model calls, so a
+> call holds neighbours in length, and every vector is put back on its own passage
+> (`embedder.length_order`; `Embedder.embed` for anything over one call; `Pipeline._embed_sliced` /
+> `_embed_grouped`). It is not a setting. `Embedder.groups_by_length` decides where it applies, from
+> what was measured. **Measured** with the real `BAAI/bge-small-en-v1.5`, i7-1365U, Windows 11,
+> processor only, 4 threads, 2,048 of the 4,082 passages the pipeline itself cut from the small
+> synthetic corpus (seed 1; 138-2,117 characters, median 1,572), eight batches of 256 at 32 to a call,
+> the two orders alternating batch by batch. **The machine was shared and busy the whole time** (other threads'
+> tests and the owner's own work; 77-100% processor in use), so the times are noisy and only the paired
+> comparison means anything:
+>
+> | model file, processor | padding read by the model | time, as given -> shortest first | median of the 8 pairs (range) | vectors |
+> |---|---|---|---|---|
+> | ordinary file (66 MB) | 34.8% -> 13.8% | 1,164.6 s -> 906.4 s (-22%) | -27% (-39% to +28%) | **identical to the last bit**, 2,048 of 2,048 (max difference 0.0) |
+> | smaller int8 file ("Use the smaller model file") | 34.8% -> 13.8% | 487.7 s -> 289.2 s (-41%) | -40% (-46% to -37%) | **all 2,048 differ**: up to 0.032 in one component, mean 0.0032, cosine as low as 0.9939 |
+>
+> The project's tests accept 1e-6 for a vector (float32 precision: `test_embedder.py`,
+> `test_numpy_pyarrow_hotpath.py`); there is no tolerance written for a change of batch order, and the
+> ordinary file did not need one. **So it is on for the ordinary file on the processor and off
+> everywhere else:** off for the int8 file, which fails the condition by four orders of magnitude (that
+> file works out its number ranges per model call, so a passage's vector depends on which passages
+> share the call - true of it with or without this change, and worth knowing on its own); off on the
+> graphics card, which takes the whole batch in one call so there is nothing to group; off until the
+> model has loaded. **The graphics card could not be measured:** in three runs on the Iris Xe today
+> DirectML stopped within the first two batches each time (`887A0005`, "the GPU device instance has
+> been suspended") and the run carried on on the processor, as designed. **A stop mid-batch** now leaves
+> finished passages scattered through the batch rather than at its start, so `_embed_pending` keeps
+> every file all of whose passages have a vector and leaves the rest for the next run; a stop already
+> asked for (the run's last flush) embeds the leading passages in the order they came, as before.
+> **Found on the way and fixed:** twice, the call *before* DirectML reported the failure came back in
+> 4-6 s instead of about 40, raised nothing, and held empty vectors (38 of 256 all zeros in the run
+> that counted them). Those would have been stored and their passages marked done, never findable by
+> meaning. On the graphics card a zero or not-a-number vector now sends the batch through the existing
+> one retry on the processor (`Embedder._redo_empty_from_the_card`). **Not done:** a whole-run
+> `bench-pipeline --embedder real` before and after (the owner needed the machine); the figures above are
+> the model calls the pipeline makes, timed on their own. `tests/integration/test_layer3_acceptance.py`
+> was not run for the same reason. Tests: `test_embedder.py`, `test_stop_mid_batch.py`; the real-model
+> check runs with `LEASHA_REAL_EMBED_CACHE=<model folder>` and passed here.
+- [x] **5c** Embedding: group texts of similar length in a batch so less padding is wasted.
       Lands only with a measured gain and identical vectors.
 - [x] **5d** Database writes: larger transactions and bulk inserts on the one writer; bigger
       vector-store appends. Lands only with a measured gain and the resume guarantees

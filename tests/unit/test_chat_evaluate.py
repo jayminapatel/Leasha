@@ -347,6 +347,77 @@ def test_the_flag_and_its_helpers_are_on_the_evaluate_subcommand():
     assert args.chat_ids == "L01,A01" and args.chat_conversation and args.chat_runs == 3
 
 
+class _Inside:
+    """A stand-in for the chat model inside Leasha: downloaded or not, never loaded."""
+
+    engine = "onnx"
+    model = "qwen2.5-1.5b-instruct"
+
+    def __init__(self, downloaded: bool) -> None:
+        self.downloaded = downloaded
+        self.warmed = 0
+
+    def has_model(self) -> bool:
+        return self.downloaded
+
+    def serving(self) -> str:
+        return "Qwen 2.5 1.5B Instruct, 4-bit (chat, Interpret)" if self.downloaded else ""
+
+    def warm(self, **_kwargs) -> bool:
+        self.warmed += 1
+        return True
+
+
+def test_with_no_model_named_the_engine_in_the_settings_is_the_one_measured(monkeypatch):
+    """2026-09-30: `CHAT_ENGINE` is `onnx` by default and this command measured Ollama
+    whatever it said. With no `--chat-model`, the model inside Leasha is what answers,
+    and the heading names the copy on disk."""
+    from types import SimpleNamespace
+
+    from app.chat.evaluate import _pick_models
+    from app.llm import engines
+
+    inside = _Inside(downloaded=True)
+    monkeypatch.setattr(engines, "text_model", lambda settings, **_k: inside)
+    llm, label, real, note = _pick_models(SimpleNamespace(chat_engine="onnx"), "", False)
+    assert llm is inside and real and inside.warmed == 1
+    assert "4-bit" in label and "inside Leasha" in label and note == ""
+
+
+def test_a_named_model_is_still_an_ollama_model_and_the_inside_one_is_not_asked(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.chat import llm as chat_llm
+    from app.chat.evaluate import _pick_models
+    from app.llm import engines
+
+    def never(*_a, **_k):
+        raise AssertionError("--chat-model names an Ollama model; the inside one is not used")
+
+    monkeypatch.setattr(engines, "text_model", never)
+    monkeypatch.setattr(chat_llm.OllamaLLM, "health", lambda self, force=False: False)
+    llm, label, real, note = _pick_models(SimpleNamespace(chat_engine="onnx"), "mistral", False)
+    assert not real and "FakeLLM" in label and "Nothing answered" in note
+
+
+def test_an_inside_model_that_is_not_downloaded_is_said_and_ollama_is_tried(monkeypatch):
+    from types import SimpleNamespace
+
+    from app.chat import llm as chat_llm
+    from app.chat.evaluate import _pick_models
+    from app.llm import engines
+
+    monkeypatch.setattr(engines, "text_model", lambda settings, **_k: _Inside(downloaded=False))
+    monkeypatch.setattr(chat_llm.OllamaLLM, "health", lambda self, force=False: False)
+    llm, label, real, note = _pick_models(SimpleNamespace(chat_engine="onnx"), "", False)
+    assert not real and "not downloaded" in note and "Nothing answered" in note
+    # ...and with Ollama chosen in the settings the inside model is not looked at.
+    monkeypatch.setattr(engines, "text_model",
+                        lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("not asked")))
+    _llm, _label, real, note = _pick_models(SimpleNamespace(chat_engine="ollama"), "", False)
+    assert not real and "not downloaded" not in note
+
+
 @pytest.mark.skipif(not os.environ.get("LEASHA_CHAT_REAL_MODEL"),
                     reason="set LEASHA_CHAT_REAL_MODEL=<ollama model> to measure a real model")
 def test_a_real_model_keeps_the_guarantee_even_when_it_answers_badly(env):

@@ -90,7 +90,7 @@ from app.index.held_archives import HeldArchives
 from app.index.image_book import PersistentImageBook
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.embedder import EMBED_BATCH as _EMBED_BATCH
-from app.index.embedder import Embedder
+from app.index.embedder import Embedder, length_order
 from app.index.interrupted import ARCHIVE_RESUME_PREFIX
 from app.index import live_progress
 from app.index.live_progress import (
@@ -6126,6 +6126,11 @@ class Pipeline:
             return self._embed_sliced(texts)
 
         embedded = self._embed_sliced(unique)
+        if self._stop.is_set() and any(vector is None for vector in embedded):
+            # A stop cut a batch that was taken shortest first (order 0x 5c),
+            # so the finished passages are scattered. Each text gets its
+            # vector or a gap; `_embed_pending` keeps the whole files.
+            return [embedded[slot] for slot in where]
         if len(embedded) != len(unique) and self._stop.is_set():
             # A stop abandoned the rest of `unique`. `unique` is in first-seen
             # order, so the texts that are finished are exactly the leading run
@@ -6170,6 +6175,22 @@ class Pipeline:
         only when a stop arrived. Work order 0u 6e.
         """
         size = self._embed_slice() or max(len(texts), 1)
+        # **Passages of similar length share a model call (order 0x 5c).** The
+        # tokeniser pads every passage in one call to that call's longest, and
+        # the model does the arithmetic on the padding too. Shortest first
+        # across the whole batch, then cut into calls, so a call holds
+        # neighbours in length. Only where the batch is cut into several calls
+        # (the processor); only where the embedder says the vectors stay
+        # identical (`Embedder.groups_by_length` - not the smaller model file);
+        # never when a stop is already waiting, so the run's final flush keeps
+        # its leading files exactly as before.
+        if (size < len(texts) and not self._stop.is_set()
+                and getattr(self.embedder, "groups_by_length", False)):
+            order = length_order(texts)
+            if order is not None:
+                grouped = self._embed_grouped(texts, order, size)
+                if grouped is not None:
+                    return grouped
         out: list = []
         for start in range(0, len(texts), size):
             # **The first slice always runs**, unless an earlier batch was already
@@ -6183,6 +6204,41 @@ class Pipeline:
                 break
             out.extend(self.embedder.embed_all(texts[start:start + size]))
         return out
+
+    def _embed_grouped(self, texts: list[str], order: list[int],
+                       size: int) -> Optional[list]:
+        """`_embed_sliced` with the passages taken shortest first. Order 0x 5c.
+
+        `order` is `length_order(texts)`: positions in `texts`, shortest first.
+        Each call embeds `size` neighbours in length, and every vector is put
+        back at its passage's own position, so the caller sees the list it
+        always saw - same vectors, same order.
+
+        **A stop leaves gaps, not a shorter list.** The calls that finished
+        hold passages from anywhere in the batch, so what comes back is as long
+        as `texts` with `None` where no vector was made. `_embed_pending` keeps
+        the files whose every passage has one and leaves the rest for the next
+        run, exactly as it does for a batch cut in the old order.
+
+        Returns `None` if the model ever hands back a different number of
+        vectors than it was given: a vector put back at the wrong position
+        would be silent and permanent, so the caller then embeds the batch in
+        its own order, where the count check that already exists catches it.
+        """
+        found: list = [None] * len(texts)
+        for start in range(0, len(order), size):
+            if self._stop.is_set() and start > 0:
+                break
+            part = order[start:start + size]
+            vectors = list(self.embedder.embed_all([texts[index] for index in part]))
+            if len(vectors) != len(part):
+                self._log.warning(
+                    "the model returned {} vectors for {} passages; not grouping "
+                    "by length", len(vectors), len(part))
+                return None
+            for index, vector in zip(part, vectors):
+                found[index] = vector
+        return found
 
     @staticmethod
     def _whole_file_prefix(pending: list[tuple[int, int, str]], done: int) -> int:
@@ -6223,7 +6279,28 @@ class Pipeline:
         with self._clock.stage("embed"):
             vectors = self._embed_texts(texts)
 
-        if len(vectors) < len(pending) and self._stop.is_set():
+        if self._stop.is_set() and any(vector is None for vector in vectors):
+            # **A stop arrived mid-batch, and the batch was taken shortest
+            # first (order 0x 5c)**, so the passages that have a vector are
+            # scattered through it rather than being its first so-many. The
+            # rule is the one below, said without "prefix": a file is written
+            # and marked only when every one of its passages has a vector;
+            # any other file is left whole for the next run.
+            cut_files = {fid for (_cid, fid, _t), vector in zip(pending, vectors)
+                         if vector is None}
+            kept = [index for index, (_cid, fid, _t) in enumerate(pending)
+                    if fid not in cut_files]
+            self._embed_abandoned = True
+            self._log.info(
+                "stopped mid-batch: {} of {} passages embedded and written, {} "
+                "left for the next run", len(kept), len(pending),
+                len(pending) - len(kept))
+            if not kept:
+                pending.clear()
+                return
+            vectors = [vectors[index] for index in kept]
+            pending[:] = [pending[index] for index in kept]
+        elif len(vectors) < len(pending) and self._stop.is_set():
             # **A stop arrived mid-batch (0u 6e).** Write what is finished, for
             # whole files only; leave the rest. Their chunks are already
             # committed and their files are still PENDING - the state a crash in

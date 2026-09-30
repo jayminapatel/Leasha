@@ -583,6 +583,24 @@ codebase:
 > laptop). What is *not* acceptable is moving the floor to meet the model. The command to repeat
 > it: `python -m app.cli evaluate --chat --chat-model NAME --chat-ids L01,...,L27`.
 
+> **2026-09-30, 4b on the owner's laptop: no new figure; what the 84.0% was, and what remains.** No
+> evaluation was run today - the owner needed the machine for a real index run before the first one
+> could start - so nothing below is a measurement, the floors are untouched and nothing is pinned.
+> Two things read from the code and the notes above. (1) The 84.0% and 97.1% were `mistral` answering
+> and `llama3.2:1b` routing and planning, **through Ollama**, on 2026-09-20. They predate
+> `CHAT_ENGINE=onnx` (2026-09-29): the model the app answers with by default today - Qwen 2.5 1.5B,
+> 4-bit, inside Leasha - has never been scored against these floors, because the command could not
+> reach it until today's fix (the note above 4c). That fix is tested with a stand-in and has **not**
+> been run against the real model end to end (UNCONFIRMED). (2) The table's "84.0% (23 of 27)" does
+> not add up as written: 23 of 27 is 85.2%; the extractive measure leaves out the two trap lookups
+> (L04, L11), and 21 of 25 is 84.0%. Which of the two was meant is UNCONFIRMED; the next run settles
+> it. **What remains, in order, on a quiet machine** (each builds its own fixture in a temporary
+> folder): today's default first, `venv\Scripts\python.exe -m app.cli evaluate --chat --json`; then one
+> question each of `--chat-model gpt-oss:20b --chat-ids L01` and `--chat-model gemma4:26b --chat-ids
+> L01` to see which answers faster; then that one over the lookups (`--chat-ids L01,...,L27`) and,
+> if it clears 85% there, over the whole fixture (no `--chat-ids`), which is the run the four floors
+> are judged on. Only a model that meets every floor on the whole fixture closes 4b; its result file is
+> then what the regression tests read. The floors are not lowered.
 - [ ] **4b** floors recorded in this file at first measurement and pinned as
   regression tests; the order does not ship below: citation validity ≥98%,
   aggregate exactness 100%, absence honesty 100%, extractive ≥85% on the
@@ -590,6 +608,19 @@ codebase:
   quality on 7–8B justifies it, else the router keeps synthesis questions
   in extract-and-quote mode until the GPU machine (an honest downgrade the
   user never sees as an error).
+> **2026-09-30, 4c on the owner's laptop: not measured; the command could not have measured the
+> engine the app now uses, and that is fixed.** `evaluate --chat` built its models from Ollama whatever
+> `CHAT_ENGINE` said (`_pick_models`), and `CHAT_ENGINE` has been `onnx` - the model inside Leasha -
+> since 2026-09-29. So no latency in this file describes today's default. Now, with no `--chat-model`,
+> the engine in the settings answers (one model for every role, as `ChatEngine` does it), the report's
+> heading names the copy on disk (`OnnxLLM.serving()`: here "Qwen 2.5 1.5B Instruct, 4-bit", the only
+> chat copy in `D:\Leasha\Data\models`), and `--chat-model NAME` still means an Ollama model. The run
+> itself was not started: the owner needed the machine for a real index run. **No figure was taken, so
+> 4c stays open.** What remains, on a quiet machine: `venv\Scripts\python.exe -m app.cli evaluate
+> --chat --chat-runs 3 --json` (96 questions each run; it builds its own fixture in a temporary folder -
+> `run_cli` - and reads no document of the owner's). It loads the model before the first question, so
+> the cold first call has to be timed apart (a fresh process, first question only). Tick 4c only if the
+> first narration line is under 1 s and the first-answer-text p95 is recorded.
 - [ ] **4c** latency: first narration line <1s, first answer token p95
   measured and recorded; the loop's visible steps make honest latency feel
   fast — but measure anyway.
