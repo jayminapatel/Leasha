@@ -1009,6 +1009,12 @@ class IndexController(QObject):
             # small index the number barely moves and there is nothing saying
             # why. Weighing the two things a reset actually removes, before and
             # after, turns that into a sentence.
+            # 0z F1: the folder watch is another process with this index open.
+            # It is ended first (here, on the worker, where waiting is allowed)
+            # and started again in `_index_cleared`, or it would go on writing
+            # into a vector table that is about to be dropped.
+            from app.index.watch_child import end_all_watch_children
+            end_all_watch_children()
             before = index_bytes(self._w._store, self._w._settings)
             removed = self._w._store.clear_index()
             self._w._vectors.drop()
@@ -1025,6 +1031,11 @@ class IndexController(QObject):
         self._w.indexing_view.refresh_totals(self._w._store, self._w._settings)
         self._w.files_view.refresh_summary()
         self._w._refresh_status()
+        # 0z F1: ended before the reset (see `clear` above); back on if its
+        # switch is. A test window without one has nothing to restart.
+        folder_watch = getattr(self._w, "folder_watch", None)
+        if folder_watch is not None:
+            folder_watch.apply()
 
     # -- Offline Media: order 202626270513 -----------------------------------
     #

@@ -35,6 +35,7 @@ import fnmatch
 import hashlib
 import json
 import os
+import stat as stat_module
 import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -50,6 +51,7 @@ __all__ = [
     "walk",
     "content_hash",
     "has_changed",
+    "PathRules",
     "enclosing_repo",
     "repo_kind_at",
     "own_paths",
@@ -939,3 +941,122 @@ def has_changed(
         return True, None
 
     return fresh != known_hash, fresh
+
+
+# ---------------------------------------------------------------------------
+# One path at a time (work order 0z, F1: the folder watch)
+# ---------------------------------------------------------------------------
+
+#: Mailboxes read message by message. `walk` names the same four when it
+#: exempts them from the size ceiling; kept in step by `test_folder_watch.py`.
+STREAMED_MAILBOXES = frozenset({".pst", ".ost", ".olm", ".mbox"})
+
+
+class PathRules:
+    r"""`walk`'s decisions, asked about one path instead of a whole tree.
+
+    The folder watch (`app/index/folder_watch.py`) is told "this file changed"
+    and must answer the questions `walk` answers while it lists a folder: is
+    this inside a folder the walk never enters, is the name one it skips, can
+    anything read it, is it a cloud placeholder. **The rules are `walk`'s,
+    restated, not new ones** - `test_folder_watch.py` walks a tree both ways
+    and fails if the two ever disagree, which is what stops this drifting
+    from the loop above.
+
+    Built once from a `WalkConfig` so the per-path cost is string tests and,
+    for `candidate`, the one `stat` the walk also pays.
+
+    **A cloud placeholder is never read here, whatever the folder's opt-in.**
+    `walk` may download an opted-in folder's files within a budget the person
+    set for a run they started; a watch runs all day with nobody asking, so it
+    records a placeholder by name only and leaves its contents to that run.
+    """
+
+    def __init__(self, config: WalkConfig) -> None:
+        from app.extract.media import media_extensions
+
+        self.config = config
+        self.extensions = config.resolved_extensions()
+        self.names = config.resolved_names()
+        self.blocked = config.excluded_paths_lower()
+        self.size_exempt = (
+            (media_extensions() & self.extensions)
+            | (STREAMED_MAILBOXES & self.extensions))
+
+    def _folder_excluded(self, folder: Path) -> bool:
+        """Would `walk` refuse to enter this one folder? (Not its parents.)"""
+        if str(folder).rstrip("\\/").lower() in self.blocked:
+            return True
+        if str(folder) in self.config.force_include:
+            return False
+        name = folder.name
+        return (name in self.config.exclude_dirs
+                or _matches_any(name, self.config.exclude_globs))
+
+    def excluded(self, root: Path, path: Path, *, is_dir: bool = False) -> bool:
+        r"""True if `walk` over `root` would never reach `path`.
+
+        Every folder between `root` and `path` is asked about in turn, because
+        `walk` prunes as it descends: a file is out of reach the moment any
+        folder above it is. `is_dir` says `path` itself is a folder; for a
+        path that has gone (so nobody can tell) leave it False, which only
+        applies the file-name patterns - patterns `walk` applies to folder
+        names as well.
+
+        A path not under `root` at all is excluded.
+        """
+        root, path = Path(root), Path(path)
+        if str(root).rstrip("\\/").lower() in self.blocked:
+            return True
+        try:
+            relative = path.relative_to(root)
+        except ValueError:
+            return True
+        parts = relative.parts
+        if not parts:
+            return False                     # the root itself
+        folder = root
+        for part in parts[:-1]:
+            folder = folder / part
+            if self._folder_excluded(folder):
+                return True
+        if is_dir:
+            return self._folder_excluded(path)
+        return _matches_any(parts[-1], self.config.exclude_globs)
+
+    def candidate(self, root: Path, path: Path) -> Optional[Candidate]:
+        """The `Candidate` `walk` would yield for this file, or None.
+
+        None when the walk would not reach it, would skip it, or it cannot be
+        looked at right now (gone again, or not an ordinary file).
+        """
+        root, path = Path(root), Path(path)
+        if self.excluded(root, path):
+            return None
+        config = self.config
+        readable = (path.suffix.lower() in self.extensions
+                    or path.name.lower() in self.names)
+        if not readable and not config.name_only:
+            return None
+        try:
+            stat = path.stat()
+        except OSError:
+            return None
+        if not stat_module.S_ISREG(stat.st_mode):
+            return None
+        too_big = (stat.st_size > config.max_file_bytes
+                   and path.suffix.lower() not in self.size_exempt)
+        if (too_big or stat.st_size == 0) and not config.name_only:
+            return None
+        candidate = Candidate(
+            path=path,
+            size_bytes=stat.st_size,
+            mtime_ns=stat.st_mtime_ns,
+            priority=_priority_for(path, config.priority_roots),
+            attributes=getattr(stat, "st_file_attributes", None),
+            flags=getattr(stat, "st_flags", None),
+            readable=readable and not too_big and stat.st_size > 0,
+        )
+        if candidate.is_cloud_placeholder:
+            candidate = replace(candidate, readable=False)
+        return candidate

@@ -747,6 +747,32 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # Work order 0z, F1 (`app/index/folder_watch.py`). One indexed folder
+    # cannot be watched for changes right now - it has gone, its drive is
+    # unplugged, or the system refused. The other folders carry on, and this
+    # one is tried again by itself, so nothing is asked of the person unless
+    # the folder really has moved.
+    "ERR_WATCH_FOLDER": _Spec(
+        message="Changes in '{path}' are not being watched: {reason}.",
+        suggestion=(
+            "Everything already indexed stays searchable, and an ordinary index run "
+            "still finds what changed. The folder is tried again every half minute. "
+            "If it was moved or renamed, correct it under \"Folders to index\" in "
+            "Settings."
+        ),
+        action_type=ActionType.AUTO_FIX,
+    ),
+    # The watch saw changes and could not put them into the index. They are
+    # kept and tried again, so this is reported, never fatal.
+    "ERR_WATCH_UPDATE": _Spec(
+        message="{count} changed file(s) could not be added to the index yet: {reason}.",
+        suggestion=(
+            "Nothing is lost: they are kept and tried again shortly, and an ordinary "
+            "index run picks them up as well. If this keeps appearing, run "
+            "`app.cli doctor` and check that the index drive has free space."
+        ),
+        action_type=ActionType.AUTO_FIX,
+    ),
 }
 
 

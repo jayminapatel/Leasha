@@ -2441,6 +2441,46 @@ class SqliteStore:
         ).fetchall()
         return [int(row[0]) for row in rows]
 
+    def file_ids_at_or_under(self, path: str) -> list[int]:
+        r"""Every row that is this path, lies under it, or came out of it.
+
+        Work order 0z F1 (the folder watch). Told that `D:\Docs\Old` has gone,
+        the index must let go of the folder's files; told that `mail.pst` has
+        gone, of its messages. Nobody can ask the disk which it was - it is no
+        longer there - so all three shapes are matched:
+
+        * the path itself (a file);
+        * `path\...` and `path/...` (a folder's contents, or a zip's members);
+        * `path#...` (a mailbox's messages - see `file_ids_under_archive`).
+
+        Ids only, for the reason given there.
+
+        **Ranges on the path, not `LIKE`.** `path LIKE 'D:\Docs\Old\%'` cannot
+        use the index on `path` (SQLite's `LIKE` ignores the case of A-Z and
+        the index does not), so each call would read the whole table - and a
+        folder deleted with two thousand files in it is two thousand calls.
+        "Starts with `X\`" is the same as "from `X\` up to, not including,
+        `X]`" (`]` is the character after `\`), which the index answers
+        directly. Checked with `EXPLAIN QUERY PLAN` in `test_folder_watch.py`.
+        It also needs no escaping: nothing here is a pattern. The price is
+        that the letters must match exactly, so a row stored as `d:\docs\...`
+        is not found from `D:\Docs` - it waits for the next ordinary run's
+        clean-up, which compares without case.
+        """
+        text = str(path).rstrip("\\/")
+        if not text:
+            return []
+        found = [int(row[0]) for row in self.conn.execute(
+            "SELECT id FROM files WHERE path = ?", (text,)).fetchall()]
+        # One statement per shape, so each is a search of the index on its
+        # own; joined with OR the planner may give up and scan.
+        for separator in ("\\", "/", "#"):
+            rows = self.conn.execute(
+                "SELECT id FROM files WHERE path >= ? AND path < ?",
+                (text + separator, text + chr(ord(separator) + 1))).fetchall()
+            found.extend(int(row[0]) for row in rows)
+        return found
+
     def delete_file_by_path(self, path: str) -> Optional[int]:
         record = self.get_file(path)
         if record is None:

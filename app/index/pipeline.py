@@ -896,6 +896,28 @@ class PipelineConfig:
     #: before large within a month. `found` streams the walk straight into the
     #: queue, which is how every run behaved before. From `INDEX_ORDER`.
     read_order: str = "newest"
+    #: Work order 0z F1 (`app/index/folder_watch.py`). **Where this run's files
+    #: come from, when it is not a walk of `walk.roots`.** Called once with the
+    #: run's `WalkConfig` and its shared `seen` set, and yields `Candidate`s -
+    #: the handful of files the folder watch was told about. Everything after
+    #: that is the ordinary run: the same change check, the same readers, the
+    #: same writes. None (the default) is the walk every run has always done.
+    candidate_source: Optional[Callable[[Any, set], Iterator[Candidate]]] = None
+    #: Work order 0z F1. **A few files, not a run somebody started.** True
+    #: leaves out everything in `run()` whose cost grows with the size of the
+    #: whole index rather than with this run's files - catching up earlier
+    #: runs' backlogs, the queued recordings, the forced compaction of the
+    #: vector index, the completions file - and does not overwrite the "last
+    #: run" record the Indexing page shows. The next ordinary run does all of
+    #: them, as it always has. False (the default) changes nothing.
+    light: bool = False
+    #: Work order 0z F1. Folders the clean-up pass is limited to: only rows
+    #: under one of them can be removed as "no longer on disk". Set for a run
+    #: over part of the index that *did* look at the whole of those folders
+    #: (the watch's "rescan this folder"), where an unlimited clean-up would
+    #: `stat` every row of every other folder to learn nothing. None (the
+    #: default) is the whole index, as before.
+    prune_under: Optional[tuple] = None
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -1726,7 +1748,10 @@ class Pipeline:
         # See `_drain_unembedded`. Work order 0i section 2a: now one of the
         # registered enrichment-backlog kinds - see `_run_enrichment_drains`.
         self._announce_phase(stats, on_progress, PHASE_CATCH_UP)
-        self._run_enrichment_drains(stats)
+        # 0z F1: not for a few files from the folder watch - see `light`.
+        light = bool(self.config.light)
+        if not light:
+            self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
         # pruned, because none of those should look at it at all.
@@ -1858,7 +1883,8 @@ class Pipeline:
 
         # Work order 202626270515: videos and recordings the run only found are
         # read now, after everything else - see `app/index/media_backlog.py`.
-        self._drain_media_backlog(stats, on_progress)
+        if not light:
+            self._drain_media_backlog(stats, on_progress)
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -1961,9 +1987,13 @@ class Pipeline:
                 ", ".join(f"{code} ({count:,})" for code, count in worst),
             )
         self._report_root_problems(stats)
-        self._say_if_nothing_was_walked(stats)
-        self.store.set_state("last_run", str(int(time.time())))
-        self.store.set_state("last_run_stats", repr(stats.as_dict()))
+        if not light:
+            # 0z F1: a few files from the folder watch are not "the last run"
+            # - that record is what the Indexing page and the tuning footer
+            # show, and a one-file update must not replace a night's numbers.
+            self._say_if_nothing_was_walked(stats)
+            self.store.set_state("last_run", str(int(time.time())))
+            self.store.set_state("last_run_stats", repr(stats.as_dict()))
         # Order 0z lane C: archives whose attached pictures wait for the
         # pictures pass. Written here, on the run's own thread, never by a worker.
         self._held_archives().save()
@@ -1975,16 +2005,22 @@ class Pipeline:
         # that added 4,000 chunks would otherwise never compact at all, and a
         # nightly incremental index is exactly that shape - a small run, every
         # day, each one leaving fragments behind forever.
-        self.vectors.maybe_compact(force=True)
+        # 0z F1: **except after a few files from the folder watch**, which may
+        # come every few seconds - rewriting the table each time would cost
+        # far more than the file did. Those leave the table to its own
+        # threshold (`COMPACT_EVERY_ROWS`) and to the next ordinary run.
+        self.vectors.maybe_compact(force=not light)
         # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
         # applied to the image table. Nothing above this line ever calls
         # `maybe_create_index` on it either - see `_flush_pending_images`.
         if self.image_vectors is not None:
             self.image_vectors.maybe_create_index()
-            self.image_vectors.maybe_compact(force=True)
+            self.image_vectors.maybe_compact(force=not light)
         self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
         self._optimise_keyword_index(stats)
-        self._write_completions()
+        if not light:
+            # 0z F1: the completions file is rebuilt from the whole index.
+            self._write_completions()
         from app.extract.legacy_office import take_fallback_summary
 
         slower = take_fallback_summary()
@@ -2760,6 +2796,13 @@ class Pipeline:
                 self._log.warning("could not record repository {}: {}", root, exc)
 
     def _candidates(self) -> Iterator[Candidate]:
+        # Work order 0z F1: a run given its files (the folder watch) yields
+        # exactly those. No walk, and none of the re-queues below - they read
+        # the whole skip ledger, and belong to a run over the whole corpus.
+        source = self.config.candidate_source
+        if source is not None:
+            yield from source(self.config.walk, self._seen_paths)
+            return
         # Snapshotted BEFORE the walk, deliberately. Read lazily afterwards, the
         # query would pick up files this very run had just marked locked and
         # queue them a second time - doubling the work, double-counting the
@@ -6252,6 +6295,8 @@ class Pipeline:
         from app.index.archives import files_under
 
         archived = self._archive_roots()
+        # 0z F1: the folders this clean-up is limited to, or None for all.
+        scope = self._prune_scope()
 
         # **Offline Media, 1d: offline is not deleted.** `record.path` for a
         # volume-backed row is the synthetic `leasha-volume://...` string
@@ -6298,6 +6343,7 @@ class Pipeline:
             for record in self.store.iter_files(source_kind="file")
             if path_key(record.path) not in seen
             and (not archived or files_under(record.path, archived) is None)
+            and (scope is None or files_under(record.path, scope) is not None)
             and _volume_row_is_missing(record)
         ]
         # **The archive's contents go with the archive**, which nothing did.
@@ -6308,6 +6354,21 @@ class Pipeline:
         # nothing. Collected before deleting, for the same reason as above.
         doomed.extend(self._doomed_inside_archives(seen, archived))
         return self._delete_in_batches(doomed)
+
+    def _prune_scope(self) -> Optional[list]:
+        """`config.prune_under` as a list, or None for the whole index (0z F1)."""
+        scope = getattr(self.config, "prune_under", None)
+        return list(scope) if scope else None
+
+    def forget_files(self, file_ids: Any) -> int:
+        """Remove these files from the index: rows, passages and vectors.
+
+        Work order 0z F1: the folder watch's way to drop a file it was told
+        has gone, without a clean-up pass over the whole index. The same
+        batched delete the clean-up pass uses, in the same order. Returns how
+        many were removed. **The index only** - nothing on disk is touched.
+        """
+        return self._delete_in_batches([int(file_id) for file_id in file_ids])
 
     def _doomed_inside_archives(self, seen: set[str], archived: Any) -> list[int]:
         r"""Ids of the marker **and the contents** of an archive that has gone.
@@ -6355,7 +6416,10 @@ class Pipeline:
 
         doomed_paths: list[str] = []
         gone: list[int] = []
+        scope = self._prune_scope()         # 0z F1: see `_prune_missing`
         for file_id, path in containers:
+            if scope is not None and files_under(path, scope) is None:
+                continue                      # outside the folders being cleaned
             if Path(path).exists():
                 continue                      # still here; its members are fine
             if path_key(path) in seen:

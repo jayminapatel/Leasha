@@ -385,6 +385,10 @@ class Settings(BaseModel):
     #: skipped. Never a limit on its total time: a large `.pst` can rightly
     #: take hours. 0 is no limit.
     index_stall_limit_s: int = 600
+    #: Work order 0z, F1 (`app/index/folder_watch.py`). Watch the indexed
+    #: folders and index a file within seconds of it being saved. Off until
+    #: the owner has seen it run against their own folders.
+    index_watch_folders: bool = False
 
     # --- indexing: when it runs --------------------------------------------
     #: manual | startup | interval | daily
@@ -529,6 +533,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_READ_PROCESSES",
     "INDEX_FILE_TIME_LIMIT_S",
     "INDEX_STALL_LIMIT_S",
+    "INDEX_WATCH_FOLDERS",
     "INDEX_MEMORY_MB",
     "INDEX_CPU_PERCENT",
     "INDEX_PAUSE_ON_BATTERY",
@@ -735,6 +740,8 @@ def load_settings(
                 values.get("INDEX_FILE_TIME_LIMIT_S", "120"))),
             index_stall_limit_s=max(0, _as_int(
                 "INDEX_STALL_LIMIT_S", values.get("INDEX_STALL_LIMIT_S", "600"))),
+            index_watch_folders=_as_bool(
+                "INDEX_WATCH_FOLDERS", values.get("INDEX_WATCH_FOLDERS", "false")),
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
