@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.27 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.28 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -121,6 +121,20 @@ line, no traceback and no window.
   and its twelve tracked ledgers (11-24 September) were removed from the index; every ledger
   is still on the laptop. **Never commit one again.** The ledgers remain in GitHub's history
   in the commits before this one until the history itself is rewritten.
+- **2026-09-30 - history rewritten, and every commit hash from 15 September on has changed.**
+  On the owner's word `_Knowledge` was stripped from every commit on `main`, on
+  `claude/tmp-regen-golden` and under four tags (`v0.3.3` and three `archive/` tags), and
+  force-pushed. 415 of 921 commits were rewritten; messages, authors and dates are
+  unchanged; 251 of them lost their signature (it covered the old bytes). **A hash quoted
+  anywhere in this tree before this note may no longer resolve** - `bea16e7` is now
+  `47ac443`, `5eb409b` is `a31ba0a`, `a2fa6f5` is `5a57775`, `864ea0a` is `f5a3d63`; the
+  full list is `D:\Local\Archive\SearchProject-2026-09-30\commit-hashes-old-to-new.txt`.
+  The unrewritten repository, prompt logs included, is kept on the laptop only, as
+  `Leasha-before-history-rewrite.git` in the same folder. **Any other clone must be
+  re-cloned, never pulled or pushed** - a push from an old clone puts the ledgers back.
+  `git filter-branch` cannot do this on Windows (an old commit holds a path named
+  `D:\SearchProject\logs/README.txt`, which no Windows index accepts); the objects were
+  rewritten directly.
 - **Superseded by the entry above - kept as written:** the window's run marked `pstfree.exe` and `pstfree-gui.exe` in
   `D:\OutlookArchive` `ERR_CLOUD_ONLY` though they are plain local files (attributes 0x20). A
   headless walk and a throwaway pipeline run both classify them correctly (name-only), so the
