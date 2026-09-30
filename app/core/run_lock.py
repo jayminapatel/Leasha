@@ -52,7 +52,7 @@ __all__ = [
     "RUN_STATE_KEY", "STOP_STATE_KEY", "FRONT_STATE_KEY",
     "publish", "active_run", "request_stop", "stop_requested", "clear_stop",
     "request_front", "take_front_request",
-    "describe_holder", "GUI", "COMMAND_LINE",
+    "describe_holder", "GUI", "COMMAND_LINE", "FOLDER_WATCH",
 ]
 
 #: One window at a time. This is the name `SingleInstance` used to default to,
@@ -108,6 +108,9 @@ CONTENTION_WAIT_S = 1.0
 #: reads, so these are words rather than an enum.
 GUI = "the window"
 COMMAND_LINE = "the command line"
+#: Work order 0z F1: the folder watch, adding a file that was just saved. It
+#: holds the lock for a second or two at a time (`app/index/folder_watch.py`).
+FOLDER_WATCH = "the folder watch"
 
 
 def _now() -> float:
