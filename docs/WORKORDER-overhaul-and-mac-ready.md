@@ -163,6 +163,21 @@ The design was agreed in conversation first. The owner confirmed every recommend
 - [x] **2c** Crash handling: if the child dies, the page says so in plain words, the run
       carries on from its last saved position when started again (0w's interrupted-run
       notice), and the file it was reading is named.
+> **2026-09-30, 2d on the owner's laptop: the Windows comparison was NOT taken.** The owner needed the
+> machine for a real index run before it could be started, so there are no Windows figures for the
+> window's longest stall or p99, in process or in a separate process, and nothing here suggests a
+> default either way. The one figure taken is not the comparison: the small synthetic corpus (seed 1,
+> 602 files, 2,940 documents, 4,082 passages), **fake embedder**, in process, `--full-speed`, **no
+> heartbeat probe**, 11 workers, Windows 11, i7-1365U (12 logical processors), shared busy machine,
+> the code at `1264ad0`: 57.2 s, 632 files a minute, peak memory 166 MB. How the Linux figures were
+> made, read from `pipeline_bench.py` and the HANDOFF checklist: `app.cli bench-pipeline --probe`, once
+> as it is and once with `--child-process`, on the small and the medium corpus, fake embedder; the
+> probe is the lag monitor's own 50 ms heartbeat on the main thread beside a stand-in window. What
+> remains, on a quiet machine with Leasha not indexing (the child takes the machine-wide index lock,
+> and on Windows the probe shows a small stand-in window on the desktop): three runs each way,
+> alternating, of `venv\Scripts\python.exe -m app.cli bench-pipeline --probe --size medium --corpus
+> D:\LeashaBench\medium --embedder fake --out <file>.json` and the same with `--child-process`; then
+> once each way with `--embedder real`. 2d stays open, and the default stays off.
 - [ ] **2d** Measured, before and after, on the same synthetic corpus: the window's
       longest stall and p99 (the lag monitor) while indexing, files per minute, and memory.
       The change lands only if the window is better and throughput is no worse.
