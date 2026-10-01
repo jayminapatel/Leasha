@@ -1,11 +1,16 @@
 # Troubleshooting
 
-**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
 
 ## The one command
+
+> *Note, 1 October 2026:* `cd D:\SearchProject` below, and elsewhere in this file, means the
+> folder Leasha is installed in. On the owner's laptop that is now
+> `D:\Local\GitHub\SearchProject`. The window has the same command: Settings › Storage &
+> maintenance › **Save a support bundle…**
 
 When anything goes wrong:
 
@@ -89,6 +94,11 @@ venv\Scripts\python.exe -m app.cli commands
 
 The model can only emit those filters. It cannot invent one - anything it makes up is
 rejected and your original words are searched instead.
+
+> *Note, 1 October 2026:* Interpret, Chat and Describe now run inside Leasha by default
+> (`CHAT_ENGINE=onnx`); Ollama matters only when Settings › Models & AI says they run on Ollama.
+> If Interpret does nothing, the likelier cause is that no chat model has been downloaded yet
+> (Settings › Models & AI › **Download**). Interpret is given up to 45 seconds.
 
 If nothing happens when you press Interpret, Ollama is not running. Plain Enter always works
 and never uses it:
@@ -256,6 +266,8 @@ venv\Scripts\python.exe doctor.py            # environment verification
 venv\Scripts\python.exe doctor.py --quick    # same, skipping model loading
 ```
 
+> *Note, 1 October 2026:* with the default `CHAT_ENGINE=onnx`, Ollama being down affects nothing.
+
 `doctor.py` distinguishes **FAIL** (required - the app will not work) from **WARN**
 (optional - a feature is unavailable but core search is fine). Ollama and Outlook are
 optional. Search never calls the LLM, so Ollama being down affects AI answers only.
@@ -263,6 +275,10 @@ optional. Search never calls the LLM, so Ollama being down affects AI answers on
 ## If you need to start the index over
 
 The index is entirely rebuildable - nothing in it is original data.
+
+> *Note, 1 October 2026:* the easier way is Indexing › **Reset index…** in the window. In the
+> commands below, `D:\KnowledgeGraphData` stands for your `DATA_PATH`: `%LOCALAPPDATA%\Leasha`
+> by default, `D:\Leasha\Data` on the owner's machine. `leasha stats` prints it.
 
 ```powershell
 # stop the app first, then:
@@ -294,3 +310,18 @@ Unzip it. `summary.txt` is the headline. `report.json` has everything:
 If a section says `_collection_failed`, that section itself broke - which is diagnostic
 information in its own right, and the reason the bundle is built section by section rather
 than all or nothing.
+
+## Newer problems and what they mean (added 1 October 2026)
+
+| You see | What it means, and what to do |
+|---|---|
+| "Keyword results only - meaning-based search returned nothing" in a window left open for hours | Fixed on 2026-10-01: a window opened before an index run created the vector table answered keyword-only until restarted. Update; on an older copy, restart Leasha |
+| An attachment you expect is not found by its contents | Indexing › What gets read › Email attachments decides. The default reads Office, PDF, text, CSV and HTML; pictures are kept by name only. Attachments indexed before 2026-10-01 keep what they had until their archive is read again |
+| `ERR_INDEX_PROCESS_ENDED` | "Index in a separate process" is on and the child process stopped. Start again; the run carries on where it left off. `logs\index-process-stderr.log` holds what it printed |
+| "the graphics card failed ... done again on the processor" in a run | DirectML reported a device error (for example `887A0005`). The batch is redone on the processor, so nothing is lost. If it repeats, set Indexing › Tuning › Run models on to **Processor** |
+| A folder cannot be renamed or moved | "Index files as soon as they are saved" is on (Indexing › Schedule). Switch it off first |
+| Files show **TimedOut** | They took longer than their time limit. Indexing › Status › Timed-out files › **Retry with a longer time limit**, or `leasha index --retry-timed-out` |
+| Chat says the chat model is not downloaded | Settings › Models & AI › **Download** beside the chat model |
+
+Logs also live in `logs\runs\` (one file per command or window session) and `logs\sessions\`
+(recordings made with "Record what I do" or `--debug`).

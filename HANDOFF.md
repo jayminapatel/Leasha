@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.37 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 7.38 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,32 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-01 (evening) - the documentation pass. Read this first; it changes no behaviour except
+one fix.** On the owner's request, committed to `main`:
+
+- **Two new guides**, `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`, single
+  self-contained files (screenshots embedded). The screenshots are of the real window, grabbed
+  through the Windows platform (not offscreen, whose font fallback is condensed) against a
+  demonstration store in `D:\Demo` built on `tools/grab_ui.py`'s seed. **The build script and the
+  grab script were not committed** (they lived in the session's scratch folder); regenerating the
+  guides after a UI change means re-grabbing and editing the HTML by hand, or asking for those
+  scripts to be added under `tools/`. **Not shown in a screenshot:** the `/` popup (Qt keeps a
+  popup hidden while the window is not in front; the guide draws it from the command list instead)
+  and the Code tab's Git view (no repository in the demo store).
+- **README rewritten** (3.0); dated corrections in GLOSSARY, TROUBLESHOOTING, VERSIONING, VSCODE,
+  VISUALSTUDIO, adding-a-file-type, THIRD_PARTY_NOTICES, REFERENCE-model-backends, MAC_VERIFICATION,
+  AGENTS, ACTIVE_WORK, LOCAL_KNOWLEDGE_GRAPH_V2; CHANGELOG has the 1 October entries and a Docs list.
+- **Fixed** (`31edaea`): the Search home suggestion "photos from the Lake District" typed
+  `/type image`, which was not a kind and matched nothing. `image`, `photo`, `picture` and plurals
+  are kinds in `query._EXT_GROUPS` and the `/type` menu; test in `test_media.py`.
+- **Found, not fixed** (listed in the technical reference, section 15): `pipeline_bench.py` imports
+  `app.ui.lag_monitor` against the layering rule; `diskcache` is pinned and unused, and the search
+  result cache is never configured; `.env.example` is stale (old paths, rerank model,
+  `REQUIRED_FREE_GB=150` against the registry's 300) and `install.ps1` still pulls `mistral` while
+  `OLLAMA_MODEL` defaults to `qwen2.5:1.5b`; `leasha ollama`'s help says only Interpret uses Ollama
+  (a help string - the owner's to reword); `florence_tagger.py` and `transcribe.py` docstrings still
+  describe torch and faster-whisper.
 
 **2026-10-01 (later) - "What gets read", one behaviour on every tab. Read this first; where
 it disagrees with the entry below, this is newer.** Committed straight to `main` (not a `fix/`

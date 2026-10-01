@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.0 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -10,6 +10,12 @@ This file is the front door. It points; it does not restate. Where two documents
 disagree, the one named below wins.
 
 ## Read before working
+
+> *Note, 1 October 2026:* `CLAUDE.md` carries this briefing plus *Where a session runs* (the
+> working copy is a clone of GitHub `main`; code travels by git only; release builds live outside the
+> repository) and the close-out rule. For a fast picture of the whole application, open
+> `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: they describe; the documents named
+> below still win.
 
 1. `HANDOFF.md` — state, decisions, traps. **Where things are.**
 2. `docs/PROJECT_INSTRUCTIONS.md` — the 12 non-negotiables and how a layer gets built.

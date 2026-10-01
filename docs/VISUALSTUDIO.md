@@ -1,6 +1,6 @@
 # Working on Leasha in Visual Studio
 
-**Doc version:** 1.0 · **Updated:** 2026-08-25 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 `docs/VSCODE.md` covers VS Code. This covers full Visual Studio, which needs a solution and a
 project file where VS Code needs neither.
@@ -53,6 +53,10 @@ venv\Scripts\python.exe -m pytest tests -q
 ```
 
 ## `Leasha.pyproj` is generated - do not hand-edit it
+
+> *Note, 1 October 2026:* the project now lists about 900 Python files, not 228; the reasoning below holds more
+> strongly. `python scripts/regen_vs_project.py` regenerates it, and `tests/unit/test_vs_project.py`
+> fails when it is stale.
 
 **Visual Studio shows only the files the project lists.** VS Code shows the folder; Visual
 Studio shows the manifest. With 228 Python files that manifest goes stale the first time

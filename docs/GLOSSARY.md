@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.0 · **Updated:** 2026-08-30 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -15,6 +15,12 @@ document is stale.
 ## 1. Layers
 
 Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 counts.
+
+> *Note, 1 October 2026:* the schema is now at `CURRENT_VERSION = 30`, not 16. **L8b is built:**
+> the Chat tab (`app/chat`). L8a and L8b run on ONNX Runtime inside Leasha by default
+> (`app/ort`, `app/llm/engines.py`, `CHAT_ENGINE=onnx`), with Ollama as the alternative.
+> Packages added since this table: `app/ort` (L2, local models), `app/reports` (L4, read-only
+> reports), `app/shell` (terminal prompt), `app/chat` (L8b).
 
 | Term | Means | Notes |
 |---|---|---|
@@ -34,6 +40,9 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 ---
 
 ## 2. Work orders
+
+> *Note, 1 October 2026:* the queue now runs past `0z` to `1a`, `1b` and `1c`, and there is no
+> `0o` either. `ORDER_REGISTER.md` §2 is the authority.
 
 | Term | Means | Notes |
 |---|---|---|
@@ -61,6 +70,9 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 
 ## 4. Search
 
+> *Note, 1 October 2026:* **Notices are drawn by the window now**, in a line above the results
+> (`app/ui/widgets/notice_bar.py`); the open defect in the table below is closed.
+
 | Term | Means | Notes |
 |---|---|---|
 | RRF | Reciprocal Rank Fusion — combines keyword and vector result lists by rank, never by score | `app/search/fusion.py`. `RRF_K = 60` |
@@ -84,6 +96,10 @@ Verified against `app/search/commands.py`.
 Planned by released orders, not yet built: `on` (offline volume name), `who` (person),
 `shows` (image tag), `place`, `changed`.
 
+> *Note, 1 October 2026:* also built now: `status` (indexing state, on every tab), `date` and
+> `between` (a date range), and `on`, `who`, `shows` and `place`. Only `changed` is still
+> absent. `type` also takes `image`, `photo` and `picture` since 1 October 2026.
+
 ---
 
 ## 5. Indexing and extraction
@@ -104,6 +120,8 @@ Planned by released orders, not yet built: `on` (offline volume name), `who` (pe
 ---
 
 ## 6. Errors
+
+> *Note, 1 October 2026:* 59 codes are registered now.
 
 `app/core/errors.py` is the authority. 35 codes registered.
 
@@ -177,3 +195,24 @@ and `202626270514`.
 | "Measure, do not assume" | "It feels fast" is not a result |
 | "Load-bearing tests" | The eight guard tests in `WORKORDER-CONVENTIONS.md` §0. Each was written after the thing it prevents had already happened |
 | "Working version first" | Structural refactors wait until the feature orders are done. Bug fixes and measured performance work are exempt |
+
+---
+
+## Added 1 October 2026
+
+| Term | Means | Notes |
+|---|---|---|
+| Rail | The column of page buttons down the left of the window: Search, Files, Mail, Code, Chat, Offline, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
+| What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
+| `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |
+| Chip | A filter drawn under a box, with × to remove it. "Auto chips" are the ones read from your sentence | `SEARCH_AUTO_CHIPS`; on every tab |
+| `read_box` | One reading of a box for every tab: slash commands, then `translate_rules`, then the parser | `app/ui/tasks.py` |
+| `CHAT_ENGINE` | Where Chat, Interpret and Describe run: `onnx` (inside Leasha, default) or `ollama` | `app/llm/engines.py` |
+| ORT | ONNX Runtime; also Leasha's package of local models | `app/ort` |
+| Separate process | Indexing in a child `app.cli index --events jsonl` instead of inside the window | `INDEX_SEPARATE_PROCESS`, off by default |
+| Read processes | Readers run in one child process per extraction thread | `INDEX_READ_PROCESSES`, off by default |
+| Folder watching | Indexing a file seconds after it is saved, without a full run | `INDEX_WATCH_FOLDERS`, `app.cli watch`; off by default |
+| Governor | What pauses a run when the machine is busy, on battery, or short of space, and stops it below the free-disk floor | `app/index/resources.py` |
+| TimedOut | A file that ran out of its time limit; retried with a longer one | `ERR_FILE_TIMEOUT`, `app.cli timed-out` |
+| Offline Media | Drives catalogued once and findable after unplugging; a volume is never stored by drive letter | `volumes` table, the Offline page |

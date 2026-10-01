@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.2 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 ## Scheme
 
@@ -17,6 +17,11 @@ this is a single-user desktop app with no public API and no external consumers.
 **Layer 4** — a headless search that returns correct results in under 300ms. That is `0.5.0`.
 
 ### Planned map
+
+> *Note, 1 October 2026:* Layers 6 and 7 (graph and Office builder) were removed and cancelled, so `0.7.0` will
+> not mean what this map says. Layer 8 (Interpret and Chat) is built and runs on ONNX Runtime inside
+> Leasha by default. The app is still `0.3.3`; when it next moves, this map needs the owner's
+> renumbering. The map below is kept as written.
 
 | Version | Milestone |
 |---|---|
@@ -80,6 +85,11 @@ Rules:
 
 ## Git conventions
 
+> *Note, 1 October 2026:* in practice since late September, helper threads work in `git worktree`s and one
+> thread merges, and some work is committed straight to `main` on the owner's word (recorded in
+> `HANDOFF.md` §3). GitHub `jayminapatel/Leasha`, branch `main`, is the only master; see `CLAUDE.md`.
+> The current schema version is **30**.
+
 **Branches** — `main` is always in a state where `doctor.py` passes and the test suite is
 green. Work happens on `layer/<n>-<name>` (e.g. `layer/1-storage`) or `fix/<short-name>`,
 and merges to `main` when the layer's acceptance tests pass.
@@ -94,6 +104,9 @@ docs(spec): regenerate layer plan against V2 architecture
 chore(deps): bump lancedb to 0.37.1
 test(extract): add corrupt-PDF fixture
 ```
+
+> *Note, 1 October 2026:* `graph` and `office` are dead packages; the live ones also include `ort`, `chat`,
+> `reports`, `shell` and `cli`.
 
 Scopes match the package names: `core`, `storage`, `extract`, `index`, `search`, `graph`,
 `office`, `llm`, `ui`, `installer`, `deps`, `spec`.

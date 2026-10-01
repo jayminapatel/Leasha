@@ -1,8 +1,12 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.0 · **Updated:** 2026-08-24 · **Applies to:** app v0.3.2
+**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 ## Opening it
+
+> *Note, 1 October 2026:* on the owner's laptop the folder is now `D:\Local\GitHub\SearchProject`, a clone of
+> GitHub `main` (moved out of Google Drive on 30 September 2026). Read `D:\SearchProject` below as
+> wherever your clone is.
 
 Either open the folder `D:\SearchProject`, or double-click **`Leasha.code-workspace`**.
 
@@ -61,6 +65,10 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 `Ctrl+Shift+B` is not bound; **`Run all tests` is the default test task**, so
 `Ctrl+Shift+P` -> **Tasks: Run Test Task** runs the suite.
 
+> *Note, 1 October 2026:* Layers 3, 4 and 5 landed long ago; the `index`, `search` and desktop configurations
+> work, whatever their names in `.vscode/launch.json` still say. There is also `CLI: stats (json)`,
+> and a **Diagnose** task that builds a support bundle.
+
 **Debugging** (`F5`, then pick a configuration): `CLI: stats`, `CLI: doctor`, `doctor.py`,
 `Debug the current test file`, and placeholders for `index`, `search` and the desktop shell
 that will start working as Layers 3, 4 and 5 land.
@@ -98,6 +106,8 @@ non-ASCII bytes and no BOM, before the script is ever run.
 - `logs/` holds both app logs and installer transcripts; it is gitignored
 - `.env` is machine-specific and gitignored. `.env.example` is the shared template
 - The index itself lives at `DATA_PATH` (`D:\KnowledgeGraphData`), never inside the project
+  (*note, 1 October 2026:* `%LOCALAPPDATA%\Leasha` by default, `D:\Leasha\Data` on the owner's
+  machine; `leasha stats` prints it)
 
 `venv/`, `logs/` and `__pycache__` are excluded from search and from the file watcher, so
 `Ctrl+Shift+F` searches your code rather than a thousand site-packages files.

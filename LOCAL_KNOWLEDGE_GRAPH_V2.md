@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.5 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 2.6 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -9,6 +9,24 @@
 >
 > The filename is kept for now so existing links and the installer do not break. It is a
 > Layer 9 job to rename it once nothing points at it.
+
+> *Note, 1 October 2026:* corrections to what follows, kept here rather than edited in place.
+> 1. **Models.** Photo tags (Florence-2), speech (Whisper) and the chat model (Qwen 2.5 by default)
+>    run on ONNX Runtime inside Leasha (`app/ort`). Ollama is optional, for Chat, Interpret and
+>    Describe only when `CHAT_ENGINE=ollama`; its default model is `qwen2.5:1.5b`, though
+>    `install.ps1` still offers to pull `mistral`. There is no entity extraction.
+> 2. **Diagram and requirements.** The "Search UI / Graph" and "Office doc builder" boxes, and the
+>    ticked requirements for Office documents and a knowledge graph, describe removed work.
+> 3. **Processes.** Indexing may run in a child process, readers in child processes, and folder
+>    watching in another (all off by default); still no services and no ports.
+> 4. **Platform.** The code is Mac-ready since order 0x (`docs/MAC_VERIFICATION.md`); Windows
+>    remains the only platform checked.
+> 5. **Paths.** `cd D:\SearchProject` means the install folder (`D:\Local\GitHub\SearchProject`
+>    on the owner's laptop).
+> 6. **Since the 2026-09-27 addendum:** schema v30, folder watching, the Indexing "What gets read"
+>    page, `MAIL_ATTACHMENTS`, and the Chat tab. `docs/TECHNICAL_REFERENCE.html` describes the
+>    architecture as it stands; where it and this document disagree on an authority question, this
+>    document wins and should be corrected.
 
 **Project Type:** Windows desktop app, embedded single-process architecture
 **Target OS:** Windows 10/11 only, single user

@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.8 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.9 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -164,10 +164,25 @@ Not expected to work yet. Note what you see, so each can be ordered from a fact.
 
 - [ ] **5.1** `venv/bin/python -c "import onnxruntime as o; print(o.get_available_providers())"`.
       Does the list include `CoreMLExecutionProvider`?
+> *Note, 1 October 2026:* Index Tuning is on the Indexing page now (Indexing › Tuning).
+
 - [ ] **5.2** Settings → Index Tuning: what hardware does it report (cores, GPU, disk)?
 - [ ] **5.3** Plug in a USB drive: does Offline Media see it?
 - [ ] **5.4** The global hotkey and "search the selected text": expected to say they are
       Windows features.
+
+## 12. Added 1 October 2026 - what was built after order 0x
+
+- [ ] **12.1** Indexing › Schedule › "Index files as soon as they are saved": save, rename and
+      delete a file in an indexed folder. On macOS the watcher compares (`PollingSource`), not
+      native events (`app/index/folder_watch.py`) - how many seconds until each change is found?
+- [ ] **12.2** Settings › Models & AI: download the chat model, then ask Chat a question. Does the
+      ONNX chat model load on Apple Silicon, and how many words a second does it give?
+- [ ] **12.3** Same for photo tags (Florence-2) and speech (Whisper): one photo, one recording.
+- [ ] **12.4** Indexing › What gets read: does each place's sentence change as its levers move?
+- [ ] **12.5** Index a folder of `.emlx` mail with attachments: are Office and PDF attachments
+      found by their contents (`MAIL_ATTACHMENTS=documents`)?
+- [ ] **12.6** Reports › Browse your timeline and the Offline page: open each once.
 
 This list grows with every section of order 0x. Each new entry carries the item it
 proves.

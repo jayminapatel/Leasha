@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.46 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 4.47 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,46 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Search, mail attachments and what gets read (2026-10-01)
+
+- **Meaning-based search no longer goes quiet in a window left open.** A window opened before an
+  index run answered every search by keywords only until it was restarted - for eight hours on one
+  laptop, with nothing in the log to say why. It now sees new vectors as they arrive.
+- **Plain English is read the same way on every tab.** Files, Mail and Code understand a sentence
+  as Search does, show what they read it as in chips you can remove, and correct a typo when the
+  list would otherwise be empty. `/status` (indexed, partial, skipped, failed, nameonly, pending)
+  works everywhere. Files and Mail say how many items the index holds.
+- **Attachments.** Files that came attached to an email are listed on the Files tab. Word, Excel,
+  PowerPoint, PDF, text, CSV and HTML attachments are read for their words; a zip for its name and
+  the names inside it; pictures by name only. Indexing › What gets read › Email attachments chooses
+  between names only, documents, documents and pictures, or everything. Attachments indexed before
+  this keep what they had until their archive is read again. (Schema v30.)
+- **Indexing has a "What gets read" page**: every reading lever grouped by place - files, email,
+  attachments, zips, pictures, video and code - each saying in a sentence what it currently does.
+  The Settings filter points to levers that moved there.
+- **Chat** lists the mail you ask for instead of describing it, never invents facts about your own
+  mail, and quotes the passage when the model has nothing to add instead of saying it could not find
+  anything.
+- **"photos from the Lake District" finds photos.** The Search home suggestion typed `/type image`,
+  which matched nothing; `image`, `photo` and `picture` are kinds now.
+- A Settings page closed before it finished loading no longer has Qt write into its deleted labels.
+
+### Docs
+
+- **New: `docs/USER_GUIDE.html`** - an illustrated guide to every page, button, filter, setting and
+  shortcut, with screenshots of the real window. **New: `docs/TECHNICAL_REFERENCE.html`** - layers,
+  processes, data, indexing, search and chat internals, and every command-line option. Both are
+  single self-contained files.
+- `README.md` 3.0 (rewritten to the current application), `docs/GLOSSARY.md` 1.1,
+  `docs/TROUBLESHOOTING.md` 1.3, `docs/VERSIONING.md` 1.3, `docs/VSCODE.md` 1.1,
+  `docs/VISUALSTUDIO.md` 1.1, `docs/adding-a-file-type.md` 1.1, `docs/THIRD_PARTY_NOTICES.md` 1.1,
+  `docs/REFERENCE-model-backends.md` 1.3, `docs/MAC_VERIFICATION.md` 1.9, `AGENTS.md` 1.1,
+  `ACTIVE_WORK.md` 2.1, `LOCAL_KNOWLEDGE_GRAPH_V2.md` 2.6, `HANDOFF.md` 7.38: dated corrections for
+  what had gone stale (paths, the ONNX models, schema 30, error-code count, the filter list).
+
+> *Note, 1 October 2026:* the bullet below names `D:\Local\GDrive\SearchProject`; the working copy has been
+> `D:\Local\GitHub\SearchProject` since 30 September, and the owner set order 1a aside.
 
 - **Order 1a (`docs/WORKORDER-local-verify-2026-09-29.md`)** - a work order for a Claude session on the owner's laptop: bring `D:\Local\GDrive\SearchProject` to `a2fa6f5` (the pull was interrupted by Google Drive locking `.git/objects`), prove each change merged on 2026-09-29 in the real window, run a real index and the PST field test, and correct HANDOFF and the register.
 

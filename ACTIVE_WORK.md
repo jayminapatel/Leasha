@@ -1,6 +1,6 @@
 # Active Work Tracker
 
-**Doc version:** 2.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 2.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 **This file is no longer the tracker.** `docs/ORDER_REGISTER.md` is - it is counted from the
 checkboxes in each order, and this file's own per-agent counts were wrong four different ways
@@ -15,6 +15,8 @@ holds the 2026-09-04 text if it is ever wanted (`git log -- ACTIVE_WORK.md`).
 
 Each state below was checked on 2026-09-20 by running the test file named, not by reading the
 old note.
+
+> *Note, 1 October 2026:* the call in row 2 is now at `app/extract/ocr.py:500`, not `:342`.
 
 | # | Bug | State | Evidence |
 |---|---|---|---|

@@ -1,6 +1,6 @@
 # Reference: which models run where, and moving them to Ollama
 
-**Doc version:** 1.2 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Kept at the owner's request ("keep this as a reference for future") after a
 conversation on 2026-09-29 about moving every model to Ollama. **Reference, not a
@@ -20,6 +20,13 @@ decision and not a work order.** Nothing here is ordered; see
 > at the moment"); nothing here is to be built.
 
 ## What runs each model today (checked in the code, 2026-09-29)
+
+> *Note, 1 October 2026:* the table below is out of date in three rows. Speech to text runs Whisper on ONNX
+> Runtime (`app/ort/whisper.py`), not faster-whisper. Florence-2 runs its ONNX export on ONNX
+> Runtime (`app/ort/florence.py`), fp32 by default with an int8 option, with its vision graph on
+> the graphics card where DirectML works; nothing in Leasha uses torch or transformers now.
+> Interpret, Describe and Chat run on ONNX Runtime inside Leasha by default (`CHAT_ENGINE=onnx`),
+> with Ollama as the alternative. Embeddings, rerank, CLIP and OCR are as the table says.
 
 | Job | Model | Runs through | Could it move to Ollama? |
 |---|---|---|---|

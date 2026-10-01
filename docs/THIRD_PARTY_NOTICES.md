@@ -1,6 +1,6 @@
 # Third-party notices
 
-**Doc version:** 1.0 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Leasha is MIT. This file lists what it depends on for **video and audio** (work order
 `202626270515`), each package's licence, and where that was read. It is not yet a full list of
@@ -22,6 +22,15 @@ decided.
 | `faster-whisper` | 1.2.1 | MIT | `pip show faster-whisper`, 2026-09-20 |
 | `ctranslate2` | 4.8.2 | MIT | `pip show ctranslate2`, 2026-09-20 |
 | Speech model `Systran/faster-whisper-base` | `ebe41f70` | MIT | model card metadata, read from Hugging Face on 2026-09-20 (`license: mit`) |
+
+> *Note, 1 October 2026:* since 29 September 2026 speech runs Whisper on ONNX Runtime (`app/ort/whisper.py`,
+> `onnx-community/whisper-*` exports, MIT); `faster-whisper`, `ctranslate2` and
+> `Systran/faster-whisper-base` in the table above are no longer used (`requirements.txt` says so).
+> `tokenizers` and `huggingface-hub` now arrive with `fastembed`, and `onnxruntime` is pinned directly.
+> `av` is still needed: `app/ort/whisper.py` decodes audio through PyAV. The models Leasha downloads
+> on request are listed with their licences in `app/ort/catalogue.json`: Florence-2-base (MIT),
+> Whisper (MIT), Qwen2.5-1.5B-Instruct (Apache-2.0), Gemma 3 1B (Gemma terms) and Llama 3.2 1B
+> (Llama 3.2 Community Licence).
 
 `tokenizers` and `huggingface-hub` (both Apache-2.0) and `onnxruntime` (MIT) arrive with
 `faster-whisper`; their licences were read from the same metadata on the same day.
