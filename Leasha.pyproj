@@ -208,6 +208,7 @@
     <Compile Include="app\extract\legacy_office.py" />
     <Compile Include="app\extract\lo_server.py" />
     <Compile Include="app\extract\lo_session.py" />
+    <Compile Include="app\extract\mail_attachments.py" />
     <Compile Include="app\extract\media.py" />
     <Compile Include="app\extract\media_tools.py" />
     <Compile Include="app\extract\mobi.py" />
@@ -561,6 +562,7 @@
     <Compile Include="tests\unit\test_archive_run.py" />
     <Compile Include="tests\unit\test_archive_scan.py" />
     <Compile Include="tests\unit\test_archives.py" />
+    <Compile Include="tests\unit\test_attachments_on_files_tab.py" />
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
     <Compile Include="tests\unit\test_between_dates.py" />
@@ -753,6 +755,7 @@
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
+    <Compile Include="tests\unit\test_mail_attachment_rule.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
@@ -821,6 +824,7 @@
     <Compile Include="tests\unit\test_pipeline_bench.py" />
     <Compile Include="tests\unit\test_pipeline_gpu_regression.py" />
     <Compile Include="tests\unit\test_places.py" />
+    <Compile Include="tests\unit\test_plain_everywhere.py" />
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />

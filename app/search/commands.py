@@ -531,7 +531,12 @@ def help_lines() -> list[str]:
 #: `test_the_prompt_got_shorter_despite_gaining_examples` holds - and that
 #: ceiling moves only with a translation-latency measurement, which a new
 #: spelling of two existing operators does not justify.
-_TERSE_FOR_MODEL: dict[str, str] = {"date": "A..B"}
+_TERSE_FOR_MODEL: dict[str, str] = {
+    "date": "A..B",
+    # 1 October 2026: told, so it is never a filter that quietly stops working,
+    # and told in a third of the characters its menu summary would cost.
+    "status": "indexed|skipped|failed",
+}
 
 
 def grammar_for_model() -> str:
@@ -559,7 +564,17 @@ def grammar_for_model() -> str:
     # `type:` and `has:` take one of a fixed list. A model cannot guess a closed
     # set and must not be asked to. `from:`, `subject:` and the rest take
     # arbitrary text, where listing examples costs tokens and teaches nothing.
-    types = sorted({*_EXT_GROUPS, "pdf", "docx", "xlsx", "pptx", "txt", "md", "csv"})
+    # **One name per kind** (1 October 2026). `email` is `mail`, `movie` is
+    # `video`, `recording` is `audio`, `slides` is `powerpoint` - the same
+    # extensions exactly - and each costs the prompt on every translation. The
+    # model is told every kind once; the dropdown still offers every spelling.
+    types, seen = [], set()
+    for name in sorted({*_EXT_GROUPS, "pdf", "docx", "xlsx", "pptx", "txt", "md", "csv"}):
+        expands = tuple(_EXT_GROUPS.get(name, ())) or (name,)
+        if expands in seen:
+            continue
+        seen.add(expands)
+        types.append(name)
     closed = {
         "type": ", ".join(types),
         "has": "attachment, no-attachment",
