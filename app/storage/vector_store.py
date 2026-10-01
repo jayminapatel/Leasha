@@ -35,6 +35,16 @@ _log = logger.bind(component="storage.vectors")
 
 TABLE_NAME = "chunks"
 
+#: How stale a held-open table may be before LanceDB looks for a newer version.
+#:
+#: **Zero: every read checks.** LanceDB's default is never, so the window -
+#: which holds this store open for days - never saw a row the index process
+#: wrote after it opened. On 1 October 2026 that left every search
+#: keyword-only for eight hours with no error anywhere. Measured on the owner's
+#: 87,216-row store, 30 searches each: 216ms median without the check, 219ms
+#: with it - inside the noise.
+READ_CONSISTENCY = timedelta(0)
+
 #: Work order 0h §1b: the CLIP image-vector table's name, in the same LanceDB
 #: directory as `TABLE_NAME` - `lancedb.connect(uri)` opens one directory and
 #: serves any number of named tables out of it, so this is a second table, not
@@ -215,7 +225,8 @@ class VectorStore:
 
         try:
             self.uri.mkdir(parents=True, exist_ok=True)
-            self._db = lancedb.connect(str(self.uri))
+            self._db = lancedb.connect(str(self.uri),
+                                       read_consistency_interval=READ_CONSISTENCY)
         except Exception as exc:  # noqa: BLE001 - third-party raises broadly
             raise AppErrorException(make_error(
                 "ERR_CONFIG_INVALID", "storage.vectors",
@@ -231,6 +242,29 @@ class VectorStore:
             # never drift further than one session.
             self._approx_rows = self._indexed_at_rows
         return self
+
+    def _open_if_created_since(self) -> None:
+        """Open the table if another process has created it since `connect`.
+
+        `connect` opens the table only if it is already there, and nothing
+        looked again - so a window opened before the first index run, or
+        during one that rebuilt the store, answered every search from an
+        empty store until it was restarted. One directory listing, paid only
+        while there is no table.
+        """
+        if self._table is not None or self._db_value is None:   # waits for a deferred connect
+            return
+        try:
+            if self.table_name not in self._list_tables():
+                return
+            self._table = self._db.open_table(self.table_name)
+        except Exception as exc:                  # noqa: BLE001 - try again next read
+            _log.debug("the {} table appeared but could not be opened yet: {}",
+                       self.table_name, exc)
+            return
+        self._verify_dimension()
+        _log.info("the {} table was created since this store opened; using it now",
+                  self.table_name)
 
     def _list_tables(self) -> list[str]:
         """Table names, across LanceDB API versions.
@@ -679,6 +713,7 @@ class VectorStore:
         An empty table returns [] rather than raising: searching before the
         first index run is a normal state, not an error.
         """
+        self._open_if_created_since()
         if self._table is None:
             return []
         if len(vector) != self.dim:
@@ -726,6 +761,7 @@ class VectorStore:
         return None
 
     def count(self) -> int:
+        self._open_if_created_since()
         if self._table is None:
             return 0
         try:

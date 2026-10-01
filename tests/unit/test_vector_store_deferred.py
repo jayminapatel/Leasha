@@ -147,3 +147,35 @@ def test_assets_dir_is_worked_out_once_not_per_icon(monkeypatch):
     for _ in range(40):
         tray.assets_dir()
     assert calls == []
+
+
+# -- a window opened before the index created the table -------------------------
+#
+# 1 October 2026: the window opened at 23:03, an index run created
+# `chunks.lance` at 00:00, and every search for the next eight hours came back
+# keyword-only - "Searching by meaning is off" - with nothing in the log but
+# "no vector hits". `search` answered from the `_table is None` it saw at open
+# and never looked again. Headless searches, which open the store fresh, were
+# fine throughout, which is what made it look like a fault in the index.
+
+
+def test_a_store_opened_before_the_table_existed_finds_rows_added_later(tmp_path):
+    with VectorStore(tmp_path / "v", dim=DIM) as reader:
+        assert reader.search([0.1] * DIM, k=2) == []          # nothing yet: normal
+        with VectorStore(tmp_path / "v", dim=DIM) as writer:  # the index run
+            writer.ensure_table()
+            writer.add(*_batch())
+        assert reader.count() == 3
+        assert len(reader.search([0.1] * DIM, k=2)) == 2
+
+
+def test_a_store_held_open_sees_rows_another_process_adds(tmp_path):
+    with VectorStore(tmp_path / "v", dim=DIM) as first:
+        first.ensure_table()
+        first.add(*_batch(3))
+    with VectorStore(tmp_path / "v", dim=DIM) as reader:
+        assert reader.count() == 3
+        with VectorStore(tmp_path / "v", dim=DIM) as writer:
+            writer.add([4, 5], [4, 5], [[0.9] * DIM, [0.95] * DIM])
+        assert reader.count() == 5
+        assert len(reader.search([0.9] * DIM, k=10)) == 5
