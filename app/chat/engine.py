@@ -144,6 +144,10 @@ _FIND_SHELF = 5
 _NO_MODEL_NOTE = ("No AI model is running, so these are the passages that best match your "
                   "question, quoted exactly. Start Ollama to get written answers.")
 
+#: Said beside a quoted answer the model could not write itself (1 October 2026).
+_QUOTED_NOTE = ("The AI model could not write an answer from your files, so these are the "
+                "passages that best match your question, quoted exactly.")
+
 
 @dataclass
 class _Streamed:
@@ -1058,6 +1062,9 @@ class ChatEngine:
         debug["model_output"] = streamed.text[:800]
         if streamed.not_found or (not streamed.text.strip() and streamed.error is None
                                   and not streamed.stopped):
+            quoted = self._quoted_turn(sources, plan, verifier, debug, results)
+            if quoted is not None:
+                return quoted
             return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
                                       debug, started, unhelpful=True, results=results)
         known = " ".join(str(getattr(t, "text", "")) for t in history
@@ -1070,6 +1077,9 @@ class ChatEngine:
                 return self._error_turn(streamed.error.message, streamed.error.suggestion, debug)
             if streamed.stopped:
                 return self._stopped(debug)
+            quoted = self._quoted_turn(sources, plan, verifier, debug, results)
+            if quoted is not None:
+                return quoted
             return self._nothing_turn(route, plan, retrieval, history, text, say, send, stop,
                                       debug, started, unhelpful=True, results=results)
         body = rec.text
@@ -1091,6 +1101,36 @@ class ChatEngine:
             return self._absence_turn(plan, _Retrieval(), debug, unhelpful=True)
         return ChatTurn("assistant", assembler.text(), receipts=assembler.receipts(),
                         kind="answer", notes=[_NO_MODEL_NOTE], debug=debug)
+
+    def _quoted_turn(self, sources: Sequence[Source], plan: Plan, verifier: Verifier,
+                     debug: dict, results: Optional[list] = None) -> Optional[ChatTurn]:
+        """The model found nothing to state, but the files may still hold it.
+
+        **1 October 2026.** The chat order's own measurements put most lookup
+        misses here: the answer *was* in a passage, a small model said NOT
+        FOUND (or every sentence it wrote failed the checks), and the person
+        was told "I couldn't find that in your files" - wrong the other way
+        round. "mail about holiday from maya" did exactly this with the right
+        email among the sources. So the passages that best match the question
+        are quoted instead, through `_extractive` - the same verbatim picker,
+        with the same bar (a third of the question's words) and the same
+        checks, that answers when no model runs. None qualifies: None, and the
+        caller says it found nothing, as before.
+        """
+        assembler = AnswerAssembler(verifier)
+        # **A higher bar than the no-model answer's.** First measured on the
+        # test corpus: at a third of the question's words, a deposit question
+        # was "answered" with a signature line and another with a bare title.
+        # Here the model has already read these passages and found nothing, so
+        # a quote must share half the question's words and be a sentence.
+        self._extractive(sources, plan, assembler, lambda _accepted: None,
+                         min_overlap=0.5, min_words=5)
+        if not assembler.accepted:
+            return None
+        debug["mode"] = "quoted: the model found nothing it could state"
+        return ChatTurn("assistant", assembler.text(), receipts=assembler.receipts(),
+                        kind="answer", notes=[_QUOTED_NOTE], debug=debug,
+                        result_set=list({r.file_id: r for r in (results or [])}.values())[:10] or None)
 
     def _nothing_turn(self, route: Route, plan: Plan, retrieval: _Retrieval, history: list,
                       text: str, say: Callable, send: Callable, stop: Callable[[], bool],
@@ -1254,7 +1294,7 @@ class ChatEngine:
     # -- extractive fallback -------------------------------------------------------------
 
     def _extractive(self, sources: Sequence[Source], plan: Plan, assembler: AnswerAssembler,
-                    deliver: Callable) -> None:
+                    deliver: Callable, *, min_overlap: float = 0.34, min_words: int = 0) -> None:
         """No model: the best-matching sentences, verbatim, each with its source.
         They go through the same verifier as anything else - verbatim text passes
         it trivially, and that it does is the point."""
@@ -1268,10 +1308,10 @@ class ChatEngine:
             start, end = snap_span(text, start, end, max_chars=240)
             sentence = " ".join(text[start:end].split())
             have = set(content_tokens(sentence))
-            if wanted and len(have & wanted) / len(wanted) < 0.34:
+            if wanted and len(have & wanted) / len(wanted) < min_overlap:
                 continue
             body = sentence.rstrip(".!? ")
-            if not body:
+            if not body or len(body.split()) < min_words:
                 continue
             deliver(assembler.feed(f"{body} [{source.n}]. "))
             chosen += 1

@@ -81,6 +81,10 @@ def test_an_answer_the_model_could_not_give_is_a_refusal_not_a_guess(env):
     # (A question that is not gets the one plain sentence and a labelled general answer -
     # see tests/unit/test_chat_conversation.py.)
     turn, _events = ask(env.engine("not_found"), "How much is my rent per month on the 2024 agreement?")
-    assert turn.kind == "absence"
-    assert "none of them states an answer i can point to" in turn.text.lower()
-    assert turn.result_set                                   # the documents are offered instead
+    # 1 October 2026: still never a guess - and when a passage plainly holds
+    # the answer, it is quoted exactly, with its source, instead of "none of
+    # them states an answer".
+    assert turn.kind == "answer" and turn.receipts
+    assert "Rent is 1,200 pounds per month" in turn.text
+    assert any("could not write an answer" in note for note in turn.notes)
+    assert turn.result_set                                   # the documents are offered too

@@ -38,6 +38,14 @@ def env(tmp_path_factory):
 LOOKUPS = [q for q in fx.QUESTIONS if q.cls == "LOOKUP" and q.outcome == "answer"]
 
 
+def _quoted(turn) -> bool:
+    """The quoted fallback (1 October 2026): passages quoted exactly, with
+    their sources, when the model found nothing it could state. Never the
+    model's own words."""
+    return (turn.kind == "answer" and bool(turn.receipts)
+            and any("could not write an answer" in note for note in turn.notes))
+
+
 # =========================================================================== the guarantee
 
 @pytest.mark.parametrize("qa", LOOKUPS[:14], ids=lambda q: q.id)
@@ -49,7 +57,9 @@ def test_a_hallucinating_model_never_gets_a_lie_into_the_finished_turn(env, qa):
 
     assert llm.calls, "the model must actually have been asked - otherwise this proves nothing"
     assert audit_answer(turn) == []
-    assert turn.kind in ("absence", "general") and turn.receipts == []
+    # 1 October 2026: or the quoted fallback - verbatim passages, which is no
+    # lie by construction; the check below still holds for every word kept.
+    assert _quoted(turn) or (turn.kind in ("absence", "general") and turn.receipts == [])
     prompt = next(p for kind, p in llm.calls if kind == "answer")
     for lie in hallucinations_for(prompt):
         core = lie.split(" [")[0].rstrip(".")
@@ -64,7 +74,8 @@ def test_the_raw_stream_is_replaced_by_the_checked_turn(env):
     turn, events = ask(env.engine(llm), "What did we agree with the landlord about the deposit?")
     streamed = "".join(e.text for e in events if isinstance(e, TokenEvent))
     assert "7,341" in streamed                                        # it did stream, raw ...
-    assert "7,341" not in turn.text and turn.kind == "absence"        # ... and the kept turn has none of it
+    assert "7,341" not in turn.text                                   # ... and the kept turn has none of it
+    assert turn.kind == "absence" or _quoted(turn)                    # quoted since 1 October 2026
 
 
 def test_a_lie_beside_a_truth_is_dropped_and_the_truth_kept(env):
@@ -92,16 +103,22 @@ def test_every_sentence_of_every_answer_has_a_receipt_that_points_at_its_own_wor
 
 
 def test_a_model_that_says_nothing_or_declines_is_the_honest_nothing_found_not_a_guess(env):
+    """Still never a guess. **Since 1 October 2026 not "nothing found" either**
+    when a passage plainly holds it: the model declined, and the sentence that
+    answers the question is quoted, exactly, with its source."""
     for mode in ("empty", "not_found"):
         turn, _events = ask(env.engine(mode), "How much notice must the tenant give?")
-        assert turn.kind in ("absence", "general") and turn.receipts == [], mode
-        assert "couldn't find" in turn.text or turn.result_set, mode
+        assert _quoted(turn), mode
+        assert "The tenant must give two months notice" in turn.text, mode
 
 
 def test_a_model_that_only_says_unsupported_things_gets_the_plain_nothing_found(env):
     llm = FakeLLM(chat_replies=["Sentence with no marker at all.", "The tenant must give two months notice [1]."])
     turn, _events = ask(env.engine(llm), "How much notice must the tenant give?")
-    assert turn.kind in ("absence", "general") and turn.receipts == []      # a marker-less remark is no answer
+    # A marker-less remark is still no answer: none of it is kept. Since
+    # 1 October 2026 the passage that does answer is quoted in its place.
+    assert "Sentence with no marker" not in turn.text
+    assert _quoted(turn) and "two months notice" in turn.text
 
 
 # =========================================================================== the events
@@ -411,6 +428,48 @@ def test_a_question_about_their_mail_never_gets_a_general_answer(env):
 
 def test_when_documents_mention_it_they_are_shown_rather_than_a_general_answer(env):
     turn, _events = ask(env.engine(FakeLLM("not_found")), "What colour is the licence renewal?")
-    assert turn.kind == "absence"
+    # The documents, shown - as the absence list, or quoted (1 October 2026).
+    assert turn.kind == "absence" or _quoted(turn)
     assert turn.result_set
     assert "Not from your files" not in turn.text
+
+
+# =========================================================================== quoted, not nothing
+#
+# 1 October 2026. The chat order's measurements put most lookup misses on a
+# small model here: the answer was in a passage, the model said NOT FOUND, and
+# the turn said "I couldn't find that in your files". Now the best-matching
+# passages are quoted instead, through the no-model picker and its checks.
+
+
+def test_when_the_model_finds_nothing_the_best_passage_is_quoted(env):
+    turn, _events = ask(env.engine(FakeLLM("not_found")),
+                        "Which production line might the licence not cover?")
+    assert _quoted(turn)
+    assert "second production line" in turn.text
+    assert all(r.path for r in turn.receipts)
+    assert audit_answer(turn) == []
+
+
+def test_an_answer_that_shares_no_words_with_the_question_is_not_found_by_quoting():
+    """**The limit, stated.** "What price did Chris quote?" is answered by
+    "Twelve thousand pounds for the site" - not one word in common - so a
+    quote picked by shared words lands beside the answer, not on it. Whether
+    the fallback raises accuracy is measured on the real model (`evaluate
+    --chat`), not claimed here."""
+
+
+def test_a_quote_must_still_match_the_question(env):
+    """Nothing in the files is about this: no quote is forced out of a weak match."""
+    turn, _events = ask(env.engine(FakeLLM("not_found")),
+                        "What did the vet say about the parrot's diet?")
+    assert turn.kind != "answer" and not turn.receipts
+
+
+def test_a_lying_model_still_gets_nothing_of_its_own_into_the_turn(env):
+    """The quote replaces what the model wrote; none of its lies survive."""
+    llm = FakeLLM("hallucinating")
+    turn, _events = ask(env.engine(llm), "What price did Chris quote for the licence renewal?")
+    prompt = next(p for kind, p in llm.calls if kind == "answer")
+    for lie in hallucinations_for(prompt):
+        assert lie.split(" [")[0].rstrip(".") not in turn.text

@@ -151,7 +151,10 @@ def test_a_lying_model_scores_badly_on_answers_and_still_perfectly_on_receipts(e
     lying = run_chat_eval(env.engine("hallucinating"), fx.QUESTIONS, env.store, model="liar")
     assert lying.unreceipted_sentences == 0
     assert lying.absence_honesty == 1.0 and lying.aggregate_exactness == 1.0
-    assert lying.extractive < 0.5 and lying.below_floor()             # it does not clear the floor
+    # It does not clear the floor. **"< 0.5" went on 1 October 2026:** when a
+    # model's answer fails the checks the passages are now quoted instead, so
+    # even a liar recovers recall (51.6% on this corpus) - honestly, by quoting.
+    assert lying.below_floor()
 
 
 def test_a_turn_without_receipts_is_scored_as_invalid(env):
