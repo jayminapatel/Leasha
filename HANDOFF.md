@@ -67,6 +67,9 @@ line, no traceback and no window.
 where they disagree, this is newer.** On branch `fix/search-surfaces-2026-10-01`, five commits,
 not yet merged to `main` at the time of writing:
 
+*Note, 2026-10-01: merged to `main` (fast-forward to `39beda4`) and pushed, on the owner's word.*
+
+
 - **Meaning-based search went quiet in a long-open window** (`924f854`). A window opened before
   an index run created the vector table answered every search keyword-only until restarted -
   "Searching by meaning is off" for eight hours on the owner's laptop, nothing in the log but
