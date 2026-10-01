@@ -156,7 +156,8 @@ COMMANDS: tuple[Command, ...] = (
         # parser knows that is missing here stays invisible.
         values=("word", "excel", "sheet", "slides", "powerpoint",
                 "mail", "email", "text", "code", "doc", "xls", "ppt",
-                "video", "movie", "audio", "recording"),
+                "video", "movie", "audio", "recording",
+                "image", "images", "photo", "photos", "picture", "pictures"),
     ),
     Command(
         name="from",

@@ -1136,6 +1136,20 @@ def test_type_video_finds_the_family_films_before_anything_is_read():
     assert parse_query("type:video birthday").text == "birthday"
 
 
+def test_type_image_finds_photos_as_the_search_home_suggestion_promises():
+    """The Search home pill "photos from the Lake District" types
+    `Lake District /type image`. `image` was not a kind, so it became the
+    extension `.image` and the pill could never find a photo (found
+    2026-10-01 while writing the user guide)."""
+    from app.search.query import parse_query
+    from app.ui.first_contact import SUGGESTIONS
+
+    for word in ("image", "images", "photo", "photos", "picture", "pictures"):
+        assert {"jpg", "jpeg", "png", "heic"} <= set(parse_query(f"type:{word}").ext), word
+    typed = dict(SUGGESTIONS)["photos from the Lake District"]
+    assert "jpg" in parse_query(typed.replace("/type ", "type:")).ext
+
+
 def test_a_hit_in_a_video_or_recording_is_badged_as_one():
     from app.ui.presenter.results import kind_tag
 

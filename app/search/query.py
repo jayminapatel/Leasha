@@ -174,6 +174,15 @@ _EXT_GROUPS = {
               "3gp", "flv", "m2ts"),
     "audio": ("mp3", "m4a", "wav", "flac", "ogg", "oga", "opus", "aac", "wma"),
     "recording": ("mp3", "m4a", "wav", "flac", "ogg", "oga", "opus", "aac", "wma"),
+    # The Search home pill "photos from the Lake District" types `/type image`;
+    # without these it became the extension `.image` and found nothing
+    # (2026-10-01). The same words and extensions `translate_rules` uses.
+    "image": ("jpg", "jpeg", "png", "heic", "gif", "webp"),
+    "images": ("jpg", "jpeg", "png", "heic", "gif", "webp"),
+    "photo": ("jpg", "jpeg", "png", "heic"),
+    "photos": ("jpg", "jpeg", "png", "heic"),
+    "picture": ("jpg", "jpeg", "png", "heic"),
+    "pictures": ("jpg", "jpeg", "png", "heic"),
 }
 
 _RELATIVE_DAYS = {
