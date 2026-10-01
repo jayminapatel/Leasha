@@ -43,9 +43,8 @@ from app.ui.presenter import (
 )
 from app.ui.presenter.rows import FILES_PAGE_SIZE as PAGE_SIZE, files_line
 from app.ui.tasks import browse_files_typed
-from app.ui.view_options import (
-    apply_to_table, available_columns, button as view_button, weak_slot,
-)
+from app.ui.view_options import apply_to_table, available_columns, button as view_button, weak_slot
+from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
@@ -214,7 +213,7 @@ class FilesView(QWidget):
         top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        self.chips = list_chips(self, layout, top, self._run)
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)
 
@@ -329,8 +328,8 @@ class FilesView(QWidget):
         generation = self._generation
 
         # Read on the worker the same way as every tab; 500 rows, like Mail (2026-10-01).
-        worker = CallableWorker(browse_files_typed, self._store, self.input.text(),
-                                limit=PAGE_SIZE, component="ui.files")
+        worker = CallableWorker(browse_files_typed, self._store, self.input.text(), limit=PAGE_SIZE,
+                                component="ui.files", declined=tuple(self.chips.declined))
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show(rows, g, text)))
@@ -354,8 +353,9 @@ class FilesView(QWidget):
         )
         self._apply_prefs()
 
-        line = files_line(page, shown=len(display), text=text)
-        self.summary.setText(with_date_problems(line, page.get("parsed", self._parsed)))
+        line = with_date_problems(files_line(page, shown=len(display), text=text),
+                                  page.get("parsed", self._parsed))
+        show_page(self, page.get("applied"), line)
 
     # -- opening -------------------------------------------------------------
 

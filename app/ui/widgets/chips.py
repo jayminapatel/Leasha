@@ -137,3 +137,31 @@ class ChipRow(QWidget):
 
     def retint(self, _colours: dict[str, str]) -> None:
         """Chips are stylesheet-drawn; nothing to re-render."""
+
+
+def list_chips(view: Any, layout: Any, top: Any, rerun: Any) -> "ChipRow":
+    """The Search tab's chip row, under a list tab's box. **One wiring for all.**
+
+    Owner, 1 October 2026: plain English *"should behave exactly same across
+    the application"*. Files, Mail and Code read a sentence the same way as
+    Search (`tasks.read_box`); this gives them the same removable chips for
+    what was read, wired exactly as `search_bar` wires Search's. Removing a
+    read filter adds its key to `chips.declined` and re-runs the list, where
+    those words count as plain words again.
+
+    Adds `top` (the box's row) and the chips to `layout`, in that order, so a
+    view gains the row without a line of its own.
+    """
+    chips = ChipRow(view)
+    layout.addLayout(top)
+    layout.addWidget(chips)
+    view.input.textChanged.connect(chips.show_for)
+    chips.text_edited.connect(view.input.setText)
+    chips.declined_changed.connect(rerun)
+    return chips
+
+
+def show_page(view: Any, applied: Any, line: str) -> None:
+    """Draw what a list's search read as chips, and its summary line."""
+    view.chips.show_applied(applied or ())
+    view.summary.setText(line)

@@ -42,10 +42,9 @@ from app.ui.tasks import code_rows_typed
 from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button, weak_slot
-from app.ui.widgets.code_commands import (
-    CODE_CATALOGUE, code_command_for, code_matching, git_values,
-)
+from app.ui.widgets.code_commands import CODE_CATALOGUE, code_command_for, code_matching, git_values
 from app.ui.widgets.code_results import COLUMNS, CodeResults
+from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.git_tree import (
     GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
@@ -172,7 +171,7 @@ class CodeView(QWidget):
         top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        self.chips = list_chips(self, layout, top, self._typed)
         layout.addWidget(self.summary)
         layout.addWidget(self.health)
         # Given the list's stretch and pinned to the top, so the explanation
@@ -237,7 +236,7 @@ class CodeView(QWidget):
         worker = CallableWorker(
             code_rows_typed, self._store, self._scope, self.input.text(),
             cached=self._scoped_rows, repos=self._repos, limit=REPO_FILE_LIMIT,
-            component="ui.code",
+            component="ui.code", declined=tuple(self.chips.declined),
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
@@ -295,7 +294,8 @@ class CodeView(QWidget):
             draw_matches(self, payload.get("matching"))
         summary, self._parsed = code_read_as(summary, payload, getattr(self, "_parsed", None))
         if self._repos:
-            self.summary.setText(with_date_problems(summary, self._parsed))
+            show_page(self, payload.get("applied") if isinstance(payload, dict) else (),
+                      with_date_problems(summary, self._parsed))
 
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""

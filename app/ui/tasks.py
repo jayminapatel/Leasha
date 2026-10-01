@@ -1172,7 +1172,8 @@ def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = Non
 
 
 def code_rows_typed(store: Any, scope: Any, raw: str, *, cached: Any = None,
-                    repos: Any = (), limit: int = 500, preferences: Any = None) -> dict:
+                    repos: Any = (), limit: int = 500, preferences: Any = None,
+                    declined: Any = ()) -> dict:
     """`code_rows_and_repos` for a typed line, read the shared way. **Worker.**
 
     The same plain-English reading as every other tab (`read_box`), applied
@@ -1186,7 +1187,7 @@ def code_rows_typed(store: Any, scope: Any, raw: str, *, cached: Any = None,
     from app.ui.presenter.search import auto_filters
 
     query, applied = auto_filters(store, expand_slashes(str(raw or "").strip()),
-                                  from_settings("code", preferences), ())
+                                  from_settings("code", preferences), tuple(declined or ()))
     route = code_route(query)
     if route.engine != "index":
         route, applied = code_route(raw), ()

@@ -332,18 +332,13 @@ def code_type_filter(store: Any) -> Optional[list[str]]:
 
 
 def code_read_as(summary: str, payload: Any, parsed: Any = None) -> tuple:
-    """`(summary, parsed)`: the Code line with what the box was read as.
-
-    The same "Read as: ..." every tab says (`rows.understood_line`), and the
-    parse the worker actually ran, so a bad date is reported on what was read.
-    """
-    from app.ui.presenter.rows import understood_line
-
+    """`(summary, parsed)`: the Code line, and the parse the worker actually
+    ran, so a bad date is reported on what was read."""
+    # What was read is drawn as chips above the list (`chips.show_page`), so
+    # the line itself is unchanged - only the parse is the worker's.
     if not isinstance(payload, dict):
         return summary, parsed
-    said = understood_line(payload.get("applied", ()))
-    return (summary + (f"  ·  {said}" if said else ""),
-            payload.get("parsed") if payload.get("parsed") is not None else parsed)
+    return summary, payload.get("parsed") if payload.get("parsed") is not None else parsed
 
 
 def code_route(text: str) -> CodeRoute:

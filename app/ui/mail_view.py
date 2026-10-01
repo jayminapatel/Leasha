@@ -48,6 +48,7 @@ from app.ui.tasks import browse_messages_typed
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button, weak_slot,
 )
+from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.mail_card import attach_mail
@@ -189,7 +190,7 @@ class MailView(QWidget):
         top.addWidget(self.view_button)
 
         layout = QVBoxLayout(self)
-        layout.addLayout(top)
+        self.chips = list_chips(self, layout, top, self._run)
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)
         self._apply_prefs()
@@ -223,7 +224,7 @@ class MailView(QWidget):
 
         worker = CallableWorker(   # the reading, the page, its total and the index's
             browse_messages_typed, self._store, self.input.text(), limit=PAGE_SIZE,
-            component="ui.mail",
+            component="ui.mail", declined=tuple(self.chips.declined),
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
@@ -265,9 +266,9 @@ class MailView(QWidget):
         )
         self._apply_prefs()
 
-        said = understood_line(page.get("applied", ()), page.get("words", ""), noun="messages",
-                               in_index=page.get("in_index"), spelling=page.get("spelling", ""))
-        self.summary.setText(folded + self._summary_text(
+        said = understood_line((), "", noun="messages", in_index=page.get("in_index"),
+                               spelling=page.get("spelling", ""))
+        show_page(self, page.get("applied"), folded + self._summary_text(
             len(page["rows"]), leftover, page.get("total")) + (f"  ·  {said}" if said else ""))
 
     def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:

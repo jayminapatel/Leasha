@@ -179,7 +179,8 @@ def files_line(page: Any, *, shown: int, text: str = "") -> str:
     """The Files summary for one page: `file_summary`, then what the box was
     read as and how many files the index holds - the same words as every tab."""
     line = file_summary(0, shown=shown, text=text, found=page.get("total"))
-    said = understood_line(page.get("applied", ()), "", in_index=page.get("in_index"),
+    # What was read is drawn as chips above the list (`chips.show_page`).
+    said = understood_line((), "", in_index=page.get("in_index"),
                            noun="files", spelling=page.get("spelling", ""))
     return line + (f"  ·  {said}" if said else "")
 
