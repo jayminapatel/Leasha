@@ -221,7 +221,9 @@ def test_the_same_query_on_the_code_tab_does_none_of_it(homework):
                              use_cache=False)
     assert _notice(response, NOTICE_SPELLING) is None
     assert _notice(response, NOTICE_RELAXED) is None
-    assert chips_for(store, "the email Dave sent", for_surface(CODE)) == ()
+    # 1 October 2026, owner: plain English is read the same way on every tab - so the Code tab
+    # now offers the same chips as Search. Spelling and relaxation stay off.
+    assert chips_for(store, "the email Dave sent", for_surface(CODE)) ==         chips_for(store, "the email Dave sent", for_surface(SEARCH))
 
 
 def test_every_scenario_ran_without_a_model(homework):

@@ -65,7 +65,13 @@ def test_the_power_surfaces_propose_rather_than_act() -> None:
         found = policy.for_surface(surface)
         assert found.typo_correction == "suggest", surface
         assert found.notice_register == "technical", surface
-        assert not found.auto_chips, surface
+
+
+def test_every_surface_reads_plain_english_the_same_way() -> None:
+    """1 October 2026, owner: plain English is read the same way on every tab: "mail about
+    holiday from maya" did three different things on three tabs."""
+    for surface in policy.SURFACES:
+        assert policy.for_surface(surface).auto_chips, surface
 
 
 def test_the_code_tab_never_corrects_a_spelling() -> None:
@@ -200,7 +206,8 @@ def test_a_policy_can_say_what_it_does(  ) -> None:
     said = policy.describe(policy.for_surface(policy.SEARCH))
 
     assert len(said) >= 4
-    assert policy.describe(policy.for_surface(policy.CODE)) == []
+    # Reading plain English is the one thing the Code tab does (1 October 2026).
+    assert policy.describe(policy.for_surface(policy.CODE)) == ["Offer filters it recognises"]
     assert "Suggest a spelling, but do not change what you typed" in \
         policy.describe(policy.for_surface(policy.FILES))
 

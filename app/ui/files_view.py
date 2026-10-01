@@ -41,7 +41,8 @@ from app.ui.presenter import (
     ALL_LOCATIONS, FILES_COMMANDS, file_query, file_rows, file_summary, with_date_problems,
     set_volume_filter, volume_picker_options,
 )
-from app.ui.tasks import browse_files_page
+from app.ui.presenter.rows import FILES_PAGE_SIZE as PAGE_SIZE, files_line
+from app.ui.tasks import browse_files_typed
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button, weak_slot,
 )
@@ -327,9 +328,9 @@ class FilesView(QWidget):
         self._generation += 1
         generation = self._generation
 
-        worker = CallableWorker(   # the page, its total and its offline volumes
-            browse_files_page, self._store, parsed, limit=200, component="ui.files",
-        )
+        # Read on the worker the same way as every tab; 500 rows, like Mail (2026-10-01).
+        worker = CallableWorker(browse_files_typed, self._store, self.input.text(),
+                                limit=PAGE_SIZE, component="ui.files")
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show(rows, g, text)))
@@ -353,8 +354,8 @@ class FilesView(QWidget):
         )
         self._apply_prefs()
 
-        line = file_summary(0, shown=len(display), text=text, found=page.get("total"))
-        self.summary.setText(with_date_problems(line, getattr(self, "_parsed", None)))
+        line = files_line(page, shown=len(display), text=text)
+        self.summary.setText(with_date_problems(line, page.get("parsed", self._parsed)))
 
     # -- opening -------------------------------------------------------------
 

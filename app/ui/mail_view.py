@@ -39,13 +39,12 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.search.commands import expand_slashes
-from app.search.query import parse_query
 from app.ui.presenter import (
-    MAIL_COMMANDS, mail_filters, mail_summary, with_date_problems,
+    MAIL_COMMANDS, mail_summary, with_date_problems,
 )
 from app.ui.presenter.mail import THREAD_COLUMN, mail_list
-from app.ui.tasks import browse_messages_page
+from app.ui.presenter.rows import understood_line
+from app.ui.tasks import browse_messages_typed
 from app.ui.view_options import (
     apply_to_table, available_columns, button as view_button, weak_slot,
 )
@@ -216,25 +215,19 @@ class MailView(QWidget):
     # -- querying -------------------------------------------------------------
 
     def _run(self) -> None:
-        text = expand_slashes(self.input.text().strip())
-        # Kept for the summary: an unreadable date is said there (§1d).
-        parsed = self._parsed = parse_query(text)
-        filters = mail_filters(parsed)
-
-        # Free text cannot be honoured here - this reads `messages` and never
-        # touches chunk text. Saying so beats returning an empty table for a
-        # query that looks perfectly reasonable.
-        leftover = (parsed.text or "").strip()
-
+        # **Read on the worker, the same way as every other tab** (1 October
+        # 2026): "mail about holiday from maya" becomes `type:mail from:maya`
+        # plus the word "holiday", which now narrows by what messages say.
         self._generation += 1
         generation = self._generation
 
-        worker = CallableWorker(   # the page and, when it is full, the total
-            browse_messages_page, self._store, limit=PAGE_SIZE, component="ui.mail", **filters
+        worker = CallableWorker(   # the reading, the page, its total and the index's
+            browse_messages_typed, self._store, self.input.text(), limit=PAGE_SIZE,
+            component="ui.mail",
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
-            self, lambda view, rows, g=generation: view._show(rows, g, leftover)))
+            self, lambda view, rows, g=generation: view._show(rows, g, "")))
         worker.signals.failed.connect(self.error.emit)
         run(QThreadPool.globalInstance(), worker)
 
@@ -243,6 +236,8 @@ class MailView(QWidget):
             return                          # newer typing has overtaken this
 
         page = rows if isinstance(rows, dict) else {"rows": rows}
+        # Kept for the summary: an unreadable date is said there (§1d).
+        self._parsed = page.get("parsed", getattr(self, "_parsed", None))
         # 0z F2: one row per conversation when the View menu says so. `folded`
         # is what the summary says about it; the message counts stay as they are.
         self._folded = self.view_button.prefs.group_by_conversation
@@ -270,8 +265,10 @@ class MailView(QWidget):
         )
         self._apply_prefs()
 
+        said = understood_line(page.get("applied", ()), page.get("words", ""),
+                               in_index=page.get("in_index"), noun="messages")
         self.summary.setText(folded + self._summary_text(
-            len(page["rows"]), leftover, page.get("total")))
+            len(page["rows"]), leftover, page.get("total")) + (f"  ·  {said}" if said else ""))
 
     def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:
         """The wording lives in `presenter.mail_summary` - this file had one

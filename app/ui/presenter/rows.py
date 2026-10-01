@@ -143,6 +143,43 @@ def capped_total(shown: int, total: Optional[int], noun: str, hint: str,
     return f"Showing {shown:,} of {many} {noun} — narrow it with {hint}"
 
 
+def understood_line(applied: Any = (), words: str = "", *, in_index: Optional[int] = None,
+                    noun: str = "items") -> str:
+    """What the box was read as, and how big the whole index is. `""` for neither.
+
+    "Read as: mail · from maya.patel@talktalk.net · containing 'holiday'  ·
+    14,798 messages in the index"
+
+    **Said on every tab, in the same words** (owner, 1 October 2026), so a
+    sentence typed anywhere shows what it became - the Search tab draws the same
+    readings as chips. The index total is what makes the list visibly narrow as
+    somebody types: the first number falls while the second stays put.
+    """
+    parts = [str(getattr(chosen, "label", "") or "") for chosen in (applied or ())]
+    parts = [part for part in parts if part]
+    if str(words or "").strip():
+        parts.append(f"containing '{str(words).strip()}'")
+    said = []
+    if applied and parts:
+        said.append("Read as: " + " · ".join(parts))
+    if in_index is not None:
+        said.append(f"{int(in_index):,} {noun} in the index")
+    return "  ·  ".join(said)
+
+
+#: Rows per page on the Files tab - the same 500 as Mail (owner, 1 October 2026).
+FILES_PAGE_SIZE = 500
+
+
+def files_line(page: Any, *, shown: int, text: str = "") -> str:
+    """The Files summary for one page: `file_summary`, then what the box was
+    read as and how many files the index holds - the same words as every tab."""
+    line = file_summary(0, shown=shown, text=text, found=page.get("total"))
+    said = understood_line(page.get("applied", ()), "", in_index=page.get("in_index"),
+                           noun="files")
+    return line + (f"  ·  {said}" if said else "")
+
+
 def file_summary(total: int, shown: int = -1, text: str = "",
                  found: Optional[int] = None) -> str:
     """The line under the Files table.

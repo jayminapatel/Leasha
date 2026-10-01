@@ -71,6 +71,21 @@ _FIELD_ALIASES = {
     "shows": "shows",
     "place": "place", "near": "place", "location": "place",
     "who": "who",
+    "status": "status", "state": "status",
+}
+
+#: `/status` words -> `files.status` values. **The Status column's own words**
+#: (`app/core/file_state.py`), plus the obvious spellings, so what a person
+#: reads in the column is what they type. TimedOut, Duplicate and Deferred are
+#: reasons a file was skipped, so they find the skipped ones.
+STATUS_WORDS = {
+    "indexed": "INDEXED", "done": "INDEXED", "read": "INDEXED",
+    "partial": "PARTIAL", "partly": "PARTIAL", "reading": "PARTIAL",
+    "skipped": "SKIPPED", "skip": "SKIPPED", "timedout": "SKIPPED",
+    "duplicate": "SKIPPED", "deferred": "SKIPPED",
+    "failed": "FAILED", "error": "FAILED", "fail": "FAILED",
+    "nameonly": "NAME_ONLY", "name-only": "NAME_ONLY", "name": "NAME_ONLY",
+    "pending": "PENDING", "queued": "PENDING", "discovered": "PENDING",
 }
 
 # field:value, where value is either "a quoted string" or a bare run of non-space.
@@ -246,6 +261,8 @@ class ParsedQuery:
     #: answers "which folder"; this answers "what is it called", and they are
     #: different questions that people ask for different reasons.
     names: tuple[str, ...] = ()
+    #: `/status skipped` - `files.status` values, from `STATUS_WORDS`.
+    statuses: tuple[str, ...] = ()
     #: The negated halves of the filters above - `-type:pdf`, `-from:noreply`,
     #: `-"annual report"`. **Each one used to be read as its opposite**: `\b`
     #: matched the operator with the minus still outside it, the minus was then
@@ -321,7 +338,7 @@ class ParsedQuery:
             or self.repos or self.shows or self.place or self.volumes
             or self.who
             or self.senders or self.recipients or self.subjects
-            or self.names or self.sizes
+            or self.names or self.sizes or self.statuses
             or self.has_attachment is not None or self.scope != "all"
         )
 
@@ -741,6 +758,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     recipients: list[str] = []
     subjects: list[str] = []
     names: list[str] = []
+    statuses: list[str] = []
     # The negated halves. Separate lists rather than a sign on each value: every
     # consumer has to build a different SQL clause for them, and a tuple of
     # `(value, negated)` pairs would make every one of those call sites test the
@@ -864,6 +882,11 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         elif fld == "name":
             if val:
                 names.append(val.lower())
+        elif fld == "status":
+            for part in val.split(","):
+                found = STATUS_WORDS.get(part.strip().lower().replace(" ", ""))
+                if found and found not in statuses:
+                    statuses.append(found)
         elif fld == "size":
             parsed_size = _parse_size(val)
             if parsed_size is not None:
@@ -1036,6 +1059,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         recipients=tuple(recipients),
         subjects=tuple(subjects),
         names=tuple(names),
+        statuses=tuple(statuses),
         not_phrases=tuple(not_phrases),
         not_ext=tuple(dict.fromkeys(not_ext)),
         not_paths=tuple(not_paths),

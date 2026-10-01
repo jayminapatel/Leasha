@@ -199,6 +199,15 @@ COMMANDS: tuple[Command, ...] = (
         values=("attachment", "no-attachment"),
     ),
     Command(
+        name="status",
+        aliases=("state",),
+        summary="Only things in this indexing state",
+        example="/status skipped",
+        value_hint="indexed, partial, skipped, failed, nameonly, pending - or several: skipped,failed",
+        icon="◉",
+        values=("indexed", "partial", "skipped", "failed", "nameonly", "pending"),
+    ),
+    Command(
         name="after",
         aliases=("since",),
         summary="Only things changed on or after this date",

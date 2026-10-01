@@ -118,10 +118,15 @@ def test_the_search_tab_applies_what_it_recognises(store):
 
 
 def test_a_surface_with_auto_chips_off_runs_the_words_as_typed(store):
+    from dataclasses import replace
+
     from app.search.policy import CODE, for_surface
     from app.ui.presenter import auto_filters
 
-    assert auto_filters(store, "mail from 2017", for_surface(CODE)) == ("mail from 2017", ())
+    # 1 October 2026, owner: plain English is read the same way on every tab; the switch
+    # is still honoured when somebody turns it off.
+    off = replace(for_surface(CODE), auto_chips=False)
+    assert auto_filters(store, "mail from 2017", off) == ("mail from 2017", ())
 
 
 def test_a_broken_store_costs_the_person_filter_not_the_search():

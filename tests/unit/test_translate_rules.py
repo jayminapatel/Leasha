@@ -296,14 +296,14 @@ def test_chips_are_offered_and_the_query_is_left_alone(store):
     assert read(sentence, store, today=TODAY).sentence == sentence
 
 
-def test_the_code_tab_offers_no_chips(store):
-    """`auto_chips` off means off - the power surfaces keep this behind the
-    Interpret button, where somebody asked for it."""
-    from app.search.policy import CODE, for_surface
+def test_the_code_tab_offers_the_same_chips_as_search(store):
+    """1 October 2026, owner: plain English is read the same way on every tab. This was
+    `test_the_code_tab_offers_no_chips`."""
+    from app.search.policy import CODE, SEARCH, for_surface
     from app.ui.presenter import chips_for
 
-    assert chips_for(store, "the invoice Dave sent me last year",
-                     for_surface(CODE)) == ()
+    sentence = "the invoice Dave sent me last year"
+    assert chips_for(store, sentence, for_surface(CODE)) ==         chips_for(store, sentence, for_surface(SEARCH))
 
 
 def test_the_retrieval_path_still_cannot_reach_the_translator():

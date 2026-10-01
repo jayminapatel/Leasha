@@ -34,10 +34,11 @@ from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
-    REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route, code_rows_and_repos,
+    REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route,
     code_rows_for, repo_empty_state, repo_root_for, with_date_problems,
 )
-from app.ui.presenter.code import _anything_indexed
+from app.ui.presenter.code import _anything_indexed, code_read_as
+from app.ui.tasks import code_rows_typed
 from app.ui.widgets.repo_health_note import RepoHealthNote
 from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button, weak_slot
@@ -232,8 +233,9 @@ class CodeView(QWidget):
         # `/type` still beats the configured code types on either path.
         # **Both halves in one worker**, so the tree and the list are answered
         # by the same query and neither reaches the store on the UI thread.
+        # Read the shared way on the worker, like every other tab (1 October 2026).
         worker = CallableWorker(
-            code_rows_and_repos, self._store, self._scope, route,
+            code_rows_typed, self._store, self._scope, self.input.text(),
             cached=self._scoped_rows, repos=self._repos, limit=REPO_FILE_LIMIT,
             component="ui.code",
         )
@@ -291,8 +293,9 @@ class CodeView(QWidget):
         self._show_state()
         if isinstance(payload, dict):
             draw_matches(self, payload.get("matching"))
+        summary, self._parsed = code_read_as(summary, payload, getattr(self, "_parsed", None))
         if self._repos:
-            self.summary.setText(with_date_problems(summary, getattr(self, "_parsed", None)))
+            self.summary.setText(with_date_problems(summary, self._parsed))
 
     def _show_git(self, found: Any, generation: int) -> None:
         """Draw a git result. See `widgets.git_tree.draw_git_result`."""

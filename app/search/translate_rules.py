@@ -764,10 +764,18 @@ def _apply(text: str, store: Any, today: date, declined: set, parse_query: Any,
 
     if not (typed.senders or typed.recipients):
         for i, (_, _, word) in enumerate(tokens):
-            if (not word or i in consumed or word.lower() in _NOT_NAMES
-                    or not word[:1].isupper()):
-                continue
             before = lowered[i - 1] if i else ""
+            # **1 October 2026: "from maya" is a name in lower case too.**
+            # Nobody types capitals into a search box, and right after
+            # from/by/to the word can only be a person; it must still match
+            # exactly one sender the index holds. Without the preposition the
+            # capital is still required, so "budget dave" stays two words.
+            # A name starts with a letter: "from 2017" is a year, and asking the
+            # store for its senders to find out costs every keystroke a query.
+            if (not word or i in consumed or word.lower() in _NOT_NAMES
+                    or not word[:1].isalpha()
+                    or not (word[:1].isupper() or before in _PERSON_PREPOSITIONS)):
+                continue
             if not (about_mail or before in _PERSON_PREPOSITIONS):
                 continue                           # "Budget Dave": not asked at all
             field = _PERSON_PREPOSITIONS.get(before) or (

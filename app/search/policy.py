@@ -137,6 +137,11 @@ BEHAVIOURS = (
      "anybody rather than for a developer."),
 )
 
+#: **1 October 2026, owner: plain English is read the same way on every tab.**
+#: "mail about holiday from maya" did three different things on Search, Mail
+#: and Files, which the owner called confusing; `auto_chips` is no longer
+#: switched off anywhere by default. The rest of this table is unchanged.
+#:
 #: Per-surface defaults. **Everything on for the universal tab, conservative
 #: for the power surfaces** - §0's first principle, as data rather than as an
 #: `if` in four views.
@@ -150,13 +155,11 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
     FILES: {
         "typo_correction": "suggest",
         "notice_register": "technical",
-        "auto_chips": False,
         "version_folding": False,
     },
     MAIL: {
         "typo_correction": "suggest",
         "notice_register": "technical",
-        "auto_chips": False,
     },
     CODE: {
         # **Never on the Code tab.** A misspelt identifier is not a misspelt
@@ -167,7 +170,6 @@ _DEFAULTS: dict[str, dict[str, Any]] = {
         "typo_correction": "off",
         "relax_on_empty": False,
         "notice_register": "technical",
-        "auto_chips": False,
         "recency_blend": False,
         "version_folding": False,
     },

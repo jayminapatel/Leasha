@@ -96,9 +96,7 @@ def test_files_says_the_total_when_the_page_is_full(qapp, store, monkeypatch) ->
     from app.ui import files_view
 
     # A page of two, so three files are "more than a page".
-    real = files_view.browse_files_page
-    monkeypatch.setattr(files_view, "browse_files_page",
-                        lambda s, parsed, *, limit: real(s, parsed, limit=2))
+    monkeypatch.setattr(files_view, "PAGE_SIZE", 2)
     view = files_view.FilesView(store)
     try:
         _pump()

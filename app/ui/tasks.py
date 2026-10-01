@@ -172,6 +172,81 @@ def _bounded_count(count: Any, *args: Any, **kwargs: Any) -> Optional[int]:
     return None if total is None else int(total)
 
 
+def read_box(store: Any, raw: str, *, surface: str, preferences: Any = None,
+             declined: Any = ()) -> tuple:
+    r"""`(parsed, applied)` for what was typed in any tab's box. **Worker.**
+
+    **One reading for every tab** (owner, 1 October 2026): *"the natural
+    language search should be available on all search items and should behave
+    exactly same across the application"*. Slash commands, then the plain-English
+    rules (`translate_rules.apply` - "mail about holiday from maya" becomes
+    `type:mail from:maya holiday`), then the parser. The Search tab reaches the
+    same rules through `SearchWorker`; this is the same call for Files, Mail and
+    Code, on a worker because the rules ask the store which senders exist.
+    """
+    from app.search.commands import expand_slashes
+    from app.search.policy import from_settings
+    from app.search.query import parse_query
+    from app.ui.presenter.search import auto_filters
+
+    text = expand_slashes(str(raw or "").strip())
+    query, applied = auto_filters(store, text, from_settings(surface, preferences),
+                                  tuple(declined or ()))
+    return parse_query(query), tuple(applied)
+
+
+def _words_of(parsed: Any) -> str:
+    """The words left to match once filters are taken out, without the filler."""
+    from app.search.query import _INSTRUCTION_WORDS, _STOPWORDS
+
+    filler = _STOPWORDS | _INSTRUCTION_WORDS
+    words = [str(term) for term in (getattr(parsed, "terms", ()) or ())
+             if str(term).lower() not in filler]
+    return " ".join([*words, *(str(p) for p in (getattr(parsed, "phrases", ()) or ()))])
+
+
+def _in_index(count: Any) -> Optional[int]:
+    """A whole-index total for the summary, or None. Never raises."""
+    try:
+        return int(count()) if callable(count) else None
+    except Exception as exc:                     # noqa: BLE001 - a sentence, not the list
+        _log.debug("no index total: {}", exc)
+        return None
+
+
+def browse_files_typed(store: Any, raw: str, *, limit: int, preferences: Any = None,
+                       declined: Any = ()) -> dict:
+    """`browse_files_page` for a typed line, read the shared way. **Worker.**"""
+    parsed, applied = read_box(store, raw, surface="files", preferences=preferences,
+                               declined=declined)
+    page = browse_files_page(store, parsed, limit=limit)
+    page.update(parsed=parsed, applied=applied,
+                in_index=_in_index(getattr(store, "count_listed_files", None)))
+    return page
+
+
+def browse_messages_typed(store: Any, raw: str, *, limit: int, preferences: Any = None,
+                          declined: Any = ()) -> dict:
+    """`browse_messages_page` for a typed line, read the shared way. **Worker.**
+
+    The words left once the filters are taken out narrow the list by what the
+    messages say - "holiday" in "mail about holiday from maya" - where this tab
+    used to ignore them and say so.
+    """
+    from app.ui.presenter.rows import mail_filters
+
+    parsed, applied = read_box(store, raw, surface="mail", preferences=preferences,
+                               declined=declined)
+    filters = mail_filters(parsed)
+    words = _words_of(parsed)
+    if words:
+        filters["words"] = words
+    page = browse_messages_page(store, limit=limit, **filters)
+    page.update(parsed=parsed, applied=applied, words=words,
+                in_index=_in_index(getattr(store, "count_messages", None)))
+    return page
+
+
 def browse_files_page(store: Any, parsed: Any, *, limit: int) -> dict:
     """One page of the Files list, its total and its offline volumes. **Worker.**
 
@@ -1049,6 +1124,31 @@ def code_rows_and_repos(store: Any, scope: Any, route: Any, *, cached: Any = Non
     return {"rows": rows,
             "matches": code_content_matches(store, scope, route, cached=cached),
             "matching": matching_repos(store, route, cached=cached, repos=repos)}
+
+
+def code_rows_typed(store: Any, scope: Any, raw: str, *, cached: Any = None,
+                    repos: Any = (), limit: int = 500, preferences: Any = None) -> dict:
+    """`code_rows_and_repos` for a typed line, read the shared way. **Worker.**
+
+    The same plain-English reading as every other tab (`read_box`), applied
+    before the route is worked out. **A reading never sends a line to git**:
+    the view only calls this for an index search, and if the applied filters
+    somehow read as a git switch the line is routed as typed instead.
+    """
+    from app.search.commands import expand_slashes
+    from app.search.policy import from_settings
+    from app.ui.presenter.code import code_route
+    from app.ui.presenter.search import auto_filters
+
+    query, applied = auto_filters(store, expand_slashes(str(raw or "").strip()),
+                                  from_settings("code", preferences), ())
+    route = code_route(query)
+    if route.engine != "index":
+        route, applied = code_route(raw), ()
+    payload = code_rows_and_repos(store, scope, route, cached=cached, repos=repos,
+                                  limit=limit)
+    payload.update(applied=tuple(applied), parsed=route.parsed)
+    return payload
 
 
 def code_content_matches(store: Any, scope: Any, route: Any, *, cached: Any = None) -> list:

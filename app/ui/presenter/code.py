@@ -331,6 +331,21 @@ def code_type_filter(store: Any) -> Optional[list[str]]:
     return sorted(wanted) if wanted is not None else None
 
 
+def code_read_as(summary: str, payload: Any, parsed: Any = None) -> tuple:
+    """`(summary, parsed)`: the Code line with what the box was read as.
+
+    The same "Read as: ..." every tab says (`rows.understood_line`), and the
+    parse the worker actually ran, so a bad date is reported on what was read.
+    """
+    from app.ui.presenter.rows import understood_line
+
+    if not isinstance(payload, dict):
+        return summary, parsed
+    said = understood_line(payload.get("applied", ()))
+    return (summary + (f"  ·  {said}" if said else ""),
+            payload.get("parsed") if payload.get("parsed") is not None else parsed)
+
+
 def code_route(text: str) -> CodeRoute:
     """Read the Code box: which engine, and what to give it.
 

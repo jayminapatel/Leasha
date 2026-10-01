@@ -20,6 +20,7 @@ than aspirational.
 
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 import time
@@ -749,6 +750,16 @@ class _GuardedCursor(sqlite3.Cursor):
             with guard:
                 conn._busy -= 1
 
+
+
+def _all_words_match(words: str) -> str:
+    """An FTS5 expression requiring every word, or `""` when there is none.
+
+    Each word is quoted, so nothing a person types can be read as FTS syntax -
+    `NEAR`, `*`, a stray quote. Quoted words separated by spaces are ANDed.
+    """
+    found = re.findall(r"[^\W_]+", str(words or ""), flags=re.UNICODE)
+    return " ".join('"' + word.replace('"', '""') + '"' for word in found)
 
 class SqliteStore:
     """Open, migrate and operate the metadata database.
@@ -1944,6 +1955,7 @@ class SqliteStore:
         has_attachment: Optional[bool] = None,
         after: Optional[int] = None,
         before: Optional[int] = None,
+        words: str = "",
         file_where: str = "",
         file_params: Sequence[Any] = (),
         sort: str = "",
@@ -1975,7 +1987,8 @@ class SqliteStore:
         """
         where, params = self._message_where(
             sender=sender, recipient=recipient, subject=subject,
-            has_attachment=has_attachment, after=after, before=before)
+            has_attachment=has_attachment, after=after, before=before,
+            words=words)
         # **The file-level switches, built by the one shared definition.**
         # `browse_messages` has always joined `files`, so `/type`, `/path`,
         # `/name`, `/size` and `/repo` cost nothing to honour here - they were
@@ -2014,6 +2027,7 @@ class SqliteStore:
         has_attachment: Optional[bool] = None,
         after: Optional[int] = None,
         before: Optional[int] = None,
+        words: str = "",
     ) -> tuple[str, list[Any]]:
         """`(" WHERE ...", params)` over `messages m` for the Mail tab's filters.
 
@@ -2068,6 +2082,17 @@ class SqliteStore:
         if before is not None:
             clauses.append("m.sent_at < ?")
             params.append(int(before))
+        # **1 October 2026: words narrow the list by what the message says.**
+        # "mail about holiday from maya" used to have "holiday" thrown away
+        # here with a note saying so. A message's chunks open with its
+        # subject, sender and recipients, so one FTS match over them covers
+        # the headers and the body alike. Every word must appear.
+        expression = _all_words_match(words)
+        if expression:
+            clauses.append(
+                "m.file_id IN (SELECT c.file_id FROM chunks_fts "
+                "JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ?)")
+            params.append(expression)
 
         where = (" WHERE " + " AND ".join(clauses)) if clauses else " WHERE 1=1"
         return where, params
@@ -2081,6 +2106,7 @@ class SqliteStore:
         has_attachment: Optional[bool] = None,
         after: Optional[int] = None,
         before: Optional[int] = None,
+        words: str = "",
         file_where: str = "",
         file_params: Sequence[Any] = (),
         cap: int = 100_000,
@@ -2100,7 +2126,8 @@ class SqliteStore:
         """
         where, params = self._message_where(
             sender=sender, recipient=recipient, subject=subject,
-            has_attachment=has_attachment, after=after, before=before)
+            has_attachment=has_attachment, after=after, before=before,
+            words=words)
         sql = f"""
             SELECT COUNT(*) AS n FROM (
                 SELECT 1 FROM messages m
@@ -2182,6 +2209,13 @@ class SqliteStore:
 
     def count_messages(self) -> int:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
+        return int(row["n"]) if row else 0
+
+    def count_listed_files(self) -> int:
+        """How many rows the Files tab lists with an empty box - its "in the
+        index" figure, so the summary can say how far a filter has narrowed."""
+        row = self.conn.execute(
+            "SELECT COUNT(*) AS n FROM files f WHERE f.source_kind = 'file'").fetchone()
         return int(row["n"]) if row else 0
 
     def search_files_by_name(

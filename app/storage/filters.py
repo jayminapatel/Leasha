@@ -496,6 +496,12 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         )
         params.append(1 if parsed.has_attachment else 0)
 
+    # `/status skipped` - the indexing status, the same on every tab.
+    statuses = tuple(getattr(parsed, "statuses", ()) or ())
+    if statuses:
+        clauses.append(f"f.status IN ({', '.join('?' for _ in statuses)})")
+        params.extend(statuses)
+
     return (" AND " + " AND ".join(clauses) if clauses else ""), params
 
 

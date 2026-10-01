@@ -360,6 +360,12 @@ _TASK_NAMES = frozenset({
     "browse_files_page",
     "browse_messages_page",
     "status_funnel_counts",
+    "read_box",
+    "_words_of",
+    "_in_index",
+    "browse_files_typed",
+    "browse_messages_typed",
+    "code_rows_typed",
 })
 
 
