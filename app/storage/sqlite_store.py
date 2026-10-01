@@ -752,6 +752,19 @@ class _GuardedCursor(sqlite3.Cursor):
 
 
 
+#: What the Files tab lists: files, and **the attachments inside mail**
+#: (owner, 1 October 2026: *"files in emails should come up on the files list
+#: tab"*). An attachment is its own row, keyed `<message>/attachments/<name>`
+#: by `archive.attachment_key`; the message itself stays on the Mail tab.
+LISTED_FILES = ("(f.source_kind = 'file' OR (f.source_kind IN ('pst_message', 'eml')"
+                " AND f.path LIKE '%/attachments/%'))")
+
+
+def is_mail_attachment(path: str, source_kind: str) -> bool:
+    """Whether a row is a file that arrived attached to a message."""
+    return source_kind in ("pst_message", "eml") and "/attachments/" in str(path)
+
+
 def _all_words_match(words: str) -> str:
     """An FTS5 expression requiring every word, or `""` when there is none.
 
@@ -1650,7 +1663,8 @@ class SqliteStore:
             # Keep the filename index in step. Only real files: a PST message's
             # "path" is a synthetic key nobody typed and nobody would recognise,
             # and mail would outnumber documents ten to one in a Files list.
-            if source_kind in ("file", "archive"):
+            # An attachment is found by its name too, like a file (2026-10-01).
+            if source_kind in ("file", "archive") or is_mail_attachment(path, source_kind):
                 conn.execute("DELETE FROM files_fts WHERE rowid = ?", (file_id,))
                 conn.execute(
                     "INSERT INTO files_fts(rowid, name, folder) VALUES (?, ?, ?)",
@@ -2215,7 +2229,7 @@ class SqliteStore:
         """How many rows the Files tab lists with an empty box - its "in the
         index" figure, so the summary can say how far a filter has narrowed."""
         row = self.conn.execute(
-            "SELECT COUNT(*) AS n FROM files f WHERE f.source_kind = 'file'").fetchone()
+            f"SELECT COUNT(*) AS n FROM files f WHERE {LISTED_FILES}").fetchone()
         return int(row["n"]) if row else 0
 
     def search_files_by_name(
@@ -2540,7 +2554,7 @@ class SqliteStore:
             no_shot_date = self.conn.execute(
                 f"""SELECT {columns}
                     FROM files f
-                    WHERE f.source_kind = 'file' AND f.taken_at_ns IS NULL{where}
+                    WHERE {LISTED_FILES} AND f.taken_at_ns IS NULL{where}
                     ORDER BY f.mtime_ns {_dir}
                     LIMIT ?""",
                 [*params, capped],
@@ -2548,7 +2562,7 @@ class SqliteStore:
             shot_date = self.conn.execute(
                 f"""SELECT {columns}
                     FROM files f
-                    WHERE f.source_kind = 'file' AND f.taken_at_ns IS NOT NULL{where}
+                    WHERE {LISTED_FILES} AND f.taken_at_ns IS NOT NULL{where}
                     ORDER BY f.taken_at_ns {_dir}
                     LIMIT ?""",
                 [*params, capped],
@@ -2600,7 +2614,7 @@ class SqliteStore:
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid
                 JOIN files  f ON f.id = c.file_id
-                WHERE chunks_fts MATCH ? AND f.source_kind = 'file' {where}
+                WHERE chunks_fts MATCH ? AND {LISTED_FILES} {where}
             )
             GROUP BY id
             ORDER BY {by_date_outer if wants_sort else 'score'}
@@ -2679,7 +2693,7 @@ class SqliteStore:
             row = self.conn.execute(
                 f"""SELECT COUNT(*) AS n FROM (
                         SELECT 1 FROM files f
-                        WHERE f.source_kind = 'file'{where}
+                        WHERE {LISTED_FILES}{where}
                         LIMIT ?)""", [*params, bound]).fetchone()
             return int(row["n"]) if row else 0
         literal = '"' + cleaned.replace('"', '""') + '"'
@@ -2695,7 +2709,7 @@ class SqliteStore:
                     FROM chunks_fts
                     JOIN chunks c ON c.id = chunks_fts.rowid
                     JOIN files  f ON f.id = c.file_id
-                    WHERE chunks_fts MATCH ? AND f.source_kind = 'file' {where}
+                    WHERE chunks_fts MATCH ? AND {LISTED_FILES} {where}
                 )
                 LIMIT ?
             )

@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 29
+CURRENT_VERSION = 30
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1545,6 +1545,31 @@ def _v29_image_hashes(conn: sqlite3.Connection) -> None:
         ") WITHOUT ROWID")
 
 
+
+def _v30_attachment_names(conn: sqlite3.Connection) -> None:
+    r"""Mail attachments join the filename index, so the Files tab finds them.
+
+    **Owner, 1 October 2026:** *"files in emails should come up on the files
+    list tab"*. An attachment has always been its own `files` row - keyed
+    `<message>/attachments/<name>` - but `files_fts` held only files and
+    archives, so typing an attachment's name on the Files tab found nothing.
+    `upsert_file` now writes the row for new attachments; this backfills the
+    ones already indexed. Idempotent: a row already present is replaced.
+    """
+    exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE name = 'files_fts'").fetchone()
+    if exists is None:
+        return
+    rows = conn.execute(
+        "SELECT id, path, parent_dir FROM files "
+        "WHERE source_kind IN ('pst_message', 'eml') AND path LIKE '%/attachments/%'"
+    ).fetchall()
+    for file_id, path, parent_dir in rows:
+        name = str(path).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        conn.execute("DELETE FROM files_fts WHERE rowid = ?", (file_id,))
+        conn.execute("INSERT INTO files_fts(rowid, name, folder) VALUES (?, ?, ?)",
+                     (file_id, name, parent_dir or ""))
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1574,6 +1599,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     27: _v27_mail_sent_date,
     28: _v28_chunk_index_follows_its_columns,
     29: _v29_image_hashes,
+    30: _v30_attachment_names,
 }
 
 
