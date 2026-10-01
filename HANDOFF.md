@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.35 · **Updated:** 2026-09-30 · **Applies to:** app v0.3.3
+**Doc version:** 7.36 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,32 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-01 - search surfaces, chat and mail attachments. Read this before the entries below;
+where they disagree, this is newer.** On branch `fix/search-surfaces-2026-10-01`, five commits,
+not yet merged to `main` at the time of writing:
+
+- **Meaning-based search went quiet in a long-open window** (`924f854`). A window opened before
+  an index run created the vector table answered every search keyword-only until restarted -
+  "Searching by meaning is off" for eight hours on the owner's laptop, nothing in the log but
+  "no vector hits". The store now opens a table created after it connected, and LanceDB reads
+  with `read_consistency_interval=0` (216 ms vs 219 ms median, 30 searches on 87,216 rows).
+- **Chat** (`f14df30`): the general-knowledge fill no longer answers questions about the
+  person's own mail ("Maya has sent you a holiday email in May" was invented under *Not from
+  your files*); "mail about holiday from maya" is routed as FIND and lists the emails.
+- **Plain English on every tab, one reading** (`6a448aa`): `tasks.read_box` - slash commands,
+  then `translate_rules.apply`, then the parser - is used by Files, Mail and Code; Search
+  reaches the same rules through `SearchWorker`. `auto_chips` is on for every surface.
+  "from maya" in lower case is a person when it matches exactly one sender. The Mail tab
+  narrows by what messages say. **`/status`** (indexed, partial, skipped, failed, nameonly,
+  pending) works everywhere through `file_filter_sql`. Files and Mail list 500 rows and say
+  "Read as: ..." and how many items the index holds.
+- **Mail attachments on the Files tab** (`9ef2c90`), **schema v30** backfills their names into
+  `files_fts`.
+- **What is read from a mail attachment** (`20b5d54`, `app/extract/mail_attachments.py`):
+  Office documents and PDFs for their contents; a zip for its name and its members' names;
+  everything else, pictures included, by name only and never OCR'd; inline pictures get no
+  row. **Already-indexed attachments keep what they had** until their archive is re-read.
 
 **2026-09-30 (late) - the finishing pass. Read this before the entries below; where they
 disagree, this is newer.** The owner asked for everything that did not depend on him to be
@@ -1593,6 +1619,11 @@ code-complete but **not signed off**, and do not bump `VERSION` to 0.4.0.
   (`Frame.counts`; `Frame.beat` rises for every item, for a per-file time limit to watch).
   **Not caught, and cannot be from inside:** one libpff C call that never returns. No hang or crash
   was seen in 600 damaged copies; that is evidence, not proof.
+- *Note, 2026-10-01: pictures attached to mail are no longer read at all
+  (`app/extract/mail_attachments.py`), so the filter below is dormant for mail and
+  `INDEX_JUNK_IMAGE_FILTER` currently changes nothing - its tests keep it working with
+  stand-in pictures declared readable. The schema is now **v30**; a new migration must be
+  numbered after 30.*
 - **Junk pictures in mail are not read (2026-09-29, order 0z lane D).** Pictures attached to
   mail go through `app/extract/junk_images.py` before OCR. Four things leave a picture unread:
   it is decorative (inline and tiny or divider-shaped), its bytes are repeated with no words,
@@ -1900,6 +1931,14 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-10-01 - a held-open LanceDB table never sees another process's writes.** LanceDB's
+default `read_consistency_interval` is *never*, and `VectorStore.connect` used to open the
+table only if it already existed. The window holds the store open for days while the index
+runs in a separate process, so it searched an empty or stale table, with no error anywhere -
+headless searches, which open the store fresh, were fine, which made it look like a broken
+index. Fixed in `924f854`; if meaning-based search looks off in the window but `app.cli search`
+works, suspect this class of fault first.
 
 **2026-09-29 - Windows Smart App Control blocks unsigned native libraries, and no one can make
 an exception.** On the owner's laptop it blocked torch (`torch_global_deps.dll`, so Florence-2
