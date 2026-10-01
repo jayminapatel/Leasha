@@ -90,6 +90,14 @@ def message(entry_id: str, subject: str = "Subject", body: str = "Body text here
 
 
 @pytest.fixture(autouse=True)
+def _readable_stand_ins(monkeypatch):
+    """`.csv` and `.txt` stand in for a readable attachment here (1 October 2026)."""
+    from tests.unit.test_pst_libpff import read_contents_of
+
+    read_contents_of(monkeypatch, ".csv", ".txt")
+
+
+@pytest.fixture(autouse=True)
 def _clear_busy():
     drain_busy_folders()
     yield
@@ -280,8 +288,11 @@ def test_attachments_can_be_turned_off() -> None:
 
 
 def test_oversized_attachment_is_warned_not_opened() -> None:
+    # A deck, not a video, since 1 October 2026: a video attached to mail is now
+    # recorded by name before its size is ever asked (`mail_attachments`), and
+    # the ceiling still guards the types that are read.
     item = message("m")
-    huge = FakeAttachment("video.mp4", b"x")
+    huge = FakeAttachment("enormous-deck.pptx", b"x")
     huge.size_bytes = 500 * 1_048_576
     item.attachments = [huge]
     root = FakeFolder("Root", items=[item])
@@ -304,13 +315,18 @@ def test_an_unreadable_attachment_does_not_lose_the_message() -> None:
 
 
 def test_unsupported_attachment_type_is_a_warning_not_a_failure() -> None:
+    """1 October 2026: no longer a warning at all. A type that is not an Office
+    document, a PDF or a zip is recorded by name and never opened."""
     item = message("m")
-    item.attachments = [FakeAttachment("installer.exe", b"MZ binary")]
+    exe = FakeAttachment("installer.exe", b"MZ binary")
+    item.attachments = [exe]
     root = FakeFolder("Root", items=[item])
 
     documents = list(walk_session(FakeSession(FakeStore("s", root))))
-    assert len(documents) == 1
-    assert [w.code for w in documents[0].warnings] == ["ERR_UNSUPPORTED_TYPE"]
+    assert len(documents) == 2 and documents[0].warnings == ()
+    assert exe.saved == 0, "never written to disk"
+    assert documents[1].text == "installer.exe"
+    assert documents[1].meta["contents_read"] is False
 
 
 # --- Outlook closing mid-run ------------------------------------------------

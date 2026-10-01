@@ -141,6 +141,21 @@ class FakeArchive:
         self.closed = True
 
 
+def read_contents_of(monkeypatch, *suffixes: str) -> None:
+    """Treat these attachment types as readable, the way Office files and PDFs are.
+
+    **1 October 2026: only Office documents and PDFs attached to mail are read**
+    (`app.extract.mail_attachments`). Tests of the *reading machinery* - a
+    reader that raises, a duplicate, a resumed archive - used `.txt` and made-up
+    types as their readable stand-in; this keeps them testing that machinery
+    rather than the new rule, which has tests of its own.
+    """
+    from app.extract import mail_attachments
+
+    monkeypatch.setattr(mail_attachments, "CONTENT_EXTENSIONS",
+                        mail_attachments.CONTENT_EXTENSIONS | frozenset(suffixes))
+
+
 def install_fake(monkeypatch, root) -> FakeArchive:
     archive = FakeArchive(root)
     module = types.ModuleType("pypff")

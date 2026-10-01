@@ -936,6 +936,7 @@ def _each_attachment(
     ceiling. Then the bytes are hashed *before* they are written, so a
     duplicate is never written at all.
     """
+    from app.extract import mail_attachments as rules
     from app.extract.base import extract as extract_path
     from app.extract.base import reads_by_ocr
     from app.extract.email_pst import MAX_ATTACHMENT_BYTES
@@ -954,8 +955,20 @@ def _each_attachment(
             is_picture = reads_by_ocr(Path(name))
         except Exception:                        # noqa: BLE001
             is_picture = False
-        if images_only and not is_picture:
-            continue                             # the text pass read it
+        # **Owner, 1 October 2026: only Office documents and PDFs are read;
+        # a zip gives its name and its members' names; everything else -
+        # pictures included, never OCR'd - is recorded by name.** See
+        # `mail_attachments`. An inline picture (a signature logo) gets no row.
+        kind = rules.rule(name)
+        if images_only and not (is_picture and kind == rules.CONTENTS):
+            continue          # the text pass dealt with it; mail pictures are not read
+        if kind == rules.NAME_ONLY:
+            if is_picture and junk_images.is_inline(attachment):
+                report.status(progress.STATUS_SKIPPED)
+                continue
+            report.status(progress.STATUS_INDEXED)
+            yield rules.name_only_document(name, message_key, backend="libpff")
+            continue
         if hold and is_picture:
             # Order 0z lane C: never opened on the text pass. Its name is on
             # the message already; the pictures pass comes back for it.
@@ -999,6 +1012,12 @@ def _each_attachment(
             report.status(progress.STATUS_DUPLICATE)
             continue          # the same bytes are already indexed somewhere
         seen_hashes.add(digest)
+
+        if kind == rules.NAMES_INSIDE:
+            report.status(progress.STATUS_INDEXED)
+            yield rules.name_only_document(name, message_key, inside=rules.names_inside(data),
+                                           digest=digest, backend="libpff")
+            continue
 
         screened: Optional[junk_images.Screened] = None
         if book is not None:

@@ -8,6 +8,12 @@ screenshot, scan, receipt or photograph is never left unread by it.**
 The reads go through the real `pst_libpff` attachment loop on a fake `pypff`
 (the same fakes as `test_pst_libpff`), with real picture bytes and a stand-in
 OCR reader, so they run anywhere and fast.
+
+**Dormant for mail since 1 October 2026.** The owner ruled that pictures attached
+to mail are recorded by name and never read (`app.extract.mail_attachments`), so
+nothing in a normal run reaches this filter any more. These tests keep it working
+by declaring their stand-in pictures readable - it is kept, not deleted, so that
+turning picture reading back on is a one-line change and not a rebuild.
 """
 
 from __future__ import annotations
@@ -96,7 +102,10 @@ class _Ocr:
 
 
 @pytest.fixture(autouse=True)
-def _reader():
+def _reader(monkeypatch):
+    from tests.unit.test_pst_libpff import read_contents_of
+
+    read_contents_of(monkeypatch, *_Ocr.extensions)      # dormant for mail: see above
     before = dict(base.REGISTRY)
     _Ocr.calls = []
     TEXT.clear()

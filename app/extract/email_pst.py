@@ -170,11 +170,17 @@ def _attachment_documents(
     senders usually is. Hashing is cheap next to parsing and embedding.
     """
     from app.extract import junk_images, reading
+    from app.extract import mail_attachments as rules
     from app.extract.base import extract as extract_path
 
     policy = reading.current()
     for attachment in item.attachments:
         name = attachment.filename or "attachment"
+        # The same rule as the libpff reader - see `mail_attachments` (2026-10-01).
+        kind = rules.rule(name)
+        if kind == rules.NAME_ONLY:
+            yield rules.name_only_document(name, message_key, backend="outlook")
+            continue
         if attachment.size_bytes > MAX_ATTACHMENT_BYTES:
             warnings.append(make_error(
                 "ERR_FILE_CORRUPT", "extract.pst",
@@ -202,6 +208,13 @@ def _attachment_documents(
                 continue
 
             digest = _hash_bytes(data)
+            if kind == rules.NAMES_INSIDE:
+                if digest not in seen_hashes:
+                    seen_hashes.add(digest)
+                    yield rules.name_only_document(
+                        name, message_key, inside=rules.names_inside(data),
+                        digest=digest, backend="outlook")
+                continue
             # Order 0z lane D: the junk-image filter, pictures only - D1, D3
             # and D4. **Not D2**: whether Outlook marks the attachment inline
             # or hidden is a MAPI property this backend does not read yet, so

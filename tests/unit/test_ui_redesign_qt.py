@@ -318,6 +318,11 @@ def test_the_window_stays_instant_while_progress_floods_in(window):
     switch, a keystroke and a toast must each land within one loop turn."""
     from PyQt6.QtCore import QElapsedTimer
     app, built, _ = window
+    # Toasts queue, one at a time. The window is shared by this module, and an
+    # earlier test's "Indexing: Only when you ask." was still showing, so this
+    # one's waited behind it - failing on main as well (1 October 2026). The
+    # test is about the loop staying responsive, so it starts with none queued.
+    built.toast.clear()
     clock = QElapsedTimer()
     clock.start()
     for n in range(200):

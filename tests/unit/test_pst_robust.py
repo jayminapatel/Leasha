@@ -35,7 +35,9 @@ from app.storage.sqlite_store import SqliteStore
 from app.ui.presenter.activity import activity_text, status_counts_text
 from app.ui.presenter.live_progress import worker_lines
 from tests.unit.test_index_freshness import NullVectors, fake_embedder, write_aged
-from tests.unit.test_pst_libpff import FakeAttachment, FakeFolder, FakeMessage, install_fake
+from tests.unit.test_pst_libpff import (
+    FakeAttachment, FakeFolder, FakeMessage, install_fake, read_contents_of,
+)
 
 
 def _msg(n: int, **kwargs) -> FakeMessage:
@@ -85,6 +87,10 @@ class _Explodes:
 
 @pytest.fixture(autouse=True)
 def _readers(monkeypatch):
+    # The machinery, not the rule. `.fakepic` keeps the held-pictures tests
+    # running although mail pictures are no longer read (1 October 2026) - the
+    # holding and the pictures pass are dormant for mail, and kept working.
+    read_contents_of(monkeypatch, ".txt", ".boom", ".fakepic")
     before = dict(base.REGISTRY)
     _Picture.calls = []
     base.register(_Picture())
@@ -148,8 +154,13 @@ def test_a_type_nothing_reads_is_skipped_without_being_written(monkeypatch, tmp_
     ])
     documents, policy = _read(FakeFolder("", children=[inbox]), monkeypatch)
     assert written == ["notes.txt"]
-    assert len(documents) == 2
-    assert policy.counts == {"Indexed": 2, "Skipped": 1}
+    # 1 October 2026: never written, still - and now kept as a row by its name,
+    # so it is listed on the Files tab (`mail_attachments`). Was 2 documents,
+    # with the `.url` counted Skipped.
+    assert len(documents) == 3
+    link = next(d for d in documents if d.meta.get("attachment_name") == "link.url")
+    assert link.meta["contents_read"] is False and link.text == "link.url"
+    assert policy.counts == {"Indexed": 3}
 
 
 def test_each_attachment_is_fetched_once(monkeypatch) -> None:

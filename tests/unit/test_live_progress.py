@@ -65,6 +65,14 @@ from tests.unit.test_pst_libpff import (
 
 
 @pytest.fixture(autouse=True)
+def _readable_stand_ins(monkeypatch):
+    """`.txt` stands in for a readable attachment here (1 October 2026)."""
+    from tests.unit.test_pst_libpff import read_contents_of
+
+    read_contents_of(monkeypatch, ".txt")
+
+
+@pytest.fixture(autouse=True)
 def _fresh_stack():
     """Each test starts with this thread's frame stack empty, and leaves it so."""
     progress.frames().clear()

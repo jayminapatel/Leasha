@@ -103,7 +103,11 @@ def archive(tmp_path: Path) -> Path:
 
 @pytest.fixture(autouse=True)
 def _libpff_backend(monkeypatch):
-    """The registered extractor, on `auto` - which picks libpff when it imports."""
+    """The registered extractor, on `auto` - which picks libpff when it imports.
+    `.txt` stands in for a readable attachment (1 October 2026)."""
+    from tests.unit.test_pst_libpff import read_contents_of
+
+    read_contents_of(monkeypatch, ".txt")
     monkeypatch.setattr(email_pst.PstExtractor, "backend", email_pst.PstBackend.AUTO)
     monkeypatch.setattr(email_pst.PstExtractor, "session_factory", None)
     # Every boundary is a write here; the interval is measured in the real run.
