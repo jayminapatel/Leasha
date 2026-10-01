@@ -748,6 +748,7 @@
     <Compile Include="tests\unit\test_interrupted_runs.py" />
     <Compile Include="tests\unit\test_junk_images.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
+    <Compile Include="tests\unit\test_late_labels.py" />
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_legacy_office_completeness.py" />
