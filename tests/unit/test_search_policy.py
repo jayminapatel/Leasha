@@ -63,7 +63,10 @@ def test_the_power_surfaces_propose_rather_than_act() -> None:
     second-guesses an expert is a tool the expert switches off."""
     for surface in (policy.FILES, policy.MAIL):
         found = policy.for_surface(surface)
-        assert found.typo_correction == "suggest", surface
+        # 1 October 2026, owner: the same as Search on every tab - Files and
+        # Mail correct a typo as Search does, and only for a list that came
+        # back empty (`tasks._respelt`). Was "suggest".
+        assert found.typo_correction == "auto", surface
         assert found.notice_register == "technical", surface
 
 
@@ -208,8 +211,11 @@ def test_a_policy_can_say_what_it_does(  ) -> None:
     assert len(said) >= 4
     # Reading plain English is the one thing the Code tab does (1 October 2026).
     assert policy.describe(policy.for_surface(policy.CODE)) == ["Offer filters it recognises"]
-    assert "Suggest a spelling, but do not change what you typed" in \
-        policy.describe(policy.for_surface(policy.FILES))
+    # Files fixes spelling as Search does since 1 October 2026; "suggest" is
+    # still a value a person can choose, so its sentence is still checked.
+    assert "Fix obvious spelling" in policy.describe(policy.for_surface(policy.FILES))
+    assert "Suggest a spelling, but do not change what you typed" in policy.describe(
+        policy.SearchPolicy(typo_correction="suggest"))
 
 
 def test_the_safety_invariants_are_written_down() -> None:

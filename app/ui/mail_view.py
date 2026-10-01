@@ -265,8 +265,8 @@ class MailView(QWidget):
         )
         self._apply_prefs()
 
-        said = understood_line(page.get("applied", ()), page.get("words", ""),
-                               in_index=page.get("in_index"), noun="messages")
+        said = understood_line(page.get("applied", ()), page.get("words", ""), noun="messages",
+                               in_index=page.get("in_index"), spelling=page.get("spelling", ""))
         self.summary.setText(folded + self._summary_text(
             len(page["rows"]), leftover, page.get("total")) + (f"  ·  {said}" if said else ""))
 

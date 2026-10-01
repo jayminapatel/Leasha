@@ -214,12 +214,48 @@ def _in_index(count: Any) -> Optional[int]:
         return None
 
 
+def _respelt(store: Any, words: Any, *, surface: str, preferences: Any = None) -> Any:
+    """The Search tab's spelling help for a list that came back empty, or None.
+
+    **The same rule the engine applies** (`SearchEngine._spelling`): exactly one
+    word the index has never seen, corrected by `spelling.from_store`. Asked
+    only when the list is empty - on the Files tab a word can be part of a
+    file's name that the text index has never held, and correcting a word that
+    still matches something would hide the very file asked for.
+    """
+    from app.search.keyword import unmatched_terms
+    from app.search.policy import from_settings
+    from app.search.spelling import from_store
+
+    words = tuple(str(word) for word in (words or ()) if str(word).strip())
+    if not words or from_settings(surface, preferences).typo_correction == "off":
+        return None
+    try:
+        missing = unmatched_terms(store, words)
+        return from_store(store, missing[0]) if len(missing) == 1 else None
+    except Exception as exc:                     # noqa: BLE001 - a suggestion, not the list
+        _log.debug("no spelling help for this list: {}", exc)
+        return None
+
+
 def browse_files_typed(store: Any, raw: str, *, limit: int, preferences: Any = None,
                        declined: Any = ()) -> dict:
     """`browse_files_page` for a typed line, read the shared way. **Worker.**"""
+    from app.search.query import with_terms
+
     parsed, applied = read_box(store, raw, surface="files", preferences=preferences,
                                declined=declined)
     page = browse_files_page(store, parsed, limit=limit)
+    found = None if page["rows"] else _respelt(
+        store, _words_of(parsed).split(), surface="files", preferences=preferences)
+    if found is not None:
+        corrected = with_terms(parsed, tuple(
+            found.suggestion if str(term).lower() == found.typed else term
+            for term in parsed.terms))
+        again = browse_files_page(store, corrected, limit=limit)
+        if again["rows"]:
+            page, parsed = again, corrected
+            page["spelling"] = found.sentence()
     page.update(parsed=parsed, applied=applied,
                 in_index=_in_index(getattr(store, "count_listed_files", None)))
     return page
@@ -242,6 +278,15 @@ def browse_messages_typed(store: Any, raw: str, *, limit: int, preferences: Any 
     if words:
         filters["words"] = words
     page = browse_messages_page(store, limit=limit, **filters)
+    found = None if page["rows"] else _respelt(
+        store, words.split(), surface="mail", preferences=preferences)
+    if found is not None:
+        respelt = " ".join(found.suggestion if word.lower() == found.typed else word
+                           for word in words.split())
+        again = browse_messages_page(store, limit=limit, **{**filters, "words": respelt})
+        if again["rows"]:
+            page, words = again, respelt
+            page["spelling"] = found.sentence()
     page.update(parsed=parsed, applied=applied, words=words,
                 in_index=_in_index(getattr(store, "count_messages", None)))
     return page

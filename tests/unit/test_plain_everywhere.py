@@ -101,3 +101,38 @@ def test_the_summary_says_what_the_box_was_read_as_and_the_index_size(store):
 def test_nothing_read_says_only_the_index_size():
     assert understood_line((), "", in_index=1234, noun="files") == "1,234 files in the index"
     assert understood_line() == ""
+
+
+# -- spelling, the Search tab's rule on the lists (1 October 2026) --------------
+
+
+def test_a_typo_on_the_mail_tab_is_corrected_when_nothing_matched(store):
+    page = browse_messages_typed(store, "mail about the licence renewel from chris", limit=500)
+    assert {row["subject"] for row in page["rows"]} == {"Licence renewal quote"}
+    # The word index holds stems, so the correction is the stem - exactly what
+    # the Search tab's own correction says for the same typo.
+    assert page["spelling"] == "also looked for 'renew'"
+    assert page["words"] == "licence renew"
+
+
+def test_a_typo_on_the_files_tab_is_corrected_when_nothing_matched(store):
+    page = browse_files_typed(store, "licence termz", limit=500)
+    assert page["rows"] and page["spelling"] == "also looked for 'term'"
+
+
+def test_a_word_that_matches_is_never_corrected(store):
+    page = browse_files_typed(store, "licence terms", limit=500)
+    assert page["rows"] and "spelling" not in page
+
+
+def test_the_code_tab_corrects_nothing(store):
+    from app.ui.tasks import _respelt
+
+    assert _respelt(store, ["renewel"], surface="code") is None
+    assert _respelt(store, ["renewel"], surface="files") is not None
+
+
+def test_the_summary_says_a_correction_in_the_same_words_everywhere():
+    line = understood_line((), "", in_index=10, noun="files",
+                           spelling="also looked for 'renewal'")
+    assert line.startswith("Nothing matched as typed, so it also looked for 'renewal'")

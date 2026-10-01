@@ -153,12 +153,13 @@ BEHAVIOURS = (
 _DEFAULTS: dict[str, dict[str, Any]] = {
     SEARCH: {},                                  # the dataclass defaults
     FILES: {
-        "typo_correction": "suggest",
+        # 1 October 2026: as Search does - and the lists ask only when empty.
+        "typo_correction": "auto",
         "notice_register": "technical",
         "version_folding": False,
     },
     MAIL: {
-        "typo_correction": "suggest",
+        "typo_correction": "auto",
         "notice_register": "technical",
     },
     CODE: {

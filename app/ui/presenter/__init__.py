@@ -366,6 +366,7 @@ _TASK_NAMES = frozenset({
     "browse_files_typed",
     "browse_messages_typed",
     "code_rows_typed",
+    "_respelt",
 })
 
 

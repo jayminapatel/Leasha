@@ -144,7 +144,7 @@ def capped_total(shown: int, total: Optional[int], noun: str, hint: str,
 
 
 def understood_line(applied: Any = (), words: str = "", *, in_index: Optional[int] = None,
-                    noun: str = "items") -> str:
+                    noun: str = "items", spelling: str = "") -> str:
     """What the box was read as, and how big the whole index is. `""` for neither.
 
     "Read as: mail · from maya.patel@talktalk.net · containing 'holiday'  ·
@@ -160,6 +160,10 @@ def understood_line(applied: Any = (), words: str = "", *, in_index: Optional[in
     if str(words or "").strip():
         parts.append(f"containing '{str(words).strip()}'")
     said = []
+    if spelling:
+        # The engine's own sentence ("also looked for 'volcano'"), said the
+        # way the Search tab's notice says it (1 October 2026).
+        said.append(f"Nothing matched as typed, so it {spelling}")
     if applied and parts:
         said.append("Read as: " + " · ".join(parts))
     if in_index is not None:
@@ -176,7 +180,7 @@ def files_line(page: Any, *, shown: int, text: str = "") -> str:
     read as and how many files the index holds - the same words as every tab."""
     line = file_summary(0, shown=shown, text=text, found=page.get("total"))
     said = understood_line(page.get("applied", ()), "", in_index=page.get("in_index"),
-                           noun="files")
+                           noun="files", spelling=page.get("spelling", ""))
     return line + (f"  ·  {said}" if said else "")
 
 
