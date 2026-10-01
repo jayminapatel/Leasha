@@ -52,7 +52,8 @@ from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, 
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
 from app.chat.reconcile import reconcile
 from app.chat.router import (
-    ABSENCE, AGGREGATE, CHAT, FIND, FOLLOWUP, LOOKUP, SYNTHESIS, Route, route_question,
+    ABSENCE, AGGREGATE, ARCHIVE_FIND, CHAT, FIND, FOLLOWUP, LOOKUP, SYNTHESIS, Route,
+    route_question,
 )
 from app.chat.types import (
     ChatTurn, NarrationEvent, Receipt, ShelfEvent, SourcesEvent, TokenEvent,
@@ -109,6 +110,25 @@ _PARTIAL_LINE = "I could not confirm the rest of that from your files."
 #: A question about the person's own affairs. A general answer to one of these would
 #: be a guess about their life, so the files-only account is given instead.
 _PERSONAL = re.compile(r"\b(?:my|our|mine|ours|we|we've|we'd|i|i've|i'd|i'm|me|us)\b", re.I)
+
+#: The verbs of correspondence. With `COLLECTION_NOUNS` they mark a question about
+#: the archive itself even when it has no pronoun in it.
+_CORRESPONDENCE = re.compile(r"\b(?:sent|received|forwarded|attached|replied|wrote)\b", re.I)
+
+
+def _about_the_archive(text: str) -> bool:
+    """Whether a question asks about the person's own mail or files.
+
+    **1 October 2026.** "mail about holiday from maya" has no pronoun, so
+    `_PERSONAL` let it through to the general fill, which answered "Maya has
+    sent you a holiday email in May" under *Not from your files* - a sentence
+    about their own mail that no source supports. A question naming mail,
+    files or attachments is about the archive whether or not it says "my".
+
+    A noun alone is not enough: "what is a PST file?" is general knowledge. A
+    noun followed by what it is about or who it is from is the archive.
+    """
+    return bool(ARCHIVE_FIND.search(text or "") or _CORRESPONDENCE.search(text or ""))
 
 #: Passages fetched per search round. More than the model is shown, because the
 #: ranking, dedupe by document and the sufficiency check all want a wider net.
@@ -1084,7 +1104,11 @@ class ChatEngine:
         searched-and-found-nothing account instead: a general answer to it would be a
         guess about their life."""
         llm = self._role("answerer")
-        offer = (not _PERSONAL.search(text)) and llm is not None and self._reachable(llm)
+        # Documents that mention it were found, so the question is about them: a
+        # general answer would be a guess at what they say. The list is the answer.
+        found_some = bool(unhelpful and results)
+        offer = (not _PERSONAL.search(text) and not _about_the_archive(text)
+                 and not found_some and llm is not None and self._reachable(llm))
         if offer:
             try:
                 offer = bool(llm.has_model())

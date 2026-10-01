@@ -44,6 +44,11 @@ def test_every_class_is_exercised_by_the_fixture():
     ("is there a document about the loft?", ABSENCE),
     ("Show me the photos from Diwali", FIND),
     ("find the safety report", FIND),
+    # 1 October 2026: a kind of document and what it is about, no question word.
+    ("mail about holiday from maya", FIND),
+    ("emails from the bank", FIND),
+    ("documents about the boiler", FIND),
+    ("what did the mail from maya say?", LOOKUP),
     ("Summarise the audit findings", SYNTHESIS),
     ("compare the two quotes", SYNTHESIS),
     ("What did the landlord say about the boiler?", LOOKUP),

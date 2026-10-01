@@ -385,3 +385,32 @@ def test_two_questions_at_once_do_not_share_state(env):
         t.join(timeout=60)
     assert results["a"].kind == "answer" and results["b"].kind == "aggregate"
     assert "two months" in results["a"].text
+
+
+# =========================================================================== their own mail
+#
+# 1 October 2026. "mail about holiday from maya" found the right email, the model
+# said NOT FOUND, and the general fill answered "Maya has sent you a holiday email
+# in May" under *Not from your files* - a claim about their own mail that nothing
+# supports. The general fill had only refused questions containing "my" or "me".
+
+
+def test_asking_for_mail_about_something_lists_the_mail(env):
+    turn, _events = ask(env.engine(FakeLLM("not_found")), "mail about the licence renewal from chris")
+    assert turn.kind == "find"
+    assert turn.result_set
+    assert "Not from your files" not in turn.text
+
+
+def test_a_question_about_their_mail_never_gets_a_general_answer(env):
+    turn, _events = ask(env.engine(FakeLLM("not_found")),
+                        "What did the email from Chris say about the moon?")
+    assert turn.kind != "general"
+    assert "Not from your files" not in turn.text
+
+
+def test_when_documents_mention_it_they_are_shown_rather_than_a_general_answer(env):
+    turn, _events = ask(env.engine(FakeLLM("not_found")), "What colour is the licence renewal?")
+    assert turn.kind == "absence"
+    assert turn.result_set
+    assert "Not from your files" not in turn.text

@@ -176,6 +176,14 @@ _SYNTHESIS = re.compile(
     r"|themes?\s+(?:in|across|of)|recurring|in\s+general|how\s+has\s+.+\s+changed|how\s+did\s+.+\s+(?:evolve|change)"
     r"|what\s+do\s+(?:all|my|the)\s+.+\s+say|everything\s+(?:about|on|we\s+have))\b", re.I)
 
+#: "mail about holiday from maya", "emails from the bank", "files on the boiler":
+#: a kind of document and what it is about or who it is from, with no question
+#: word. It asks for the documents, not for something they say.
+_ARCHIVE_ALTERNATIVES = "|".join(sorted(COLLECTION_NOUNS, key=len, reverse=True))
+ARCHIVE_FIND = re.compile(
+    r"\b(?:" + _ARCHIVE_ALTERNATIVES + r")\s+(?:about|from|regarding|concerning|re|on|sent\s+(?:by|to)|to)\b",
+    re.I)
+
 _QUESTION_START = re.compile(
     r"^\s*(?:what|when|who|whom|whose|which|where|why|how|did|does|do|is|are|was|were|can|could"
     r"|has|have|will|would|should|tell\s+me)\b", re.I)
@@ -252,6 +260,8 @@ def _rule_class(question: str) -> Optional[tuple[str, str]]:
 
     if _QUESTION_START.match(q) or q.endswith("?"):
         return LOOKUP, "a question about what documents say"
+    if ARCHIVE_FIND.search(q):
+        return FIND, "names a kind of document and what it is about - the answer is the documents"
     return None
 
 
