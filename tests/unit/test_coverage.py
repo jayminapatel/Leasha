@@ -74,10 +74,15 @@ def test_files_follow_name_only_recheck_and_watching():
 def test_media_follow_their_switches():
     assert "Videos are listed by name" in place_sentence(MEDIA, {})
     on = place_sentence(MEDIA, {"video_indexing_enabled": True,
-                                "audio_transcription_enabled": "true",
-                                "caption_trickle_enabled": True})
+                                "audio_transcription_enabled": "true"})
     assert "Videos are read" in on and "Speech in recordings is written down" in on
-    assert "written description" in on
+
+
+def test_photo_descriptions_and_faces_are_said_where_their_switches_are():
+    on = {"caption_trickle_enabled": True, "people_recognition_enabled": True}
+    assert "written description" in place_sentence(PICTURES, on)
+    assert "Faces in photos" in place_sentence(PICTURES, on)
+    assert "Faces" not in place_sentence(MEDIA, on)
 
 
 def test_a_settings_object_works_as_well_as_a_mapping(temp_env):

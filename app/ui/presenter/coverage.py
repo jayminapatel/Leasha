@@ -45,7 +45,7 @@ _DEFAULTS: dict[str, Any] = {
     "index_ocr_mode": "both", "index_ocr_pass": "with-run", "pdf_ocr_pages": 0,
     "video_indexing_enabled": False, "audio_transcription_enabled": False,
     "caption_trickle_enabled": False, "people_recognition_enabled": False,
-    "index_watch_folders": False,
+    "index_watch_folders": False, "pst_backend": "auto", "index_cloud": False,
 }
 
 _READ = "Word, Excel, PowerPoint, PDF, text, CSV and HTML are read for their words."
@@ -91,13 +91,24 @@ def _files(levers: Any) -> str:
              "mailboxes and Archive folders, which wait for the next run."
              if _flag(levers, "index_watch_folders") else
              " New and changed files are added on the next run.")
-    return first + second + third
+    # `ui:index_cloud`: a cloud-only placeholder is downloaded to be read.
+    fourth = (" Files kept only in the cloud are downloaded so they can be read."
+              if _flag(levers, "index_cloud") else
+              " Files kept only in the cloud (OneDrive, SharePoint) are not downloaded.")
+    return first + second + third + fourth
 
 
-def _email(_levers: Any) -> str:
+def _email(levers: Any) -> str:
     # `email_pst.build_email_document`: headers are written into the text.
-    return ("Each message is read: who sent it, who it went to, the subject and "
-            "the text, so a search for a name or a phrase finds it.")
+    first = ("Each message is read: who sent it, who it went to, the subject and "
+             "the text, so a search for a name or a phrase finds it.")
+    # `ui:pst_backend` (`settings_controller._apply_pst_backend`).
+    backend = str(_value(levers, "pst_backend") or "auto").strip().lower()
+    how = {"libpff": " Outlook archives are read straight from the file; Outlook is not needed.",
+           "outlook": " Outlook archives are read through Outlook."}.get(
+        backend, " Outlook archives are read straight from the file when possible, "
+                 "otherwise through Outlook.")
+    return first + how
 
 
 def _attachments(levers: Any) -> str:
@@ -149,7 +160,12 @@ def _pictures(levers: Any) -> str:
     # `PDF_OCR_PAGES`: 0 leaves scanned PDFs unread; only the pictures pass uses it.
     second = (f" Scanned PDFs: the first {pages} pages are read." if pages
               else " Scanned PDFs are found by name and any text they hold, not read page by page.")
-    return first + second
+    # Their switches are drawn in this block (`widgets/what_gets_read.py`).
+    third = (" Photos are slowly given a written description."
+             if _flag(levers, "caption_trickle_enabled") else "")
+    fourth = (" Faces in photos are grouped so they can be named."
+              if _flag(levers, "people_recognition_enabled") else "")
+    return first + second + third + fourth
 
 
 def _media(levers: Any) -> str:
@@ -161,10 +177,6 @@ def _media(levers: Any) -> str:
         "Speech in recordings is written down, in the background." if audio
         else "Recordings are listed by name; speech is not written down.",
     ]
-    if _flag(levers, "caption_trickle_enabled"):
-        parts.append("Photos are slowly given a written description.")
-    if _flag(levers, "people_recognition_enabled"):
-        parts.append("Faces in photos are grouped so they can be named.")
     return " ".join(parts)
 
 

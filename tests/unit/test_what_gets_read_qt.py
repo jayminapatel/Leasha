@@ -81,3 +81,51 @@ def test_the_page_renders(qapp, tmp_path):
     assert not image.isNull()
     image.save(str(tmp_path / "what_gets_read.png"))
     assert isinstance(box, QWidget)
+
+
+# -- stage two: the levers the Settings page owns, drawn here by place ----------
+
+from tests.unit.test_pages_reorg import _settings_view, settings_and_store  # noqa: E402,F401
+
+
+def _gathered(settings, store):
+    from app.ui.widgets.long_run_box import LongRunBox
+    from app.ui.widgets.what_gets_read import gather_levers
+
+    box, view = LongRunBox(), _settings_view(settings, store)
+    box.load(settings)
+    gather_levers(box, view)
+    return box, view
+
+
+def test_the_settings_levers_are_drawn_in_their_places(settings_and_store):
+    from app.ui.presenter.coverage import EMAIL, FILES, MEDIA, PICTURES
+
+    box, view = _gathered(*settings_and_store)
+    blocks = {b.title(): b for b in box.findChildren(QGroupBox, "place")}
+    assert blocks[FILES].isAncestorOf(view.cloud)
+    assert blocks[EMAIL].isAncestorOf(view.pst_box)
+    assert blocks[PICTURES].isAncestorOf(view.caption_trickle)
+    assert blocks[PICTURES].isAncestorOf(view.people_recognition)
+    assert blocks[MEDIA].isAncestorOf(view.media_box)
+    assert box._media_note.isHidden()          # no longer "set elsewhere"
+
+
+def test_a_settings_lever_still_saves_the_way_it_always_did(settings_and_store):
+    box, view = _gathered(*settings_and_store)
+    saved = []
+    view.settings_changed.connect(saved.append)
+    view.caption_trickle.setChecked(not view.caption_trickle.isChecked())
+    assert saved and "CAPTION_TRICKLE_ENABLED" in saved[-1]
+
+
+def test_moving_a_settings_lever_rewrites_its_place_sentence(settings_and_store):
+    from app.ui.presenter.coverage import EMAIL, FILES, PICTURES
+
+    box, view = _gathered(*settings_and_store)
+    view.cloud.setChecked(True)
+    assert "downloaded so they can be read" in box.sentences[FILES].text()
+    view.pst_backend.setCurrentIndex(view.pst_backend.findData("outlook"))
+    assert "read through Outlook" in box.sentences[EMAIL].text()
+    view.people_recognition.setChecked(True)
+    assert "Faces in photos" in box.sentences[PICTURES].text()

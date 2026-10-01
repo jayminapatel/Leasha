@@ -275,6 +275,7 @@ class LongRunBox(QGroupBox):
         # levers, and a sentence saying what they do there - recomputed as a
         # lever moves (`presenter/coverage.py`). The controls and the labels
         # beside them are the ones this box always had; only the grouping is new.
+        self._media_note = _elsewhere("Switched on and off in Settings, Models & AI.")
         rows = {
             FILES: [(None, self.name_only), (None, _cost("INDEX_NAME_ONLY")),
                     ("Re-check archives every", self.archive_recheck_days),
@@ -288,16 +289,18 @@ class LongRunBox(QGroupBox):
                        ("Pages of a scanned PDF", self.pdf_ocr_pages),
                        ("How white a photo must be to read as a page",
                         self.ocr_white_page_percent)],
-            MEDIA: [(None, _elsewhere("Switched on and off in Settings, Models & AI."))],
+            MEDIA: [(None, self._media_note)],
             CODE: [],
         }
         self._levers: dict = {}
         self.sentences: dict[str, QLabel] = {}
+        self._forms: dict[str, QFormLayout] = {}
         layout = QVBoxLayout(self)
         for place in PLACES:
             block = QGroupBox(place)
             block.setObjectName("place")
             form = QFormLayout(block)
+            self._forms[place] = form
             sentence = QLabel()
             sentence.setObjectName("placeSentence")
             sentence.setWordWrap(True)
@@ -313,6 +316,29 @@ class LongRunBox(QGroupBox):
         self._sync_junk()
         self._refresh()
 
+    def place_in(self, place: str, widget: Any) -> None:
+        """Show a lever that another page owns in `place`'s block.
+
+        **Shown here, still owned there** (1 October 2026): the Settings page
+        keeps building it, loading it and saving it exactly as before; only
+        where it is drawn moves. Its changes reach the sentences through
+        `note_levers`, wired by `widgets.what_gets_read.gather_levers`.
+        """
+        self._forms[place].addRow(widget)
+        if place == MEDIA:
+            self._media_note.setVisible(False)
+
+    def note_levers(self, values: Any) -> None:
+        """A lever on another page moved: rewrite the sentences that use it.
+
+        `values` is a `{key: value}` - a registry key or a `Settings` field
+        name, either case - as the Settings page emits it."""
+        try:
+            self._levers.update({str(k).lower(): v for k, v in dict(values or {}).items()})
+        except Exception:                        # noqa: BLE001 - a sentence, not a setting
+            return
+        self._refresh()
+
     def _sync_junk(self) -> None:
         """The logo switch is live only while pictures in mail are read."""
         reads_pictures = self.mail_attachments.currentData() in ("pictures", "everything")
@@ -321,9 +347,12 @@ class LongRunBox(QGroupBox):
 
     def _refresh(self) -> None:
         """Every place's sentence, from the levers as they stand right now."""
-        levers = {**self._levers, **self.values()}
-        for place, label in self.sentences.items():
-            label.setText(place_sentence(place, levers))
+        try:
+            levers = {**self._levers, **self.values()}
+            for place, label in self.sentences.items():
+                label.setText(place_sentence(place, levers))
+        except RuntimeError:             # the box is being torn down: nothing to say
+            return
 
     def load(self, settings: Any) -> None:
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""

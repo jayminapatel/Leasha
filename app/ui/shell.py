@@ -838,6 +838,11 @@ class MainWindow(QMainWindow):
             # in `__init__` before this page was deferred).
             self.settings_view.cloud.setChecked(
                 self._read_state("ui:index_cloud", "") == "on")
+            # *What gets read* (1 October 2026): the indexing levers this page
+            # owns are drawn there, by place, and its sentences follow them.
+            from app.ui.widgets.what_gets_read import gather_levers
+            gather_levers(self.indexing_view.tuning.coverage, self.settings_view,
+                          pst_backend=self._read_state("ui:pst_backend", "auto") or "auto")
             stored_rerank = self._read_state("ui:rerank_enabled", "")
             if stored_rerank:
                 self.settings_view.rerank.setChecked(stored_rerank == "on")

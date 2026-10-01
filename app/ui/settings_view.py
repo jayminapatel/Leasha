@@ -122,7 +122,7 @@ class SettingsView(SettingsShelves, QWidget):
         )
         convert.clicked.connect(self._convert_pst)
 
-        pst_box = QGroupBox("Outlook archives (.pst)")
+        pst_box = self.pst_box = QGroupBox("Outlook archives (.pst)")
         pst_layout = QVBoxLayout(pst_box)
         pst_layout.addWidget(QLabel("How to read archives:"))
         pst_layout.addWidget(self.pst_backend)
