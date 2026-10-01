@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.36 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 7.37 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,33 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-01 (later) - "What gets read", one behaviour on every tab. Read this first; where
+it disagrees with the entry below, this is newer.** Committed straight to `main` (not a `fix/`
+branch - noted), `0567f06`..`e84be6b`:
+
+- **A new Indexing page, *What gets read*** (`f5cb4d6`, `1f3e0e0`): the indexing levers by
+  place - files on disk, email, email attachments, zips, pictures and scans, video and audio,
+  code - each block with a plain sentence of what the current levers do there
+  (`app/ui/presenter/coverage.py`), recomputed as a lever moves. The Tuning page's coverage
+  box moved there (still owned by `TuningBox`); the Settings page's cloud-only switch, Outlook
+  archives box, photo-description and people switches and the videos-and-recordings box are
+  *drawn* there but still owned and saved by the Settings page (`widgets/what_gets_read.py`).
+  The Settings filter now says "Also on Indexing, What gets read: ..." for those.
+- **`MAIL_ATTACHMENTS`** - names / documents (default) / pictures / everything - replaces the
+  morning's fixed rule; the logo filter is live only while pictures are read. `.txt`, `.csv`,
+  `.html` attachments are read again (`0567f06`).
+- **Files and Mail** correct a typo as Search does, only for a list that came back empty
+  (`ecce29d`), and **Files, Mail and Code** show what a sentence was read as as removable
+  chips (`ca93992`).
+- **Open, the owner's:** the video box's own status text still says "In Settings, under
+  'Videos and recordings'" - a dated note above it says where it is now (`e84be6b`).
+- **Known flakes:** `test_close_ends_the_app` failed once in a full run this morning and
+  passed five runs under load since - not changed blind; the next full run's message says
+  which condition. The timeline test's flake (`test_reports_read_only`) is **fixed**: bisected to
+  `test_read_order_ui.py`, then to `environment_box.py`, whose logs worker was wired straight
+  to a label's `setText` - a Settings page closed before the walk finished had Qt write into
+  a deleted label inside the next test. `test_late_labels.py` fails without the fix.
 
 **2026-10-01 - search surfaces, chat and mail attachments. Read this before the entries below;
 where they disagree, this is newer.** On branch `fix/search-surfaces-2026-10-01`, five commits,

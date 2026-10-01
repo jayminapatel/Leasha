@@ -43,6 +43,7 @@ from app.ui.presenter import (
     logs_summary,
 )
 from app.ui.widgets.buttons import button_row, style_button
+from app.ui.view_options import weak_slot
 from app.ui.workers import CallableWorker, open_in_explorer, run
 
 __all__ = ["EnvironmentBox"]
@@ -307,9 +308,21 @@ class EnvironmentBox(QGroupBox):
         """
         worker = CallableWorker(logs_summary, self.logs_folder(),
                                 component="ui.logs.size")
-        worker.signals.finished.connect(self.logs_status.setText)
-        worker.signals.failed.connect(lambda _e: self.logs_status.setText(""))
+        # **Through the box, never straight to the label** (1 October 2026).
+        # `connect(self.logs_status.setText)` made Qt call the label itself, so
+        # a Settings page closed before the walk finished had Qt call setText on
+        # a deleted label - "wrapped C/C++ object of type QLabel has been
+        # deleted", with no Python frame to say where, raised inside whatever
+        # was pumping events next. Found by bisecting 108 test files.
+        worker.signals.finished.connect(weak_slot(self, lambda box, text: box._say_logs(text)))
+        worker.signals.failed.connect(weak_slot(self, lambda box, _e: box._say_logs("")))
         run(QThreadPool.globalInstance(), worker)
+
+    def _say_logs(self, text: str) -> None:
+        try:
+            self.logs_status.setText(str(text or ""))
+        except RuntimeError:             # the page closed while the folder was walked
+            return
 
     def clear_logs(self) -> None:
         """Ask, then delete the log files, then say what went.
