@@ -811,6 +811,8 @@ class PipelineConfig:
     #: and dividers attached to mail unread (`app/extract/junk_images.py`).
     #: From `INDEX_JUNK_IMAGE_FILTER`; on by default.
     junk_images: bool = True
+    #: From `MAIL_ATTACHMENTS`: what is read from a mail attachment.
+    mail_attachments: str = "documents"
     #: Honour the Live/Archive mode on each root. Off for a run that must see
     #: everything whatever the modes say - `--recheck-archives` sets `recheck`
     #: instead, which walks the archives *and* refreshes their records.
@@ -3645,7 +3647,8 @@ class Pipeline:
         with reader_reading.reading(
                 images=reader_reading.images_for_ocr_mode(self.config.ocr_mode),
                 junk=(self._image_book()
-                      if getattr(self.config, "junk_images", True) else False)) as policy:
+                      if getattr(self.config, "junk_images", True) else False),
+                attachments=str(getattr(self.config, "mail_attachments", "documents"))) as policy:
             finished = False
             try:
                 yield from self._read_stream(candidate, digest)

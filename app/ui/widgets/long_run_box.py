@@ -25,9 +25,12 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import pyqtSignal
 from PyQt6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox,
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout,
 )
 
+from app.ui.presenter.coverage import (
+    ATTACHMENTS, CODE, EMAIL, FILES, MEDIA, PICTURES, PLACES, ZIPS, place_sentence,
+)
 from app.ui.tuning import cost_hint
 
 __all__ = ["LongRunBox"]
@@ -47,6 +50,14 @@ def _cost(key: str) -> QLabel:
     label.setWordWrap(True)
     label.setObjectName("costHint")
     label.setEnabled(False)              # renders as the muted secondary text
+    return label
+
+
+def _elsewhere(text: str) -> QLabel:
+    """Where a place's levers are set, when that is another page."""
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setEnabled(False)              # the muted secondary text, like a cost line
     return label
 
 
@@ -165,6 +176,27 @@ class LongRunBox(QGroupBox):
         self.junk_images_note.setObjectName("junkImagesDormantNote")
         self.junk_images_note.setWordWrap(True)
 
+        # **The lever the owner asked for** (1 October 2026): what is read out
+        # of a file attached to an email - `app/extract/mail_attachments.py`.
+        # The logo switch above is live only while pictures are being read.
+        self.mail_attachments = QComboBox()
+        self.mail_attachments.setObjectName("MAIL_ATTACHMENTS")
+        self.mail_attachments.addItem("Names only - nothing is opened", "names")
+        self.mail_attachments.addItem("Documents - Office, PDF and text", "documents")
+        self.mail_attachments.addItem("Documents and pictures - slow", "pictures")
+        self.mail_attachments.addItem("Everything Leasha can read - slowest", "everything")
+        # The default before anything is loaded - not the first item, "Names only".
+        self.mail_attachments.setCurrentIndex(self.mail_attachments.findData("documents"))
+        self.mail_attachments.setToolTip(
+            "Which files attached to an email are opened and read.\n\n"
+            "Every attachment is listed on the Files tab and found by its name\n"
+            "whatever this says; it decides only whether its words are read too.\n"
+            "Applies to mail read after the change - re-index a mailbox to\n"
+            "apply it to mail already indexed."
+        )
+        self.mail_attachments.currentIndexChanged.connect(lambda _i: self._sync_junk())
+        self.mail_attachments.currentIndexChanged.connect(lambda _i: self.changed.emit())
+
         # **A budget, not a switch.** At ~3.6s a page, twenty pages is about a
         # minute a document and covers the title, contents and introduction.
         # All-or-nothing is the sixty-hour column.
@@ -239,30 +271,72 @@ class LongRunBox(QGroupBox):
         )
         self.stall_limit.valueChanged.connect(lambda _v: self.changed.emit())
 
-        form = QFormLayout(self)
-        form.addRow(self.name_only)
-        form.addRow(_cost("INDEX_NAME_ONLY"))
-        form.addRow("Images and scans", self.ocr_mode)
-        form.addRow(_cost("INDEX_OCR_MODE"))
-        form.addRow("Pages of a scanned PDF", self.pdf_ocr_pages)
-        form.addRow("How white a photo must be to read as a page",
-                    self.ocr_white_page_percent)
-        form.addRow(self.junk_images_note)
-        form.addRow(self.junk_images)
-        form.addRow("Re-check archives every", self.archive_recheck_days)
-        form.addRow(self.archive_read_inside)
-        form.addRow(_cost("ARCHIVE_READ_INSIDE"))
-        form.addRow("Largest archive to read", self.archive_max_mb)
-        form.addRow("Time limit per file", self.file_time_limit)
-        form.addRow("Skip a mailbox or archive after no progress for",
-                    self.stall_limit)
+        # **Place by place** (owner, 1 October 2026): one block per place, its
+        # levers, and a sentence saying what they do there - recomputed as a
+        # lever moves (`presenter/coverage.py`). The controls and the labels
+        # beside them are the ones this box always had; only the grouping is new.
+        rows = {
+            FILES: [(None, self.name_only), (None, _cost("INDEX_NAME_ONLY")),
+                    ("Re-check archives every", self.archive_recheck_days),
+                    ("Time limit per file", self.file_time_limit)],
+            EMAIL: [("Skip a mailbox or archive after no progress for", self.stall_limit)],
+            ATTACHMENTS: [("What to read from email attachments", self.mail_attachments),
+                          (None, self.junk_images_note), (None, self.junk_images)],
+            ZIPS: [(None, self.archive_read_inside), (None, _cost("ARCHIVE_READ_INSIDE")),
+                   ("Largest archive to read", self.archive_max_mb)],
+            PICTURES: [("Images and scans", self.ocr_mode), (None, _cost("INDEX_OCR_MODE")),
+                       ("Pages of a scanned PDF", self.pdf_ocr_pages),
+                       ("How white a photo must be to read as a page",
+                        self.ocr_white_page_percent)],
+            MEDIA: [(None, _elsewhere("Switched on and off in Settings, Models & AI."))],
+            CODE: [],
+        }
+        self._levers: dict = {}
+        self.sentences: dict[str, QLabel] = {}
+        layout = QVBoxLayout(self)
+        for place in PLACES:
+            block = QGroupBox(place)
+            block.setObjectName("place")
+            form = QFormLayout(block)
+            sentence = QLabel()
+            sentence.setObjectName("placeSentence")
+            sentence.setWordWrap(True)
+            self.sentences[place] = sentence
+            form.addRow(sentence)
+            for label, widget in rows[place]:
+                if label is None:
+                    form.addRow(widget)
+                else:
+                    form.addRow(label, widget)
+            layout.addWidget(block)
+        self.changed.connect(self._refresh)
+        self._sync_junk()
+        self._refresh()
+
+    def _sync_junk(self) -> None:
+        """The logo switch is live only while pictures in mail are read."""
+        reads_pictures = self.mail_attachments.currentData() in ("pictures", "everything")
+        self.junk_images.setEnabled(reads_pictures)
+        self.junk_images_note.setVisible(not reads_pictures)
+
+    def _refresh(self) -> None:
+        """Every place's sentence, from the levers as they stand right now."""
+        levers = {**self._levers, **self.values()}
+        for place, label in self.sentences.items():
+            label.setText(place_sentence(place, levers))
 
     def load(self, settings: Any) -> None:
         """Fill from Settings without emitting - see `IndexingSettings.load_indexing`."""
+        # The levers that live on other pages, for the sentences that use them.
+        self._levers = {name: getattr(settings, name) for name in (
+            "index_ocr_pass", "index_watch_folders", "video_indexing_enabled",
+            "audio_transcription_enabled", "caption_trickle_enabled",
+            "people_recognition_enabled") if hasattr(settings, name)}
         widgets = (self.ocr_mode, self.archive_recheck_days, self.name_only,
                    self.archive_read_inside, self.archive_max_mb,
                    self.pdf_ocr_pages, self.ocr_white_page_percent,
-                   self.file_time_limit, self.stall_limit, self.junk_images)
+                   self.file_time_limit, self.stall_limit, self.junk_images,
+                   self.mail_attachments)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -287,9 +361,14 @@ class LongRunBox(QGroupBox):
                 int(getattr(settings, "index_stall_limit_s", 600)))
             self.junk_images.setChecked(
                 bool(getattr(settings, "index_junk_image_filter", True)))
+            found = self.mail_attachments.findData(
+                str(getattr(settings, "mail_attachments", "documents")))
+            self.mail_attachments.setCurrentIndex(found if found >= 0 else 1)
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
+        self._sync_junk()
+        self._refresh()
 
     def values(self) -> dict:
         """Keyed by `Settings` field name, like `IndexingSettings.current_limits`."""
@@ -304,4 +383,5 @@ class LongRunBox(QGroupBox):
             "index_file_time_limit_s": int(self.file_time_limit.value()),
             "index_stall_limit_s": int(self.stall_limit.value()),
             "index_junk_image_filter": bool(self.junk_images.isChecked()),
+            "mail_attachments": str(self.mail_attachments.currentData() or "documents"),
         }

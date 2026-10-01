@@ -512,6 +512,18 @@ SETTINGS: tuple[Setting, ...] = (
              "as documents unnecessarily.",
     ),
     Setting(
+        key="MAIL_ATTACHMENTS", label="What to read from email attachments",
+        kind="choice", default="documents", group="Tuning", surface="indexing.tuning",
+        choices=("names", "documents", "pictures", "everything"),
+        help="Names only: nothing attached to an email is opened; each file is "
+             "listed and findable by its name. Documents: Word, Excel, "
+             "PowerPoint, PDF, text, CSV and HTML are read; a zip gives its "
+             "name and the names of the files in it; pictures are kept by name. "
+             "Documents and pictures: the same, and the text in pictures is "
+             "read too, which is slow. Everything: every attachment Leasha can "
+             "read, zips unpacked. Applies to mail read after the change.",
+    ),
+    Setting(
         key="INDEX_JUNK_IMAGE_FILTER",
         label="Leave out signature logos and icons in email", kind="bool",
         default=True, group="Tuning", surface="indexing.tuning",

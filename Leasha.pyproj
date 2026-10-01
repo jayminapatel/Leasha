@@ -368,6 +368,7 @@
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
+    <Compile Include="app\ui\presenter\coverage.py" />
     <Compile Include="app\ui\presenter\explain.py" />
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
@@ -631,6 +632,7 @@
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
+    <Compile Include="tests\unit\test_coverage.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_date_forms_every_box.py" />
@@ -751,6 +753,7 @@
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
+    <Compile Include="tests\unit\test_list_chips_qt.py" />
     <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
@@ -971,6 +974,7 @@
     <Compile Include="tests\unit\test_vs_project.py" />
     <Compile Include="tests\unit\test_walker.py" />
     <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
+    <Compile Include="tests\unit\test_what_gets_read_qt.py" />
     <Compile Include="tests\unit\test_why_result.py" />
     <Compile Include="tests\unit\test_wildcards.py" />
     <Compile Include="tests\unit\test_window_opens.py" />

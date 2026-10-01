@@ -210,6 +210,7 @@ def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: objec
         # hatch that ignores the modes entirely without touching the records.
         ocr_mode=ocr_mode,
         junk_images=bool(getattr(settings, "index_junk_image_filter", True)),
+        mail_attachments=str(getattr(settings, "mail_attachments", "documents")),
         archives=archives,
         recheck_archives=recheck_archives,
         recheck_days=settings.archive_recheck_days,

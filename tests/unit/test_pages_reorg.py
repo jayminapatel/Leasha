@@ -148,16 +148,30 @@ def test_theme_lives_under_appearance(settings_and_store):
     assert view._nav.page(CATEGORY_APPEARANCE).isAncestorOf(view.theme)
 
 
-def test_indexing_has_three_categories_in_order():
+def test_indexing_has_its_categories_in_order():
+    """Four since 1 October 2026: the owner asked for the indexing levers to be
+    grouped by place on a page of their own - *What gets read*. Was three
+    (`test_indexing_has_three_categories_in_order`)."""
     from app.ui.indexing_view import (
-        CATEGORY_SCHEDULE, CATEGORY_STATUS, CATEGORY_TUNING, IndexingView,
+        CATEGORY_SCHEDULE, CATEGORY_STATUS, CATEGORY_TUNING, CATEGORY_WHAT_GETS_READ,
+        IndexingView,
     )
 
     _qt()
     view = IndexingView()
 
     assert view._nav.category_names() == [
-        CATEGORY_STATUS, CATEGORY_SCHEDULE, CATEGORY_TUNING]
+        CATEGORY_STATUS, CATEGORY_WHAT_GETS_READ, CATEGORY_SCHEDULE, CATEGORY_TUNING]
+
+
+def test_the_coverage_levers_sit_on_what_gets_read_not_tuning():
+    from app.ui.indexing_view import CATEGORY_TUNING, CATEGORY_WHAT_GETS_READ, IndexingView
+
+    _qt()
+    view = IndexingView()
+
+    assert view._nav.page(CATEGORY_WHAT_GETS_READ).isAncestorOf(view.tuning.coverage)
+    assert not view._nav.page(CATEGORY_TUNING).isAncestorOf(view.tuning.coverage)
 
 
 def test_schedule_and_tuning_boxes_reach_their_own_pages():

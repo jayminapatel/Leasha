@@ -824,6 +824,8 @@ class IndexController(QObject):
                 ocr_mode=self._w._ocr_mode_for_run(),
                 junk_images=bool(getattr(
                     self._w._settings, "index_junk_image_filter", True)),
+                mail_attachments=str(getattr(
+                    self._w._settings, "mail_attachments", "documents")),
                 embed_batch=tuned.embed_batch,
                 dedup_chunks=bool(getattr(self._w._settings, "embed_dedup", True)),
                 two_phase=bool(getattr(self._w._settings, "index_two_phase", True)),

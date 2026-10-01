@@ -44,7 +44,7 @@ __all__ = [
 ]
 
 
-def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) -> CategoryNav:
+def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> CategoryNav:
     """Three shelves, one sidebar (§2a; see the view's module docstring for §2b).
 
     **Status keeps its old, unwrapped shape.** `view.skips` already scrolls its
@@ -54,10 +54,14 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     are the two shelves that pushed the old single page past its height with
     nothing to scroll it, so they are the two that get `scrollable()`.
 
-    `names` is `(status, schedule, tuning)`, in display order. Returns the
-    sidebar; the outer layout is set on `view` here.
+    `names` is `(status, what gets read, schedule, tuning)`, in display order.
+    Returns the sidebar; the outer layout is set on `view` here.
+
+    **What gets read** (owner, 1 October 2026) is the levers grouped by place,
+    each with a sentence saying what it does there - `tuning.coverage`, the
+    box that has always held them, moved off the Tuning page onto its own.
     """
-    status_name, schedule_name, tuning_name = names
+    status_name, read_name, schedule_name, tuning_name = names
 
     status_page = QWidget()
     status_layout = QVBoxLayout(status_page)
@@ -137,8 +141,15 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, str, str]) ->
     tuning_layout.addWidget(view.tuning)
     tuning_layout.addStretch(1)
 
+    read_page = QWidget()
+    read_layout = QVBoxLayout(read_page)
+    read_layout.setContentsMargins(0, 0, 0, 0)
+    read_layout.addWidget(view.tuning.coverage)
+    read_layout.addStretch(1)
+
     nav = CategoryNav()
     nav.add_category(status_name, status_page)
+    nav.add_category(read_name, scrollable(read_page))
     nav.add_category(schedule_name, scrollable(schedule_page))
     nav.add_category(tuning_name, scrollable(tuning_page))
 

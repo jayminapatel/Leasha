@@ -417,6 +417,10 @@ class Settings(BaseModel):
     #: mail unread (`app/extract/junk_images.py`). On by default - the owner's
     #: report was that signature images were being read, slowly, for nothing.
     index_junk_image_filter: bool = True
+    #: What is read from a file attached to an email (owner, 1 October 2026):
+    #: names | documents | pictures | everything. See
+    #: `app/extract/mail_attachments.py`; documents is the owner's own rule.
+    mail_attachments: str = "documents"
     #: Rung 1 of the OCR ladder (`app/extract/ocr_ladder.py`): above this
     #: percentage of plain-white pixels in a downscaled thumbnail, an image
     #: goes straight to full OCR rather than the cheaper detection probe.
@@ -547,6 +551,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "ARCHIVE_READ_INSIDE",
     "ARCHIVE_MAX_MB",
     "PDF_OCR_PAGES",
+    "MAIL_ATTACHMENTS",
     "OCR_WHITE_PAGE_PERCENT",
     "INDEX_JUNK_IMAGE_FILTER",
     "MIN_FREE_GB",
@@ -769,6 +774,7 @@ def load_settings(
             index_junk_image_filter=_as_bool(
                 "INDEX_JUNK_IMAGE_FILTER",
                 values.get("INDEX_JUNK_IMAGE_FILTER", "true")),
+            mail_attachments=(values.get("MAIL_ATTACHMENTS") or "documents").strip().lower(),
             min_free_gb=_as_int("MIN_FREE_GB", values.get("MIN_FREE_GB", "5")),
             required_free_gb=_as_int("REQUIRED_FREE_GB", values.get("REQUIRED_FREE_GB", "300")),
             env_file=path,
@@ -816,6 +822,8 @@ def load_settings(
         ("INDEX_OCR_PASS", settings.index_ocr_pass,
          ("with-run", "after-run", "manual")),
         ("INDEX_ORDER", settings.index_order, ("newest", "found")),
+        ("MAIL_ATTACHMENTS", settings.mail_attachments,
+         ("names", "documents", "pictures", "everything")),
         ("SEARCH_FIX_SPELLING", settings.search_fix_spelling,
          ("auto", "suggest", "off")),
     ):

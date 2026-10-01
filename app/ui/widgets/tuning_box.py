@@ -125,7 +125,9 @@ class TuningBox(QGroupBox):
         layout.addWidget(self.machine)
         layout.addWidget(self.compute)
         layout.addWidget(self.resources)
-        layout.addWidget(self.coverage)
+        # `self.coverage` is laid out on the *What gets read* page now
+        # (`indexing_layout.assemble_pages`, 1 October 2026); this box still
+        # owns it, loads it and relays its changes, so nothing else moved.
         layout.addWidget(self.strategy)
         layout.addWidget(self.converter)
         layout.addWidget(self.footer)

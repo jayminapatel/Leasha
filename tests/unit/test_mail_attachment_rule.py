@@ -130,3 +130,60 @@ def test_a_damaged_zip_still_keeps_its_name():
     row = mail_attachments.name_only_document("broken.zip", "pst://a/1",
                                               inside=mail_attachments.names_inside(b"x"))
     assert row.text == "broken.zip" and row.virtual_path == "pst://a/1/attachments/broken.zip"
+
+
+# -- the lever: MAIL_ATTACHMENTS (owner, 1 October 2026) ------------------------
+
+
+@pytest.mark.parametrize("mode, name, expected", [
+    ("names", "Brief.docx", NAME_ONLY), ("names", "photos.zip", NAME_ONLY),
+    ("documents", "Brief.docx", CONTENTS), ("documents", "receipt.png", NAME_ONLY),
+    ("pictures", "receipt.png", CONTENTS), ("pictures", "photos.zip", NAMES_INSIDE),
+    ("pictures", "installer.exe", NAME_ONLY),
+    ("everything", "photos.zip", CONTENTS), ("everything", "installer.exe", CONTENTS),
+])
+def test_each_mode_decides_what_is_read(readers, mode, name, expected):
+    assert rule(name, mode) == expected
+
+
+def test_the_mode_comes_from_the_read_in_progress(readers):
+    with reading.reading(attachments="names"):
+        assert rule("Brief.docx") == NAME_ONLY
+    with reading.reading(attachments="pictures"):
+        assert rule("receipt.png") == CONTENTS
+    assert rule("receipt.png") == NAME_ONLY                     # documents, the default
+
+
+def test_names_only_opens_nothing(monkeypatch, readers):
+    install_fake(monkeypatch, FakeFolder("", children=[FakeFolder("Inbox", messages=[
+        FakeMessage(1, subject="Holiday", plain="See attached.",
+                    headers="Message-ID: <m1@example.com>\nFrom: maya@example.com\n",
+                    attachments=[FakeAttachment("Brief.docx", b"d")])])]))
+    with reading.reading(attachments="names"):
+        documents = list(pst_libpff.read_archive(Path("Archive2007.pst")))
+    assert readers["office"].calls == []
+    assert [d.text for d in documents if d.meta.get("attachment_name")] == ["Brief.docx"]
+
+
+def test_pictures_mode_reads_a_picture(monkeypatch, readers):
+    install_fake(monkeypatch, FakeFolder("", children=[FakeFolder("Inbox", messages=[
+        FakeMessage(1, subject="Receipt", plain="Attached.",
+                    headers="Message-ID: <m2@example.com>\nFrom: maya@example.com\n",
+                    attachments=[FakeAttachment("receipt.png", b"\x89PNG-receipt")])])]))
+    with reading.reading(attachments="pictures", junk=False):
+        list(pst_libpff.read_archive(Path("Archive2007.pst")))
+    assert readers["ocr"].calls == ["receipt.png"]
+
+
+def test_the_setting_is_a_checked_closed_set(temp_env):
+    from app.core.config import load_settings
+    from app.core.errors import AppErrorException
+
+    assert load_settings(temp_env).mail_attachments == "documents"
+    temp_env.write_text(temp_env.read_text(encoding="utf-8")
+                        + "\nMAIL_ATTACHMENTS=pictures\n", encoding="utf-8")
+    assert load_settings(temp_env).mail_attachments == "pictures"
+    temp_env.write_text(temp_env.read_text(encoding="utf-8")
+                        + "\nMAIL_ATTACHMENTS=some\n", encoding="utf-8")
+    with pytest.raises(AppErrorException):
+        load_settings(temp_env)

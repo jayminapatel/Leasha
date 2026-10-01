@@ -82,10 +82,13 @@ class Reading:
       document first.
     """
 
-    __slots__ = ("images", "held", "counts", "junk", "not_read", "in_hand")
+    __slots__ = ("images", "held", "counts", "junk", "not_read", "in_hand", "attachments")
 
-    def __init__(self, images: str = IMAGES_READ, junk: Any = True) -> None:
+    def __init__(self, images: str = IMAGES_READ, junk: Any = True,
+                 attachments: str = "documents") -> None:
         self.images = images
+        #: What to read from mail attachments - `mail_attachments.MODES`.
+        self.attachments = attachments
         self.held = 0
         self.counts: dict[str, int] = {}
         self.junk: Optional[Any] = _book(junk)
@@ -160,14 +163,15 @@ def current() -> Reading:
 
 
 @contextmanager
-def reading(*, images: str = IMAGES_READ, junk: Any = True) -> Iterator[Reading]:
+def reading(*, images: str = IMAGES_READ, junk: Any = True,
+            attachments: str = "documents") -> Iterator[Reading]:
     """Ask readers on this thread to treat pictures as `images`, until the block ends.
 
     `junk`: the junk-image filter's book (`junk_images.ImageBook`), `True` for
     a fresh one, or `False` to switch the filter off.
     """
     stack = _stack()
-    entry = Reading(images, junk)
+    entry = Reading(images, junk, attachments)
     stack.append(entry)
     try:
         yield entry

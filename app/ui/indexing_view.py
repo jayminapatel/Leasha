@@ -68,6 +68,7 @@ _log = logger.bind(component="ui.indexing")
 
 #: The three shelves, in display order.
 CATEGORY_STATUS = "Status"
+CATEGORY_WHAT_GETS_READ = "What gets read"
 CATEGORY_SCHEDULE = "Schedule"
 CATEGORY_TUNING = "Tuning"
 
@@ -223,8 +224,8 @@ class IndexingView(QWidget):
         # --- §2a: three shelves, one sidebar (see the module docstring for §2b,
         # the layout fix this split is). Assembled in `widgets/indexing_layout.py`,
         # which also says why Status stays unwrapped and the other two scroll.
-        self._nav = assemble_pages(
-            self, self.controls, (CATEGORY_STATUS, CATEGORY_SCHEDULE, CATEGORY_TUNING))
+        self._nav = assemble_pages(self, self.controls, (
+            CATEGORY_STATUS, CATEGORY_WHAT_GETS_READ, CATEGORY_SCHEDULE, CATEGORY_TUNING))
 
     # -- running ------------------------------------------------------------
 

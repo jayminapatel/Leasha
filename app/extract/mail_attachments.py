@@ -33,12 +33,22 @@ from app.extract.base import Document, SourceKind
 
 __all__ = [
     "CONTENTS", "NAMES_INSIDE", "NAME_ONLY", "CONTENT_EXTENSIONS",
+    "NAMES", "DOCUMENTS", "PICTURES", "EVERYTHING", "MODES",
     "rule", "names_inside", "name_only_document",
 ]
 
 CONTENTS = "contents"
 NAMES_INSIDE = "names_inside"
 NAME_ONLY = "name_only"
+
+#: **The lever** (`MAIL_ATTACHMENTS`, owner, 1 October 2026: *"would it not be
+#: better to make it configurable"*). `DOCUMENTS` is the rule above and the
+#: default; the others widen or narrow it without a second code path.
+NAMES = "names"                  # nothing opened; every attachment by name
+DOCUMENTS = "documents"          # the rule above
+PICTURES = "pictures"            # the rule above, and pictures read by OCR
+EVERYTHING = "everything"        # every attachment a reader exists for, zips unpacked
+MODES = (NAMES, DOCUMENTS, PICTURES, EVERYTHING)
 
 #: Read for their contents: the Office formats the registry reads, and PDF -
 #: and, from the owner's second answer the same day, plain text, CSV and HTML,
@@ -60,14 +70,40 @@ _ZIP_EXTENSIONS = frozenset({".zip", ".jar", ".nupkg", ".whl"})
 MAX_NAMES = 1000
 
 
-def rule(name: str) -> str:
-    """`CONTENTS`, `NAMES_INSIDE` or `NAME_ONLY` for an attachment called `name`."""
+def rule(name: str, mode: Optional[str] = None) -> str:
+    """`CONTENTS`, `NAMES_INSIDE` or `NAME_ONLY` for an attachment called `name`.
+
+    `mode` is one of `MODES`; None means the current read's (`reading.current().
+    attachments`, set from `MAIL_ATTACHMENTS` by the pipeline). Whether a type
+    marked `CONTENTS` can actually be read is still the registry's question -
+    the reader records an unreadable one by name.
+    """
+    if mode is None:
+        from app.extract import reading
+
+        mode = getattr(reading.current(), "attachments", DOCUMENTS)
+    if mode == NAMES:
+        return NAME_ONLY
+    if mode == EVERYTHING:
+        return CONTENTS
     suffix = Path(str(name or "")).suffix.lower()
     if suffix in CONTENT_EXTENSIONS:
         return CONTENTS
     if suffix in _ZIP_EXTENSIONS:
         return NAMES_INSIDE
+    if mode == PICTURES and _is_picture(name):
+        return CONTENTS
     return NAME_ONLY
+
+
+def _is_picture(name: str) -> bool:
+    """Whether OCR is what reads this name. Never raises."""
+    try:
+        from app.extract.base import reads_by_ocr
+
+        return bool(reads_by_ocr(Path(str(name))))
+    except Exception:                                  # noqa: BLE001
+        return False
 
 
 def names_inside(data: bytes) -> list[str]:

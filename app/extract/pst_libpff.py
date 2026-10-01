@@ -976,8 +976,11 @@ def _each_attachment(
             report.status(progress.STATUS_HELD)
             continue
         if not _readable_type(name, known):
+            # Never opened, and - since 1 October 2026 - still listed by name,
+            # like every attachment, whatever `MAIL_ATTACHMENTS` says.
             report.status(progress.STATUS_SKIPPED)
             _log.debug("attachment '{}' on {} is a type nothing reads", name, message_key)
+            yield rules.name_only_document(name, message_key, backend="libpff")
             continue
 
         try:
