@@ -74,8 +74,10 @@ def _read(monkeypatch, *attachments):
     ("old.doc", CONTENTS), ("old.xls", CONTENTS), ("old.ppt", CONTENTS),
     ("voucher.pdf", CONTENTS),
     ("photos.zip", NAMES_INSIDE),
-    ("receipt.jpg", NAME_ONLY), ("scan.png", NAME_ONLY), ("notes.txt", NAME_ONLY),
-    ("costs.csv", NAME_ONLY), ("installer.exe", NAME_ONLY), ("no-extension", NAME_ONLY),
+    # Plain text, CSV and HTML are read too (the owner's second answer, 1 October).
+    ("notes.txt", CONTENTS), ("costs.csv", CONTENTS), ("page.html", CONTENTS),
+    ("receipt.jpg", NAME_ONLY), ("scan.png", NAME_ONLY), ("drawing.dwg", NAME_ONLY),
+    ("installer.exe", NAME_ONLY), ("no-extension", NAME_ONLY),
 ])
 def test_only_office_documents_and_pdfs_are_read(name, expected):
     assert rule(name) == expected
@@ -100,10 +102,16 @@ def test_an_inline_picture_gets_no_row_at_all(monkeypatch, readers):
     assert found == {} and readers["ocr"].calls == []
 
 
-def test_any_other_type_is_kept_by_name_and_never_opened(monkeypatch, readers):
+def test_plain_text_is_read(monkeypatch, readers):
     found = _read(monkeypatch, FakeAttachment("notes.txt", b"pump station notes"))
-    assert readers["text"].calls == []
-    assert found["notes.txt"].text == "notes.txt"
+    assert readers["text"].calls == ["notes.txt"]
+    assert "Contents of" in found["notes.txt"].text
+
+
+def test_any_other_type_is_kept_by_name_and_never_opened(monkeypatch, readers):
+    found = _read(monkeypatch, FakeAttachment("drawing.dwg", b"AC1032"))
+    assert found["drawing.dwg"].text == "drawing.dwg"
+    assert found["drawing.dwg"].meta["contents_read"] is False
 
 
 def test_a_zip_gives_its_name_and_its_members_names_and_nothing_inside(monkeypatch, readers):

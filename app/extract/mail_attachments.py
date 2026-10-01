@@ -7,8 +7,9 @@ name and no ocr on pictures, the zip name and the file names inside the zip
 should be indexed, only for office documents contents should be indexed"* - and
 PDFs are read too. So an attachment is one of three things:
 
-* **contents** - Word, Excel, PowerPoint and PDF: read through the registry as
-  before, because that is where the text people search for lives;
+* **contents** - Word, Excel, PowerPoint and PDF, and plain text, CSV and HTML:
+  read through the registry as before, because that is where the text people
+  search for lives;
 * **names inside** - a zip: its own name and the names of the files in it,
   read from the zip's directory, nothing unpacked;
 * **name only** - everything else, pictures included: never opened, never OCR'd.
@@ -39,12 +40,15 @@ CONTENTS = "contents"
 NAMES_INSIDE = "names_inside"
 NAME_ONLY = "name_only"
 
-#: Read for their contents: the Office formats the registry reads, and PDF.
+#: Read for their contents: the Office formats the registry reads, and PDF -
+#: and, from the owner's second answer the same day, plain text, CSV and HTML,
+#: which cost almost nothing to read and are often the whole point of the mail.
 CONTENT_EXTENSIONS = frozenset({
     ".docx", ".docm", ".dotx", ".dotm", ".doc", ".dot",
     ".xlsx", ".xlsm", ".xltx", ".xls", ".xlt",
     ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm", ".ppt", ".pps", ".pot",
     ".pdf",
+    ".txt", ".csv", ".html", ".htm",
 })
 
 #: The zip family `archive.ArchiveExtractor` reads - the ones whose directory

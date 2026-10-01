@@ -418,6 +418,20 @@ def test_the_setting_is_registered_read_and_has_a_control(temp_env) -> None:
     assert box.values()["index_junk_image_filter"] is False
 
 
+def test_the_switch_says_it_has_no_effect_while_mail_pictures_are_not_read(temp_env) -> None:
+    """1 October 2026: a switch that changes nothing must not look as if it does."""
+    from PyQt6.QtWidgets import QLabel, QWidget
+
+    from app.core.settings_registry import by_key
+    from app.ui.widgets.long_run_box import LongRunBox
+
+    box = LongRunBox()
+    assert not box.findChild(QWidget, "INDEX_JUNK_IMAGE_FILTER").isEnabled()
+    note = box.findChild(QLabel, "junkImagesDormantNote")
+    assert note is not None and "no effect" in note.text()
+    assert by_key("INDEX_JUNK_IMAGE_FILTER").help.startswith("Note, 1 October 2026")
+
+
 def test_the_pipeline_hands_the_book_only_when_the_filter_is_on(tmp_path) -> None:
     from app.index.pipeline import PipelineConfig
     from app.index.walker import WalkConfig

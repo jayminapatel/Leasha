@@ -515,7 +515,9 @@ SETTINGS: tuple[Setting, ...] = (
         key="INDEX_JUNK_IMAGE_FILTER",
         label="Leave out signature logos and icons in email", kind="bool",
         default=True, group="Tuning", surface="indexing.tuning",
-        help="Pictures attached to email that are only decoration - a "
+        help="Note, 1 October 2026: pictures attached to email are now kept by "
+             "name only and never read, so this setting has no effect. "
+             "Pictures attached to email that are only decoration - a "
              "signature logo repeated in every message, social-media icons, "
              "tracking pixels, divider lines - are not read, because reading "
              "text out of each one takes time and finds nothing worth "

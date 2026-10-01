@@ -153,6 +153,17 @@ class LongRunBox(QGroupBox):
             "photos are read as before. Switch it off to read every picture."
         )
         self.junk_images.stateChanged.connect(lambda _s: self.changed.emit())
+        # **1 October 2026: dormant, so it is shown switched off from use.**
+        # Pictures attached to mail are now kept by name and never read
+        # (`app/extract/mail_attachments.py`), so this switch changes nothing;
+        # a control that does nothing is a quiet lie. Its label and tooltip are
+        # released text and stay as they are - the note below says why.
+        self.junk_images.setEnabled(False)
+        self.junk_images_note = QLabel(
+            "Pictures attached to email are now kept by name only and never read, "
+            "so this switch has no effect.")
+        self.junk_images_note.setObjectName("junkImagesDormantNote")
+        self.junk_images_note.setWordWrap(True)
 
         # **A budget, not a switch.** At ~3.6s a page, twenty pages is about a
         # minute a document and covers the title, contents and introduction.
@@ -236,6 +247,7 @@ class LongRunBox(QGroupBox):
         form.addRow("Pages of a scanned PDF", self.pdf_ocr_pages)
         form.addRow("How white a photo must be to read as a page",
                     self.ocr_white_page_percent)
+        form.addRow(self.junk_images_note)
         form.addRow(self.junk_images)
         form.addRow("Re-check archives every", self.archive_recheck_days)
         form.addRow(self.archive_read_inside)
