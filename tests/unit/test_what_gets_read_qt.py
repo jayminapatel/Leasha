@@ -109,6 +109,11 @@ def test_the_settings_levers_are_drawn_in_their_places(settings_and_store):
     assert blocks[PICTURES].isAncestorOf(view.people_recognition)
     assert blocks[MEDIA].isAncestorOf(view.media_box)
     assert box._media_note.isHidden()          # no longer "set elsewhere"
+    from PyQt6.QtWidgets import QLabel
+
+    moved = box.findChild(QLabel, "mediaMovedNote")
+    assert moved is not None and "have moved here" in moved.text()
+    assert blocks[MEDIA].isAncestorOf(moved)
 
 
 def test_a_settings_lever_still_saves_the_way_it_always_did(settings_and_store):
@@ -129,3 +134,20 @@ def test_moving_a_settings_lever_rewrites_its_place_sentence(settings_and_store)
     assert "read through Outlook" in box.sentences[EMAIL].text()
     view.people_recognition.setChecked(True)
     assert "Faces in photos" in box.sentences[PICTURES].text()
+
+
+def test_the_settings_filter_says_where_a_moved_lever_went(settings_and_store):
+    box, view = _gathered(*settings_and_store)
+    view.filter_box.setText("video")
+    assert view.filter_elsewhere.isVisibleTo(view)
+    assert "Read videos on this computer" in view.filter_elsewhere.text()
+    assert view.filter_elsewhere.text().startswith("Also on Indexing, What gets read")
+    assert not view.filter_empty.isVisibleTo(view)
+    view.filter_box.setText("")
+    assert not view.filter_elsewhere.isVisibleTo(view)
+
+
+def test_before_anything_moves_the_filter_finds_it_on_settings(settings_and_store):
+    view = _settings_view(*settings_and_store)
+    view.filter_box.setText("video")
+    assert not view.filter_elsewhere.isVisibleTo(view)

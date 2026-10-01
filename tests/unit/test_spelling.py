@@ -216,9 +216,15 @@ def test_auto_searches_for_the_real_word_and_says_so(engine, typed, corrected):
 
 def test_suggest_leaves_the_query_exactly_as_typed(engine):
     """Files offers the correction and does nothing. Somebody looking for a
-    filename may well have typed it right."""
-    response = engine.search("volcanno", policy=for_surface(FILES),
-                             use_cache=False)
+    filename may well have typed it right.
+
+    1 October 2026: Files now fixes spelling as Search does (owner: the same
+    behaviour on every tab), so "suggest" is asked for by name here - it is
+    still a value a person can choose, and this is what it must do."""
+    from dataclasses import replace
+
+    response = engine.search("volcanno", policy=replace(
+        for_surface(FILES), typo_correction="suggest"), use_cache=False)
     assert response.parsed.terms == ("volcanno",)
     assert _notice(response) == "Did you mean 'volcano'?"
 

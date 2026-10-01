@@ -320,13 +320,22 @@ class SettingsShelves:
             self._reveal_all_controls()
             self._nav.restore_single_view()
             self.filter_empty.setVisible(False)
+            self.filter_elsewhere.setVisible(False)
             return
 
         self._nav.set_sidebar_enabled(False)
         hits: dict[str, bool] = {name: False for name in self._nav.category_names()}
+        # **Levers this page owns but no longer draws** (1 October 2026): they
+        # are shown on Indexing, What gets read (`widgets/what_gets_read.py`),
+        # so a search here that matches one says where it went rather than
+        # finding nothing.
+        elsewhere: list[str] = []
         for setting in reg.SETTINGS:
             widget = self.findChild(QWidget, setting.key)
             if widget is None:
+                if (setting.surface.startswith("settings.")
+                        and needle in f"{setting.label} {setting.help}".lower()):
+                    elsewhere.append(setting.label)
                 continue
             category = self._category_of(widget)
             if category is None:
@@ -342,7 +351,10 @@ class SettingsShelves:
 
         visible = {name for name, hit in hits.items() if hit}
         self._nav.show_all_for_filter(visible)
-        self.filter_empty.setVisible(not visible)
+        self.filter_empty.setVisible(not visible and not elsewhere)
+        self.filter_elsewhere.setText(
+            "Also on Indexing, What gets read: " + ", ".join(elsewhere) if elsewhere else "")
+        self.filter_elsewhere.setVisible(bool(elsewhere))
 
     def _category_of(self, widget: QWidget) -> Optional[str]:
         for name in self._nav.category_names():

@@ -247,6 +247,10 @@ class SettingsView(SettingsShelves, QWidget):
         self.filter_empty = QLabel("No settings match. Try a different word.")
         self.filter_empty.setObjectName("settingsFilterEmpty")
         self.filter_empty.setVisible(False)
+        self.filter_elsewhere = QLabel("")             # see `_apply_filter`
+        self.filter_elsewhere.setObjectName("settingsFilterElsewhere")
+        self.filter_elsewhere.setWordWrap(True)
+        self.filter_elsewhere.setVisible(False)
 
         self._nav = CategoryNav()
         self._nav.category_changed.connect(self._category_selected)
@@ -255,6 +259,7 @@ class SettingsView(SettingsShelves, QWidget):
         layout = QVBoxLayout(self)
         layout.addWidget(self.filter_box)
         layout.addWidget(self.filter_empty)
+        layout.addWidget(self.filter_elsewhere)
         layout.addWidget(self._nav, stretch=1)
 
         # **Neither of these runs during construction any more.**

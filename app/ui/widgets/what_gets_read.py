@@ -28,6 +28,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from PyQt6.QtWidgets import QLabel
+
 from app.ui.presenter.coverage import EMAIL, FILES, MEDIA, PICTURES
 from app.ui.view_options import weak_slot
 
@@ -41,6 +43,14 @@ def gather_levers(coverage: Any, settings_view: Any, *, pst_backend: str = "auto
     coverage.place_in(EMAIL, settings_view.pst_box)
     coverage.place_in(PICTURES, settings_view.caption_trickle)
     coverage.place_in(PICTURES, settings_view.people_recognition)
+    # **A dated note above it, not an edit to it.** The box's own status
+    # lines are released text and still say "In Settings, under 'Videos and
+    # recordings'"; that is where it was, and the note says where it is now.
+    note = QLabel("Note, 1 October 2026: these settings have moved here, to Indexing, "
+                  "What gets read. Where the text below says \"In Settings\", look here.")
+    note.setObjectName("mediaMovedNote")
+    note.setWordWrap(True)
+    coverage.place_in(MEDIA, note)
     coverage.place_in(MEDIA, settings_view.media_box)
     coverage.note_levers({
         "index_cloud": settings_view.cloud.isChecked(),
