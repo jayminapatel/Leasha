@@ -64,7 +64,7 @@ from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract import progress as reader_progress
 from app.extract import reading as reader_reading
-from app.extract.base import extractor_for, reads_externally
+from app.extract.base import change_marker, extractor_for, reads_externally
 from app.core.priority import lower_this_thread
 from app.core.osbridge.pathnames import path_key
 from app.core.run_lock import COMMAND_LINE, publish, stop_requested
@@ -2143,6 +2143,23 @@ class Pipeline:
             if stats.seen or stats.indexed or stats.unchanged:
                 return
 
+            # 2026-10-02: a fourth way, and the other three are untrue of it.
+            # A run stopped before its walk began has read no folder, so "the
+            # folder was read and held no files ... check it is connected"
+            # sent the owner looking at a drive holding twenty archives. Seen
+            # on 2026-10-01 23:41: a run started straight after a Stop spent
+            # 47 s filling in the 512 passages that Stop had left without
+            # vectors, was stopped again, and then said exactly that.
+            stop = getattr(self, "_stop", None)
+            if stop is not None and stop.is_set():
+                notice = (
+                    "This run was stopped before it had looked at any files. "
+                    "Nothing is wrong with the folders - start indexing again "
+                    "to carry on.")
+                stats.add_notice(notice)
+                self._log.warning("{}", notice)
+                return
+
             walked = [str(root) for root in (self.config.walk.roots or [])]
             skipped = len(stats.skipped_roots or [])
 
@@ -3046,6 +3063,32 @@ class Pipeline:
             )
             return ""                        # queue it; the worker reports properly
 
+        # **An archive's own marker, where a hash cannot go** (2026-10-02).
+        # Outlook moves the date of every `.pst` it mounts and changes nothing
+        # in it - all eight archives in the owner's index had the size they
+        # were indexed at and a date 15-17 hours later - so by date and size
+        # every archive was "changed" on every run and every message in it was
+        # read again. A reader that can tell cheaply whether the *contents*
+        # moved (`change_marker`: 564 bytes of a `.pst`'s header) is asked,
+        # the answer is kept on the row where a hash would be, and here it
+        # overrules the date in both directions. No marker - an archive
+        # Outlook holds, a row written before this existed - and the date and
+        # size decide, as they always did. Asked on the scan too
+        # (`hash_now=False`): it is one small read, not a hash of the file.
+        try:
+            marker = change_marker(candidate.path)
+        except Exception:                   # noqa: BLE001 - see the docstring
+            marker = None
+        if marker is not None:
+            known = record.content_hash if record is not None else None
+            if known:
+                if (changed and known == marker
+                        and record.size_bytes == candidate.size_bytes):
+                    changed = False
+                elif not changed and known != marker:
+                    changed = True
+            digest = marker
+
         if self.config.force:
             return digest                    # `--force`: index it whatever the row says
 
@@ -3787,6 +3830,18 @@ class Pipeline:
                           and self._is_held_archive(candidate.path))
         if rereading_held:
             pass
+        elif reads_externally(candidate.path):
+            # Work order `dates-live-log-and-interrupted-runs` 3b: an archive,
+            # which has no digest - see `ARCHIVE_RESUME_PREFIX`.
+            #
+            # 2026-10-02: asked before `digest`, not after it. An archive may
+            # now carry its marker where a digest goes (`_classify`), and it
+            # must still resume by folder, never by the position cursor below.
+            extractor = extractor_for(candidate.path)
+            if extractor is not None and getattr(extractor, "supports_resume", False):
+                resume_key = _archive_resume_key(candidate.path)
+                resume_from, resume_extra = self._load_archive_cursor(
+                    candidate, resume_key)
         elif digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
@@ -3800,14 +3855,6 @@ class Pipeline:
                         candidate.path.name, exc,
                     )
                     resume_from = 0
-        elif reads_externally(candidate.path):
-            # Work order `dates-live-log-and-interrupted-runs` 3b: an archive,
-            # which has no digest - see `ARCHIVE_RESUME_PREFIX`.
-            extractor = extractor_for(candidate.path)
-            if extractor is not None and getattr(extractor, "supports_resume", False):
-                resume_key = _archive_resume_key(candidate.path)
-                resume_from, resume_extra = self._load_archive_cursor(
-                    candidate, resume_key)
 
         produced = 0
         seen_keys: set[str] = set()
@@ -5096,6 +5143,9 @@ class Pipeline:
                 "path": str(item.candidate.path),
                 "size": int(item.candidate.size_bytes),
                 "mtime_ns": int(item.candidate.mtime_ns),
+                # The archive's marker as it was before this read began
+                # (`_classify`), or None. See `_load_archive_cursor`.
+                "marker": item.content_hash,
                 "folder": folder,
                 "read": read,
                 "seen": set(earlier.get("seen") or ()),
@@ -5127,8 +5177,17 @@ class Pipeline:
             if not raw:
                 return 0, None
             cursor = json.loads(raw)
-            if (int(cursor.get("size", -1)) != int(candidate.size_bytes)
-                    or int(cursor.get("mtime_ns", -1)) != int(candidate.mtime_ns)):
+            same_size = int(cursor.get("size", -1)) == int(candidate.size_bytes)
+            same_date = int(cursor.get("mtime_ns", -1)) == int(candidate.mtime_ns)
+            # 2026-10-02: the date alone moving is what Outlook does to an
+            # archive it mounts, and it threw away the cursor of every archive
+            # interrupted while Outlook was open. Where the archive's own
+            # marker (`_classify`) was kept with the cursor and still matches,
+            # its folders are the folders the cursor counted.
+            marker = cursor.get("marker")
+            same_contents = bool(
+                same_size and marker and marker == change_marker(candidate.path))
+            if not (same_size and (same_date or same_contents)):
                 self._log.info(
                     "{} has changed since it was read part-way; reading it from "
                     "the start", candidate.path.name)
@@ -5203,7 +5262,8 @@ class Pipeline:
         for cursor in self._archive_cursors.values():
             values[cursor["key"]] = json.dumps({
                 "path": cursor["path"], "size": cursor["size"],
-                "mtime_ns": cursor["mtime_ns"], "folder": cursor["folder"],
+                "mtime_ns": cursor["mtime_ns"], "marker": cursor.get("marker"),
+                "folder": cursor["folder"],
                 "read": cursor["read"], "seen": sorted(cursor["seen"]),
             })
         if not values:

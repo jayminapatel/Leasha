@@ -48,6 +48,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Protoco
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
+from app.extract import progress
 from app.extract.archive import attachment_key
 from app.extract.base import Document, SourceKind, looks_locked, register, with_closing_warning
 from app.extract.email_files import build_email_document
@@ -61,6 +62,8 @@ __all__ = [
     "walk_session",
     "iter_mailbox_documents",
     "OUTLOOK_EXTENSIONS",
+    "archive_marker",
+    "MARKER_PREFIX",
     "DEFAULT_SKIP_FOLDERS",
     "MAX_ATTACHMENT_BYTES",
 ]
@@ -307,21 +310,38 @@ def walk_session(
             if not file_path or file_path not in wanted:
                 continue
 
-        try:
-            root = store.root()
-        except Exception as exc:                          # noqa: BLE001
-            raise AppErrorException(make_error(
-                "ERR_OUTLOOK_BUSY", "extract.pst",
-                folder=store.display_name, details=str(exc),
-            )) from exc
+        # 2026-10-02: the frame the libpff route has always opened (work order
+        # 0x section 3b), which this route never did. An archive read through
+        # Outlook therefore had no position at all on the Indexing page - the
+        # file's name and a clock - and `2009.pst`, which was handing over
+        # 200 to 2,200 documents every hour, was Force-skipped after 16 h 58
+        # min as stuck. `total` stays None: MAPI gives no count worth trusting
+        # without a second walk, and the frame's own rule is never to guess.
+        name = Path(store.file_path).name if store.file_path else store.display_name
+        with progress.enter("pst", name, unit="message",
+                            stage=progress.STAGE_OPENING) as frame:
+            try:
+                root = store.root()
+            except Exception as exc:                      # noqa: BLE001
+                raise AppErrorException(make_error(
+                    "ERR_OUTLOOK_BUSY", "extract.pst",
+                    folder=store.display_name, details=str(exc),
+                )) from exc
 
-        yield from _walk_folder(
-            store, root,
-            skip_folders=skip_folders,
-            with_attachments=with_attachments,
-            seen_hashes=seen_hashes,
-            on_folder=on_folder,
-        )
+            yield from _walk_folder(
+                store, root,
+                skip_folders=skip_folders,
+                with_attachments=with_attachments,
+                seen_hashes=seen_hashes,
+                on_folder=on_folder,
+                frame=frame,
+            )
+
+
+def _folder_shown(folder_path: str) -> str:
+    """A folder path for the progress line: without the store's root folder,
+    whose name is the archive's own and is already on the line."""
+    return "/".join(part for part in str(folder_path or "").split("/")[1:] if part)
 
 
 def _walk_folder(
@@ -332,9 +352,19 @@ def _walk_folder(
     with_attachments: bool,
     seen_hashes: set[str],
     on_folder: Optional[Callable[[str, int], None]],
+    frame: Optional[progress.Frame] = None,
 ) -> Iterator[Document]:
     if _should_skip_folder(folder, skip_folders):
         return
+
+    if frame is None:
+        # A caller with no frame of its own still gets a working one; nobody
+        # reads it, and that is fine (`progress.frames`).
+        frame = progress.Frame("pst", "", unit="message")
+    # Once per folder, never per message: plain attribute stores.
+    frame.stage = progress.STAGE_MESSAGES
+    frame.where = _folder_shown(folder.path)
+    frame.n = 0
 
     produced = 0
     # **Iterated lazily, not `list(folder.items())`.**
@@ -350,6 +380,11 @@ def _walk_folder(
     # `for` gives no chance to record it. `_iter_folder_items` keeps the guard
     # and the laziness together.
     for item in _iter_folder_items(store, folder):
+        # Every message moves the position, empty ones too, and `beat` rises
+        # for every message and every attachment read - so the no-progress
+        # limit (`file_watch`) sees a slow archive move, as it does for libpff.
+        frame.n += 1
+        frame.beat += 1
         if item.is_empty:
             continue
         key = _message_key(store, item)
@@ -357,9 +392,14 @@ def _walk_folder(
 
         attachment_documents: list[Document] = []
         if with_attachments and item.attachments:
-            attachment_documents = list(
-                _attachment_documents(item, key, seen_hashes, warnings=warnings)
-            )
+            frame.stage = progress.STAGE_ATTACHMENTS
+            try:
+                for attached in _attachment_documents(
+                        item, key, seen_hashes, warnings=warnings):
+                    attachment_documents.append(attached)
+                    frame.beat += 1
+            finally:
+                frame.stage = progress.STAGE_MESSAGES
 
         document = build_email_document(
             Path(store.file_path or store.display_name),
@@ -404,6 +444,7 @@ def _walk_folder(
             with_attachments=with_attachments,
             seen_hashes=seen_hashes,
             on_folder=on_folder,
+            frame=frame,
         )
 
 
@@ -813,6 +854,10 @@ class PstExtractor:
     def supports(self, path: Path) -> bool:
         return path.suffix.lower() in self.extensions
 
+    def change_marker(self, path: Path) -> Optional[str]:
+        """What stands in for a content hash of an archive: see `archive_marker`."""
+        return archive_marker(path)
+
     def extract(
         self, path: Path, *, resume_from: int = 0,
         resume_extra: Optional[Mapping[str, Any]] = None,
@@ -885,6 +930,70 @@ class PstExtractor:
             )
         finally:
             session.close()
+
+
+#: What `archive_marker` writes in front of its answer, so the value can never
+#: be taken for a hash of bytes (those are bare hex).
+MARKER_PREFIX = "pst-header:"
+
+#: How much of the file `archive_marker` reads. The header of a Unicode `.pst`
+#: is 564 bytes ([MS-PST] 2.2.2.6); the last field read ends at 524.
+_HEADER_BYTES = 564
+
+
+def archive_marker(path: Path) -> Optional[str]:
+    r"""A few numbers from the archive's header that move when its mail does
+    and stay put when only its date does. None when they cannot be read.
+
+    **Why** (2026-10-02). Outlook rewrites the header of every archive it has
+    mounted, so the file's date moves while nothing in it has: all eight
+    archives in the owner's index had the size they were indexed at and a date
+    15-17 hours later. Date and size were the whole change test for an archive
+    (its bytes are not hashed - tens of gigabytes, and held open), so every run
+    read every message of every archive again.
+
+    **What is read.** One read of 564 bytes. From it: the next page and block
+    numbers the file will hand out (`bidNextP`, `bidNextB`), where the file
+    ends (`ibFileEof`), and the number and place of the two root pages every
+    folder and message is reached through (`BREFNBT`, `BREFBBT`). A `.pst`
+    never changes a block or a page where it lies: it writes a new one,
+    numbered from those counters, and then points the header at the new roots
+    ([MS-PST] 2.6.1). So mail added, changed or removed moves these numbers.
+
+    **What is left out, on purpose:** `dwUnique`, which counts header writes,
+    and the two checksums over the header. Measured on the owner's `2010.pst`
+    and `2011.pst` across one afternoon mounted in Outlook and its closing:
+    `dwUnique` rose by five, both checksums changed, the date moved - and
+    every number used here was the same.
+
+    **It can only err towards reading.** A header that cannot be read (Outlook
+    holds a byte-range lock on an archive it has mounted - Windows error 33),
+    that is not a Unicode `.pst` (`wVer` 23; an ANSI one lays its header out
+    differently, and none was to hand to measure), or that is torn mid-write
+    gives None or a different answer, and the archive is read as it always
+    was. UNCONFIRMED by measurement here: that Outlook never changes a
+    message without moving these numbers - that rests on the published format.
+    """
+    try:
+        with open(path, "rb") as handle:
+            raw = handle.read(_HEADER_BYTES)
+    except OSError:
+        return None
+    if len(raw) < _HEADER_BYTES or raw[:4] != b"!BDN" or raw[8:10] != b"SM":
+        return None
+    if int.from_bytes(raw[10:12], "little") != 23:
+        return None
+
+    def number(offset: int) -> int:
+        return int.from_bytes(raw[offset:offset + 8], "little")
+
+    return MARKER_PREFIX + ":".join(f"{number(offset):x}" for offset in (
+        32,          # bidNextP
+        516,         # bidNextB
+        184,         # ibFileEof
+        216, 224,    # BREFNBT: bid, ib
+        232, 240,    # BREFBBT: bid, ib
+    ))
 
 
 def _busy_warning(path: Path) -> Optional[AppError]:

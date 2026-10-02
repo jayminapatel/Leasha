@@ -591,6 +591,24 @@ def reads_externally(path: Path) -> bool:
     return bool(getattr(extractor, "reads_externally", False))
 
 
+def change_marker(path: Path) -> Optional[str]:
+    """What a file that is not hashed offers instead, or None. **Never raises.**
+
+    2026-10-02. A file read through another application has no content hash
+    (`reads_externally`), which left its date and size as the whole change
+    test - and Outlook moves the date of every archive it mounts. A reader
+    that can tell cheaply whether such a file's *contents* moved says so
+    through `change_marker(path)`; the pipeline keeps the answer where a hash
+    would go and compares it next time (`Pipeline._classify`). None - no such
+    reader, or it could not tell - means the date and size decide, as before.
+    """
+    try:
+        marker = getattr(extractor_for(path), "change_marker", None)
+        return marker(path) if marker is not None else None
+    except Exception:                               # noqa: BLE001 - a check, not a read
+        return None
+
+
 #: What libpff says when another program holds the file exclusively. Measured
 #: 2026-09-20 against pypff 20231205 on Windows 11: an exclusive hold gives
 #: "...with error: The process cannot access the file because it is being used

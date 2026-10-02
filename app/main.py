@@ -126,6 +126,24 @@ def _catch_native_crashes(log_dir: "Any") -> None:
 
     Written to a file as well as stderr, because the failure that matters is the
     one from a double-clicked shortcut, where there is no console to print to.
+
+    **`all_threads=False`, and "it costs nothing until something dies" was not
+    true with `True`** (2026-10-02, the window died with the folder picker
+    open). On Windows `faulthandler` is called for every exception whose code
+    has the top bit set, *handled or not* - and Windows' own dialogs raise and
+    handle `0x8001010e` (RPC_E_WRONG_THREAD) on threads of their own, 119 times
+    in that session. With `all_threads=True` each one walked every Python
+    thread's stack from the dialog's thread, without the GIL, while the main
+    thread ran Python; the 119th walk read a frame as it changed and that
+    access violation, inside `_Py_DumpTracebackThreads`, was real. So the
+    crash handler was the crash. With `False` the handler writes the stack of
+    the thread the exception is on - which is the one that names a real crash
+    - and for a thread Python did not make, the heading and nothing else.
+
+    What that costs: a real crash no longer lists what the *other* threads
+    were doing. And a line `Windows fatal exception: code 0x8001010e` in
+    `crash.log` is still written for each handled one - it is not a crash;
+    `access violation` is.
     """
     global _CRASH_FILE
 
@@ -146,7 +164,7 @@ def _catch_native_crashes(log_dir: "Any") -> None:
         crash_dir.mkdir(parents=True, exist_ok=True)
         _CRASH_FILE = open(crash_dir / "crash.log", "a", buffering=1,
                            encoding="utf-8")
-        faulthandler.enable(file=_CRASH_FILE, all_threads=True)
+        faulthandler.enable(file=_CRASH_FILE, all_threads=False)
     except Exception:                            # noqa: BLE001
         # A diagnostic that prevents start-up is worse than no diagnostic.
         pass
@@ -155,7 +173,7 @@ def _catch_native_crashes(log_dir: "Any") -> None:
     # destination, so this runs second and only when it can succeed.
     try:
         if sys.stderr is not None:
-            faulthandler.enable()
+            faulthandler.enable(all_threads=False)
     except Exception:                            # noqa: BLE001
         pass
 

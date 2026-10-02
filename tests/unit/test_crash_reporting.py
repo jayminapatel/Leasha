@@ -86,6 +86,92 @@ class TestTheCrashFileSurvivesNoConsole:
         app_main._catch_native_crashes(blocker)      # must not raise
 
 
+#: What `TestAHandledWindowsExceptionIsNotACrash` runs, in a process of its own
+#: because `faulthandler` is process-wide. argv: the log directory, then
+#: "console" to keep stderr or "windowed" to drop it as `pythonw.exe` does.
+_HANDLED_EXCEPTION_SCRIPT = r"""
+import ctypes
+import sys
+import threading
+from ctypes import wintypes
+from pathlib import Path
+
+if sys.argv[2] == "windowed":
+    sys.stderr = None
+
+from app import main as app_main
+
+app_main._catch_native_crashes(Path(sys.argv[1]))
+
+parked, release = threading.Event(), threading.Event()
+
+
+def a_thread_that_is_only_waiting():
+    parked.set()
+    release.wait()
+
+
+threading.Thread(target=a_thread_that_is_only_waiting, daemon=True).start()
+parked.wait()
+
+kernel32 = ctypes.WinDLL("kernel32")
+kernel32.RaiseException.argtypes = [
+    wintypes.DWORD, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p]
+try:
+    # RPC_E_WRONG_THREAD, raised and then handled (ctypes turns it into an
+    # OSError) - what Windows' folder picker does on its own threads.
+    kernel32.RaiseException(0x8001010E, 0, 0, None)
+except OSError:
+    pass
+release.set()
+"""
+
+
+@pytest.mark.skipif(not sys.platform.startswith("win"),
+                    reason="Windows exception handling")
+class TestAHandledWindowsExceptionIsNotACrash:
+    r"""The crash handler must never be the thing that crashes. 2026-10-02.
+
+    The window died with the "Choose a folder to index" picker open. Windows'
+    picker raises `0x8001010e` (RPC_E_WRONG_THREAD) on threads of its own and
+    handles it itself - 119 times in that one session. `faulthandler` on
+    Windows sees every exception whose code has the top bit set, handled or
+    not, and with `all_threads=True` it answered each one by walking every
+    Python thread's stack **from the picker's thread, without the GIL**, while
+    the main thread was running Python (the hotkey's native event filter runs
+    for every window message). The 119th walk read a frame that was changing
+    under it: an access violation inside `_Py_DumpTracebackThreads`
+    (python312.dll+0x27e990, read of 0x78, on a thread Python never made -
+    from the Windows crash dump), and that one was real.
+
+    With `all_threads=False` the handler writes the stack of the thread the
+    exception is on and no other - and for a thread Python does not know,
+    nothing but the heading. That is what these two tests hold: a thread that
+    is only waiting must not appear in the report of an exception elsewhere.
+    """
+
+    @pytest.mark.parametrize("stderr", ["windowed", "console"])
+    def test_other_threads_are_not_walked(self, tmp_path, stderr) -> None:
+        import subprocess
+        from pathlib import Path
+
+        root = Path(app_main.__file__).resolve().parent.parent
+        done = subprocess.run(
+            [sys.executable, "-c", _HANDLED_EXCEPTION_SCRIPT, str(tmp_path), stderr],
+            cwd=root, capture_output=True, text=True, timeout=120)
+        assert done.returncode == 0, done.stderr
+
+        crash_file = (tmp_path / "crash" / "crash.log").read_text(encoding="utf-8")
+        written = crash_file if stderr == "windowed" else done.stderr
+        # The premise: the handler did see the exception, so the assertion
+        # below is about what it wrote and not about it never having fired.
+        assert "0x8001010e" in written, (
+            "faulthandler did not see the handled exception at all")
+        assert "a_thread_that_is_only_waiting" not in written, (
+            "a handled Windows exception made the crash handler walk another "
+            "thread's stack - the walk that killed the window on 2026-10-02")
+
+
 class TestAnExceptionIsWrittenDownBeforePyQtAborts:
     r"""PyQt6 calls `qFatal()` when an exception escapes a slot.
 

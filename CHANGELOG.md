@@ -17,6 +17,40 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The window no longer vanishes with the folder picker open (2026-10-02)
+
+- **Choosing a folder to index could close Leasha without a word.** Windows' folder picker raises
+  and settles small errors of its own while it is open; Leasha's crash reporter treated each one as
+  a crash and inspected every running thread to describe it, and one such inspection in about a
+  hundred went wrong and ended the program. The reporter now describes only the thread that
+  actually failed.
+- **A mail archive read through Outlook shows where it is.** The Indexing page had the folder and
+  message number for an archive read directly, and nothing but the file's name for one read through
+  Outlook - so an archive that had been working for seventeen hours looked stuck.
+- **A run stopped before it reached any files says so.** It used to say the folder had been read
+  and held nothing, and to check the drive was connected.
+- **The Space Report keeps the row you opened.** Leaving Reports and coming straight back could
+  work the report out twice, and the second answer redrew the table - the sort and any opened row
+  gone. One is worked out at a time now.
+- **The Space Report no longer holds the window while it draws.** Every copy of every duplicate
+  was laid out before the table appeared - over a second on an index of mail, where one signature
+  picture is thousands of copies. A row's copies are now laid out when you open it.
+
+### A mail archive that has not changed is not read again (2026-10-02)
+
+- **Outlook changes the date on every archive it opens, and Leasha took that for new mail.** Each
+  run read every message of every `.pst` again. Leasha now looks at the archive's own record of
+  what it holds - a few hundred bytes - and leaves an archive alone when only its date has moved.
+  This works for archives Leasha reads directly; one that Outlook has open is still read as before.
+  Each archive is read once more before this takes effect.
+- **An archive interrupted part-way keeps its place** when Outlook has touched it in between,
+  instead of starting again from its first folder.
+
+### Docs
+
+- `HANDOFF.md` 7.39: four traps dated 2026-10-02 - the crash handler, slow-not-stuck archives
+  through Outlook, Outlook moving every mounted archive's date, and two Reports loads at once.
+
 ### Search, mail attachments and what gets read (2026-10-01)
 
 - **Meaning-based search no longer goes quiet in a window left open.** A window opened before an

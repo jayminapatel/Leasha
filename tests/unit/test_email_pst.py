@@ -134,6 +134,61 @@ def test_every_message_becomes_a_document(archive: FakeSession) -> None:
     }
 
 
+def test_the_walk_says_where_it_is(archive: FakeSession) -> None:
+    """2026-10-02. An archive read through Outlook had no position on the
+    Indexing page - this route never opened the frame the libpff route does -
+    and `2009.pst` was Force-skipped after 16 h 58 min while it was working.
+    """
+    from app.extract import progress
+
+    before = len(progress.frames())
+    seen = []
+    for _document in walk_session(archive):
+        frame = progress.frames()[-1]
+        seen.append((frame.kind, frame.name, frame.where, frame.n, frame.stage))
+
+    assert seen == [
+        ("pst", "2007.pst", "Inbox", 1, progress.STAGE_MESSAGES),
+        ("pst", "2007.pst", "Inbox", 2, progress.STAGE_MESSAGES),
+        ("pst", "2007.pst", "Projects", 1, progress.STAGE_MESSAGES),
+    ]
+    assert len(progress.frames()) == before, "the frame outlived the read"
+
+
+def test_a_message_with_nothing_in_it_still_moves_the_position() -> None:
+    """The no-progress limit compares positions (`FileWatch.signature`), so a
+    run of empty messages must not look like a reader that has stopped."""
+    from app.extract import progress
+
+    root = FakeFolder("root", items=[
+        MailItem(entry_id="empty-1"), MailItem(entry_id="empty-2"), message("id-1"),
+    ])
+    session = FakeSession(FakeStore("s", root, file_path=r"D:\a.pst"))
+    positions = []
+    for _document in walk_session(session):
+        frame = progress.frames()[-1]
+        positions.append((frame.n, frame.beat))
+
+    assert positions == [(3, 3)]
+
+
+def test_each_attachment_read_moves_the_beat() -> None:
+    from app.extract import progress
+
+    root = FakeFolder("root", items=[
+        message("id-1", attachments=[
+            FakeAttachment("one.txt", b"first attachment text"),
+            FakeAttachment("two.txt", b"second attachment text"),
+        ]),
+    ])
+    session = FakeSession(FakeStore("s", root, file_path=r"D:\a.pst"))
+    beats = []
+    for _document in walk_session(session):
+        beats.append(progress.frames()[-1].beat)
+
+    assert beats and beats[0] == 3, "one for the message, one per attachment read"
+
+
 def test_deleted_items_is_skipped_by_default(archive: FakeSession) -> None:
     """On a fifteen-year archive Deleted Items is often a third of the messages,
     all of them things the owner decided they did not want."""

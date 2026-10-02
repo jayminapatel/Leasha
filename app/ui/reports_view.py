@@ -80,6 +80,11 @@ class ReportsView(QWidget):
         #: The Space Report, rendered on the worker with the rest of the
         #: snapshot - it touches the store, so never on this thread.
         self._space_document: str = ""
+        #: 2026-10-02: one load at a time. `_loading` is True from `refresh`
+        #: starting a worker until that worker is done; `_refresh_again` is a
+        #: refresh that was asked for meanwhile, run once the first has landed.
+        self._loading = False
+        self._refresh_again = False
 
         intro = QLabel(
             "What Leasha has catalogued, read out as a document rather "
@@ -155,13 +160,35 @@ class ReportsView(QWidget):
         if self._store is None:
             return
         self.timeline.refresh()
+        # **One load at a time** (2026-10-02). Each load carries the "data as
+        # of" stamp it was started with, and that stamp only moves when a load
+        # lands - so a second load started before the first had finished ran
+        # every Space Report query again, and its answer, equal to the first
+        # but a new object, rebuilt the table: the sort and any opened row
+        # gone, under the person's pointer. Leaving Reports and coming straight
+        # back was enough. A refresh asked for while one is running now waits
+        # for it and then runs with the stamp that load left, which costs one
+        # cheap query when nothing has moved.
+        if self._loading:
+            self._refresh_again = True
+            return
+        self._loading = True
         worker = CallableWorker(
             _report_snapshot, self._store, self._space_cached_at,
             component="ui.reports", report_progress=True)
         worker.signals.progress.connect(self._on_progress)
         worker.signals.finished.connect(self._loaded)
         worker.signals.failed.connect(self.error.emit)
+        # `done` comes after `finished` or `failed`, and on its own for a load
+        # abandoned at shutdown - so the page can never be left "loading".
+        worker.signals.done.connect(self._load_done)
         run(QThreadPool.globalInstance(), worker)
+
+    def _load_done(self) -> None:
+        self._loading = False
+        if self._refresh_again:
+            self._refresh_again = False
+            self.refresh()
 
     def _on_progress(self, stage: Any) -> None:
         self.progress_label.setText(str(stage))

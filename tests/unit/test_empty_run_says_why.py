@@ -105,6 +105,48 @@ class TestTheThreeWaysNothingHappens:
         assert "Echo" not in notices[0]
 
 
+class TestARunStoppedBeforeItsWalkSaysThat:
+    r"""2026-10-02. The fourth way, and the other three are untrue of it.
+
+    On 2026-10-01 at 23:41 a run was started straight after a Stop. It spent
+    its 47 seconds filling in 512 passages the Stop had left without vectors,
+    was stopped again before the walk began, and then reported "Nothing was
+    found to index in D:\OutlookArchive. The folder was read and held no
+    files ... check it is connected" - of a folder holding twenty archives
+    that it had never opened.
+    """
+
+    def _stopped(self, roots) -> tuple:
+        import threading
+
+        pipeline = _Pipeline(roots)
+        pipeline._stop = threading.Event()
+        pipeline._stop.set()
+        stats = IndexStats()
+        Pipeline._say_if_nothing_was_walked(pipeline, stats)
+        return stats.notices, pipeline._log.said
+
+    def test_it_does_not_blame_the_folder(self) -> None:
+        notices, _said = self._stopped([r"D:\OutlookArchive"])
+        assert len(notices) == 1
+        assert "stopped" in notices[0]
+        assert "connected" not in notices[0]
+        assert "held no files" not in notices[0]
+
+    def test_it_is_still_a_warning(self) -> None:
+        _notices, said = self._stopped([r"D:\OutlookArchive"])
+        assert any(level == "warning" for level, _text in said)
+
+    def test_a_run_that_was_not_stopped_is_told_what_it_always_was(self) -> None:
+        import threading
+
+        pipeline = _Pipeline([r"D:\Mail"])
+        pipeline._stop = threading.Event()
+        stats = IndexStats()
+        Pipeline._say_if_nothing_was_walked(pipeline, stats)
+        assert "connected" in stats.notices[0]
+
+
 class TestARealRunStaysQuiet:
     """A notice on every successful run is a notice nobody reads."""
 

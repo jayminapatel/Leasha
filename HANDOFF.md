@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.38 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 7.39 · **Updated:** 2026-10-02 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1987,6 +1987,69 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-10-02 - the crash handler was the crash, and `code 0x8001010e` in `crash.log` is not
+one.** The window died (`0xC0000005` in `python312.dll`) with Settings' "Choose a folder to
+index" picker open. From the Windows dump (`%LOCALAPPDATA%\CrashDumps\pythonw.exe.2132.dmp`):
+the fault is at `_Py_DumpTracebackThreads+0x47c`, a read of address `0x78`, on a thread Python
+never made, with `rpcrt4` on its stack. On Windows `faulthandler` is called for every exception
+whose code has the top bit set, handled or not; the picker's COM threads raise and handle
+`0x8001010e` (RPC_E_WRONG_THREAD) - 119 times that session - and with `all_threads=True` each
+one walked every Python thread's stack from the picker's thread, without the GIL, while the
+main thread ran Python (the hotkey's `nativeEventFilter` runs for every window message). The
+119th walk read a frame as it changed. `app/main.py` now enables it with `all_threads=False`:
+the faulting thread's own stack only, and nothing but the heading for a thread Python does not
+know. **Cost:** a real crash no longer lists the other threads. **Still true:** each handled
+exception writes a `Windows fatal exception: code 0x8001010e` heading to `crash.log` - read
+past those; `access violation` is the real one. A synthetic reproduction (3,000 such exceptions
+from a native thread, twice) did *not* crash under `all_threads=True`, so the race is rare; what
+it did show is 12,000 thread walks with `True` and none with `False`.
+
+**2026-10-02 - "wrapped C/C++ object of type SortableTreeItem has been deleted" was a real
+race, not a flaky test.** `test_space_report_table.py::test_opening_a_row_reveals_every_copy_and_its_source`
+failed twice in eleven runs. `ReportsView.refresh` started a full load on every call, each
+carrying the "data as of" stamp from before any had landed, so two calls close together (the
+test fixture makes two; a person makes them by leaving Reports and coming straight back) ran the
+Space Report twice, and the second answer - equal, but a new object - rebuilt the table and
+deleted the rows. Shown by forcing it: with the second load held back 0.6 s the failure was
+certain, loads `[None, None]`; after the fix the same probe gives `[None, 1700000008]`, no
+rebuild. `refresh` now runs one load at a time and repeats once if asked meanwhile. **Also
+measured in the owner's window at 16:39:53:** a legitimate rebuild of the table on the real
+index held the window for 1,356 ms. The report names 25 groups but nothing bounds the copies in
+one, and every copy was given a row and sorted up front: 23 ms per thousand copies (made-up
+mail-shaped findings, offscreen - the real index had been reset by then, so this is not the
+owner's data). The copies are now made when a row is opened: 25 groups of 4,000 went from
+2,451 ms to 226 ms, and what is left is `space_tables` shaping the rows on the UI thread.
+
+**2026-10-02 - an archive read through Outlook is slow, not stuck; measure before skipping.**
+`2009.pst` (2.05 GB) was Force-skipped after 16 h 58 min. The index shows it never stopped: 12,559
+documents kept, between 199 and 2,270 written in every one of those hours. Through Outlook
+(taken because the file was held open; `extract.pst` logs "held open; trying Outlook instead")
+this run managed about 740-1,250 documents an hour per archive against 3,250-4,000 through
+libpff, four readers sharing one Outlook. The Outlook route opened no progress frame, so the
+Indexing page had no position to show for it; `walk_session` opens one now (folder and message
+number, no total). UNVERIFIED on the real window. A Force skip is recorded as
+`ERR_FILE_TIMEOUT` by design (order 0z lane B), which is why the page then offers "Retry with
+a longer time limit" for a file nobody timed out.
+
+**2026-10-02 - every `.pst` Outlook has mounted is read again on every run.** Outlook moves a
+mounted archive's modified time without changing its size (measured: all eight archives in the
+ledger had the same size and a date 15-17 hours later), and for a file read through another
+application date and size are the whole change test (`Pipeline._classify`). So each run walks
+every message of every archive again, skipping only the embedding of text it already has. The
+header cannot be used as a cheaper test while Outlook holds the file: reading the first 600
+bytes of 18 of 20 archives failed with Windows error 33 (lock violation). **Fixed the same day
+for archives read directly** (the owner's instruction: he indexes them directly, with Outlook
+closed). `email_pst.archive_marker` reads 564 bytes of the header and keeps the numbers that
+move when mail does (next page and block numbers, end of file, the two root page references);
+`Pipeline._classify` stores it on the archive's row where a hash would go and lets it overrule
+the date, and `_load_archive_cursor` accepts an interrupted archive's folder cursor when the
+marker still matches. Measured on `2010.pst` and `2011.pst` across an afternoon mounted in
+Outlook and its closing: the write counter rose by five, both checksums and the date changed,
+every number in the marker stayed. **Two things to know.** A row written before this holds no
+marker, so each archive is read once more before the check can help. And it is UNCONFIRMED by
+measurement that Outlook never changes a message without moving those numbers - that rests on
+the published format ([MS-PST] 2.6.1); `--force` reads an archive whatever the marker says.
 
 **2026-10-01 - a held-open LanceDB table never sees another process's writes.** LanceDB's
 default `read_consistency_interval` is *never*, and `VectorStore.connect` used to open the

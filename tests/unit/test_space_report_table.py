@@ -220,6 +220,62 @@ def test_open_rows_and_the_chosen_sort_survive_showing_the_same_findings_again(q
     assert tree.topLevelItem(0).isExpanded()
 
 
+def test_the_copies_inside_a_row_are_made_when_it_is_opened_and_only_once(qtbot):
+    """2026-10-02. Every copy of every group used to be given a row when the
+    table was built, on the window's thread: 23 ms per thousand copies, and
+    1,356 ms of a window that did not answer on the owner's index of mail."""
+    from PyQt6.QtWidgets import QTreeWidgetItem
+
+    widget = SpaceTables()
+    qtbot.addWidget(widget)
+    widget.set_findings(_findings())
+    tree = widget.trees["duplicates"]
+    zeta = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                if tree.topLevelItem(i).text(0) == "zeta.bin")
+
+    assert zeta.childCount() == 0, "the copies were built before anybody asked"
+    assert zeta.childIndicatorPolicy() == \
+        QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator, "no arrow to open it with"
+
+    tree.expandItem(zeta)
+    assert zeta.childCount() == 3
+    assert sorted(zeta.child(i).text(4) for i in range(3)) == \
+        ["Old WD (offline)", "This computer", "This computer"]
+    assert zeta.child(0).toolTip(0), "a copy lost its tooltip"
+
+    tree.collapseItem(zeta)
+    tree.expandItem(zeta)
+    assert zeta.childCount() == 3, "opening it twice made the copies twice"
+
+
+def test_a_group_with_thousands_of_copies_costs_nothing_until_it_is_opened(qtbot):
+    """Counted, not timed: a number of rows is the same on every machine."""
+    big = tuple(DuplicateGroup(f"h{g}", 40 * KB, tuple(
+        _local(rf"D:\Mail\{g}\{c}\image001.png") for c in range(4000))) for g in range(25))
+    widget = SpaceTables()
+    qtbot.addWidget(widget)
+    widget.set_findings(_findings(groups=big))
+    tree = widget.trees["duplicates"]
+
+    assert tree.topLevelItemCount() == 25
+    assert sum(tree.topLevelItem(i).childCount() for i in range(25)) == 0
+    assert tree.topLevelItem(0).text(1) == "4,000", "the count is still on the row"
+
+    tree.expandItem(tree.topLevelItem(0))
+    assert tree.topLevelItem(0).childCount() == 4000
+    assert sum(tree.topLevelItem(i).childCount() for i in range(25)) == 4000
+
+
+def test_a_flat_table_has_no_arrows(qtbot):
+    widget = SpaceTables()
+    qtbot.addWidget(widget)
+    widget.set_findings(_findings())
+    share = widget.trees["by-source"]
+    assert not share.rootIsDecorated()
+    assert all(share.topLevelItem(i).childCount() == 0
+               for i in range(share.topLevelItemCount()))
+
+
 def test_the_only_copy_keeps_the_reports_order_until_somebody_sorts(qtbot):
     widget = SpaceTables()
     qtbot.addWidget(widget)
@@ -330,16 +386,83 @@ def test_opening_a_row_reveals_every_copy_and_its_source(space_window, qtbot):
     tree = view.space_table.trees["duplicates"]
     zeta = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
                 if tree.topLevelItem(i).text(0) == "zeta.bin")
-    assert not zeta.isExpanded() and zeta.childCount() == 3
+    # 2026-10-02: the copies are made when the row is opened (`space_table._tree`),
+    # so the count of three is asserted after the click, where it was before it.
+    assert not zeta.isExpanded()
     # The arrow in the margin left of the row - the way a person opens it.
     rect = tree.visualItemRect(zeta)
     qtbot.mouseClick(tree.viewport(), Qt.MouseButton.LeftButton,
                      pos=QPoint(rect.left() - tree.indentation() // 2, rect.center().y()))
     gui_pump(app)
-    assert zeta.isExpanded()
+    assert zeta.isExpanded() and zeta.childCount() == 3
     places = sorted(zeta.child(i).text(4) for i in range(zeta.childCount()))
     assert places == ["Old WD (offline)", "This computer", "This computer"]
     assert any(zeta.child(i).text(0) == "zeta-old.bin" for i in range(3))
+
+
+@pytest.mark.gui
+def test_a_second_load_asked_for_while_one_is_running_does_not_rebuild_the_table(
+        space_window, qtbot, monkeypatch):
+    r"""2026-10-02. The test above failed now and then with "wrapped C/C++
+    object of type SortableTreeItem has been deleted", and it was right to.
+
+    `ReportsView.refresh` started a full load every time it was called, each
+    carrying the "data as of" stamp from *before* any of them finished - so two
+    calls close together (this module's own fixture makes two; a person makes
+    them by leaving Reports and coming straight back) ran the Space Report's
+    queries twice, and the second answer, equal to the first but a new object,
+    rebuilt the table under whoever had a row open. Made to happen on purpose
+    here: the second load is held back until the first is on screen and a row
+    is in hand.
+    """
+    import threading
+    import time
+
+    from PyQt6.QtCore import QThreadPool
+
+    import app.ui.reports_view as reports_view
+
+    app, _window, view = space_window
+    QThreadPool.globalInstance().waitForDone(15_000)     # nothing of the fixture's left
+    gui_pump(app)
+
+    loads: list = []
+    lock = threading.Lock()
+    real = reports_view._report_snapshot
+
+    def recorded(store, last_known=None, on_progress=None):
+        with lock:
+            n = len(loads)
+            loads.append(last_known)
+        out = real(store, last_known, on_progress)
+        if n and out is not None:
+            time.sleep(0.5)             # a second full load lands late
+        return out
+
+    monkeypatch.setattr(reports_view, "_report_snapshot", recorded)
+
+    view._space_cached_at = None        # as after an index run: the data has moved
+    view._space_document = ""
+    view.refresh()
+    view.refresh()                      # ...and Reports is asked again straight away
+    qtbot.waitUntil(lambda: bool(view._space_document), timeout=15000)
+    gui_pump(app)
+
+    tree = view.space_table.trees["duplicates"]
+    zeta = next(tree.topLevelItem(i) for i in range(tree.topLevelItemCount())
+                if tree.topLevelItem(i).text(0) == "zeta.bin")
+    tree.expandItem(zeta)
+
+    qtbot.waitUntil(lambda: len(loads) >= 2, timeout=15000)
+    QThreadPool.globalInstance().waitForDone(15_000)
+    gui_pump(app)
+
+    assert loads[0] is None
+    assert loads[1] is not None, (
+        "a second full load ran alongside the first, with the stamp from "
+        "before either had finished")
+    assert view.space_table.trees["duplicates"] is tree, "the table was rebuilt"
+    assert zeta.isExpanded() and zeta.childCount() == 3, "the opened row was lost"
 
 
 @pytest.mark.gui

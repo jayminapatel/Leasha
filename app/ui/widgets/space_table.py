@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import (
     QLabel,
     QTabWidget,
     QTreeWidget,
+    QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
@@ -44,6 +45,7 @@ __all__ = ["SpaceTables"]
 
 
 def _item(row: SpaceRow, aligns: tuple[str, ...]) -> SortableTreeItem:
+    """One row, without the rows inside it - see `_tree` for those."""
     item = SortableTreeItem()
     for column, text in enumerate(row.cells):
         item.setText(column, text)
@@ -53,8 +55,6 @@ def _item(row: SpaceRow, aligns: tuple[str, ...]) -> SortableTreeItem:
         value = row.sort[column] if column < len(row.sort) else None
         if value is not None:
             item.setData(column, SORT_ROLE, value)
-    for child in row.children:
-        item.addChild(_item(child, aligns))
     return item
 
 
@@ -76,11 +76,38 @@ def _tree(table: SpaceTable) -> QTreeWidget:
     header.setStretchLastSection(False)
     align_headers(tree, list(table.aligns))
 
+    # **The copies inside a row are made when the row is opened, not before**
+    # (2026-10-02). The report names 25 groups, but nothing bounds the copies
+    # in one: in an index of mail, one signature picture is thousands of
+    # copies. Every one was given a row here, on the window's thread, and then
+    # sorted - measured at 23 ms per thousand copies (25 groups of 1,000:
+    # 565 ms; of 4,000: 2,451 ms; made-up findings, offscreen), and at
+    # 1,356 ms of a window that did not answer on the owner's index. A row
+    # nobody opens now costs nothing; one that is opened costs its own copies,
+    # once. The arrow is shown from the start (`ShowIndicator`), so the table
+    # looks exactly as it did.
+    # Keyed by `id`: a tree item cannot be a dictionary key. The item is kept
+    # beside its row, so the number cannot be handed to another object while
+    # it waits here.
+    waiting: dict[int, tuple[Any, SpaceRow]] = {}
+
+    def reveal(item: Any) -> None:
+        held = waiting.pop(id(item), None)
+        if held is not None:
+            item.addChildren([_item(child, table.aligns) for child in held[1].children])
+
+    tree.itemExpanded.connect(reveal)
+
     # Fill with sorting off - Qt re-sorts on every insert otherwise - then
     # turn it on with the table's opening order already chosen. `-1` keeps
     # the order the report gave (offline drives first, for "The only copy").
     for row in table.rows:
-        tree.addTopLevelItem(_item(row, table.aligns))
+        item = _item(row, table.aligns)
+        if row.children:
+            item.setChildIndicatorPolicy(
+                QTreeWidgetItem.ChildIndicatorPolicy.ShowIndicator)
+            waiting[id(item)] = (item, row)
+        tree.addTopLevelItem(item)
     order = (Qt.SortOrder.DescendingOrder if table.descending
              else Qt.SortOrder.AscendingOrder)
     header.setSortIndicator(table.sort_column, order)
