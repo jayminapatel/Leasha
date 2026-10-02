@@ -44,7 +44,7 @@ from PyQt6.QtWidgets import (
 
 from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
-from app.ui.widgets.buttons import style_button
+from app.ui.widgets.buttons import icon_button, put_on_row, style_button
 from app.ui.widgets.result_table import align_headers
 
 __all__ = ["RootsBox"]
@@ -72,6 +72,9 @@ class RootsBox(QGroupBox):
     #: - the order they were marked in, which is the order they are read in.
     #: Fires on the person's action only, like the two above.
     first_changed = pyqtSignal(list)
+    #: 2026-10-02. "Index now" on one line: the folder, exactly as its row
+    #: spells it. The shell starts a run that reads that folder and no other.
+    index_requested = pyqtSignal(str)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Folders to index", parent)
@@ -82,9 +85,11 @@ class RootsBox(QGroupBox):
         self._first: list[str] = []
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(4)
+        self.tree.setColumnCount(5)
+        # 2026-10-02: a fifth column, after the four that were there - each
+        # line's own "Index now" (`_append`).
         self.tree.setHeaderLabels(
-            ["Folder", "How it is indexed", "Cloud content", "Read first"])
+            ["Folder", "How it is indexed", "Cloud content", "Read first", "Index now"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
@@ -100,6 +105,10 @@ class RootsBox(QGroupBox):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        # The last column is a button's own width. Left to stretch, it would
+        # take the spare width from Folder, the one column that needs it.
+        header.setStretchLastSection(False)
         # 2026-09-29. The row action, on the row: right-click a folder.
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._row_menu)
@@ -307,6 +316,28 @@ class RootsBox(QGroupBox):
         cell_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         cell_layout.addWidget(cloud_box)
         self.tree.setItemWidget(item, 2, cell)
+
+        # 2026-10-02. **This line, now, and nothing else.** Start reads every
+        # folder in the list; with a dozen archives that is a dozen folders
+        # looked at to bring one up to date. The button is on the line it
+        # acts on, so there is nothing to select first, and it reads the
+        # folder in full even when the line says Archive - asking for one
+        # folder by name is the "I know something changed" case that
+        # "Rescan archived folders now" exists for, for one folder.
+        #
+        # An icon and no words (the owner, the same day): the column's heading
+        # carries the words once, the tooltip and the screen reader's name
+        # carry them on each line.
+        index_now = icon_button(
+            "Index now", name=f"Index this folder now: {root}",
+            tooltip=(
+                "Index now - this folder only.\n\n"
+                "Nothing else in the list is read, and nothing indexed from the "
+                "other folders is touched. The folder is read in full even if it "
+                "is marked as an archive."))
+        index_now.clicked.connect(
+            lambda _checked=False, row=item: self.index_requested.emit(row.text(0)))
+        put_on_row(self.tree, item, 4, index_now)
         return item
 
     # -- what the shell reads -----------------------------------------------
@@ -412,6 +443,11 @@ class RootsBox(QGroupBox):
         action.setChecked(marked)
         action.triggered.connect(lambda _checked=False: self.toggle_first([item]))
         menu.addAction(action)
+        # 2026-10-02: the same action as the line's own button.
+        now = QAction("Index now", menu)
+        now.triggered.connect(
+            lambda _checked=False: self.index_requested.emit(item.text(0)))
+        menu.addAction(now)
         menu.exec(self.tree.viewport().mapToGlobal(point))
 
     def _sync_first(self) -> None:

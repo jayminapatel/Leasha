@@ -313,6 +313,11 @@ QPushButton[buttonRole="danger"] {{
     padding: {button_pad_y} {button_pad_right} {button_pad_y} {button_pad_left};
     min-height: {button_min_h}; border-radius: {radius_control};
 }}
+/* 2026-10-02: a system button with its icon and no words, for a line of a list
+   (`buttons.icon_button`). The icon's picture carries 3px of empty space on its
+   right for the words that are not there, so the padding is uneven by that much
+   to put the drawn part in the middle: 8px either side of it. */
+QPushButton[iconOnly="true"] {{ padding-left: 8px; padding-right: 5px; }}
 QPushButton[buttonRole="primary"] {{
     background: {accent}; border: 1px solid {accent}; color: {accent_on};
     font-weight: 600;

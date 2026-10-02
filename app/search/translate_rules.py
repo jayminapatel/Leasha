@@ -657,6 +657,124 @@ def _holds_mail(store: Any) -> bool:
     return _usable("mail", {value.lower() for value in _known(store, "ext")})
 
 
+#: Words that say "a file" beside a type: "pst files", "files of type pst".
+_FILE_WORDS = frozenset({"file", "files"})
+#: Words that say the next word is a type: "type pst", "files of type pst".
+_TYPE_WORDS = frozenset({"type", "types", "filetype", "filetypes"})
+#: Words that only say "all of them" in front of such a phrase.
+_QUANTIFIERS = frozenset({"all", "every", "any", "only"})
+#: What a type looks like once `.` and `*.` are taken off the front.
+_TYPE_OPTION = re.compile(r"^[a-z0-9]{1,8}$")
+
+#: Extensions nobody would mean as an ordinary word, beyond the ones the two
+#: tables above already name [TUNE]. `<this> files` is read as a type; a word
+#: that is also English ("old files", "one file", "key files") is not, even
+#: when the index holds `.old`, `.one` or `.key` - see `_named_type`.
+_MORE_TYPES = frozenset({
+    "pst", "ost", "msg", "eml", "mbox", "olm", "zip", "7z", "rar", "rtf",
+    "epub", "html", "htm", "xml", "json", "yaml", "yml", "dwg", "dxf", "vsd",
+    "vsdx", "mpp", "pub", "ps1", "exe", "dll", "iso", "tif", "tiff", "bmp",
+    "svg", "odt", "ods", "odp", "xlsm", "docm", "pptm",
+})
+
+
+def _well_known_types() -> frozenset:
+    """Every type a bare `<word> files` may name: the group names and the
+    extensions `type:` already knows, the ones `KIND_WORDS` lists, and
+    `_MORE_TYPES`."""
+    from app.search.query import _EXT_GROUPS
+
+    found = set(_MORE_TYPES) | set(_EXT_GROUPS)
+    for extensions in list(_EXT_GROUPS.values()) + list(KIND_WORDS.values()):
+        found.update(extensions)
+    return frozenset(found)
+
+
+def _holds_type(store: Any, option: str) -> bool:
+    """Whether the index holds this type - an extension, or any member of a
+    group (`type:word`). **Never raises**; a store that cannot be asked allows
+    it, as `_holds_mail` does."""
+    from app.search.query import _EXT_GROUPS
+
+    probe = getattr(store, "holds_ext", None)
+    if callable(probe):
+        try:
+            return bool(probe(_EXT_GROUPS.get(option, (option,))))
+        except Exception:                          # noqa: BLE001 - a helper
+            return True
+    return _usable(option, {value.lower() for value in _known(store, "ext")})
+
+
+def _named_type(lowered: Sequence[str], consumed: set, store: Any) -> Optional[tuple]:
+    r"""A file type somebody named in words, as `(type, positions)`, or None.
+
+    2026-10-02. The owner typed **"files type pst"** and got nothing: no rule
+    read it, so it ran as the three words `files`, `type` and `pst`. Two
+    shapes are read, and each only when the index holds the type (so the
+    filter can never be the reason a page is empty):
+
+    * **`type <x>`** - with `file`/`files` and `of` before it when they are
+      there: "files type pst", "file type pdf", "files of type docx". The word
+      `type` makes it explicit, so with `file(s)` in front any extension the
+      index holds is taken; without it ("type pst") only a well-known one, so
+      "blood type o" stays three words.
+    * **`<x> files`** - "pst files", ".pdf file", "word files". Well-known
+      types only (`_well_known_types`): "old files" and "key files" are
+      English, and a filter there would hide what was asked for.
+
+    `all`, `every`, `any` or `only` directly in front goes with the phrase:
+    "all pst files" is a browse of that type, not a search for the word "all".
+    """
+    known = None                                   # built only if a phrase is found
+
+    def option_at(i: int) -> str:
+        if not 0 <= i < len(lowered) or i in consumed:
+            return ""
+        word = lowered[i].lstrip("*").lstrip(".")
+        return word if _TYPE_OPTION.match(word) else ""
+
+    def well_known(option: str) -> bool:
+        nonlocal known
+        if known is None:
+            known = _well_known_types()
+        return option in known
+
+    def finish(option: str, positions: list) -> tuple:
+        first = min(positions)
+        if first and lowered[first - 1] in _QUANTIFIERS and (first - 1) not in consumed:
+            positions.append(first - 1)
+        return option, positions
+
+    for i, word in enumerate(lowered):
+        if not word or i in consumed:
+            continue
+        if word in _TYPE_WORDS:
+            option = option_at(i + 1)
+            if not option or option in _FILE_WORDS:
+                continue
+            positions = [i, i + 1]
+            j = i - 1
+            if j >= 0 and lowered[j] == "of" and j not in consumed:
+                positions.append(j)
+                j -= 1
+            said_file = j >= 0 and lowered[j] in _FILE_WORDS and j not in consumed
+            if said_file:
+                positions.append(j)
+            elif word in ("type", "types") and not well_known(option):
+                continue
+            if i + 2 < len(lowered) and lowered[i + 2] in _FILE_WORDS \
+                    and (i + 2) not in consumed:
+                positions.append(i + 2)            # "type pst files"
+            if _holds_type(store, option):
+                return finish(option, positions)
+        elif word in _FILE_WORDS:
+            option = option_at(i - 1)
+            if option and option not in _TYPE_WORDS and well_known(option) \
+                    and _holds_type(store, option):
+                return finish(option, [i - 1, i])
+    return None
+
+
 def _tokens(text: str) -> list:
     """`(start, end, word)` for each whitespace token a filter may consume.
 
@@ -690,6 +808,9 @@ def apply(sentence: str, store: Any = None, *, today: Optional[date] = None,
     * **mail** - `mail`, `email(s)`, `messages` (`AUTO_MAIL_WORDS`) become
       `type:mail`, the same msg/eml/pst group typing `type:mail` gives. Only
       when the corpus holds mail, or cannot be asked.
+    * **a file type named in words** (2026-10-02) - "files type pst", "pst
+      files", "files of type docx" become `type:pst` and so on, when the
+      corpus holds that type. See `_named_type` for exactly which phrases.
     * **a year** - `in 2017`, `from 2017`, `during 2017` always; `before 2017`
       and `after 2017` as that edge; a **bare** `2017` only in a sentence that
       is about mail. That is the conservative line: *"invoice 2017"* keeps
@@ -753,6 +874,16 @@ def _apply(text: str, store: Any, today: date, declined: set, parse_query: Any,
     about_mail = bool(mail_at) or any(word in _SENDING for word in lowered)
     if mail_at and not typed.ext and not typed.not_ext and _holds_mail(store):
         take("type", ("type:mail",), mail_at, "mail")
+
+    # -- a file type named in words (2026-10-02) ---------------------------
+    # After mail, which wins: one type filter, as one person. A typed `type:`
+    # switches it off, as it does the mail rule.
+    if (not typed.ext and not typed.not_ext
+            and not any(chosen.kind == "type" for chosen in filters)):
+        named = _named_type(lowered, consumed, store)
+        if named is not None:
+            option, positions = named
+            take("type", (f"type:{option}",), positions, Chip("type", option).label())
 
     # -- a person --------------------------------------------------------
     people: dict = {}

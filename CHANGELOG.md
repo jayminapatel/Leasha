@@ -17,6 +17,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### One line at a time: Index now, Rescan and the hardware ID (2026-10-02)
+
+- **Index one folder without indexing the rest.** Settings › Folders to index has a button on
+  every line. Press it and that folder is indexed now - nothing else in the list is read, and
+  nothing indexed from the other folders is touched. It reads the folder in full even when the
+  line says Archive. Right-click a line for the same thing.
+- **Rescan one drive from its own line.** The Offline list has a Rescan button on every line, so
+  there is nothing to select first. It is greyed out for a drive that is unplugged.
+- **The Offline list shows each drive's hardware ID** - the serial number of the disk itself, so
+  two drives with similar names can be told apart and matched to the label on the drive. A
+  network share shows its address. Right-click a line to copy it. A drive scanned before Windows
+  gave a serial gets one at its next Rescan. `leasha offline-media` lists it too.
+- **"files type pst" finds them.** Naming a kind of file in words - "files type pst", "pst files",
+  "files of type docx", "word files" - is read as the type filter, on every tab, when your index
+  holds that kind. It used to be searched for as three ordinary words.
+
+### Docs
+
+- `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: notes dated 2 October 2026 for the
+  line buttons, the Hardware ID column, the file-type phrases, the archive marker and the
+  `leasha index` equivalent of "Index now". The guide's two pictures of those pages were taken
+  before the change.
+- `HANDOFF.md` 7.40.
+
 ### The window no longer vanishes with the folder picker open (2026-10-02)
 
 - **Choosing a folder to index could close Leasha without a word.** Windows' folder picker raises

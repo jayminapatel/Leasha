@@ -361,6 +361,31 @@ class IndexController(QObject):
         """One full walk of every archival folder, now. Not a policy change."""
         self._w._start_indexing(recheck_archives=True)
 
+    def _index_folder_now(self, folder: str) -> None:
+        r"""2026-10-02: "Index now" on one line of the folder list.
+
+        A run over that folder and no other - the same folder-scoped run a
+        dropped folder and "Index this folder" from a result already start
+        (`roots=`), so it removes nothing indexed from the other folders
+        (`prune_missing` is off for a run over some of them). Two things are
+        this action's own:
+
+        * **`recheck_archives`**, so a line marked Archive is read in full.
+          Somebody who names one folder and says "now" knows something the
+          folder's own timestamp may not show - the case "Rescan archived
+          folders now" exists for, for one folder instead of all of them.
+        * **The Indexing page comes forward**, as it does for the other two:
+          the person asked for an index, and that is where one is watched.
+
+        A run already going is answered by `_start_indexing` exactly as a
+        second Start is: it says so, and offers to stop it.
+        """
+        folder = str(folder or "").strip()
+        if not folder:
+            return
+        self._w._show(getattr(self._w, "indexing_view", None))
+        self._w._start_indexing(roots=[folder], recheck_archives=True)
+
     # -- a run belonging to another process ---------------------------------
 
     def _poll_external_run(self) -> None:

@@ -74,8 +74,14 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
         return EXIT_OK
 
     name_width = max(len("NAME"), max(len(str(v["name"])) for v in volumes))
-    print(f"{'NAME':<{name_width}}  {'KIND':<8}  {'STATUS':<8}  {'FILES':>8}  LAST SEEN            DESCRIPTION")
-    for v in volumes:
+    # 2026-10-02: the disk's own serial, which the list never showed. After
+    # the columns that were there; "-" where none is stored (a share has none,
+    # and Windows does not always give one for a drive).
+    serials = [str(v.get("hardware_serial") or "-") for v in volumes]
+    serial_width = max(len("HARDWARE ID"), max(len(s) for s in serials))
+    print(f"{'NAME':<{name_width}}  {'KIND':<8}  {'STATUS':<8}  {'FILES':>8}  "
+          f"{'LAST SEEN':<19}  {'HARDWARE ID':<{serial_width}}  DESCRIPTION")
+    for v, serial in zip(volumes, serials):
         seen = v.get("last_seen")
         stamp = (
             time.strftime("%Y-%m-%d %H:%M", time.localtime(int(seen)))
@@ -83,7 +89,8 @@ def cmd_offline_media(args: argparse.Namespace) -> int:
         )
         print(
             f"{v['name']:<{name_width}}  {v['kind']:<8}  {v['status']:<8}  "
-            f"{int(v['indexed_files']):>8,}  {stamp:<19}  {v.get('description') or ''}"
+            f"{int(v['indexed_files']):>8,}  {stamp:<19}  "
+            f"{serial:<{serial_width}}  {v.get('description') or ''}"
         )
     print()
     print(f"  {len(volumes)} source(s). Rescan with --rescan <name>, "
@@ -234,7 +241,9 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
 
 
 def _offline_media_rescan(settings: Any, identifier: str, *, as_json: bool) -> int:
-    from app.index.offline_media import connected_volumes, reconcile_moves
+    from app.index.offline_media import (
+        connected_volumes, reconcile_moves, remember_hardware_serial,
+    )
     from app.storage.sqlite_store import SqliteStore
 
     with SqliteStore(settings.fts_db) as store:
@@ -265,6 +274,7 @@ def _offline_media_rescan(settings: Any, identifier: str, *, as_json: bool) -> i
                 details=details, suggestion=suggestion,
             ), as_json)
 
+        remember_hardware_serial(store, record, root)
         reconciled = reconcile_moves(store, record.id, root)
         stats = _run_offline_media_pipeline(
             settings, store, root, record.id, quiet=as_json,

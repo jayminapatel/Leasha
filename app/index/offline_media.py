@@ -38,6 +38,7 @@ __all__ = [
     "run_scoped_pipeline",
     "scan_new_source",
     "rescan_source",
+    "remember_hardware_serial",
 ]
 
 _log = logger.bind(component="index.offline_media")
@@ -697,9 +698,34 @@ def rescan_source(settings: Any, store: Any, identifier: Any, *,
         raise_error("ERR_UNEXPECTED", "index.offline_media",
                    details=details, suggestion=suggestion)
 
+    remember_hardware_serial(store, record, root)
     reconciled = reconcile_moves(store, record.id, root)
     stats = run_scoped_pipeline(
         settings, store, root, record.id, run_lock_owner=run_lock_owner,
         verify_hash=(record.kind != "network"), on_progress=on_progress,
     )
     return {"volume_id": record.id, "moved": reconciled.moved, "stats": stats}
+
+
+def remember_hardware_serial(store: Any, record: Any, root: Path) -> Optional[str]:
+    r"""Ask Windows for a drive's disk serial if none is stored yet. 2026-10-02.
+
+    The serial was read once, at the first Scan, and never again - so a drive
+    whose first Scan found none (a slow provider, an enclosure that was not
+    answering) showed no hardware ID for good. A Rescan now asks again, for a
+    drive only and only while the row holds none. Returns what was stored, or
+    None. **Never raises**: this is advisory data and must not cost a Rescan.
+    """
+    try:
+        if record is None or record.kind != "drive" or record.hardware_serial:
+            return None
+        from app.core.volumes_win import hardware_serial_for_root
+
+        serial = hardware_serial_for_root(root)
+        if serial:
+            store.upsert_volume(record.identity_key, kind=record.kind,
+                                name=record.name, hardware_serial=serial)
+        return serial or None
+    except Exception as exc:                        # noqa: BLE001 - see the docstring
+        _log.debug("no hardware serial read for {}: {}", root, exc)
+        return None

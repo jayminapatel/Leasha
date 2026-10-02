@@ -51,6 +51,12 @@ kind of control, not an action button. A flat `QPushButton`, or one marked
 
 **Labels are never changed here.** A button is looked up by the words it
 already has; nothing in this file rewrites one.
+
+*Note, 2 October 2026:* rule 4 has one case where the words are not drawn. A
+button on every line of a list - "Index now" on a folder's line, Rescan on a
+drive's - shows its icon alone (`icon_button`): the words are in the column's
+heading, the tooltip and the screen reader's name, and its icon and kind still
+come from `BUTTONS`. `put_on_row` places it so it is neither stretched nor cut.
 """
 
 from __future__ import annotations
@@ -69,7 +75,7 @@ from app.ui.widgets.icons import icon as themed_icon
 __all__ = [
     "BUTTONS", "ROLES", "ICON_PX", "ROW_SPACING", "action_button", "style_button",
     "style_all", "retint_all", "button_row", "is_exempt", "clean_label", "lookup",
-    "refresh_icon",
+    "refresh_icon", "put_on_row", "icon_button",
 ]
 
 #: The three kinds of button. See rule 5 in the module docstring.
@@ -108,6 +114,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Rescan archived folders now": ("refresh-cw", "secondary"),
     # 2026-09-29: marks the selected folder to be read before the rest.
     "Index this folder first": ("pin", "secondary"),
+    # 2026-10-02: on each line of the folder list - that folder, now.
+    "Index now": ("play", "secondary"),
     "Rescan these folders now": ("refresh-cw", "secondary"),
     "Add all four": ("folder-plus", "secondary"),
     "Select all": ("list-checks", "secondary"),
@@ -359,6 +367,34 @@ def action_button(text: str, glyph: Optional[str] = None, role: Optional[str] = 
     return style_button(QPushButton(text, parent), glyph, role)
 
 
+def icon_button(words: str, *, tooltip: str, name: Optional[str] = None,
+                parent: Optional[QWidget] = None) -> QPushButton:
+    """A system button that shows its icon and no words. 2026-10-02.
+
+    **For a line of a list only** (the owner, of "Index now" on each folder's
+    line: "make sure the button has an icon only"). The same button on every
+    line of a table is the same word down a whole column; the icon says it
+    once per line and the column's heading says it once in words.
+
+    Rule 4 still holds in every way but the visible one: `words` must be in
+    `BUTTONS`, which is where the icon and the kind come from, and they are
+    what a screen reader is given (`name`, or `words` itself). **`tooltip` is
+    not optional**: with no words on it, the tooltip is the only place a
+    person reads what the icon does. The sheet centres the icon (`iconOnly`,
+    `theme.py`).
+    """
+    found = lookup(words)
+    if found is None:
+        raise ValueError(f"{words!r} is not in the button table")
+    if not str(tooltip or "").strip():
+        raise ValueError(f"an icon-only button needs a tooltip ({words!r})")
+    button = QPushButton(parent)
+    button.setToolTip(tooltip)
+    button.setAccessibleName(name or words)
+    button.setProperty("iconOnly", True)
+    return style_button(button, *found)
+
+
 def button_row(*buttons: QWidget, align: str = "left") -> QHBoxLayout:
     """Rule 2: related buttons in one row, `ROW_SPACING` apart.
 
@@ -375,6 +411,41 @@ def button_row(*buttons: QWidget, align: str = "left") -> QHBoxLayout:
     if align != "right":
         row.addStretch(1)
     return row
+
+
+#: What the sheet pads every row of a list by (`QTreeWidget::item`,
+#: `padding: 3px 4px` in `theme.py`): a widget set on a row is given the row's
+#: rectangle *less* this, so a row has to be this much bigger than its button.
+ROW_PAD_Y = 6
+ROW_PAD_X = 8
+
+
+def put_on_row(tree: QWidget, item: object, column: int, button: QPushButton) -> QWidget:
+    """Put one system button on one row of a `QTreeWidget`, at its own size.
+
+    2026-10-02, for "Index now" on a folder's line and Rescan on a drive's.
+    Two things a plain `setItemWidget(item, column, button)` gets wrong:
+
+    * the button is stretched to the column, which rule 1 forbids - so it
+      sits in a cell that leaves it its natural width;
+    * the row is sized to the button and the button is then given the row
+      *less the row's padding*, so it is drawn two or three pixels short and
+      its bottom edge is cut off (measured: a 28px button in a 26px cell).
+      The row is told its height here, padding included.
+
+    Returns the cell, which is what `tree.itemWidget(item, column)` gives back.
+    """
+    cell = QWidget()
+    layout = QHBoxLayout(cell)
+    layout.setContentsMargins(4, 0, 4, 0)
+    layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    layout.addWidget(button)
+    button.ensurePolished()
+    item.setSizeHint(column, QSize(                       # type: ignore[attr-defined]
+        cell.sizeHint().width() + ROW_PAD_X,
+        button.sizeHint().height() + ROW_PAD_Y))
+    tree.setItemWidget(item, column, cell)                # type: ignore[attr-defined]
+    return cell
 
 
 def _dialog_default(button: QPushButton) -> Optional[tuple[str, str]]:

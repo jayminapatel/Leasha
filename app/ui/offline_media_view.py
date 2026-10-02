@@ -41,16 +41,23 @@ from app.ui.presenter import (
     VolumeRow, offline_media_empty_state, offline_media_help_text, volume_rows,
 )
 from app.ui.widgets.offline_media_dialogs import DeleteVolumeDialog, ScanNameDialog
+from app.ui.widgets.offline_media_rows import EXTRA_COLUMNS, LineActions
 from app.ui.widgets.result_table import align_headers
 from app.ui.workers import CallableWorker, run
 
-__all__ = ["OfflineMediaView", "COLUMNS"]
+__all__ = ["OfflineMediaView", "COLUMNS", "EXTRA_COLUMNS", "ALL_COLUMNS"]
 
 #: Name | Status | Size | Files | Scanned - 2a's own list, in the order it
 #: names them.
 COLUMNS = ("Name", "Status", "Size", "Files", "Scanned")
 
+#: 2026-10-02: with each line's Hardware ID and its own Rescan after them
+#: (`widgets/offline_media_rows.py`).
+ALL_COLUMNS = COLUMNS + EXTRA_COLUMNS
+
 _STATUS_COLUMN = 1
+_HARDWARE_COLUMN = len(COLUMNS)
+_ACTION_COLUMN = len(COLUMNS) + 1
 
 
 def _status_tooltip(row: VolumeRow) -> str:
@@ -69,7 +76,7 @@ def _status_tooltip(row: VolumeRow) -> str:
             "as they are.")
 
 
-class OfflineMediaView(QWidget):
+class OfflineMediaView(LineActions, QWidget):
     """Scan · Rescan · Delete - and nothing else. 2a-2d."""
 
     #: (root folder, name, description) - a folder just chosen, named, ready
@@ -91,21 +98,32 @@ class OfflineMediaView(QWidget):
         )
         intro.setWordWrap(True)
 
+        #: True while a Scan, Rescan or Delete is running (`set_busy`).
+        self._busy = False
+        #: Each line's own Rescan button, by volume id. Rebuilt by `load`.
+        self._row_buttons: dict[int, QPushButton] = {}
+
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(len(COLUMNS))
-        self.tree.setHeaderLabels(list(COLUMNS))
+        self.tree.setColumnCount(len(ALL_COLUMNS))
+        self.tree.setHeaderLabels(list(ALL_COLUMNS))
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         self.tree.setSelectionMode(QTreeWidget.SelectionMode.SingleSelection)
         self.tree.setAccessibleName("Offline Media sources")
-        align_headers(self.tree, ("left", "left", "right", "right", "left"))
+        align_headers(self.tree, ("left", "left", "right", "right", "left", "left", "left"))
         header = self.tree.header()
         header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        for column in range(1, len(COLUMNS)):
+        for column in range(1, len(ALL_COLUMNS)):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+        # The last column is a button's own width; stretching it to fill the
+        # table would stretch the button's cell and push Name narrow.
+        header.setStretchLastSection(False)
         self.tree.itemSelectionChanged.connect(self._sync_buttons)
         self.tree.itemDoubleClicked.connect(lambda _item, _col: self._rescan_selected())
+        # 2026-10-02: the line's actions on the line - right-click a source.
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._row_menu)
 
         self.scan = QPushButton("Scan a drive…")
         self.scan.setToolTip(
@@ -187,13 +205,17 @@ class OfflineMediaView(QWidget):
         self._rows = volume_rows(store_rows, online)
         selected = self._selected_volume_id()
         self.tree.clear()
+        self._row_buttons = {}
         for row in self._rows:
-            item = QTreeWidgetItem([row.name, row.status, row.size, row.files, row.scanned])
+            item = QTreeWidgetItem([row.name, row.status, row.size, row.files,
+                                    row.scanned, row.hardware_id, ""])
             item.setData(0, Qt.ItemDataRole.UserRole, row.volume_id)
             if row.description:
                 item.setToolTip(0, row.description)
             item.setToolTip(_STATUS_COLUMN, _status_tooltip(row))
+            item.setToolTip(_HARDWARE_COLUMN, row.hardware_note)
             self.tree.addTopLevelItem(item)
+            self._add_line_button(item, row, _ACTION_COLUMN)
             if row.volume_id == selected:
                 item.setSelected(True)
         self.empty.setVisible(not self._rows)
@@ -203,11 +225,14 @@ class OfflineMediaView(QWidget):
     def set_busy(self, message: str) -> None:
         """2a has no progress bar - a status line and disabled buttons are
         the whole of it, matching the order's own plainness."""
+        self._busy = bool(message)
         self.status_line.setText(message)
         for button in (self.scan, self.rescan, self.delete):
             button.setEnabled(not message)
         if not message:
             self._sync_buttons()
+        else:
+            self._sync_row_buttons()
 
     # -- selection --------------------------------------------------------
 
@@ -235,8 +260,10 @@ class OfflineMediaView(QWidget):
             self.rescan.setToolTip(
                 "Only available while this source is plugged in.\n\n"
                 f"Current status: {row.status}.")
+        self._sync_row_buttons()
 
     # -- actions ------------------------------------------------------------
+    # (A line's own Rescan, its menu and "Copy hardware ID" are `LineActions`.)
 
     def _choose_and_scan(self) -> None:
         folder = QFileDialog.getExistingDirectory(self, "Choose a drive or folder to catalogue")

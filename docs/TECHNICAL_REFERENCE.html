@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v0.3.3 · schema v30 · Reference updated 1 October 2026 · Checked against <code>main</code> at 31edaea</div>
+  <div class="meta">App v0.3.3 · schema v30 · Reference updated 2 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -236,6 +236,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <div class="tablewrap"><table class="wrap">
 <tr><th>Table</th><th>Holds</th></tr>
 <tr><td><code>files</code></td><td>One row per file, message, attachment or archive member: path, parent_dir, ext, size, mtime_ns, content_hash (blake2b), <code>status</code> (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY, PARTIAL), skip_code and detail, source_kind, repo_id, volume_id + relative_path, phash, taken_at_ns, place.</td></tr>
+<tr><td></td><td><i>Note, 2 October 2026:</i> for a <code>.pst</code> the <code>content_hash</code> column holds the archive's header marker (<code>pst-header:…</code>, <code>email_pst.archive_marker</code>), not a hash of its bytes: 564 bytes are read and the numbers that move when mail does are kept.</td></tr>
 <tr><td><code>chunks</code></td><td>Passages: file_id, ordinal, text, offsets, page, <code>embedded</code> flag, identifier symbols, label.</td></tr>
 <tr><td><code>chunks_fts</code></td><td>FTS5 over chunks (text, symbols), <code>porter unicode61</code>. <code>chunks_vocab</code> feeds wildcard expansion.</td></tr>
 <tr><td><code>files_fts</code></td><td>FTS5 trigram over (name, folder): the Files page. Mail attachment names since v30.</td></tr>
@@ -280,6 +281,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 </div>
 <ol>
   <li><b>Walk</b> (<code>walker.py</code>). Change detection is two-tier: <code>mtime_ns</code> and size from <code>stat()</code>, then the blake2b hash only if those moved. Exclusions prune during the walk. Cloud placeholders are recognised from the same stat. Archive roots are walked once and re-walked only on their interval, a rescan, an incomplete pass, or a changed top-level mtime. With <code>INDEX_ORDER=newest</code> everything is found first, then "read first" folders, then the rest newest first.</li>
+  <li><i>Note, 2 October 2026.</i> A <code>.pst</code> is never hashed, so date and size were its whole change test - and Outlook moves the date of every archive it mounts. <code>Pipeline._classify</code> now asks the reader for a change marker (<code>extract.base.change_marker</code>) and lets it overrule the date in both directions; an interrupted archive's folder cursor is kept when the marker still matches. No marker (an archive Outlook holds open, a row written before this) and the date and size decide as before.</li>
   <li><b>Queue and govern.</b> Bounded queues give back-pressure; the governor pauses with a reason sentence.</li>
   <li><b>Extract</b> (<code>app/extract/base.py</code> <code>REGISTRY</code>, loaded lazily). Each reader is a library first; external converters only where no library exists (<code>config/extractors.toml</code>).</li>
   <li><b>Chunk</b> (<code>chunker.py</code>): about 512 tokens with 64 overlap, preferring paragraph then sentence boundaries.</li>
@@ -547,6 +549,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>--force</code></td><td>index every file found, ignoring change detection</td></tr>
 <tr><td><code>--skip-ocr</code> / <code>--only-ocr</code></td><td>first pass without images (queued, not failed) / the image pass alone</td></tr>
 <tr><td><code>--recheck-archives</code>, <code>--all-roots</code></td><td>walk archive folders in full / ignore Live and Archive for this run</td></tr>
+<tr><td></td><td><i>Note, 2 October 2026:</i> "Index now" on one line of Settings › Folders to index is <code>leasha index --no-prune --recheck-archives -- FOLDER</code>: that folder only, read in full, nothing removed from the others.</td></tr>
 <tr><td><code>--retry-skipped</code></td><td>re-read earlier skips (after installing a converter, say); far cheaper than <code>--force</code></td></tr>
 <tr><td><code>--retry-timed-out [TYPE]</code>, <code>--time-limit-factor N</code></td><td>re-read timed-out files only, with N× the usual limit (default 4, 1 to 100)</td></tr>
 <tr><td><code>--pause-file PATH</code></td><td>hold the run while this file exists</td></tr>
@@ -578,6 +581,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
                       [--sequential-medium]] [--rescan NAME_OR_ID] [--delete NAME_OR_ID [--yes]]
                       [--archive NAME_OR_ID --location TEXT]</code></pre>
 <p>With no option it lists sources. <code>--delete</code> shows the count and needs <code>--yes</code>. <code>--archive</code> turns a source into a name and a free-text location (for a tape in a safe, say).</p>
+<p><i>Note, 2 October 2026.</i> The list has a <code>HARDWARE ID</code> column: the disk's serial number (<code>volumes.hardware_serial</code>), or <code>-</code> where none is stored. <code>--rescan</code> asks Windows for it again when a drive has none. The Offline page shows the same value and has a Rescan button on every line.</p>
 </div>
 
 <h3 id="cli-maint">Maintenance and diagnostics</h3>

@@ -776,6 +776,7 @@ class MainWindow(QMainWindow):
             self.settings_view.first_folders_changed.connect(
                 self.settings_ctl._save_first_folders)
             self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
+            self.settings_view.index_folder_requested.connect(self._index_folder_now)
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())
             self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
@@ -1073,6 +1074,9 @@ class MainWindow(QMainWindow):
 
     def _rescan_archives(self) -> None:
         self.index_ctl._rescan_archives()
+
+    def _index_folder_now(self, folder: str) -> None:
+        self.index_ctl._index_folder_now(folder)
 
     def _poll_external_run(self) -> None:
         self.index_ctl._poll_external_run()

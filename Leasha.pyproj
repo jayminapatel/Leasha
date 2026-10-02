@@ -390,6 +390,7 @@
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
+    <Compile Include="app\ui\report_pdf.py" />
     <Compile Include="app\ui\reports_view.py" />
     <Compile Include="app\ui\result_delegate.py" />
     <Compile Include="app\ui\results_view.py" />
@@ -471,6 +472,7 @@
     <Compile Include="app\ui\widgets\notice_bar.py" />
     <Compile Include="app\ui\widgets\number_field.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
+    <Compile Include="app\ui\widgets\offline_media_rows.py" />
     <Compile Include="app\ui\widgets\photo_tagger_page.py" />
     <Compile Include="app\ui\widgets\photo_tagger_window.py" />
     <Compile Include="app\ui\widgets\pinned_panel.py" />
@@ -734,6 +736,7 @@
     <Compile Include="tests\unit\test_index_force.py" />
     <Compile Include="tests\unit\test_index_freshness.py" />
     <Compile Include="tests\unit\test_index_move.py" />
+    <Compile Include="tests\unit\test_index_now_per_line.py" />
     <Compile Include="tests\unit\test_index_panel.py" />
     <Compile Include="tests\unit\test_index_progress.py" />
     <Compile Include="tests\unit\test_index_roots.py" />

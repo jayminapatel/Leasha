@@ -51,6 +51,58 @@ class VolumeRow:
     size_bytes: int = 0
     last_scanned_at: int = 0
     last_seen: int = 0
+    #: 2026-10-02. What the "Hardware ID" column shows, and the sentence
+    #: behind it - see `hardware_id_words`. `hardware_serial` is the raw value,
+    #: "" when none is stored, for "Copy hardware ID".
+    hardware_id: str = ""
+    hardware_note: str = ""
+    hardware_serial: str = ""
+
+
+#: What the Hardware ID column says for a drive whose serial was never read.
+HARDWARE_ID_MISSING = "Not available"
+
+
+def hardware_id_words(row: Mapping[str, Any]) -> tuple[str, str]:
+    r"""`(cell, tooltip)` for one source's "Hardware ID". 2026-10-02.
+
+    The owner, of the Offline list: "it should also show the hw id". The disk's
+    own serial number has been stored since the first Scan
+    (`volumes.hardware_serial`, read through Windows) and was shown nowhere -
+    so two drives given similar names could not be told apart from the list,
+    and nothing on screen matched the label on the drive itself.
+
+    * A drive with a serial shows it.
+    * A drive without one says `Not available`, and the tooltip says what
+      Leasha recognises it by instead (its volume ID) and that a Rescan asks
+      Windows again.
+    * A network share has no hardware of its own: it shows its address, which
+      is what it is recognised by.
+    """
+    serial = str(row.get("hardware_serial") or "").strip()
+    kind = str(row.get("kind") or "")
+    guid = str(row.get("volume_guid") or "").strip()
+    label = str(row.get("fs_label") or "").strip()
+    lines: list[str] = []
+    if kind == "network":
+        address = str(row.get("identity_key") or "").strip()
+        return address, (
+            "A network share has no hardware of its own. This is the address "
+            "Leasha recognises it by.")
+    if serial:
+        cell = serial
+        lines.append("The serial number of the disk itself, as Windows reports "
+                     "it. It stays the same if the drive is reformatted.")
+    else:
+        cell = HARDWARE_ID_MISSING
+        lines.append("Windows gave no serial number for this disk when it was "
+                     "scanned. A Rescan asks again.")
+    if guid:
+        lines.append(f"Recognised by its volume ID, whatever letter Windows "
+                     f"gives it: {guid}")
+    if label:
+        lines.append(f"Volume label: {label}")
+    return cell, "\n\n".join(lines)
 
 
 def volume_rows(rows: Iterable[Mapping[str, Any]],
@@ -88,6 +140,7 @@ def volume_rows(rows: Iterable[Mapping[str, Any]],
             status = "Offline"
         scanned_at = int(row.get("last_scanned_at") or 0)
         count = int(row.get("indexed_files", row.get("file_count", 0)) or 0)
+        hardware_id, hardware_note = hardware_id_words(row)
         out.append(VolumeRow(
             volume_id=volume_id,
             name=str(row.get("name", "")),
@@ -102,6 +155,9 @@ def volume_rows(rows: Iterable[Mapping[str, Any]],
             size_bytes=int(row.get("size_bytes") or 0),
             last_scanned_at=scanned_at,
             last_seen=seen,
+            hardware_id=hardware_id,
+            hardware_note=hardware_note,
+            hardware_serial=str(row.get("hardware_serial") or "").strip(),
         ))
     return out
 

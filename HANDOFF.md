@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.39 · **Updated:** 2026-10-02 · **Applies to:** app v0.3.3
+**Doc version:** 7.40 · **Updated:** 2026-10-02 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1987,6 +1987,34 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-10-02 - a button on every line of a list, and what it took.** The owner asked for
+"Index now" on each line of Settings › Folders to index and the same on the Offline list, icon
+only, and for the Offline list to show each drive's hardware ID. Four things worth knowing:
+
+- **A view is held under 250 lines and a helper needs its own tooltip** - both are tests
+  (`test_presenter.py`, `test_tooltips.py`), and both went red on the first attempt. The Offline
+  list's line pieces live in `app/ui/widgets/offline_media_rows.py` for that reason. **Commit
+  `fc65713` broke the same guard**: `reports_view.py` reached 261 lines and that run's test
+  selection did not include `test_presenter.py`. Fixed here by moving `_write_pdf` to
+  `app/ui/report_pdf.py` (still imported under its old name). Run `test_presenter.py` and
+  `test_tooltips.py` after any change to a `*_view.py`.
+- **A widget set on a row is given the row less the row's padding.** A 28px button in a 26px
+  cell, its bottom edge cut off - seen only by rendering the widget to a picture
+  (`widget.grab()` with `WA_DontShowOnScreen` and the real `windows` platform; the offscreen
+  platform has no fonts here and draws boxes). `buttons.put_on_row` sets the row's height;
+  `buttons.icon_button` is the icon-only kind, centred by `QPushButton[iconOnly="true"]`.
+- **"Index now" is `_start_indexing(roots=[folder], recheck_archives=True)`** - the folder-scoped
+  run a dropped folder already starts, so nothing is pruned elsewhere, plus a full read of an
+  Archive line. The command line is `leasha index --no-prune --recheck-archives -- FOLDER`.
+- **"files type pst" was searched for as three words.** `translate_rules.apply` read only mail,
+  a person and a year. `_named_type` now reads `type <x>` and `<x> files` as `type:<x>` when the
+  index holds it. When this was reported the index was also **empty** (reset at 18:11, nothing
+  indexed since), so the page would have been empty either way.
+
+UNVERIFIED on the real window: all of it was run offscreen and rendered to pictures, not
+pressed in the owner's window. The complete suite on the laptop after these changes:
+**12,173 passed, 111 skipped, 1 xfailed, none failed** (31 min 2 s, default options).
 
 **2026-10-02 - the crash handler was the crash, and `code 0x8001010e` in `crash.log` is not
 one.** The window died (`0xC0000005` in `python312.dll`) with Settings' "Choose a folder to

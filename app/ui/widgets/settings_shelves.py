@@ -91,6 +91,7 @@ class SettingsShelves:
         self.roots_box.cloud_content_changed.connect(self.cloud_content_roots_changed)
         self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
         self.roots_box.first_changed.connect(self.first_folders_changed)
+        self.roots_box.index_requested.connect(self.index_folder_requested)
 
         self.code_types = CodeTypesBox()
         self.code_types.changed.connect(self.code_types_changed)

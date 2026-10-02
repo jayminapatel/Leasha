@@ -539,3 +539,85 @@ def test_every_mail_word_offers_the_same_mail_type_as_typing_it():
     not what `type:mail` means and missed every Outlook message."""
     for word in ("mail", "email", "emails", "messages"):
         assert _field(f"{word} about the boiler", "type", _OneJohn()) == "mail", word
+
+
+# --------------------------------------------------------------------------
+# A file type named in words (2026-10-02)
+# --------------------------------------------------------------------------
+#
+# The owner typed "files type pst" into Search and got nothing. No rule read
+# it, so it ran as the three words `files`, `type` and `pst`.
+
+@pytest.mark.parametrize("sentence", [
+    "files type pst", "file type pst", "files of type pst", "pst files",
+    "all pst files", "type pst", ".pst files", "type pst files", "PST files",
+])
+def test_a_file_type_named_in_words_is_a_filter_only_query(sentence):
+    """Every spelling of it lists that type, newest first, and searches for
+    no word at all - `type:pst` exactly as if it had been typed."""
+    applied = _applied(sentence)
+    parsed = parse_query(applied.query)
+    assert parsed.ext == ("pst",), applied.query
+    assert parsed.terms == () and not parsed.has_text
+    assert [f.label for f in applied.filters] == ["pst files"]
+
+
+def test_the_words_beside_a_named_type_are_still_searched_for():
+    parsed = parse_query(_applied("pdf files about the boiler").query)
+    assert parsed.ext == ("pdf",) and "boiler" in parsed.terms
+    assert "pdf" not in parsed.terms and "files" not in parsed.terms
+
+
+def test_a_type_the_index_does_not_hold_stays_as_typed():
+    """The filter can never be the reason a page is empty."""
+    applied = _applied("files type xlsx")
+    assert applied.query == "files type xlsx" and not applied.changed
+
+
+def test_a_kind_of_file_works_as_well_as_an_extension():
+    parsed = parse_query(_applied("word files").query)
+    assert set(parsed.ext) == {"doc", "docx"} and parsed.terms == ()
+
+
+def test_an_english_word_that_is_also_an_extension_is_left_alone():
+    """"old files" is English even in an index that holds `.old`; said with
+    `type` and `files` it can only be the extension."""
+    class _Holds(_OneJohn):
+        def distinct_values(self, kind, limit=40, **_):
+            return ["old", "key", "o", "pdf"] if kind == "ext" else []
+
+    for sentence in ("old files", "key files", "blood type o"):
+        applied = _applied(sentence, _Holds())
+        assert applied.query == sentence and not applied.changed, sentence
+    assert parse_query(_applied("files type old", _Holds()).query).ext == ("old",)
+
+
+def test_a_typed_type_wins_over_a_named_one():
+    parsed = parse_query(_applied("pst files type:pdf").query)
+    assert parsed.ext == ("pdf",) and "pst" in parsed.terms
+
+
+def test_mail_named_first_is_the_type_and_the_rest_stay_words():
+    applied = _applied("emails pdf files")
+    assert [f.label for f in applied.filters] == ["mail"]
+    assert "pdf" in parse_query(applied.query).terms
+
+
+def test_removing_the_chip_puts_the_words_back():
+    chip = _applied("files type pst").filters[0]
+    again = _applied("files type pst", declined=[chip.key])
+    assert again.query == "files type pst" and not again.changed
+
+
+def test_a_named_type_asks_the_store_once_and_only_when_it_is_there():
+    asked: list = []
+
+    class Counting(_OneJohn):
+        def holds_ext(self, extensions):
+            asked.append(tuple(extensions))
+            return True
+
+    _applied("volcano homework essay", Counting())
+    assert asked == []
+    _applied("pst files", Counting())
+    assert asked == [("pst",)]

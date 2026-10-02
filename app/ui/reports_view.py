@@ -28,6 +28,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+# The PDF writer, kept under the name it had while it lived in this file
+# (2026-10-02: moved to keep this view under its line limit).
+from app.ui.report_pdf import write_pdf as _write_pdf
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
 from app.ui.widgets.space_table import SpaceTables
 from app.ui.widgets.timeline_host import REPORT_KEY, attach_timeline, show_timeline_only
@@ -330,22 +333,3 @@ def _local_roots(store: Any) -> list:
     except Exception:                            # noqa: BLE001 - a report, not a search
         return []
     return [part.strip() for part in raw.split("|") if part.strip()]
-
-
-def _write_pdf(document: str, path: str) -> None:
-    """PDF from the same `QTextDocument` layout `preview_window.py`'s Print
-    uses, on a worker. Never on the UI thread: a long report over a large
-    catalogue lays out every page before anything is written.
-
-    `QPdfWriter` rather than a `QPrinter` set to PDF output: same layout and
-    the same bytes (measured on a 200-entry report: 148,742 both ways), but it
-    never touches the Windows printer subsystem - `QPrinter()` on a worker
-    thread died with COM error 0x80040155 (a hard process crash, not an
-    exception) in a process that already held a MainWindow.
-    """
-    from PyQt6.QtGui import QPdfWriter, QTextDocument
-
-    doc = QTextDocument()
-    doc.setMarkdown(document)
-    writer = QPdfWriter(path)
-    doc.print(writer)

@@ -54,6 +54,9 @@ class SettingsView(SettingsShelves, QWidget):
     first_folders_changed = pyqtSignal(list)
     #: "Rescan archived folders now" - one full walk, not a change of policy.
     rescan_archives_requested = pyqtSignal()
+    #: 2026-10-02. "Index now" on one line of the folder list: that folder.
+    #: See `RootsBox.index_requested` - this only relays it.
+    index_folder_requested = pyqtSignal(str)
     #: `(preset, groups)` for the Code tab's file-type filter. A view
     #: preference: it changes what Code lists, never what is indexed.
     code_types_changed = pyqtSignal(str, list)
