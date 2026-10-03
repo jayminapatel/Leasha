@@ -388,7 +388,8 @@ def files_under(path: Any, roots: Sequence[Any]) -> Optional[str]:
     best: Optional[str] = None
     for root in roots:
         key = normalise(root)
-        if key and text.startswith(key + "\\"):
+        # `text == key`: a root that is one file (2026-10-03) contains itself.
+        if key and (text == key or text.startswith(key + "\\")):
             if best is None or len(key) > len(best):
                 best = key
     return best

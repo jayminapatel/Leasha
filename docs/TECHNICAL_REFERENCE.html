@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v0.3.3 · schema v30 · Reference updated 2 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
+  <div class="meta">App v0.3.3 · schema v30 · Reference updated 3 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -282,6 +282,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <ol>
   <li><b>Walk</b> (<code>walker.py</code>). Change detection is two-tier: <code>mtime_ns</code> and size from <code>stat()</code>, then the blake2b hash only if those moved. Exclusions prune during the walk. Cloud placeholders are recognised from the same stat. Archive roots are walked once and re-walked only on their interval, a rescan, an incomplete pass, or a changed top-level mtime. With <code>INDEX_ORDER=newest</code> everything is found first, then "read first" folders, then the rest newest first.</li>
   <li><i>Note, 2 October 2026.</i> A <code>.pst</code> is never hashed, so date and size were its whole change test - and Outlook moves the date of every archive it mounts. <code>Pipeline._classify</code> now asks the reader for a change marker (<code>extract.base.change_marker</code>) and lets it overrule the date in both directions; an interrupted archive's folder cursor is kept when the marker still matches. No marker (an archive Outlook holds open, a row written before this) and the date and size decide as before.</li>
+  <li><i>Note, 3 October 2026.</i> A root may be one file. <code>walker.walk</code> walks it as a listing of its own folder that names only it, so every rule applies as inside a folder; <code>scan</code> counts it as one file; <code>archives.files_under</code> says a file is under itself; <code>folder_watch.live_roots</code> leaves it out. The Space Report's rows are shaped on the worker (<code>presenter.space_rows.shape</code>) and the widget draws from them.</li>
   <li><b>Queue and govern.</b> Bounded queues give back-pressure; the governor pauses with a reason sentence.</li>
   <li><b>Extract</b> (<code>app/extract/base.py</code> <code>REGISTRY</code>, loaded lazily). Each reader is a library first; external converters only where no library exists (<code>config/extractors.toml</code>).</li>
   <li><b>Chunk</b> (<code>chunker.py</code>): about 512 tokens with 64 overlap, preferring paragraph then sentence boundaries.</li>

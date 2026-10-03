@@ -110,6 +110,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Browse…": ("folder-open", "secondary"),
     # -- Settings › What's indexed ---------------------------------------------
     "Add folder…": ("folder-plus", "secondary"),
+    # 2026-10-03: one file as an entry in the list, beside the folders.
+    "Add file…": ("file-plus", "secondary"),
     "Remove": ("folder-minus", "secondary"),
     "Rescan archived folders now": ("refresh-cw", "secondary"),
     # 2026-09-29: marks the selected folder to be read before the rest.

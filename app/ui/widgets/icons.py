@@ -64,6 +64,8 @@ ICON_NAMES = (
     "package", "history", "pencil", "send", "globe", "check", "zoom-in",
     "zoom-out", "move-horizontal", "printer", "chevron-up", "calendar",
     "split", "file-down", "git-branch",
+    # 2026-10-03: "Add file…" in the folder list. Lucide, as above.
+    "file-plus",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

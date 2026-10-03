@@ -17,6 +17,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### A file as an entry, and a Space Report that never holds the window (2026-10-03)
+
+- **Add one file to index without its folder.** Settings › Folders to index has "Add file…"
+  beside "Add folder…": one mail archive out of a folder of them, say. It is indexed with the
+  folders, by the same rules a file inside a folder gets, and its line has Live/Archive, "Read
+  first" and Index now like any other. "Index files as they are saved" watches folders only, so
+  a file entry is read by Start, Index now or the next run.
+- **The Space Report's rows are worked out before the table is shown**, off the window's thread
+  - the last part of that page that could still hold the window on an index of mail.
+
+### Docs
+
+- `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: notes dated 3 October 2026.
+  `HANDOFF.md` 7.41.
+
 ### One line at a time: Index now, Rescan and the hardware ID (2026-10-02)
 
 - **Index one folder without indexing the rest.** Settings › Folders to index has a button on

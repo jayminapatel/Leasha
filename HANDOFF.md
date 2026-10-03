@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.40 · **Updated:** 2026-10-02 · **Applies to:** app v0.3.3
+**Doc version:** 7.41 · **Updated:** 2026-10-03 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1987,6 +1987,14 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
+in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
+file root as a listing of its own folder that names only it, so every rule applies unchanged;
+`scan` counted it as an unreadable folder until told; `archives.files_under` did not put a file
+under itself; `folder_watch.live_roots` would have raised "the folder is no longer there" and
+now leaves a file out, at debug level. `reports_view.py` is at 249 of its 250 lines - the next
+line added there must take one away. UNVERIFIED on the real window.
 
 **2026-10-02 - a button on every line of a list, and what it took.** The owner asked for
 "Index now" on each line of Settings › Folders to index and the same on the Offline list, icon

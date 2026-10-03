@@ -684,9 +684,19 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
         # case, and the keys stay exactly as they always were.
         case_sensitive(root)
 
-        for directory, subdirectories, filenames in os.walk(
-            root, topdown=True, followlinks=config.follow_symlinks
-        ):
+        # **A root may be one file** (2026-10-03, the owner: the list of
+        # folders to index should take a file too - one archive out of a
+        # folder of them). It is walked as a listing of its own folder that
+        # names only it, so every rule below - the exclusions, the extension
+        # table, the size ceiling, name-only, placeholders - applies to it
+        # exactly as it would had it been met inside a folder. A file root
+        # that does not exist is "not found" above, like a folder.
+        if root.is_file():
+            steps: Iterable = [(str(root.parent), [], [root.name])]
+        else:
+            steps = os.walk(root, topdown=True, followlinks=config.follow_symlinks)
+
+        for directory, subdirectories, filenames in steps:
             # **Detection happens here, and the position is load-bearing.**
             #
             # Before the prune, because `.git` is in `DEFAULT_EXCLUDE_DIRS` and

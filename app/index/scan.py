@@ -729,7 +729,13 @@ def scan(
 
             directory, inside_git = stack.pop()
             try:
-                entries = list(os.scandir(directory))
+                if directory == root and root.is_file():
+                    # 2026-10-03: a root that is one file (`walker.walk`) is
+                    # its own folder's listing, narrowed to it.
+                    entries = [one for one in os.scandir(root.parent)
+                               if one.name == root.name]
+                else:
+                    entries = list(os.scandir(directory))
             except OSError:
                 # Unreadable, and counted. A silent one is a hole in a total
                 # that everything downstream is planned from.

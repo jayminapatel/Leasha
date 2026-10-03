@@ -118,6 +118,18 @@ class RootsBox(QGroupBox):
             "Add a folder to index. Everything beneath it is included; your "
             "files are only ever read.")
         add.clicked.connect(self._add_root)
+        # 2026-10-03, the owner: "can it be file to index" - one archive out of
+        # a folder of them, without taking the folder. A file entry is walked,
+        # classified and pruned by the same rules as a file met inside a
+        # folder (`walker.walk`); it can be Live or Archive, "first", and
+        # "Index now" like any line. Not watched by "Index files as they are
+        # saved" - that listens to folders (`folder_watch.live_roots`).
+        add_file = QPushButton("Add file…")
+        add_file.setToolTip(
+            "Add one file to index - a mail archive, say - without adding the "
+            "folder it sits in. It is indexed with the folders; everything "
+            "else in its folder is left alone.")
+        add_file.clicked.connect(self._add_file)
         remove = QPushButton("Remove")
         remove.setToolTip(
             "Stop indexing this folder.\n\n"
@@ -151,6 +163,7 @@ class RootsBox(QGroupBox):
 
         buttons = QHBoxLayout()
         buttons.addWidget(add)
+        buttons.addWidget(add_file)
         buttons.addWidget(remove)
         buttons.addWidget(self.first)
         buttons.addStretch(1)
@@ -425,6 +438,11 @@ class RootsBox(QGroupBox):
         folder = QFileDialog.getExistingDirectory(self, "Choose a folder to index")
         if folder:
             self.add_root(folder)
+
+    def _add_file(self) -> None:
+        chosen, _filter = QFileDialog.getOpenFileName(self, "Choose a file to index")
+        if chosen:
+            self.add_root(chosen)
 
     def _remove_root(self) -> None:
         for item in self.tree.selectedItems():

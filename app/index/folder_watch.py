@@ -1086,6 +1086,13 @@ def live_roots(roots: Iterable[Any], store: Any = None) -> list[Path]:
     live, which watches more rather than less.
     """
     chosen = [Path(root) for root in roots if str(root).strip()]
+    # 2026-10-03: an entry that is one file (`walker.walk`) is not watched -
+    # the watch listens to folders, and a file is read by Start, "Index now"
+    # or the next run. Said at debug level: it is what the setting means.
+    files = [root for root in chosen if root.is_file()]
+    if files:
+        log.debug("not watching {} - a file, not a folder", ", ".join(map(str, files)))
+        chosen = [root for root in chosen if root not in files]
     if store is None:
         return chosen
     try:
