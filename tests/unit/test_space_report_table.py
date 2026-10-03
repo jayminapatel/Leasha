@@ -266,6 +266,37 @@ def test_a_group_with_thousands_of_copies_costs_nothing_until_it_is_opened(qtbot
     assert sum(tree.topLevelItem(i).childCount() for i in range(25)) == 4000
 
 
+def test_rows_shaped_on_the_worker_are_used_and_not_shaped_again(qtbot, monkeypatch):
+    """2026-10-03. Shaping the rows - one per group and per copy - was the last
+    of the Space Report's work still done on the window's thread (about
+    170 ms for 100,000 copies). `presenter.space_rows.shape` does it on the
+    worker and the widget draws from that."""
+    from app.reports.space import document_for
+    from app.ui.presenter.space_rows import shape
+    import app.ui.widgets.space_table as module
+
+    document = shape(document_for(_findings()))
+    assert document.shaped and document.shaped[0] == space_headline(document.findings)
+    assert [t.key for t in document.shaped[1]] == ["duplicates", "similar", "by-source", "only-copy"]
+
+    def _not_here(_findings):
+        raise AssertionError("the rows were shaped on the window's thread")
+
+    monkeypatch.setattr(module, "space_tables", _not_here)
+    monkeypatch.setattr(module, "space_headline", _not_here)
+    widget = SpaceTables()
+    qtbot.addWidget(widget)
+    widget.set_findings(document.findings, document.shaped)
+    assert widget.headline.text() == document.shaped[0]
+    assert set(widget.trees) == {"duplicates", "similar", "by-source", "only-copy"}
+
+
+def test_a_document_that_is_only_words_is_left_alone_by_shape():
+    from app.ui.presenter.space_rows import shape
+
+    assert shape("just a document") == "just a document"
+
+
 def test_a_flat_table_has_no_arrows(qtbot):
     widget = SpaceTables()
     qtbot.addWidget(widget)

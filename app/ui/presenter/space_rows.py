@@ -221,6 +221,28 @@ def space_tables(findings: SpaceFindings) -> tuple[SpaceTable, ...]:
             _by_source(findings), _only_copy(findings))
 
 
+def shape(document: Any) -> Any:
+    """Attach the headline and the four tables to a `SpaceDocument` as
+    `document.shaped`, for the window to draw from. 2026-10-03.
+
+    **Called on the worker that read the findings**, never on the window's
+    thread: shaping is one `SpaceRow` per group and per copy inside it, and on
+    an index of mail - 25 groups, thousands of copies each - that was the last
+    of the Space Report's work still done on the window's thread (measured at
+    about 170 ms for 100,000 copies after the rows themselves went lazy). A
+    document that is not a `SpaceDocument` is returned as it is; if shaping
+    fails, the window shapes for itself as before. Never raises.
+    """
+    findings = getattr(document, "findings", None)
+    if findings is None:
+        return document
+    try:
+        document.shaped = (space_headline(findings), space_tables(findings))
+    except Exception:                               # noqa: BLE001 - the window falls back
+        pass
+    return document
+
+
 def space_headline(findings: SpaceFindings) -> str:
     """A few plain numbers, in the document's own words."""
     lines = []

@@ -228,7 +228,8 @@ class ReportsView(QWidget):
         elif key == "space":
             findings = getattr(self._space_document, "findings", None)
             if findings is not None:
-                self.space_table.set_findings(findings)
+                self.space_table.set_findings(
+                    findings, getattr(self._space_document, "shaped", None))
             else:
                 self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
             tabled = findings is not None
@@ -297,6 +298,7 @@ def _report_snapshot(
         find_near_duplicate_photo_groups, find_source_duplicate_share,
         find_source_uniqueness, hash_coverage, total_reclaimable_bytes,
     )
+    from app.ui.presenter.space_rows import shape
 
     generated_at = report_generated_at(store)
     if last_known_generated_at is not None and generated_at == last_known_generated_at:
@@ -324,7 +326,8 @@ def _report_snapshot(
         groups=tuple(groups), near_duplicates=tuple(near_duplicates),
         duplicate_share=tuple(duplicate_share), uniqueness=tuple(uniqueness),
         total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at, **hash_coverage(store)))
-    return sources, generated_at, space
+    # 2026-10-03: the table's rows are shaped here too, off the window's thread.
+    return sources, generated_at, shape(space)
 
 
 def _local_roots(store: Any) -> list:

@@ -139,10 +139,15 @@ class SpaceTables(QWidget):
         layout.addWidget(self.headline)
         layout.addWidget(self.tabs, 1)
 
-    def set_findings(self, findings: Any) -> None:
+    def set_findings(self, findings: Any, shaped: Any = None) -> None:
         """Show `findings`. Building is cheap (the report names a couple of
         dozen groups), and a repeat call for the same findings is a no-op so
-        switching between reports does not throw away a sort or an opened row."""
+        switching between reports does not throw away a sort or an opened row.
+
+        `shaped` is `(headline, tables)` already made on the worker
+        (`presenter.space_rows.shape`, 2026-10-03); without it they are made
+        here, on the window's thread, as they always were.
+        """
         if findings is self._shown:
             return
         self._shown = findings
@@ -152,8 +157,9 @@ class SpaceTables(QWidget):
             self.tabs.removeTab(0)
             page.deleteLater()
         self.trees.clear()
-        self.headline.setText(space_headline(findings))
-        for table in space_tables(findings):
+        headline, tables = shaped or (space_headline(findings), space_tables(findings))
+        self.headline.setText(headline)
+        for table in tables:
             page = QWidget()
             column = QVBoxLayout(page)
             if table.rows:
