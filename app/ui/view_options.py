@@ -28,7 +28,7 @@ the rules can be tested without a display.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Iterable, Mapping, Sequence
+from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from app.core.logging import logger
 
@@ -182,7 +182,8 @@ class Metrics:
 
 
 def available_columns(
-    rows: Iterable[Any], columns: Sequence[tuple[str, str]], *, always: Sequence[str] = ()
+    rows: Iterable[Any], columns: Sequence[tuple[str, str]], *, always: Sequence[str] = (),
+    kept: Optional[set] = None,
 ) -> tuple[str, ...]:
     """Which columns have data in them, given the rows on screen.
 
@@ -196,11 +197,18 @@ def available_columns(
 
     `always` names columns that stay on offer whatever the rows say, for the
     ones a list would be nonsense without.
+
+    *Added 4 October 2026, the owner: "for any search the columns should
+    remain same".* `kept` is the list's own set of every column it has shown;
+    a column in it stays, and one found now is added to it. Without it a
+    search whose rows happen to be empty in a column took the column away -
+    `from:` himself, mostly "Accepted:" replies with no To line, lost **To**.
+    A mailbox with no To line anywhere still never shows the column.
     """
     materialised = list(rows)
     found: list[str] = []
     for key, attribute in columns:
-        if key in always:
+        if key in always or (kept is not None and key in kept):
             found.append(key)
             continue
         for row in materialised:
@@ -208,6 +216,8 @@ def available_columns(
             if value not in (None, "", 0, False):
                 found.append(key)
                 break
+    if kept is not None:
+        kept.update(found)
     return tuple(found)
 
 

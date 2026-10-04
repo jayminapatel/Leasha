@@ -350,7 +350,8 @@ class FilesView(QWidget):
         # Offered when the data can fill it, disabled when it cannot.
         self.view_button.available = self._available = available_columns(
             display, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
-            always=ALWAYS_OFFERED,
+            # Every column this list has shown stays for the next search (2026-10-04).
+            always=ALWAYS_OFFERED, kept=self.__dict__.setdefault("_kept_columns", set()),
         )
         self._apply_prefs()
 

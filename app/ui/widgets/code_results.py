@@ -132,9 +132,10 @@ class CodeResults(QWidget):
         # cell its one-sentence tooltip.
         fill_rows(self.table, rows, COLUMNS, SORT_KEYS, first=lambda item, row:
                   item.setToolTip(getattr(row, "full_path", "") or ""))
+        # Every column this list has shown stays for the next search (2026-10-04).
         self.available = available_columns(
             rows, [(key, attribute) for key, _h, attribute, _r in COLUMNS],
-            always=ALWAYS_OFFERED,
+            always=ALWAYS_OFFERED, kept=self.__dict__.setdefault("_kept_columns", set()),
         )
         self.apply_prefs(prefs)
 

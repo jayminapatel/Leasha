@@ -299,6 +299,13 @@ def mail_rows(
         except (TypeError, ValueError):
             sent_at = 0
         size_bytes = int(row.get("size_bytes") or 0)
+        # 2026-10-04, the owner's Mail screenshot: every message "1.9 GB". A
+        # message read out of an archive (`pst://`, both readers) is stored
+        # with the archive's size - it has no file of its own - so it shows
+        # none, as the Files page already does. A `.eml` or `.msg` on disk
+        # keeps its own.
+        if str(row.get("path") or "").startswith("pst://"):
+            size_bytes = 0
         attached = bool(row.get("has_attach"))
         # An empty subject is common and meaningful. Blank looks like a
         # rendering fault; saying so does not.
@@ -312,7 +319,7 @@ def mail_rows(
             # The same string, under the name every row consumer reads.
             name=subject,
             attachment="Yes" if attached else "",
-            size=format_size(size_bytes),
+            size=format_size(size_bytes) if size_bytes else "",
             path=str(row.get("path") or ""),
             sent_at=sent_at,
             size_bytes=size_bytes,

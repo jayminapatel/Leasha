@@ -111,3 +111,15 @@ def test_the_schema_moved_to_31():
 
     # At least: 32 followed the same night (the message's place in its archive).
     assert CURRENT_VERSION >= 31 and 31 in MIGRATIONS
+
+
+def test_the_mail_list_does_not_show_a_message_the_archives_size():
+    """The owner's Mail screenshot, 2026-10-04: every message "1.9 GB"."""
+    from app.ui.presenter.rows import mail_rows
+
+    archived, on_disk = mail_rows([
+        {"file_id": 1, "path": MESSAGE, "size_bytes": ARCHIVE_SIZE, "subject": "a"},
+        {"file_id": 2, "path": "D:/Mail/note.eml", "size_bytes": 2048, "subject": "b"},
+    ])
+    assert (archived.size, archived.size_bytes) == ("", 0)
+    assert on_disk.size == "2.0 KB"

@@ -1494,3 +1494,21 @@ def test_a_real_mouse_drag_survives_a_restart(tmp_path):
         f"right after the drag, live, and came back as "
         f"{verify_result['last_width']}px after a restart - a column nobody "
         "touched must not change just because a different one was dragged")
+
+
+def test_a_search_never_takes_away_a_column_the_list_has_shown():
+    """2026-10-04, the owner: "for any search the columns should remain same".
+    `from:` himself - mostly "Accepted:" replies with no To line - lost the To
+    column. A mailbox with no To line anywhere still never shows it."""
+    from types import SimpleNamespace
+
+    from app.ui.view_options import available_columns
+
+    columns = [("from", "sender"), ("to", "recipients")]
+    kept: set = set()
+    everyone = [SimpleNamespace(sender="Dave", recipients="Priya"),
+                SimpleNamespace(sender="Me", recipients="")]
+    assert available_columns(everyone, columns, kept=kept) == ("from", "to")
+    replies = [SimpleNamespace(sender="Me", recipients="")]
+    assert available_columns(replies, columns, kept=kept) == ("from", "to")
+    assert available_columns(replies, columns, kept=set()) == ("from",), "no To anywhere: none"

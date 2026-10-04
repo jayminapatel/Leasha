@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.53 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.54 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **Double-clicking an attachment on the Files page opens it.** It said "Not found on disk":
+  the new Open-from-a-copy had reached the Search page only. Every page now goes the same
+  way - Files, a pinned window's Open - and **Show in folder** on an attachment shows the
+  Outlook archive it is in.
+- **A search no longer takes columns away.** Filtering Mail with `from:` yourself - mostly
+  meeting replies with no To line - removed the **To** column. A column the list has shown now
+  stays for every search. (A mailbox with no To line anywhere still never shows one.) The same
+  holds on Files and Code.
+- **The Mail list no longer gives every message the archive's size.** Each message read out of
+  an Outlook archive showed the whole archive's size (1.9 GB); it now shows none, as the Files
+  page already did. A `.eml` or `.msg` file keeps its own size.
 - **AI programs on this computer can search your index.** Settings > Models & AI > AI
   programs has **Start** and **Stop**, and **Connect** for Claude Desktop, Claude Code,
   Cursor and VS Code; any other program that speaks MCP can be given the address and key

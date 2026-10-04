@@ -827,6 +827,11 @@ class MainWindow(QMainWindow):
             from app.ui.controllers.mcp_controller import McpController
 
             self.mcp_ctl = McpController(self)
+            # 2026-10-04: every page's Open and Show in folder on an attachment or a
+            # zip member comes here (`workers.route_through_window`), not to Explorer.
+            from app.ui.workers import route_through_window
+
+            route_through_window(self._open_path)
             # "Clear search history" empties the log the search box's recent
             # searches are read from; without this it kept offering them.
             self.settings_view.history_cleared.connect(
@@ -2048,11 +2053,24 @@ class MainWindow(QMainWindow):
         and opens that (`workers.open_attachment_async`); "Show in folder" on a zip member
         shows the zip. "Open in Outlook" is unchanged beside an attachment.
         """
-        from app.ui.attachment_open import opens_from_a_copy, zip_member_of
+        from app.ui.attachment_open import (
+            is_archive_attachment, opens_from_a_copy, zip_member_of,
+        )
 
         zip_path = zip_member_of(path)[0]
         if reveal and zip_path:
             path = zip_path                      # Show in folder: the zip that holds it
+        elif reveal and is_archive_attachment(path):
+            # Show in folder on an attachment: the archive it is in (2026-10-04),
+            # found from its message's row - on a worker.
+            from app.ui.tasks import archive_of
+
+            worker = CallableWorker(archive_of, self._store, path, component="ui.reveal")
+            worker.signals.finished.connect(
+                lambda archive: open_async(archive, reveal=True, on_error=self._show_error))
+            worker.signals.failed.connect(self._show_error)
+            run(QThreadPool.globalInstance(), worker)
+            return
         elif not reveal and opens_from_a_copy(path):
             open_attachment_async(self._store, path, self._settings.cache_path,
                                   on_error=self._show_error,
@@ -2061,6 +2079,8 @@ class MainWindow(QMainWindow):
         # The shared helper - see `workers.open_async`. This was the correct
         # version and `files_view` had its own, blocking, copy; one function now,
         # so a third caller cannot get it wrong.
+        # By here `path` is never an attachment or a zip member - each was
+        # handled above - so `open_async` cannot send it back to this route.
         open_async(path, reveal=reveal, on_error=self._show_error)
 
     def _open_code_at(self, path: str, line: int) -> None:

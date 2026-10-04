@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.51 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.52 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2178,6 +2178,22 @@ the server uses the window's engine's models. Settings `MCP_PORT` (8737) and `MC
 nothing. **UNVERIFIED**: not yet connected to a real Claude Desktop, Claude Code, Cursor or VS
 Code - the tests drive the SDK's own client in-process, over HTTP, and the bridge as a separate
 process; VS Code's documented example shows no header (`PROGRAMS` says so). `test_mcp_server.py`.
+
+**2026-10-04 (night) - Three faults from the owner's screenshots, during his re-index.**
+(1) **Double-click on an attachment on Files said "Not found on disk"** - and the path in the
+message had lost its `//` (`pst:\2009\...`, Explorer's normalising). Open-from-a-copy was
+built into `MainWindow._open_path` only; Files (`open_row_async`), a pinned window
+(`result_tools`) and Show in folder reach Explorer through `workers.open_async`. Fixed at that
+helper: `route_through_window(self._open_path)` (set by the window) sends an attachment or zip
+member to the window's route. That route now also does **Show in folder on an attachment** -
+the `.pst`, via `tasks.archive_of` on a worker. (2) **A `from:` filter removed Mail's To
+column** - `view_options.available_columns` rebuilt the columns from the rows on screen; it
+now takes `kept`, each list's set of columns it has shown (`__dict__.setdefault` at the call,
+because `files_view.py` sits at `test_presenter`'s 250-code-line guard). (3) **Every message
+in Mail showed the archive's size** (1.9 GB): `rows.mail_rows` shows none for a `pst://`
+message; the stored value is unchanged (`_row_type_and_size` keeps the archive's on a message
+row, as `test_a_message_row_keeps_the_archives` pins). Also: the bridge's Python name moved to
+`osbridge.stdio.console_python` (`test_osbridge_guard`).
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

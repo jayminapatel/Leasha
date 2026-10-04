@@ -335,6 +335,7 @@ _TASK_NAMES = frozenset({
     "_attachment_parent_path",
     "mail_details",
     "save_attachment_copy",
+    "archive_of",
     "_read_external_run",
     "_scan_and_save",
     "DOCTOR_TIMEOUT_S",

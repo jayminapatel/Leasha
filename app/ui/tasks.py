@@ -522,6 +522,26 @@ def save_attachment_copy(store: Any, path: str, cache_path: Any, *,
     return write_copy(path, shown_name(path), data, cache_path)
 
 
+def archive_of(store: Any, path: str) -> str:
+    """The `.pst` an attachment was read from, for Show in folder. 2026-10-04.
+
+    Raises `AppErrorException` (`ERR_ATTACHMENT_OPEN`) when its message is not
+    in the index or names no archive.
+    """
+    from app.core.errors import AppErrorException, make_error
+    from app.ui.presenter.mail import attachment_of
+
+    parent, name = attachment_of(path)
+    record = store.get_file(parent) if parent else None
+    message = store.get_message(record.id) if record is not None else None
+    archive = str((message or {}).get("store_path") or "").strip()
+    if not archive:
+        raise AppErrorException(make_error(
+            "ERR_ATTACHMENT_OPEN", "ui.tasks", path=parent or path, name=name,
+            details="the index does not say which archive it is in"))
+    return archive
+
+
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 

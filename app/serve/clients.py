@@ -95,16 +95,15 @@ def http_entry(style: str, url: str, key: str) -> dict:
 def bridge_entry() -> dict:
     """The command form: the venv's `python.exe -m app.cli mcp`, from anywhere.
 
-    `python.exe`, not `pythonw.exe` - the bridge talks on stdin/stdout, which
-    a windowless Python does not have. `PYTHONPATH` is the project, so `-m`
+    The console Python (`osbridge.stdio.console_python`) - the bridge talks
+    on stdin/stdout, which the window's windowless Python does not have. `PYTHONPATH` is the project, so `-m`
     finds `app` whatever folder the AI program starts it in.
     """
     from app.core.version import PROJECT_ROOT
 
-    python = Path(sys.executable)
-    if python.name.lower() == "pythonw.exe":
-        python = python.with_name("python.exe")
-    return {"command": str(python), "args": ["-m", "app.cli", "mcp"],
+    from app.core.osbridge.stdio import console_python
+
+    return {"command": console_python(sys.executable), "args": ["-m", "app.cli", "mcp"],
             "env": {"PYTHONPATH": str(PROJECT_ROOT)}}
 
 

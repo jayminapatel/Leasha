@@ -359,3 +359,53 @@ def test_show_in_folder_on_a_zip_member_shows_the_zip(gui_mainwindow, monkeypatc
     monkeypatch.setattr(shell, "open_async", lambda path, **k: asked.append((path, k.get("reveal"))))
     window._open_path(r"D:\Docs\backup.zip/q3/report.docx", reveal=True)
     assert asked == [(r"D:\Docs\backup.zip", True)]
+
+
+# -- every page's Open, not only Search's (the owner's screenshot, 2026-10-04) --
+#
+# Double-click on an attachment on the Files page said "Not found on disk":
+# Open-from-a-copy was in the window's route only, and the Files page, a pinned
+# window and Show in folder reach Explorer through `workers.open_async`.
+
+@pytest.mark.gui
+def test_the_files_page_double_click_on_an_attachment_opens_the_copy(gui_mainwindow, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.ui import shell, workers
+
+    _app, window, _store, _engine = gui_mainwindow
+    asked, explorer = [], []
+    monkeypatch.setattr(shell, "open_attachment_async",
+                        lambda store, path, cache, **k: asked.append(path))
+    monkeypatch.setattr(workers, "open_in_explorer",
+                        lambda path, select=False: explorer.append(path))
+    window.files_view._open(SimpleNamespace(path=ATTACHMENT, volume_id=None), reveal=False)
+    workers.open_async(ATTACHMENT)                  # a pinned window's Open, the same way
+    assert asked == [ATTACHMENT, ATTACHMENT] and not explorer
+
+
+@pytest.mark.gui
+def test_show_in_folder_on_an_attachment_shows_its_archive(gui_mainwindow, qtbot, monkeypatch):
+    from app.ui import workers
+
+    _app, window, store, _engine = gui_mainwindow
+    message_id = store.upsert_file(MESSAGE, size_bytes=1, mtime_ns=1, ext="pst",
+                                   source_kind="pst_message", status="INDEXED")
+    store.set_message(message_id, store_path="D:/OutlookArchive/2024.pst", entry_id="2097188")
+    shown = []
+    monkeypatch.setattr(workers, "open_in_explorer",
+                        lambda path, select=False: shown.append((path, select)))
+    workers.open_async(ATTACHMENT, reveal=True)
+    qtbot.waitUntil(lambda: bool(shown), timeout=5_000)
+    assert shown == [("D:/OutlookArchive/2024.pst", True)]
+
+
+def test_without_a_window_an_ordinary_path_still_goes_to_explorer(monkeypatch):
+    from app.ui import workers
+
+    seen = []
+    monkeypatch.setattr(workers, "_WINDOW_ROUTE", lambda path, reveal=False: seen.append(path))
+    monkeypatch.setattr(workers, "run", lambda pool, worker: seen.append("explorer"))
+    workers.open_async(r"D:\Docs\notes.txt")
+    workers.open_async(ATTACHMENT, via_window=False)    # the window route's own last step
+    assert seen == ["explorer", "explorer"]

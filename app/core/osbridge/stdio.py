@@ -13,12 +13,27 @@ the standard input.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from app.core.osbridge._platform import is_windows
 
-__all__ = ["follow_descriptor_zero"]
+__all__ = ["console_python", "follow_descriptor_zero"]
 
 #: `STD_INPUT_HANDLE` in the Win32 API.
 _STD_INPUT_HANDLE = -10
+
+
+def console_python(executable: str) -> str:
+    """The Python that has a standard input and output, for `executable`.
+
+    2026-10-04: an AI program starts `app.cli mcp` and talks to it on stdin and
+    stdout. On Windows the window runs under `pythonw.exe`, which has neither,
+    so its console twin `python.exe` beside it is the one to name. Elsewhere
+    there is one Python, and it is returned as it is."""
+    path = Path(executable)
+    if is_windows() and path.name.lower() == "pythonw.exe":
+        return str(path.with_name("python.exe"))
+    return str(path)
 
 
 def follow_descriptor_zero() -> None:

@@ -29,6 +29,7 @@ from app.core.osbridge import hidden_console_flags, new_console_flags
 __all__ = [
     "CallableWorker",
     "open_async",
+    "route_through_window",
     "open_at_line",
     "open_at_line_async",
     "open_row_async",
@@ -210,9 +211,34 @@ class WorkerSignals(QObject):
     done = pyqtSignal()                # always, success or failure
 
 
+#: The window's own open route, for a path that is not a file on disk - an
+#: email attachment or a file inside a zip. Set by `MainWindow`
+#: (`route_through_window`); None without a window, as in a test of one view.
+_WINDOW_ROUTE: Callable[..., Any] | None = None
+
+
+def route_through_window(handler: Callable[..., Any] | None) -> None:
+    """Send attachments and zip members from every `open_async` to `handler`.
+
+    2026-10-04, the owner's screenshot: double-clicking an attachment on the
+    Files page said "Not found on disk". Open-from-a-copy had been built into
+    the window's route (`MainWindow._open_path`) only, and the Files page, a
+    pinned window's Open and Show in folder each reach Explorer through this
+    module instead. The fix is here, where every one of them passes, so a
+    page added later cannot miss it either.
+    """
+    global _WINDOW_ROUTE
+    _WINDOW_ROUTE = handler
+
+
 def open_async(path: str, *, reveal: bool = False,
-               on_error: Any = None, component: str = "ui.open") -> None:
+               on_error: Any = None, component: str = "ui.open",
+               via_window: bool = True) -> None:
     r"""Hand a path to Explorer on a worker thread. Never blocks the UI.
+
+    An email attachment or a file inside a zip goes to the window's route
+    instead (`route_through_window`) - it has no path Explorer can open.
+    `via_window=False` is that route's own last step, so it cannot loop.
 
     `open_in_explorer` shells out, and on a network share or a sleeping
     external drive that is seconds of a frozen window - which is why its own
@@ -229,6 +255,12 @@ def open_async(path: str, *, reveal: bool = False,
 
     if not path:
         return
+    if via_window and _WINDOW_ROUTE is not None:
+        from app.ui.attachment_open import is_archive_attachment, zip_member_of
+
+        if is_archive_attachment(path) or zip_member_of(path)[0]:
+            _WINDOW_ROUTE(path, reveal=reveal)
+            return
     worker = CallableWorker(open_in_explorer, path, select=reveal,
                             component=component)
     if on_error is not None:
