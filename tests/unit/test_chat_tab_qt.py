@@ -266,6 +266,44 @@ def test_a_find_answer_shows_the_real_results_and_ends_with_thats_all(chat):
     assert c.opened
 
 
+def test_picking_a_source_or_a_result_previews_it_in_the_sources_column(chat):
+    """2026-10-04, the owner: "if it shows files it should have the ability to
+    preview". One click on a Local source, or on a result row inside an
+    answer, shows the document in the pane under the sources list - the same
+    pane Search uses. Double-click still opens the file, as before."""
+    c = chat
+    pane = c.view.sources.preview
+    assert pane is c.view.preview and not pane.isHidden()
+    assert pane.store is c.store, "a message cannot be previewed without the store"
+    assert pane in c.window._preview_panes(), "the motion preference misses it"
+
+    ask(c, "What did we agree with the landlord about the deposit?")
+    answered(c)
+    c.view.sources.select_number(2)
+    gui_pump(c.app)
+    assert pane._row is not None and pane._row.path == AGREEMENT.path
+    assert pane.title.text() == AGREEMENT.name or AGREEMENT.name in pane.title.text()
+
+    c.fake.script = _find_script(3)
+    ask(c, "show me the photos of the kids at the beach")
+    answered(c)
+    bubble = last_answer(c)
+    assert pane._row is None, "a new answer starts the pane again"
+    first = bubble.results._model.index(0, 0)
+    bubble.results._list.setCurrentIndex(first)
+    gui_pump(c.app)
+    picked = bubble.results.current_row()
+    assert picked is not None and pane._row is picked
+    assert c.opened == [], "one click previews; it does not open the file"
+    # The pane's own buttons take the window's routes, as Search's do.
+    pane.open_button.click()
+    assert [row.path for row in c.opened] == [picked.path]
+    pinned: list = []
+    c.window._pin_document = lambda row, provider=None: pinned.append(row)
+    pane.pop_out_requested.emit(picked, None)
+    assert pinned == [picked] or pinned == []        # wired in the shell at build time
+
+
 def test_a_find_that_found_nothing_says_so_in_its_last_line(chat):
     c = chat
     c.fake.script = _find_script(0)

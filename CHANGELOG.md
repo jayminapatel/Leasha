@@ -17,6 +17,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Chat answers with the number, and shows the document (2026-10-04)
+
+- **"Find my passport number" is answered with the number.** It used to be treated as "find
+  me the files" and answered with a list of every message containing those words, while the
+  line that held the number sat unquoted in the sources column. A question that names a value
+  - a number, a date, an address, a reference - is now read and quoted, whatever verb it opens
+  with. "Find the tenancy agreement" still lists the documents.
+- **Chat shows the document, not only a snippet.** Under the Local sources list is the same
+  preview pane Search has. One click on a source, or on a result inside an answer, shows it
+  there - a message as its card and text, a file as its pages - with Open, Show in folder and
+  Pin in a window. Double-click still opens the file in its own program.
+- The clear button inside a find box now says what it is to a screen reader.
+
+### Docs
+
+- `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: notes dated 4 October 2026.
+  `HANDOFF.md` 7.42.
+
 ### A file as an entry, and a Space Report that never holds the window (2026-10-03)
 
 - **Add one file to index without its folder.** Settings › Folders to index has "Add file…"

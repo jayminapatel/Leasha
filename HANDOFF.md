@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.41 · **Updated:** 2026-10-03 · **Applies to:** app v0.3.3
+**Doc version:** 7.42 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1987,6 +1987,18 @@ Dated, because several of them supersede an earlier position.
 ## 6. Traps
 
 Things that have already caused real failures, or will.
+
+**2026-10-04 - "find X's number" was a listing, and Chat had no preview.** The owner's screen:
+"can you find jaymins passport number" answered with 23 messages containing those words, the
+line "Passport number : …" visible in the sources column and never quoted. `router._FIND`
+read "find" as "find me the files". `_names_a_value` (`VALUE_NOUNS`, `_VALUE_PHRASE`) now
+routes a sentence naming a value as LOOKUP before the FIND rule; the engine test
+`test_find_the_number_is_answered_with_the_number_not_a_list_of_files` holds it. The Sources
+column (`widgets/chat_sources.py`) now carries the Search tab's `PreviewPane` under the list,
+in a vertical splitter; one click on a source or on an answer's result row previews it
+(`AnswerBubble.result_selected` -> `SourcesPane.preview_row`), the store arrives through
+`ChatView.set_store` from the chat controller, and the shell pins it like the other panes.
+`chat_view.py` is at 231 of its 250 lines. Rendered offscreen, UNVERIFIED on the real window.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

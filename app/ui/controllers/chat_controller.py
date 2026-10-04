@@ -165,6 +165,9 @@ class ChatController(QObject):
         view.result_opened.connect(lambda row: self._w._open_result(row))
         view.result_revealed.connect(lambda row: self._w._open_result(row, reveal=True))
         view.pin_requested.connect(self._pin)
+        # 2026-10-04: the preview in the Sources column reads a message from
+        # the window's store, as the Search pane's does (`attach_preview`).
+        view.set_store(getattr(self._w, "_store", None))
         view.reindex_requested.connect(lambda row: self._w._reindex_for(row))
         view.similar_requested.connect(self._similar)
         view.sessions.selected.connect(self._select)

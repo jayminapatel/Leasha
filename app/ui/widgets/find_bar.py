@@ -83,6 +83,13 @@ class FindBar(QWidget):
         self.box.setPlaceholderText("Find in this document")
         self.box.setClearButtonEnabled(True)
         self.box.setAccessibleName("Find in this document")
+        # 2026-10-04: the clear button Qt puts in the box is a control like any
+        # other; give it words for a screen reader and the tooltip sweep.
+        from PyQt6.QtWidgets import QToolButton
+
+        for clear in self.box.findChildren(QToolButton):
+            clear.setAccessibleName("Clear the find box")
+            clear.setToolTip("Clear")
         self.box.textChanged.connect(self._retype)
         self.box.returnPressed.connect(self.next_match)
 

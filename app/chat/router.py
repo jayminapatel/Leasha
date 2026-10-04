@@ -57,7 +57,7 @@ __all__ = [
     "resolve_followup",
     "CLASSES",
     "LOOKUP", "AGGREGATE", "SYNTHESIS", "FIND", "ABSENCE", "FOLLOWUP", "CHAT",
-    "chat_reason",
+    "chat_reason", "VALUE_NOUNS",
 ]
 
 LOOKUP = "LOOKUP"
@@ -165,6 +165,43 @@ _FIND = re.compile(
     r"|^\s*where(?:'s|\s+(?:is|are))\s+(?:the\s+|my\s+|our\s+|a\s+|an\s+)?(?:[A-Za-z'-]+\s+){0,3}?"
     r"(?:" + _DOCUMENT_ALTERNATIVES + r")\b"
     r"|\b(?:photos?|pictures?|images?)\s+(?:of|from|with|at)\b", re.I)
+#: Things that are *written in* a document rather than *being* one, 2026-10-04.
+#: "Find Jaymin's passport number" asked for a nine-digit value that was sitting
+#: in a retrieved passage, and was answered with a list of 23 messages that
+#: happen to contain the words - because "find" read as "find me the files".
+#: A sentence that names one of these wants the value quoted, whatever verb it
+#: opens with; "find the photos of the kids" names none and stays a FIND.
+VALUE_NOUNS = frozenset("""
+number numbers no num id ids identifier code codes reference ref refs pin
+address addresses postcode zipcode zip
+date dates expiry expires expiration deadline birthday dob
+amount amounts price prices cost costs fee fees rate rates total totals balance sum
+phone mobile telephone fax iban bic swift sortcode account serial registration vin
+username password passcode login licence license nino ni utr vat passport
+""".split())
+_VALUE_PHRASE = re.compile(
+    r"\b(?:sort\s+code|account\s+number|phone\s+number|mobile\s+number|reference\s+number"
+    r"|policy\s+number|order\s+number|invoice\s+number|serial\s+number|licence\s+number"
+    r"|license\s+number|registration\s+number|passport\s+number|expiry\s+date|due\s+date"
+    r"|date\s+of\s+birth|email\s+address|postal\s+address|home\s+address|ip\s+address)\b", re.I)
+
+
+def _names_a_value(question: str) -> Optional[str]:
+    """The value word the question names, or None: "number" in "find the
+    passport number", "address" in "show me the landlord's address"."""
+    phrase = _VALUE_PHRASE.search(question)
+    if phrase:
+        return phrase.group(0).lower()
+    for word in re.findall(r"[A-Za-z]+", question):
+        low = word.lower()
+        if low in VALUE_NOUNS and low not in ("passport", "vat"):
+            # "passport" and "vat" alone name a document ("find my passport");
+            # with "number" after them they name a value, and the phrase above
+            # already caught that.
+            return low
+    return None
+
+
 #: "show me how..." is a question wearing a command.
 _FIND_GUARD = re.compile(
     r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+)?(?:show|tell)\s+me\s+(?:how|what|when|who|why|whether)\b"
@@ -252,6 +289,10 @@ def _rule_class(question: str) -> Optional[tuple[str, str]]:
 
     if _FIND_GUARD.match(q):
         return LOOKUP, "a command that is really a question ('show me how...')"
+    value = _names_a_value(q)
+    if value is not None and _FIND.search(q) and not _SYNTHESIS.search(q):
+        return LOOKUP, (f"asks for a value written in a document ('{value}'), "
+                        "which is read and quoted, not listed")
     if _FIND.search(q) and not _SYNTHESIS.search(q):
         return FIND, "an instruction to find things - the answer is the results themselves"
 

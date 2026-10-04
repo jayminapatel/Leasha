@@ -10,6 +10,13 @@ for is still there when their hand arrives.
 
 Under the list a strip shows the exact passage behind the source that is
 picked (or hovered from the prose). Up/Down from the message box walk the list.
+
+**Under that, the preview** (2026-10-04, the owner: "if it shows files it should
+have the ability to preview"). The same pane Search shows beside its list: one
+click on a source here, or on a result row in an answer, shows the document
+itself - a message as its card and text, a file as its pages. Double-click
+still opens the file in its own program, as before. The pane needs the store
+to show a message (`set_store`); without one it previews files only.
 """
 
 from __future__ import annotations
@@ -18,11 +25,12 @@ from typing import Any, Optional
 
 from PyQt6.QtCore import QEvent, Qt, pyqtSignal
 from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import is_web_receipt, passage_html, receipt_to_result
 from app.ui.result_delegate import ROLE_PAYLOAD
 from app.ui.results_view import ResultsView
+from app.ui.widgets.preview import PreviewPane
 
 __all__ = ["SourcesPane"]
 
@@ -38,6 +46,8 @@ NOTHING_YET = "Passages from your files appear here as the answer uses them."
 class SourcesPane(QWidget):
     opened = pyqtSignal(object)            # a ResultRow
     revealed = pyqtSignal(object)
+    #: An `AppError` from the preview (a file that would not render).
+    error = pyqtSignal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -63,12 +73,48 @@ class SourcesPane(QWidget):
         self.passage.setAccessibleName("The passage behind the chosen source")
         self.passage.setVisible(False)
 
+        # 2026-10-04: the preview, under the list. Wired as `attach_preview`
+        # wires Search's: open and reveal take the list's own routes, the
+        # store (for a message) arrives through `set_store`. Shown from the
+        # start - a pane that has to be found is a pane nobody finds.
+        self.preview = PreviewPane()
+        self.preview.setAccessibleName("Preview of the chosen source or result")
+        self.preview.open_requested.connect(self.opened.emit)
+        self.preview.reveal_requested.connect(self.revealed.emit)
+        self.preview.error.connect(self.error.emit)
+        self.preview.terms_provider = lambda: ()
+        self.results.selected.connect(self.preview.show_row)
+
+        listing = QWidget()
+        column = QVBoxLayout(listing)
+        column.setContentsMargins(0, 0, 0, 0)
+        for part in (self.heading, self.empty):
+            column.addWidget(part)
+        column.addWidget(self.results, stretch=1)
+        column.addWidget(self.passage)
+
+        self.split = QSplitter(Qt.Orientation.Vertical)
+        self.split.addWidget(listing)
+        self.split.addWidget(self.preview)
+        self.split.setStretchFactor(0, 2)
+        self.split.setStretchFactor(1, 3)
+        self.split.setChildrenCollapsible(False)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 0, 0, 0)     # off the splitter's hairline
-        for part in (self.heading, self.empty):
-            layout.addWidget(part)
-        layout.addWidget(self.results, stretch=1)
-        layout.addWidget(self.passage)
+        layout.addWidget(self.split)
+
+    # -- the preview ------------------------------------------------------------
+    def set_store(self, store: Any) -> None:
+        """What the preview reads a message from. The window owns the store."""
+        self.preview.store = store
+
+    def preview_row(self, row: Any) -> None:
+        """Show `row` - a result picked in an answer - without touching the list."""
+        self.preview.show_row(row)
+
+    def shutdown(self) -> None:
+        self.preview.shutdown()
 
     # -- filling: append only -------------------------------------------------
     def numbers(self) -> list[int]:
@@ -93,6 +139,7 @@ class SourcesPane(QWidget):
         self.heading.setText(HEADING)
         self.passage.setVisible(False)
         self.empty.setVisible(True)
+        self.preview.clear()
 
     def receipt(self, number: int) -> Any:
         return self._by_number.get(number)

@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v0.3.3 · schema v30 · Reference updated 3 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
+  <div class="meta">App v0.3.3 · schema v30 · Reference updated 4 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -369,6 +369,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <h2 id="chat"><span class="num">8</span>Chat and the local models</h2>
 <ul>
   <li><b>Router</b> (<code>app/chat/router.py</code>): rules first, a small model only when the rules cannot decide. Classes: LOOKUP, AGGREGATE (an SQL count), SYNTHESIS, FIND (the answer is the result list), ABSENCE, FOLLOWUP, CHAT (social turns only). A general question still searches first.</li>
+  <li><i>Note, 4 October 2026.</i> A sentence that names a value written in a document - <code>VALUE_NOUNS</code> and phrases such as "passport number", "sort code", "expiry date" - is LOOKUP whatever verb it opens with ("find the passport number"), read and quoted rather than listed. "Find my passport" names a document and stays FIND.</li>
   <li><b>Engine</b> (<code>engine.py</code>): route, plan, search (at most 3 rounds), assess, answer. The answer streams; <code>reconcile.py</code> and <code>verify.py</code> drop unsupported claims (strictness 70 by default). Quotes must be verbatim; numbers, dates and names are checked exactly. With no model, counts, finds and absence questions still work.</li>
   <li><b>Engine choice</b> (<code>app/llm/engines.py</code>): <code>CHAT_ENGINE=onnx</code> (default; <code>app/ort/llm.py::OnnxLLM</code>, one per process) or <code>ollama</code>. The same choice covers Chat, Interpret and Describe.</li>
   <li><b>Web</b> (<code>web.py</code>): <code>CHAT_WEB_ENABLED</code> is off by default. Local retrieval runs first; only a sanitised keyword query of ten words or fewer leaves the machine; SSRF guard, three redirects, 1 MB cap; ask-first and show-query on.</li>

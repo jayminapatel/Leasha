@@ -138,6 +138,7 @@ class ChatView(QWidget):
         self.shelf.open_requested.connect(self.open_requested)
         self.sources.opened.connect(self._opened)
         self.sources.revealed.connect(self.result_revealed)
+        self.sources.error.connect(self.error)
         self.sources.results.pin_requested.connect(self.pin_requested)
         self.sources.results.reindex_requested.connect(self.reindex_requested)
         self.sources.results.similar_requested.connect(self.similar_requested)
@@ -147,7 +148,17 @@ class ChatView(QWidget):
         self.box.focus()
 
     def shutdown(self) -> None:
+        self.sources.shutdown()
         self.closing.emit()
+
+    def set_store(self, store: Any) -> None:
+        """2026-10-04: the preview in the Sources column reads a message from it."""
+        self.sources.set_store(store)
+
+    @property
+    def preview(self) -> Any:
+        """The Sources column's preview pane, as the other tabs expose theirs."""
+        return self.sources.preview
 
     def show_available(self, ok: bool, reason: str = "", *, built: bool = True) -> None:
         text = "" if ok else (unavailable_text(reason) if built else NOT_BUILT_LINE)
@@ -220,6 +231,7 @@ class ChatView(QWidget):
         bubble.receipt_hovered.connect(self._hovered)
         bubble.result_opened.connect(self._opened)
         bubble.result_revealed.connect(self.result_revealed)
+        bubble.result_selected.connect(self.sources.preview_row)
         bubble.regenerate_requested.connect(self.regenerate_requested)
         bubble.retry_requested.connect(self.retry_requested)
         bubble.link_activated.connect(self.open_link)

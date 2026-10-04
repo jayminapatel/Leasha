@@ -692,6 +692,8 @@ class MainWindow(QMainWindow):
         # the page itself - engine, worker, saving - is `ChatController`.
         self.chat_ctl = ChatController(self)
         self.chat_view = self.chat_ctl.build()
+        # 2026-10-04: the Sources column's preview pins like every other pane's.
+        self.chat_view.preview.pop_out_requested.connect(self._pin_document)
         chat_wrapped = wrap_if_needed(self.chat_view, scroll=False)
         self.rail.insertTab(after_files + 3, chat_wrapped, "Chat", icon="message-square")
         self._tab_wrapped[self.chat_view] = chat_wrapped
@@ -1858,7 +1860,8 @@ class MainWindow(QMainWindow):
         panes = []
         for view in (self.search_view, self.files_view,
                      getattr(self, "mail_view", None),
-                     getattr(self, "code_view", None)):
+                     getattr(self, "code_view", None),
+                     getattr(self, "chat_view", None)):     # 2026-10-04
             pane = getattr(view, "preview", None) or getattr(
                 getattr(view, "results", None), "preview", None)
             if pane is not None:

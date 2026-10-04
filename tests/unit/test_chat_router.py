@@ -69,6 +69,34 @@ def test_show_me_how_is_a_question_wearing_a_command():
     assert route_question("show me how the deposit is calculated").kind == LOOKUP
 
 
+@pytest.mark.parametrize("question", [
+    "can you find jaymins passport number",
+    "find me the passport number",
+    "show me the invoice number on the Acme invoice",
+    "find the landlord's email address",
+    "get me the sort code for the deposit account",
+    "find the expiry date on my passport",
+    "look for the policy reference in the renewal letter",
+])
+def test_finding_a_value_written_in_a_document_is_read_not_listed(question):
+    """2026-10-04, the owner's screen: "can you find jaymins passport number"
+    was answered with 23 messages that contain those words, while the passage
+    beginning "Passport number :" sat in the sources column unquoted. A
+    sentence that names a value - a number, a date, an address - wants the
+    value, whatever verb it opens with."""
+    route = route_question(question)
+    assert route.kind == LOOKUP, route.explain()
+    assert "value" in route.reason
+
+
+@pytest.mark.parametrize("question", [
+    "find my passport", "find the photos of the kids", "show me the VAT returns",
+    "find the tenancy agreement", "find emails from Dave",
+])
+def test_finding_a_document_is_still_a_find(question):
+    assert route_question(question).kind == FIND, question
+
+
 def test_where_is_the_thing_is_a_search_only_when_the_thing_is_a_document():
     assert route_question("Where is the valve schedule?").kind == FIND
     assert route_question("Where is the assembly point?").kind == LOOKUP

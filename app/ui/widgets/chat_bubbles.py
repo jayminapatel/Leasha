@@ -149,6 +149,8 @@ class AnswerBubble(QFrame):
     receipt_hovered = pyqtSignal(int)       # 0 when the pointer leaves
     result_opened = pyqtSignal(object)
     result_revealed = pyqtSignal(object)
+    #: 2026-10-04: a result row picked with one click, for the preview.
+    result_selected = pyqtSignal(object)
     regenerate_requested = pyqtSignal()
     retry_requested = pyqtSignal()
     #: A link in the prose that is not a source number (a web page).
@@ -316,6 +318,8 @@ class AnswerBubble(QFrame):
             self.results = ResultsView()
             self.results.opened.connect(self.result_opened.emit)
             self.results.reveal_requested.connect(self.result_revealed.emit)
+            # 2026-10-04: one click previews the row in the Sources column.
+            self.results.selected.connect(self.result_selected.emit)
             self._layout.insertWidget(self._layout.indexOf(self.body) + 1, self.results)
         self.results.show_results(results, [])
         rows = min(len(results), INLINE_ROWS) + 1        # + the "that's all" row

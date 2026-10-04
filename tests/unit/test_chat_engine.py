@@ -239,6 +239,19 @@ def test_counting_finding_and_absence_need_no_model_at_all(env):
         assert turn.kind == kind, question
 
 
+def test_find_the_number_is_answered_with_the_number_not_a_list_of_files(env):
+    """2026-10-04, the owner's screen: "can you find jaymins passport number"
+    listed 23 messages and never quoted the passage that held it. Asked as
+    "find" and as a question, the same value is read and quoted."""
+    engine = env.engine("extractive")
+    found, _events = ask(engine, "can you find the drawing number of the pump station arrangement")
+    asked, _events = ask(engine, "What is the drawing number of the pump station arrangement?")
+    assert found.kind == "answer" and "GA-4471" in found.text, found.text
+    assert asked.kind == "answer" and "GA-4471" in asked.text
+    assert not found.text.startswith("Here are"), "it listed the files instead"
+    assert audit_turn(found) == []
+
+
 def test_without_a_model_a_content_question_quotes_the_best_passages_and_says_so(env):
     engine = env.engine(FakeLLM(up=False))
     turn, _events = ask(engine, "How much notice must the tenant give?")
