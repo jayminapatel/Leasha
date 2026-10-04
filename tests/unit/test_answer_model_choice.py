@@ -145,7 +145,8 @@ def test_a_kept_prompt_that_is_the_start_of_a_newer_one_is_not_kept_twice(monkey
     client._keep_prefix([1, 2, 3], past)
     client._keep_prefix([1, 2, 3, 4, 5], past)
     client._keep_prefix([9, 9], past)
-    assert [ids for ids, _past in client._slots] == [[1, 2, 3, 4, 5], [9, 9]]
+    # Dated note, 2026-10-04, code review: a slot also carries when it was kept.
+    assert [slot[0] for slot in client._slots] == [[1, 2, 3, 4, 5], [9, 9]]
 
 
 def test_the_kept_prompts_stay_inside_their_memory_budget(monkeypatch):
@@ -181,6 +182,9 @@ def test_ollama_is_asked_with_chats_window_on_every_call():
     plain = OllamaClient("http://x:1", "m", transport=transport)
     plain.health = lambda force=False: True
     plain.generate("Interpret")
+    # Dated note, 2026-10-04, code review: a client built with no window sends none,
+    # but Interpret's is no longer one - `engines.text_model` gives it Chat's
+    # (`test_chat_model_reliability.py`).
     assert "num_ctx" not in sent[-1][1]["options"], "Interpret keeps Ollama's default"
 
 
@@ -201,6 +205,11 @@ def _settings(cache) -> SimpleNamespace:
 
 
 def test_a_picked_onnx_model_is_that_model_and_freed_when_left(tmp_path):
+    """Dated note, 2026-10-04, code review: "freed when left" was a weak reference,
+    which the chat engine - asking afresh for every call - let go between the router
+    and the answer, so a picked model could load twice in one question. The client is
+    kept now, and what is *loaded* is bounded by `ort.llm.MAX_RESIDENT`
+    (`test_chat_model_reliability.py`); `reset_shared` unloads what it forgets."""
     engines.reset_shared()
     try:
         shared = engines.text_model(_settings(tmp_path))
@@ -210,9 +219,11 @@ def test_a_picked_onnx_model_is_that_model_and_freed_when_left(tmp_path):
         assert engines.text_model(_settings(tmp_path), onnx_model=gemma) is picked
         del picked
         gc.collect()
-        assert not engines._chosen, "nothing holds it, so its memory goes"
+        assert engines.text_model(_settings(tmp_path), onnx_model=gemma)._asked == gemma
+        assert len(engines._chosen) == 1, "the same client again, not a second one"
     finally:
         engines.reset_shared()
+    assert not engines._chosen
 
 
 def test_picking_the_model_the_shared_client_serves_is_the_shared_client(tmp_path, monkeypatch):

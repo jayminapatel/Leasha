@@ -117,6 +117,7 @@ class ChatView(QWidget):
         head.addWidget(self.toggles["inspector"])
         # 2026-10-04: which model answers; filled by the controller, hidden with fewer than two.
         self.model_picker = ModelPicker()
+        head.addWidget(self.model_picker.warning)   # 2026-10-04, code review: a big model's cost
         head.addWidget(self.model_picker)
         head.addWidget(self.speed)
         centre = QWidget()

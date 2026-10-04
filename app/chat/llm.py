@@ -42,6 +42,7 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Protocol, Sequenc
 
 from app.core.errors import ActionType, AppError, AppErrorException, make_error
 from app.core.logging import logger
+from app.llm.ollama import KEEP_ALIVE
 
 __all__ = [
     "LLM",
@@ -49,6 +50,7 @@ __all__ = [
     "OllamaLLM",
     "as_llm",
     "probe_installed",
+    "stop_kwargs",
     "DEFAULT_WINDOW",
     "OLLAMA_DEFAULT_CONTEXT",
 ]
@@ -108,6 +110,16 @@ def _takes(method: Any, keyword: str) -> bool:
                                     for p in params.values())
 
 
+def stop_kwargs(llm: Any, should_stop: Optional[Callable[[], bool]]) -> dict:
+    """`{"should_stop": should_stop}` for a model whose `generate` takes it, else `{}`
+    (2026-10-04, code review: the router's and the planner's calls ignored Stop, and on
+    the model inside Leasha a stopped question's router held the next one up)."""
+    if should_stop is None:
+        return {}
+    return {"should_stop": should_stop} if _takes(getattr(llm, "generate", None),
+                                                  "should_stop") else {}
+
+
 class OllamaLLM:
     """`OllamaClient`, plus streaming and the model's real context window.
 
@@ -160,6 +172,10 @@ class OllamaLLM:
         # measured on qwen2.5:1.5b) - twice a question.
         if _takes(self.client.generate, "num_ctx"):
             kwargs.setdefault("num_ctx", self.num_ctx)
+        # 2026-10-04, code review: the router and the planner pass their Stop; a whole
+        # reply from Ollama cannot be stopped part-way, so a client without it goes on.
+        if "should_stop" in kwargs and not _takes(self.client.generate, "should_stop"):
+            kwargs.pop("should_stop")
         return self.client.generate(prompt, **kwargs)
 
     # -- the window ----------------------------------------------------------
@@ -216,7 +232,7 @@ class OllamaLLM:
         """
         payload: dict[str, Any] = {
             "model": self.model, "prompt": prompt, "stream": True,
-            "keep_alive": "30m",
+            "keep_alive": KEEP_ALIVE,         # 2026-10-04, code review: the one value
             "options": self._options(temperature, max_tokens, stop),
         }
         return self._post_stream("/api/generate", payload, timeout, should_stop,
@@ -245,7 +261,7 @@ class OllamaLLM:
         """
         payload: dict[str, Any] = {
             "model": self.model, "messages": [dict(m) for m in messages], "stream": True,
-            "keep_alive": "30m",
+            "keep_alive": KEEP_ALIVE,         # 2026-10-04, code review: the one value
             "options": self._options(temperature, max_tokens, stop),
         }
         value = self._think_value(think)

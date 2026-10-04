@@ -183,22 +183,50 @@ def greedy(logits: np.ndarray) -> int:
     return int(np.argmax(logits))
 
 
+#: How far below the likeliest token (in scaled logits) `sample` looks first
+#: (2026-10-04, code review), widening until the nucleus fits - see `sample`.
+SAMPLE_GAPS = (8.0, 16.0, 32.0)
+
+
 def sample(temperature: float, top_p: float = 0.9,
            rng: Optional[np.random.Generator] = None) -> Callable[[np.ndarray], int]:
-    """Temperature and nucleus sampling; `temperature <= 0` is greedy."""
+    """Temperature and nucleus sampling; `temperature <= 0` is greedy.
+
+    2026-10-04, code review: the whole 151,936-token vocabulary was sorted and
+    exponentiated in float64 for every token - 20-32 ms a token against 0.03 ms
+    for greedy. Now only the tokens within `SAMPLE_GAPS[0]` of the likeliest are
+    sorted, widened until they hold the `top_p` mass. They are the likeliest
+    tokens by construction and the normaliser is still the whole vocabulary's, so
+    the nucleus, its order and its probabilities are the ones the full sort gave
+    (`test_sampling_speed.py`); a flat distribution falls back to the full sort."""
     generator = rng or np.random.default_rng()
 
     def pick(logits: np.ndarray) -> int:
         if temperature <= 0:
             return greedy(logits)
-        scaled = logits.astype(np.float64) / temperature
-        scaled -= np.max(scaled[np.isfinite(scaled)])
-        probs = np.where(np.isfinite(scaled), np.exp(scaled), 0.0)
-        order = np.argsort(-probs)
-        cumulative = np.cumsum(probs[order]) / probs.sum()
-        keep = order[: int(np.searchsorted(cumulative, top_p) + 1)]
+        scaled = np.asarray(logits, dtype=np.float32) / np.float32(temperature)
+        finite = np.isfinite(scaled)
+        if not finite.all():
+            scaled = np.where(finite, scaled, np.float32(-np.inf))
+        top = float(np.max(scaled))
+        total = float(np.sum(np.exp(scaled - np.float32(top)), dtype=np.float64))
+        for gap in (*SAMPLE_GAPS, None):
+            if gap is None:
+                candidates = np.flatnonzero(finite)
+            else:
+                candidates = np.flatnonzero(scaled >= np.float32(top - gap))
+            # The few that matter, in float64 as before.
+            probs = np.exp(scaled[candidates].astype(np.float64) - top)
+            if gap is not None and probs.sum() / total < top_p:
+                continue                         # the nucleus is wider than this: widen
+            order = np.argsort(-probs)
+            cumulative = np.cumsum(probs[order]) / total
+            cut = int(np.searchsorted(cumulative, top_p) + 1)
+            if cut <= len(order) or gap is None:
+                break
+        keep = order[:cut]
         chosen = probs[keep] / probs[keep].sum()
-        return int(generator.choice(keep, p=chosen))
+        return int(candidates[generator.choice(keep, p=chosen)])
     return pick
 
 

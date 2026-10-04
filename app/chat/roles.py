@@ -36,7 +36,7 @@ __all__ = [
     "InstalledModels", "is_vision_name", "size_of", "ram_line", "NO_VISION_MODEL_LINE",
     "OLLAMA_UNREACHABLE_LINE", "MEMORY_OVERHEAD",
     "ModelOption", "option_value", "parse_option", "answer_options", "default_option",
-    "fits_in_memory", "PRELOAD_SHARE",
+    "fits_in_memory", "PRELOAD_SHARE", "large_model_note",
 ]
 
 #: A model this size or smaller may play router/planner.
@@ -347,6 +347,18 @@ def default_option(options: Sequence[ModelOption], engine: str, onnx_key: str = 
 #: The same 60% `ram_line` calls comfortable, against what is free rather than
 #: what is fitted, because the point is not to push the index run into swap.
 PRELOAD_SHARE = 0.6
+
+
+def large_model_note(option: ModelOption) -> str:
+    """A plain warning for a model bigger than `AFFORDABLE_MAX_B`, shown beside the
+    Chat tab's list when it is picked (2026-10-04, code review: a 26B model could be
+    picked and loaded with nothing said); "" for any other. Reads only the name."""
+    billions = parameter_billions(option.name) if option is not None else None
+    if billions is None or billions <= AFFORDABLE_MAX_B:
+        return ""
+    return (f"{option.name} is a large model ({billions:g}B). On most computers its "
+            "answers take minutes, and it needs a lot of free memory - it is only "
+            "loaded ahead of a question when there is room.")
 
 
 def fits_in_memory(size_bytes: int, free_mb: int) -> bool:

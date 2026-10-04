@@ -451,21 +451,27 @@ class QueryTranslator:
 
     def reconfigure(self, *, model: Optional[str] = None,
                     timeout_s: Optional[float] = None,
-                    enabled: Optional[bool] = None) -> None:
+                    enabled: Optional[bool] = None,
+                    model_client: Any = None) -> None:
         """Change the model or its budget without a restart.
 
         **The cache is emptied.** Every entry in it was produced by the previous
         model, so keeping them would make a newly-chosen model appear to do
         nothing at all on any sentence tried before - and trying the same
         sentence again is the first thing anybody does after switching.
+
+        `model_client` (2026-10-04, code review) is the client `model` belongs to -
+        Settings' own - when the one in use is a model picked on the Search page. A
+        Settings save used to point the *picked* client at Settings' model.
         """
         was_enabled = self.enabled
         if enabled is not None:
             self.enabled = bool(enabled)
         if timeout_s is not None:
             self.timeout_s = float(timeout_s)
-        if model and self.client is not None and hasattr(self.client, "set_model"):
-            self.client.set_model(model)
+        target = model_client if model_client is not None else self.client
+        if model and target is not None and hasattr(target, "set_model"):
+            target.set_model(model)
         self._cache.clear()
         # So the "unavailable" line is logged again if the new model also
         # fails: it is a different model, and that is news rather than noise.

@@ -391,6 +391,8 @@ _TASK_NAMES = frozenset({
     "_respelt",
     "answer_model_menu",
     "interpret_client",
+    "free_memory_mb",              # 2026-10-04, code review
+    "warm_if_fits",
 })
 
 

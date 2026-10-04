@@ -1443,22 +1443,54 @@ def answer_model_menu(settings: Any, engine: str = "", ollama_name: str = "", *,
         str(getattr(settings, "ollama_url", "") or "http://127.0.0.1:11434"),
         timeout=3.0) if ollama else InstalledModels()
     options = answer_options(onnx_rows, installed)
-    free_mb = 0
-    try:
-        import psutil
-
-        free_mb = int(psutil.virtual_memory().available / 1024 ** 2)
-    except Exception as exc:                     # noqa: BLE001 - unknown means "do not preload"
-        _log.debug("free memory unknown: {}", exc)
     name = ollama_name or str(getattr(settings, "ollama_model", "") or "")
-    return {"options": options, "free_mb": free_mb,
+    return {"options": options, "free_mb": free_memory_mb(),
             "default": default_option(options, engine or engine_of(settings), serving, name)}
 
 
-def interpret_client(settings: Any, value: str, *, warm: bool = False) -> Any:
+def free_memory_mb() -> int:
+    """The memory free right now, in MB; 0 when it cannot be read. **Worker.**"""
+    try:
+        import psutil
+
+        return int(psutil.virtual_memory().available / 1024 ** 2)
+    except Exception as exc:                     # noqa: BLE001 - unknown means "do not preload"
+        _log.debug("free memory unknown: {}", exc)
+        return 0
+
+
+def warm_if_fits(warmer: Any, size_bytes: int, *, free_mb: Optional[int] = None,
+                 what: str = "the model") -> bool:
+    """Call `warmer()` - load a model before anybody asks - only when a model of
+    `size_bytes` fits in the memory free now (`roles.fits_in_memory`). **Worker.**
+
+    2026-10-04, code review: only the start-up preload checked. A model picked on the
+    Chat tab, and Interpret's remembered pick at start-up, were loaded whatever their
+    size - a 17.7 GB model on a 32 GB laptop. Every load ahead goes through here now.
+    `free_mb` is a reading just taken (the list's); `None` reads it now. Never raises."""
+    from app.chat.roles import fits_in_memory
+
+    free = free_memory_mb() if free_mb is None else int(free_mb)
+    if warmer is None or not fits_in_memory(int(size_bytes or 0), free):
+        _log.info("not loading {} ahead ({} MB, {} MB free)", what,
+                  int(size_bytes or 0) // 1024 ** 2, free)
+        return False
+    try:
+        return bool(warmer())
+    except Exception as exc:                     # noqa: BLE001 - the first question pays instead
+        _log.debug("{} was not loaded ahead: {}", what, exc)
+        return False
+
+
+def interpret_client(settings: Any, value: str, *, warm: bool = False,
+                     size_bytes: int = 0) -> Any:
     """The client Interpret talks to for a model picked on the Search page, loaded
     when `warm` (2026-10-04). **Worker** - an ONNX model is looked up in the
-    catalogue and may load 1-2 GB. `None` for a value that names no model."""
+    catalogue and may load 1-2 GB. `None` for a value that names no model.
+
+    2026-10-04, code review: loaded only when `size_bytes` fits in the memory free
+    (`warm_if_fits`), and an Ollama client carries Chat's window (`num_ctx`) like
+    every other one, so the model is not reloaded between Chat and Interpret."""
     from types import SimpleNamespace
 
     from app.chat.roles import parse_option
@@ -1467,15 +1499,15 @@ def interpret_client(settings: Any, value: str, *, warm: bool = False) -> Any:
     engine, name = parse_option(value)
     if not engine:
         return None
+    from app.llm.engines import ollama_context
+
     chosen = SimpleNamespace(
         chat_engine=engine, model_cache=getattr(settings, "model_cache", None),
         embed_device=getattr(settings, "embed_device", "auto"),
         ollama_url=getattr(settings, "ollama_url", "http://127.0.0.1:11434"), ollama_model=name)
     client = text_model(chosen, name if engine == "ollama" else "",
-                        onnx_model=name if engine == "onnx" else "")
+                        onnx_model=name if engine == "onnx" else "",
+                        num_ctx=ollama_context(settings) if engine == "ollama" else None)
     if warm and hasattr(client, "warm"):
-        try:
-            client.warm()
-        except Exception as exc:                 # noqa: BLE001 - the first press pays instead
-            _log.debug("Interpret's model was not warmed: {}", exc)
+        warm_if_fits(client.warm, size_bytes, what="Interpret's model")
     return client

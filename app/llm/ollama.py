@@ -114,11 +114,18 @@ class OllamaClient:
         timeout: float = 120.0,
         connect_timeout: float = CONNECT_TIMEOUT_S,
         transport: Optional[Callable[..., Any]] = None,
+        num_ctx: Optional[int] = None,
     ) -> None:
         self.url = url.rstrip("/")
         self.model = model
         self.timeout = timeout
         self.connect_timeout = connect_timeout
+        #: The window sent on every `generate` and `warm` that names none (2026-10-04,
+        #: code review). Ollama reloads a model whose `num_ctx` changes, so it is held
+        #: here, once, rather than remembered by each caller: Interpret's generate,
+        #: its warm-up and Chat sent three different values to one model.
+        #: `app.llm.engines.text_model` sets it to Chat's window; `None` sends none.
+        self.num_ctx = int(num_ctx) if num_ctx else None
         self._transport = transport
         self._healthy_until = 0.0
         self._last_health = False
@@ -347,6 +354,7 @@ class OllamaClient:
         # reloads a model whose window changes - so a warm without it is undone by the
         # first question (`app.chat.llm.OllamaLLM`).
         options: dict[str, Any] = {"num_predict": 0}
+        num_ctx = num_ctx or self.num_ctx
         if num_ctx:
             options["num_ctx"] = int(num_ctx)
         try:
@@ -424,11 +432,14 @@ class OllamaClient:
             # Cheaper still: stop the moment the answer is complete rather than
             # generating up to the cap and truncating afterwards.
             payload["options"]["stop"] = list(stop)
+        num_ctx = num_ctx or self.num_ctx
         if num_ctx:
             # 2026-10-04: the window Chat streams with. Ollama reloads a model whose
             # `num_ctx` changes - measured 3.9-4.9 s a time on qwen2.5:1.5b - so the
             # router's call without it and the answer's with it reloaded the model
             # twice a question. `None` (Interpret, the graph) is Ollama's default.
+            # Dated note, 2026-10-04, code review: Interpret's client now carries
+            # Chat's window too (`self.num_ctx`, set by `engines.text_model`).
             payload["options"]["num_ctx"] = int(num_ctx)
         if json_mode:
             payload["format"] = "json"

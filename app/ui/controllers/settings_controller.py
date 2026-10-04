@@ -404,8 +404,11 @@ class SettingsController(QObject):
         picker = getattr(self._w, "interpret_ctl", None)
         if picker is not None:
             picker.settings_chose(model)
+        # 2026-10-04, code review: Settings' model goes to Settings' client, not to a
+        # model picked on the Search page that is still in use.
         self._w._translator.reconfigure(
-            model=model or None, timeout_s=float(timeout_s), enabled=enabled)
+            model=model or None, timeout_s=float(timeout_s), enabled=enabled,
+            model_client=getattr(picker, "default_client", None))
         save_states(self._w._store, {
             "ui:ollama_enabled": "on" if enabled else "off",
             "ui:ollama_model": model,

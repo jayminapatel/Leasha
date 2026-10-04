@@ -15,20 +15,24 @@ ONNX client is shared, keyed by model folder and device.
 from __future__ import annotations
 
 import threading
-import weakref
 from pathlib import Path
 from typing import Any, Optional
 
 __all__ = ["ONNX", "OLLAMA", "engine_of", "text_model", "vision_model", "reset_shared",
-           "chat_key"]
+           "chat_key", "ollama_context"]
 
 ONNX = "onnx"
 OLLAMA = "ollama"
 
 _shared: dict[tuple, Any] = {}
-#: 2026-10-04: models picked by name on the Chat tab or for Interpret. Held only
-#: while something uses them, so a model picked and then left frees its memory.
-_chosen: "weakref.WeakValueDictionary[tuple, Any]" = weakref.WeakValueDictionary()
+#: 2026-10-04: models picked by name on the Chat tab or for Interpret.
+#: Dated note, 2026-10-04, code review: these were held weakly "only while something
+#: uses them" - but the chat engine asks here afresh for every call, so nothing held
+#: one between the router and the answer, and a picked model could be built and
+#: loaded again within a question; warming it ahead was lost the same way. Held
+#: strongly now: an unloaded client is a few attributes, and what is *loaded* is
+#: limited process-wide by `app.ort.llm.MAX_RESIDENT` (the default and one picked).
+_chosen: dict[tuple, Any] = {}
 _shared_lock = threading.Lock()
 
 
@@ -69,6 +73,7 @@ def _shared_onnx(settings: Any, timeout: Optional[float], onnx_model: str = "") 
         if client is None:
             client = OnnxLLM(Path(cache) if cache else None, device=device,
                              timeout=float(timeout or 120.0))
+            client.keep_resident = True          # Settings' model is unloaded last
             _shared[key] = client
         if not chosen:
             return client
@@ -85,27 +90,62 @@ def _shared_onnx(settings: Any, timeout: Optional[float], onnx_model: str = "") 
 
 
 def reset_shared() -> None:
-    """Forget the shared ONNX client (tests; after the engine setting changes)."""
+    """Forget the shared ONNX client (tests; after the engine setting changes).
+    2026-10-04, code review: and unload them - a forgotten client that stayed loaded
+    would hold its memory with nothing left to use it."""
     with _shared_lock:
+        clients = list(_shared.values()) + list(_chosen.values())
         _shared.clear()
         _chosen.clear()
+    for client in clients:
+        unload = getattr(client, "unload", None)
+        if unload is not None:
+            unload()
+
+
+def ollama_context(settings: Any) -> int:
+    """The `num_ctx` every request to Ollama carries (2026-10-04, code review): Chat's
+    window, `ChatSettings.context_tokens`, from the same settings and this computer's
+    memory. Ollama reloads a model whose window changes, so Interpret, its warm-up and
+    Chat sending different ones made one model serving both reload at every switch.
+    `CHAT_CONTEXT_TOKENS` lives with Chat's settings, so they are asked."""
+    from types import SimpleNamespace
+
+    profile = None
+    try:
+        import psutil  # noqa: PLC0415 - optional
+
+        profile = SimpleNamespace(ram_mb=int(psutil.virtual_memory().total / 1024 ** 2))
+    except Exception:                                   # noqa: BLE001 - unknown: the defaults
+        pass
+    try:
+        from app.chat.config import ChatSettings  # noqa: PLC0415 - read lazily
+
+        return int(ChatSettings.from_settings(settings, profile=profile).context_tokens)
+    except Exception:                                   # noqa: BLE001 - Chat's own default
+        return 8192
 
 
 def text_model(settings: Any, model: str = "", *, timeout: Optional[float] = None,
-               url: Optional[str] = None, onnx_model: str = "") -> Any:
+               url: Optional[str] = None, onnx_model: str = "",
+               num_ctx: Optional[int] = None) -> Any:
     """The client Interpret and Chat talk to. `model` is an Ollama name; the ONNX
     engine ignores names it does not know and uses its own chat model.
 
     `onnx_model` (2026-10-04) is a catalogue key picked on the Chat tab or for
     Interpret: that ONNX model rather than the one Settings would choose. It reads
-    the catalogue, so a caller passing it is on a worker."""
+    the catalogue, so a caller passing it is on a worker.
+
+    `num_ctx` (2026-10-04, code review) is the window an Ollama client sends on every
+    call; by default `ollama_context(settings)`, the one Chat uses."""
     if engine_of(settings) == ONNX:
         return _shared_onnx(settings, timeout, onnx_model)
     from app.llm.ollama import OllamaClient
 
-    kwargs = {} if timeout is None else {"timeout": timeout}
+    kwargs: dict[str, Any] = {} if timeout is None else {"timeout": timeout}
     return OllamaClient(url or getattr(settings, "ollama_url", "http://127.0.0.1:11434"),
-                        model or getattr(settings, "ollama_model", "mistral"), **kwargs)
+                        model or getattr(settings, "ollama_model", "mistral"),
+                        num_ctx=int(num_ctx or ollama_context(settings)), **kwargs)
 
 
 def vision_model(settings: Any, *, url: Optional[str] = None, model: str = "") -> Any:
