@@ -271,8 +271,13 @@ class IndexLocationDialog(QDialog):
         return self._facts is None or self._index_gb is None
 
     def _measure(self) -> None:
+        from app.ui.later import when_done
+
         worker = CallableWorker(folder_gb, self._current, component="ui.index_location")
-        worker.signals.finished.connect(self._measured)
+        # `when_done`, not a direct connect (2026-10-04, full suite): a dialog
+        # closed before the worker answers must drop the answer, not be called
+        # after Qt has destroyed it - the full suite crashed here.
+        when_done(self, worker, finished=self._measured)
         run(QThreadPool.globalInstance(), worker)
 
     def _measured(self, size: Any) -> None:
@@ -291,8 +296,9 @@ class IndexLocationDialog(QDialog):
         generation = self._check_generation
         worker = CallableWorker(check_destination, self.destination.text(), self._current,
                                 component="ui.index_location")
-        worker.signals.finished.connect(
-            lambda facts, g=generation: self._checked(facts, g))
+        from app.ui.later import when_done
+
+        when_done(self, worker, finished=lambda facts, g=generation: self._checked(facts, g))
         run(QThreadPool.globalInstance(), worker)
 
     def _checked(self, facts: Any, generation: int) -> None:

@@ -806,7 +806,7 @@ if (-not $SkipOptional -and -not $Preflight) {
 # installer to leave behind. Per-user (%APPDATA%), no administrator rights.
 # It runs venv\Scripts\pythonw.exe -m app.main directly, so no console flashes,
 # and carries the window's own taskbar ID so the two group together - see
-# app/core/startmenu.py. '.\leasha shortcut remove' takes it out again.
+# app/core/osbridge/startmenu.py. '.\leasha shortcut remove' takes it out again.
 
 if (-not $Preflight) {
     Invoke-Step -Name "Add Leasha to the Start menu" -Optional `

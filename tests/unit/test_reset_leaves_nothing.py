@@ -113,6 +113,41 @@ def test_the_filename_index_is_cleared(filled):
     assert filled.count_named_files() == 0
 
 
+def fts_data_rows(store, table: str) -> int:
+    return row_count(store, f"{table}_data")
+
+
+def test_the_filename_index_gives_back_its_storage(filled, tmp_path):
+    """Measured 2026-10-04 on the owner's own index after a reset: `files_fts`
+    held 0 rows and 6,873,743 bytes across 8 levels - 93% of the file.
+
+    `DELETE FROM` a standalone FTS5 table writes delete markers beside the
+    segments they cancel; only a merge removes either, and nothing merged
+    `files_fts`. A reset now leaves it the size of a fresh one."""
+    with SqliteStore(tmp_path / "fresh.db") as fresh:
+        empty = fts_data_rows(fresh, "files_fts")
+
+    filled.clear_index()
+
+    assert fts_data_rows(filled, "files_fts") == empty
+
+
+def test_the_merge_covers_the_filename_index(tmp_path):
+    """`optimize_fts` merged `chunks_fts` alone, so `files_fts` grew a segment
+    per write for the life of the index."""
+    with SqliteStore(tmp_path / "index.db") as store:
+        for number in range(30):
+            store.upsert_file(
+                rf"D:\Docs\note {number}.txt", size_bytes=1, mtime_ns=1,
+                ext="txt", status=FileStatus.INDEXED, source_kind="file")
+        before = fts_data_rows(store, "files_fts")
+
+        assert store.optimize_fts() is True
+
+        assert fts_data_rows(store, "files_fts") < before
+        assert store.search_files_by_name("note 7", limit=5)
+
+
 def test_the_count_cannot_outlive_the_list_it_labels(filled):
     """`count_named_files` was a bare `COUNT(*)` over a standalone FTS table,
     so it could report more than the list could ever show. The list joins

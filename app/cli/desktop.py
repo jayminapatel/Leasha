@@ -88,13 +88,13 @@ def _launcher_path() -> str:
 
 
 def cmd_shortcut(args: argparse.Namespace) -> int:
-    r"""Add or remove Leasha in the Start menu. `app.core.startmenu`.
+    r"""Add or remove Leasha in the Start menu. `app.core.osbridge.startmenu`.
 
     `create` (the default) writes the per-user shortcut, `remove` deletes it,
     `show` prints what it holds. Off Windows, `create` says so rather than
     pretending.
     """
-    from app.core.startmenu import create, exists, remove, shortcut_path, shortcut_spec
+    from app.core.osbridge.startmenu import create, exists, remove, shortcut_path, shortcut_spec
 
     action = str(getattr(args, "action", "") or "create")
     root = project_root()

@@ -1935,6 +1935,9 @@ class SqliteStore:
     def optimize_fts(self) -> bool:
         r"""Merge the FTS5 index's b-tree segments into one. Never raises.
 
+        *Note, 2026-10-04: no longer true - `Pipeline` calls this after a
+        large run. The paragraph below is kept as written.*
+
         **This has never been run in this application.** `PRAGMA optimize` is
         called on close, and that is the query planner's statistics - a
         different thing entirely. FTS5 keeps its own segmented index, one
@@ -1952,11 +1955,22 @@ class SqliteStore:
         an older SQLite without FTS5, a locked database, an index that is not
         there yet - none of those are reasons to fail a week of work at the
         very end of it.
+
+        2026-10-04: the filename and mail-header indexes are merged too. Only
+        `chunks_fts` was, so `files_fts` and `messages_fts` kept a segment per
+        write for the life of the index. Either may be absent (an old schema,
+        a SQLite without trigram); that skips the one, not the merge.
         """
         try:
             with self.write() as conn:
                 conn.execute(
                     "INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
+                for fts in ("files_fts", "messages_fts"):
+                    if conn.execute(
+                            "SELECT 1 FROM sqlite_master WHERE name = ?",
+                            (fts,)).fetchone() is not None:
+                        conn.execute(
+                            f"INSERT INTO {fts}({fts}) VALUES('optimize')")
             return True
         except Exception as exc:                  # noqa: BLE001 - see the docstring
             # **Deliberately every exception, not just `sqlite3.Error`.** A
@@ -4539,6 +4553,15 @@ class SqliteStore:
                             f"INSERT INTO {fts}({fts}) VALUES('delete-all')")
                     except sqlite3.OperationalError:
                         continue
+                # 2026-10-04: `DELETE FROM` a standalone FTS5 table leaves its
+                # segments and the delete markers that cancel them; only a merge
+                # removes either. The owner's index, reset, held 6.9 MB of
+                # nothing here - 93% of the file. `'delete-all'` is refused on
+                # a table with its own content, so the merge does it.
+                try:
+                    conn.execute("INSERT INTO files_fts(files_fts) VALUES('optimize')")
+                except sqlite3.OperationalError:
+                    pass
             finally:
                 # In the same transaction as the delete: a rollback that left
                 # the triggers off would give a database that indexes nothing

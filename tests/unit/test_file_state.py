@@ -182,6 +182,10 @@ def test_the_funnel_statements_use_the_indexes_they_claim(store) -> None:
 
     class Spy:
         def execute(self, sql, params=()):
+            # 2026-10-04: `status_counts` asks `PRAGMA data_version` first, to
+            # re-read only after a write; a PRAGMA has no plan to hold.
+            if sql.lstrip().upper().startswith("PRAGMA"):
+                return real.execute(sql, params)
             plans.append(" ".join(
                 str(row[-1]) for row in real.execute("EXPLAIN QUERY PLAN " + sql, params)))
             return real.execute(sql, params)

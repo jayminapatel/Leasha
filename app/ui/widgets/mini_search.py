@@ -332,8 +332,10 @@ class MiniSearch(QFrame):
             from app.search.run import load_saved
             from app.ui.workers import CallableWorker, run
 
+            from app.ui.later import when_done
+
             worker = CallableWorker(load_saved, store, component="ui.mini.saved")
-            worker.signals.finished.connect(self._took_saved)
+            when_done(self, worker, finished=self._took_saved)   # dropped if the box is gone
             run(QThreadPool.globalInstance(), worker)
         except Exception as exc:                 # noqa: BLE001 - run_search reads them instead
             _log.debug("saved searches not read ahead: {}", exc)

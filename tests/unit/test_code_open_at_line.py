@@ -129,7 +129,9 @@ def test_a_file_that_has_gone_is_an_error_and_nothing_is_started(only, tmp_path)
     seen = Recorder()
     outcome = workers.open_at_line(str(tmp_path / "gone.py"), 3, choice="vscode",
                                    launch=seen.launch)
-    assert getattr(outcome, "code", "") == "ERR_FILE_CORRUPT"
+    # 2026-10-04: `open_in_explorer` reports a missing file as missing, not
+    # corrupt, since the code review of e001d38.
+    assert getattr(outcome, "code", "") == "ERR_FILE_MISSING"
     assert seen.started == []
 
 

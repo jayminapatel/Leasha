@@ -298,8 +298,10 @@ class EnvironmentBox(QGroupBox):
             open_async(str(folder), on_error=lambda error: target.setText(
                 getattr(error, "message", str(error))), component="ui.environment.open")
 
+        from app.ui.later import when_done
+
         worker = CallableWorker(make_folder, folder, component="ui.environment.open")
-        worker.signals.finished.connect(made)
+        when_done(self, worker, finished=made)     # dropped if the box is gone (2026-10-04)
         run(QThreadPool.globalInstance(), worker)
 
     # -- the logs -------------------------------------------------------------

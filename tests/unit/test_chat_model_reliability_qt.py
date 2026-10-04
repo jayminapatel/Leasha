@@ -148,7 +148,10 @@ def test_a_small_model_picked_on_the_tab_is_loaded_once_it_settles(chat):
     chat.ctl._model_chosen("ollama:qwen2.5:1.5b")
     chat.qtbot.waitUntil(lambda: chat.engine.warmed >= 1,
                          timeout=chat_controller.PICK_SETTLE_MS + 5000)
-    assert chat.ctl.engine is chat.engine, "kept, on the window thread"
+    # 2026-10-04: `warmed` is set on the worker; the engine is kept when the
+    # finished signal reaches the window thread, a moment later. Asserting in
+    # between failed on every run on the laptop - wait for the adoption itself.
+    chat.qtbot.waitUntil(lambda: chat.ctl.engine is chat.engine, timeout=2000)
 
 
 def test_an_engine_built_before_a_pick_is_not_kept_after_it(chat):

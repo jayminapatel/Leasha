@@ -1,5 +1,5 @@
 """The Start-menu shortcut: what it holds, that it can be undone, and that the
-installer writes it. `app/core/startmenu.py`.
+installer writes it. `app/core/osbridge/startmenu.py`.
 
 Layer: L9
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from app.core import startmenu
+from app.core.osbridge import startmenu
 from app.ui.tray import APP_USER_MODEL_ID
 
 ROOT = Path(__file__).resolve().parents[2]
