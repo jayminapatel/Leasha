@@ -956,6 +956,7 @@ class MainWindow(QMainWindow):
                 self.folder_watch.apply()
             self._warm_translator()
             self._warm_models()
+            self._start_model_choices()
             if settings_view is not None:
                 self._refresh_link_scheme()
         except Exception as exc:                 # noqa: BLE001
@@ -1964,6 +1965,25 @@ class MainWindow(QMainWindow):
         self.search_view.input.clear()
 
     # -- startup ------------------------------------------------------------
+
+    def _start_model_choices(self) -> None:
+        """2026-10-04: the Chat tab's model is loaded ahead of the first question, a
+        beat after start-up (`chat_controller.preload`), and Interpret's model menu on
+        the Search page is filled - now if Interpret is on, else when `⋯` is opened."""
+        from app.ui.controllers import chat_controller
+        from app.ui.controllers.interpret_controller import InterpretModels
+
+        menu = getattr(self.search_view, "interpret_models", None)
+        if menu is not None and getattr(self, "interpret_ctl", None) is None:
+            self.interpret_ctl = InterpretModels(self, menu, self._translator)
+            self.search_view.more_menu.aboutToShow.connect(self.interpret_ctl.list_if_needed)
+        if not chat_controller.BACKGROUND_MODELS:
+            return
+        if getattr(self._translator, "enabled", False) and menu is not None:
+            self.interpret_ctl.list_if_needed()
+        chat_ctl = getattr(self, "chat_ctl", None)
+        if chat_ctl is not None:
+            later(self, chat_controller.PRELOAD_DELAY_MS, chat_ctl.preload)
 
     def _warm_models(self) -> None:
         """Load the models off the first search's critical path."""

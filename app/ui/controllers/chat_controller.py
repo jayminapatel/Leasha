@@ -38,6 +38,7 @@ from typing import Any, Callable, Optional
 
 from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
 
+from app.chat.roles import fits_in_memory
 from app.chat.types import ChatTurn, WebAskEvent
 from app.core.logging import logger
 from app.ui.later import later
@@ -60,6 +61,21 @@ _log = logger.bind(component="ui.chat")
 SPEED_KEY = "ui:chat_speed"
 #: 2026-10-04: whether the Sources column's preview pane is showing ("on"/"off").
 PREVIEW_KEY = "ui:chat_preview"
+#: 2026-10-04: the model picked on the tab (`app.chat.roles.option_value`), "" for
+#: the one Settings chooses. Window state, so it never rewrites `CHAT_ENGINE`.
+MODEL_KEY = "ui:chat_model"
+
+#: 2026-10-04, the owner: "the chat is really slow". The first question paid for
+#: loading the model (11.5-14.7 s on the owner's laptop), so it is loaded this long
+#: after the window's start-up work begins - after first paint, never during it.
+PRELOAD_DELAY_MS = 4000
+#: How long a picked model must stay picked before it is loaded ahead of the next
+#: question: arrowing through the list must not load every model on the way.
+PICK_SETTLE_MS = 1500
+#: Listing the models (a request to Ollama) and loading one ahead of time happen
+#: without anybody asking. `tests/unit/conftest.py` turns this off, so a test window
+#: never reaches a real Ollama or a real model.
+BACKGROUND_MODELS = True
 
 #: How long a stopped answer may take to wind down before the box is handed back anyway.
 #: The engine stops between pieces, but a model that is still *loading* sends nothing to stop
@@ -146,6 +162,19 @@ class ChatController(QObject):
         self._again = 0
         #: Whether Settings lets Chat use the web at all (the Web chip's presence).
         self._web_allowed = False
+        #: 2026-10-04: the model picked on the tab ("" = Settings'), whether the person
+        #: picked it in this session, the listed options, and a pick to apply after
+        #: the answer in flight. `menu_factory` replaces the real listing (tests).
+        self._choice = ""
+        self._picked = False
+        self._options: list = []
+        self._listed = False                  # the full list (Ollama's too) is shown
+        self._rebuild_after = False
+        self.menu_factory: Optional[Callable[[], dict]] = None
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(PICK_SETTLE_MS)
+        self._settle.timeout.connect(self._warm)
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
@@ -179,6 +208,7 @@ class ChatController(QObject):
         view.sessions.new_requested.connect(self._new)
         view.sessions.renamed.connect(self._rename)
         view.sessions.deleted.connect(self._delete)
+        view.model_picker.chosen.connect(self._model_chosen)
         view.shelf.set_shelf(self.session.shelf)
         self._w.rail.currentChanged.connect(self._tab_changed)
         self._web_allowed = bool(getattr(getattr(self._w, "_settings", None),
@@ -228,6 +258,8 @@ class ChatController(QObject):
             self._opened = True
             self._load_sessions()
             self._check()
+            if not self._listed and (BACKGROUND_MODELS or self.menu_factory is not None):
+                self.list_models()
         elif self._available is False:
             self._check()
 
@@ -238,6 +270,11 @@ class ChatController(QObject):
     def _settings_changed(self, values: dict) -> None:
         if any(str(key).startswith("CHAT_") for key in values):
             self.engine = None        # rebuilt from `.env` on the next question
+        if {"CHAT_ENGINE", "CHAT_MODEL"} & {str(key) for key in values} and self._choice:
+            # 2026-10-04: a model chosen in Settings afterwards wins over the tab's pick.
+            self._set_choice("")
+            if self._listed:
+                self.list_models()
         if "CHAT_WEB_ENABLED" in values and self.view is not None:
             self._web_allowed = bool(values["CHAT_WEB_ENABLED"])
             self.view.set_web(self._web_allowed, self.session.web)
@@ -274,9 +311,8 @@ class ChatController(QObject):
             self.engine = factory()
         return self.engine
 
-    def _default_engine(self) -> Any:
-        from app.chat.engine import ChatEngine            # absent in older builds
-
+    def _fresh_settings(self) -> Any:
+        """`.env` as it is now (Settings may have changed it), else the window's. Worker."""
         settings = self._w._settings
         try:
             from app.core.config import load_settings
@@ -284,10 +320,24 @@ class ChatController(QObject):
             settings = load_settings(settings.env_file)
         except Exception as exc:                          # noqa: BLE001
             _log.debug("chat: using the window's settings ({})", exc)
-        from app.chat.config import ChatSettings
+        return settings
 
+    def _default_engine(self) -> Any:
+        from app.chat.engine import ChatEngine            # absent in older builds
+        from app.chat.config import ChatSettings
+        from app.chat.roles import parse_option
+
+        # 2026-10-04: the model picked on the tab, on whichever runner it lives -
+        # without touching `CHAT_ENGINE`, so no restart and nothing rewritten.
+        runner, name = parse_option(self._choice)
+        picked: dict = {}
+        if runner == "onnx":
+            picked = {"engine": "onnx", "onnx_model": name}
+        elif runner == "ollama":
+            picked = {"engine": "ollama", "answer_model": name}
         return ChatEngine(self._w._engine, self._w._store,
-                          settings=ChatSettings.from_settings(settings, profile=_machine()))
+                          settings=ChatSettings.from_settings(self._fresh_settings(),
+                                                              profile=_machine(), **picked))
 
     def _probe(self) -> tuple:
         """`(built, available, reason)`. Pings Ollama - never on the window thread."""
@@ -468,6 +518,114 @@ class ChatController(QObject):
     def _speed_changed(self, value: str) -> None:
         save_state(self._w._store, SPEED_KEY, value, component="ui.chat")
 
+    # -- which model answers (2026-10-04) --------------------------------------------
+    def preload(self) -> None:
+        """List the models, then load the one in use if it fits in the memory free now,
+        so the first question does not wait for it. The window calls this once its
+        start-up work is under way; nothing happens with `BACKGROUND_MODELS` off."""
+        if BACKGROUND_MODELS or self.menu_factory is not None:
+            self.list_models(warm=True)
+
+    def list_models(self, *, warm: bool = False) -> None:
+        """Fill the model drop-down, on a worker; `warm` also loads the model in use.
+
+        The start-up preload (`warm`) asks Ollama only when the model in use is
+        Ollama's: nothing contacts another program at start-up for somebody who does
+        not use one. The full list is made when the tab is first opened."""
+        worker = CallableWorker(self._models, not warm, component="ui.chat")
+        worker.signals.finished.connect(
+            lambda result, w=warm: self._models_listed(result, warm=w, full=not w))
+        worker.signals.failed.connect(lambda error: _log.debug("chat: no model list ({})", error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _models(self, full: bool = True) -> tuple:
+        """`(saved pick, menu)` - worker: the store, the catalogue and Ollama."""
+        saved = ""
+        try:
+            saved = self._w._store.get_state(MODEL_KEY, "") or ""
+        except Exception as exc:                          # noqa: BLE001
+            _log.debug("chat: no remembered model ({})", exc)
+        if self.menu_factory is not None:
+            return saved, self.menu_factory()
+        from app.chat.config import ChatSettings
+        from app.chat.roles import parse_option
+        from app.ui.tasks import answer_model_menu
+
+        settings = self._fresh_settings()
+        cfg = ChatSettings.from_settings(settings, profile=_machine())
+        runner = parse_option(self._choice or saved)[0] or cfg.engine
+        return saved, answer_model_menu(settings, cfg.engine, cfg.answer_model or cfg.ollama_model,
+                                        ollama=full or runner == "ollama")
+
+    def _models_listed(self, result: tuple, *, warm: bool = False, full: bool = True) -> None:
+        saved, menu = result
+        options = list(menu.get("options") or [])
+        values = {str(o.value) for o in options}
+        if not self._picked:
+            # A remembered pick that is no longer installed is set aside, not kept failing.
+            self._apply_choice(saved if (saved in values or not options) else "")
+        selected = self._choice if self._choice in values else str(menu.get("default") or "")
+        if full or not self._listed:          # the start-up list never replaces the full one
+            self._options = options
+            if self.view is not None:
+                self.view.model_picker.set_options(options, selected)
+        self._listed = self._listed or full
+        if not warm or self._closing:
+            return
+        size = next((int(o.size_bytes) for o in options if o.value == selected), 0)
+        free = int(menu.get("free_mb") or 0)
+        if fits_in_memory(size, free):
+            self._warm()
+        else:
+            _log.info("chat: not loading {} ahead ({} MB, {} MB free)", selected or "a model",
+                      size // 1024 ** 2, free)
+
+    def _model_chosen(self, value: str) -> None:
+        """Picked on the tab: used from the next question, remembered, and loaded once
+        the pick has settled - the person is about to ask with it."""
+        self._picked = True
+        if self._apply_choice(value):
+            save_state(self._w._store, MODEL_KEY, value, component="ui.chat")
+            if self._opened:
+                self._check()                             # its own availability and note
+        self._settle.start()
+
+    def _set_choice(self, value: str) -> None:
+        if self._apply_choice(value):
+            save_state(self._w._store, MODEL_KEY, value, component="ui.chat")
+
+    def _apply_choice(self, value: str) -> bool:
+        """Use `value` from the next question; True when that is a change. An answer
+        already running keeps its model; the engine is rebuilt when it has finished."""
+        value = str(value or "")
+        if value == self._choice:
+            return False
+        self._choice = value
+        if self._ask is None:
+            self.engine = None
+        else:
+            self._rebuild_after = True
+        return True
+
+    def _warm(self) -> None:
+        worker = CallableWorker(self._warm_body, component="ui.chat")
+        worker.signals.failed.connect(lambda error: _log.debug("chat: not warmed ({})", error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _warm_body(self) -> bool:
+        """Load the answering model. Worker - 11-18 s for the ONNX model on a laptop."""
+        started = time.monotonic()
+        try:
+            engine = self._make_engine()
+        except Exception as exc:                          # noqa: BLE001 - the question pays instead
+            _log.debug("chat: no engine to warm ({})", exc)
+            return False
+        warmer = getattr(engine, "warm", None)
+        ok = bool(warmer()) if warmer is not None else False
+        _log.info("chat: the answering model {} in {:.1f}s", "is ready" if ok else "was not loaded",
+                  time.monotonic() - started)
+        return ok
+
     # -- the message actions -----------------------------------------------------------
     def _rewind_to_last_question(self) -> str:
         """Take the conversation back to just before the person's last message and
@@ -596,6 +754,7 @@ class ChatController(QObject):
         ask.released = True
         self._ask = None
         self.engine = None
+        self._rebuild_after = False
         if self.view is not None:
             self.view.set_busy(False)
             self.view.end_answer()
@@ -639,6 +798,9 @@ class ChatController(QObject):
             self.view.end_answer()
             self.view.focus()
         self._maybe_title(self.session)
+        if self._rebuild_after:                  # a model was picked while it answered
+            self._rebuild_after = False
+            self.engine = None
 
     # -- the conversation's name ------------------------------------------------------
     def _maybe_title(self, session: ChatSession) -> None:

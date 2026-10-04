@@ -242,7 +242,8 @@ class ChatEngine:
 
             return text_model(SimpleNamespace(
                 chat_engine="onnx", model_cache=self.cfg.model_cache or None,
-                embed_device=self.cfg.device), timeout=self.cfg.timeout_s)
+                embed_device=self.cfg.device), timeout=self.cfg.timeout_s,
+                onnx_model=self.cfg.onnx_model)      # 2026-10-04: the tab's pick
         if name not in self._clients:
             from app.llm.ollama import OllamaClient
 
@@ -303,6 +304,18 @@ class ChatEngine:
         if self._fixed is not None:
             return self._fixed.get(role)
         return self._client_for(getattr(self.roles(), role) or self.cfg.ollama_model)
+
+    def warm(self) -> bool:
+        """Load the answering model now, so the first question does not wait for it
+        (2026-10-04, the owner: "the chat is really slow"). Blocks - a worker calls it.
+        **Never raises**: warming is an optimisation."""
+        try:
+            llm = self._role("answerer")
+            warmer = getattr(llm, "warm", None)
+            return bool(warmer()) if warmer is not None and self._reachable(llm) else False
+        except Exception as exc:                        # noqa: BLE001
+            log.debug("chat: the model was not warmed ({})", exc)
+            return False
 
     def available(self) -> tuple[bool, str]:
         """`(ok, why_not)`: is a model reachable for answering? The reason is

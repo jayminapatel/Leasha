@@ -328,7 +328,7 @@ class OllamaClient:
         report["elapsed_s"] = round(time.monotonic() - started, 2)
         return report
 
-    def warm(self, *, timeout: float = 30.0) -> bool:
+    def warm(self, *, timeout: float = 30.0, num_ctx: Optional[int] = None) -> bool:
         """Load the model into memory without asking it anything.
 
         **Called when Interpret is switched on, never at startup.** Ollama is
@@ -343,11 +343,17 @@ class OllamaClient:
         and never raises: warming is an optimisation, and an optimisation that
         can fail a search is not one.
         """
+        # `num_ctx` (2026-10-04): Chat loads the model with its own window, and Ollama
+        # reloads a model whose window changes - so a warm without it is undone by the
+        # first question (`app.chat.llm.OllamaLLM`).
+        options: dict[str, Any] = {"num_predict": 0}
+        if num_ctx:
+            options["num_ctx"] = int(num_ctx)
         try:
             self._post("/api/generate",
                        {"model": self.model, "prompt": "", "stream": False,
                         "keep_alive": KEEP_ALIVE,
-                        "options": {"num_predict": 0}},
+                        "options": options},
                        timeout)
             log.debug("warmed {} (keep_alive {})", self.model, KEEP_ALIVE)
             return True
@@ -365,6 +371,7 @@ class OllamaClient:
         max_tokens: Optional[int] = None,
         stop: Optional[list[str]] = None,
         images: Optional[list[str]] = None,
+        num_ctx: Optional[int] = None,
     ) -> OllamaResponse:
         """One completion. Raises `AppErrorException(ERR_OLLAMA_DOWN)` on anything.
 
@@ -417,6 +424,12 @@ class OllamaClient:
             # Cheaper still: stop the moment the answer is complete rather than
             # generating up to the cap and truncating afterwards.
             payload["options"]["stop"] = list(stop)
+        if num_ctx:
+            # 2026-10-04: the window Chat streams with. Ollama reloads a model whose
+            # `num_ctx` changes - measured 3.9-4.9 s a time on qwen2.5:1.5b - so the
+            # router's call without it and the answer's with it reloaded the model
+            # twice a question. `None` (Interpret, the graph) is Ollama's default.
+            payload["options"]["num_ctx"] = int(num_ctx)
         if json_mode:
             payload["format"] = "json"
         if images:

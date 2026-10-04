@@ -31,6 +31,7 @@ from app.ui.widgets.chat_message_box import MessageBox
 from app.ui.widgets.chat_session_list import SessionList
 from app.ui.widgets.chat_shelf import ShelfBar
 from app.ui.widgets.chat_sources import SourcesPane
+from app.ui.widgets.model_picker import ModelPicker
 
 __all__ = ["ChatView"]
 
@@ -114,6 +115,9 @@ class ChatView(QWidget):
         # 2026-10-04: the same Preview toggle every other tab carries.
         self.toggles = {"inspector": preview_toggle(self, checked=True, on_toggle=self.show_preview)}
         head.addWidget(self.toggles["inspector"])
+        # 2026-10-04: which model answers; filled by the controller, hidden with fewer than two.
+        self.model_picker = ModelPicker()
+        head.addWidget(self.model_picker)
         head.addWidget(self.speed)
         centre = QWidget()
         column = QVBoxLayout(centre)
@@ -179,6 +183,7 @@ class ChatView(QWidget):
         self.recheck_button.setVisible(not ok and built)
         self.box.set_unavailable("" if ok else text)
         self.speed.setEnabled(ok)
+        # Not the model drop-down: picking another model is how an unavailable one is left.
 
     def show_speed_note(self, text: str) -> None:
         self.speed_note.setText(text)
