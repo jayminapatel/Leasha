@@ -633,6 +633,29 @@ def _epub_preview(path: Path, *, title: str, subtitle: str) -> Preview:
                    meta={"chapters": chapters})
 
 
+def pdf_preview(path: Path, *, title: str, subtitle: str = "", page: int = 0,
+                shown: str = "") -> Preview:
+    """A PDF for the pane, **its bytes read here, on the worker**.
+
+    2026-10-04, code review: the pane called `QPdfDocument.load(path)` - the
+    PDF read and parsed from disk on the interface thread, a freeze on a
+    sleeping USB drive or a network share. Now the bytes come in
+    `meta["data"]`, as an attachment's always have, and the pane loads them
+    from memory. Over `IN_MEMORY_CAP` the pane still loads the path, which
+    this worker has just stat'ed - the drive answered a moment ago - rather
+    than holding a 300 MB drawing set in memory twice. Unreadable: the
+    path, and the pane's own "could not be opened" card. Never raises.
+    """
+    data = None
+    try:
+        if path.stat().st_size <= IN_MEMORY_CAP:
+            data = path.read_bytes()
+    except OSError as exc:
+        _log.debug("PDF bytes not read for {}: {}", path, exc)
+    return Preview(kind=KIND_PDF, path=shown or str(path), title=title, subtitle=subtitle,
+                   page=max(0, int(page)), meta={"data": data} if data is not None else {})
+
+
 def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Preview:
     """Everything the pane needs for one result. **Never raises.**
 
@@ -683,6 +706,9 @@ def load_preview(path_text: str, *, page: int = 0, mail_body: str = "") -> Previ
 
     if kind == KIND_EPUB:
         return _epub_preview(path, title=title, subtitle=subtitle)
+
+    if kind == KIND_PDF:
+        return pdf_preview(path, title=title, subtitle=subtitle, page=page, shown=path_text)
 
     if kind in (KIND_PDF, KIND_IMAGE, KIND_NONE):
         # Drawn from the path by the widget that knows how - a PDF is paged by
@@ -961,7 +987,8 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
     from app.ui.presenter.mail import (
         UNNAMED_ATTACHMENT, mail_card, original_target, split_index_headers,
     )
-    from app.ui.presenter.rows import file_of_row, mail_rows
+    from app.ui.presenter.opening import inside_mail_archive
+    from app.ui.presenter.rows import mail_rows
 
     stored = stored_text(store, file_id)
     card = mail_card(message, stored)
@@ -986,7 +1013,10 @@ def mail_preview(store: Any, row: Any) -> Optional[MailPreview]:
         conversation=lines, conversation_heading=heading,
         original=original_target(message, listed.path),
         attachment=attachment,
-        archive=("" if file_of_row(row) else str(message.get("store_path") or "").strip()),
+        # 2026-10-04, code review: `inside_mail_archive`, not `file_of_row` -
+        # an mbox message's key has no `://` and was taken for a file.
+        archive=(str(message.get("store_path") or "").strip()
+                 if inside_mail_archive(row) else ""),
     )
 
 
@@ -1594,8 +1624,7 @@ def ensure_office_pdf(path_text: str) -> Preview:
                                  details=f"{type(exc).__name__}: {exc}"),
             )
 
-    return Preview(kind=KIND_PDF, path=str(cache_file), title=title,
-                  subtitle=_describe(cache_file))
+    return pdf_preview(cache_file, title=title, subtitle=_describe(cache_file))
 
 
 # ---------------------------------------------------------------------------

@@ -46,7 +46,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
-from app.ui.presenter.rows import file_of_row
+from app.ui.presenter.opening import key_of, usable
 from app.ui.preview_loader import (
     decode_image,
     KIND_EPUB,
@@ -512,7 +512,8 @@ class PreviewPane(QWidget):
         # never a message's `pst://` key, which this showed until it was read.
         from app.ui.presenter import display_name
         self.title.setText(display_name(getattr(row, "name", ""), getattr(row, "path", ""),
-                                        getattr(row, "ext", "")))
+                                        getattr(row, "ext", ""),
+                                        getattr(row, "source_kind", "")))
         self.subtitle.setText("Loading…")
         self.notice.setVisible(False)
         from app.ui.inspector import preview_facts
@@ -525,8 +526,13 @@ class PreviewPane(QWidget):
         # 2026-09-30: only for a row that is a real file. A message inside a
         # mail archive has an address (`pst://...`), not a file; its button
         # comes on in `_rendered`, if the read says which archive it is in.
+        # 2026-10-04, code review: the right-click menu's rule
+        # (`opening.usable`) - the route shows a catalogued drive's file and
+        # a message's or an attachment's archive where they are, and
+        # `file_of_row` turned it off for each of them. Turned off again in
+        # `_rendered` for a `pst://` message the index names no archive for.
         self._archive = ""
-        self.reveal_button.setEnabled(bool(file_of_row(row)))
+        self.reveal_button.setEnabled(usable(row))
         self.pop_button.setEnabled(True)
         self._timer.start()
 
@@ -664,6 +670,8 @@ class PreviewPane(QWidget):
         self._archive = str(getattr(mail, "archive", "") or "")
         if self._archive:
             self.reveal_button.setEnabled(True)
+        elif mail is not None and key_of(self._row).startswith("pst://"):
+            self.reveal_button.setEnabled(False)   # no archive to show it in
         if mail is not None:
             # 4c: read with the message, on the worker - drawn here.
             self.mail.show_conversation(mail.conversation_heading, mail.conversation)
@@ -816,6 +824,9 @@ class PreviewPane(QWidget):
                 self._pdf_document.load(buffer)
                 self._pdf_buffer = buffer
             else:
+                # 2026-10-04, code review: only a PDF over the in-memory cap,
+                # which the worker stat'ed a moment ago (`pdf_preview`) -
+                # every other one arrives as bytes, above.
                 self._pdf_document.load(path)
                 self._pdf_buffer = None
             if page > 0:

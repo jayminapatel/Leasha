@@ -37,7 +37,7 @@ from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.why_dialog import show_why
 
-__all__ = ["result_item", "show_result_menu", "terminator_item"]
+__all__ = ["refill", "result_item", "show_result_menu", "terminator_item"]
 
 _ROLE = Qt.ItemDataRole
 
@@ -62,6 +62,44 @@ def result_item(payload: Any, *, expanded: bool, missing: set, volumes: dict,
     item.setData(spoken, int(_ROLE.AccessibleTextRole))
     item.setData(spoken, int(_ROLE.DisplayRole))
     return item
+
+
+def refill(view: Any, items: list, anchor: Any) -> None:
+    """Put `items` in `view`'s model in one insert, then select `anchor` again.
+
+    2026-10-04, code review: `ResultsView._rebuild` appended one row at a time
+    and set the current index inside that loop - every rebuild (each tier,
+    the details redraw, a chevron, a preference) fired `selected` mid-fill and
+    the preview pane started reading a file before the list was whole. Now
+    the rows go in at once, `selected` is quiet while they do (`_refilling`),
+    and fires once afterwards - only when what the pane would show changed.
+    The one function here that reaches into the view: it is the view's fill.
+    """
+    from app.ui.presenter import row_identity
+
+    before = _shown(view.current_row())
+    view._refilling = True
+    try:
+        view._model.clear()
+        if items:
+            view._model.invisibleRootItem().appendRows(items)
+        for number, item in enumerate(items if anchor is not None else ()):
+            if row_identity(item.data(ROLE_PAYLOAD)) == anchor:          # item 5d
+                view._list.setCurrentIndex(view._model.index(number, 0))
+                break
+    finally:
+        view._refilling = False
+    after = view.current_row()
+    if after is not None and _shown(after) != before:
+        view.selected.emit(after)
+
+
+def _shown(row: Any) -> Any:
+    """What the preview pane shows of a row - its identity and its words."""
+    if row is None:
+        return None
+    return tuple(getattr(row, name, None)
+                 for name in ("chunk_id", "file_id", "path", "name", "folder", "search_id"))
 
 
 def terminator_item(text: str) -> QStandardItem:

@@ -33,6 +33,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from PyQt6.QtCore import QThreadPool, QTimer
 from PyQt6.QtWidgets import (
     QButtonGroup,
     QComboBox,
@@ -51,6 +52,7 @@ from PyQt6.QtWidgets import (
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.widgets.number_field import fit_all as fit_number_fields
+from app.ui.workers import CallableWorker, run
 
 __all__ = [
     "IndexLocationDialog", "RebuildVectorsDialog", "LocationChoice",
@@ -101,6 +103,12 @@ MOVE = "move"
 ADOPT = "adopt"
 FRESH = "fresh"
 
+#: How long the typing pauses before the folder in the box is checked.
+CHECK_DELAY_MS = 250
+#: What the dialog says while a worker is still answering (2026-10-04).
+CHECKING = "Checking that folder…"
+MEASURING = "Measuring the index…"
+
 #: An index folder is recognised by these. Enough to tell "an index lives here"
 #: from "an empty folder", without opening either store - this runs while a
 #: dialog is being drawn.
@@ -134,6 +142,23 @@ def free_gb(path: Path) -> float:
         return 0.0
 
 
+def check_destination(text: str, current: Path) -> dict:
+    """What the location dialog needs to know about a typed folder. **Worker.**
+
+    2026-10-04, code review: `_refresh` asked all of this on the interface
+    thread on every keystroke - `resolve`, `exists` and `disk_usage` against
+    whatever drive the half-typed path named, each a wait on a sleeping or
+    network drive. Now asked here, once the typing pauses. Never raises.
+    """
+    destination = Path(str(text or "").strip() or ".")
+    try:
+        same = destination.resolve() == Path(current).resolve()
+    except (OSError, RuntimeError, ValueError):
+        same = False
+    return {"text": text, "occupied": looks_like_an_index(destination), "same": same,
+            "free_gb": free_gb(destination)}
+
+
 def folder_gb(path: Path) -> float:
     """Size of an index folder. Best effort, and cheap enough for a dialog."""
     total = 0
@@ -156,13 +181,25 @@ class IndexLocationDialog(QDialog):
         self.setWindowTitle("Index location")
         self.setMinimumWidth(560)
         self._current = Path(current)
+        #: 2026-10-04, code review: what the workers found - the index's size,
+        #: measured once as the dialog opens (it was a walk of the whole index
+        #: up to three times a keystroke), and the facts about the folder in
+        #: the box (`check_destination`), None while they are being asked.
+        #: `_check_generation` drops an answer about text since replaced.
+        self._index_gb: Optional[float] = None
+        self._facts: Optional[dict] = None
+        self._check_generation = 0
+        self._check_timer = QTimer(self)
+        self._check_timer.setSingleShot(True)
+        self._check_timer.setInterval(CHECK_DELAY_MS)
+        self._check_timer.timeout.connect(self._check)
 
         self.destination = QLineEdit(str(current))
         self.destination.setAccessibleName("New index location")
         self.destination.setToolTip(
             "Where the index should live. A fast local disk with room to grow - "
             "the index is roughly a tenth of the size of what it has read.")
-        self.destination.textChanged.connect(lambda _t: self._refresh())
+        self.destination.textChanged.connect(lambda _t: self._typed())
 
         browse = QPushButton("Browse…")
         browse.setToolTip("Choose the folder in Explorer instead of typing it.")
@@ -223,9 +260,46 @@ class IndexLocationDialog(QDialog):
         layout.addWidget(self.buttons)
 
         self._refresh()
+        self._measure()
+        self._check()
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+
+    def checking(self) -> bool:
+        """Still waiting for a worker's answer about the folder or the index."""
+        return self._facts is None or self._index_gb is None
+
+    def _measure(self) -> None:
+        worker = CallableWorker(folder_gb, self._current, component="ui.index_location")
+        worker.signals.finished.connect(self._measured)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _measured(self, size: Any) -> None:
+        self._index_gb = float(size or 0.0)
+        self._refresh()
+
+    def _typed(self) -> None:
+        """A keystroke: forget what was known about the old text, ask again
+        once the typing pauses."""
+        self._check_generation += 1
+        self._facts = None
+        self._refresh()
+        self._check_timer.start()
+
+    def _check(self) -> None:
+        generation = self._check_generation
+        worker = CallableWorker(check_destination, self.destination.text(), self._current,
+                                component="ui.index_location")
+        worker.signals.finished.connect(
+            lambda facts, g=generation: self._checked(facts, g))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _checked(self, facts: Any, generation: int) -> None:
+        if generation != self._check_generation:
+            return                               # typed since; a later check answers
+        self._facts = dict(facts or {})
+        self._refresh()
 
     def _browse(self) -> None:
         chosen = QFileDialog.getExistingDirectory(
@@ -245,10 +319,22 @@ class IndexLocationDialog(QDialog):
         in it does nothing, and moving onto one that already holds an index
         would have to overwrite it. Rather than allowing a choice and failing
         afterwards, each is enabled only when it means something.
+
+        2026-10-04, code review: **no I/O here any more** - it decides from
+        what the workers found (`_facts`, `_index_gb`), and until they answer
+        it says it is checking and keeps OK off.
         """
-        destination = Path(self.destination.text().strip() or ".")
-        occupied = looks_like_an_index(destination)
-        same = destination.resolve() == self._current.resolve() if destination else False
+        ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
+        if self._facts is None and str(self.destination.text()).strip():
+            self.consequence.setText(CHECKING)
+            self.problem.setText("")
+            if ok is not None:
+                ok.setEnabled(False)
+            return
+        facts = self._facts or {}
+        occupied = bool(facts.get("occupied"))
+        same = bool(facts.get("same"))
+        size = self._index_gb
 
         self.adopt.setEnabled(occupied and not same)
         self.move.setEnabled(not occupied and not same)
@@ -256,8 +342,9 @@ class IndexLocationDialog(QDialog):
 
         if same:
             self.consequence.setText("That is where the index already is.")
+        elif self.move.isChecked() and size is None:
+            self.consequence.setText(MEASURING)
         elif self.move.isChecked():
-            size = folder_gb(self._current)
             self.consequence.setText(
                 f"Copies about {size:.1f}GB there, checks it, then removes the "
                 "original. Nothing is deleted until the copy has been verified."
@@ -279,20 +366,22 @@ class IndexLocationDialog(QDialog):
             problem = "Choose a folder."
         elif same:
             problem = ""
-        elif self.move.isChecked() and free_gb(destination) < folder_gb(self._current):
+        elif self.move.isChecked() and size is None:
+            problem = ""                         # measured shortly; OK waits for it
+        elif self.move.isChecked() and float(facts.get("free_gb") or 0.0) < size:
             problem = (
                 f"Not enough space: the index is about "
-                f"{folder_gb(self._current):.1f}GB and that drive has "
-                f"{free_gb(destination):.1f}GB free."
+                f"{size:.1f}GB and that drive has "
+                f"{float(facts.get('free_gb') or 0.0):.1f}GB free."
             )
         elif not any(b.isChecked() and b.isEnabled()
                      for b in (self.move, self.adopt, self.fresh)):
             problem = "Choose what to do with the folder you picked."
 
         self.problem.setText(problem)
-        ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
         if ok is not None:
-            ok.setEnabled(not problem and not same)
+            ok.setEnabled(not problem and not same
+                          and not (self.move.isChecked() and size is None))
 
 
 class RebuildVectorsDialog(QDialog):

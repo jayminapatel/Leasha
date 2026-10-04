@@ -121,18 +121,27 @@ def size_words(size_bytes: Any, path: Any = "", source_kind: Any = "file") -> st
 _ARCHIVE_EXTS = frozenset({"pst", "ost", "mbox", "mbx", "olm"})
 
 
-def display_name(name: Any, path: Any, ext: Any = "") -> str:
+def display_name(name: Any, path: Any, ext: Any = "", source_kind: Any = "") -> str:
     """What to call a row: its name, or its file name - **never a message's
     key** (`pst://.../<EntryID>`, `D:\\x.mbox/123`), which means nothing to
     anybody. A message whose name is not known yet is called "(no subject)"
     only once its subject is known to be blank; until then, "Message".
+
+    2026-10-04, code review: the key was told by the extension, and a message
+    read out of an mbox or `.olm` does not carry the archive's - "123" and
+    "message_00001.xml" were shown. `opening.mail_container` reads the key,
+    and holds a row that says what it is (`source_kind`) to
+    `row_facts.is_message_row`.
     """
+    from app.ui.presenter.opening import mail_container
+
     named = str(name or "").strip()
     if named:
         return named
     text = str(path or "")
     is_key = ATTACHMENT_MARKER not in text and (
-        text.startswith("pst://") or str(ext or "").lower() in _ARCHIVE_EXTS)
+        text.startswith("pst://") or str(ext or "").lower() in _ARCHIVE_EXTS
+        or bool(mail_container(text, source_kind)))
     if is_key:
         return "Message"
     return text.replace("\\", "/").rstrip("/").rpartition("/")[2] or text

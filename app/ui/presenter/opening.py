@@ -24,8 +24,8 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 __all__ = [
-    "OpenPlan", "Place", "SearchInside", "VolumeKey", "is_offline", "is_web", "key_of",
-    "moment_of", "on_a_volume", "plan_for", "usable",
+    "OpenPlan", "Place", "SearchInside", "VolumeKey", "inside_mail_archive", "is_offline",
+    "is_web", "key_of", "mail_container", "moment_of", "on_a_volume", "plan_for", "usable",
 ]
 
 #: Addresses the person's browser opens - a web source in Chat, or its chip.
@@ -130,6 +130,51 @@ def usable(row: Any, *, missing: bool = False, offline: bool = False) -> bool:
     return bool(key_of(row)) and not missing and not offline and not is_offline(row)
 
 
+#: The archives whose messages are keyed `<archive>/<number>` (an mbox) or
+#: `<archive>/<member path>` (an `.olm`) - what `email_mbox` and `email_olm` write.
+_MBOX_SUFFIXES = (".mbox", ".mbx")
+_OLM_MARK = ".olm/"
+
+
+def mail_container(row: Any, source_kind: Any = "") -> str:
+    r"""The `.mbox` or `.olm` file a message read out of one is in, else `""`.
+
+    2026-10-04, code review: the route recognised only `pst://` as a message,
+    so Show in folder on `D:\x.mbox/123` or `x.olm/.../message_00001.xml`
+    revealed the key itself and failed "moved or deleted". A rule about the
+    key - no I/O. A row that says what it is (`source_kind`) is held to
+    `row_facts.is_message_row`; a bare key (a pin, a chip, a Search row) is
+    read by its shape. A `pst://` message has no path to cut - its archive
+    is the index's (`tasks.archive_of`). On a catalogued drive the answer
+    keeps the drive's key (`leasha-volume://<id>/...`).
+    """
+    from app.core.row_facts import ATTACHMENT_MARKER, is_message_row
+
+    path = key_of(row)
+    kind = source_kind or ("" if isinstance(row, str) else getattr(row, "source_kind", ""))
+    head = ""
+    if path.startswith(VOLUME_PREFIX):
+        number, slash, rest = path[len(VOLUME_PREFIX):].partition("/")
+        head, path = f"{VOLUME_PREFIX}{number}{slash}", rest
+    if not path or "://" in path or ATTACHMENT_MARKER in path:
+        return ""
+    if kind and not is_message_row(path, kind):
+        return ""
+    at = path.lower().find(_OLM_MARK)
+    if at > 0:
+        return head + path[:at + len(_OLM_MARK) - 1]
+    archive, slash, number = path.rpartition("/")
+    if not (slash and archive and number.isdigit()):
+        return ""
+    return head + archive if (archive.lower().endswith(_MBOX_SUFFIXES) or kind) else ""
+
+
+def inside_mail_archive(row: Any, source_kind: Any = "") -> bool:
+    """A message, or a file attached to one, with no file of its own on disk:
+    `pst://...`, or a message in an `.mbox` or `.olm`. No I/O."""
+    return key_of(row).startswith("pst://") or bool(mail_container(row, source_kind))
+
+
 def moment_of(row: Any) -> Optional[int]:
     """Seconds into a recording that a result row is about, else None."""
     from app.core.media_open import seconds_for_result
@@ -150,16 +195,22 @@ def plan_for(row: Any, *, reveal: bool = False) -> OpenPlan:
     volume = getattr(on_a_volume(row), "volume_id", None) is not None
     if is_web(path):
         return OpenPlan("web", path)
+    # 2026-10-04, code review: a message in an `.mbox` or `.olm` is a message
+    # too - shown in its folder as the archive file it is in, and opened the
+    # way any message with no program to show it is (searched inside).
+    container = mail_container(row)
     if reveal:
         zip_path = zip_member_of(path)[0]
         if zip_path:
             return OpenPlan("reveal", zip_path)          # the zip that holds it
         if path.startswith("pst://"):
             return OpenPlan("archive", path)             # a message, or its attachment
+        if container:
+            return OpenPlan("reveal", container, volume)  # the archive file
         return OpenPlan("reveal", path, volume)
     if opens_from_a_copy(path):
         return OpenPlan("copy", path)
-    if "://" in path and not volume:
+    if ("://" in path and not volume) or container:
         return OpenPlan("message", path)
     seconds = moment_of(row)
     if seconds is not None:

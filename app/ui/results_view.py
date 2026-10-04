@@ -31,7 +31,7 @@ from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences, apply_font
 from app.ui.widgets.file_menu import show_for
 from app.ui.widgets.result_drag_model import DraggableResultsModel
-from app.ui.widgets.results_items import result_item, show_result_menu, terminator_item
+from app.ui.widgets.results_items import refill, result_item, show_result_menu, terminator_item
 from app.ui.widgets.skeleton import disarm as disarm_skeleton
 
 __all__ = ["ResultsView", "KIND_LABELS"]
@@ -81,6 +81,7 @@ class ResultsView(QWidget):
         self._placeholders: set = set()
         #: "plain" or "technical" - item 4b's date register, from the tab.
         self._register = "plain"
+        self._refilling = False                  # `results_items.refill`
         #: Adoptions section 1: `() -> (typed terms, search preferences)`,
         #: set by the search tab - read at click time, so the menu always
         #: reflects the switch as it is now, never as it was when built.
@@ -120,8 +121,8 @@ class ResultsView(QWidget):
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         self._list.viewport().installEventFilter(self)  # item 2a: chevron click
-        self._list.selectionModel().currentChanged.connect(
-            lambda current, _prev: self.selected.emit(self._row_for(
+        self._list.selectionModel().currentChanged.connect(   # quiet while refilled
+            lambda current, _prev: self._refilling or self.selected.emit(self._row_for(
                 current.data(ROLE_PAYLOAD) if current.isValid() else None)))
 
         layout = QVBoxLayout(self)
@@ -163,7 +164,7 @@ class ResultsView(QWidget):
                      details: Optional[dict[int, Any]] = None, missing: Optional[set[str]] = None,
                      volumes: Optional[dict[int, Any]] = None,
                      placeholders: Optional[set] = None, statuses: Optional[dict] = None,
-                     keep_scroll: bool = False, register: Optional[str] = None) -> None:
+                     keep_scroll: bool = False, register: Optional[str] = None, search_id: Optional[int] = None) -> None:
         """`details` maps file_id to mail metadata - see `store.messages_for`.
 
         `keep_scroll` is False here and True in `_rebuild`, and the difference
@@ -184,7 +185,7 @@ class ResultsView(QWidget):
         # per row here, on the UI thread - twenty stats for a normal page, five
         # hundred for a full one, each of which can block for seconds on a
         # network share. In the virtualisation work, of all places.
-        self._rows = to_rows(results, terms)
+        self._rows = to_rows(results, terms, search_id=search_id)   # see `ResultRow.search_id`
         self._details = dict(details or {})
         self._missing = set(missing or ())
         if volumes is not None:
@@ -264,37 +265,36 @@ class ResultsView(QWidget):
         if anchor == ("chunk", None):                # nothing was current
             anchor = None
 
-        self._model.clear()
+        items: list = []           # 2026-10-04, code review: built first, inserted once
         if self._prefs.group_by_document:
             for group in group_results(self._rows, details=self._details, register=self._register, conversations=self._prefs.group_by_conversation):
                 expanded = group.file_id in self._expanded
-                self._append(group, expanded=expanded, anchor=anchor)
+                self._append(group, items, expanded=expanded)
                 if expanded and group.match_count > 1:
                     for row in group.rows:
-                        self._append(row, anchor=anchor)
+                        self._append(row, items)
         else:
             for row in self._rows:
-                self._append(row, anchor=anchor)
+                self._append(row, items)
         # Item 5c: a quiet, unselectable row of its own, so reaching it by
         # scrolling is what answers "are there more" - see `Terminator`.
         if self._rows:
-            self._append_terminator(results_terminator(len(self._rows)))
+            self._append_terminator(results_terminator(len(self._rows)), items)
+        refill(self, items, anchor)
 
         if bar is not None:
             bar.setValue(min(position, bar.maximum()))
         self.rows_changed.emit(self._rows)          # the timeline strip listens
 
-    def _append(self, payload: Any, *, expanded: bool = False, anchor: Any = None) -> None:
-        self._model.appendRow(result_item(
+    def _append(self, payload: Any, items: list, *, expanded: bool = False) -> None:
+        items.append(result_item(
             payload, expanded=expanded, missing=self._missing,
             volumes=self._volumes, placeholders=self._placeholders,
             statuses=self._delegate.statuses))
-        if anchor is not None and row_identity(payload) == anchor:      # item 5d
-            self._list.setCurrentIndex(self._model.index(self._model.rowCount() - 1, 0))
 
-    def _append_terminator(self, text: str) -> None:
+    def _append_terminator(self, text: str, items: list) -> None:
         if text:
-            self._model.appendRow(terminator_item(text))
+            items.append(terminator_item(text))
 
     def clear(self, message: str = "") -> None:
         disarm_skeleton(self)                     # §6d

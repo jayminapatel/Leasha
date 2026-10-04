@@ -79,15 +79,16 @@ def test_the_button_is_off_for_a_message_whose_archive_is_not_known(
         _qt_application, shown) -> None:
     from app.ui.widgets.preview import PreviewPane
 
+    # Dated note, 2026-10-04, code review: on selection the button follows the
+    # right-click menu's rule (`opening.usable`) - the route shows a message's
+    # archive - and it goes off once the read finds the index names none
+    # (`test_a_message_whose_archive_the_index_did_not_record_...` below).
     pane = PreviewPane()
     pane.show_row(_mail_row("pst://Archive/E1"))
     pane._timer.stop()
 
-    assert not pane.reveal_button.isEnabled()
+    assert pane.reveal_button.isEnabled()
     assert pane.open_button.isEnabled() and pane.pop_button.isEnabled()
-    pane.reveal_button.click()
-    pump()
-    assert shown == []
     pane.close()
 
 
@@ -165,7 +166,9 @@ def test_the_archive_of_one_message_is_not_offered_for_the_next(
         assert view.preview.reveal_button.isEnabled()
 
         view.preview.show_row(unknown)
-        assert not view.preview.reveal_button.isEnabled(), "the last message's archive"
+        # Dated note, 2026-10-04, code review: on at selection (the menu's
+        # rule) and never the last message's archive - `_archive` is cleared.
+        assert view.preview._archive == "", "the last message's archive"
         view.preview._timer.stop()
         view.preview._start()
         pump()
@@ -246,10 +249,17 @@ def test_a_pinned_message_from_an_archive_offers_no_folder(_qt_application, tmp_
     asking the file manager for an address."""
     from app.ui.widgets.preview_window import PreviewWindow
 
+    # Dated note, 2026-10-04, code review: the pinned window follows the
+    # right-click menu's rule (`opening.usable`) now - the one route shows a
+    # message's archive in its folder - so the button is on for it.
     message = PreviewWindow(_mail_row("pst://Archive/E1"), state={},
                             body_provider=lambda _row: "The trip is on Friday.")
-    assert not message.reveal_button.isEnabled()
+    assert message.reveal_button.isEnabled()
     message.close()
+    offline = PreviewWindow(SimpleNamespace(path="D:/x.txt", name="x.txt", page=0,
+                                            reachable=False), state={})
+    assert not offline.reveal_button.isEnabled(), "a drive that is not plugged in"
+    offline.close()
 
     real = tmp_path / "note.txt"
     real.write_text("hello", encoding="utf-8")
@@ -309,3 +319,34 @@ def test_in_the_search_list_a_message_shows_its_archive_not_its_address(
     assert shown == [("C:/mail/Archive.pst", True)]
     assert asked == [], "the list would have been handed an address that is no file"
     split.close()
+
+
+# --- 2026-10-04, code review: the menu's rule, `opening.usable` ---------------
+
+def test_the_button_follows_the_menu_for_a_drive_and_an_mbox_message(
+        _qt_application, shown) -> None:
+    """`file_of_row` turned the button off for anything with `://` - a file on
+    a catalogued drive, which the route resolves - while the right-click menu
+    offered it. And an mbox message, which has no `://`, was offered and then
+    revealed as its key. Now both follow `opening.usable`, and the mbox
+    message shows the archive file."""
+    from app.ui.widgets.preview import PreviewPane
+
+    pane = PreviewPane()
+    pane.reveal_requested.connect(pane.reveal_row)          # as `attach_preview` wires it
+    pane.show_row(SimpleNamespace(path="leasha-volume://1/a.txt", volume_id=1, name="a.txt"))
+    pane._timer.stop()
+    assert pane.reveal_button.isEnabled()
+
+    pane.show_row(SimpleNamespace(path=r"D:\mail\home.mbox/123", name="", file_id=0))
+    pane._timer.stop()
+    assert pane.reveal_button.isEnabled()
+    assert pane.title.text() == "Message", "never the key's last piece, '123'"
+    pane.reveal_button.click()
+    pump()
+    assert shown == [(r"D:\mail\home.mbox", True)]
+
+    pane.show_row(SimpleNamespace(path="D:/x.txt", name="x.txt", reachable=False))
+    pane._timer.stop()
+    assert not pane.reveal_button.isEnabled(), "a drive that is not plugged in"
+    pane.close()

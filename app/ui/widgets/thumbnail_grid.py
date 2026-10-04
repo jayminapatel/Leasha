@@ -28,6 +28,7 @@ correctly, without writing a second delegate to get there.
 
 from __future__ import annotations
 
+from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
@@ -55,6 +56,55 @@ THUMB_CELL = 240
 #: anything inspecting "what row is this item" looks in the same place on
 #: either view.
 ROLE_ROW = int(Qt.ItemDataRole.UserRole)
+
+#: Decoded thumbnails kept, the most recently shown last. A 220px `QImage` is
+#: at most ~190 KB, so ~40 MB at worst - and a re-run, a tier swap or a
+#: details redraw of the same photos is then no decode at all. Fixed: a grid
+#: holds one result set's photos, and nobody would tune this.
+CACHE_SIZE = 200
+#: Decoders running at once. 2026-10-04, code review: the grid used the
+#: global pool, so fifty photos queued ahead of the next search and of every
+#: Open. A pool of its own keeps them behind nothing and in front of nothing.
+DECODE_THREADS = 2
+
+_CACHE: "OrderedDict[tuple, Any]" = OrderedDict()
+_POOL: list = []
+
+
+def decode_pool() -> QThreadPool:
+    """The grids' own pool, made once and kept by the application - a pool
+    owned by a grid would wait for its decodes when the grid is destroyed,
+    on the interface thread."""
+    from PyQt6.QtCore import QCoreApplication
+
+    if not _POOL:
+        pool = QThreadPool(QCoreApplication.instance())
+        pool.setMaxThreadCount(DECODE_THREADS)
+        _POOL.append(pool)
+    return _POOL[0]
+
+
+def cache_key(row: Any) -> tuple:
+    """`(path, mtime, size)` from what the row already carries - no stat. A
+    file re-indexed after it changed has a new mtime, so a new key."""
+    return (str(getattr(row, "path", "") or ""), int(getattr(row, "mtime_ns", 0) or 0),
+            int(getattr(row, "size_bytes", 0) or 0))
+
+
+def cached(key: tuple) -> Any:
+    """The decoded `QImage` for `key`, or None. UI thread only."""
+    image = _CACHE.get(key)
+    if image is not None:
+        _CACHE.move_to_end(key)
+    return image
+
+
+def remember(key: tuple, image: Any) -> None:
+    """Keep a decoded thumbnail, dropping the least recently shown. UI thread."""
+    _CACHE[key] = image
+    _CACHE.move_to_end(key)
+    while len(_CACHE) > CACHE_SIZE:
+        _CACHE.popitem(last=False)
 
 
 def enabled_checkbox(store: Any, *, on_toggle: Any) -> QCheckBox:
@@ -109,7 +159,14 @@ class ThumbnailGrid(QWidget):
         #: use, applied here because this widget can fire dozens of workers
         #: for one result set rather than one.
         self._generation = 0
-        self._pool = QThreadPool.globalInstance()
+        self._pool = decode_pool()
+        #: 2026-10-04, code review: the decodes not yet started, taken back
+        #: (`QThreadPool.tryTake`) when the set changes or the grid hides; the
+        #: photos the last `show_rows` drew, so an identical repaint of the
+        #: list redraws nothing; and whether decoding waits to be shown.
+        self._queued: list[Any] = []
+        self._shown_keys: tuple = ()
+        self._waiting = False
 
         self._list = QListWidget(self)
         self._list.setViewMode(QListView.ViewMode.IconMode)
@@ -139,10 +196,25 @@ class ThumbnailGrid(QWidget):
         Called from `ResultsView.rows_changed`, which already fires on every
         search and every federated append - the grid needs no search-specific
         wiring of its own, it just filters what the list already has.
+
+        2026-10-04, code review: `rows_changed` fires on every repaint of the
+        list, and each one started a decode per photo - no cache, no cancel,
+        and the grid usually not on screen. Now the same photos are not
+        redrawn, a decoded one comes from the cache, and the rest are decoded
+        only while the grid is visible (`showEvent`).
         """
+        photos = [row for row in rows if is_image_result(getattr(row, "ext", ""))]
+        keys = tuple(cache_key(row) for row in photos)
+        if keys and keys == self._shown_keys and self._list.count() == len(photos):
+            self._rows = photos                  # the newest row objects, same photos
+            for index, row in enumerate(photos):
+                self._list.item(index).setData(ROLE_ROW, row)
+            return
+        self._cancel_queued()
         self._generation += 1
         generation = self._generation
-        self._rows = [row for row in rows if is_image_result(getattr(row, "ext", ""))]
+        self._rows = photos
+        self._shown_keys = keys
         self._list.clear()
 
         placeholder = self.style().standardIcon(self.style().StandardPixmap.SP_FileIcon)
@@ -155,8 +227,10 @@ class ThumbnailGrid(QWidget):
         self._load_thumbnails(generation)
 
     def clear(self) -> None:
+        self._cancel_queued()
         self._generation += 1
         self._rows = []
+        self._shown_keys = ()
         self._list.clear()
 
     def image_rows(self) -> list[Any]:
@@ -166,24 +240,70 @@ class ThumbnailGrid(QWidget):
     # -- decoding, on workers ---------------------------------------------------
 
     def _load_thumbnails(self, generation: int) -> None:
-        """One `CallableWorker` per photo. Never decodes here, on the UI thread."""
+        """One `CallableWorker` per photo. Never decodes here, on the UI thread.
+
+        2026-10-04, code review: only for a photo not in the cache, on the
+        grid's own pool, and not while the grid is hidden - `showEvent`
+        starts what waited."""
         from app.ui.workers import CallableWorker, run
 
+        self._waiting = not self.isVisible()
         for index, row in enumerate(self._rows):
             path = str(getattr(row, "path", "") or "")
             if not path:
                 continue
+            key = cache_key(row)
+            image = cached(key)
+            if image is not None:
+                self._thumbnail_ready(index, image, generation)
+                continue
+            if self._waiting:
+                continue
             worker = CallableWorker(decode_thumbnail, path, component="ui.thumbnail_grid")
             worker.signals.finished.connect(
-                lambda image, i=index, g=generation: self._thumbnail_ready(i, image, g))
+                lambda image, i=index, g=generation, k=key: self._thumbnail_ready(i, image, g, k))
             worker.signals.failed.connect(
                 lambda _error, i=index, g=generation: self._thumbnail_ready(i, None, g))
+            worker.signals.done.connect(lambda w=worker: self._forget(w))
+            self._queued.append(worker)
             run(self._pool, worker)
 
-    def _thumbnail_ready(self, index: int, image: Any, generation: int) -> None:
+    def _forget(self, worker: Any) -> None:
+        if worker in self._queued:
+            self._queued.remove(worker)
+
+    def _cancel_queued(self) -> None:
+        """Take back every decode that has not started. One already running
+        finishes, and its generation stamp drops it."""
+        from app.ui.workers import release
+
+        for worker in list(self._queued):
+            try:
+                if self._pool.tryTake(worker):
+                    release(worker)              # it will never say it is done
+            except RuntimeError:                 # already finished and deleted
+                pass
+        self._queued.clear()
+
+    def showEvent(self, event: Any) -> None:     # noqa: N802 - Qt's naming
+        super().showEvent(event)
+        if self._waiting and self._rows:
+            self._load_thumbnails(self._generation)
+
+    def hideEvent(self, event: Any) -> None:     # noqa: N802 - Qt's naming
+        super().hideEvent(event)
+        if self._queued:
+            # Off screen: what has not started waits for the next show.
+            self._cancel_queued()
+            self._waiting = True
+
+    def _thumbnail_ready(self, index: int, image: Any, generation: int,
+                         key: Optional[tuple] = None) -> None:
         """UI thread. Wraps the worker's `QImage`; never decodes anything itself."""
         if generation != self._generation:
             return                               # a later result set won
+        if image is not None and key is not None:
+            remember(key, image)
         if index < 0 or index >= self._list.count():
             return
         item = self._list.item(index)
