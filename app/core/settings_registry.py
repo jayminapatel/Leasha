@@ -818,6 +818,23 @@ SETTINGS: tuple[Setting, ...] = (
              "collection this way can take hours of the machine's own time. "
              "Needs the photo description model above to be installed.",
     ),
+    # 2026-10-04, the owner: the index for other AI programs, run by Leasha
+    # and managed from Settings. See `app/serve/mcp.py`.
+    Setting(
+        key="MCP_PORT", label="Port for AI programs", kind="int", default=8737,
+        group="Models", surface="settings.models", minimum=1024, maximum=65535,
+        unit="port",
+        help="The port on this computer that AI programs connect to while AI access "
+             "is started. Only this computer can reach it. Change it if another "
+             "program already uses 8737, then Connect each AI program again.",
+    ),
+    Setting(
+        key="MCP_AUTOSTART", label="Start AI access when Leasha opens", kind="bool",
+        default=False, group="Models", surface="settings.models",
+        help="Starts the server for AI programs every time Leasha opens, so a "
+             "connected AI program can search without you pressing Start. Off by "
+             "default: what it finds goes to that AI program.",
+    ),
     # Grouped with Search, not Models, deliberately. **The Models panel is about
     # Ollama**, and a reranking field under that heading implies search calls
     # the LLM - which it never does, and which is the most persistent

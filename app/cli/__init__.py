@@ -51,6 +51,7 @@ from app.cli.extract import add_convert_parser, add_extract_parser
 from app.cli.formats import add_formats_parser
 from app.cli.index import add_index_parser, add_reembed_parser
 from app.cli.media import add_media_parser
+from app.cli.mcp_server import add_mcp_parser
 from app.cli.maintenance import (
     add_diagnose_parser,
     add_doctor_parser,
@@ -183,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_formats_parser(sub, common)
     add_media_parser(sub, common)
     add_search_parser(sub, common)
+    add_mcp_parser(sub, common)
 
     return parser
 

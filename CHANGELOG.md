@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.52 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.53 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **AI programs on this computer can search your index.** Settings > Models & AI > AI
+  programs has **Start** and **Stop**, and **Connect** for Claude Desktop, Claude Code,
+  Cursor and VS Code; any other program that speaks MCP can be given the address and key
+  with **Copy address and key** or **Copy bridge command**. Leasha answers only while it is
+  open and AI access is started, only on this computer, only to programs that have its key,
+  and it can never change a file: an AI program can search, find a file by name and read the
+  indexed text of a result, each answer naming the file it came from. What it finds goes to
+  the AI program that asked - one that runs in the cloud sends it there. Connect backs up the
+  program's settings file first and adds only Leasha's own entry. Off until you press Start.
+  Coding tools that run commands can also use `app.cli search "..." --json`, as before.
 - **The preview shows an attachment's own pages.** A PDF, a picture or a workbook that came
   with an email is drawn in the preview pane - pages, picture or grid - under its message,
   without saving a copy anywhere. Other types still show their words, as before; so does an

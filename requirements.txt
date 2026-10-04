@@ -354,3 +354,18 @@ prompt_toolkit==3.0.53
 # and never import them. Both degrade to "findable by name", with an
 # ERR_MEDIA_TOOLS_MISSING / ERR_TRANSCRIBE_UNAVAILABLE line in the skip ledger
 # that names the exact command above.
+
+# --- AI programs: the index over MCP (2026-10-04) ---------------------------
+#
+# The official Model Context Protocol SDK - the owner chose it over a
+# hand-written server (2026-10-04): protocol versions (2026-07-28 at the time)
+# are its job, not Leasha's. app/serve/mcp.py runs it on 127.0.0.1 only, while
+# Leasha is open and AI access is started in Settings, behind Leasha's key.
+#
+# It brings 15 more packages, measured with `pip install mcp --dry-run`:
+# PyJWT, attrs, httpcore2, httpx2, jsonschema(+specifications), mcp-types,
+# opentelemetry-api, python-multipart, referencing, rpds-py, sse-starlette,
+# starlette, truststore, uvicorn. starlette and uvicorn serve the local
+# address. opentelemetry-api is the SDK's tracing interface: with no
+# OpenTelemetry SDK or exporter installed it records nothing and sends nothing.
+mcp==2.3.0

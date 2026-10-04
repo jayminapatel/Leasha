@@ -113,6 +113,12 @@ class SettingsShelves:
         self.chat_box.changed.connect(self.settings_changed)
         self.media_box = MediaBox(settings)
         self.media_box.changed.connect(self.settings_changed)
+        # 2026-10-04: AI programs (MCP) - Start, Stop, Connect. The controller
+        # that acts on it is `controllers/mcp_controller.py`, made by the window.
+        from app.ui.widgets.mcp_box import McpBox
+
+        self.mcp_box = McpBox(settings)
+        self.mcp_box.changed.connect(self.settings_changed)
         # Every model on this computer and every one Leasha can run (2026-09-30).
         from app.ui.widgets.model_manager import ModelManagerBox
 
@@ -245,7 +251,7 @@ class SettingsShelves:
             (CATEGORY_SEARCH, (self.search_box, self.search_behaviour,
                                self.editor_box, privacy)),
             (CATEGORY_MODELS, (self.model_manager, self.models, self.photo_people_box,
-                               self.chat_box, self.media_box)),
+                               self.chat_box, self.media_box, self.mcp_box)),
             (CATEGORY_APPEARANCE, (self.window_box,)),
         )
         for name, boxes in shelves:

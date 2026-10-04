@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.50 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.51 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2151,6 +2151,33 @@ schema 32 says it is, so a pre-32 row or one read through Outlook shows its word
 Caps: 25 MB for a picture, 50 MB otherwise (`IN_MEMORY_CAP`), checked before reading.
 **Fault found and fixed**: `read_zip_member` read the whole zip into memory for one member
 (`Path.read_bytes()`); `member_of` now opens a zip on disk by path. `test_attachment_in_pane.py`.
+
+**2026-10-04 (evening) - The index for AI programs over MCP, run by Leasha.** The owner,
+in order: "can this index act as a mcp server for other ai programs"; "do both"; chose the
+official SDK over a hand-written server; "in the settings there should be a method to manage
+start stop etc"; chose **Leasha runs it** (127.0.0.1, Start/Stop) over letting each AI program
+start it; "Yes, with a backup" to Leasha editing AI programs' settings files; "this will not be
+only for claude but other platforms too"; then, asked whether MCP was the best way at all,
+"recommended" - MCP, with the command line (`app.cli search --json`) named for coding tools.
+**A scope decision, the owner's**: a local listener (127.0.0.1 only, keyed) where the project
+had none; still no network service beyond this computer, no telemetry, nothing in the search
+hot path. **Where**: `app/serve/mcp.py` (four read-only tools in `IndexTools`, `McpHost` on a
+thread with uvicorn, `_KeyRequired` refusing a request without `Authorization: Bearer <key>`,
+the SDK's DNS-rebinding guard on; the key made once in store state `mcp:key`);
+`app/serve/clients.py` (`PROGRAMS`, Connect/Disconnect: JSON refused if unreadable, dated
+`.leasha-backup-*` beside the file, only the `leasha` entry touched, temp-file replace; **Claude
+Code through its own `claude mcp add/remove --scope user`** when on PATH, because it rewrites
+`~/.claude.json` while running); `app/cli/mcp_server.py` (`app.cli mcp`, the stdio **bridge** to
+the running server - Claude Desktop's entry, since its settings file is reported to drop every
+server given by `url`, anthropics/claude-code#37286); `widgets/mcp_box.py` and
+`controllers/mcp_controller.py` (every action on a worker; autostart after construction; stop in
+`closeEvent`). **Measured first**: a second process loading the models took 1.4 GB and 4.1 s, so
+the server uses the window's engine's models. Settings `MCP_PORT` (8737) and `MCP_AUTOSTART`
+(off). Errors `ERR_MCP_START`, `ERR_MCP_CONFIG`. `mcp==2.3.0` pinned; it brings 15 packages
+(listed in `requirements.txt`); no OpenTelemetry SDK is installed, so its tracing API records
+nothing. **UNVERIFIED**: not yet connected to a real Claude Desktop, Claude Code, Cursor or VS
+Code - the tests drive the SDK's own client in-process, over HTTP, and the bridge as a separate
+process; VS Code's documented example shows no header (`PROGRAMS` says so). `test_mcp_server.py`.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

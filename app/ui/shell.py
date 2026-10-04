@@ -822,6 +822,11 @@ class MainWindow(QMainWindow):
             self.settings_view.rerank_toggled.connect(self._rerank_toggled)
             self.settings_view.cloud_toggled.connect(self._cloud_toggled)
             self.settings_view.settings_changed.connect(self._settings_changed)
+            # 2026-10-04: AI programs (MCP). Started, if wanted, with the
+            # background work below; stopped in `closeEvent`.
+            from app.ui.controllers.mcp_controller import McpController
+
+            self.mcp_ctl = McpController(self)
             # "Clear search history" empties the log the search box's recent
             # searches are read from; without this it kept offering them.
             self.settings_view.history_cleared.connect(
@@ -924,6 +929,9 @@ class MainWindow(QMainWindow):
             # thread before the first frame.
             if settings_view is not None:
                 settings_view.refresh_slow_labels()
+            mcp_ctl = getattr(self, "mcp_ctl", None)
+            if mcp_ctl is not None:
+                mcp_ctl.start_if_wanted()
             # §2f: after construction, like `_restore_last_category` (M13).
             self._restore_last_page()
             self._refresh_status()
@@ -2316,6 +2324,10 @@ class MainWindow(QMainWindow):
         # app gone from the screen immediately, then the staged teardown runs
         # invisibly while holding the lock.
         self.hide()
+        # 2026-10-04: AI access stops with the window - it runs only while Leasha is open.
+        mcp_ctl = getattr(self, "mcp_ctl", None)
+        if mcp_ctl is not None:
+            mcp_ctl.shutdown()
         # 2026-10-04: the copies "Open" made of attachments. After the hide, so
         # the person never waits on it; a copy still open in Excel is left.
         try:

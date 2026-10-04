@@ -53,6 +53,7 @@
     <Folder Include="app\ort" />
     <Folder Include="app\reports" />
     <Folder Include="app\search" />
+    <Folder Include="app\serve" />
     <Folder Include="app\shell" />
     <Folder Include="app\storage" />
     <Folder Include="app\ui" />
@@ -133,6 +134,7 @@
     <Compile Include="app\cli\formats.py" />
     <Compile Include="app\cli\index.py" />
     <Compile Include="app\cli\maintenance.py" />
+    <Compile Include="app\cli\mcp_server.py" />
     <Compile Include="app\cli\media.py" />
     <Compile Include="app\cli\offline_media.py" />
     <Compile Include="app\cli\ollama.py" />
@@ -324,6 +326,9 @@
     <Compile Include="app\search\vector.py" />
     <Compile Include="app\search\wildcards.py" />
     <Compile Include="app\search\window.py" />
+    <Compile Include="app\serve\__init__.py" />
+    <Compile Include="app\serve\clients.py" />
+    <Compile Include="app\serve\mcp.py" />
     <Compile Include="app\shell\__init__.py" />
     <Compile Include="app\shell\completer.py" />
     <Compile Include="app\shell\repl.py" />
@@ -344,6 +349,7 @@
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
+    <Compile Include="app\ui\controllers\mcp_controller.py" />
     <Compile Include="app\ui\controllers\settings_controller.py" />
     <Compile Include="app\ui\controllers\timeline_controller.py" />
     <Compile Include="app\ui\debug_recorder.py" />
@@ -466,6 +472,7 @@
     <Compile Include="app\ui\widgets\machine_card.py" />
     <Compile Include="app\ui\widgets\mail_card.py" />
     <Compile Include="app\ui\widgets\mail_open.py" />
+    <Compile Include="app\ui\widgets\mcp_box.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
@@ -784,6 +791,7 @@
     <Compile Include="tests\unit\test_mail_preview_marks.py" />
     <Compile Include="tests\unit\test_mail_sent_date_filter.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
+    <Compile Include="tests\unit\test_mcp_server.py" />
     <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_media_open.py" />
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />

@@ -286,6 +286,10 @@ class Settings(BaseModel):
     #: Work order 0i section 3b. OFF by default - see settings_registry.py's
     #: CAPTION_TRICKLE_ENABLED for the full reasoning.
     caption_trickle_enabled: bool = False
+    #: 2026-10-04. AI programs (MCP): the local port Leasha's server listens on,
+    #: and whether it starts with the window. See `app/serve/mcp.py`.
+    mcp_port: int = 8737
+    mcp_autostart: bool = False
     #: Work order 0j, the whole order's own guardrails. OFF by default - see
     #: settings_registry.py's PEOPLE_RECOGNITION_ENABLED for the full
     #: reasoning. Face embeddings are biometric-adjacent, so this switch is
@@ -697,6 +701,8 @@ def load_settings(
             chat_web_brave_key=(values.get("CHAT_WEB_BRAVE_KEY") or "").strip(),
             caption_trickle_enabled=_as_bool(
                 "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
+            mcp_port=_as_int("MCP_PORT", values.get("MCP_PORT", "8737")),
+            mcp_autostart=_as_bool("MCP_AUTOSTART", values.get("MCP_AUTOSTART", "false")),
             people_recognition_enabled=_as_bool(
                 "PEOPLE_RECOGNITION_ENABLED",
                 values.get("PEOPLE_RECOGNITION_ENABLED", "false")),

@@ -73,7 +73,9 @@ SURFACE_MODULES = {
     # flow lives with the index location it invalidates.
     "settings.models": ("settings_view.py", "widgets/model_box.py",
                         "widgets/storage_box.py", "widgets/media_box.py",
-                        "widgets/chat_box.py"),
+                        "widgets/chat_box.py",
+                        # 2026-10-04: AI programs (MCP) - its port and autostart.
+                        "widgets/mcp_box.py"),
     "settings.storage": ("settings_view.py", "widgets/storage_box.py"),
 }
 

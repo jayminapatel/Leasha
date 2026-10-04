@@ -676,6 +676,27 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # 2026-10-04: the index for AI programs (`app/serve/mcp.py`).
+    "ERR_MCP_START": _Spec(
+        message="Leasha could not start AI access on port {port}.",
+        suggestion=(
+            "Another program is probably using that port. Choose a different "
+            "\"Port for AI programs\" in Settings > Models & AI > AI programs, press "
+            "Start again, then press Connect again for each AI program so it uses "
+            "the new port."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_MCP_CONFIG": _Spec(
+        message="Leasha could not change the AI program settings in '{path}'.",
+        suggestion=(
+            "Nothing in the file was changed. If the AI program is open, close it and "
+            "press Connect again. If the file is not valid JSON, fix or remove it in "
+            "that program first - Leasha never overwrites a file it cannot read. Any "
+            "earlier backup is beside it, ending .leasha-backup."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # --- Layer 2 additions --------------------------------------------------
     "ERR_FILE_TOO_LARGE": _Spec(
         message="'{path}' is larger than the limit for its type.",
