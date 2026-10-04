@@ -25,7 +25,7 @@ import json
 import re
 from dataclasses import dataclass, field
 from datetime import date
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from app.chat.aggregate import _TYPES, _scope_words
 from app.chat.text import STOPWORDS, content_tokens, stem
@@ -205,17 +205,21 @@ def widen(plan: Plan) -> list[str]:
     return fresh
 
 
-def planner_queries(llm: Any, plan: Plan, *, timeout: float = 30.0) -> list[str]:
+def planner_queries(llm: Any, plan: Plan, *, timeout: float = 30.0,
+                    should_stop: Optional[Callable[[], bool]] = None) -> list[str]:
     """Ask the planner model for other searches. **A proposal, never a command**:
     the reply must be JSON with a `queries` list of plain strings, each is cleaned
-    and bounded, and anything else is discarded. Never raises."""
+    and bounded, and anything else is discarded. Never raises. `should_stop`
+    (2026-10-04, code review) is the question's Stop."""
+    from app.chat.llm import stop_kwargs
     from app.chat.prompts import planner_prompt
 
     if llm is None:
         return []
     try:
         reply = llm.generate(planner_prompt(plan.question, plan.tried), json_mode=True,
-                             temperature=0.0, timeout=timeout, max_tokens=120)
+                             temperature=0.0, timeout=timeout, max_tokens=120,
+                             **stop_kwargs(llm, should_stop))
         data = json.loads(str(getattr(reply, "text", reply) or ""))
         raw = data.get("queries", []) if isinstance(data, dict) else []
     except Exception as exc:                            # noqa: BLE001 - a proposal only

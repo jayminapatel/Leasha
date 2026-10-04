@@ -44,32 +44,52 @@ class InterpretModels(QObject):
         self._choice = ""
         self._picked = False
         self._asked = False
+        #: 2026-10-04, code review: whether the list made included Ollama's models.
+        self._full = False
         self._token = 0
+        #: The options last listed, for a pick's size (`_apply`).
+        self._options: list = []
         #: Replaces the real listing (tests).
         self.menu_factory: Optional[Callable[[], dict]] = None
         menu.chosen.connect(self.choose)
 
+    @property
+    def default_client(self) -> Any:
+        """The client Settings built - the one Settings' Interpret model belongs to."""
+        return self._default
+
     # -- the list ----------------------------------------------------------------
     def list_if_needed(self) -> None:
         """List the models and apply a remembered pick - once, and only while Interpret
-        is switched on: nothing asks Ollama for somebody who does not use it."""
+        is switched on: nothing asks Ollama for somebody who does not use it.
+
+        2026-10-04, code review: at start-up Ollama was asked even with the model
+        inside Leasha in use, unlike Chat's preload. Now the same rule: Ollama is
+        asked at start-up only when the model in use is Ollama's, and the full list
+        is made when the person opens the `⋯` menu (this slot, called by its signal)."""
         from app.ui.controllers import chat_controller
 
-        if self._asked or not getattr(self.translator, "enabled", False):
+        if not getattr(self.translator, "enabled", False):
+            return
+        full = self.sender() is not None         # the menu opening, not start-up
+        if self._full or (self._asked and not full):
             return
         if chat_controller.BACKGROUND_MODELS or self.menu_factory is not None:
             self._asked = True
-            self.start()
+            self._full = self._full or full
+            self.start(full=full)
 
-    def start(self) -> None:
+    def start(self, *, full: bool = True) -> None:
         """List the models and apply a remembered pick, on a worker."""
         current = str(getattr(self._default, "model", "") or "")
-        worker = CallableWorker(self._models, current, component="ui.translate")
+        engine = ("" if self._default is None
+                  else "onnx" if getattr(self._default, "engine", "") == "onnx" else "ollama")
+        worker = CallableWorker(self._models, current, engine, full, component="ui.translate")
         worker.signals.finished.connect(self._listed)
         worker.signals.failed.connect(lambda error: _log.debug("no Interpret model list ({})", error))
         run(QThreadPool.globalInstance(), worker)
 
-    def _models(self, current: str) -> tuple:
+    def _models(self, current: str, engine: str = "", full: bool = True) -> tuple:
         """`(saved pick, menu)`. Worker."""
         saved = ""
         try:
@@ -78,14 +98,19 @@ class InterpretModels(QObject):
             _log.debug("no remembered Interpret model ({})", exc)
         if self.menu_factory is not None:
             return saved, self.menu_factory()
+        from app.chat.roles import parse_option
+        from app.llm.engines import engine_of
         from app.ui.tasks import answer_model_menu
 
-        return saved, answer_model_menu(self._w._settings, "", current)
+        runner = parse_option(self._choice or saved)[0] or engine or engine_of(self._w._settings)
+        return saved, answer_model_menu(self._w._settings, engine, current,
+                                        ollama=full or runner == "ollama")
 
     def _listed(self, result: tuple) -> None:
         saved, menu = result
         options = list(menu.get("options") or [])
         values = {str(o.value) for o in options}
+        self._options = options
         if not self._picked and saved and (saved in values or not options):
             self._apply(saved)
         selected = self._choice if self._choice in values else str(menu.get("default") or "")
@@ -107,7 +132,7 @@ class InterpretModels(QObject):
             return
         if model and model != str(getattr(self._default, "model", "") or ""):
             self.forget()
-            self._asked = False                           # listed again: the default moved
+            self._asked = self._full = False              # listed again: the default moved
 
     def forget(self) -> None:
         """Settings chose Interpret's model: that wins, and the pick is cleared."""
@@ -128,9 +153,12 @@ class InterpretModels(QObject):
         from app.ui.tasks import interpret_client
 
         token = self._token
+        # 2026-10-04, code review: loaded ahead only if it fits in the memory free
+        # (`tasks.warm_if_fits`) - a remembered 26B pick was loaded at every start-up.
+        size = next((int(o.size_bytes) for o in self._options if str(o.value) == value), 0)
         worker = CallableWorker(interpret_client, self._w._settings, value,
                                 warm=bool(getattr(self.translator, "enabled", False)),
-                                component="ui.translate")
+                                size_bytes=size, component="ui.translate")
         worker.signals.finished.connect(lambda client, t=token: self._built(t, client))
         worker.signals.failed.connect(lambda error: _log.warning("Interpret's model: {}", error))
         run(QThreadPool.globalInstance(), worker)

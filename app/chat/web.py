@@ -75,6 +75,7 @@ import ipaddress
 import json
 import re
 import socket
+import threading
 import time
 from dataclasses import dataclass, field
 from html import unescape
@@ -105,6 +106,8 @@ MSG_BAD_KEY = "The web search did not accept the Brave Search key."
 MSG_NO_KEY = "No Brave Search key has been entered."
 MSG_NO_SEARX = "No SearXNG address has been entered."
 MSG_SEARX_JSON = "That SearXNG server does not give answers in JSON, which Leasha needs."
+#: 2026-10-04, code review: the question was stopped while the web was being searched.
+MSG_STOPPED = "The web search was stopped."
 
 
 # --------------------------------------------------------------------------- the values
@@ -233,8 +236,15 @@ def _decode(content: bytes, content_type: str) -> str:
 def _default_transport(method: str, url: str, *, params: Any = None, headers: Any = None,
                        timeout: float = 8.0) -> Any:
     """`requests`, imported here so the module is importable offline; no redirects (the
-    caller follows them, guarded), the body read in pieces and stopped at `MAX_BYTES`."""
+    caller follows them, guarded), the body read in pieces and stopped at `MAX_BYTES`.
+
+    2026-10-04, code review: `timeout` was only `requests`' per-read limit, so a server
+    that sent a few bytes every few seconds held the answer for as long as it liked.
+    The body now has a wall clock too - `timeout` from the first byte of the reply -
+    and a reply still arriving then is cut off: the connection is closed under the
+    read that is waiting (`_close_late`), which is what ends a read that never returns."""
     requests = importlib.import_module("requests")
+    started = time.monotonic()
     try:
         response = requests.request(method, url, params=params, headers=headers,
                                     timeout=timeout, allow_redirects=False, stream=True)
@@ -242,23 +252,65 @@ def _default_transport(method: str, url: str, *, params: Any = None, headers: An
         raise _WebError(MSG_TIMEOUT) from exc
     except requests.RequestException as exc:
         raise _WebError(MSG_UNREACHABLE) from exc
+    late = {"cut": False}
+
+    def _close_late() -> None:
+        late["cut"] = True
+        # Closing the response alone does not end a read waiting in another thread
+        # (the socket outlives its file object); shutting the socket down does.
+        sock = _socket_of(response)
+        if sock is not None:
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+        try:
+            response.close()
+        except Exception:                                  # noqa: BLE001
+            pass
+
+    watchdog = threading.Timer(max(0.05, started + float(timeout) - time.monotonic()), _close_late)
+    watchdog.daemon = True
+    watchdog.start()
     try:
         chunks: list[bytes] = []
         total = 0
-        for chunk in response.iter_content(65536):
+        for chunk in response.iter_content(16384):
             chunks.append(chunk)
             total += len(chunk)
             if total >= MAX_BYTES:
                 break
+            if late["cut"] or time.monotonic() - started > float(timeout):
+                raise _WebError(MSG_TIMEOUT)
+        if late["cut"]:
+            raise _WebError(MSG_TIMEOUT)
         content = b"".join(chunks)[:MAX_BYTES]
-    except requests.Timeout as exc:
-        raise _WebError(MSG_TIMEOUT) from exc
-    except requests.RequestException as exc:
+    except _WebError:
+        raise
+    except Exception as exc:                               # noqa: BLE001 - a closed read too
+        if late["cut"] or isinstance(exc, requests.Timeout):
+            raise _WebError(MSG_TIMEOUT) from exc
         raise _WebError(MSG_UNREACHABLE) from exc
     finally:
+        watchdog.cancel()
         response.close()
     return _Reply(response.status_code, response.headers, content,
                   _decode(content, str(response.headers.get("content-type", ""))))
+
+
+def _socket_of(response: Any) -> Any:
+    """The socket under a streamed `requests` reply, or `None` (the connection pool's
+    connection, else http.client's file object)."""
+    raw = getattr(response, "raw", None)
+    for path in (("_connection", "sock"), ("_fp", "fp", "raw", "_sock")):
+        node = raw
+        for name in path:
+            node = getattr(node, name, None)
+            if node is None:
+                break
+        if node is not None and hasattr(node, "shutdown"):
+            return node
+    return None
 
 
 def _header(response: Any, name: str) -> str:
@@ -340,16 +392,25 @@ def check_url(url: str, *, resolve: bool = False) -> str:
 
 def _send(transport: Callable, method: str, url: str, *, params: Any = None,
           headers: Optional[dict] = None, timeout: float = 8.0, guard: bool = False,
-          resolve: bool = False) -> Any:
-    """One request, following at most `MAX_REDIRECTS` redirects, the guard on every hop."""
+          resolve: bool = False, ends: Optional[float] = None) -> Any:
+    """One request, following at most `MAX_REDIRECTS` redirects, the guard on every hop.
+
+    2026-10-04, code review: every hop had the whole `timeout`, so four redirects were
+    four times it. The redirects now share it, and `ends` (a `time.monotonic()`) can
+    hold the request to less - the page's or the whole search's time left."""
     sent = {"User-Agent": USER_AGENT, **(headers or {})}
+    limit = time.monotonic() + float(timeout)
+    ends = limit if ends is None else min(ends, limit)
     for _hop in range(MAX_REDIRECTS + 1):
         reason = check_url(url, resolve=resolve) if guard else (
             "" if str(url).lower().startswith(("http://", "https://")) else "not a web address")
         if reason:
             raise _WebError(f"That address was not opened ({reason}).")
+        left = ends - time.monotonic()
+        if left <= 0:
+            raise _WebError(MSG_TIMEOUT)
         try:
-            response = transport(method, url, params=params, headers=sent, timeout=timeout)
+            response = transport(method, url, params=params, headers=sent, timeout=left)
         except _WebError:
             raise
         except Exception as exc:                          # noqa: BLE001 - never escape
@@ -577,12 +638,13 @@ def _text_of(markup: str) -> tuple[str, str]:
     return title, text_from_xhtml(_DROPPED.sub(" ", markup))
 
 
-def _wikipedia_text(transport: Callable, hit: WebHit, timeout: float, resolve: bool) -> Optional[WebPage]:
+def _wikipedia_text(transport: Callable, hit: WebHit, timeout: float, resolve: bool,
+                    ends: Optional[float] = None) -> Optional[WebPage]:
     parts = _urls().urlparse(hit.url)
     if not (parts.hostname or "").endswith(".wikipedia.org") or not parts.path.startswith("/wiki/"):
         return None
     response = _send(transport, "GET", f"https://{parts.hostname}/w/api.php", timeout=timeout,
-                     guard=True, resolve=resolve, params={
+                     guard=True, resolve=resolve, ends=ends, params={
                          "action": "query", "prop": "extracts", "explaintext": 1, "redirects": 1,
                          "titles": _urls().unquote(parts.path[len("/wiki/"):]).replace("_", " "),
                          "format": "json", "formatversion": 2})
@@ -592,12 +654,16 @@ def _wikipedia_text(transport: Callable, hit: WebHit, timeout: float, resolve: b
     return WebPage(hit.url, hit.title, text) if text.strip() else None
 
 
-def _fetch_one(transport: Callable, hit: WebHit, timeout: float, resolve: bool) -> Optional[WebPage]:
-    special = _wikipedia_text(transport, hit, timeout, resolve)     # plain text, no page furniture
+def _fetch_one(transport: Callable, hit: WebHit, timeout: float, resolve: bool,
+               ends: Optional[float] = None) -> Optional[WebPage]:
+    # 2026-10-04, code review: one page, every request for it, within `timeout`.
+    page_ends = time.monotonic() + float(timeout)
+    ends = page_ends if ends is None else min(ends, page_ends)
+    special = _wikipedia_text(transport, hit, timeout, resolve, ends)   # plain text, no furniture
     if special is not None:
         return special
     response = _send(transport, "GET", hit.url, timeout=timeout, guard=True, resolve=resolve,
-                     headers={"Accept": "text/html,text/plain;q=0.9"})
+                     headers={"Accept": "text/html,text/plain;q=0.9"}, ends=ends)
     _check(response)
     kind = _header(response, "content-type").split(";")[0].strip().lower()
     if kind and kind not in _TEXT_TYPES:
@@ -611,15 +677,25 @@ def _fetch_one(transport: Callable, hit: WebHit, timeout: float, resolve: bool) 
 
 
 def fetch_pages(hits: Sequence[WebHit], *, max_pages: int = 3, timeout: float = 8.0,
-                max_chars: int = 6000, transport: Optional[Callable] = None) -> list[WebPage]:
+                max_chars: int = 6000, transport: Optional[Callable] = None,
+                deadline: Optional[float] = None,
+                should_stop: Optional[Callable[[], bool]] = None) -> list[WebPage]:
     """Text of the top `max_pages` result pages, each kept to `max_chars`. A page that
-    is refused, not text, unreachable or empty is simply left out. Never raises."""
+    is refused, not text, unreachable or empty is simply left out. Never raises.
+
+    2026-10-04, code review: each page is held to `timeout` in all (redirects
+    included), the pages together to `deadline` (a `time.monotonic()`), and
+    `should_stop` - the question's Stop - is asked before each page."""
     resolve = transport is None                # a real connection: look the name up first
     send = transport or _default_transport
     pages: list[WebPage] = []
     for hit in list(hits)[:max(0, int(max_pages))]:
+        if should_stop is not None and _asks_stop(should_stop):
+            break
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         try:
-            page = _fetch_one(send, hit, timeout, resolve)
+            page = _fetch_one(send, hit, timeout, resolve, deadline)
         except Exception:                                  # noqa: BLE001
             page = None
         if page is not None:
@@ -790,10 +866,12 @@ def _keywords(question: str) -> str:
     return " ".join(out)
 
 
-def compose_query(question: str, llm: Any, *, avoid: Iterable[str] = ()) -> str:
+def compose_query(question: str, llm: Any, *, avoid: Iterable[str] = (),
+                  should_stop: Optional[Callable[[], bool]] = None) -> str:
     """The web query for `question`: written by the LOCAL model from the question only,
     then sanitised against `avoid`; a deterministic keyword query when the model is
-    unavailable or talks nonsense. "" means nothing safe - do not search."""
+    unavailable or talks nonsense. "" means nothing safe - do not search.
+    `should_stop` (2026-10-04, code review) is the question's Stop, for the model."""
     avoid = list(avoid or ())
     asked = strip_web_request(" ".join(str(question or "").split()))[:500] or         " ".join(str(question or "").split())[:500]
     prompt = ("Write a short web search query (at most 8 keywords) for the question below.\n"
@@ -803,8 +881,11 @@ def compose_query(question: str, llm: Any, *, avoid: Iterable[str] = ()) -> str:
               f"Question: {asked}\nKeywords:")
     candidate = ""
     if llm is not None:
+        from app.chat.llm import stop_kwargs
+
         try:
-            reply = llm.generate(prompt, temperature=0.0, max_tokens=40, timeout=30.0, stop=["\n"])
+            reply = llm.generate(prompt, temperature=0.0, max_tokens=40, timeout=30.0, stop=["\n"],
+                                 **stop_kwargs(llm, should_stop))
             candidate = sanitize_query(_from_model(getattr(reply, "text", reply)), avoid=avoid)
         except Exception:                                  # noqa: BLE001 - any failure means fall back
             candidate = ""
@@ -818,11 +899,16 @@ def compose_query(question: str, llm: Any, *, avoid: Iterable[str] = ()) -> str:
 # --------------------------------------------------------------------------- the whole thing
 
 def run_web(query: str, settings: Optional[WebSettings] = None, *,
-            transport: Optional[Callable] = None, avoid: Iterable[str] = ()) -> WebResult:
+            transport: Optional[Callable] = None, avoid: Iterable[str] = (),
+            should_stop: Optional[Callable[[], bool]] = None) -> WebResult:
     """Search, then read the top pages. Never raises; a failure is `WebResult.error`.
 
     The query is sanitised again here, so a caller handing over a raw question cannot
     leak a path. The whole call is held to about three times `timeout_s`.
+    Dated note, 2026-10-04, code review: that sentence was not true - only each
+    socket read had a limit, so a slow server, its redirects and three pages could
+    hold an answer for minutes. It is now (`_send`, `_default_transport`), and
+    `should_stop` - the question's Stop - is asked between providers and pages.
     """
     settings = settings or WebSettings()
     safe = ""
@@ -832,17 +918,29 @@ def run_web(query: str, settings: Optional[WebSettings] = None, *,
         safe = sanitize_query(query, avoid=avoid)
         if not safe:
             return WebResult(query="", error=MSG_NOTHING_SAFE)
-        return _run(safe, settings, transport)
+        return _run(safe, settings, transport, should_stop)
     except Exception:                                      # noqa: BLE001 - the contract
         return WebResult(query=safe, error=MSG_UNREACHABLE)
 
 
-def _run(query: str, settings: WebSettings, transport: Optional[Callable]) -> WebResult:
+def _asks_stop(should_stop: Optional[Callable[[], bool]]) -> bool:
+    if should_stop is None:
+        return False
+    try:
+        return bool(should_stop())
+    except Exception:                                      # noqa: BLE001
+        return False
+
+
+def _run(query: str, settings: WebSettings, transport: Optional[Callable],
+         should_stop: Optional[Callable[[], bool]] = None) -> WebResult:
     send = transport or _default_transport
     deadline = time.monotonic() + max(1.0, settings.timeout_s) * 3
-    left = lambda: max(1.0, min(settings.timeout_s, deadline - time.monotonic()))   # noqa: E731
+    left = lambda: max(0.1, min(settings.timeout_s, deadline - time.monotonic()))   # noqa: E731
     first_error = ""
     for provider in _providers(settings, send):
+        if _asks_stop(should_stop):
+            return WebResult(query, settings.provider, error=MSG_STOPPED)
         if time.monotonic() > deadline:
             first_error = first_error or MSG_TIMEOUT
             break
@@ -858,7 +956,7 @@ def _run(query: str, settings: WebSettings, transport: Optional[Callable]) -> We
             continue
         pages = [] if time.monotonic() > deadline else fetch_pages(
             hits, max_pages=settings.max_pages, timeout=left(), max_chars=settings.max_page_chars,
-            transport=transport)
+            transport=transport, deadline=deadline, should_stop=should_stop)
         return WebResult(query, provider.name, list(hits), pages)
     return WebResult(query, settings.provider, error=first_error or MSG_NOTHING)
 

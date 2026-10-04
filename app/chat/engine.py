@@ -247,8 +247,11 @@ class ChatEngine:
         if name not in self._clients:
             from app.llm.ollama import OllamaClient
 
+            # 2026-10-04, code review: the window on the client as well, so whatever
+            # reaches it unwrapped sends the same one (`OllamaClient.num_ctx`).
             self._clients[name] = OllamaLLM(
-                OllamaClient(self.cfg.ollama_url, name, timeout=self.cfg.timeout_s),
+                OllamaClient(self.cfg.ollama_url, name, timeout=self.cfg.timeout_s,
+                             num_ctx=self.cfg.context_tokens),
                 num_ctx=self.cfg.context_tokens)
         return self._clients[name]
 
@@ -458,7 +461,7 @@ class ChatEngine:
         if route.by == "default":
             router_llm = self._role("router")
             if router_llm is not None and self._reachable(router_llm):
-                refined = route_question(text, history, llm=router_llm)
+                refined = route_question(text, history, llm=router_llm, should_stop=stop)
                 if refined.by == "model":
                     route = refined
                     debug["route"] = route.as_dict()
@@ -734,7 +737,8 @@ class ChatEngine:
                 planner_used = True
                 planner = self._role("planner")
                 if planner is not None and self._reachable(planner):
-                    queue = planner_queries(planner, plan, timeout=min(self.cfg.timeout_s, 30.0))
+                    queue = planner_queries(planner, plan, timeout=min(self.cfg.timeout_s, 30.0),
+                                            should_stop=stop)
         if out.assessment is None:
             out.assessment = assess([], plan)
         return out
@@ -1237,7 +1241,7 @@ class ChatEngine:
             avoid += [source.name, source.path, *source.path.replace("\\", "/").split("/")]
             avoid += [piece.text[:160] for piece in source.pieces[:2]]
         llm = self._role("router") or self._role("answerer")
-        query = webmod.compose_query(text, llm, avoid=avoid)
+        query = webmod.compose_query(text, llm, avoid=avoid, should_stop=stop)
         if not query:
             return [], "There was nothing safe to search the web for, so I did not."
         debug["web"] = {"query": query, "provider": settings.provider, "asked": settings.ask_first}
@@ -1257,7 +1261,8 @@ class ChatEngine:
             say("Searching the web...")
         if stop():
             return [], ""
-        result = webmod.run_web(query, settings, transport=self.web_transport, avoid=avoid)
+        result = webmod.run_web(query, settings, transport=self.web_transport, avoid=avoid,
+                                should_stop=stop)
         debug["web"].update(error=result.error, hits=len(result.hits), pages=len(result.pages),
                             provider=result.provider or settings.provider)
         if not result.ok:

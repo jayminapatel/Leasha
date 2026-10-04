@@ -170,7 +170,9 @@ def test_a_single_model_is_not_offered_as_a_choice(qtbot):
     picker.set_options(OPTIONS[:1], "onnx:qwen-q4")
     assert picker.isHidden()
     picker.set_options(OPTIONS, "")
-    assert not picker.isHidden() and picker.value() == "onnx:qwen-q4"
+    # Dated note, 2026-10-04, code review: with no model named the list fell to its
+    # first entry, which was not the model answering; it says "Settings' choice" now.
+    assert not picker.isHidden() and picker.value() == ""
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +191,8 @@ def interpret(gui_mainwindow, qtbot, monkeypatch):
     ctl._asked, ctl._picked, ctl._choice = False, False, ""
     built = []
 
-    def fake_client(settings, value, *, warm=False):
+    # Dated note, 2026-10-04, code review: the pick's size goes along, for the memory check.
+    def fake_client(settings, value, *, warm=False, size_bytes=0):
         client = SimpleNamespace(model=value, warmed=warm)
         built.append(client)
         return client

@@ -28,7 +28,8 @@ with a model's template.
 the output here, so it asks for JSON in the system message and hands back the
 first JSON object in the reply. `think` is ignored - Qwen 2.5 has no thinking
 mode (`can_think()` is False, as it was through Ollama). One reply is generated
-at a time; a second caller waits for the first.
+at a time; a second caller waits for the first - 2026-10-04, code review: only
+until its own time limit or its Stop (`_wait_turn`), never for ever.
 """
 
 from __future__ import annotations
@@ -72,7 +73,50 @@ CONTEXT_TOKENS = 4096
 PREFIX_SLOTS = 3
 #: ...and at most this much memory for them (Qwen 2.5 1.5B: 56 KB a token, so a
 #: full 4096-token prompt is 230 MB). The newest is always kept.
+#: 2026-10-04, code review: for the whole process, not for each model - every model
+#: picked on the Chat tab or for Interpret used to keep its own 384 MB.
 PREFIX_BUDGET_BYTES = 384 * 1024 ** 2
+#: Kept prompt starts are dropped this long after a model last answered (2026-10-04,
+#: code review): up to 384 MB held all day for a question asked once in the morning.
+PREFIX_IDLE_S = 600.0
+#: How many chat models may be loaded at once (2026-10-04, code review): the one
+#: Settings chose and one picked. Loading a third unloads the one used longest ago.
+MAX_RESIDENT = 2
+#: How often a reply waiting for the model looks at its Stop and its clock.
+BUSY_POLL_S = 0.1
+
+#: The loaded models, the one used longest ago first, and the lock over them and
+#: over every model's kept prompt starts.
+_resident: list["OnnxLLM"] = []
+_registry_lock = threading.Lock()
+
+
+def _make_resident(client: "OnnxLLM") -> list["OnnxLLM"]:
+    """Note `client` as loaded and used now; returns the models to unload so that at
+    most `MAX_RESIDENT` stay - never `client`, and the one Settings chose
+    (`keep_resident`) only when nothing else can go. The caller unloads them,
+    outside the lock (unloading takes each model's own lock)."""
+    with _registry_lock:
+        if client in _resident:
+            _resident.remove(client)
+        _resident.append(client)
+        victims: list[OnnxLLM] = []
+        while len(_resident) > MAX_RESIDENT:
+            others = [c for c in _resident if c is not client]
+            victim = next((c for c in others if not c.keep_resident), others[0])
+            _resident.remove(victim)
+            victims.append(victim)
+        return victims
+
+
+def resident() -> list["OnnxLLM"]:
+    """The models loaded now, the one used longest ago first (tests, the log)."""
+    with _registry_lock:
+        return list(_resident)
+
+
+def _slot_bytes(kept: dict) -> int:
+    return sum(int(getattr(v, "nbytes", 0)) for v in kept.values())
 
 
 def chatml(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = None) -> str:
@@ -237,6 +281,16 @@ class OnnxLLM:
         self._load_error: Optional[BaseException] = None
         self._lock = threading.Lock()          # loading
         self._busy = threading.Lock()          # one reply at a time
+        #: 2026-10-04, code review: the model Settings chose, unloaded last when
+        #: more than `MAX_RESIDENT` are loaded (`app.llm.engines` sets it).
+        self.keep_resident = False
+        #: Kept prompt starts `(ids, cache, when)`, oldest first, and whose they are.
+        self._slots: list[tuple[list[int], dict, float]] = []
+        self._prefix_owner: Any = None
+        #: Asked to unload while a reply ran: done when it ends.
+        self._unload_after = False
+        self._last_used = 0.0
+        self._idle_timer: Optional[threading.Timer] = None
 
     # -- which model -------------------------------------------------------------
 
@@ -359,13 +413,14 @@ class OnnxLLM:
             spec, folder = found
             try:
                 started = time.monotonic()
+                self._loaded = None                  # the old copy goes before the new loads
                 self._loaded = _Loaded(folder, spec, self.device, self._format_of(spec.key))
                 self._loaded_key = self._model      # the choice, whichever copy served it
                 self._serving = spec.key
                 self._load_error = None
+                loaded = self._loaded
                 _log.info("{} loaded in {:.1f}s on the {}", spec.key, time.monotonic() - started,
                           "graphics card" if self._loaded.on_gpu else "processor")
-                return self._loaded
             except AppErrorException:
                 raise
             except Exception as exc:                     # noqa: BLE001 - said plainly below
@@ -374,6 +429,71 @@ class OnnxLLM:
                     "ERR_LOCAL_MODEL_FAILED", "ort.llm",
                     details=f"the chat model could not be loaded: {type(exc).__name__}: {exc}",
                 )) from exc
+        # 2026-10-04, code review: every model picked used to stay loaded for the
+        # life of the process. At most `MAX_RESIDENT` now; the others are unloaded.
+        for victim in _make_resident(self):
+            _log.info("unloading {} - more than {} chat models were loaded",
+                      victim._serving or victim._model, MAX_RESIDENT)
+            victim.unload()
+        return loaded
+
+    def is_loaded(self) -> bool:
+        return self._loaded is not None
+
+    def unload(self) -> bool:
+        """Let the loaded session and the kept prompt starts go (2026-10-04, code
+        review). A reply running now finishes first, and the unload follows it.
+        True when it was unloaded now. The next reply loads the model again."""
+        with self._lock:
+            if not self._busy.acquire(blocking=False):
+                self._unload_after = True
+                return False
+            try:
+                self._drop_loaded()
+            finally:
+                self._busy.release()
+        return True
+
+    def _drop_loaded(self) -> None:
+        """With `_busy` held. ONNX Runtime frees a session when nothing refers to it:
+        the session, its cache and the kept prompts all go here."""
+        self._unload_after = False
+        self._loaded = None
+        self._loaded_key = ""
+        self._serving = ""
+        with _registry_lock:
+            self._slots = []
+            self._prefix_owner = None
+            if self in _resident:
+                _resident.remove(self)
+
+    def drop_idle_prefixes(self, now: Optional[float] = None) -> bool:
+        """Drop the kept prompt starts when nothing has been asked for `PREFIX_IDLE_S`
+        (2026-10-04, code review). True when they went. Never waits for a reply."""
+        now = time.monotonic() if now is None else now
+        if now - self._last_used < PREFIX_IDLE_S or not self._busy.acquire(blocking=False):
+            return False
+        try:
+            with _registry_lock:
+                dropped = bool(self._slots)
+                self._slots = []
+            return dropped
+        finally:
+            self._busy.release()
+
+    def _after_reply(self) -> None:
+        """With `_busy` held, as a reply ends: a pending unload, and the idle clock."""
+        if self._unload_after:
+            self._drop_loaded()
+            return
+        self._last_used = time.monotonic()
+        if self._slots:
+            timer = threading.Timer(PREFIX_IDLE_S + 1.0, self.drop_idle_prefixes)
+            timer.daemon = True
+            previous, self._idle_timer = self._idle_timer, timer
+            if previous is not None:
+                previous.cancel()
+            timer.start()
 
     def warm(self, **_kwargs: Any) -> bool:
         try:
@@ -402,59 +522,94 @@ class OnnxLLM:
                 return True
             return bool(should_stop and should_stop())
 
-        with self._busy:
-            # **The start of the last prompt is not read twice** (2026-09-30).
-            # Interpret, the router and the planner send the same long
-            # instructions every time with a new sentence at the end; reading
-            # them was most of Interpret's 17-24 s on the owner's laptop. As
-            # Ollama does, the cache after the last prompt is kept, cut back to
-            # the part this prompt shares with it, and only the rest is read.
-            # Exact for the 4-bit model: its cached and recomputed answers agree
-            # token for token (the int8 copy's did not - see `hub.QWEN_1_5B_Q4`).
-            # 2026-10-04: from whichever of the kept prompts shares the most.
-            reuse, kept = self._shared_prefix(loaded, ids)
-            loaded.decoder.reset()
-            if reuse:
-                loaded.decoder.past = {name: value[:, :, :reuse, :]
-                                       for name, value in kept.items()}
-            captured = {"done": False}
+        if not self._wait_turn(deadline, should_stop, limit_s=float(timeout or self.timeout)):
+            return                                   # stopped while another reply ran
+        try:
+            with _registry_lock:                     # used now: unloaded last
+                if self in _resident:
+                    _resident.remove(self)
+                    _resident.append(self)
+            yield from self._generate_locked(loaded, ids, limit, temperature, stopping)
+        finally:
+            try:
+                self._after_reply()
+            finally:
+                self._busy.release()
 
-            def step(new_ids: list[int], position: int) -> np.ndarray:
-                start = position + reuse
-                total = start + len(new_ids)
-                logits = loaded.decoder.step({
-                    "input_ids": np.array([new_ids], dtype=np.int64),
-                    "attention_mask": np.ones((1, total), dtype=np.int64),
-                    "position_ids": np.arange(start, total, dtype=np.int64)[None, :],
-                })
-                if not captured["done"]:
-                    # The cache right after the whole prompt, before any reply.
-                    captured["done"] = True
-                    self._keep_prefix(ids, dict(loaded.decoder.past))
-                return logits
+    def _wait_turn(self, deadline: float, should_stop: Optional[Callable[[], bool]],
+                   *, limit_s: float) -> bool:
+        """Take the one-reply-at-a-time lock. True once held; False when `should_stop`
+        said stop first. Raises `ERR_LOCAL_MODEL_TIMEOUT` at `deadline`.
 
-            produced: list[int] = []
-            shown = ""
-            for token in generate(step, prompt=ids[reuse:], max_new_tokens=limit, eos=loaded.eos,
-                                  pick=sample(temperature), should_stop=stopping):
-                produced.append(token)
-                text = loaded.tokenizer.decode(produced, skip_special_tokens=True)
-                if text.endswith("�"):        # half of a multi-byte character
-                    continue
-                if len(text) > len(shown):
-                    piece, shown = text[len(shown):], text
-                    yield piece
+        2026-10-04, code review: this was `with self._busy:`, which waits for ever.
+        After Stop the next question queued behind the orphaned one, and Interpret
+        (a 5 s budget) could wait two minutes behind a chat answer."""
+        while not self._busy.acquire(timeout=BUSY_POLL_S):
+            if should_stop is not None and should_stop():
+                return False
+            if time.monotonic() > deadline:
+                raise AppErrorException(make_error(
+                    "ERR_LOCAL_MODEL_TIMEOUT", "ort.llm", timeout_s=round(limit_s),
+                    details=f"another reply held the model for all of {limit_s:.0f}s"))
+        return True
+
+    def _generate_locked(self, loaded: Any, ids: list[int], limit: int, temperature: float,
+                         stopping: Callable[[], bool]) -> Iterator[str]:
+        """The reply's text pieces. The caller holds `_busy`."""
+        # **The start of the last prompt is not read twice** (2026-09-30).
+        # Interpret, the router and the planner send the same long
+        # instructions every time with a new sentence at the end; reading
+        # them was most of Interpret's 17-24 s on the owner's laptop. As
+        # Ollama does, the cache after the last prompt is kept, cut back to
+        # the part this prompt shares with it, and only the rest is read.
+        # Exact for the 4-bit model: its cached and recomputed answers agree
+        # token for token (the int8 copy's did not - see `hub.QWEN_1_5B_Q4`).
+        # 2026-10-04: from whichever of the kept prompts shares the most.
+        reuse, kept = self._shared_prefix(loaded, ids)
+        loaded.decoder.reset()
+        if reuse:
+            loaded.decoder.past = {name: value[:, :, :reuse, :]
+                                   for name, value in kept.items()}
+        captured = {"done": False}
+
+        def step(new_ids: list[int], position: int) -> np.ndarray:
+            start = position + reuse
+            total = start + len(new_ids)
+            logits = loaded.decoder.step({
+                "input_ids": np.array([new_ids], dtype=np.int64),
+                "attention_mask": np.ones((1, total), dtype=np.int64),
+                "position_ids": np.arange(start, total, dtype=np.int64)[None, :],
+            })
+            if not captured["done"]:
+                # The cache right after the whole prompt, before any reply.
+                captured["done"] = True
+                self._keep_prefix(ids, dict(loaded.decoder.past))
+            return logits
+
+        produced: list[int] = []
+        shown = ""
+        for token in generate(step, prompt=ids[reuse:], max_new_tokens=limit, eos=loaded.eos,
+                              pick=sample(temperature), should_stop=stopping):
+            produced.append(token)
+            text = loaded.tokenizer.decode(produced, skip_special_tokens=True)
+            if text.endswith("�"):        # half of a multi-byte character
+                continue
+            if len(text) > len(shown):
+                piece, shown = text[len(shown):], text
+                yield piece
 
     def _shared_prefix(self, loaded: Any, ids: list[int]) -> tuple[int, dict]:
         """`(n, cache)`: how many leading tokens of `ids` a kept prompt already holds,
         and that prompt's cache - the kept prompt sharing the most. At least one token
         is always left to read, so the model has something to answer."""
-        if getattr(self, "_prefix_owner", None) is not loaded:
-            self._prefix_owner = loaded
-            self._slots: list[tuple[list[int], dict]] = []
-            return 0, {}
+        with _registry_lock:
+            if self._prefix_owner is not loaded:
+                self._prefix_owner = loaded
+                self._slots = []
+                return 0, {}
+            slots = list(self._slots)
         best, cache = 0, {}
-        for previous, past in self._slots:
+        for previous, past, _when in slots:
             shared = 0
             for a, b in zip(previous, ids):
                 if a != b:
@@ -467,19 +622,28 @@ class OnnxLLM:
     def _keep_prefix(self, ids: list[int], past: dict) -> None:
         """Keep this prompt's cache, newest last. A kept prompt that is the start of
         this one is dropped (this one serves every prompt it served); the oldest go
-        when there are more than `PREFIX_SLOTS` or they pass `PREFIX_BUDGET_BYTES`."""
+        when there are more than `PREFIX_SLOTS`, or - across every loaded model
+        (2026-10-04, code review) - when they pass `PREFIX_BUDGET_BYTES`."""
         ids = list(ids)
-        slots = [(old, kept) for old, kept in getattr(self, "_slots", [])
-                 if ids[:len(old)] != old]
-        slots.append((ids, past))
-
-        def size(kept: dict) -> int:
-            return sum(int(getattr(v, "nbytes", 0)) for v in kept.values())
-
-        while len(slots) > 1 and (len(slots) > PREFIX_SLOTS
-                                  or sum(size(k) for _i, k in slots) > PREFIX_BUDGET_BYTES):
-            slots.pop(0)
-        self._slots = slots
+        entry = (ids, past, time.monotonic())
+        with _registry_lock:
+            slots = [slot for slot in self._slots if ids[:len(slot[0])] != slot[0]]
+            slots.append(entry)
+            while len(slots) > PREFIX_SLOTS:
+                slots.pop(0)
+            self._slots = slots
+            holders = list(dict.fromkeys([*_resident, self]))
+            kept = sorted(((slot[2], index, holder, slot)
+                           for index, holder in enumerate(holders) for slot in holder._slots),
+                          key=lambda row: (row[0], row[1]))
+            total = sum(_slot_bytes(slot[1]) for *_rest, slot in kept)
+            for _when, _index, holder, slot in kept:
+                if total <= PREFIX_BUDGET_BYTES:
+                    break
+                if slot is entry:
+                    continue                         # the newest is always kept
+                holder._slots = [s for s in holder._slots if s is not slot]
+                total -= _slot_bytes(slot[1])
 
     @staticmethod
     def _until_stop(pieces: Iterator[str], stop: Optional[list[str]]) -> Iterator[str]:
@@ -522,11 +686,14 @@ class OnnxLLM:
 
     def generate(self, prompt: str, *, json_mode: bool = False, temperature: float = 0.0,
                  timeout: Optional[float] = None, max_tokens: Optional[int] = None,
-                 stop: Optional[list[str]] = None, images: Optional[list[str]] = None) -> Any:
+                 stop: Optional[list[str]] = None, images: Optional[list[str]] = None,
+                 should_stop: Optional[Callable[[], bool]] = None) -> Any:
         """One whole reply, `Completion`-shaped (`.text`, `.model`, `.elapsed_s`).
 
         Raises `ERR_LOCAL_MODEL_TIMEOUT` when nothing came back in time - the
         callers that branch on `ERR_OLLAMA_TIMEOUT` treat it the same.
+        `should_stop` (2026-10-04, code review: the router's and the planner's
+        calls could not be stopped) ends it early with what was written.
         """
         from app.chat.llm import Completion
 
@@ -547,7 +714,8 @@ class OnnxLLM:
         state: dict = {}
         reply = "".join(self._until_stop(self._tokens(text, temperature=temperature,
                                                       max_tokens=max_tokens, timeout=limit,
-                                                      should_stop=None, state=state), stop))
+                                                      should_stop=should_stop, state=state),
+                                         stop))
         elapsed = time.monotonic() - started
         # A reply the clock cut short is not an answer: half a query in
         # Interpret's box is worse than none. Ollama's client raises here too.

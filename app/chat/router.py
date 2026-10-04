@@ -47,7 +47,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from typing import Any, Optional, Sequence
+from typing import Any, Callable, Optional, Sequence
 
 from app.chat.text import content_tokens
 
@@ -438,12 +438,15 @@ _ROUTER_PROMPT = (
 )
 
 
-def _ask_model(llm: Any, question: str) -> Optional[str]:
+def _ask_model(llm: Any, question: str,
+               should_stop: Optional[Callable[[], bool]] = None) -> Optional[str]:
     """The router model's one-word answer, checked against the classes."""
+    from app.chat.llm import stop_kwargs
+
     try:
         reply = llm.generate(_ROUTER_PROMPT.format(question=question),
                              temperature=0.0, max_tokens=6, timeout=20.0,
-                             stop=["\n"])
+                             stop=["\n"], **stop_kwargs(llm, should_stop))
         text = str(getattr(reply, "text", reply) or "").strip().upper()
     except Exception:                                    # noqa: BLE001 - assist only
         return None
@@ -456,11 +459,13 @@ def route_question(
     history: Sequence[Any] = (),
     *,
     llm: Any = None,
+    should_stop: Optional[Callable[[], bool]] = None,
 ) -> Route:
     """Classify `question` in the context of `history`. **Never raises.**
 
     `llm` is the router model, or `None`. It is asked only when no rule fires -
     the minority case - and its answer is validated before it is believed.
+    `should_stop` (2026-10-04, code review) is the question's Stop, handed to it.
     """
     text = str(question or "").strip()
     social = chat_reason(text, history)
@@ -469,10 +474,10 @@ def route_question(
     lead = _GREETING_LEAD.match(text)
     if lead is not None and lead.end() < len(text):
         # "hi, what did we agree about the deposit?" is the question after the hello.
-        return route_question(text[lead.end():], history, llm=llm)
+        return route_question(text[lead.end():], history, llm=llm, should_stop=should_stop)
     reason = _followup_reason(text, history)
     if reason is not None:
-        resolved = resolve_followup(text, history, llm=llm)
+        resolved = resolve_followup(text, history, llm=llm, should_stop=should_stop)
         inner = _rule_class(resolved)
         # A follow-up that resolves to nothing recognisable is still a lookup:
         # the person is asking about what was just discussed.
@@ -484,7 +489,7 @@ def route_question(
         return Route(found[0], "rules", found[1], text)
 
     if llm is not None:
-        answer = _ask_model(llm, text)
+        answer = _ask_model(llm, text, should_stop)
         if answer is not None:
             return Route(answer, "model", "no rule fired, so the router model chose", text)
 
@@ -511,7 +516,8 @@ def _subject_of(question: str) -> str:
     return text.strip()
 
 
-def resolve_followup(question: str, history: Sequence[Any], *, llm: Any = None) -> str:
+def resolve_followup(question: str, history: Sequence[Any], *, llm: Any = None,
+                     should_stop: Optional[Callable[[], bool]] = None) -> str:
     """The follow-up as a sentence that stands alone. **Never raises.**
 
     Deterministic first: "and what about 2019?" after "what did we agree about
@@ -535,12 +541,15 @@ def resolve_followup(question: str, history: Sequence[Any], *, llm: Any = None) 
     standalone = f"{tail} ({prior_subject})".strip() if tail else previous
 
     if llm is not None:
+        from app.chat.llm import stop_kwargs
+
         try:
             reply = llm.generate(
                 "Rewrite the last question so it makes sense on its own, using the earlier "
                 "question for context. One line, no explanation.\n\n"
                 f"Earlier question: {previous}\nLast question: {text}\nRewritten:",
-                temperature=0.0, max_tokens=48, timeout=20.0, stop=["\n"])
+                temperature=0.0, max_tokens=48, timeout=20.0, stop=["\n"],
+                **stop_kwargs(llm, should_stop))
             rewritten = str(getattr(reply, "text", "") or "").strip().strip('"')
             shared = set(content_tokens(rewritten)) & (set(content_tokens(previous))
                                                        | set(content_tokens(text)))

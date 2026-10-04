@@ -38,7 +38,6 @@ from typing import Any, Callable, Optional
 
 from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
 
-from app.chat.roles import fits_in_memory
 from app.chat.types import ChatTurn, WebAskEvent
 from app.core.logging import logger
 from app.ui.later import later
@@ -104,6 +103,10 @@ class _Ask:
         #: The person's answer to "Search the web for ...?", and the wait for it.
         self.decision = threading.Event()
         self.allowed = False
+        #: The engine the worker answered with, and its generation (set on the worker,
+        #: read on the window thread once it has finished).
+        self.engine: Any = None
+        self.generation = -1
 
 
 def _machine() -> Any:
@@ -174,7 +177,16 @@ class ChatController(QObject):
         self._settle = QTimer(self)
         self._settle.setSingleShot(True)
         self._settle.setInterval(PICK_SETTLE_MS)
-        self._settle.timeout.connect(self._warm)
+        self._settle.timeout.connect(lambda: self._warm())
+        #: 2026-10-04, code review: which engine a worker built one for. Raised every
+        #: time the engine is let go; a worker's engine is kept (on this thread) only
+        #: when nothing changed meanwhile - a probe finishing after a pick wrote back
+        #: an engine for the old model.
+        self._engine_gen = 0
+        #: The option Settings would use (the list's `default`), for its size.
+        self._default_value = ""
+        #: A list that came back while a question ran, shown once it has finished.
+        self._deferred_list: Optional[tuple] = None
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
@@ -241,6 +253,7 @@ class ChatController(QObject):
 
     def shutdown(self) -> None:
         self._closing = True
+        self._settle.stop()               # 2026-10-04, code review: no load after closing
         if self._ask is not None:
             self._ask.stopped = True
 
@@ -264,12 +277,19 @@ class ChatController(QObject):
             self._check()
 
     def recheck(self) -> None:
-        self.engine = None
+        self._drop_engine()
         self._check()
+
+    def _drop_engine(self) -> None:
+        """Let the engine go; one a worker is building now is not kept either."""
+        self.engine = None
+        self._engine_gen += 1
 
     def _settings_changed(self, values: dict) -> None:
         if any(str(key).startswith("CHAT_") for key in values):
-            self.engine = None        # rebuilt from `.env` on the next question
+            self._drop_engine()       # rebuilt from `.env` on the next question
+        if {"CHAT_CONTEXT_TOKENS", "INDEX_TUNING_MODE"} & {str(key) for key in values}:
+            self._refit_ollama_window()
         if {"CHAT_ENGINE", "CHAT_MODEL"} & {str(key) for key in values} and self._choice:
             # 2026-10-04: a model chosen in Settings afterwards wins over the tab's pick.
             self._set_choice("")
@@ -300,16 +320,49 @@ class ChatController(QObject):
         box = getattr(getattr(self._w, "settings_view", None), "chat_box", None)
         if box is not None:
             box.set_manual(str(mode).strip().lower() == "manual")
-        self.engine = None
+        self._drop_engine()
+        self._refit_ollama_window()
         if self._opened:
             self._check()             # the speed note depends on whether a model is forced
 
+    def _refit_ollama_window(self) -> None:
+        """Chat's window changed: Interpret's Ollama clients take the new one too, on a
+        worker (it reads `.env`). 2026-10-04, code review: one `num_ctx` for every call."""
+        if self.engine_factory is not None:
+            return                    # a test's engine: nothing of the window's to refit
+        worker = CallableWorker(self._refit_body, component="ui.chat")
+        worker.signals.failed.connect(lambda error: _log.debug("chat: window not refitted ({})",
+                                                               error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _refit_body(self) -> int:
+        from app.llm.engines import ollama_context
+
+        window = ollama_context(self._fresh_settings())
+        translator = getattr(self._w, "_translator", None)
+        for client in (getattr(self._w, "_ollama", None), getattr(translator, "client", None),
+                       getattr(getattr(self._w, "interpret_ctl", None), "default_client", None)):
+            if client is not None and hasattr(client, "num_ctx") and \
+                    getattr(client, "engine", "") != "onnx":
+                client.num_ctx = window
+        return window
+
     # -- worker bodies -----------------------------------------------------------
-    def _make_engine(self) -> Any:
-        if self.engine is None:
-            factory = self.engine_factory or self._default_engine
-            self.engine = factory()
-        return self.engine
+    def _engine_now(self) -> tuple:
+        """`(engine, generation)`: the engine in use, or a new one. **Worker** - it is
+        never assigned here (2026-10-04, code review); `_adopt` keeps it, on the
+        window thread, when the generation still matches."""
+        generation = self._engine_gen
+        engine = self.engine
+        if engine is None:
+            engine = (self.engine_factory or self._default_engine)()
+        return engine, generation
+
+    def _adopt(self, engine: Any, generation: int) -> None:
+        """Keep a worker's engine for the next question - window thread only."""
+        if engine is not None and self.engine is None and generation == self._engine_gen \
+                and not self._closing:
+            self.engine = engine
 
     def _fresh_settings(self) -> Any:
         """`.env` as it is now (Settings may have changed it), else the window's. Worker."""
@@ -340,9 +393,10 @@ class ChatController(QObject):
                                                               profile=_machine(), **picked))
 
     def _probe(self) -> tuple:
-        """`(built, available, reason)`. Pings Ollama - never on the window thread."""
+        """`(built, available, reason, note, engine, generation)`. Pings Ollama - never
+        on the window thread. The engine is kept by `_probed` (2026-10-04, code review)."""
         try:
-            engine = self._make_engine()
+            engine, generation = self._engine_now()
         except ImportError:
             return (False, False, "")
         except Exception as exc:                          # noqa: BLE001
@@ -352,14 +406,14 @@ class ChatController(QObject):
             ok, reason = engine.available()
         except Exception as exc:                          # noqa: BLE001
             _log.warning("chat: availability check failed: {}", exc)
-            return (True, False, "")
+            return (True, False, "", "", engine, generation)
         note = ""
         try:
             chosen = str(getattr(getattr(engine, "cfg", None), "answer_model", "") or "")
             note = speed_note(engine.suggest_modes(), chosen)
         except Exception as exc:                          # noqa: BLE001 - the note is a courtesy
             _log.debug("chat: no speed note ({})", exc)
-        return (True, bool(ok), str(reason or ""), note)
+        return (True, bool(ok), str(reason or ""), note, engine, generation)
 
     def _load(self) -> tuple:
         """Saved conversations, the remembered Fast / Thoughtful choice, and
@@ -381,6 +435,8 @@ class ChatController(QObject):
 
     def _probed(self, result: tuple) -> None:
         built, ok, reason = result[:3]
+        if len(result) > 5:
+            self._adopt(result[4], result[5])
         self._available = bool(ok)
         if self.view is not None:
             self.view.show_available(ok, reason, built=built)
@@ -558,37 +614,48 @@ class ChatController(QObject):
                                         ollama=full or runner == "ollama")
 
     def _models_listed(self, result: tuple, *, warm: bool = False, full: bool = True) -> None:
+        if self._ask is not None and not self._closing:
+            # 2026-10-04, code review: the start-up list (and its saved pick) landed
+            # while the first question was answered, and the list changed to a model
+            # that was not the one answering. It is shown when the answer is done.
+            self._deferred_list = (result, warm, full)
+            return
         saved, menu = result
         options = list(menu.get("options") or [])
         values = {str(o.value) for o in options}
         if not self._picked:
             # A remembered pick that is no longer installed is set aside, not kept failing.
             self._apply_choice(saved if (saved in values or not options) else "")
-        selected = self._choice if self._choice in values else str(menu.get("default") or "")
+        self._default_value = str(menu.get("default") or "")
         if full or not self._listed:          # the start-up list never replaces the full one
             self._options = options
-            if self.view is not None:
-                self.view.model_picker.set_options(options, selected)
+        # 2026-10-04, code review: the selection is shown again either way - a saved
+        # pick applied from the start-up list left the full list showing another model.
+        shown = {str(o.value) for o in self._options}
+        selected = self._choice if self._choice in shown else self._default_value
+        if self.view is not None:
+            self.view.model_picker.set_options(self._options, selected)
         self._listed = self._listed or full
         if not warm or self._closing:
             return
-        size = next((int(o.size_bytes) for o in options if o.value == selected), 0)
-        free = int(menu.get("free_mb") or 0)
-        if fits_in_memory(size, free):
-            self._warm()
-        else:
-            _log.info("chat: not loading {} ahead ({} MB, {} MB free)", selected or "a model",
-                      size // 1024 ** 2, free)
+        # 2026-10-04, code review: the memory check is the worker's (`warm_if_fits`),
+        # the same one a pick goes through; this list's reading is the freshest there is.
+        self._warm(self._size_of(selected), free_mb=int(menu.get("free_mb") or 0))
+
+    def _size_of(self, value: str) -> int:
+        return next((int(o.size_bytes) for o in self._options if o.value == value), 0)
 
     def _model_chosen(self, value: str) -> None:
         """Picked on the tab: used from the next question, remembered, and loaded once
-        the pick has settled - the person is about to ask with it."""
+        the pick has settled - the person is about to ask with it - if it fits in the
+        memory free then (2026-10-04, code review: a pick was loaded whatever its size)."""
         self._picked = True
         if self._apply_choice(value):
             save_state(self._w._store, MODEL_KEY, value, component="ui.chat")
-            if self._opened:
+            if self._opened and self._ask is None:        # else once the answer is done
                 self._check()                             # its own availability and note
-        self._settle.start()
+        if self._ask is None:
+            self._settle.start()      # 2026-10-04, code review: not while one is answering
 
     def _set_choice(self, value: str) -> None:
         if self._apply_choice(value):
@@ -602,29 +669,46 @@ class ChatController(QObject):
             return False
         self._choice = value
         if self._ask is None:
-            self.engine = None
+            self._drop_engine()
         else:
             self._rebuild_after = True
         return True
 
-    def _warm(self) -> None:
-        worker = CallableWorker(self._warm_body, component="ui.chat")
+    def _warm(self, size: Optional[int] = None, *, free_mb: Optional[int] = None) -> None:
+        """Load the model in use ahead, on a worker, if it fits (`tasks.warm_if_fits`).
+        `size` is its size in bytes; by default the listed size of the pick (or of
+        Settings' model). Nothing once the window is closing."""
+        if self._closing:
+            return
+        if size is None:
+            size = self._size_of(self._choice or self._default_value)
+        worker = CallableWorker(self._warm_body, int(size or 0), free_mb, component="ui.chat")
+        worker.signals.finished.connect(self._warmed)
         worker.signals.failed.connect(lambda error: _log.debug("chat: not warmed ({})", error))
         run(QThreadPool.globalInstance(), worker)
 
-    def _warm_body(self) -> bool:
-        """Load the answering model. Worker - 11-18 s for the ONNX model on a laptop."""
+    def _warm_body(self, size: int = 0, free_mb: Optional[int] = None) -> tuple:
+        """Load the answering model if it fits: `(engine, generation, loaded)`.
+        Worker - 11-18 s for the ONNX model on a laptop."""
+        from app.ui.tasks import warm_if_fits
+
         started = time.monotonic()
+        if self._closing:
+            return (None, -1, False)
         try:
-            engine = self._make_engine()
+            engine, generation = self._engine_now()
         except Exception as exc:                          # noqa: BLE001 - the question pays instead
             _log.debug("chat: no engine to warm ({})", exc)
-            return False
-        warmer = getattr(engine, "warm", None)
-        ok = bool(warmer()) if warmer is not None else False
+            return (None, -1, False)
+        ok = warm_if_fits(getattr(engine, "warm", None), size, free_mb=free_mb,
+                          what="the answering model")
         _log.info("chat: the answering model {} in {:.1f}s", "is ready" if ok else "was not loaded",
                   time.monotonic() - started)
-        return ok
+        return (engine, generation, ok)
+
+    def _warmed(self, result: Any) -> None:
+        if isinstance(result, tuple) and len(result) == 3:
+            self._adopt(result[0], result[1])
 
     # -- the message actions -----------------------------------------------------------
     def _rewind_to_last_question(self) -> str:
@@ -713,8 +797,10 @@ class ChatController(QObject):
         return gate
 
     def _answer(self, ask: _Ask, question: str, history: list, extra: dict) -> Any:
-        """The blocking call. Runs on a worker; everything it says is queued."""
-        engine = self._make_engine()
+        """The blocking call. Runs on a worker; everything it says is queued. The engine
+        it used is kept afterwards, on the window thread (`_finished_asking`)."""
+        engine, ask.generation = self._engine_now()
+        ask.engine = engine
         emit = lambda event: self._bridge.event.emit((ask.token, event))   # noqa: E731
         stop = lambda: ask.stopped or self._closing                          # noqa: E731
         return engine.ask(question, history, emit, stop,
@@ -753,13 +839,14 @@ class ChatController(QObject):
                      STOP_GRACE_MS)
         ask.released = True
         self._ask = None
-        self.engine = None
+        self._drop_engine()
         self._rebuild_after = False
         if self.view is not None:
             self.view.set_busy(False)
             self.view.end_answer()
             self.view.focus()
         self._maybe_title(self.session)
+        self._show_deferred_list()
 
     def _close_answer(self, ask: _Ask, turn: Any, *, stopped: bool = False) -> None:
         ask.finalised = True
@@ -793,6 +880,7 @@ class ChatController(QObject):
             return                               # the box was handed back already; this is the orphan
         if self._ask is ask:
             self._ask = None
+        self._adopt(ask.engine, ask.generation)
         if self.view is not None:
             self.view.set_busy(False)
             self.view.end_answer()
@@ -800,7 +888,18 @@ class ChatController(QObject):
         self._maybe_title(self.session)
         if self._rebuild_after:                  # a model was picked while it answered
             self._rebuild_after = False
-            self.engine = None
+            self._drop_engine()
+            if self._opened and not self._closing:
+                self._check()                    # the pick's own availability and note
+                self._settle.start()             # and it is loaded ahead, if it fits
+        self._show_deferred_list()
+
+    def _show_deferred_list(self) -> None:
+        """The model list that came back while a question ran (`_models_listed`)."""
+        pending, self._deferred_list = self._deferred_list, None
+        if pending is not None and self._ask is None:
+            result, warm, full = pending
+            self._models_listed(result, warm=warm, full=full)
 
     # -- the conversation's name ------------------------------------------------------
     def _maybe_title(self, session: ChatSession) -> None:
