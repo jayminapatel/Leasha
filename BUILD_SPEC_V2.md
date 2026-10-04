@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.11 · **Updated:** 2026-08-26 · **Applies to:** app v0.3.3
+**Doc version:** 2.12 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -722,6 +722,8 @@ answer visibly wrong rather than plausibly wrong. Instruct the model that "the p
 not answer this" is a correct response. When the context fills, drop history, never passages.
 
 ## Layer 9 — Hardening and packaging
+
+> **2026-10-04 (owner) - the five [FINALISE] decisions below are taken.** They were decided 2026-09-20 on the owner's delegation and are recorded in the order's dated note, HANDOFF.md and `docs/ORDER_REGISTER.md` §5: PyInstaller one-folder; per-user by default, per-machine as an option; the installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against `REQUIRED_FREE_GB`); no update check inside the app, updates through `winget upgrade` only; Windows 11 and Windows 10 22H2 supported, Windows 11 only tested. Signing: unsigned for the first release. **What still holds Layer 9 is one open decision: the licence a distributed PyQt6 build carries** (`ORDER_REGISTER.md` §5, 2026-09-27). The status paragraph below is left as written.
 
 **Status: not started, and deliberately not startable yet.**
 `docs/WORKORDER-202626082213-install-and-distribution.md` carries the detail. Three decisions
