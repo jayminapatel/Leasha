@@ -632,8 +632,8 @@ def open_in_explorer(path: str, *, select: bool = True) -> AppError | None:
 
     target = Path(path)
     if not target.exists():
-        return make_error(
-            "ERR_FILE_CORRUPT", "ui.open", path=str(target),
+        return make_error(                  # 2026-10-04, code review: missing, not corrupt
+            "ERR_FILE_MISSING", "ui.open", path=str(target),
             suggestion="The file has moved or been deleted since it was indexed. "
                        "Re-index this folder to update the results.",
             details="Not found on disk.",

@@ -39,6 +39,8 @@ from collections import deque
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
+from app.core.row_facts import MAIL_ARCHIVE_EXTS, ZIP_FAMILY_EXTS, suffixes
+
 __all__ = [
     "ACTIVITY_LIMIT",
     "ActivityEntry",
@@ -128,8 +130,11 @@ LARGE_FILE_BYTES = 100 * 1024 * 1024
 #: asks for every file a worker starts and importing `email_pst` or `media`
 #: for a set of suffixes would load far more than a set of suffixes.
 #: `tests/unit/test_activity_log.py` holds them to the extractors' own lists.
-MAIL_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".mbox"})
-ARCHIVE_EXTENSIONS = frozenset({".zip", ".jar", ".nupkg", ".whl"})
+#: 2026-10-04, code review: the mail and zip families now come from
+#: `app.core.row_facts`, which is as light as a set of suffixes - the copy here
+#: had lost `.olm`.
+MAIL_ARCHIVE_EXTENSIONS = suffixes(MAIL_ARCHIVE_EXTS)
+ARCHIVE_EXTENSIONS = suffixes(ZIP_FAMILY_EXTS)
 RECORDING_EXTENSIONS = frozenset({
     ".mp4", ".m4v", ".mov", ".mkv", ".avi", ".wmv", ".webm", ".mpg", ".mpeg",
     ".3gp", ".flv", ".m2ts",

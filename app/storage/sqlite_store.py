@@ -24,6 +24,7 @@ import re
 import sqlite3
 import threading
 import time
+import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,6 +38,7 @@ from app.storage.like import like_escape
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.identifiers import symbol_tokens
 from app.core.logging import logger
+from app.core.row_facts import is_mail_attachment, listed_files_sql  # noqa: F401 - re-exported
 from app.storage.migrations import (
     CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
 )
@@ -573,6 +575,14 @@ class PendingSuggestion:
 _CLOSE_WAIT_S = 5.0
 
 
+class _ThreadToken:
+    """Held only by one thread's `threading.local`; freed when that thread's
+    local storage is. `SqliteStore._prune_orphans` watches it through a weak
+    reference to tell a live thread's connection from an abandoned one."""
+
+    __slots__ = ("__weakref__",)
+
+
 def _closed_while_in_use() -> AppErrorException:
     """The error a worker gets when the store closes during its query.
 
@@ -756,13 +766,16 @@ class _GuardedCursor(sqlite3.Cursor):
 #: (owner, 1 October 2026: *"files in emails should come up on the files list
 #: tab"*). An attachment is its own row, keyed `<message>/attachments/<name>`
 #: by `archive.attachment_key`; the message itself stays on the Mail tab.
-LISTED_FILES = ("(f.source_kind = 'file' OR (f.source_kind IN ('pst_message', 'eml')"
-                " AND f.path LIKE '%/attachments/%'))")
+#: 2026-10-04, code review: built from `row_facts`, whose `attachment_of` and
+#: `is_mail_attachment` are the Python half - the literal here matched
+#: `/Attachments/` (LIKE ignores case) where the parsers did not.
+LISTED_FILES = listed_files_sql("f")
 
 
-def is_mail_attachment(path: str, source_kind: str) -> bool:
-    """Whether a row is a file that arrived attached to a message."""
-    return source_kind in ("pst_message", "eml") and "/attachments/" in str(path)
+def _named_in_fts(path: Any, source_kind: Any) -> bool:
+    """Whether a row has a `files_fts` entry: files, archives and their
+    members, and mail attachments - never a message's key."""
+    return str(source_kind or "") in ("file", "archive") or is_mail_attachment(path, source_kind)
 
 
 def _all_words_match(words: str) -> str:
@@ -904,8 +917,51 @@ class SqliteStore:
                 pass
             raise self._busy_error(str(exc)) from exc
 
+        self._prune_orphans()
         self._open.append(conn)
         return conn
+
+    def _adopt(self, conn: sqlite3.Connection) -> None:
+        """Make `conn` this thread's, and give it a way to know when the thread
+        is gone: a token only this thread's `threading.local` holds."""
+        token = _ThreadToken()
+        self._local.conn = conn
+        self._local.token = token
+        try:
+            conn._holder = weakref.ref(token)        # type: ignore[attr-defined]
+        except (AttributeError, TypeError):          # a plain connection: never pruned
+            pass
+
+    def _prune_orphans(self) -> int:
+        """Close the connections whose thread has gone. Caller holds `_conns_lock`.
+
+        2026-10-04, code review: `_open` kept every connection until `close()`,
+        and a pooled worker that ends - or is handed a task under a fresh
+        thread state (see `__init__`) - leaves its connection behind: a file
+        handle and a share of the WAL each, for the life of the window. A
+        connection's thread is gone when the token its `threading.local` held
+        has been freed. One still inside a call is left for next time.
+        Returns how many were closed.
+        """
+        closed = 0
+        for conn in list(self._open):
+            holder = getattr(conn, "_holder", None)
+            if holder is None or holder() is not None:
+                continue
+            guard = getattr(conn, "_guard", None)
+            if guard is None:
+                continue
+            with guard:
+                if conn._busy:                       # type: ignore[attr-defined]
+                    continue
+                conn._retired = True                 # type: ignore[attr-defined]
+            try:
+                conn.close()
+            except sqlite3.Error:
+                pass
+            self._open.remove(conn)
+            closed += 1
+        return closed
 
     def _busy_error(self, details: str = "") -> AppErrorException:
         return AppErrorException(make_error(
@@ -938,7 +994,7 @@ class SqliteStore:
             conn = getattr(self._local, "conn", None)
             if conn is None:
                 conn = self._new_connection()
-                self._local.conn = conn
+                self._adopt(conn)
             if not self._migrated:
                 # Once per store, not once per connection. Under the lock, so
                 # a worker thread opening its first connection cannot race the
@@ -956,7 +1012,7 @@ class SqliteStore:
                     # is the very connection the indexer writes with.
                     self._open.remove(conn)
                     conn.close()
-                    self._local.conn = self._new_connection()
+                    self._adopt(self._new_connection())
         return self
 
     #: The tables FTS5 keeps behind each of its indexes (`<name>_data` ...).
@@ -1253,7 +1309,7 @@ class SqliteStore:
                     suggestion="Open the store with `with SqliteStore(path) as store:`.",
                 ))
             conn = self._new_connection()
-            self._local.conn = conn
+            self._adopt(conn)
             return conn
 
     @property
@@ -1582,6 +1638,12 @@ class SqliteStore:
         # `deferring`: a row in `files` has no trigger, and no keyword-index
         # row of its own that could be waiting - see `_deferred`.
         with self.write(deferring=True) as conn:
+            # 2026-10-04, code review: what the row was, so the filename index
+            # is written only when it has to be (below). One lookup on the
+            # unique index, in place of the one that followed the upsert.
+            before = conn.execute(
+                "SELECT id, parent_dir, source_kind FROM files WHERE path = ?",
+                (str(path),)).fetchone()
             conn.execute(
                 """
                 INSERT INTO files
@@ -1658,18 +1720,33 @@ class SqliteStore:
                  place,
                  forget_hash, clearing),
             )
-            row = conn.execute("SELECT id FROM files WHERE path = ?", (str(path),)).fetchone()
-            file_id = int(row["id"])
+            if before is not None:
+                file_id = int(before["id"])
+            else:
+                row = conn.execute("SELECT id FROM files WHERE path = ?",
+                                   (str(path),)).fetchone()
+                file_id = int(row["id"])
             # Keep the filename index in step. Only real files: a PST message's
             # "path" is a synthetic key nobody typed and nobody would recognise,
             # and mail would outnumber documents ten to one in a Files list.
             # An attachment is found by its name too, like a file (2026-10-01).
-            if source_kind in ("file", "archive") or is_mail_attachment(path, source_kind):
+            #
+            # 2026-10-04, code review: **only when the name or folder can have
+            # changed.** It was deleted and written again on every read of
+            # every file - and names-first (`add_waiting_files`) had already
+            # written it for each one. The name is the path's, which is the
+            # row's key, so only a new row, a new `parent_dir` or a row that
+            # was not named before needs it.
+            named = _named_in_fts(path, source_kind)
+            was_named = before is not None and _named_in_fts(path, before["source_kind"])
+            if named and not (was_named and before["parent_dir"] == parent_dir):
                 conn.execute("DELETE FROM files_fts WHERE rowid = ?", (file_id,))
                 conn.execute(
                     "INSERT INTO files_fts(rowid, name, folder) VALUES (?, ?, ?)",
                     (file_id, _basename(str(path)), parent_dir),
                 )
+            elif was_named and not named:
+                conn.execute("DELETE FROM files_fts WHERE rowid = ?", (file_id,))
             self._bump_generation(conn)
         return file_id
 
@@ -2291,12 +2368,43 @@ class SqliteStore:
         row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
         return int(row["n"]) if row else 0
 
+    def _unchanged_since(self, key: str, compute: Any) -> Any:
+        r"""`compute()`, or its last answer when no row has been written since.
+
+        2026-10-04, code review: `count_listed_files` (246 ms at 1.36M rows,
+        asked by every Files query) and `status_counts` (112 ms, every 5 s)
+        read the whole of `files` to give the same number again. **Not keyed
+        on `generation`**: `mark_indexed_many` and `mark_skipped` change
+        statuses without moving it. `PRAGMA data_version` changes whenever
+        *another* connection - in this process or the index run's - commits,
+        and `total_changes` counts this connection's own writes; together they
+        say "nothing written since". The answer is kept on this thread's
+        connection, because a `data_version` means nothing on another one.
+        """
+        conn = self.conn
+        try:
+            stamp = (int(conn.execute("PRAGMA data_version").fetchone()[0]),
+                     int(conn.total_changes))
+            answers = conn.__dict__.setdefault("_unchanged_answers", {})
+        except (AttributeError, TypeError, sqlite3.Error):
+            return compute()
+        held = answers.get(key)
+        if held is not None and held[0] == stamp:
+            return held[1]
+        value = compute()
+        answers[key] = (stamp, value)
+        return value
+
     def count_listed_files(self) -> int:
         """How many rows the Files tab lists with an empty box - its "in the
-        index" figure, so the summary can say how far a filter has narrowed."""
-        row = self.conn.execute(
-            f"SELECT COUNT(*) AS n FROM files f WHERE {LISTED_FILES}").fetchone()
-        return int(row["n"]) if row else 0
+        index" figure, so the summary can say how far a filter has narrowed.
+        Counted again only after a write (`_unchanged_since`)."""
+        def count() -> int:
+            row = self.conn.execute(
+                f"SELECT COUNT(*) AS n FROM files f WHERE {LISTED_FILES}").fetchone()
+            return int(row["n"]) if row else 0
+
+        return int(self._unchanged_since("count_listed_files", count))
 
     def search_files_by_name(
         self, text: str, *, limit: int = 100, ext: Optional[Sequence[str]] = None
@@ -2668,7 +2776,11 @@ class SqliteStore:
                        bm25(files_fts, 10.0, 1.0) AS score
                 FROM files_fts
                 JOIN files f ON f.id = files_fts.rowid
-                WHERE files_fts MATCH ? {where}
+                -- 2026-10-04, code review (the owner: "do the recommended"):
+                -- the name half lists what the rest of the tab lists. A zip's
+                -- members are in `files_fts` and were found by name here while
+                -- the contents half, the count and the empty box left them out.
+                WHERE files_fts MATCH ? AND {LISTED_FILES} {where}
 
                 UNION ALL
 
@@ -2769,7 +2881,7 @@ class SqliteStore:
                     SELECT f.id AS id
                     FROM files_fts
                     JOIN files f ON f.id = files_fts.rowid
-                    WHERE files_fts MATCH ? {where}
+                    WHERE files_fts MATCH ? AND {LISTED_FILES} {where}
                     UNION
                     SELECT f.id
                     FROM chunks_fts
@@ -3064,9 +3176,14 @@ class SqliteStore:
 
     def iter_files(
         self, status: Optional[str] = None, *, source_kind: Optional[str] = None,
-        volume_id: Optional[int] = None,
+        volume_id: Optional[int] = None, skip_codes: Optional[Iterable[str]] = None,
     ) -> Iterator[FileRecord]:
         """Files, optionally narrowed. Filter in SQL, never in Python.
+
+        `skip_codes` (2026-10-04, code review): only rows whose `skip_code` is
+        one of these - "the skipped files a run reads again" without building
+        a record for every other skip. With `status`, `idx_files_status_skip`
+        (schema v33) answers it. An empty collection matches nothing.
 
         `source_kind` matters at scale rather than for tidiness: an archive of
         200,000 emails is 200,000 rows, and a caller that wants only the few
@@ -3088,6 +3205,12 @@ class SqliteStore:
         if volume_id is not None:
             clauses.append("volume_id = ?")
             params.append(volume_id)
+        if skip_codes is not None:
+            codes = sorted({str(code) for code in skip_codes})
+            if not codes:
+                return
+            clauses.append(f"skip_code IN ({','.join('?' * len(codes))})")
+            params.extend(codes)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         for row in self.conn.execute(f"SELECT * FROM files{where} ORDER BY id", params):
             yield FileRecord.from_row(row)
@@ -3162,7 +3285,19 @@ class SqliteStore:
 
         Offline rows are left out of `coded`, so a held picture on a drive in a
         drawer is counted once, as Offline.
+
+        2026-10-04, code review: counted again only after a write
+        (`_unchanged_since`); between runs the 5-second refresh costs one
+        `PRAGMA`. A fresh copy is returned each time.
         """
+        offline = tuple(sorted(int(v) for v in offline_volume_ids or ()))
+        held = self._unchanged_since(f"status_counts:{offline}",
+                                     lambda: self._count_statuses(offline))
+        return {"by_status": dict(held["by_status"]), "coded": list(held["coded"]),
+                "offline": dict(held["offline"])}
+
+    def _count_statuses(self, offline_volume_ids: Sequence[int]) -> dict[str, Any]:
+        """`status_counts`, read from the table."""
         from app.core.file_state import DEFERRED_CODES, DUPLICATE_CODES, TIMEOUT_CODES
 
         by_status = {
@@ -3858,15 +3993,34 @@ class SqliteStore:
         Scoped by a path prefix (a folder or a batch of scans share one),
         not by file id one at a time - a person selects a folder, not four
         hundred individual rows. Returns how many files changed.
+
+        **2026-10-04, code review: the folder, not a prefix of its name.** It
+        was `path LIKE '<folder>%'` with the folder as Qt's dialog gives it -
+        `D:/Photos/Scans`, forward slashes - against paths stored with
+        backslashes, so on Windows it changed nothing; and `Scans` also
+        matched `Scans2\\`. It also read the whole table under the write lock
+        (`LIKE` ignores case and the index on `path` does not). The folder is
+        now put in the platform's own form and matched as `file_ids_at_or_under`
+        matches one - "starts with `folder\\`" as a range the index answers.
         """
+        import os
+
+        folder = os.path.normpath(str(path_prefix or "").strip()).rstrip("\\/")
+        if not folder or folder == ".":
+            return 0
+        changed = 0
         with self.write() as conn:
-            cursor = conn.execute(
-                "UPDATE files SET taken_at_ns = ?, taken_at_is_hint = 1 "
-                "WHERE path LIKE ? ESCAPE '\\' "
-                "AND (taken_at_is_hint = 1 OR taken_at_ns IS NULL)",
-                (taken_at_ns, like_escape(path_prefix) + "%"),
-            )
-            return int(cursor.rowcount)
+            for separator in ("\\", "/"):
+                cursor = conn.execute(
+                    "UPDATE files SET taken_at_ns = ?, taken_at_is_hint = 1 "
+                    "WHERE path >= ? AND path < ? "
+                    "AND (taken_at_is_hint = 1 OR taken_at_ns IS NULL)",
+                    (taken_at_ns, folder + separator, folder + chr(ord(separator) + 1)),
+                )
+                changed += max(0, int(cursor.rowcount))
+            if changed:
+                self._bump_generation(conn)
+        return changed
 
     def iter_photos_without_face_scan(
         self, extensions: Sequence[str], *, batch_size: int = 16,

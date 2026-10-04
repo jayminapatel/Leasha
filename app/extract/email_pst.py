@@ -48,6 +48,7 @@ from typing import Any, Callable, Iterable, Iterator, Mapping, Optional, Protoco
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
+from app.core.row_facts import OUTLOOK_ARCHIVE_EXTS, suffixes
 from app.extract import progress
 from app.extract.archive import attachment_key
 from app.extract.base import Document, SourceKind, looks_locked, register, with_closing_warning
@@ -70,7 +71,7 @@ __all__ = [
 
 _log = logger.bind(component="extract.pst")
 
-OUTLOOK_EXTENSIONS = frozenset({".pst", ".ost"})
+OUTLOOK_EXTENSIONS = suffixes(OUTLOOK_ARCHIVE_EXTS)    # 2026-10-04, code review: one list
 
 #: Folders whose contents are noise by default. Deleted Items is the big one:
 #: on a 15-year archive it is often a third of the messages, all of them things

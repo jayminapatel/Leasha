@@ -227,8 +227,10 @@ def present(kind: str, name: str, *, model_cache: Any = None,
 
 
 def _describe_bytes(done: int, total: int) -> str:
-    def mb(n: int) -> str:
-        return f"{n / 1024 ** 3:.1f} GB" if n >= 1024 ** 3 else f"{n / 1024 ** 2:.0f} MB"
+    # 2026-10-04, code review: `row_facts.format_size`, the one size wording
+    # ("512 MB" now reads "512.0 MB").
+    from app.core.row_facts import format_size as mb
+
     if total > 0:
         percent = min(99, int(100 * done / total))
         return f"{percent}% ({mb(done)} of about {mb(total)})"

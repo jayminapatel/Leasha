@@ -389,7 +389,11 @@ def _phrase(spec: AggregateSpec, count: int, total_bytes: int, rows: tuple,
             text = f"There are 0 {spec.label} matching that - {edges}."
         else:
             _fid, path, mtime_ns, taken_ns = rows[0]
-            when = time.strftime("%d %B %Y", time.localtime((taken_ns or mtime_ns) / 1e9))
+            # 2026-10-04, code review: the lists' day form, `row_facts.day_words`
+            # ("17 Sep 2023"; this wrote the month in full).
+            from app.core.row_facts import day_words
+
+            when = day_words(taken_ns or mtime_ns)
             name = path.replace("\\", "/").rsplit("/", 1)[-1]
             text = (f"The {which} of the {count:,} {_describe(spec, count)} is {name}, "
                     f"dated {when} - {edges}.")

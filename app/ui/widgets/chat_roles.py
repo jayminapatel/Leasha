@@ -41,10 +41,13 @@ AUTOMATIC = "Automatic"
 
 
 def _size_words(n_bytes: int) -> str:
+    # 2026-10-04, code review: `row_facts.format_size`, the one size wording
+    # ("512 MB" now reads "512.0 MB").
     if n_bytes <= 0:
         return ""
-    gb = n_bytes / 1024 ** 3
-    return f"{gb:.1f} GB" if gb >= 1 else f"{n_bytes / 1024 ** 2:.0f} MB"
+    from app.core.row_facts import format_size
+
+    return format_size(n_bytes)
 
 
 class ModelCombo(QComboBox):

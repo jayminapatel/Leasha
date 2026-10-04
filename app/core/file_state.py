@@ -57,7 +57,7 @@ __all__ = [
     "DISCOVERED", "QUEUED", "READING", "INDEXED", "SKIPPED", "FAILED", "TIMED_OUT",
     "OFFLINE", "NAME_ONLY", "DUPLICATE", "DEFERRED",
     "WORDS", "FUNNEL_ORDER", "EXPLANATIONS", "DEFERRED_CODES", "TIMEOUT_CODES",
-    "DUPLICATE_CODES", "derive", "explain", "funnel_counts", "funnel_line",
+    "DUPLICATE_CODES", "LATER_PASS_CODES", "RETRY_CODES", "derive", "explain", "funnel_counts", "funnel_line",
 ]
 
 DISCOVERED = "Discovered"
@@ -114,6 +114,19 @@ DEFERRED_CODES: frozenset[str] = frozenset({
     # which a settled skip never gave. Every run now reads it again.
     "ERR_OUTLOOK_BUSY",
 })
+
+#: Deferred codes a *different* pass reads - pictures held for the images
+#: pass, recordings for the media pass. Running the same pass again holds them
+#: again, so they are a queue but not worth a "Retry" button.
+LATER_PASS_CODES: frozenset[str] = frozenset({
+    "ERR_OCR_HELD", "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
+})
+
+#: 2026-10-04, code review: what the skipped panel offers to retry - the
+#: deferred codes an ordinary run reads again (a lock let go, a cloud file
+#: downloaded, Outlook free). Derived, where `presenter.indexing` kept a third
+#: list of its own.
+RETRY_CODES: frozenset[str] = DEFERRED_CODES - LATER_PASS_CODES
 
 #: The per-file time limit's code. Written by `app/index/file_watch.py` (order
 #: 0z lane B) when a file passes its limit or somebody presses Force skip; the

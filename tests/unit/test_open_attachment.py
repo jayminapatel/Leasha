@@ -140,7 +140,8 @@ def test_the_schema_is_32_and_the_migration_adds_the_columns_once(tmp_path):
 
     from app.storage.migrations import CURRENT_VERSION, _v32_message_position
 
-    assert CURRENT_VERSION == 32
+    # 2026-10-04, code review: `>=`, so the next migration does not break it.
+    assert CURRENT_VERSION >= 32
     conn = sqlite3.connect(tmp_path / "old.db")
     conn.execute("CREATE TABLE messages (file_id INTEGER PRIMARY KEY, store_path TEXT)")
     _v32_message_position(conn)

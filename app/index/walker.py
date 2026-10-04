@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Iterable, Iterator, Optional, Sequence
 
 from app.core.osbridge.cloudfs import attributes_say_placeholder, is_dataless
+from app.core.row_facts import MAIL_ARCHIVE_EXTS, suffixes
 from app.core.osbridge.pathnames import case_sensitive, path_key
 
 __all__ = [
@@ -654,7 +655,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     # building `.olm`): `email_mbox.py` reads one message at a time and its own
     # docstring promises a 10GB Google Takeout mbox is indexed - but until now a
     # Takeout export over the ceiling was dropped here before it was ever read.
-    STREAMED_ARCHIVE_EXTENSIONS = frozenset({".pst", ".ost", ".olm", ".mbox"})
+    STREAMED_ARCHIVE_EXTENSIONS = STREAMED_MAILBOXES     # 2026-10-04, code review: one list
     size_exempt = (
         (media_extensions() & extensions)
         | (STREAMED_ARCHIVE_EXTENSIONS & extensions)
@@ -959,7 +960,7 @@ def has_changed(
 
 #: Mailboxes read message by message. `walk` names the same four when it
 #: exempts them from the size ceiling; kept in step by `test_folder_watch.py`.
-STREAMED_MAILBOXES = frozenset({".pst", ".ost", ".olm", ".mbox"})
+STREAMED_MAILBOXES = suffixes(MAIL_ARCHIVE_EXTS)   # 2026-10-04, code review: `row_facts`
 
 
 class PathRules:

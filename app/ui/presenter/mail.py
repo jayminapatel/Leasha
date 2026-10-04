@@ -29,6 +29,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
+from app.core.row_facts import (  # noqa: F401 - ATTACHMENT_MARKER, attachment_of re-exported
+    ATTACHMENT_MARKER, MESSAGE_FILE_EXTS, OUTLOOK_ARCHIVE_EXTS, attachment_of,
+)
 from app.reports.timeline_words import day_heading
 
 __all__ = [
@@ -292,9 +295,10 @@ OPEN_IN_OUTLOOK_TIP = (
 OPEN_FILE = "Open"
 
 #: Mail that is one message in one file, which its own program can open.
-MESSAGE_FILE_SUFFIXES = (".eml", ".msg", ".emlx")
+#: 2026-10-04, code review: `row_facts`'s families - this copy lacked `.mht`.
+MESSAGE_FILE_SUFFIXES = tuple(f".{ext}" for ext in MESSAGE_FILE_EXTS)
 #: Archives Outlook opens.
-OUTLOOK_ARCHIVE_SUFFIXES = (".pst", ".ost")
+OUTLOOK_ARCHIVE_SUFFIXES = tuple(f".{ext}" for ext in OUTLOOK_ARCHIVE_EXTS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -337,20 +341,10 @@ def original_target(message: Optional[Mapping[str, Any]], path: Any) -> Optional
 
 #: How an attachment's path says which message it belongs to:
 #: `<the message's path>/attachments/<name>`, written by
-#: `email_pst._attachment_documents`. The same marker `tasks.py` reads for the
-#: Search list's subtitles (`_attachment_parent_path`); a test holds the two
-#: to the same answer.
-ATTACHMENT_MARKER = "/attachments/"
-
-
-def attachment_of(path: Any) -> tuple[str, str]:
-    """`(the parent message's path, the attachment's name)`, or `("", "")` for
-    a path that is not an indexed attachment. A rule about a string - no I/O."""
-    text = str(path or "")
-    index = text.find(ATTACHMENT_MARKER)
-    if index <= 0:
-        return "", ""
-    return text[:index], text[index + len(ATTACHMENT_MARKER):]
+#: `archive.attachment_key`. 2026-10-04, code review: one marker and one
+#: parser, `row_facts`'s - the Search list's subtitles, the store's
+#: `LISTED_FILES` and this list all read them.
+#: (`ATTACHMENT_MARKER` and `attachment_of` are imported at the top.)
 
 
 #: The Mail table's column for a folded row: `(key, heading, attribute on

@@ -8,6 +8,7 @@ import json
 from app.cli._common import EXIT_OK, _load, _report
 from app.core.errors import AppErrorException
 from app.core.logging import setup_logging
+from app.core.row_facts import format_size
 
 
 def _formats_by_group(args: argparse.Namespace) -> int:
@@ -146,11 +147,9 @@ def cmd_formats(args: argparse.Namespace) -> int:
 
 
 def _human_bytes(count: int) -> str:
-    for unit, size in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
-        if count >= size:
-            value = count / size
-            return f"{value:.0f}{unit}" if value >= 10 else f"{value:.1f}{unit}"
-    return f"{count}B"
+    # 2026-10-04, code review: `row_facts.format_size`, the one size wording.
+    # This copy wrote "4.2MB" and stopped at GB; it now reads "4.2 MB".
+    return format_size(count)
 
 
 def add_formats_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

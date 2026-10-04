@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logging import logger
+from app.core.row_facts import ATTACHMENT_MARKER, attachment_of
 
 __all__ = [
     "ATTACHMENT_MARKER",
@@ -44,12 +45,12 @@ OK = "ok"
 MISSING = "missing"
 OFFLINE = "offline"
 
-#: §5b. The path convention `email_pst.py`'s `_attachment_documents` writes:
-#: `f"{message_key}/attachments/{name}"`. Read back here rather than carried
-#: as a column, because no schema holds the link - the file's own `path`
-#: already says everything needed, and reading it beats a migration nobody
-#: asked for.
-ATTACHMENT_MARKER = "/attachments/"
+#: §5b. The path convention `archive.attachment_key` writes:
+#: `f"{message_key}/attachments/{name}"`. Read back rather than carried as a
+#: column, because no schema holds the link - the file's own `path` already
+#: says everything needed. 2026-10-04, code review: the marker and its parser
+#: are `row_facts`'s, not a third copy kept here.
+#: (`ATTACHMENT_MARKER` is imported at the top.)
 
 
 def attachment_parent_path(path: str) -> str:
@@ -62,9 +63,7 @@ def attachment_parent_path(path: str) -> str:
     finds the message, just never gets a row of its own for what was
     attached to it.
     """
-    text = str(path or "")
-    index = text.find(ATTACHMENT_MARKER)
-    return text[:index] if index > 0 else ""
+    return attachment_of(path)[0]
 
 
 def missing_paths(paths: Any) -> set[str]:
@@ -91,6 +90,9 @@ def missing_paths(paths: Any) -> set[str]:
         # synthetic key would report every message as missing.
         # 2026-10-04: any `scheme://` key (a catalogued drive's too), not only
         # `pst://` - none is a path the disk can answer for.
+        # Only `scheme://` keys, not `row_facts.is_synthetic_path`: a message in an
+        # mbox on disk is checked through its mailbox (`_inside_a_file`), so one
+        # whose mailbox is gone still reads missing (2026-10-04, code review).
         if not text or "://" in text:
             continue
         try:

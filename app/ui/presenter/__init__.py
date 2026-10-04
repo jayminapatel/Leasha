@@ -343,8 +343,6 @@ _TASK_NAMES = frozenset({
     "placeholder_marks",
     "record_open",
     "missing_paths",
-    "_ATTACHMENT_MARKER",
-    "_attachment_parent_path",
     "mail_details",
     "_parent_messages",
     "file_row_context",
