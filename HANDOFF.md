@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.62 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.63 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,17 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, latest - the owner's "error in the UI" was Reset index at 13:02.* Logged in
+  `errors_2026-10-04.jsonl`: `ERR_UNEXPECTED` in `ui.reset`, from `VectorStore.drop` ->
+  LanceDB `drop_table` -> `Access is denied. (os error 5)`, with SQLite already cleared - a
+  half reset behind a "This is a bug" dialog. Windows will not delete a file another handle has
+  open; it did **not** reproduce in one process (drop after add, search, both), so the lock was
+  another process - an index run, a folder watch still exiting, the MCP server's store or a virus
+  scanner - **UNCONFIRMED which**. `drop` now lets go of its own handle, asks again three times
+  (0.5, 1, 1.5 s), and then deletes every row instead, which needs no file deleted; the space
+  returns at the next compaction. Any other failure still raises. `test_vector_drop_locked.py`.
+  The 19:11 reset did drop the table. Tonight's window logs (22:08, 22:16) hold no errors, only a
+  14.3 s freeze while the window opened.
 - *2026-10-04 note, later - the Mail count is done, and a correction.* `count_messages_matching`
   for a common word (past `MATCH_PROBE_MIN` = 25,000 matches) probes each message's chunk ids,
   from the narrow `idx_chunks_file_ord`, against the set of matching ids FTS5 hands over without

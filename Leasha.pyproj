@@ -800,6 +800,7 @@
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
+    <Compile Include="tests\unit\test_mail_list_order.py" />
     <Compile Include="tests\unit\test_mail_open_original.py" />
     <Compile Include="tests\unit\test_mail_preview_card.py" />
     <Compile Include="tests\unit\test_mail_preview_marks.py" />
@@ -947,6 +948,7 @@
     <Compile Include="tests\unit\test_search_policy.py" />
     <Compile Include="tests\unit\test_search_quality.py" />
     <Compile Include="tests\unit\test_search_run.py" />
+    <Compile Include="tests\unit\test_search_scale_bounds.py" />
     <Compile Include="tests\unit\test_search_view.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
     <Compile Include="tests\unit\test_settings_are_used.py" />
@@ -979,6 +981,7 @@
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
+    <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_table_sorting.py" />
     <Compile Include="tests\unit\test_the_owners_seven.py" />
@@ -1014,6 +1017,7 @@
     <Compile Include="tests\unit\test_ui_stays_responsive.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
+    <Compile Include="tests\unit\test_vector_drop_locked.py" />
     <Compile Include="tests\unit\test_vector_filters.py" />
     <Compile Include="tests\unit\test_vector_store_deferred.py" />
     <Compile Include="tests\unit\test_view_options.py" />

@@ -88,6 +88,17 @@ COMPACT_EVERY_ROWS = 50_000
 #: application, but they are never collected on their own.
 KEEP_VERSIONS_HOURS = 1
 
+#: 2026-10-04. How often, and how far apart, `drop` asks again when Windows
+#: refuses to delete the table's files because something has them open.
+DROP_RETRIES = 3
+DROP_RETRY_WAIT_S = 0.5
+
+
+def _is_access_denied(exc: BaseException) -> bool:
+    """Windows' "the file is open elsewhere", as LanceDB reports it."""
+    text = str(exc).lower()
+    return "access is denied" in text or "os error 5)" in text or "os error 32)" in text
+
 
 class VectorStore:
     """Open and operate the LanceDB table.
@@ -613,11 +624,47 @@ class VectorStore:
         branches on it.
         """
         if self._db is not None and self.table_name in self._list_tables():
-            self._db.drop_table(self.table_name)
+            self._drop_or_empty()
         self._table = None
         self._indexed_at_rows = 0
         self._approx_rows = 0
         self._since_compact = 0
+
+    def _drop_or_empty(self) -> None:
+        """Drop the table; if Windows will not let its files go, empty it.
+
+        **The owner's Reset index, 2026-10-04 13:02**: `drop_table` raised
+        `Access is denied. (os error 5)` and the reset ended in "This is a
+        bug" - with SQLite already cleared and every vector still there. On
+        Windows a file another handle has open cannot be deleted: an index
+        run, a folder watch still exiting, the MCP server's own store, a virus
+        scanner. It did not reproduce in one process, so the cause is outside
+        this store; what this can do is not depend on deleting files.
+
+        Asked again `DROP_RETRIES` times - those locks are usually brief - and
+        then every row is deleted instead. That writes a new version rather
+        than removing files, so no lock stops it, and the table is empty
+        either way. The files go at the next compaction. Any other failure is
+        raised as before.
+        """
+        import time
+
+        self._table = None                       # never hold our own handle open
+        for attempt in range(DROP_RETRIES + 1):
+            try:
+                self._db.drop_table(self.table_name)
+                return
+            except (RuntimeError, OSError) as exc:
+                if not _is_access_denied(exc):
+                    raise
+                if attempt < DROP_RETRIES:
+                    time.sleep(DROP_RETRY_WAIT_S * (attempt + 1))
+                    continue
+                _log.warning(
+                    "the vector table's files are open elsewhere, so it was "
+                    "emptied rather than deleted; the space returns at the next "
+                    "compaction: {}", exc)
+        self._db.open_table(self.table_name).delete("true")
 
     # -- indexing ------------------------------------------------------------
 
