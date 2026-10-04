@@ -927,8 +927,8 @@ def _to_clipboard(text: str) -> None:
 
 
 def _human(count: int) -> str:
-    for unit, size in (("GB", 1 << 30), ("MB", 1 << 20), ("KB", 1 << 10)):
-        if count >= size:
-            value = count / size
-            return f"{value:.0f}{unit}" if value >= 10 else f"{value:.1f}{unit}"
-    return f"{count}B"
+    # 2026-10-04, code review: `row_facts.format_size`, the one size wording.
+    # This copy wrote "4.2MB" and stopped at GB; it now reads "4.2 MB".
+    from app.core.row_facts import format_size
+
+    return format_size(count)

@@ -52,6 +52,7 @@ from typing import Any, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
+from app.core.row_facts import ATTACHMENT_MARKER, ZIP_FAMILY_EXTS
 from app.extract import progress
 from app.extract.base import Document, SourceKind, register
 
@@ -65,7 +66,9 @@ log = logger.bind(component="extract.archive")
 #: Zip-format containers. **Not `.docx` and friends**, which are also zips and
 #: have their own extractors: they are documents stored as zips, not archives,
 #: and reading them here would produce one "document" per part of a Word file.
-ARCHIVE_EXTENSIONS = (".zip", ".jar", ".nupkg", ".whl")
+#: 2026-10-04, code review: `row_facts.ZIP_FAMILY_EXTS`, the one list six
+#: copies (and two regular expressions) were kept in step with by hand.
+ARCHIVE_EXTENSIONS = tuple(f".{ext}" for ext in ZIP_FAMILY_EXTS)
 
 #: How far down archives are read, counted from the file on disk. Depth 1 is the
 #: archive itself; depth 2 is an archive inside it.
@@ -402,7 +405,7 @@ def attachment_key(message_key: str, name: str, virtual_path: Optional[str],
     attachment was written out to be read, which is what an archive member's
     key starts with.
     """
-    base = f"{message_key}/attachments/{name}"
+    base = f"{message_key}{ATTACHMENT_MARKER}{name}"
     if not virtual_path or saved_as is None:
         return base
     inner = _inside(virtual_path, saved_as)

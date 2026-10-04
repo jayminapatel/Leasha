@@ -49,16 +49,15 @@ def _matched_words(result: Any, parsed: Any) -> tuple:
 
 
 def _when(mtime_ns: Any) -> str:
-    """A date somebody can read, or "" if there is none to show."""
-    try:
-        stamp = int(mtime_ns or 0)
-    except (TypeError, ValueError):
-        return ""
-    if stamp <= 0:
-        return ""
-    from datetime import datetime
+    """A date somebody can read, or "" if there is none to show.
 
-    return datetime.fromtimestamp(stamp / 1_000_000_000).strftime("%d %B %Y")
+    2026-10-04, code review: `row_facts.day_words`, the lists' own form - this
+    wrote the month in full ("17 September 2023") where every list writes
+    "17 Sep 2023".
+    """
+    from app.core.row_facts import day_words
+
+    return day_words(mtime_ns)
 
 
 def why_result(result: Any, parsed: Any = None, *, fold: Any = None,

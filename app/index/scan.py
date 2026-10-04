@@ -42,6 +42,7 @@ from typing import Any, Callable, Iterable, Optional, Sequence
 
 from app.core.logging import logger
 from app.core.osbridge.pathnames import case_sensitive, path_key
+from app.core.row_facts import ZIP_FAMILY_EXTS, format_size, suffixes
 from app.index.walker import DEFAULT_EXCLUDE_DIRS, DEFAULT_EXCLUDE_GLOBS
 
 __all__ = [
@@ -104,7 +105,7 @@ NO_EXTENSION = "(none)"
 #: be stored as zips, not archives, and counting them here would put the whole
 #: Office corpus in the row that is supposed to answer "how much is locked up
 #: inside archives".
-ZIP_FAMILY = frozenset({".zip", ".jar", ".nupkg", ".whl"})
+ZIP_FAMILY = suffixes(ZIP_FAMILY_EXTS)       # 2026-10-04, code review: `row_facts`
 
 #: Archives nothing in the standard library opens. Counted but never probed, so
 #: the report can say *"and 12,000 `.7z` that this cannot see inside"* - which is
@@ -1150,13 +1151,11 @@ def _probe_archive(path: Path, routing: tuple) -> ArchiveProbe:
 
 def human_bytes(count: int) -> str:
     """`1.4 TB`. Two significant places, because the decision is made at that
-    resolution and `1,538,291,200,000 bytes` is not a number anyone reads."""
-    size = float(count)
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
-            return f"{size:,.0f} {unit}" if unit == "B" else f"{size:,.1f} {unit}"
-        size /= 1024
-    return f"{size:,.1f} TB"                       # unreachable; kept for the type
+    resolution and `1,538,291,200,000 bytes` is not a number anyone reads.
+
+    2026-10-04, code review: `row_facts.format_size`, which this was a copy of.
+    """
+    return format_size(count)
 
 
 def _hours(value: Optional[float]) -> str:

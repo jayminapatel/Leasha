@@ -38,7 +38,9 @@ class SkipGroup:
         closed. A scanned PDF is not: it will still have no text layer, and a
         retry button that cannot possibly help is worse than none.
         """
-        return self.code in {"ERR_FILE_LOCKED", "ERR_OUTLOOK_BUSY", "ERR_CLOUD_ONLY"}
+        from app.core.file_state import RETRY_CODES   # 2026-10-04, code review: one list
+
+        return self.code in RETRY_CODES
 
 
 #: What a group row says where one file's row would name its own detail.

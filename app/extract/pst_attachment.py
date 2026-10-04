@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from app.core.errors import AppErrorException, make_error
+from app.core.row_facts import ZIP_FAMILY_EXTS, ext_alternation
 
 __all__ = ["member_of", "read_attachment"]
 
@@ -84,7 +85,9 @@ def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
 
 
 #: Where an archive inside an archive ends in a key: `pack/inner.zip/x.docx`.
-_NESTED = re.compile(r"^(.+?\.(?:zip|jar|nupkg|whl))/(.+)$", re.IGNORECASE)
+#: 2026-10-04, code review: built from `row_facts.ZIP_FAMILY_EXTS`.
+_NESTED = re.compile(r"^(.+?\.(?:" + ext_alternation(ZIP_FAMILY_EXTS) + r"))/(.+)$",
+                     re.IGNORECASE)
 
 
 def member_of(source: bytes | Path | str, inner: str, *,

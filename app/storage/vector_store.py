@@ -263,6 +263,11 @@ class VectorStore:
                        self.table_name, exc)
             return
         self._verify_dimension()
+        # 2026-10-04, code review: counted as `connect` counts an existing
+        # table. Left at 0, `delete_by_file_ids` took the table for empty and
+        # deleted nothing - a file removed later kept answering by meaning.
+        self._indexed_at_rows = self.count()
+        self._approx_rows = self._indexed_at_rows
         _log.info("the {} table was created since this store opened; using it now",
                   self.table_name)
 
@@ -583,7 +588,10 @@ class VectorStore:
         created to delete nothing at all.
         """
         ids = [int(i) for i in file_ids]
-        if not ids or self._table is None or self._approx_rows <= 0:
+        if not ids:
+            return
+        self._open_if_created_since()       # 2026-10-04, code review: as `count` does
+        if self._table is None or self._approx_rows <= 0:
             return
         self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})")
 

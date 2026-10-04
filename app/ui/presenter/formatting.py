@@ -157,7 +157,9 @@ def format_when(mtime_ns: int, *, now: Optional[float] = None) -> str:
     if days < 365:
         weeks = days // 7
         return f"{weeks} week ago" if weeks == 1 else f"{weeks} weeks ago"
-    return _time.strftime("%d %b %Y", _time.localtime(mtime_ns / 1_000_000_000))
+    from app.core.row_facts import day_words      # 2026-10-04, code review: one form
+
+    return day_words(mtime_ns)
 
 
 def _exact_date(mtime_ns: int) -> str:
@@ -166,9 +168,9 @@ def _exact_date(mtime_ns: int) -> str:
     Always available regardless of register, because the tooltip promises it
     whichever way the visible row is reading.
     """
-    if not mtime_ns:
-        return ""
-    return _time.strftime("%d %b %Y, %H:%M", _time.localtime(mtime_ns / 1_000_000_000))
+    from app.core.row_facts import moment_words   # 2026-10-04, code review: one form
+
+    return moment_words(mtime_ns)
 
 
 def _exact_date_from_epoch(epoch_seconds: Any) -> str:
@@ -180,7 +182,7 @@ def _exact_date_from_epoch(epoch_seconds: Any) -> str:
         return ""
     if seconds <= 0:
         return ""
-    return _time.strftime("%d %b %Y, %H:%M", _time.localtime(seconds))
+    return _exact_date(seconds * 1_000_000_000)
 
 
 #: How many recipients to name before summarising. Long enough to recognise a
@@ -258,4 +260,6 @@ def format_sent(sent_at: Any, *, now: Optional[float] = None) -> str:
     # the time of day is what separates messages sent the same afternoon.
     if 0 <= reference - seconds < 365 * 86_400:
         return _time.strftime("%d %b %H:%M", stamp)
-    return _time.strftime("%d %b %Y", stamp)
+    from app.core.row_facts import DAY_FORMAT
+
+    return _time.strftime(DAY_FORMAT, stamp)

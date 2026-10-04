@@ -224,8 +224,11 @@ def size_of(name: str, sizes: Mapping[str, int]) -> int:
 
 
 def _gb(n_bytes: float) -> str:
-    gb = n_bytes / 1024 ** 3
-    return f"{gb:.1f} GB" if gb < 10 else f"{gb:.0f} GB"
+    # 2026-10-04, code review: `row_facts.format_size`, the one size wording.
+    # This copy wrote "13 GB" and "0.4 GB"; it now reads "13.0 GB", "409.6 MB".
+    from app.core.row_facts import format_size
+
+    return format_size(n_bytes)
 
 
 def ram_line(models: Sequence[str], sizes: Mapping[str, int], ram_mb: int = 0) -> str:

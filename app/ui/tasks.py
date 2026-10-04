@@ -18,9 +18,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logging import logger
-# §5b's attachment-path rule lives in `app.search.marks` since 2026-10-04.
-from app.search.marks import ATTACHMENT_MARKER as _ATTACHMENT_MARKER  # noqa: F401
-from app.search.marks import attachment_parent_path as _attachment_parent_path  # noqa: F401
+from app.core.row_facts import is_message_key, is_synthetic_path
 from app.ui.presenter.code import REPO_FILE_LIMIT, code_type_filter, git_rows_matching
 from app.ui.presenter.formatting import format_size, format_when
 from app.ui.presenter.indexing import pictures_not_read_counts, warned_counts
@@ -374,7 +372,7 @@ def placeholder_marks(results: Any) -> set[str]:
         if getattr(row, "volume_id", None) is not None:
             continue
         text = str(getattr(row, "path", "") or "")
-        if not text or text.startswith("pst://"):
+        if not text or is_synthetic_path(text):    # 2026-10-04, code review: every key
             continue
         try:
             if winfs.is_cloud_placeholder(Path(text)):
@@ -536,7 +534,7 @@ def _message_of(store: Any, row: Any, path: str) -> Optional[dict]:
     """The `messages` row a result stands for, or None. Two lookups by key."""
     try:
         file_id = int(getattr(row, "file_id", 0) or 0)
-        if file_id <= 0 and "://" in path:
+        if file_id <= 0 and is_message_key(path):  # 2026-10-04, code review: mbox/olm too
             record = store.get_file(path)
             file_id = int(record.id) if record is not None else 0
         return store.get_message(file_id) if file_id > 0 else None

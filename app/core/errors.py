@@ -833,6 +833,49 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.AUTO_FIX,
     ),
+    # 2026-10-04, code review: raised by `app/index/phash.py` and counted by
+    # the pipeline since work order 0h, never registered - so each reached the
+    # skipped panel as ERR_UNEXPECTED, "This is a bug".
+    "ERR_PHASH": _Spec(
+        message="A picture could not be compared with the others for look-alikes.",
+        suggestion=(
+            "Nothing else is affected: the picture is indexed and found as usual. "
+            "Open it to check it is not damaged; once it opens, index its folder "
+            "again and it will be compared too."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    "ERR_PHASH_STORE": _Spec(
+        message="Look-alike fingerprints for some pictures could not be saved.",
+        suggestion=(
+            "The pictures are indexed and found as usual. Check that the index drive "
+            "has free space, then index the folder again to save them."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # Counted by the pipeline when picture vectors could not be written; found
+    # unregistered by `test_row_facts_homes.py`'s guard, 2026-10-04.
+    "ERR_CLIP_STORE": _Spec(
+        message="Some pictures could not be added to the search by what they show.",
+        suggestion=(
+            "They are still found by name, folder, type and any words in them. Check "
+            "that the index drive has free space, then run the images pass again "
+            "from the Indexing page."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # 2026-10-04, code review: a schema step that fails is rolled back whole
+    # (`migrations.apply_migrations`), so the index is left as it was.
+    "ERR_MIGRATION_FAILED": _Spec(
+        message="The index could not be brought up to date (step v{step}): {reason}",
+        suggestion=(
+            "Nothing was changed by the step that failed. Close every copy of Leasha "
+            "and any index run started from the command line, then start Leasha "
+            "again. If it fails the same way, report it with today's file from the "
+            "logs folder."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
 }
 
 

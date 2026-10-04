@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from app.core.code_types import extensions_for as _code_extensions_for
 from app.search.run import GROUP_FETCH_MULTIPLIER, fetch_depth  # noqa: F401 - re-exported
 from app.ui.presenter.explain import match_marker
 from app.ui.presenter.facts import (
@@ -561,11 +562,11 @@ def kind_tag(kind: str) -> str:
 #: all, this one decides what reads like *code* to the form coders already
 #: use everywhere else. `.txt`/`.md`/`.csv` are prose and data, not source,
 #: and stay in the ordinary body font.
-CODE_EXTENSIONS = frozenset({
-    "py", "js", "jsx", "ts", "tsx", "java", "c", "h", "cpp", "hpp", "cc",
-    "cs", "go", "rs", "rb", "php", "sql", "ps1", "sh", "bash", "bat", "cmd",
-    "kt", "swift", "scala", "lua", "pl", "r", "css", "scss", "html", "htm",
-})
+#: 2026-10-04, code review: the Code tab's "Source code only" list
+#: (`code_types`, 311 types) rather than a 33-type copy of part of it, so a
+#: row is code - badge, monospace, "opens at its line" - by the same rule
+#: everywhere. Every one of the 33 is in it, and no prose or data type is.
+CODE_EXTENSIONS = _code_extensions_for("source") or frozenset()
 
 
 def is_code_kind(kind: str) -> bool:

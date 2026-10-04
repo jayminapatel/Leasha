@@ -302,10 +302,14 @@ def file_of_row(row: Any) -> str:
     own; an attachment inside one the same; a commit from a repository's
     history has no file on disk at all. A Code row keeps its real path in
     `full_path` (`path` is shortened for the column), so that is read first.
+    2026-10-04, code review: `row_facts.is_synthetic_path` - an `.mbox` or
+    `.olm` message (`D:\\x.mbox/123`) has no file of its own either.
     """
+    from app.core.row_facts import is_synthetic_path
+
     full = getattr(row, "full_path", None)
     path = str((full if full is not None else getattr(row, "path", "")) or "")
-    return "" if "://" in path else path
+    return "" if is_synthetic_path(path) else path
 
 
 def mail_rows(

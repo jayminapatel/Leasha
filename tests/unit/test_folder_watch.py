@@ -258,9 +258,13 @@ def test_a_cloud_placeholder_is_never_read_even_in_an_opted_in_folder(tmp_path, 
 
 
 def test_the_mailbox_list_is_the_one_the_walk_names():
+    # 2026-10-04, code review: the walk no longer spells the four out - it
+    # reads `STREAMED_MAILBOXES`, which is `row_facts.MAIL_ARCHIVE_EXTS`.
+    from app.core.row_facts import MAIL_ARCHIVE_EXTS, suffixes
+
     source = inspect.getsource(walker.walk)
-    for extension in walker.STREAMED_MAILBOXES:
-        assert f'"{extension}"' in source
+    assert "STREAMED_MAILBOXES" in source
+    assert walker.STREAMED_MAILBOXES == suffixes(MAIL_ARCHIVE_EXTS)
 
 
 # ---------------------------------------------------------------------------

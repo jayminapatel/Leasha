@@ -64,9 +64,10 @@ def draggable(row: Any) -> str:
     # catalogued drive (`leasha-volume://`) - neither is a file Explorer can
     # take. Dragging the read-only copy would mean writing it mid-gesture, on
     # this thread; Open makes that copy instead (`tasks.open_target`).
+    from app.core.row_facts import is_synthetic_path   # 2026-10-04, code review: an mbox message too
     from app.ui.attachment_open import zip_member_of
 
-    if not path or "://" in path or zip_member_of(path)[0]:
+    if not path or is_synthetic_path(path) or zip_member_of(path)[0]:
         return ""
     return path
 

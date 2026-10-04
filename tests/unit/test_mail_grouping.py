@@ -252,13 +252,16 @@ def test_an_attachment_previews_under_the_message_it_is_attached_to(store) -> No
 
 
 def test_the_attachment_path_rule_is_the_one_the_search_list_reads() -> None:
-    from app.ui import tasks
+    # 2026-10-04, code review: the aliases `tasks._ATTACHMENT_MARKER` and
+    # `tasks._attachment_parent_path` were removed; the real names are read.
+    from app.core import row_facts
+    from app.search.marks import attachment_parent_path
     from app.ui.presenter.mail import ATTACHMENT_MARKER, attachment_of
 
-    assert ATTACHMENT_MARKER == tasks._ATTACHMENT_MARKER
+    assert ATTACHMENT_MARKER == row_facts.ATTACHMENT_MARKER
     for path in ("pst://A/E1/attachments/form.pdf", "pst://A/E1", "/attachments/x",
                  "D:\\docs\\attachments\\form.pdf", ""):
-        assert attachment_of(path)[0] == tasks._attachment_parent_path(path), path
+        assert attachment_of(path)[0] == attachment_parent_path(path), path
     assert attachment_of("pst://A/E1/attachments/form.pdf") == ("pst://A/E1", "form.pdf")
 
 

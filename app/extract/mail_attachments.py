@@ -28,7 +28,7 @@ import zipfile
 from pathlib import Path
 from typing import Optional
 
-from app.extract.archive import attachment_key
+from app.extract.archive import ARCHIVE_EXTENSIONS, attachment_key
 from app.extract.base import Document, SourceKind
 
 __all__ = [
@@ -63,7 +63,7 @@ CONTENT_EXTENSIONS = frozenset({
 
 #: The zip family `archive.ArchiveExtractor` reads - the ones whose directory
 #: `zipfile` can list without unpacking a byte.
-_ZIP_EXTENSIONS = frozenset({".zip", ".jar", ".nupkg", ".whl"})
+_ZIP_EXTENSIONS = frozenset(ARCHIVE_EXTENSIONS)    # 2026-10-04, code review: one list
 
 #: Names listed from one zip. A zip of a hundred thousand files is a build
 #: artefact, not correspondence, and its first thousand names say what it is.

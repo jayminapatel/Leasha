@@ -37,6 +37,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from app.core.row_facts import MAIL_SOURCE_KINDS, archived_message_sql
 from app.storage.like import ESCAPE, contains
 
 __all__ = ["file_filter_sql", "epoch_ns", "MAIL_KINDS", "merge_by_date",
@@ -45,7 +46,9 @@ __all__ = ["file_filter_sql", "epoch_ns", "MAIL_KINDS", "merge_by_date",
 #: `files.source_kind` values that count as mail. **A fact about the table**,
 #: which is why it is stated here rather than in the parser that reads it -
 #: `app/search/query.py` re-exports it so the older spelling still resolves.
-MAIL_KINDS = ("pst_message", "eml")
+#: 2026-10-04, code review: `row_facts.MAIL_SOURCE_KINDS`, taken from
+#: `SourceKind` - one tuple, not three kept in step by hand.
+MAIL_KINDS = MAIL_SOURCE_KINDS
 
 
 def _date_clause(op: str) -> str:
@@ -409,8 +412,6 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         # size of its own to compare - `row_facts.archived_message_sql`, the
         # rule every list shows its size by.
         if comparison in ("<", "<=", ">", ">=", "="):
-            from app.core.row_facts import archived_message_sql
-
             clauses.append(f"(f.size_bytes {comparison} ? AND NOT {archived_message_sql()})")
             params.append(size)
 

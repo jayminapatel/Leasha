@@ -33,6 +33,7 @@ from typing import Any
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
+from app.core.row_facts import ZIP_FAMILY_EXTS, attachment_of, ext_alternation, is_message_key
 
 __all__ = [
     "OPENED_FOLDER",
@@ -55,14 +56,14 @@ _SESSION_STARTED = time.time()
 
 def is_archive_attachment(path: Any) -> bool:
     """A file read out of a mail archive - `pst://<store>/<message>/attachments/<name>`."""
-    from app.ui.presenter.mail import attachment_of
-
     text = str(path or "")
-    return text.startswith("pst://") and bool(attachment_of(text)[0])
+    return is_message_key(text) and bool(attachment_of(text)[0])
 
 
 #: A file inside a zip on disk: `D:\a\backup.zip/q3/report.docx`.
-_ZIP_MEMBER = re.compile(r"^(?P<zip>(?![\w.+-]+://).+?\.(?:zip|jar|nupkg|whl))/(?P<inner>.+)$",
+#: 2026-10-04, code review: built from `row_facts.ZIP_FAMILY_EXTS`.
+_ZIP_MEMBER = re.compile(r"^(?P<zip>(?![\w.+-]+://).+?\.(?:" + ext_alternation(ZIP_FAMILY_EXTS)
+                         + r"))/(?P<inner>.+)$",
                          re.IGNORECASE)
 
 
@@ -83,8 +84,6 @@ def opens_from_a_copy(path: Any) -> bool:
 def shown_name(path: Any) -> str:
     """The name of the file itself: `report.pdf` for `D:\\a\\b.zip/q3/report.pdf`
     and for `pst://s/1/attachments/pack.zip/q3/report.pdf`. No I/O."""
-    from app.ui.presenter.mail import attachment_of
-
     text = str(path or "")
     zip_path, inside = zip_member_of(text)
     if not zip_path:
@@ -102,8 +101,6 @@ def bytes_of(path: str, message: dict | None, *, reader: Any = None,
     `AppErrorException` (`ERR_ATTACHMENT_OPEN`) with the way out.
     """
     from app.extract.pst_attachment import member_of, read_attachment
-    from app.ui.presenter.mail import attachment_of
-
     zip_path, inside = zip_member_of(path)
     if zip_path:
         return read_zip_member(zip_path, inside, max_bytes=max_bytes)

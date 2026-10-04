@@ -138,8 +138,10 @@ class MboxExtractor:
             # caught it, and the raw stdlib exception escaped straight past
             # this extractor's error contract (every other path through this
             # method goes through `raise_error`/`AppErrorException`).
+            # 2026-10-04, code review: `ERR_FILE_NOT_FOUND` was never
+            # registered, so this reached the person as "This is a bug".
             raise_error(
-                "ERR_FILE_NOT_FOUND",
+                "ERR_FILE_MISSING",
                 "extract.mbox",
                 path=str(path),
             )

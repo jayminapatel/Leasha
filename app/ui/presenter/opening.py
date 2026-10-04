@@ -73,7 +73,7 @@ class OpenPlan:
 
 
 #: `sqlite_store.VOLUME_PATH_SCHEME`: a file on a catalogued drive, by drive id.
-VOLUME_PREFIX = "leasha-volume://"
+from app.storage.sqlite_store import VOLUME_PATH_SCHEME as VOLUME_PREFIX  # noqa: E402 - 2026-10-04, code review: one constant
 
 
 @dataclass(frozen=True, slots=True)

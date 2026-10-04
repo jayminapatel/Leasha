@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 32
+CURRENT_VERSION = 33
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1613,6 +1613,46 @@ def _v32_message_position(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE messages ADD COLUMN folder_index INTEGER")
 
 
+def _v33_outlook_attachment_sizes_and_skip_index(conn: sqlite3.Connection) -> None:
+    r"""Two things, both 2026-10-04, code review:
+
+    * **an attachment read out of an `.ost` keeps the archive's size no
+      longer.** v31 set the size of every attachment whose row carried the
+      `.pst`'s type to 0, and left `.ost` attachments - same reader, same
+      fault - at the archive's size. By now v31 has given each its own type,
+      so the archive's size is recognised another way: it is the size its own
+      message's row carries (a message row keeps its archive's type and size
+      on purpose), from either Outlook archive. Set to 0, shown blank, until
+      the archive is read again. A correct size is never equal to it.
+    * **`idx_files_status_skip`**, so "the skipped rows with these codes"
+      (`iter_files(status=..., skip_codes=...)`) is a search, not a scan.
+
+    Idempotent: a second run finds nothing left to change.
+    """
+    from app.core.row_facts import (
+        ATTACHMENT_MARKER, MAIL_SOURCE_KINDS, OUTLOOK_ARCHIVE_EXTS, attachment_sql,
+    )
+
+    kinds = ", ".join("?" for _ in MAIL_SOURCE_KINDS)
+    exts = ", ".join("?" for _ in OUTLOOK_ARCHIVE_EXTS)
+    conn.execute(
+        f"""
+        UPDATE files SET size_bytes = 0
+        WHERE source_kind IN ({kinds}) AND {attachment_sql("files")} AND size_bytes > 0
+          AND EXISTS (
+                SELECT 1 FROM files AS message
+                WHERE message.path = substr(files.path, 1,
+                                            instr(files.path, '{ATTACHMENT_MARKER}') - 1)
+                  AND message.ext IN ({exts})
+                  AND message.size_bytes = files.size_bytes)
+        """,
+        (*MAIL_SOURCE_KINDS, *OUTLOOK_ARCHIVE_EXTS),
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_files_status_skip ON files(status, skip_code) "
+        "WHERE skip_code IS NOT NULL")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1645,7 +1685,15 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     30: _v30_attachment_names,
     31: _v31_attachment_type_and_size,
     32: _v32_message_position,
+    33: _v33_outlook_attachment_sizes_and_skip_index,
 }
+
+#: Released migrations that open and close transactions of their own -
+#: `executescript` commits whatever is open first, and `PRAGMA foreign_keys`
+#: is ignored inside a transaction - so they cannot run inside the one
+#: `apply_migrations` wraps every other step in. Never edited once released;
+#: `test_storage_code_review.py` holds this list to their source.
+_OWN_TRANSACTION = frozenset({2, 3, 7, 8, 10, 14, 15, 25, 26})
 
 
 def read_version(conn: sqlite3.Connection) -> int:
@@ -1716,9 +1764,65 @@ def apply_migrations(conn: sqlite3.Connection, *, schema_file: Optional[Path] = 
                 key="schema_version",
                 reason=f"no migration registered to reach v{step} from v{found}",
             ))
-        migration(conn)
-        _write_version(conn, step)
-        conn.commit()
-        found = step
+        found = _apply_step(conn, step, migration)
 
     return found
+
+
+def _apply_step(conn: sqlite3.Connection, step: int,
+                migration: Callable[[sqlite3.Connection], None]) -> int:
+    r"""Run one migration and record it - **both or neither.** Returns the
+    version the file is at afterwards.
+
+    2026-10-04, code review: each step ran in autocommit, so a failure part
+    way left half a migration in the file with the old version beside it,
+    and two processes opening the same index (the window and an index run
+    started from the command line) could both run the same step. Now a step
+    takes the write lock (`BEGIN IMMEDIATE`), reads the version again - the
+    other process may have done it while this one waited - and commits the
+    change and the new version together. A step in `_OWN_TRANSACTION` manages
+    its own and runs as it always did, after the same second look.
+
+    A failure is rolled back and reported as `ERR_MIGRATION_FAILED`, with a
+    way out, rather than as a bare `sqlite3` error.
+    """
+    if conn.in_transaction:                       # nothing may ride along unseen
+        conn.commit()
+    try:
+        if step in _OWN_TRANSACTION:
+            if read_version(conn) >= step:
+                return read_version(conn)
+            migration(conn)
+            if conn.in_transaction:               # a caller's implicit one, as before
+                conn.commit()
+            conn.execute("BEGIN IMMEDIATE")
+            if read_version(conn) < step:
+                _write_version(conn, step)
+            conn.execute("COMMIT")
+            return read_version(conn)
+        conn.execute("BEGIN IMMEDIATE")
+        found = read_version(conn)
+        if found < step:
+            migration(conn)
+            _write_version(conn, step)
+            found = step
+        conn.execute("COMMIT")
+        return found
+    except AppErrorException:
+        _roll_back(conn)
+        raise
+    except Exception as exc:                      # noqa: BLE001 - reported with a fix
+        _roll_back(conn)
+        raise AppErrorException(make_error(
+            "ERR_MIGRATION_FAILED", "storage.migrations",
+            step=step, reason=f"{type(exc).__name__}: {exc}",
+            details=f"{getattr(migration, '__name__', migration)}: {exc}",
+        )) from exc
+
+
+def _roll_back(conn: sqlite3.Connection) -> None:
+    try:
+        if conn.in_transaction:
+            conn.execute("ROLLBACK")
+    except sqlite3.Error:
+        pass
