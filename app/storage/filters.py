@@ -402,8 +402,16 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         # The comparison came from `_parse_size`, which only ever returns one of
         # these five - so it can go into the SQL text safely, and never from
         # anything the user typed directly.
+        #
+        # 2026-10-04, the owner ("the same code should run"): a message inside
+        # a mail archive carries the archive's size, not its own, so `/size`
+        # matched every message of a 2 GB `.pst` as a 2 GB file. It has no
+        # size of its own to compare - `row_facts.archived_message_sql`, the
+        # rule every list shows its size by.
         if comparison in ("<", "<=", ">", ">=", "="):
-            clauses.append(f"f.size_bytes {comparison} ?")
+            from app.core.row_facts import archived_message_sql
+
+            clauses.append(f"(f.size_bytes {comparison} ? AND NOT {archived_message_sql()})")
             params.append(size)
 
     # Mail or documents, from the scope chips.

@@ -2179,6 +2179,33 @@ class SqliteStore:
         )
         return {int(row["file_id"]): dict(row) for row in rows}
 
+    def messages_by_path(self, paths: Sequence[str]) -> dict[str, dict[str, Any]]:
+        """`messages_for`'s columns for the messages at these paths, keyed by path.
+
+        2026-10-04: what an attachment's row is shown with - its message's
+        sender, subject and sent date - on the Files list and in the Search
+        list, **one statement for a page**, on the unique index over
+        `files.path`. It replaced one `get_file` per message. Paths that are
+        not messages are absent.
+        """
+        wanted = list(dict.fromkeys(str(path) for path in paths or () if path))
+        found: dict[str, dict[str, Any]] = {}
+        # SQLite's bound-variable limit is 32,766 on the bundled build; a page
+        # is 500 rows, so one chunk in practice.
+        for start in range(0, len(wanted), 900):
+            chunk = wanted[start:start + 900]
+            rows = self.conn.execute(
+                f"""SELECT f.path, m.file_id, m.subject, m.sender, m.recipients,
+                           m.sent_at, m.has_attach, m.conversation
+                    FROM files f JOIN messages m ON m.file_id = f.id
+                    WHERE f.path IN ({','.join('?' * len(chunk))})""",
+                chunk,
+            )
+            for row in rows:
+                record = dict(row)
+                found[str(record.pop("path"))] = record
+        return found
+
     def conversation_messages(
         self, conversation: Optional[str], *, limit: int = 26
     ) -> list[dict[str, Any]]:

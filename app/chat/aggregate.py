@@ -317,12 +317,10 @@ def _describe(spec: AggregateSpec, n: int) -> str:
 
 
 def _size_words(n: int) -> str:
-    size = float(n)
-    for unit in ("bytes", "KB", "MB", "GB", "TB"):
-        if size < 1024 or unit == "TB":
-            return f"{int(size)} bytes" if unit == "bytes" else f"{size:.1f} {unit}"
-        size /= 1024
-    return f"{n} bytes"
+    # 2026-10-04, the owner: one size formatter everywhere (`row_facts`).
+    from app.core.row_facts import format_size
+
+    return format_size(n)
 
 
 def run_aggregate(store: Any, spec: AggregateSpec, *, limit: int = 50) -> AggregateResult:
@@ -346,8 +344,13 @@ def run_aggregate(store: Any, spec: AggregateSpec, *, limit: int = 50) -> Aggreg
             total_bytes = 0
             rows: tuple = ()
             if spec.op == "size":
+                # 2026-10-04: a message inside an archive carries the archive's
+                # size, so summing them counted the archive once per message.
+                from app.core.row_facts import archived_message_sql
+
                 total_bytes = int(conn.execute(
-                    f"SELECT COALESCE(SUM(f.size_bytes), 0) FROM files f WHERE 1=1{where}",
+                    f"SELECT COALESCE(SUM(CASE WHEN {archived_message_sql()} THEN 0 "
+                    f"ELSE f.size_bytes END), 0) FROM files f WHERE 1=1{where}",
                     params).fetchone()[0])
             elif spec.op in ("list", "newest", "oldest") and count:
                 order = "DESC" if spec.op != "oldest" else "ASC"

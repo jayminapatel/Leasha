@@ -114,13 +114,14 @@ def breadcrumb(path: str, *, parts: int = BREADCRUMB_PARTS) -> str:
 
 
 def format_size(size_bytes: int) -> str:
-    """Bytes as something a person reads. Never "1234567 bytes"."""
-    value = float(max(0, size_bytes))
-    for unit in ("B", "KB", "MB", "GB"):
-        if value < 1024 or unit == "GB":
-            return f"{value:,.0f} {unit}" if unit == "B" else f"{value:,.1f} {unit}"
-        value /= 1024
-    return f"{value:,.1f} GB"
+    """Bytes as something a person reads. Never "1234567 bytes".
+
+    2026-10-04, the owner ("the same code should run"): the one formatter,
+    `app.core.row_facts.format_size`, B to TB - this one stopped at GB.
+    """
+    from app.core.row_facts import format_size as _one
+
+    return _one(size_bytes)
 
 
 def format_when(mtime_ns: int, *, now: Optional[float] = None) -> str:

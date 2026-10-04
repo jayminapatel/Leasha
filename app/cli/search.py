@@ -42,6 +42,11 @@ def cmd_files(args: argparse.Namespace) -> int:
             text, limit=args.limit, ext=args.type.split(",") if args.type else None
         )
         total = store.count_named_files()
+        # 2026-10-04: an attachment's message (its folder and date) and a
+        # drive's name, read the way the Files tab reads them - one call.
+        from app.ui.tasks import file_row_context
+
+        hits = file_row_context(store, hits)
 
     if args.json:
         print(json.dumps({"query": text, "matches": hits, "indexed_files": total}, indent=2))

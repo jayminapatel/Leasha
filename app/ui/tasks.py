@@ -98,8 +98,11 @@ def decorate_results(store: Any, results: Any) -> dict:
     that says which of this work is off-thread.
     """
     volumes = offline_volume_marks(store, results)
+    # A drive's name rides in with the mail details (2026-10-04): a row on a
+    # catalogued drive is never mail, so the two never share a key.
+    details = {**volume_labels(store, results), **mail_details(store, results)}
     return {
-        "details": mail_details(store, results),
+        "details": details,
         "missing": missing_paths(
             getattr(row, "path", "") for row in results or ()
             if getattr(row, "volume_id", None) is None
@@ -301,7 +304,9 @@ def browse_files_page(store: Any, parsed: Any, *, limit: int) -> dict:
     summary can say "Showing 200 of 12,431" instead of stopping at 200 in
     silence. `offline` feeds the Status column's Offline word.
     """
-    rows = store.browse_files(parsed, limit=limit)
+    # 2026-10-04: an attachment's message and a drive's name, read here for
+    # the page, so the list shows them the Search list's way.
+    rows = file_row_context(store, store.browse_files(parsed, limit=limit))
     total = None
     if len(rows) >= limit:
         total = _bounded_count(getattr(store, "count_browse_files", None),
@@ -486,6 +491,80 @@ def missing_paths(paths: Any) -> set[str]:
 _ATTACHMENT_MARKER = "/attachments/"
 
 
+def _parent_messages(store: Any, items: Any) -> Optional[dict[int, dict]]:
+    """`{attachment's file_id: its message's messages row}` for one page, in
+    one statement, or None when the store cannot answer in one (a test fake),
+    so the caller falls back to its older per-message lookup."""
+    lookup = getattr(store, "messages_by_path", None)
+    if not callable(lookup):
+        return None
+    wanted = {int(file_id or 0): _attachment_parent_path(path) for file_id, path in items}
+    wanted = {file_id: parent for file_id, parent in wanted.items() if parent}
+    if not wanted:
+        return {}
+    found = lookup(sorted(set(wanted.values())))
+    return {file_id: found[parent] for file_id, parent in wanted.items() if parent in found}
+
+
+def file_row_context(store: Any, rows: Any) -> Any:
+    """What a page of Files rows is shown with that the row does not carry.
+    **Worker only.** Returns the same row dicts, added to:
+
+    * an attachment's message - `message_sender`, `message_subject`,
+      `message_sent_at` - so its folder says who sent it and about what, and
+      its date is the message's (the Search list's way, 2026-10-04);
+    * a catalogued drive's name, `volume_label`, for "<drive> > folder".
+
+    **One statement for the attachments and one per distinct drive on the
+    page** - never one per row, and nothing on the thread that paints. Never
+    raises: a missing folder or date is a cosmetic loss, not the list.
+    """
+    rows = list(rows or ())
+    if store is None or not rows:
+        return rows
+    try:
+        parents = _parent_messages(store, [(row.get("id"), row.get("path")) for row in rows])
+        for row in rows:
+            parent = (parents or {}).get(int(row.get("id") or 0))
+            if parent is not None:
+                row["message_sender"] = parent.get("sender")
+                row["message_subject"] = parent.get("subject")
+                row["message_sent_at"] = parent.get("sent_at")
+        labels: dict[int, str] = {}
+        for volume_id in {int(row["volume_id"]) for row in rows
+                          if row.get("volume_id") is not None}:
+            record = store.get_volume(volume_id) if hasattr(store, "get_volume") else None
+            labels[volume_id] = str(getattr(record, "name", "") or "") if record else ""
+        for row in rows:
+            if row.get("volume_id") is not None:
+                row["volume_label"] = labels.get(int(row["volume_id"]), "")
+    except Exception as exc:                     # noqa: BLE001 - see docstring
+        _log.debug("no attachment or drive context for this page: {}", exc)
+    return rows
+
+
+def volume_labels(store: Any, results: Any) -> dict[int, dict]:
+    """`{file_id: {"volume_label": name}}` for a page of search results on a
+    catalogued drive - one read per distinct drive. **Worker only.** Merged
+    into the page's details so a group's folder reads "<drive> > Photos"
+    (`facts.volume_folder`), as the Files list's does."""
+    by_volume: dict[int, str] = {}
+    out: dict[int, dict] = {}
+    for row in results or ():
+        volume_id = getattr(row, "volume_id", None)
+        if volume_id is None:
+            continue
+        volume_id = int(volume_id)
+        if volume_id not in by_volume:
+            try:
+                record = store.get_volume(volume_id)
+            except Exception:                    # noqa: BLE001 - a folder, not the search
+                record = None
+            by_volume[volume_id] = str(getattr(record, "name", "") or "") if record else ""
+        out[int(getattr(row, "file_id", 0) or 0)] = {"volume_label": by_volume[volume_id]}
+    return out
+
+
 def _attachment_parent_path(path: str) -> str:
     """The message this attachment belongs to, or `""` if `path` is not one.
 
@@ -570,6 +649,14 @@ def mail_details(store: Any, results: Any) -> dict:
         file_ids = [getattr(r, "file_id", 0) for r in results]
 
         parent_id_of: dict[int, int] = {}
+        parents = _parent_messages(store, [(getattr(r, "file_id", 0), getattr(r, "path", ""))
+                                           for r in results])
+        if parents is not None:
+            # 2026-10-04: one statement for the page (`messages_by_path`).
+            details = dict(store.messages_for(file_ids))
+            for file_id, parent in parents.items():
+                details[file_id] = {**parent, "attachment_of": parent.get("file_id")}
+            return details
         if hasattr(store, "get_file"):
             # **Keyed by path, not by row.** Several attachments can share one
             # parent message - a reply with the same two files re-attached is

@@ -9,13 +9,19 @@ from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
 from app.ui.presenter.explain import match_marker
+from app.ui.presenter.facts import (
+    attachment_context,
+    attachment_words,
+    date_words,
+    message_name,
+    shown_date_ns,
+    volume_folder,
+)
 from app.ui.presenter.formatting import (
     BREADCRUMB_PARTS,
     _exact_date,
-    _exact_date_from_epoch,
     breadcrumb,
     format_address,
-    format_when,
     shorten_path,
 )
 from app.ui.presenter.offline import online_only_note
@@ -74,6 +80,12 @@ class ResultRow:
     recency: float = 0.0
     declares: bool = False
     rerank_score: Optional[float] = None
+    #: 2026-10-04, the owner ("the same code should run"): what the row's
+    #: group calls it and where it says it is, stamped by `_build_group`, so
+    #: the preview pane's heading and facts and a pinned result read the same
+    #: as the list - never the `pst://` key a message's `path` is.
+    name: str = ""
+    folder: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -337,7 +349,7 @@ def _as_conversation(group: ResultGroup, details: Mapping[int, Mapping[str, Any]
     head = details.get(group.file_id) or {}
     folder, name, kind = group.folder, group.name, group.kind
     if group.is_attachment:
-        subject = str(head.get("subject") or "").strip() or "(no subject)"
+        subject = message_name(head.get("subject"))
         sender = format_address(head.get("sender"))
         folder = f"in the attachment {group.name}"
         name = f"{sender} — {subject}" if sender else subject
@@ -429,61 +441,81 @@ def _build_group(
     name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
     folder = breadcrumb(path[: len(path) - len(name)])
     kind = (rows[0].ext if rows else "") or _ext_of(name)
-    friendly = str(register or "plain").lower() != "technical"
-    when_exact = _exact_date(rows[0].mtime_ns) if rows else ""
-    when = format_when(rows[0].mtime_ns, now=now) if (rows and friendly) else when_exact
+    detail = detail or {}
+    # 2026-10-04, the owner: one function per fact, on every list
+    # (`presenter.facts`). The date is `shown_date_ns` - the message's sent
+    # date for a message or an attachment, else the shot date, else the file's
+    # - read by `date_words` in the Search tab's register; the Files and Code
+    # lists call the same two.
+    sent = detail.get("sent_at")
+    shown_ns = shown_date_ns(mtime_ns=rows[0].mtime_ns if rows else 0, sent_at=sent)
+    when_exact = _exact_date(shown_ns)
+    when = date_words(shown_ns, register=register, now=now)
 
-    is_attachment = bool(detail and detail.get("attachment_of"))
+    is_attachment = bool(detail.get("attachment_of"))
+    is_message = not is_attachment and bool(detail) and "volume_label" not in detail
 
-    if detail and is_attachment:
+    if is_attachment:
         # §5b: **the attachment is the object, its message is the context.**
         # `name` and `kind` are left exactly as computed above - the
         # attachment's own filename and real extension, the same as any
         # other file result - and only `folder` changes, from a breadcrumb
         # through a `pst://…/attachments/…` key nobody typed to who sent it
         # and what it was about. This is the *parent* message's detail
-        # (`mail_details` resolved it that way), never this row's own.
-        subject = str(detail.get("subject") or "").strip()
-        sender = format_address(detail.get("sender"))
-        context = f"from {sender}" if sender else ""
-        if subject:
-            context = f"{context} · {subject}" if context else subject
-        folder = context or "from a message"
-        sent = detail.get("sent_at")
-        if sent:
-            when_exact = _exact_date_from_epoch(sent)
-            # **The message's own sent date, not the attachment file's own
-            # `mtime_ns`.** The latter is when the attachment was written out
-            # during indexing - today, for every attachment, on every run -
-            # which tells nobody anything; when the message went out is the
-            # date that actually distinguishes one attachment from another.
-            when = format_when(int(sent) * 1_000_000_000, now=now) if friendly else when_exact
-    elif detail:
+        # (`mail_details` resolved it that way), never this row's own. The
+        # date is the message's sent date (above): the attachment file's own
+        # time is its archive's, which tells nobody anything.
+        folder = attachment_context(detail.get("sender"), detail.get("subject"))
+    elif is_message:
         # A message: its path is a synthetic key nobody typed and nobody would
         # recognise, so the subject is the only usable name.
-        subject = str(detail.get("subject") or "").strip()
+        subject = message_name(detail.get("subject"))
         sender = format_address(detail.get("sender"))
-        attachments = "1 attachment" if detail.get("has_attach") else ""
         # **Item 3b: sender-first.** "Mum — Re: holiday photos" is how people
         # remember mail, not "Re: holiday photos" with the sender relegated to
         # the grey line underneath. Display order only - `folder` no longer
         # repeats the sender it now leads the name with, but grouping, the
         # payload and every action stay exactly what they were.
-        name = f"{sender} — {subject or '(no subject)'}" if sender else (subject or "(no subject)")
-        folder = attachments
+        name = f"{sender} — {subject}" if sender else subject
+        # 2026-10-04: the real number where the message's stored headers say
+        # it, "attachments" where only the flag does - it said "1 attachment"
+        # for every message with any.
+        folder = attachment_words(_attachment_count(rows),
+                                  has_attach=bool(detail.get("has_attach")))
         kind = "email"
-        sent = detail.get("sent_at")
-        if sent:
-            when_exact = _exact_date_from_epoch(sent)
-            # A message's own sent date, in ns, so the same friendly ageing
-            # rules apply to mail as to a file - item 4b.
-            when = format_when(int(sent) * 1_000_000_000, now=now) if friendly else when_exact
+    elif rows and rows[0].volume_id is not None:
+        # A file on a catalogued drive: the drive's name and the folder on
+        # it, the way the Files list says it - not "3 > Photos" read out of
+        # the `leasha-volume://3/...` key.
+        folder = volume_folder(detail.get("volume_label"), rows[0].relative_path,
+                               volume_id=rows[0].volume_id)
+
+    # Stamped on this file's passages, so whatever is handed one of them -
+    # the preview pane, a pin - shows this group's name, folder and date.
+    # Only this file's: a folded conversation holds other messages' too.
+    for row in rows:
+        if row.file_id == file_id:
+            row.name, row.folder = name, folder
+            row.mtime_ns = shown_ns or row.mtime_ns
 
     return ResultGroup(
         file_id=file_id, name=name, folder=folder, kind=kind,
         when=when, path=path, rows=rows, when_exact=when_exact,
         is_attachment=is_attachment,
     )
+
+
+def _attachment_count(rows: Sequence[ResultRow]) -> Optional[int]:
+    """How many files the message's stored headers name, when a passage on
+    hand is that header block; `None` when none is - no second query."""
+    from app.ui.presenter.mail import split_index_headers
+
+    for row in rows:
+        headers, _rest = split_index_headers(row.text)
+        if headers:
+            named = [part for part in headers.get("Attachments", "").split(", ") if part.strip()]
+            return len(named) or None
+    return None
 
 
 def _ext_of(name: str) -> str:
@@ -527,8 +559,17 @@ def row_identity(payload: Any) -> Any:
 
 
 def kind_tag(kind: str) -> str:
-    """Four characters at most, so an unknown type still gets a legible tag."""
-    return KIND_LABELS.get(kind, (kind or "?").upper()[:4])
+    """Four characters at most, so an unknown type still gets a legible tag.
+
+    2026-10-04, the owner: **the one type badge** - Files, Code, Search and
+    the preview pane all show this (Files used to say "DOCX", Code "docx").
+    Read case-blind and without a dot, so "DOCX", ".docx" and "docx" are one
+    kind. A file with no extension has no badge, on every list: `""`.
+    """
+    key = str(kind or "").strip().lstrip(".").lower()
+    if not key:
+        return ""
+    return KIND_LABELS.get(key, key.upper()[:4])
 
 
 #: Extensions painted in monospace - item 3c. Deliberately narrower than

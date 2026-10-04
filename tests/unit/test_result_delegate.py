@@ -536,7 +536,10 @@ def test_an_unknown_kind_still_gets_a_short_tag():
     from app.ui.presenter import kind_tag
 
     assert kind_tag("sevenzip") == "SEVE"
-    assert kind_tag("") == "?"
+    # 2026-10-04, the owner's decision (one badge on every list): a file with
+    # no extension has no badge - the Search row already painted none for it,
+    # and the Files list's "?" was the odd one out. Was `== "?"`.
+    assert kind_tag("") == ""
 
 
 # ---------------------------------------------------------------------------

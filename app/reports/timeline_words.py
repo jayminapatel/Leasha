@@ -84,12 +84,10 @@ def basis_tip(basis: str) -> str:
 
 
 def size_words(size_bytes: int) -> str:
-    value = float(max(0, int(size_bytes or 0)))
-    for unit in ("bytes", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return f"{value:,.0f} bytes" if unit == "bytes" else f"{value:,.1f} {unit}"
-        value /= 1024
-    return f"{value:,.1f} TB"
+    # 2026-10-04, the owner: one size formatter everywhere (`row_facts`).
+    from app.core.row_facts import format_size
+
+    return format_size(size_bytes)
 
 
 def badge_words(entry: Any) -> str:

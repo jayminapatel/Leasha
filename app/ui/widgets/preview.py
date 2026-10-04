@@ -508,7 +508,11 @@ class PreviewPane(QWidget):
         self._show_original(None)       # the last message's original is not this row's
         # Named immediately, rendered shortly: the heading must follow the
         # selection at once or the pane looks a step behind the list.
-        self.title.setText(str(getattr(row, "name", "") or getattr(row, "path", "")))
+        # 2026-10-04: `display_name`, the one name every list gives a row -
+        # never a message's `pst://` key, which this showed until it was read.
+        from app.ui.presenter import display_name
+        self.title.setText(display_name(getattr(row, "name", ""), getattr(row, "path", ""),
+                                        getattr(row, "ext", "")))
         self.subtitle.setText("Loading…")
         self.notice.setVisible(False)
         from app.ui.inspector import preview_facts

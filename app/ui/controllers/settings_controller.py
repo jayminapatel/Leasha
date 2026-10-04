@@ -426,8 +426,14 @@ class SettingsController(QObject):
 
             # What was changed in this session wins over what was loaded at
             # start-up, which is the whole reason the overrides exist.
-            self._w.search_view.set_search_preferences(
-                preferences(self._w._settings, self._w._settings_overrides))
+            found = preferences(self._w._settings, self._w._settings_overrides)
+            self._w.search_view.set_search_preferences(found)
+            # 2026-10-04, the owner: Files and Code read their dates in the
+            # register the Search tab does (`presenter.facts.date_words`).
+            from app.ui.presenter import set_date_register
+            from app.ui.presenter.search import notice_register_for
+
+            set_date_register(notice_register_for("search", found))
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("the search behaviours could not be applied: {}", exc)
 

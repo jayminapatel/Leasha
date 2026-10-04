@@ -11,12 +11,13 @@ from typing import Any, Iterable, Mapping, Optional
 
 from app.core.file_state import derive
 from app.core.logging import logger
+from app.ui.presenter.facts import date_words
 from app.ui.presenter.formatting import (
     format_count,
     format_size,
-    format_when,
     shorten_path,
 )
+from app.ui.presenter.results import kind_tag
 
 _log = logger.bind(component="ui.presenter")
 
@@ -33,7 +34,7 @@ class RepoFileRow:
 
     name: str           # the file name alone; the folder is in `path`
     size: str           # "12.4 KB"
-    kind: str           # "py"
+    kind: str           # "PY" - `kind_tag`, the badge every list shows (2026-10-04)
     seen: str           # "2 hours ago"
     path: str           # shortened, for the column
     full_path: str      # for opening, revealing and the tooltip
@@ -102,8 +103,12 @@ def repo_file_rows(
             status=derive(field(record, "status", ""), field(record, "skip_code", None)),
             name=path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path,
             size=format_size(size),
-            kind=ext,
-            seen=format_when(mtime, now=now) if mtime else "",
+            # 2026-10-04, the owner: the type and the date the Search tab's
+            # way (`kind_tag`, `date_words` in its plain/technical register),
+            # as the Files list shows them - this said "py" and "3 weeks ago"
+            # whatever the setting.
+            kind=kind_tag(ext),
+            seen=date_words(mtime, now=now),
             path=shorten_path(path, limit=60),
             full_path=path,
             ext=ext,
@@ -577,7 +582,7 @@ def code_match_rows(matches: Iterable[Any], repos: Iterable[Mapping[str, Any]]) 
         name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
         line = int(match.line or 0)
         out.append(RepoFileRow(
-            name=name, size="", kind=str(match.ext or ""), seen="",
+            name=name, size="", kind=kind_tag(str(match.ext or "")), seen="",
             path=shorten_path(path, limit=60), full_path=path,
             ext=str(match.ext or ""), repo=_repo_for(path, repos),
             match=MATCH_DEFINITION if match.kind == KIND_DEFINITION else MATCH_MENTION,
