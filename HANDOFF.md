@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.61 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.62 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,15 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, later - the Mail count is done, and a correction.* `count_messages_matching`
+  for a common word (past `MATCH_PROBE_MIN` = 25,000 matches) probes each message's chunk ids,
+  from the narrow `idx_chunks_file_ord`, against the set of matching ids FTS5 hands over without
+  reading a chunk row: `pump` 459 -> 124 ms, with a sender 582 -> 50, the same counts
+  (`test_tab_scale_bounds.py`). Below the threshold the old form stays (`invoice` 13 ms; the probe
+  would be 62). **Correction to "unmerged segments changed nothing measurable"** above: true for
+  ranked search, not for the forms that ask FTS5 once per row - the Mail list walk took 45.8 ms
+  with 10 segments and 18.9 ms merged. That is one more reason `optimize_fts` now merges all three
+  word indexes. Nothing on the Files, Mail or Code tabs is left unbounded.
 - *2026-10-04 note, at close - one more fault, and where things stand.* `keyword._bounded` left
   a common word out when the only word remaining was in nothing: `pump petrrabigh` found
   nothing where it used to find the pumps and name the missing word. A remaining word must now

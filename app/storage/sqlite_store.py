@@ -100,6 +100,12 @@ MATCH_SAMPLE = 20_000
 #: at ~45,000 matches the two cost the same (153 / 135 ms); at 10,000 the
 #: walk was 331 ms against 12; at 244,000 it was 17.6 against 538.
 MATCH_WALK_MIN = 50_000
+#: Past this many matches the Mail count asks each message's chunk ids
+#: (`idx_chunks_file_ord`, narrow) against the set of matching ids, which
+#: FTS5 hands over without reading a chunk row. Bench, same counts: `pump`
+#: 459 -> 138 ms, `pump AND valve` 176 -> 95, with a sender 582 -> 50; a
+#: rare word the other way (`invoice` 16 -> 62, ~10,000 matches).
+MATCH_PROBE_MIN = 25_000
 
 #: 2026-09-30. SQLite's per-connection switch for triggers, by its number in
 #: Python's `sqlite3` (3.12 and later). None on an older Python, where
@@ -2215,11 +2221,15 @@ class SqliteStore:
         before: Optional[int] = None,
         words: str = "",
         walk_words: bool = False,
+        probe_words: bool = False,
     ) -> tuple[str, list[Any]]:
         """`(" WHERE ...", params)` over `messages m` for the Mail tab's filters.
 
         `walk_words` (the list, not the count): common words are matched per
         message as the date index is walked - see the words clause below.
+        `probe_words` (the count): common words are matched by probing each
+        message's chunk ids against the matching set - exact, as the count
+        must be.
 
         Shared by `browse_messages` and `count_messages_matching`, so the
         count under the list is the count of exactly the rows it pages through.
@@ -2292,6 +2302,17 @@ class SqliteStore:
                 "ON chunks_fts.rowid = c.id "
                 "WHERE c.file_id = m.file_id AND chunks_fts MATCH ?)")
             params.append(expression)
+        elif expression and probe_words and self._match_count(expression) > MATCH_PROBE_MIN:
+            # 2026-10-04: **the count, for common words.** Collecting each
+            # matching chunk's message read every one of those chunk rows,
+            # text and all - 459 ms for `pump`. The set of matching chunk ids
+            # comes from FTS5's own index; each message's ids come from the
+            # narrow `idx_chunks_file_ord`. Same number, 138 ms; with a sender
+            # filter 582 -> 50. See `MATCH_PROBE_MIN` for where it stops paying.
+            clauses.append(
+                "EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = m.file_id "
+                "AND c.id IN (SELECT rowid FROM chunks_fts WHERE chunks_fts MATCH ?))")
+            params.append(expression)
         elif expression:
             clauses.append(
                 "m.file_id IN (SELECT c.file_id FROM chunks_fts "
@@ -2331,7 +2352,7 @@ class SqliteStore:
         where, params = self._message_where(
             sender=sender, recipient=recipient, subject=subject,
             has_attachment=has_attachment, after=after, before=before,
-            words=words)
+            words=words, probe_words=True)
         sql = f"""
             SELECT COUNT(*) AS n FROM (
                 SELECT 1 FROM messages m
@@ -2727,6 +2748,11 @@ class SqliteStore:
             return int(found) / sample, top
         except (sqlite3.Error, AppErrorException):
             return 0.0, 0
+
+    def _match_count(self, expression: str) -> float:
+        """About how many chunks match `expression`, from the newest sample."""
+        share, top = self.chunk_match_share(expression)
+        return share * top
 
     def _match_is_broad(self, expression: str) -> bool:
         """Whether walking and asking per row beats collecting every match."""

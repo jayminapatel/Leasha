@@ -68,6 +68,15 @@ def test_the_mail_list_walked_by_date_is_the_same_list(store, monkeypatch, words
     assert before and after == before
 
 
+@pytest.mark.parametrize("words", ["pump", "holiday", "pump holiday", "nothing"])
+def test_the_mail_count_probed_is_the_same_number(store, monkeypatch, words):
+    """The count must be exact: the probing form against the collecting one."""
+    before, after = _both(monkeypatch, "MATCH_PROBE_MIN",
+                          lambda: store.count_messages_matching(words=words))
+    assert after == before
+    assert store.count_messages_matching(words=words, sender="example") == after
+
+
 def test_the_code_tabs_repositories_walked_are_the_same_repositories(store, monkeypatch):
     from app.search.query import parse_query
 
