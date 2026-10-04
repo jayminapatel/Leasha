@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.4 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.5 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -325,3 +325,16 @@ than all or nothing.
 
 Logs also live in `logs\runs\` (one file per command or window session) and `logs\sessions\`
 (recordings made with "Record what I do" or `--debug`).
+
+## Newer problems and what they mean (added 4 October 2026)
+
+| You see | What it means, and what to do |
+|---|---|
+| The window vanished while a folder picker was open, with no message | Fixed on 2026-10-02. Windows raised a harmless error inside the picker and the crash recorder itself fell over reading another thread. If it happens on 0.3.4 or later it is something new: send `logs\crash.log` and the newest file in `%LOCALAPPDATA%\CrashDumps` |
+| A mail archive (.pst) seems stuck for hours | Probably slow, not stuck: a large archive read through Outlook manages a few hundred to a few thousand messages an hour. The Indexing page now shows the folder and the count moving. Reading the file directly (Indexing > What gets read > Outlook archives) is much faster |
+| Every run reads all the mail archives again although nothing changed | Fixed on 2026-10-02. Outlook changes an archive's date just by opening it; Leasha now compares a fingerprint from inside the file and skips an archive whose contents have not moved. The first run after updating still reads each one once |
+| One folder or archive needs reading again, not all of them | Settings > What's indexed: the play button on that line ("Index now"). On the Offline page, the Rescan button on the drive's line |
+| "files type pst" (or "type pdf", "pdf files") finds nothing | From 2026-10-02 these words are read as a file type. If it still finds nothing, the index holds none: `leasha stats` says how many files are indexed. After a reset the index is empty until a run finishes |
+| Chat lists files when you asked for a number, a date or an address | Fixed on 2026-10-04: a question that names a value is read and quoted. If the answer is "not found", the value is not in what has been indexed |
+| The Offline list says "Not available" under Hardware ID | The drive's own serial has not been read yet. Rescan the drive while it is plugged in; a network share shows its address instead, because it has no hardware |
+| Which version is this? | Help > About Leasha, or `leasha --version` |

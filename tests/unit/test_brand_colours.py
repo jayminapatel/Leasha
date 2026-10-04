@@ -76,6 +76,22 @@ def test_the_splash_stripes_are_the_brands_colours_exactly():
     assert splash.BRAND_STRIPE_ORANGE.lower() == BRAND["orange"]
 
 
+def test_the_icon_files_put_their_largest_picture_first():
+    """`QPixmap(path)` loads an .ico's first picture, and the rail scales it
+    to 28px. Rebuilt from the brand's symbol on 4 October with the smallest
+    first, the rail's mark was a 16px picture blown up - a blur, seen in the
+    regrabbed guide pictures."""
+    import struct
+    from pathlib import Path
+
+    for name, first in (("leasha.ico", 256), ("leasha-tray.ico", 32)):
+        data = Path("assets", name).read_bytes()
+        count = struct.unpack("<H", data[4:6])[0]
+        widths = [data[6 + 16 * i] or 256 for i in range(count)]
+        assert widths == sorted(widths, reverse=True), f"{name}: {widths}"
+        assert widths[0] == first
+
+
 def test_the_light_accent_is_the_brand_indigo():
     light = PALETTES[Theme.LIGHT]
     assert light["accent"] == BRAND["indigo"]

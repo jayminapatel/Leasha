@@ -131,6 +131,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--env", help="path to an alternative .env file")
     parser.add_argument("--json", action="store_true", help="machine-readable output")
+    # 2026-10-04: what Help > About Leasha says, from the command line (#8).
+    from app.core.version import version as _version
+    parser.add_argument("--version", action="version", version=f"Leasha {_version()}",
+                        help="print the version and exit")
 
     # `--json` and `--env` are global, which in argparse means "before the
     # subcommand" - so `app.cli extract PATH --json` fails with an unhelpful

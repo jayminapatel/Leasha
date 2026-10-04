@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 3.1 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 3.2 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -37,6 +37,8 @@ Both are single self-contained files: open them in any browser, offline.
 | **Reports** | Digital Inheritance, the Space Report (duplicates, only copies), and the Life Timeline |
 | **Indexing** | Start, pause and watch a run; what gets read from files, mail, attachments, zips, pictures, video and code; schedule; tuning |
 | **Settings** | Folders, file types, search behaviour, models, appearance, storage and maintenance |
+
+Help › About Leasha says which version this is, who makes it, and what it is built on.
 
 Plus a search box that appears over any program (`Ctrl+Alt+L`), folder watching that indexes a
 file seconds after it is saved (off by default), and `leasha://` links.
@@ -142,7 +144,9 @@ venv\Scripts\python.exe -m app.cli stats
 ```
 
 Never run two test runs at once in one copy (they share `.pytest_tmp`); pass `--basetemp`
-to the second. `tools\grab_ui.py` renders every page of the real window to PNG.
+to the second. `tools\grab_ui.py` renders every page of the real window to PNG, and
+`tools\guide_pictures.py` retakes the user guide's pictures against the demonstration store
+and puts them into the guide (`--list` names them; `--all` takes the lot).
 
 ## When something breaks
 

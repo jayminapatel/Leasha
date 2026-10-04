@@ -30,7 +30,13 @@ import re
 import sys
 from pathlib import Path
 
-os.environ["QT_QPA_PLATFORM"] = "windows"
+#: The platform the pictures are taken through. **Set by `main`, never at
+#: import**: the first version set it here, `test_guide_pictures.py` imports
+#: this module, and every test run that collected that file then ran its Qt
+#: tests on the real Windows platform instead of offscreen - the real
+#: clipboard, the real tray, real fonts against the goldens (three "passes
+#: alone" failures on 2026-10-04 before the cause was found).
+PLATFORM = "windows"
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -45,15 +51,19 @@ GUIDE = ROOT / "docs" / "USER_GUIDE.html"
 #: are `grab_ui.SURFACES`, plus the Indexing categories the guide shows.
 CAPTIONS: dict[str, str] = {
     "search-home": "The Search page before anything is typed",
-    # Not here: "Search results with the preview pane open", its dark twin and
-    # "The Life Timeline at June 2015" need a real search over the demo store
-    # (`grab_ui._show_results` waits for the full tier) - still by hand.
+    # A real keyword search over the demo store ("boiler quote dave"), first
+    # result previewed; the dark twin is the same page with the theme switched
+    # for the grab and put back.
+    "search-results": "Search results with the preview pane open",
+    "search-results-dark": "Search results in the dark theme",
+    "timeline": "The Life Timeline at June 2015",
     "files": "The Files page",
     "mail": "The Mail page",
     "code": "The Code page",
     "chat": "The Chat page",
     "offline-media": "The Offline page",
     "reports": "The Reports page",
+    "space-report": "The Space Report",
     "indexing-status": "Indexing, Status",
     "indexing-what-gets-read": "Indexing, What gets read",
     "indexing-schedule": "Indexing, Schedule",
@@ -79,10 +89,24 @@ MENUS: dict[str, str] = {
 }
 grab_ui.SURFACES.setdefault("indexing-what-gets-read",
                             {"page": "Indexing", "category": "What gets read"})
+grab_ui.SURFACES.setdefault("search-results-dark", {"page": "Search", "state": "results"})
+grab_ui.SURFACES.setdefault("space-report", {"page": "Reports"})
+
+#: Which report each Reports picture shows. Chosen every time: the page keeps
+#: whichever report was last opened, and the first `--all` run photographed
+#: the timeline twice because the timeline picture had been taken before it.
+REPORT_SHOWN = {"reports": "inheritance", "space-report": "space"}
 
 
 def _dress(window, name: str) -> None:
     """What a surface needs beyond reaching it."""
+    if name in REPORT_SHOWN:
+        from app.ui.widgets.timeline_host import REPORT_KEY
+
+        reports = window.reports_view.list
+        for row in range(reports.count()):
+            if reports.item(row).data(REPORT_KEY) == REPORT_SHOWN[name]:
+                reports.setCurrentRow(row)
     if name == "settings-whats-indexed":
         # The demo store has no roots. Two folders and a file, set without
         # emitting (nothing is written), so the per-line controls are seen.
@@ -117,6 +141,27 @@ def grab_menu(app, window, title: str):
         grab_ui._pump(app, 5)
 
 
+def _grab_in_dark(app, window, store, name: str):
+    """The surface with the dark theme on, and the store's own choice put
+    back whatever happens - the demo store is shared by every picture."""
+    was = store.get_state("ui:theme", "") or "light"
+    try:
+        # The window's own route (Settings > Appearance): `_apply_theme` alone
+        # reads a preference the window cached when it was built.
+        window._theme_changed("dark")
+        grab_ui._settle(app, window, "the dark theme")
+        # The same words already in the box start no search, and the wait for
+        # one then times out (seen on the first run): empty it first.
+        window.search_view.input.setText("")
+        grab_ui._settle(app, window, "the emptied search box")
+        target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
+        grab_ui._pump(app, 10)
+        return target.grab()
+    finally:
+        window._theme_changed(was)
+        grab_ui._settle(app, window, "the theme put back")
+
+
 def take(names: list[str], out: Path) -> list[Path]:
     from PyQt6.QtCore import Qt, QThreadPool
     from PyQt6.QtWidgets import QApplication
@@ -132,7 +177,13 @@ def take(names: list[str], out: Path) -> list[Path]:
     app = QApplication.instance() or QApplication([])
     store = SqliteStore(settings.fts_db).connect()
     vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-    window = MainWindow(settings, store, vectors, grab_ui._Engine(store), debug=False)
+    # The real engine, keyword-only (no model is loaded for a picture), with
+    # the status line's "35ms" pinned the way the goldens pin it.
+    from app.search.engine import SearchEngine
+
+    engine = grab_ui._steady_clock(
+        SearchEngine(store, grab_ui._NoVectors(), grab_ui._NoModel(), log_usage=False))
+    window = MainWindow(settings, store, vectors, engine, debug=False)
     window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     window.resize(1280, 800)
     window.show()
@@ -143,10 +194,13 @@ def take(names: list[str], out: Path) -> list[Path]:
         for name in names:
             if name in MENUS:
                 image = grab_menu(app, window, MENUS[name])
+            elif name.endswith("-dark"):
+                image = _grab_in_dark(app, window, store, name)
             else:
                 target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
                 _dress(window, name)
                 grab_ui._pump(app, 10)
+                grab_ui._settle(app, window, f"{name}, dressed")
                 image = target.grab()
             path = out / f"{name}.png"
             if not image.save(str(path), "PNG"):
@@ -198,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
     unknown = [n for n in names if n not in CAPTIONS]
     if unknown or not names:
         parser.error(f"unknown or no surface: {', '.join(unknown) or '(none)'}; try --list")
+    os.environ["QT_QPA_PLATFORM"] = PLATFORM      # before the QApplication exists
     written = take(names, Path(args.out))
     if not args.no_swap:
         count = swap(dict(zip(names, written)))

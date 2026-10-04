@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.2 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.3 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -216,3 +216,18 @@ and `202626270514`.
 | Governor | What pauses a run when the machine is busy, on battery, or short of space, and stops it below the free-disk floor | `app/index/resources.py` |
 | TimedOut | A file that ran out of its time limit; retried with a longer one | `ERR_FILE_TIMEOUT`, `app.cli timed-out` |
 | Offline Media | Drives catalogued once and findable after unplugging; a volume is never stored by drive letter | `volumes` table, the Offline page |
+
+## Added 4 October 2026
+
+| Term | Means | Notes |
+|---|---|---|
+| Change marker | A fingerprint from inside a file that says whether its contents moved, used where the date lies. For a `.pst`: five numbers from the header that Outlook does not touch when it merely opens the file | `email_pst.archive_marker`, stored in `files.content_hash` as `pst-header:...`; `Extractor.change_marker` |
+| Entry (in Folders to index) | One line of the list: a folder, or since 3 October one file. A file entry is walked as its own folder naming only that file | `walker.walk`; "Add file…" |
+| Index now | The play button on one line of Folders to index: read that entry in full, now, and nothing else | `IndexController._index_folder_now`; CLI `leasha index --no-prune --recheck-archives -- FOLDER` |
+| Hardware ID | The serial of the disk itself (not the volume's), shown on the Offline list so two drives with the same label can be told apart; a share shows its address | `offline.hardware_id_words`, `remember_hardware_serial` |
+| Value question | A Chat question that names something written inside a document - a number, a date, an address - and is answered by quoting it rather than listing files | `router.VALUE_NOUNS`, routed to LOOKUP |
+| Preview toggle | The panel icon that shows or hides a tab's preview pane; one control on Search, Files, Mail, Code and Chat | `view_options.preview_toggle` |
+| Row cell | The plain widget that holds a control placed on a row of a list; named `rowCell` so the theme lets the row show through | `buttons.put_on_row` |
+| Text-safe tint | A brand colour darkened until white text on it reaches 4.5:1. The kind badges use them | Brand `brand.json` `textSafe`; `test_brand_colours.py` |
+| Lockup / symbol | The brand's logo with its wordmark / the cluster alone. The About box shows the lockup; the icon is the symbol | `assets/leasha-lockup*.png`, `leasha-symbol.svg` |
+| Demonstration store | The small index in `D:\Demo\leasha-guide` that the guide's pictures are taken against; never the owner's data | `tools/guide_pictures.py` |

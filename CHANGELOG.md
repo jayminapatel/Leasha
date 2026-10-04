@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.48 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.49 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,10 +17,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### After 0.3.4 (2026-10-04)
+
+- **`leasha --version`** says which version this is - what Help › About Leasha says, from the
+  command line.
+- **The mark in the corner of the window is sharp again.** Rebuilt from the brand's symbol
+  earlier the same day, the icon file led with its smallest picture and the window blew that
+  up; it leads with the largest now.
+
 ### Docs
 
 - The guide's Help menu picture is retaken with About Leasha in it; `tools/guide_pictures.py`
   takes the five menu pictures as well as the pages. `HANDOFF.md` 7.46.
+- **Every picture the tool can take is retaken** - 25 of the guide's 29: all the pages, the
+  search results in both themes, the timeline, the Space Report and the five menus - so the
+  guide shows the brand's mark, indigo and badges. By hand still: the More menu, the mini
+  search box, the Photo Tagger window.
+- `docs/TROUBLESHOOTING.md` 1.5: a table of this week's problems and what they mean.
+  `docs/GLOSSARY.md` 1.3: ten terms added. `README.md` 3.2: the picture tool and the About
+  box. `HANDOFF.md` 7.47.
 
 ## [0.3.4] - 2026-10-04
 

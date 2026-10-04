@@ -27,6 +27,21 @@ PNG = base64.b64decode(  # a 1x1 PNG
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")
 
 
+def test_importing_the_tool_does_not_change_the_platform_the_tests_run_on():
+    """It did: `QT_QPA_PLATFORM=windows` at import put every Qt test collected
+    after it on the real desktop - the real clipboard, tray and fonts."""
+    import os
+    import subprocess
+    import sys
+
+    code = ("import os; os.environ['QT_QPA_PLATFORM']='offscreen'; "
+            "from tools import guide_pictures; print(os.environ['QT_QPA_PLATFORM'])")
+    done = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
+                          cwd=str(ROOT), timeout=120)
+    assert done.stdout.strip().splitlines()[-1] == "offscreen", done.stderr[-400:]
+    assert os.environ.get("QT_QPA_PLATFORM") != "windows"
+
+
 def test_every_caption_is_exactly_one_picture_in_the_guide():
     html = (ROOT / "docs" / "USER_GUIDE.html").read_text(encoding="utf-8")
     for name, caption in guide_pictures.CAPTIONS.items():

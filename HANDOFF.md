@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.46 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.47 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2066,6 +2066,30 @@ sentence is the owner's to add there. Version bumped to **0.3.4** (PATCH: fixes;
 pictures too (`MENUS`, `grab_menu`: the menu popped up off the screen and grabbed), and the
 guide's Help menu picture is retaken with About Leasha in it. Still by hand: results, results
 dark, timeline, the More menu, the mini search box, the Photo Tagger window.
+
+**2026-10-04 (last) - the documentation brought level, and two things that found.** The owner:
+"is the documentation updated, if not do so". It was not: every guide picture showed the old
+mark and navy, the results pictures the old badges, and TROUBLESHOOTING, GLOSSARY and README
+had nothing from the week. Done: `tools/guide_pictures.py` now runs the real keyword engine
+over the demonstration store, so it takes the results (light and dark), the timeline and the
+Space Report as well - 25 of the guide's 29 pictures, all retaken; still by hand: the More
+menu, the mini search box, the Photo Tagger window. **Found on the way**: (1) `leasha.ico`
+rebuilt that afternoon led with its 16px picture, and `QPixmap(path)` loads the first one, so
+the rail's mark was a blur - largest first now, pinned in `test_brand_colours.py`; (2) the
+command line had no `--version`, which the troubleshooting text was about to promise - added
+(`test_cli_version.py`). **Traps in the tool**: the dark picture switches the theme through
+`window._theme_changed` (the window caches the preference; `_apply_theme` alone did nothing)
+and puts the demo store's own choice back; a second search for the same words starts no
+search, so the box is emptied first; the Reports page keeps the last report opened, so each
+Reports picture chooses its report (`REPORT_SHOWN`). Both post-date the `v0.3.4` tag.
+**And one that mattered more than the pictures**: the tool set `QT_QPA_PLATFORM=windows` at
+*import*, and its test imports it, so from `c4e403d` every test run that collected
+`test_guide_pictures.py` ran its Qt tests on the real desktop - which is why the affected
+selection showed two clipboard tests and the golden comparison failing "only in the big
+run" (and `test_tray` beside it). The brand commit's message blamed a busy machine; that was
+wrong. The platform is set in `main()` now and a test imports the tool in a child process and
+checks the variable is untouched. **A tool that a test imports must have no import-time
+side effects on the environment.**
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
