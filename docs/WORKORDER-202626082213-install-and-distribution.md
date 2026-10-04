@@ -1,6 +1,6 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 0.3 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 0.4 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 **Thread:** the single merged thread
@@ -236,3 +236,7 @@ is the first item of Layer 9 and must be done before the first packaged release,
 
 **Not started, and why.** §4 needs the PySide6 order first, and acceptance A1 (a clean Windows
 machine that has never had Python) cannot be met on this machine.
+
+## Note appended 2026-10-04 - the build licence, decided
+
+The owner ruled: no distribution for now. Leasha is built and run for the owner only, and no copy, packaged or not, goes to anyone else. A build kept for the owner's own use carries no GPL obligation, so the licence question no longer holds Layer 9. It reopens before the first copy is handed to anyone else, and the choice then is GPL-3.0 for distributed builds or a commercial PyQt6 licence. A note, not an edit: the paragraphs above that call the licence an open decision are left as written.

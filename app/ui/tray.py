@@ -42,7 +42,7 @@ APP_USER_MODEL_ID = "Leasha.Leasha.DesktopApp.1"
 def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
     """Give this process its own taskbar identity, separate from pythonw.exe.
 
-    *2026-10-04 note: there is now a Start Menu shortcut (`app/core/startmenu.py`),
+    *2026-10-04 note: there is now a Start Menu shortcut (`app/core/osbridge/startmenu.py`),
     and it carries this same ID, so the window and the shortcut group together.*
 
     L9 (packaging) has not started - see HANDOFF.md - so today the app is

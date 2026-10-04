@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.57 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.58 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -781,6 +781,7 @@ Nothing is pushed; the branch is `claude/outstanding-work-bugs-7edba5`.
   installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against
   `REQUIRED_FREE_GB`); no update check inside the app; supported Windows 11 and 10 22H2, tested on
   11 only; unsigned until the repository is public.
+- *2026-10-04 note - the open licence decision in the note below is taken (owner): no distribution for now. Leasha is built and run for the owner only, and no copy, packaged or not, goes to anyone else. A build kept for the owner's own use carries no GPL obligation, so the licence question no longer holds Layer 9. It reopens before the first copy is handed to anyone else, and the choice then is GPL-3.0 for distributed builds or a commercial PyQt6 licence. See `docs/ORDER_REGISTER.md` §5.*
 - *2026-09-27 note - the item below is reversed. The owner dropped the PySide6 migration
   (`202626270238`, now DROPPED in the register): Leasha stays on PyQt6. Packaging no longer
   waits on the migration; it waits on an open owner decision about which licence a
