@@ -2815,7 +2815,16 @@ class Pipeline:
                 list(self.config.walk.roots),
                 modes=load_modes(self.store.get_state(MODE_STATE_KEY, "") or ""),
                 records=load_records(self.store.get_state(RECORD_STATE_KEY, "") or ""),
-                recheck=self.config.recheck_archives,
+                # 2026-10-05, the owner: "i ran the index few times no faces
+                # nothing keeps skipping". An images pass exists to read what an
+                # earlier pass held, so "nothing has changed" is never a reason
+                # for it to skip an archive - the text pass had recorded
+                # PhotosMaster as fully indexed with all 15,010 photos held.
+                # And any run, while files are still waiting for a later pass:
+                # the owner's switch to "with the run" would otherwise have
+                # trusted the same record.
+                recheck=(self.config.recheck_archives or self.config.ocr_mode == "images"
+                         or self._files_waiting()),
                 recheck_days=self.config.recheck_days,
             )
         except Exception as exc:                    # noqa: BLE001 - see the docstring
@@ -2837,6 +2846,19 @@ class Pipeline:
             # and the date so it cannot be mistaken for an empty folder.
             self._log.info("{}", plan.describe())
 
+    def _files_waiting(self) -> bool:
+        """Whether any file is waiting for a later pass (a Deferred code). One
+        lookup on `idx_files_skip`; a failure reads as "no", the old answer."""
+        try:
+            from app.core.file_state import DEFERRED_CODES
+
+            marks = ",".join("?" for _ in DEFERRED_CODES)
+            return self.store.conn.execute(
+                f"SELECT 1 FROM files WHERE skip_code IN ({marks}) LIMIT 1",
+                tuple(DEFERRED_CODES)).fetchone() is not None
+        except Exception:                            # noqa: BLE001
+            return False
+
     def _archive_roots(self) -> list[str]:
         """Roots being skipped, for the prune guard. Normalised."""
         from app.index.archives import normalise
@@ -2847,6 +2869,18 @@ class Pipeline:
         """Store what this run saw, for the archival roots it walked in full."""
         plans = getattr(self, "_plans", ())
         if not any(plan.walk and plan.mode == "archive" for plan in plans):
+            return
+        # 2026-10-05: **a pass that left files waiting is not a full pass.** A
+        # text pass that held every picture, or a run whose pictures are still
+        # to be described or read, recorded the folder as done - and the next
+        # run, the images pass included, skipped it unread, for good.
+        from app.core.file_state import DEFERRED_CODES
+
+        waiting = sum(int(n or 0) for code, n in (stats.skipped_by_code or {}).items()
+                      if code in DEFERRED_CODES)
+        if waiting:
+            self._log.info("the archive is not recorded as fully indexed: {:,} file(s) "
+                           "are still waiting for a later pass", waiting)
             return
         try:
             from app.index.archives import (

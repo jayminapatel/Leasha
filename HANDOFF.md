@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.67 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.68 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,18 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note, later - "no faces, nothing, keeps skipping": the archive shortcut.*
+  `PhotosMaster` is marked as an archive (Indexing > Folders). Under "after-run" the text pass
+  held all 15,010 photos (`ERR_OCR_HELD`) and then recorded the folder as fully indexed
+  (`index:archives`), so the images pass - and every run after it - logged "skipped: an archive,
+  and nothing has changed" and read nothing: 0 faces, 0 passages. Fixed in `Pipeline._plan_roots`
+  / `_record_archive_pass`: a pass that leaves any file waiting (any `DEFERRED_CODES` - pictures,
+  videos and recordings, locked, cloud-only, Outlook busy) does not record the folder as done; an
+  images pass never takes the shortcut; and no run takes it while any file is waiting
+  (`_files_waiting`, one lookup on `idx_files_skip`). The owner's index needs no repair - the next
+  run reads the held photos. Checked for every kind of file: a waiting file is read again by the
+  next run (`_is_deferred`), its CLIP vector is replaced not added, its faces are not stored twice.
+  Tests: three in `test_ocr_passes.py`.
 - *2026-10-05 note - pictures in the owner's order, each model's processor, and two pushed
   faults.* The owner: "it is skipping all the files" (the after-run text pass held every photo -
   the images pass now **starts by itself** once a text pass finishes, `_start_images_pass`;

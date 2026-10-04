@@ -244,3 +244,71 @@ def test_a_held_file_is_picked_up_again_rather_than_left_for_ever(tmp_path, corp
 
     assert stats.indexed == 1                      # only the held one was left
     assert image.status == FileStatus.INDEXED
+
+
+# --- an archive folder of photos (2026-10-05) ----------------------------------
+
+def test_an_archive_held_by_the_text_pass_is_read_by_the_images_pass(tmp_path, corpus):
+    """The owner: "i ran the index few times no faces nothing keeps skipping".
+    `PhotosMaster` was marked as an archive; the text pass held all 15,010
+    photos and then recorded the folder as fully indexed, so the images pass -
+    and every run after it - skipped the whole folder unread."""
+    from app.index.archives import (
+        ARCHIVE, MODE_STATE_KEY, RECORD_STATE_KEY, dump_modes, load_records, normalise,
+    )
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        store.set_state(MODE_STATE_KEY, dump_modes({str(corpus): ARCHIVE}))
+        _run(store, corpus, ocr_mode="text")
+        records = load_records(store.get_state(RECORD_STATE_KEY, "") or "")
+        assert normalise(corpus) not in records, \
+            "a pass that held a picture is not a full pass of the folder"
+
+        stats = _run(store, corpus, ocr_mode="images")
+        image = store.get_file(str(corpus / "scan.png"))
+
+    assert not stats.skipped_roots, "the images pass does not take the archive shortcut"
+    assert image.status == FileStatus.INDEXED
+
+
+def test_an_images_pass_reads_an_archive_already_recorded_as_done(tmp_path, corpus):
+    """The owner's index as it stands: the record was written before the fix.
+    The images pass reads the held photos anyway - no repair needed."""
+    from app.index.archives import (
+        ARCHIVE, MODE_STATE_KEY, RECORD_STATE_KEY, ArchiveRecord, directory_mtime,
+        dump_modes, dump_records, normalise,
+    )
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        store.set_state(MODE_STATE_KEY, dump_modes({str(corpus): ARCHIVE}))
+        _run(store, corpus, ocr_mode="text")
+        stale = ArchiveRecord(root=str(corpus), archived_at=time.time(), files=3,
+                              mtime_ns=directory_mtime(corpus))
+        store.set_state(RECORD_STATE_KEY, dump_records({normalise(corpus): stale}))
+
+        stats = _run(store, corpus, ocr_mode="images")
+        image = store.get_file(str(corpus / "scan.png"))
+
+    assert image.status == FileStatus.INDEXED and stats.indexed == 1
+
+
+def test_a_with_the_run_pass_reads_an_archive_whose_photos_are_still_held(tmp_path, corpus):
+    """Not only the images pass: while anything is waiting, no run trusts a
+    record that says the folder is done - "with the run" included."""
+    from app.index.archives import (
+        ARCHIVE, MODE_STATE_KEY, RECORD_STATE_KEY, ArchiveRecord, directory_mtime,
+        dump_modes, dump_records, normalise,
+    )
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        store.set_state(MODE_STATE_KEY, dump_modes({str(corpus): ARCHIVE}))
+        _run(store, corpus, ocr_mode="text")
+        stale = ArchiveRecord(root=str(corpus), archived_at=time.time(), files=3,
+                              mtime_ns=directory_mtime(corpus))
+        store.set_state(RECORD_STATE_KEY, dump_records({normalise(corpus): stale}))
+
+        stats = _run(store, corpus, ocr_mode="both")
+        image = store.get_file(str(corpus / "scan.png"))
+
+    assert not stats.skipped_roots
+    assert image.status == FileStatus.INDEXED
