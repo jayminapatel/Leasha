@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.49 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.50 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **A file inside an email is listed as itself.** On the Files page every attachment read out
+  of a mail archive said *PST, 4.9 GB* - the archive's type and the archive's size, on a
+  400 KB spreadsheet. An attachment now has its own type and its own size. Rows already
+  indexed get their type the next time Leasha opens the index (schema 31); their size shows
+  blank until the archive is read again, because the size was never stored. The owner is
+  re-indexing instead, which puts both right.
+- **`*.pst` finds the archives.** Typing `*.pst` (or `*.pdf`, `-*.jpg`) used to search for
+  the word "pst" and find 229 file names containing it and none of the eight archives. A
+  star, a dot and an extension now means what `/type` means.
 - **`leasha --version`** says which version this is - what Help › About Leasha says, from the
   command line.
 - **The mark in the corner of the window is sharp again.** Rebuilt from the brand's symbol

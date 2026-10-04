@@ -118,6 +118,8 @@ _OPERATOR = re.compile(
 _PHRASE = re.compile(r'(?:(?<!\S)(?P<pneg>[-!]))?"(?P<body>[^"]*)"')
 #: Two or more stars together mean nothing more than one does.
 _STAR_RUN = re.compile(r"\*{2,}")
+#: `*.pdf`, `*.XLSM` - a star, a dot, an extension (see `parse_query`).
+_STAR_EXT = re.compile(r"\*\.([A-Za-z0-9]{1,12})")
 # Unicode-aware word run. Keeps intra-word . _ - ' so that "v1.2", "some_file" and
 # "o'brien" survive as single terms; strips emoji and punctuation, which are not
 # indexed and would only ever be FTS5 syntax errors waiting to happen.
@@ -1013,6 +1015,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
 
         negative = (chunk.startswith("-") and len(chunk) > 1) or pending_not
         pending_not = False
+        # **`*.pst` is a type.** The term pattern needs a word character
+        # before the dot, so this used to become the word "pst" - 229 file
+        # names containing it, and not one of the eight archives (the owner,
+        # 2026-10-04). A star, a dot and an extension and nothing else is
+        # exactly what `type:` means, so it is read as that.
+        glob_ext = _STAR_EXT.fullmatch(chunk.lstrip("-"))
+        if glob_ext:
+            (not_ext if negative else ext).append(glob_ext.group(1).lower())
+            continue
         for token in _TERM.findall(chunk):
             # **Runs of stars collapse; two stars in different places do not.**
             # This used to strip every trailing `*` from any token holding more

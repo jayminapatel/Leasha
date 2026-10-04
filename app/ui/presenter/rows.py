@@ -100,7 +100,11 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
             name=name,
             folder=shorten_path(folder, limit=60),
             kind=(str(row.get("ext", "")) or "?").upper(),
-            size=format_size(int(row.get("size_bytes", 0))),
+            # An attachment whose size is not known yet (schema 31 blanked
+            # the archive's) shows nothing rather than "0 B".
+            size=("" if not int(row.get("size_bytes") or 0)
+                  and str(row.get("source_kind", "")) != "file"
+                  else format_size(int(row.get("size_bytes") or 0))),
             modified=format_when(int(row.get("mtime_ns", 0)), now=now),
             size_bytes=int(row.get("size_bytes", 0)),
             mtime_ns=int(row.get("mtime_ns", 0)),

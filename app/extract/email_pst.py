@@ -251,6 +251,9 @@ def _attachment_documents(
                     document.source_kind = SourceKind.PST_MESSAGE
                     document.meta.setdefault("attachment_of", message_key)
                     document.meta.setdefault("attachment_name", name)
+                    # 2026-10-04: its own size, for the row. Without it the
+                    # row carried the archive's (4.9 GB on a 400 KB sheet).
+                    document.meta.setdefault("attachment_size", len(data))
                     document.meta.setdefault("content_hash", digest)
                     yield document
             except AppErrorException as exc:

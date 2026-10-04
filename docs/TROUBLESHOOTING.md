@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.5 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.6 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -337,4 +337,6 @@ Logs also live in `logs\runs\` (one file per command or window session) and `log
 | "files type pst" (or "type pdf", "pdf files") finds nothing | From 2026-10-02 these words are read as a file type. If it still finds nothing, the index holds none: `leasha stats` says how many files are indexed. After a reset the index is empty until a run finishes |
 | Chat lists files when you asked for a number, a date or an address | Fixed on 2026-10-04: a question that names a value is read and quoted. If the answer is "not found", the value is not in what has been indexed |
 | The Offline list says "Not available" under Hardware ID | The drive's own serial has not been read yet. Rescan the drive while it is plugged in; a network share shows its address instead, because it has no hardware |
+| Files from inside emails show as PST with the archive's size | Fixed after 0.3.4: an attachment has its own type and size. Rows indexed before get their type when the index next opens; their size is blank until the archive is read again - Settings > What's indexed > **Rescan archived folders now**, or re-index |
+| `*.pst` (or `*.pdf`) on the Files page finds everything but the files of that type | Fixed after 0.3.4: a star, a dot and an extension is read as the type. On 0.3.4 and earlier type `/type pst` instead |
 | Which version is this? | Help > About Leasha, or `leasha --version` |

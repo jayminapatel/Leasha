@@ -1038,6 +1038,24 @@ def _candidate_row_key(candidate: "Candidate") -> str:
     return str(candidate.path)
 
 
+def _row_type_and_size(item: "_Extracted") -> tuple[str, int]:
+    """`files.ext` and `files.size_bytes` for one settled document.
+
+    2026-10-04, the owner's Files page: every attachment read out of a mail
+    archive was listed as **PST, 4.9 GB** - the archive's type and the
+    archive's size, because both were taken from the candidate (the `.pst`)
+    for every document it produced. An attachment is its own file: its type
+    is its name's, and its size is what the reader saved out
+    (`attachment_size`, set by `email_pst._attachment_documents`). A message
+    still carries the archive's, as before.
+    """
+    name = item.meta.get("attachment_name")
+    if name:
+        size = item.meta.get("attachment_size")
+        return indexed_ext(Path(str(name))), int(size) if size is not None else 0
+    return indexed_ext(item.candidate.path), item.candidate.size_bytes
+
+
 def _candidate_parent_dir(candidate: "Candidate") -> str:
     """`files.parent_dir` for a bare candidate - the real folder for an
     ordinary file, and the equivalent synthetic folder for a volume-backed
@@ -5522,10 +5540,11 @@ class Pipeline:
         # relative to a SQLite statement, and the write lock is held for the
         # whole batch. Putting it in would trade commit overhead for making
         # every other thread's writes wait on a vector store.
+        row_ext, row_size = _row_type_and_size(item)
         with self.store.batch():
             file_id = self.store.upsert_file(
                 item.row_key,
-                size_bytes=candidate.size_bytes,
+                size_bytes=row_size,
                 mtime_ns=candidate.mtime_ns,
                 content_hash=(
                     _text_digest(item.chunks) if item.source_kind != "file" else item.content_hash
@@ -5561,8 +5580,9 @@ class Pipeline:
                 # `''`, `distinct_values` skips those rows, and `type:` matches
                 # on that column - so they could not be narrowed to, offered in
                 # the `/type` menu, or named in a query at all. See
-                # `source_types.indexed_ext`.
-                ext=indexed_ext(candidate.path),
+                # `source_types.indexed_ext`. An attachment's is its own
+                # (`_row_type_and_size`, 2026-10-04).
+                ext=row_ext,
                 # NULL for anything outside a repository, and for mail, whose
                 # `path` is an archive key rather than a location on disk.
                 repo_id=(

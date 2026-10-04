@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 30
+CURRENT_VERSION = 31
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1570,6 +1570,33 @@ def _v30_attachment_names(conn: sqlite3.Connection) -> None:
         conn.execute("INSERT INTO files_fts(rowid, name, folder) VALUES (?, ?, ?)",
                      (file_id, name, parent_dir or ""))
 
+def _v31_attachment_type_and_size(conn: sqlite3.Connection) -> None:
+    r"""An attachment's row carries its own type, not the archive's.
+
+    **Owner, 4 October 2026**, from the Files page: every attachment read out
+    of a `.pst` was listed as *PST, 4.9 GB* - the archive's `ext` and
+    `size_bytes` were written to every document the archive produced
+    (`pipeline._row_type_and_size` is the fix for new rows). The type is in
+    the row's own key (`.../attachments/<name>`), so it is set here. **The
+    size is not recoverable**: it was never stored, so it is set to 0 - shown
+    as blank, never as the archive's - until the archive is read again
+    (Index now on its line, or a run that rechecks archives). Idempotent.
+    """
+    from app.extract.source_types import indexed_ext
+
+    rows = conn.execute(
+        "SELECT id, path FROM files "
+        "WHERE source_kind IN ('pst_message', 'eml') AND path LIKE '%/attachments/%'"
+    ).fetchall()
+    for file_id, path in rows:
+        name = str(path).replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+        ext = indexed_ext(Path(name))
+        conn.execute(
+            "UPDATE files SET ext = ?, "
+            "size_bytes = CASE WHEN ext = ? THEN 0 ELSE size_bytes END WHERE id = ?",
+            (ext, "pst", file_id))
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1600,6 +1627,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     28: _v28_chunk_index_follows_its_columns,
     29: _v29_image_hashes,
     30: _v30_attachment_names,
+    31: _v31_attachment_type_and_size,
 }
 
 

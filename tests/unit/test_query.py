@@ -155,6 +155,21 @@ def test_type_accepts_a_list_and_a_leading_dot() -> None:
     assert set(parse_query("type:.pdf,docx x").ext) == {"pdf", "docx"}
 
 
+def test_a_star_dot_extension_is_a_type_not_a_word() -> None:
+    """The owner typed `*.pst` on the Files page (2026-10-04) and got "229
+    file names contain 'pst'" and not one of the eight archives: the term
+    pattern wants a word character before the dot, so the star was dropped
+    and "pst" searched as a word."""
+    q = parse_query("*.pst")
+    assert q.ext == ("pst",) and q.terms == () and q.text == ""
+    q = parse_query("*.PST invoice")
+    assert q.ext == ("pst",) and q.terms == ("invoice",)
+    assert parse_query("-*.jpg").not_ext == ("jpg",)
+    # A star inside a name is still a name pattern, not a type.
+    assert parse_query("report*.pdf").terms == ("report*.pdf",)
+    assert parse_query("*pst*").terms == ("*pst*",)
+
+
 @pytest.mark.parametrize(
     "raw,expected",
     [

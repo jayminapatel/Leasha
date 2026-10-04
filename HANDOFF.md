@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.47 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.48 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2094,6 +2094,25 @@ mini search box - `MiniSearch` with `_search()` called directly, since `summon` 
 keyboard and a box that is not the active window dismisses itself - and the Photo Tagger)
 are the tool's too (`WINDOWS`, `grab_window`); all 29 pictures are taken by it now. The
 `v0.3.4` tag was moved to this commit on the owner's word.
+
+**2026-10-04 (night) - an attachment's row carried the archive's type and size.** The owner's
+Files page, `*.pst`: every attachment listed as *PST, 4.9 GB*. Read in his index (read-only,
+`mode=ro`): **17,952** attachment rows, every one `ext='pst'` with its archive's byte count.
+Cause: `_write_one` passed `indexed_ext(candidate.path)` and `candidate.size_bytes` - the
+`.pst`'s - for every document the archive produced. Fix: `pipeline._row_type_and_size` (an
+attachment's type from its name, its size from `meta['attachment_size']`, which
+`email_pst._attachment_documents` now sets from the bytes it saved - both PST routes go
+through it); **schema 31** (`_v31_attachment_type_and_size`) sets the type from the key for
+rows already written and blanks the size to 0 - it was never stored - and `rows.file_rows`
+shows a 0 as blank for a non-file row rather than "0 B". **The owner chose to re-index
+rather than trust the repair**; that run must recheck archives (the marker skips an unchanged
+`.pst`): Indexing › *Reset index…* then Start, or Settings › What's indexed › *Rescan archived
+folders now*. And `*.pst` in a search box became the word "pst": `_TERM` needs a word
+character before the dot, so the star fell off. `query._STAR_EXT`: a star, a dot and an
+extension alone is a type (`-*.jpg` a `not_ext`); `report*.pdf` stays a name pattern.
+`test_attachment_type_and_size.py`, `test_query.py`. Also asked tonight, answered in
+conversation and not ordered: the index as an MCP server for other AI programs - feasible
+over stdio, read-only, about a day; new scope, waits for his order.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
