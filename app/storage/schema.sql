@@ -188,7 +188,13 @@ CREATE TABLE IF NOT EXISTS messages (
     -- How much of the body was a quoted reply or a signature, so the preview
     -- can say what it is not showing. NULL means "indexed before v12, not
     -- known" - which the pane reads differently from a genuine zero.
-    quoted_removed INTEGER
+    quoted_removed INTEGER,
+    -- Where the message sits in its archive (schema 32): the folder path the
+    -- direct reader walked, and its position in that folder. NULL when read
+    -- through Outlook or indexed before 32. Lets "Open" on an attachment go
+    -- straight to it - see `app/extract/pst_attachment.py`.
+    folder_path  TEXT,
+    folder_index INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv   ON messages(conversation);

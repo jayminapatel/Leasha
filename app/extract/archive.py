@@ -376,7 +376,10 @@ def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Docum
                 segments=document.segments,
                 source_kind=SourceKind.ARCHIVE,
                 meta={**document.meta, "inside_archive": str(archive_path),
-                      "member": member_key.split("/", 1)[-1]},
+                      "member": member_key.split("/", 1)[-1],
+                      # 2026-10-04: its own size, for its row - without it the
+                      # row carried the archive's, as mail attachments did.
+                      "member_size": _size_of(temp)},
                 warnings=document.warnings,
                 virtual_path=member_key,
             )
@@ -416,6 +419,13 @@ def _inside(member_key: str, archive_path: Path) -> str:
     prefix = str(archive_path)
     key = str(member_key)
     return key[len(prefix):].lstrip("/\\") if key.startswith(prefix) else key
+
+
+def _size_of(path: Path) -> Optional[int]:
+    try:
+        return path.stat().st_size
+    except OSError:
+        return None
 
 
 def _by_name(archive_path: Path, member_key: str,

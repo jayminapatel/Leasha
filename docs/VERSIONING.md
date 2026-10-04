@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.5 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.6 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 ## Scheme
 
@@ -90,7 +90,7 @@ Rules:
 > *Note, 1 October 2026:* in practice since late September, helper threads work in `git worktree`s and one
 > thread merges, and some work is committed straight to `main` on the owner's word (recorded in
 > `HANDOFF.md` §3). GitHub `jayminapatel/Leasha`, branch `main`, is the only master; see `CLAUDE.md`.
-> The current schema version is **31**.
+> The current schema version is **32**.
 
 **Branches** — `main` is always in a state where `doctor.py` passes and the test suite is
 green. Work happens on `layer/<n>-<name>` (e.g. `layer/1-storage`) or `fix/<short-name>`,

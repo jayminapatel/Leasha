@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.6 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.7 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -338,5 +338,6 @@ Logs also live in `logs\runs\` (one file per command or window session) and `log
 | Chat lists files when you asked for a number, a date or an address | Fixed on 2026-10-04: a question that names a value is read and quoted. If the answer is "not found", the value is not in what has been indexed |
 | The Offline list says "Not available" under Hardware ID | The drive's own serial has not been read yet. Rescan the drive while it is plugged in; a network share shows its address instead, because it has no hardware |
 | Files from inside emails show as PST with the archive's size | Fixed after 0.3.4: an attachment has its own type and size. Rows indexed before get their type when the index next opens; their size is blank until the archive is read again - Settings > What's indexed > **Rescan archived folders now**, or re-index |
+| Open on a file from an email or inside a zip says it could not take it out | The archive or zip has moved or changed since it was indexed, or the message was indexed through Outlook. Use **Open in Outlook** (for mail) or **Show in folder** (for a zip), or index it again with Index now on its line. The copy Leasha opens is read-only and lives in its own cache folder; it is removed when Leasha closes |
 | `*.pst` (or `*.pdf`) on the Files page finds everything but the files of that type | Fixed after 0.3.4: a star, a dot and an extension is read as the type. On 0.3.4 and earlier type `/type pst` instead |
 | Which version is this? | Help > About Leasha, or `leasha --version` |

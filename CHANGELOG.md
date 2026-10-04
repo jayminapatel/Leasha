@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.50 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.51 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **Open works on a file from an email, and on a file inside a zip.** Leasha saves a copy and
+  opens it in its own program - Excel for a spreadsheet, and so on. The copy is read-only and
+  kept in Leasha's own folder, so a change to it is never taken for a change to the mail;
+  copies are cleared when Leasha closes. **Open in Outlook is still there** beside it, and
+  **Show in folder** on a file inside a zip shows the zip. Opening is quick on anything
+  indexed from now on: the index remembers where each message sits in its archive (a search
+  through a 4.9 GB archive for one message took 38 seconds).
+- **Files inside a zip are listed as themselves** - their own type and size, not the zip's -
+  the same fault and fix as attachments. And the direct archive reader now records each
+  attachment's size too; the first fix covered only the Outlook route, so attachments read
+  directly would have shown a blank size.
 - **A file inside an email is listed as itself.** On the Files page every attachment read out
   of a mail archive said *PST, 4.9 GB* - the archive's type and the archive's size, on a
   400 KB spreadsheet. An attachment now has its own type and its own size. Rows already

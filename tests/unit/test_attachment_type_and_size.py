@@ -109,4 +109,5 @@ def test_the_files_page_shows_a_blank_size_for_an_attachment_not_yet_sized(store
 def test_the_schema_moved_to_31():
     from app.storage.migrations import CURRENT_VERSION, MIGRATIONS
 
-    assert CURRENT_VERSION == 31 and 31 in MIGRATIONS
+    # At least: 32 followed the same night (the message's place in its archive).
+    assert CURRENT_VERSION >= 31 and 31 in MIGRATIONS

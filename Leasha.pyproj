@@ -224,6 +224,7 @@
     <Compile Include="app\extract\plaintext.py" />
     <Compile Include="app\extract\ppt.py" />
     <Compile Include="app\extract\progress.py" />
+    <Compile Include="app\extract\pst_attachment.py" />
     <Compile Include="app\extract\pst_libpff.py" />
     <Compile Include="app\extract\publisher.py" />
     <Compile Include="app\extract\quoting.py" />
@@ -333,6 +334,7 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
     <Compile Include="app\ui\chat_view.py" />
     <Compile Include="app\ui\chips_logic.py" />
@@ -810,6 +812,7 @@
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
+    <Compile Include="tests\unit\test_open_attachment.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
     <Compile Include="tests\unit\test_ort_florence.py" />
     <Compile Include="tests\unit\test_ort_generate.py" />

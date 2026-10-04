@@ -3876,7 +3876,9 @@ class SqliteStore:
                    # and disagreed. Python's `str.lower()` does fold Unicode;
                    # doing it once at write time is the only place it can be
                    # done. See `migrations._v14_folded_mail_columns`.
-                   "sender_lc", "recipients_lc", "subject_lc")
+                   "sender_lc", "recipients_lc", "subject_lc",
+                   # Schema 32: where it sits in its archive (`pst_attachment`).
+                   "folder_path", "folder_index")
         # has_attach is NOT NULL DEFAULT 0, so it cannot be passed through as
         # None when the caller omits it.
         defaults: dict[str, Any] = {"has_attach": 0}

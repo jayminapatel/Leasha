@@ -68,7 +68,7 @@ from app.ui.rail_state import (
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import index_counts
 from app.ui.workers import (
-    CallableWorker, open_async, open_at_line_async, open_in_explorer, run,
+    CallableWorker, open_async, open_at_line_async, open_attachment_async, open_in_explorer, run,
 )
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
@@ -2034,7 +2034,22 @@ class MainWindow(QMainWindow):
         The Code tree hands up a path: its rows are repositories and files, not
         search results, and giving it a fake row to satisfy an attribute lookup
         would be the wrong way round.
+
+        **A file that came out of an email, or out of a zip** (2026-10-04),
+        has no path on disk: "Open" saves a read-only copy in Leasha's cache
+        and opens that (`workers.open_attachment_async`); "Show in folder" on a zip member
+        shows the zip. "Open in Outlook" is unchanged beside an attachment.
         """
+        from app.ui.attachment_open import opens_from_a_copy, zip_member_of
+
+        zip_path = zip_member_of(path)[0]
+        if reveal and zip_path:
+            path = zip_path                      # Show in folder: the zip that holds it
+        elif not reveal and opens_from_a_copy(path):
+            open_attachment_async(self._store, path, self._settings.cache_path,
+                                  on_error=self._show_error,
+                                  on_note=lambda text: self.notify(text, 8_000))
+            return
         # The shared helper - see `workers.open_async`. This was the correct
         # version and `files_view` had its own, blocking, copy; one function now,
         # so a third caller cannot get it wrong.
@@ -2301,6 +2316,14 @@ class MainWindow(QMainWindow):
         # app gone from the screen immediately, then the staged teardown runs
         # invisibly while holding the lock.
         self.hide()
+        # 2026-10-04: the copies "Open" made of attachments. After the hide, so
+        # the person never waits on it; a copy still open in Excel is left.
+        try:
+            from app.ui.attachment_open import clear_opened
+
+            clear_opened(self._settings.cache_path)
+        except Exception as exc:                 # a leftover is not a failure
+            _log.debug("attachment copies not cleared: {}", exc)
 
         self.recorder.event("closing")
         # **Every stage is timed, and the total is logged.** The window was

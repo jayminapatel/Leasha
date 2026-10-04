@@ -238,6 +238,53 @@ def open_async(path: str, *, reveal: bool = False,
     run(QThreadPool.globalInstance(), worker)
 
 
+def open_attachment_async(store: Any, path: str, cache_path: Any, *,
+                          on_error: Any = None, on_note: Any = None,
+                          opener: Callable[..., Any] | None = None) -> None:
+    """Save a read-only copy of an attachment or zip member and open it. 2026-10-04.
+
+    The owner: "build the open on attachment, save a copy and open it". The
+    copy is written by `tasks.save_attachment_copy` and opened in its own
+    program, both on this worker. A problem comes back as an `AppError` with
+    the way out; success as a note that the copy is not the original.
+    """
+    from pathlib import Path
+
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.attachment_open import zip_member_of
+    from app.ui.tasks import save_attachment_copy
+
+    if not path:
+        return
+    where = "the zip" if zip_member_of(path)[0] else "the email"
+
+    def save_and_open() -> Any:
+        from app.core.errors import AppErrorException
+
+        try:
+            target = save_attachment_copy(store, path, cache_path)
+        except AppErrorException as exc:
+            return exc.error
+        error = (opener or open_in_explorer)(str(target), select=False)
+        return error if isinstance(error, AppError) else target
+
+    worker = CallableWorker(save_and_open, component="ui.attachment_open")
+
+    def finished(result: Any) -> None:
+        if isinstance(result, AppError):
+            if on_error is not None:
+                on_error(result)
+        elif on_note is not None and result is not None:
+            on_note(f"Opened a copy of '{Path(result).name}' from {where}. "
+                    f"Changes to it are not saved back to {where}.")
+
+    worker.signals.finished.connect(finished)
+    if on_error is not None:
+        worker.signals.failed.connect(on_error)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def open_media_at(path: str, seconds: Any) -> Any:
     """Worker body for `open_media_async`: an `AppError` or a sentence or None."""
     from app.core import media_open

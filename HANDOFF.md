@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.48 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.49 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2113,6 +2113,32 @@ extension alone is a type (`-*.jpg` a `not_ext`); `report*.pdf` stays a name pat
 `test_attachment_type_and_size.py`, `test_query.py`. Also asked tonight, answered in
 conversation and not ordered: the index as an MCP server for other AI programs - feasible
 over stdio, read-only, about a day; new scope, waits for his order.
+
+**2026-10-04 (late) - Open on an attachment and on a zip member, and a fault in the last
+commit.** The owner: "build the open on attachment, save a copy and open it", "it must still
+have the option to open in outlook", "the same should be for zips". `_open_path` sends an
+attachment key or a zip member (`attachment_open.opens_from_a_copy`) to
+`open_attachment_async`: the bytes are read back - `pst_attachment.read_attachment` through
+libpff for mail, `zipfile` for a zip on disk, nested zips by `member_of` - written read-only
+to `<CACHE_PATH>\opened\<key>\<name>` and opened. Copies from earlier sessions are swept on
+the next Open; the window clears this session's after it hides on close. Show in folder on a
+zip member reveals the zip. Open in Outlook untouched. **Measured first**: pypff has no lookup
+by message number, and walking `2024.pst` (4.9 GB, 6,278 messages) for one took 38 s; so
+**schema 32** adds `messages.folder_path` and `messages.folder_index`, written by the direct
+reader (`_to_document(folder_index=)`) and listed in `_store_message_meta` - the lookup takes
+the folder tree (milliseconds), the message by position, and checks its number; a stale or
+missing position falls back to searching its folder, then the archive. A message read
+through Outlook (hex EntryID) says to use Open in Outlook (`ERR_ATTACHMENT_OPEN`). **Fault
+found and fixed**: `bda8813` set `attachment_size` only in `email_pst`'s loop; the direct
+reader has its own (`pst_libpff._attachment_documents`), so every directly-read attachment
+would have had a blank size - and that commit's message said both routes were covered. The
+owner's index was empty and Leasha closed, so nothing was written with it. Zip members had
+the same type-and-size fault: `archive._read_one` now sets `member_size` and
+`_row_type_and_size` prefers the member (a zipped attachment's row is the member's). No
+migration for zip rows: the index is being rebuilt. `test_open_attachment.py`. **Where it
+runs**: the worker body that reads the index is `tasks.save_attachment_copy`, the worker
+`workers.open_attachment_async`; `attachment_open.py` keeps the predicates and disk helpers.
+The first placement put both in `attachment_open.py`, and `test_ui_never_blocks` refused it.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

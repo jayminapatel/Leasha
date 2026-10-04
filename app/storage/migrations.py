@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 31
+CURRENT_VERSION = 32
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1597,6 +1597,22 @@ def _v31_attachment_type_and_size(conn: sqlite3.Connection) -> None:
             (ext, "pst", file_id))
 
 
+def _v32_message_position(conn: sqlite3.Connection) -> None:
+    r"""Where each message sits in its archive: folder path and position.
+
+    **2026-10-04, "Open" on an attachment.** pypff cannot look a message up by
+    its number, and walking a 4.9 GB archive for one took 38 s (the owner's
+    `2024.pst`). The direct reader now records the folder and the position;
+    `pst_attachment.read_attachment` goes straight there and checks the
+    number. Rows already indexed keep NULL and are found by searching.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "folder_path" not in columns:
+        conn.execute("ALTER TABLE messages ADD COLUMN folder_path TEXT")
+    if "folder_index" not in columns:
+        conn.execute("ALTER TABLE messages ADD COLUMN folder_index INTEGER")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1628,6 +1644,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     29: _v29_image_hashes,
     30: _v30_attachment_names,
     31: _v31_attachment_type_and_size,
+    32: _v32_message_position,
 }
 
 

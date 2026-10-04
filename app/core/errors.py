@@ -664,6 +664,18 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # 2026-10-04: "Open" on a file that came out of an email.
+    "ERR_ATTACHMENT_OPEN": _Spec(
+        message="Leasha could not take '{name}' out of '{path}'.",
+        suggestion=(
+            "For a file from an email, press Open in Outlook beside it: Outlook shows "
+            "the message, and the attachment opens from there. For a file inside a zip, "
+            "Show in folder shows the zip. If either has been moved or changed since it "
+            "was indexed, index it again (Settings > What's indexed > Index now on its "
+            "line). The file's text is still in the preview."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # --- Layer 2 additions --------------------------------------------------
     "ERR_FILE_TOO_LARGE": _Spec(
         message="'{path}' is larger than the limit for its type.",

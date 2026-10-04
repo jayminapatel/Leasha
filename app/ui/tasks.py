@@ -501,6 +501,45 @@ def _attachment_parent_path(path: str) -> str:
     return text[:index] if index > 0 else ""
 
 
+def save_attachment_copy(store: Any, path: str, cache_path: Any, *,
+                         reader: Any = None) -> Path:
+    """A read-only copy of the attachment or zip member `path` names. 2026-10-04.
+
+    Raises `AppErrorException` (`ERR_ATTACHMENT_OPEN`) with the way out. A
+    zip member is read from the zip on disk; an attachment from its archive,
+    found by the message's row (`messages.store_path`, `entry_id` and, from
+    schema 32, `folder_path` / `folder_index`). `reader` is the seam for
+    tests; left out, `pst_attachment.read_attachment`.
+    """
+    from app.core.errors import AppErrorException, make_error
+    from app.extract.pst_attachment import member_of, read_attachment
+    from app.ui.attachment_open import read_zip_member, write_copy, zip_member_of
+    from app.ui.presenter.mail import attachment_of
+
+    zip_path, inside = zip_member_of(path)
+    if zip_path:
+        data = read_zip_member(zip_path, inside)
+        return write_copy(path, inside.replace("\\", "/").rsplit("/", 1)[-1], data, cache_path)
+
+    parent_path, rest = attachment_of(path)
+    name, _, inner = rest.partition("/")
+    record = store.get_file(parent_path)
+    message = store.get_message(record.id) if record is not None else None
+    if not message:
+        raise AppErrorException(make_error(
+            "ERR_ATTACHMENT_OPEN", "ui.tasks", path=parent_path, name=name,
+            details="its message is not in the index"))
+    data = (reader or read_attachment)(
+        message.get("store_path") or "", str(message.get("entry_id") or ""), name,
+        folder_path=message.get("folder_path"), folder_index=message.get("folder_index"))
+    shown = name
+    if inner:
+        member = member_of(data, inner)
+        if member is not None:
+            data, shown = member, inner.replace("\\", "/").rsplit("/", 1)[-1]
+    return write_copy(path, shown, data, cache_path)
+
+
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 

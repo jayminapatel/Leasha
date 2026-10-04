@@ -592,7 +592,8 @@ def _messages(
                     message_key = f"pst://{store_name}/{identifier if identifier is not None else f'{folder_path}#{index}'}"
                 else:
                     document = _to_document(message, path, store_name, folder_path,
-                                            attachment_names=[name for name, _a in attachments])
+                                            attachment_names=[name for name, _a in attachments],
+                                            folder_index=index)
                     message_key = (document.virtual_path if document is not None
                                    else f"pst://{store_name}/{folder_path}/{index}")
             except Exception as exc:             # noqa: BLE001 - one bad message, not a bad run
@@ -646,6 +647,7 @@ def _to_document(
     store_name: str,
     folder_path: str,
     attachment_names: Optional[list[str]] = None,
+    folder_index: Optional[int] = None,
 ) -> Optional[Document]:
     headers = _safe(message, "get_transport_headers")
     subject = _safe(message, "get_subject")
@@ -692,6 +694,10 @@ def _to_document(
     )
     document.virtual_path = f"pst://{store_name}/{identifier}"
     document.meta["folder_path"] = folder_path
+    # 2026-10-04: its position in that folder, so "Open" on one of its
+    # attachments finds it without walking the archive (`pst_attachment`).
+    if folder_index is not None:
+        document.meta["folder_index"] = folder_index
     document.meta["store_name"] = store_name
     document.meta["store_cached_only"] = False
     document.meta["backend"] = "libpff"
@@ -1034,6 +1040,7 @@ def _each_attachment(
         produced = False
         try:
             target = scratch.write(name, data)
+            size = len(data)                     # for the row, after `data` is let go
             del data
             documents: Iterable[Document] = extract_path(target)
             if book is not None:
@@ -1050,6 +1057,10 @@ def _each_attachment(
                 document.source_kind = SourceKind.PST_MESSAGE
                 document.meta.setdefault("attachment_of", message_key)
                 document.meta.setdefault("attachment_name", name)
+                # Its own size for its row - left out of this reader when the
+                # Outlook route got it (bda8813), so every attachment read
+                # directly would have shown a blank size (2026-10-04).
+                document.meta.setdefault("attachment_size", size)
                 document.meta.setdefault("content_hash", digest)
                 document.meta.setdefault("backend", "libpff")
                 produced = True

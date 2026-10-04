@@ -1049,6 +1049,14 @@ def _row_type_and_size(item: "_Extracted") -> tuple[str, int]:
     (`attachment_size`, set by `email_pst._attachment_documents`). A message
     still carries the archive's, as before.
     """
+    # A file inside a zip (on disk, or attached to a message) first: for a
+    # zipped attachment `attachment_name` is the zip's, and the row is the
+    # member's. Same fault, same fix (the owner: "the same should be for zips").
+    member = item.meta.get("member") if item.meta.get("inside_archive") else None
+    if member:
+        size = item.meta.get("member_size")
+        name = str(member).replace("\\", "/").rsplit("/", 1)[-1]
+        return indexed_ext(Path(name)), int(size) if size is not None else 0
     name = item.meta.get("attachment_name")
     if name:
         size = item.meta.get("attachment_size")
@@ -5712,7 +5720,10 @@ class Pipeline:
         fields = {
             key: meta.get(key)
             for key in ("store_path", "entry_id", "conversation", "subject",
-                        "sender", "recipients", "sent_at", "quoted_removed")
+                        "sender", "recipients", "sent_at", "quoted_removed",
+                        # Schema 32 - and listed here, or the column stays NULL
+                        # for ever (the `quoted_removed` lesson above).
+                        "folder_path", "folder_index")
             if meta.get(key) is not None
         }
         if not fields:
