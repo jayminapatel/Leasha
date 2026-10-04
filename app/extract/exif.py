@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from app.core.logging import logger
 
@@ -42,6 +42,42 @@ log = logger.bind(component="extract.exif")
 _DATE_TAGS: tuple[int, ...] = (36867, 36868, 306)
 
 
+
+def _flat_exif(img: Any) -> Optional[dict]:
+    r"""Every EXIF tag of an open picture as one dict, or None - from any format.
+
+    *2026-10-05:* this module asked `img._getexif()`, which only JPEG (and a
+    few relatives) have. A HEIC photo raised AttributeError, every reader here
+    caught it, and 3,741 of the owner's 15,011 photos lost their date taken,
+    their place and their rotation without a word. `getexif()` is the public
+    reader every Pillow format shares; it keeps the date and GPS sections nested
+    (`0x8769`, `0x8825`), so they are folded back in the shape `_getexif` gave:
+    date tags at the top, GPS as a dict under 34853.
+    """
+    from app.extract.heif import register_heif
+
+    register_heif()
+    legacy = getattr(img, "_getexif", None)
+    if legacy is not None:
+        try:
+            found = legacy()
+            if found:
+                return found
+        except Exception:                           # noqa: BLE001 - try the public reader
+            pass
+    exif = img.getexif()
+    if not exif:
+        return None
+    flat = dict(exif)
+    try:
+        flat.update(exif.get_ifd(0x8769))
+        gps = exif.get_ifd(0x8825)
+        if gps:
+            flat[0x8825] = dict(gps)
+    except Exception:                               # noqa: BLE001 - the top level is still something
+        pass
+    return flat
+
 def read_datetime(path: Path) -> Optional[datetime.datetime]:
     r"""EXIF DateTimeOriginal from an image, or None. Never raises.
 
@@ -62,8 +98,12 @@ def read_datetime(path: Path) -> Optional[datetime.datetime]:
     try:
         from PIL import Image
 
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-05: before the open, or HEIC fails
+
         with Image.open(path) as img:
-            exif = img._getexif()
+            exif = _flat_exif(img)
             if exif is None:
                 return None
 
@@ -122,8 +162,12 @@ def read_gps(path: Path) -> Optional[tuple[float, float]]:
     try:
         from PIL import Image
 
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-05: before the open, or HEIC fails
+
         with Image.open(path) as img:
-            exif = img._getexif()
+            exif = _flat_exif(img)
             if exif is None:
                 return None
 
@@ -176,10 +220,14 @@ def read_orientation(path: Path) -> int:
     """
     try:
         from PIL import Image
+
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-05: before the open, or HEIC fails
         from PIL.ExifTags import TAGS
 
         with Image.open(path) as img:
-            exif = img._getexif()
+            exif = _flat_exif(img)
             if exif is None:
                 return 1
 
@@ -204,11 +252,15 @@ def read_all_metadata(path: Path) -> dict:
     """
     try:
         from PIL import Image
+
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-05: before the open, or HEIC fails
         from PIL.ExifTags import TAGS
 
         metadata = {}
         with Image.open(path) as img:
-            exif = img._getexif()
+            exif = _flat_exif(img)
             if exif is None:
                 return metadata
 

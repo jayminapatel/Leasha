@@ -23,14 +23,16 @@ crops must never block the interface thread doing it.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Optional
 
 from PyQt6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QDrag, QIcon, QPixmap
 from PyQt6.QtWidgets import (
-    QAbstractItemView, QDialog, QDialogButtonBox, QFileDialog, QGridLayout,
+    QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
+    QGridLayout,
     QHBoxLayout, QInputDialog, QLabel, QListView, QListWidget, QListWidgetItem,
-    QMenu, QMessageBox, QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QMenu, QMessageBox, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
 from app.core.logging import logger
@@ -49,6 +51,12 @@ _log = logger.bind(component="ui.photo_tagger")
 #: photo-grid surface in the application, so a person's eye does not have to
 #: re-learn a new layout switching between the results grid and this page.
 CELL = 240
+#: The face id on an item in the manage dialog.
+ROLE_FACE_ID = int(Qt.ItemDataRole.UserRole) + 7
+#: 2026-10-05: a suggestion chip's text width, and the least a Yes or No may
+#: shrink to - wide enough for a name on two lines and the words on the buttons.
+CHIP_WIDTH = 128
+CHIP_BUTTON_MIN = 56
 ROLE_PILE_ID = int(Qt.ItemDataRole.UserRole)
 ROLE_MIME = "application/x-leasha-pile-id"
 
@@ -151,7 +159,10 @@ class _SuggestionChip(QWidget):
 
         question = QLabel(f"Is this {suggestion.pile_name}?")
         question.setWordWrap(True)
-        question.setFixedWidth(96)
+        # 2026-10-05, the owner's screenshot: at 96 the name was cut ("Is
+        # this Sarit") and Yes and No were squeezed to blobs with no words.
+        question.setFixedWidth(CHIP_WIDTH)
+        question.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         yes = QPushButton("Yes")
         yes.setToolTip(f"Adds this photo to {suggestion.pile_name}.")
@@ -162,6 +173,8 @@ class _SuggestionChip(QWidget):
             "still place it by hand from the pile it belongs to.")
         no.clicked.connect(lambda: self.decided.emit(self._face_id, False))
 
+        for button in (yes, no):
+            button.setMinimumWidth(CHIP_BUTTON_MIN)
         buttons = QHBoxLayout()
         buttons.addWidget(yes)
         buttons.addWidget(no)
@@ -197,6 +210,7 @@ class PhotoTaggerPage(QWidget):
         self._store = store
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
+        self._pile_names: dict[int, str] = {}
         # 2026-10-04, the owner: "the pictures for naming should be updated
         # periodically if not live". Grouping now happens during a run
         # (`Pipeline._maybe_detect_faces`), so the page looks every
@@ -251,8 +265,22 @@ class PhotoTaggerPage(QWidget):
         #: nothing here until `reload()` finds a suggestion to ask about.
         self._suggestions_row = QHBoxLayout()
         self._suggestions_row.addStretch(1)
-        self._suggestions_holder = QWidget()
-        self._suggestions_holder.setLayout(self._suggestions_row)
+        strip = QWidget()
+        strip.setLayout(self._suggestions_row)
+        self._suggestions_strip = strip
+        # 2026-10-05, the owner: "that window is not maximizing or scaling
+        # properly it is not scrolling on the bottom too". The chips sat in a
+        # plain row, so twenty of them made the window at least ~1,900 px
+        # wide - wider than the screen - and its bottom, the grid's last row
+        # and scroll bar with it, fell off the screen. They scroll sideways now.
+        self._suggestions_holder = QScrollArea()
+        self._suggestions_holder.setWidget(strip)
+        self._suggestions_holder.setWidgetResizable(True)
+        self._suggestions_holder.setFrameShape(QFrame.Shape.NoFrame)
+        self._suggestions_holder.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._suggestions_holder.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._suggestions_holder.setVisible(False)
 
         layout = QVBoxLayout(self)
@@ -334,6 +362,7 @@ class PhotoTaggerPage(QWidget):
             return                               # a later reload won
         self._list.clear()
         piles = list(piles or [])
+        self._pile_names = {pile.id: pile.name or "" for pile in piles}
         self._empty_note.setVisible(not piles)
         self._list.setVisible(bool(piles))
 
@@ -410,6 +439,17 @@ class PhotoTaggerPage(QWidget):
                 c.set_picture(image) if g == self._generation else None)
             worker.signals.failed.connect(lambda _error: None)
             run(self._pool, worker)
+
+        # As tall as the tallest chip and its own scroll bar, so none is cut
+        # off - asked of the chips, which know their height before they are
+        # laid out (the strip does not, and came out a sliver).
+        tallest = max((chip.sizeHint().height()
+                       for chip in self._suggestions_strip.findChildren(_SuggestionChip)),
+                      default=0)
+        margins = self._suggestions_row.contentsMargins()
+        bar = self._suggestions_holder.horizontalScrollBar().sizeHint().height()
+        self._suggestions_holder.setFixedHeight(
+            tallest + margins.top() + margins.bottom() + bar + 4)
 
     def _on_suggestion_decided(self, face_id: int, accept: bool) -> None:
         """The chip's Yes/No. Declining does not delete anything - see
@@ -553,9 +593,10 @@ class PhotoTaggerPage(QWidget):
         """Section 2b's remove-from-pile and split, together - a small
         dialog listing each face in the pile with a checkbox, so a mixed
         pile can be corrected without leaving this page."""
-        dialog = _ManageFacesDialog(self._store, pile_id, self)
-        if dialog.exec() == QDialog.DialogCode.Accepted:
-            self.reload()
+        dialog = _ManageFacesDialog(self._store, pile_id, self,
+                                    pile_name=self._pile_names.get(pile_id, ""))
+        dialog.exec()
+        self.reload()                            # whatever was changed in there
 
     # -- batch-era control (0511 section 4b's override) -----------------------
 
@@ -635,133 +676,202 @@ class _BatchEraDialog(QDialog):
 
 
 class _ManageFacesDialog(QDialog):
-    """Every face in one pile, each with Remove and a multi-select Split.
-    Work order 0j section 2b."""
+    """Every face in one group: select some, then say what they are.
 
-    def __init__(self, store: Any, pile_id: int, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Manage faces")
+    *2026-10-05, the owner: "manage the faces in the pile also the window is
+    not right".* The first version put one face per row with no scrolling - a
+    group of 178 faces was a dialog about 17,000 pixels tall, most of it off
+    the screen - and it read the database on the window's thread, once per
+    face. Now: a grid that scrolls and wraps, a window that resizes and
+    maximizes, everything read on workers, and three answers for a selection -
+    not this person (and never again), a new person, or another named person.
+    """
+
+    FACE = 112
+
+    def __init__(self, store: Any, pile_id: int, parent: Optional[QWidget] = None,
+                 *, pile_name: str = "") -> None:
+        super().__init__(parent, Qt.WindowType.Window
+                         | Qt.WindowType.WindowMaximizeButtonHint
+                         | Qt.WindowType.WindowCloseButtonHint)
+        who = pile_name or "this person"
+        self.setWindowTitle(f"Faces of {who}" if pile_name else "Manage faces")
         self._store = store
         self._pile_id = pile_id
-        self._checks: list[Any] = []
+        self._pool = QThreadPool.globalInstance()
+        self._changed = False
 
-        self._grid_holder = QWidget()
-        self._grid = QGridLayout(self._grid_holder)
+        intro = QLabel(
+            f"Select the faces that are not {who} - click, Ctrl-click or Shift-click "
+            f"for several - then choose what they are instead.")
+        intro.setWordWrap(True)
+        self._count = QLabel("")
 
-        remove_button = QPushButton("Remove selected from this pile")
-        remove_button.setToolTip(
-            "The selected faces go back to being unsorted - they are not "
-            "deleted, and Leasha may group them again later.")
-        remove_button.clicked.connect(self._remove_selected)
+        self._list = QListWidget()
+        self._list.setViewMode(QListView.ViewMode.IconMode)
+        self._list.setIconSize(QSize(self.FACE, self.FACE))
+        self._list.setGridSize(QSize(self.FACE + 16, self.FACE + 16))
+        self._list.setResizeMode(QListView.ResizeMode.Adjust)
+        self._list.setMovement(QListView.Movement.Static)
+        self._list.setUniformItemSizes(True)
+        self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self._list.itemSelectionChanged.connect(self._selection_changed)
 
-        split_button = QPushButton("Move selected to a new pile")
-        split_button.setToolTip(
-            "The selected faces become their own, unnamed pile - use this "
-            "when a pile has more than one person mixed together.")
-        split_button.clicked.connect(self._split_selected)
+        select_all = QPushButton("Select all")
+        select_all.clicked.connect(self._list.selectAll)
+        self._not_this = QPushButton(f"Not {who}")
+        self._not_this.setToolTip(
+            f"The selected faces leave {who} and go back to the unsorted faces - "
+            f"and Leasha will not put them with {who} again.")
+        self._not_this.clicked.connect(self._not_this_person)
+        self._new_person = QPushButton("Make a new person")
+        self._new_person.setToolTip(
+            "The selected faces become a group of their own, ready to be named - "
+            "for when two people were mixed together.")
+        self._new_person.clicked.connect(self._split_selected)
+        self._move_to = QComboBox()
+        self._move_to.setToolTip("Another person you have named")
+        self._move = QPushButton("Move to")
+        self._move.setToolTip("The selected faces go to the person chosen beside it.")
+        self._move.clicked.connect(self._move_selected)
+
+        actions = QHBoxLayout()
+        for widget in (select_all, self._not_this, self._new_person, self._move,
+                       self._move_to):
+            actions.addWidget(widget)
+        actions.addStretch(1)
 
         close_button = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
-        close_button.rejected.connect(self.reject)
-        close_button.accepted.connect(self.accept)
-
-        buttons = QHBoxLayout()
-        buttons.addWidget(remove_button)
-        buttons.addWidget(split_button)
-        buttons.addStretch(1)
+        close_button.rejected.connect(self._close)
 
         layout = QVBoxLayout(self)
-        layout.addWidget(self._grid_holder)
-        layout.addLayout(buttons)
+        layout.addWidget(intro)
+        layout.addWidget(self._count)
+        layout.addWidget(self._list, 1)
+        layout.addLayout(actions)
         layout.addWidget(close_button)
 
+        screen = self.screen().availableGeometry() if self.screen() else None
+        if screen is not None:
+            self.resize(int(screen.width() * 0.7), int(screen.height() * 0.75))
+        self._selection_changed()
         self._load()
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
 
+    # -- reading, on workers --------------------------------------------------------
+
     def _load(self) -> None:
+        from app.ui.later import when_done
+        from app.ui.workers import CallableWorker, run
+
+        self._list.clear()
+        self._count.setText("Reading the faces...")
+        faces = CallableWorker(self._store.faces_in_pile, self._pile_id,
+                               component="ui.photo_tagger.manage")
+        when_done(self, faces, finished=self._faces_ready)
+        run(self._pool, faces)
+        people = CallableWorker(self._store.piles_with_counts,
+                                component="ui.photo_tagger.manage")
+        when_done(self, people, finished=self._people_ready)
+        run(self._pool, people)
+
+    def _faces_ready(self, faces: Any) -> None:
+        from app.ui.later import when_done
         from app.ui.thumbnail_loader import decode_face_crop
         from app.ui.workers import CallableWorker, run
 
-        faces = []
-        try:
-            faces = self._store.conn.execute(
-                "SELECT id, file_id, bbox_x, bbox_y, bbox_w, bbox_h "
-                "FROM faces WHERE pile_id = ?", (self._pile_id,)).fetchall()
-        except Exception as exc:                     # noqa: BLE001
-            _log.warning("could not list faces for pile {}: {}", self._pile_id, exc)
-            return
+        faces = list(faces or [])
+        self._count.setText(f"{len(faces):,} face(s)")
+        for face_id, path, bbox in faces:
+            item = QListWidgetItem("")
+            item.setData(ROLE_FACE_ID, int(face_id))
+            item.setToolTip(Path(path).name)
+            item.setSizeHint(QSize(self.FACE + 12, self.FACE + 12))
+            self._list.addItem(item)
+            crop = CallableWorker(decode_face_crop, path, bbox,
+                                  component="ui.photo_tagger.manage")
+            when_done(self, crop, finished=lambda image, it=item: self._show(it, image))
+            run(self._pool, crop)
 
-        pool = QThreadPool.globalInstance()
-        from PyQt6.QtWidgets import QCheckBox
+    def _people_ready(self, piles: Any) -> None:
+        self._move_to.clear()
+        for pile in piles or []:
+            if pile.id != self._pile_id and pile.name:
+                self._move_to.addItem(pile.name, pile.id)
+        self._selection_changed()
 
-        for index, row in enumerate(faces):
-            box = QCheckBox()
-            box.setAccessibleName(f"Select face {row['id']}")
-            box.setToolTip(
-                "Tick this face, then Remove or Move above to correct a "
-                "pile that has the wrong person mixed into it.")
-            box.setProperty("face_id", int(row["id"]))
-            self._checks.append(box)
-            self._grid.addWidget(box, index, 0)
-
-            picture = QLabel()
-            picture.setFixedSize(96, 96)
-            self._grid.addWidget(picture, index, 1)
-
-            file_row = self._store.conn.execute(
-                "SELECT path FROM files WHERE id = ?", (row["file_id"],)).fetchone()
-            path = file_row["path"] if file_row else ""
-            bbox = (row["bbox_x"], row["bbox_y"], row["bbox_w"], row["bbox_h"])
-            worker = CallableWorker(
-                decode_face_crop, path, bbox, component="ui.photo_tagger.manage")
-            worker.signals.finished.connect(
-                lambda image, lbl=picture: self._show(lbl, image))
-            run(pool, worker)
-
-    @staticmethod
-    def _show(label: QLabel, image: Any) -> None:
+    def _show(self, item: QListWidgetItem, image: Any) -> None:
         if image is None:
             return
         pixmap = QPixmap.fromImage(image)
         if not pixmap.isNull():
-            label.setPixmap(pixmap.scaled(
-                96, 96, Qt.AspectRatioMode.KeepAspectRatio))
+            item.setIcon(QIcon(pixmap.scaled(
+                self.FACE, self.FACE, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation)))
+
+    # -- what the selection is ----------------------------------------------------------
 
     def _selected_face_ids(self) -> list[int]:
-        return [int(box.property("face_id")) for box in self._checks if box.isChecked()]
+        return [int(item.data(ROLE_FACE_ID)) for item in self._list.selectedItems()]
 
-    def _remove_selected(self) -> None:
+    def _selection_changed(self) -> None:
+        some = bool(self._list.selectedItems())
+        self._not_this.setEnabled(some)
+        self._new_person.setEnabled(some)
+        self._move.setEnabled(some and self._move_to.count() > 0)
+
+    def _apply(self, work: Any, failure: str) -> None:
+        from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
+        worker = CallableWorker(work, component="ui.photo_tagger.manage")
+        when_done(self, worker, finished=lambda _r: self._applied(),
+                  failed=lambda error: _warn_write_failed(self, failure, error))
+        run(self._pool, worker)
+
+    def _applied(self) -> None:
+        self._changed = True
+        self._load()
+
+    def _not_this_person(self) -> None:
         face_ids = self._selected_face_ids()
 
-        def _remove_all() -> None:
-            # One worker for the whole selection, not one per face - a
-            # dialog's worth of ticked boxes is a handful of rows, and this
-            # keeps the same one-bad-item-does-not-lose-the-rest tolerance
-            # the direct-call version had.
+        def work() -> None:
             for face_id in face_ids:
                 try:
-                    self._store.remove_face_from_pile(face_id)
-                except Exception as exc:              # noqa: BLE001
-                    _log.warning("could not remove face {}: {}", face_id, exc)
+                    self._store.not_this_person(face_id)
+                except Exception as exc:              # noqa: BLE001 - one face, not all
+                    _log.warning("could not take face {} out: {}", face_id, exc)
 
-        worker = CallableWorker(_remove_all, component="ui.photo_tagger.manage")
-        worker.signals.finished.connect(lambda _r: self.accept())
-        worker.signals.failed.connect(
-            lambda error: _warn_write_failed(self, "Could not remove", error))
-        run(QThreadPool.globalInstance(), worker)
+        if face_ids:
+            self._apply(work, "Could not take them out")
 
     def _split_selected(self) -> None:
-        selected = self._selected_face_ids()
-        if not selected:
-            return
-        from app.ui.workers import CallableWorker, run
+        face_ids = self._selected_face_ids()
+        if face_ids:
+            self._apply(lambda: self._store.split_pile(face_ids), "Could not split")
 
-        worker = CallableWorker(
-            self._store.split_pile, selected, component="ui.photo_tagger.manage")
-        worker.signals.finished.connect(lambda _r: self.accept())
-        worker.signals.failed.connect(
-            lambda error: _warn_write_failed(self, "Could not split", error))
-        run(QThreadPool.globalInstance(), worker)
+    def _move_selected(self) -> None:
+        face_ids = self._selected_face_ids()
+        target = self._move_to.currentData()
+        if not face_ids or target is None:
+            return
+
+        def work() -> None:
+            for face_id in face_ids:
+                self._store.assign_face(face_id, int(target))
+
+        self._apply(work, "Could not move them")
+
+    def _close(self) -> None:
+        if self._changed:
+            self.accept()
+        else:
+            self.reject()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        if self._changed:
+            self.setResult(QDialog.DialogCode.Accepted)
+        super().closeEvent(event)

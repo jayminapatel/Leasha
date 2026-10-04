@@ -197,3 +197,34 @@ def test_the_page_asks_before_combining_and_no_leaves_both(qapp, store, monkeypa
     QThreadPool.globalInstance().waitForDone(5000)
     assert store.conn.execute("SELECT count(*) FROM piles").fetchone()[0] == 1
     page.deleteLater()
+
+
+# --- what a face was told it is not (2026-10-05) --------------------------------
+
+def test_no_to_a_suggestion_holds_for_the_next_grouping(store):
+    """The chip's No promises "Leasha will not guess this one on its own again"
+    - and it did not: the next grouping could suggest the same face again."""
+    from app.index.face_clustering import cluster_batch
+
+    photo = store.upsert_file(path="/photos/n.jpg", size_bytes=1, mtime_ns=1,
+                              source_kind="file")
+    jason = store.split_pile([store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))])
+    face = store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.05]))
+    store.suggest_face(face, jason)
+    store.confirm_suggestion(face, False)
+
+    assert store.declined_piles([face]) == {face: {jason}}
+    plan = cluster_batch([(face, fc.to_bytes([1.0, 0.05]))],
+                         {jason: fc.to_bytes([1.0, 0.0])}, store.declined_piles([face]))
+    assert not plan.assign and not plan.suggest, "never Jason again"
+
+
+def test_not_this_person_takes_a_face_out_for_good(store):
+    photo = store.upsert_file(path="/photos/m.jpg", size_bytes=1, mtime_ns=1,
+                              source_kind="file")
+    face = store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))
+    jason = store.split_pile([face, store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))])
+    assert len(store.faces_in_pile(jason)) == 2
+    store.not_this_person(face)
+    assert len(store.faces_in_pile(jason)) == 1
+    assert store.declined_piles([face]) == {face: {jason}}

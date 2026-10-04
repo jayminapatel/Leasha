@@ -707,6 +707,7 @@
     <Compile Include="tests\unit\test_era_hints.py" />
     <Compile Include="tests\unit\test_errors.py" />
     <Compile Include="tests\unit\test_exif.py" />
+    <Compile Include="tests\unit\test_exif_any_format.py" />
     <Compile Include="tests\unit\test_exif_date_wiring.py" />
     <Compile Include="tests\unit\test_exit_placement.py" />
     <Compile Include="tests\unit\test_external_run.py" />

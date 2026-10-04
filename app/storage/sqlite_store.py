@@ -4126,8 +4126,57 @@ class SqliteStore:
                     "UPDATE faces SET suggested_pile_id = NULL WHERE id = ?",
                     (face_id,),
                 )
+                # 2026-10-05: and remembered, so the No holds (`face_declines`).
+                if pile_id is not None:
+                    self._decline(conn, face_id, int(pile_id))
         if row is not None:
             self.sync_people_segment(int(row["file_id"]))
+
+    @staticmethod
+    def _decline(conn: sqlite3.Connection, face_id: int, pile_id: int) -> None:
+        try:
+            conn.execute("INSERT OR IGNORE INTO face_declines (face_id, pile_id) "
+                         "VALUES (?, ?)", (int(face_id), int(pile_id)))
+        except sqlite3.OperationalError:            # an index from before v34
+            pass
+
+    def declined_piles(self, face_ids: Sequence[int]) -> dict[int, set[int]]:
+        """`{face_id: {pile_id, ...}}` - the people each face was told it is
+        not, for grouping to leave alone. 2026-10-05."""
+        ids = [int(f) for f in face_ids]
+        if not ids:
+            return {}
+        marks = ",".join("?" for _ in ids)
+        try:
+            rows = self.conn.execute(
+                f"SELECT face_id, pile_id FROM face_declines WHERE face_id IN ({marks})",
+                ids).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        out: dict[int, set[int]] = {}
+        for face_id, pile_id in rows:
+            out.setdefault(int(face_id), set()).add(int(pile_id))
+        return out
+
+    def not_this_person(self, face_id: int) -> None:
+        """The manage dialog's "Not this person": out of its group, back to the
+        unsorted faces, and never filed or suggested there again."""
+        row = self.conn.execute("SELECT pile_id FROM faces WHERE id = ?",
+                                (int(face_id),)).fetchone()
+        pile_id = row["pile_id"] if row else None
+        self.remove_face_from_pile(face_id)
+        if pile_id is not None:
+            with self.write() as conn:
+                self._decline(conn, face_id, int(pile_id))
+
+    def faces_in_pile(self, pile_id: int) -> list[tuple[int, str, tuple]]:
+        """`(face_id, photo path, bbox)` for every face in a group, for the
+        manage dialog - read on a worker. 2026-10-05."""
+        rows = self.conn.execute(
+            "SELECT f.id, files.path, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h "
+            "FROM faces f JOIN files ON files.id = f.file_id "
+            "WHERE f.pile_id = ? ORDER BY f.id", (int(pile_id),)).fetchall()
+        return [(int(r[0]), str(r[1]), (r[2], r[3], r[4], r[5])) for r in rows]
 
     def remove_face_from_pile(self, face_id: int) -> None:
         """Section 2b's "remove-from-pile" - back to the unclustered pool,

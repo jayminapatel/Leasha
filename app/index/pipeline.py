@@ -5192,7 +5192,8 @@ class Pipeline:
                     break
 
                 plan = cluster_batch(
-                    [(face.id, face.embedding) for face in batch], centroids)
+                    [(face.id, face.embedding) for face in batch], centroids,
+                    self.store.declined_piles([face.id for face in batch]))
                 for face_id, pile_id, confidence in plan.assign:
                     self.store.assign_face(face_id, pile_id, confidence=confidence)
                     resolved += 1

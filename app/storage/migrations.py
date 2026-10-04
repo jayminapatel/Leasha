@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 33
+CURRENT_VERSION = 34
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1653,6 +1653,25 @@ def _v33_outlook_attachment_sizes_and_skip_index(conn: sqlite3.Connection) -> No
         "WHERE skip_code IS NOT NULL")
 
 
+def _v34_face_declines(conn: sqlite3.Connection) -> None:
+    r"""Who a face has been told it is not. 2026-10-05.
+
+    The suggestion chip's No promises "Leasha will not guess this one on its
+    own again", and nothing kept it: declining only cleared the suggestion,
+    so the next grouping could suggest the same face for the same person
+    again - or file it there outright. The owner's "manage the faces in the
+    pile" needs the same memory for "Not this person". Gone with the face or
+    the group (`ON DELETE CASCADE`), so a reset leaves none behind.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS face_declines (
+            face_id  INTEGER NOT NULL REFERENCES faces(id) ON DELETE CASCADE,
+            pile_id  INTEGER NOT NULL REFERENCES piles(id) ON DELETE CASCADE,
+            PRIMARY KEY (face_id, pile_id)
+        ) WITHOUT ROWID
+    """)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1686,6 +1705,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     31: _v31_attachment_type_and_size,
     32: _v32_message_position,
     33: _v33_outlook_attachment_sizes_and_skip_index,
+    34: _v34_face_declines,
 }
 
 #: Released migrations that open and close transactions of their own -

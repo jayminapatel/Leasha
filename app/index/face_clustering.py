@@ -22,7 +22,7 @@ opinion about who somebody is.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -132,6 +132,7 @@ class ClusterPlan:
 def cluster_batch(
     faces: Sequence[tuple[int, bytes]],
     existing_centroids: "dict[int, bytes] | dict[int, np.ndarray]",
+    declined: "Optional[dict[int, set[int]]]" = None,
 ) -> ClusterPlan:
     r"""Decide what to do with a batch of freshly-detected, unclustered faces.
 
@@ -160,7 +161,12 @@ def cluster_batch(
     leftover: list[tuple[int, np.ndarray]] = []
     for face_id, raw in faces:
         vector = from_bytes(raw)
-        match = best_match(vector, centroids) if centroids else None
+        # 2026-10-05: never a person this face was told it is not (`declined`,
+        # the chip's No and the manage dialog's "Not this person").
+        refused = (declined or {}).get(face_id)
+        candidates = ({p: v for p, v in centroids.items() if p not in refused}
+                      if refused else centroids)
+        match = best_match(vector, candidates) if candidates else None
         if match is None:
             leftover.append((face_id, vector))
             continue

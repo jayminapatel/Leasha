@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.69 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.70 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,21 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note, the naming window - four faults and a dialog.* From the owner's screenshot and
+  "manage the faces in the pile also the window is not right": (1) twenty "Is this ...?" chips in a
+  plain row made the window ~1,900 px wide, past the screen, so it would not maximize and its
+  bottom fell off; they scroll sideways now, sized from the chips; (2) the chips cut names and
+  squeezed Yes/No to blobs - wider now; (3) the manage dialog put one face per row with no scroll
+  (Jason's 178 faces, ~17,000 px) and read the database on the window's thread per face - rebuilt
+  as a resizable, maximizable grid read on workers, with Select all, "Not <name>", "Make a new
+  person" and "Move to <person>"; (4) **the chip's No promised "Leasha will not guess this one on
+  its own again" and kept nothing** - schema **34** adds `face_declines`; No and "Not <name>"
+  record it and grouping never files or suggests a face to a person it was declined for. And
+  **every EXIF reader used JPEG-only `_getexif()`**: all 3,741 HEIC photos had no date taken, no
+  place and no rotation (`exif._flat_exif`, registered before each open; real HEIC photos now give
+  2023-06-30 and 26.016 N 50.495 E). Photos already indexed get it on their next read.
+  **Open, the owner's**: a dedicated Photos page (proposed in conversation), and writing names into
+  the photo files, which non-negotiable 10 (read-only against user data) forbids today.
 - *2026-10-05 note, after the faces came - two groups for one person.* The owner named a second
   group "Jason": `rename_pile` raised `UNIQUE constraint failed: piles.name` (`idx_piles_name`) and
   the page said "Could not rename". The page now asks on a worker whether the name is taken

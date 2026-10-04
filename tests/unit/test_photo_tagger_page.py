@@ -153,3 +153,34 @@ def test_every_yes_no_button_states_its_effect_in_its_tooltip(qapp, store):
     for button in yes_no:
         assert button.toolTip(), f"{button.text()!r} button has no tooltip"
         assert "Daddy" in button.toolTip() or "guess" in button.toolTip().lower()
+
+
+def test_twenty_suggestions_scroll_and_never_widen_the_window(qapp, store):
+    """2026-10-05, the owner: "that window is not maximizing or scaling properly
+    it is not scrolling on the bottom too". Twenty chips in a plain row made
+    the window ~1,900 px wide - past the screen - so its bottom fell off it."""
+    from app.storage.sqlite_store import PendingSuggestion
+    from app.ui.widgets.photo_tagger_page import CHIP_BUTTON_MIN, PhotoTaggerPage
+    from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
+
+    window = PhotoTaggerWindow(store)
+    page = window.page
+    suggestions = [PendingSuggestion(face_id=n, file_id=n, path=f"/photos/{n}.jpg",
+                                     bbox=(0, 0, 1, 1), pile_id=1, pile_name="Sarita")
+                   for n in range(20)]
+    page._suggestions_ready(suggestions, page._generation)
+    window.show()
+    qapp.processEvents()
+
+    assert window.minimumSizeHint().width() < 1000, "the chips scroll, not the window"
+    holder = page._suggestions_holder
+    from app.ui.widgets.photo_tagger_page import _SuggestionChip
+
+    chip = page._suggestions_strip.findChildren(_SuggestionChip)[0]
+    assert holder.height() >= chip.sizeHint().height(), "no chip cut off - not a sliver"
+    from PyQt6.QtWidgets import QPushButton
+
+    for button in page._suggestions_strip.findChildren(QPushButton):
+        assert button.width() >= CHIP_BUTTON_MIN, f"{button.text()!r} squeezed to a blob"
+    window.close()
+    window.deleteLater()
