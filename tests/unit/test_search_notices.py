@@ -122,6 +122,38 @@ def engine(tmp_path):
     vectors.close()
 
 
+def test_a_word_left_out_as_too_common_is_said_on_the_page(engine, monkeypatch):
+    """2026-10-04. Past `keyword.SCORED_MATCHES` a word in a tenth of the index
+    is left out of the search - which changes the answer, so it is said."""
+    from app.search import keyword
+    from app.search.engine import NOTICE_LEFT_OUT
+
+    file_id = engine.store.upsert_file(path="/docs/spare.txt", size_bytes=1,
+                                       mtime_ns=9, source_kind="file")
+    engine.store.replace_chunks(file_id, [{"text": "a spare valve"}])
+    monkeypatch.setattr(keyword, "SCORED_MATCHES", 1)
+
+    response = engine.search("pump valve")
+
+    message = next(n.message for n in response.notices if n.code == NOTICE_LEFT_OUT)
+    assert "pump" in message and "valve" not in message
+
+
+def test_a_common_word_is_kept_when_the_other_is_in_nothing(engine, monkeypatch):
+    """Leaving `pump` out of `pump petrrabigh` would search for a word in
+    nothing: the pumps are found and the missing word is named instead."""
+    from app.search import keyword
+    from app.search.engine import NOTICE_LEFT_OUT
+
+    monkeypatch.setattr(keyword, "SCORED_MATCHES", 1)
+
+    response = engine.search("pump petrrabigh")
+
+    assert NOTICE_LEFT_OUT not in codes(response)
+    assert NOTICE_UNMATCHED_TERMS in codes(response)
+    assert response.keyword_count > 0
+
+
 def test_keyword_hits_with_no_vectors_produces_a_notice(engine):
     """The reported failure, end to end.
 

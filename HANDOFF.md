@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.60 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.61 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,16 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, at close - one more fault, and where things stand.* `keyword._bounded` left
+  a common word out when the only word remaining was in nothing: `pump petrrabigh` found
+  nothing where it used to find the pumps and name the missing word. A remaining word must now
+  exist in the index (`keyword._exists`, a `LIMIT 1` read). The notice is now tested through the
+  real engine (`test_search_notices.py`, both cases). Targeted run: 279 passed across the bound,
+  notice and every prefix/interim test file - **the full suite was not run on this or on
+  `e44fa98`; the owner runs it.** The bench databases were deleted (1.5 GB); `build` makes one
+  again in about five minutes, and the four result JSONs stay in `%TEMP%\leasha_bench`.
+  Still open: the Mail count (487 ms, exact), and the figures are UNVERIFIED at 20M chunks and
+  on the owner's real index, which was empty after its intended reset.
 - *2026-10-04 note - the Open item below is done, except the Mail count.* On the same bench, for
   `pump`: the Files list 611 -> 24 ms (newest matches scored, widening four-fold until the page
   fills, because `LISTED_FILES` can empty the newest slice); its count 434 -> 23 ms (streaming

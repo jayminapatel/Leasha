@@ -97,6 +97,16 @@ def _share(store: Any, expression: str, top: int) -> float:
     return int(found) / sample
 
 
+def _exists(store: Any, expression: str) -> bool:
+    """Whether any chunk matches `expression`. Never raises."""
+    try:
+        return store.conn.execute(
+            "SELECT 1 FROM chunks_fts WHERE chunks_fts MATCH ? LIMIT 1",
+            (expression,)).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
 def _bounded(store: Any, parsed: ParsedQuery, prefix_last: bool) -> tuple[ParsedQuery, int]:
     """`(query, floor)`: common words left out, and the rowid to score above (0 = all)."""
     bounded, floor, _left_out = _bound(store, parsed, prefix_last)
@@ -145,6 +155,12 @@ def _bound(store: Any, parsed: ParsedQuery,
         searched = [t for t in terms if t not in common
                     and not (t == typing and len(t) < PREFIX_MIN_CHARS)
                     and t.lower().rstrip("*") not in _STOPWORDS]
+        # And only a word the index holds: `pump petrrabigh` with `pump` left
+        # out searched for a word in nothing and found nothing, where it used
+        # to find the pumps and say "Not in the index: petrrabigh". The first
+        # match of a rare or missing word is a short read.
+        if common:
+            searched = [t for t in searched if _exists(store, _fts_quote(t))]
         if common and searched:
             from app.search.query import with_terms
 
