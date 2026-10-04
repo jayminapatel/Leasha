@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.56 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.57 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2302,6 +2302,51 @@ unchanged); (2) `ERR_OUTLOOK_BUSY` is in `file_state.DEFERRED_CODES`, so every r
 and it reads Deferred - and `Pipeline.DEFERRED_SKIP_CODES` is now that same set, not a second
 copy kept in step by hand; (3) drag-out of an attachment left as it is. The five agent worktrees
 and their branches were removed after checking each was merged into `main`.
+
+**2026-10-04 (last) - A code review of the whole program, and its fixes.** The owner: "do a
+comprehensive code review for performance consistency and reliability... Do the recommended push
+and finish all". Six read-only reviewers (storage, index, search, window, chat/LLM, cross-cutting)
+found ~70 issues; five agents fixed them in worktrees; merged here. **Corrections to entries above
+(dated, not rewritten)**: the MCP entry's "the index is opened afresh for every call" is no longer
+true - `serve/mcp._OpenIndex` keeps one store, vector set and engine per server, reopened when the
+database file, paths or vector size change; the "one route per job" entry's "Index now ... is
+`kind=NOW`" was claimed before the code did it - it does now; schema is **33**.
+- **Index (`run_setup`, `pipeline`)**: a run that is not over the saved folder set prunes only
+  under its own roots (`build_pipeline_config(whole=, prune_under=)`; Offline Media only its
+  volume) - **it pruned the whole index, so an unplugged saved root lost every row** (reproduced).
+  `run_kind`/`covers_saved_folders`: only a whole run reads or records `index:images_pass_due`;
+  ledger re-queues are scoped to the run's roots. `_save_run_books` in `finally`. New files are
+  hashed by the reader, not the walker (300 x 4 MB zips: 7.8-13.1 s -> 5.5-7.0 s, warm cache).
+  `iter_files(skip_codes=)` + `idx_files_status_skip`. WATCH is never the images pass. PST scratch
+  under `CACHE_PATH/pst-attachments`, swept after 6 h. `walker.volume_root_key` (path_key).
+- **Storage/shared rules (`app/core/row_facts.py`)**: `is_message_key`, `container_of`,
+  `is_synthetic_path`, one `ATTACHMENT_MARKER`/`attachment_of` (SQL `instr(...) > 1`, same case
+  rule as Python), `MAIL_SOURCE_KINDS`, `MESSAGE_FILE_EXTS` (+mht/mhtml/emlx), `MAIL_ARCHIVE_EXTS`,
+  `ZIP_FAMILY_EXTS`, code extensions from `code_types` (311), one `format_size`, `day_words`.
+  Migrations commit each step with its version under `BEGIN IMMEDIATE` (`ERR_MIGRATION_FAILED`);
+  v33 zeroes `.pst`/`.ost` attachment sizes equal to their archive's and adds the index.
+  `count_listed_files`/`status_counts` cached on `PRAGMA data_version` + `total_changes`; dead-thread
+  connections closed; `apply_batch_era` by path range; `files_fts` written only when it changes.
+  `opening.mail_container` uses `container_of` (merge resolution).
+- **Search/MCP**: history rows appended after the cap; MCP `log_usage=False`; missing-file checks
+  memoised per path/root; uvicorn graceful shutdown 2 s then force exit; tools refuse and drain on
+  close; bridge tells refused / wrong key (re-reads it) / timeout / server error apart; clients:
+  no `~/.claude.json` rewrite without the `claude` command, unique backups (oldest + 3 newest),
+  Bearer redacted; key made once (`INSERT OR IGNORE`); rerank boxes from `rerank_choice`.
+- **Chat/LLM**: `ort/generate.sample` sorts only near the top (32 -> ~2 ms a token); `warm_if_fits`
+  on every load; `OllamaClient.num_ctx` on every call; at most default + one picked ONNX model,
+  shared prefix budget, idle drop; `_busy` acquired with Stop/timeout (`ERR_LOCAL_MODEL_TIMEOUT`);
+  Settings no longer retargets the picked Interpret client; web wall-clock deadlines; engine
+  adoption by generation token on the window thread.
+- **Window**: thumbnails only when visible, LRU, own pool; index-location checks on a worker; PDF
+  bytes read on the preview worker (path load only after a worker stat, over 50 MB); Show in
+  folder by `opening.usable`; `ResultRow.search_id` (no misattributed opens); folder creation and
+  drops on workers; one-shot results rebuild.
+**UNVERIFIED on Windows**: Explorer/Outlook launches, QtPdf buffer loads, the grid and dialog in
+the real window, a real disconnected SMB share, cold-disk hashing, v33 on the owner's `.ost`s.
+The Start-menu shortcut (`bfa1268`) is the "Compiling to exe vs source" session's work, committed
+here at its request. Open for the owner, not changed: HANDOFF line ~780 says the packaging
+decisions were taken while `docs/ORDER_REGISTER.md` section 5 still lists five open.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

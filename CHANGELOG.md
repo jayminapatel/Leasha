@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.59 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.60 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,32 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **A code review of the whole program, for speed, consistency and reliability - and what it fixed.**
+  - **Indexing one folder no longer touches the rest of the index.** A run over a single folder
+    (a catalogued drive's scan, or `app.cli index` on one folder) checked the whole index for
+    files that had gone - so a saved folder on a network or USB drive that was unplugged at
+    that moment lost every row. It now looks only under the folders it was given.
+  - **A first index reads each new file once**, not twice (it was read in full to fingerprint
+    it, then again to index it). Measured on 300 zips: about 6 seconds instead of 8-13.
+  - **Chat with Leasha's own model writes about ten times faster per word** - choosing each word
+    looked through all 152,000 possible next words; now only the likely ones (32 ms to about
+    2 ms a word, measured). Switching between Chat and Interpret no longer makes Ollama reload
+    the model (4 seconds each time). A very large model asks for memory before it loads, at
+    most two of Leasha's own models stay loaded, Stop always stops, and a slow web page can no
+    longer hold an answer for minutes.
+  - **The window stays responsive**: photo thumbnails decode only while the grid is showing,
+    the index-location dialog and PDF previews no longer read the disk on the window's thread,
+    and a search on a network drive that is not answering no longer waits on every file.
+  - **AI programs (MCP)**: answers come several times faster (the index stays open between
+    questions), their searches are no longer written to your search history, Stop really
+    stops, and a wrong key or a timeout says so instead of "stopped".
+  - **Consistency**: one rule each for what a mail key is, what an attachment is, which
+    extensions are archives and code, and how sizes and dates are written - so every list and
+    menu agrees. Sizes read "25.0 MB" everywhere; dates "17 Sep 2023". A file from an `.ost`
+    archive no longer carries the archive's size, and `.mht`/`.emlx` emails keep their own.
+  - **Reliability**: the database upgrades each step all at once, so a crash cannot leave one
+    half-done; "Set the date for this folder" in the Photo Tagger now finds the folder's photos
+    on Windows; no more temporary attachment folders left behind.
 - **Leasha is in the Start menu.** The installer adds a per-user shortcut that opens the
   window without a console and groups with it on the taskbar. `.\leasha shortcut` adds it to an
   existing installation; `.\leasha shortcut remove` takes it out.
