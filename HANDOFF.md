@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.54 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.55 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2231,6 +2231,58 @@ the child which pass it was, and `app.cli index._ocr_mode` answers "text" for ev
 `_child_run` now passes `--only-ocr` / `--skip-ocr` from `_ocr_mode_for_run` (`_pass_flags`; a
 timed-out retry names no pass). The child's final stats carry `ocr_mode`, so a finished images
 pass clears the flag. `test_a_run_in_its_own_process_is_told_which_pass_it_is`.
+
+**2026-10-04 (late night) - One route per job, across the program.** The owner: "check this kind of
+stuff throughout the program, where ever possible the same code should run for functions so they
+are all consistent and standard", then "fix them all and push ... efficient and well structured
+for reliability and performance", accepting three recommendations: Open on an email message opens
+it in Outlook everywhere; the command line and MCP search exactly as the Search tab; Files, Code
+and Search share the Search tab's badge and date style (Mail keeps exact dates). Four read-only
+audits found ~35 divergences; five agents fixed them in separate worktrees; merged here. **Where
+each job now lives:**
+- **Starting an index run** - `app/index/run_setup.py`: `build_pipeline_config` (the window, the
+  child, the CLI, the folder watch and Offline Media all use it; `app.cli.index` re-exports it),
+  the pass rule `pass_for`/`pass_for_store`/`record_pass` (store state `index:images_pass_due`,
+  now set by CLI runs too; a stopped run changes nothing; one-folder **Index now** is `kind=NOW`,
+  text and pictures together), `apply_saved_pst_backend` (called by `Pipeline.run`, so the
+  `ui:pst_backend` choice reaches every run), `saved_cloud_content_keys`. Offline Media follows
+  `INDEX_OCR_MODE` but not `INDEX_OCR_PASS` (the drive may be gone before a later images pass) and
+  now gets picture vectors. A timed-out retry takes `INDEX_OCR_MODE` in both processes. Index now
+  and retries no longer push the next scheduled run back.
+- **Searching** - `app/search/run.py` `run_search` (and its steps `expand_query`, `read_filters`,
+  `search_once`, `git_results`, `group_by_document`, `find_files`, `rerank_wanted`); marks in
+  `app/search/marks.py` (mail details in one statement via `store.messages_by_path`, missing
+  files, offline drives). Used by the Search tab's workers, the mini box, `app.cli search`/`files`,
+  the shell, MCP. `evaluate` gained only `expand_slashes` (its baselines stay comparable). Chat
+  keeps `CHAT_POLICY`. Rerank: the saved toolbar/Settings value, then `RERANK_ENABLED`.
+- **Opening** - `presenter/opening.py` `plan_for` (pure), `tasks.open_target` (worker),
+  `workers.open_row_async` with an `OpenContext` the window lends (`MainWindow._lend_open_context`,
+  cleared on close). *Replaces `route_through_window` from the entry above, the same night* - that
+  entry's mechanism no longer exists. Removed: `_open_volume_result`, `open_attachment_async`,
+  `open_media_async`, `open_at_line_async`, `record_open_async`, `shell._moment_of`.
+  `record_open` runs for every opened row with a chunk. Right-click enablement is
+  `opening.usable` from the list's own marks (no disk stat). Pinned windows and the lightbox are
+  both `preview_window.pop_out`. Drag-out of an attachment still drags nothing (the copy would
+  have to be written on the UI thread mid-drag).
+- **Showing a row** - `app/core/row_facts.py` (`format_size` B..TB, `own_size`/`has_own_size`,
+  `archived_message_sql`, `message_name`) and `app/ui/presenter/facts.py` (`shown_date_ns`,
+  `date_words` with `set_date_register`, `display_name`, `folder_words`, `volume_folder`,
+  `status_note`). A message inside `.pst`/`.mbox`/`.olm` has no own size everywhere, including
+  `/size` and the Space report; `chat/aggregate.py` counted the archive once per message - fixed.
+  `kind_tag("")` is now no badge (was "?"); `test_result_delegate.py` notes it.
+- **Chat** - pre-load (`ChatController.preload`, 4 s after first paint, skipped when the model
+  needs over 60% of free memory), model picker (`widgets/model_picker.py`, state `ui:chat_model`;
+  CHAT_ENGINE is never rewritten; a later Settings change clears the pick), Interpret picker
+  (`controllers/interpret_controller.py`, `ui:interpret_model`). **Ollama `num_ctx`**: the router
+  ran at Ollama's default context and the answer at 8192, so Ollama reloaded the model twice a
+  question (3.9-4.9 s each); now one size. ONNX kept-prompt slots 1 -> 3. ONNX decoding itself
+  stays slow (285-760 ms a token; optimisation level is ruled out by `app/ort/session.py`).
+**Open for the owner**: (1) the Files column headed "Modified" now shows a photo's taken date and
+an attachment's sent date - the heading is unchanged (never reworded); (2) "Retry these" on the
+skipped panel still starts an ordinary run - `retry_skipped` would re-read every skipped file, and
+only `ERR_OUTLOOK_BUSY` is not already retried; (3) drag-out of an attachment.
+**UNVERIFIED on Windows**: real Outlook, Explorer, editor and player launches, the pickers' layout
+in the real window, PST reading through the saved backend - the tests stub every launcher.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

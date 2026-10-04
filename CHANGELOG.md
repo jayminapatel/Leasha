@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.56 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.57 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,37 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **Everything that does the same job now does it the same way**, after a check of the whole
+  program. What that changes for you:
+  - **Open works the same from every page.** An email opens in Outlook from Search, Mail, Chat,
+    the Timeline and pinned windows (when there is no Outlook copy, Leasha searches inside it
+    instead). A code result opens at its line from anywhere, and a recording on a catalogued
+    drive at the moment that matched. Right-click no longer greys out Open for an attachment,
+    a file inside a zip or a catalogued drive's file, and Copy path copies the real path. The
+    photo grid's menu has **View** for the full-screen viewer, so its **Open** opens the file.
+    Every open now helps ranking, not only those from the Search page.
+  - **Every search is the Search page's search.** The mini search box, the Files, Mail and Code
+    filters, the command line and AI programs (MCP) now all apply your Settings switches,
+    plain-English reading ("mail from maya about holiday"), saved searches and slash commands,
+    and give one row per document. The rerank switch on the toolbar and in Settings is one
+    setting: the toolbar could show it on while nothing was reranked.
+  - **Every list shows a file the same way** - its type badge, date, size, name and folder. A
+    message inside an `.mbox` or `.olm` archive no longer shows the whole archive's size, and
+    `/size >1gb` no longer finds messages by their archive's size; the Space report and a
+    chat "how much space" answer stop counting an archive once per message. An attachment is
+    dated by its email, and a photo by when it was taken.
+  - **Every index run is set up the same way.** Your choice of how to read Outlook archives now
+    applies when indexing runs in its own process, from the command line and from the folder
+    watch, not only inside the window. A run inside the window no longer reads Leasha's own
+    log and model folders. A catalogued drive's scan follows your Tuning limits and its photos
+    can be found by picture search. A command-line run applies your cloud-folder choices.
+- **Chat is faster, and you can choose its model while you chat.** The Chat tab has a model
+  list - Leasha's own models and every Ollama model you have - and the pick applies from the
+  next question, no restart. Interpret has the same choice in the Search page's menu. Measured
+  on the owner's laptop: through Ollama, an answer starts in about 2.3 seconds instead of 4.6-9.3
+  (Ollama was reloading the model twice a question); with Leasha's own model, the model is
+  loaded in the background when Leasha opens (9-18 seconds saved on the first question) and a
+  follow-up starts in about 16 seconds instead of 29.
 - **The file list comes up first.** As soon as an index run has found your files, every one
   is on the Files page by name - marked Queued, and findable by name - before the first is
   read. The words, then the pictures and faces, fill in behind. A file already in the index
