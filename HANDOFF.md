@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.70 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.71 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,11 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - Accept all.* The owner: "need to mass accept names as most cases the system was
+  right". Above the "Is this ...?" chips, "Accept all" with a menu: Everyone (n), then each named person
+  (n). It asks first with the numbers per person, then `SqliteStore.accept_all_suggestions(pile_id=None)`
+  files them in one write and rebuilds each photo's `People:` line once. `suggestion_counts()` feeds the
+  menu. Tests in `test_people_during_a_run.py`.
 - *2026-10-05 note, the naming window - four faults and a dialog.* From the owner's screenshot and
   "manage the faces in the pile also the window is not right": (1) twenty "Is this ...?" chips in a
   plain row made the window ~1,900 px wide, past the screen, so it would not maximize and its

@@ -283,10 +283,30 @@ class PhotoTaggerPage(QWidget):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._suggestions_holder.setVisible(False)
 
+        # 2026-10-05, the owner: "need to mass accept names as most cases the
+        # system was right". One button answers Yes to every waiting question -
+        # for everyone, or for one person - after saying how many.
+        self._waiting = QLabel("")
+        self._accept_all = QPushButton("Accept all")
+        self._accept_all.setToolTip(
+            "Says Yes to every waiting \"Is this ...?\" - for everyone, or for one "
+            "person. You are asked first, with the numbers.")
+        self._accept_menu = QMenu(self._accept_all)
+        self._accept_all.setMenu(self._accept_menu)
+        self._suggestion_counts: list[tuple[int, str, int]] = []
+        accept_bar = QHBoxLayout()
+        accept_bar.addWidget(self._waiting)
+        accept_bar.addWidget(self._accept_all)
+        accept_bar.addStretch(1)
+        self._accept_bar = QWidget()
+        self._accept_bar.setLayout(accept_bar)
+        self._accept_bar.setVisible(False)
+
         layout = QVBoxLayout(self)
         layout.addWidget(title)
         layout.addWidget(subtitle)
         layout.addLayout(top_bar)
+        layout.addWidget(self._accept_bar)
         layout.addWidget(self._suggestions_holder)
         layout.addWidget(self._list, stretch=1)
         layout.addWidget(self._empty_note)
@@ -356,6 +376,14 @@ class PhotoTaggerPage(QWidget):
         suggestions_worker.signals.failed.connect(
             lambda _error, g=generation: self._suggestions_ready([], g))
         run(self._pool, suggestions_worker)
+
+        counts_worker = CallableWorker(
+            self._store.suggestion_counts, component="ui.photo_tagger.suggestions")
+        counts_worker.signals.finished.connect(
+            lambda counts, g=generation: self._counts_ready(counts, g))
+        counts_worker.signals.failed.connect(
+            lambda _error, g=generation: self._counts_ready([], g))
+        run(self._pool, counts_worker)
 
     def _piles_ready(self, piles: Any, generation: int) -> None:
         if generation != self._generation:
@@ -450,6 +478,58 @@ class PhotoTaggerPage(QWidget):
         bar = self._suggestions_holder.horizontalScrollBar().sizeHint().height()
         self._suggestions_holder.setFixedHeight(
             tallest + margins.top() + margins.bottom() + bar + 4)
+
+    # -- accept all (2026-10-05) ------------------------------------------------
+
+    def _counts_ready(self, counts: Any, generation: int) -> None:
+        if generation != self._generation:
+            return
+        self._suggestion_counts = [tuple(c) for c in counts or []]
+        total = sum(c[2] for c in self._suggestion_counts)
+        self._accept_bar.setVisible(total > 0)
+        self._waiting.setText(f"{total:,} face(s) waiting for a Yes or No")
+        self._accept_menu.clear()
+        if not total:
+            return
+        everyone = self._accept_menu.addAction(f"Everyone ({total:,})")
+        everyone.triggered.connect(lambda: self.accept_all(None))
+        self._accept_menu.addSeparator()
+        for pile_id, name, waiting in self._suggestion_counts:
+            action = self._accept_menu.addAction(f"{name} ({waiting:,})")
+            action.triggered.connect(lambda _c=False, p=pile_id: self.accept_all(p))
+
+    def accept_all(self, pile_id: Optional[int]) -> bool:
+        """Yes to every waiting suggestion - one person's, or everyone's -
+        after the person has seen the numbers. False when they said no."""
+        from app.ui.workers import CallableWorker, run
+
+        chosen = [c for c in self._suggestion_counts if pile_id is None or c[0] == pile_id]
+        total = sum(c[2] for c in chosen)
+        if not total:
+            return False
+        lines = "\n".join(f"  {name}: {waiting:,}" for _p, name, waiting in chosen[:12])
+        if len(chosen) > 12:
+            lines += f"\n  and {len(chosen) - 12} more"
+        answer = QMessageBox.question(
+            self, "Accept all",
+            f"File {total:,} face(s) under the person Leasha suggested?\n\n{lines}\n\n"
+            f"A face filed wrongly can be taken out later - right-click the person, "
+            f"then \"Manage the faces in this pile\".")
+        if answer != QMessageBox.StandardButton.Yes:
+            return False
+        self._accept_all.setEnabled(False)
+        worker = CallableWorker(self._store.accept_all_suggestions, pile_id,
+                                component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _n: self._accepted())
+        worker.signals.failed.connect(
+            lambda error: (self._accept_all.setEnabled(True),
+                           _warn_write_failed(self, "Could not accept them", error)))
+        run(self._pool, worker)
+        return True
+
+    def _accepted(self) -> None:
+        self._accept_all.setEnabled(True)
+        self.reload()
 
     def _on_suggestion_decided(self, face_id: int, accept: bool) -> None:
         """The chip's Yes/No. Declining does not delete anything - see

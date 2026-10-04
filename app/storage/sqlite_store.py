@@ -4132,6 +4132,43 @@ class SqliteStore:
         if row is not None:
             self.sync_people_segment(int(row["file_id"]))
 
+    def suggestion_counts(self) -> list[tuple[int, str, int]]:
+        """`(pile_id, name, waiting)` for every named person with suggestions
+        waiting, most first - what "Accept all" asks about. 2026-10-05, the
+        owner: "need to mass accept names as most cases the system was right"."""
+        try:
+            rows = self.conn.execute(
+                "SELECT p.id, p.name, count(*) FROM faces f "
+                "JOIN piles p ON p.id = f.suggested_pile_id "
+                "WHERE p.name IS NOT NULL GROUP BY p.id ORDER BY count(*) DESC, p.name"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return []
+        return [(int(r[0]), str(r[1]), int(r[2])) for r in rows]
+
+    def accept_all_suggestions(self, pile_id: Optional[int] = None) -> int:
+        """Every waiting "Is this ...?" answered Yes - for one person, or for
+        everyone named - in one write; returns how many faces were filed. Each
+        photo touched has its `People:` line rebuilt once, as a single Yes does."""
+        where = "f.suggested_pile_id IS NOT NULL AND p.name IS NOT NULL"
+        args: list[Any] = []
+        if pile_id is not None:
+            where += " AND f.suggested_pile_id = ?"
+            args.append(int(pile_id))
+        rows = self.conn.execute(
+            f"SELECT f.id, f.file_id, f.suggested_pile_id FROM faces f "
+            f"JOIN piles p ON p.id = f.suggested_pile_id WHERE {where}", args).fetchall()
+        if not rows:
+            return 0
+        with self.write() as conn:
+            conn.executemany(
+                "UPDATE faces SET pile_id = ?, confidence = NULL, "
+                "suggested_pile_id = NULL WHERE id = ?",
+                [(int(r[2]), int(r[0])) for r in rows])
+        for file_id in sorted({int(r[1]) for r in rows}):
+            self.sync_people_segment(file_id)
+        return len(rows)
+
     @staticmethod
     def _decline(conn: sqlite3.Connection, face_id: int, pile_id: int) -> None:
         try:

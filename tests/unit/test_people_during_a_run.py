@@ -228,3 +228,64 @@ def test_not_this_person_takes_a_face_out_for_good(store):
     store.not_this_person(face)
     assert len(store.faces_in_pile(jason)) == 1
     assert store.declined_piles([face]) == {face: {jason}}
+
+
+# --- accept all (2026-10-05) ------------------------------------------------------
+
+def _suggested(store, name, how_many):
+    photo = store.upsert_file(path=f"/photos/{name}.jpg", size_bytes=1, mtime_ns=1,
+                              source_kind="file")
+    pile = store.split_pile([store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))])
+    store.rename_pile(pile, name)
+    faces = [store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))
+             for _ in range(how_many)]
+    for face in faces:
+        store.suggest_face(face, pile)
+    return pile, faces
+
+
+def test_accept_all_files_every_suggestion_for_one_person_or_everyone(store):
+    """The owner: "need to mass accept names as most cases the system was right"."""
+    jason, _ = _suggested(store, "Jason", 3)
+    sarita, _ = _suggested(store, "Sarita", 2)
+    assert store.suggestion_counts() == [(jason, "Jason", 3), (sarita, "Sarita", 2)]
+
+    assert store.accept_all_suggestions(sarita) == 2
+    assert store.suggestion_counts() == [(jason, "Jason", 3)]
+    assert len(store.faces_in_pile(sarita)) == 3
+
+    assert store.accept_all_suggestions() == 3
+    assert store.suggestion_counts() == [] and store.pending_suggestions() == []
+    assert len(store.faces_in_pile(jason)) == 4
+    people = store.conn.execute(
+        "SELECT text FROM chunks WHERE text LIKE '%Jason%'").fetchall()
+    assert people, "the photo's People line names them, as a single Yes does"
+
+
+def test_the_page_asks_with_the_numbers_before_accepting_all(qapp, store, monkeypatch):
+    from PyQt6.QtCore import QThreadPool
+    from PyQt6.QtWidgets import QMessageBox
+
+    from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
+
+    jason, _ = _suggested(store, "Jason", 2)
+    page = PhotoTaggerPage(store)
+    monkeypatch.setattr(page, "reload", lambda: None)
+    page._counts_ready(store.suggestion_counts(), page._generation)
+    assert page._accept_bar.isVisibleTo(page)
+    assert [a.text() for a in page._accept_menu.actions() if a.text()] == [
+        "Everyone (2)", "Jason (2)"]
+
+    asked = []
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: asked.append(a[2])
+                        or QMessageBox.StandardButton.No)
+    assert page.accept_all(None) is False
+    assert "File 2 face(s)" in asked[0] and "Jason: 2" in asked[0]
+    assert store.suggestion_counts(), "No leaves them waiting"
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    assert page.accept_all(jason) is True
+    QThreadPool.globalInstance().waitForDone(5000)
+    assert store.suggestion_counts() == []
+    page.deleteLater()
