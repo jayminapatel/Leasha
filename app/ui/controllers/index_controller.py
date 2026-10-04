@@ -92,6 +92,11 @@ class IndexController(QObject):
         #: folder's "Index now", not a retry? Only a whole run moves the
         #: schedule (`_schedule_after_run`). Set in `_index_resolved`.
         self._whole_run = True
+        #: 2026-10-04, code review: is the run now going over the saved folder
+        #: set (`run_setup.covers_saved_folders`), so that it takes the
+        #: "after-run" turn and records it? One folder's "Index now" read and
+        #: wrote the index-wide "images due" flag. Set in `_index_resolved`.
+        self._pass_whole = True
 
     # -- the schedule -------------------------------------------------------
 
@@ -239,16 +244,34 @@ class IndexController(QObject):
 
         return pass_for(self._w._settings, images_due=self._images_due)
 
-    def _run_pass(self, retry: Any = None) -> str:
+    def _run_pass(self, retry: Any = None, *, whole: bool = True) -> str:
         """The pass for a run about to be built: `_ocr_mode_for_run`, or for a
         retry (order 0z F3) what `INDEX_OCR_MODE` says, whatever the schedule -
         the rule `app.cli index --retry-timed-out` follows, so a retry takes
-        the same pass in this window and in a separate process."""
-        if retry is None:
+        the same pass in this window and in a separate process.
+
+        *2026-10-04, code review:* a run that is not over the saved folder set
+        (`whole` False - one folder's "Index now") takes that same rule: it
+        neither reads nor records the index-wide "images due" flag."""
+        if retry is None and whole:
             return self._w._ocr_mode_for_run()
         from app.index.run_setup import NOW, pass_for
 
         return pass_for(self._w._settings, NOW)
+
+    def _covers_saved(self, roots: Optional[list[str]]) -> bool:
+        """Is a run over `roots` (None: Start) a run over the saved folder set?
+        Reads the folder list's widget only - no I/O."""
+        if roots is None:
+            return True
+        from app.index.run_setup import covers_saved_folders
+
+        try:
+            saved = self._w.settings_view.current_roots()
+        except Exception as exc:                     # noqa: BLE001 - one folder's run
+            _log.debug("the saved folder list could not be read: {}", exc)
+            return False
+        return covers_saved_folders(roots, saved)
 
     def load_images_due(self) -> None:
         """Whether a finished text pass left its images to read - from the
@@ -267,10 +290,28 @@ class IndexController(QObject):
         not landed yet. Reading, not deciding: nothing is written back."""
         if due is None or self._images_due_saving:
             return
+        changed = bool(due) != self._images_due
         self._images_due = bool(due)
+        if changed:                     # read every few seconds; redraw on a change
+            self._tell_coverage()
+
+    def _tell_coverage(self) -> None:
+        """2026-10-04, code review: the What gets read page's pictures sentence
+        follows `run_setup.pass_for`, which needs to know whether the images
+        are due. A widget update, no I/O; nothing to do without the page."""
+        box = getattr(getattr(getattr(self._w, "indexing_view", None), "tuning", None),
+                      "coverage", None)
+        note = getattr(box, "note_levers", None)
+        if note is None:
+            return
+        try:
+            note({"images_due": self._images_due})
+        except RuntimeError:                         # the page is being torn down
+            return
 
     def _set_images_due(self, due: bool) -> None:
         self._images_due = bool(due)
+        self._tell_coverage()
         self._images_due_saving = True
         worker = save_states(self._w._store, {self.IMAGES_DUE_STATE: "1" if due else ""},
                              component="ui.index.images_due", owner=self,
@@ -301,9 +342,11 @@ class IndexController(QObject):
         # Start carries it on as the same pass.
         finished = (not getattr(self._w.indexing_view, "_stopping", False)
                     and getattr(_stats, "stopped_early", None) is None)
+        # 2026-10-04, code review: one folder's run records nothing either.
         due = images_due_after(
             self._w._settings, str(getattr(_stats, "ocr_mode", "") or ""),
-            kind=NOW if was_retry(_stats) else SCHEDULED, finished=finished)
+            kind=NOW if was_retry(_stats) or not self._pass_whole else SCHEDULED,
+            finished=finished)
         if due is None:
             return
         # An images pass that has run makes the next Start a text pass again.
@@ -879,6 +922,9 @@ class IndexController(QObject):
         # 2026-10-04: only a whole run over the saved folders moves the
         # schedule - see `_schedule_after_run`. Either path below.
         self._whole_run = roots is None and retry is None
+        # 2026-10-04, code review: and only a run over the saved folder set
+        # takes the "after-run" turn - see `_run_pass`.
+        self._pass_whole = retry is None and self._covers_saved(roots)
 
         # Work order 0x §2: the same run, in a child process, when the
         # "Index in a separate process" switch is on. Everything below this
@@ -940,7 +986,10 @@ class IndexController(QObject):
                 # settled corpus. `recheck_archives` is the "Rescan archived
                 # folders now" button, which walks them all in full this once.
                 recheck_archives=recheck_archives,
-                ocr_mode=self._run_pass(retry),
+                ocr_mode=self._run_pass(retry, whole=self._pass_whole),
+                # The whole index's clean-up for Start only (`prune` above is
+                # off for any other run of this window's).
+                whole=roots is None,
             ),
             image_embedder=image_embedder, image_vectors=self._w._image_vectors,
         )
@@ -1030,7 +1079,8 @@ class IndexController(QObject):
         """
         if retry is not None:
             return []
-        mode = self._w._ocr_mode_for_run()
+        # 2026-10-04, code review: one folder's pass is its own (`_run_pass`).
+        mode = self._run_pass(None, whole=self._pass_whole)
         return {"images": ["--only-ocr"], "text": ["--skip-ocr"]}.get(mode, [])
 
     def _first_folders(self) -> list[str]:

@@ -73,6 +73,9 @@ class _Broken:
     # documents unread.
     ("after-run", "both", WATCH, True, "text"),
     ("with-run", "both", WATCH, False, "both"),
+    # 2026-10-04, code review: nor under "with-run" with INDEX_OCR_MODE=images.
+    ("with-run", "images", WATCH, False, "text"),
+    ("with-run", "images", SCHEDULED, False, "images"),
     # A retry or an offline drive reads as INDEX_OCR_MODE says, now.
     ("after-run", "both", NOW, True, "both"),
     ("manual", "text", NOW, False, "text"),
@@ -217,9 +220,18 @@ def test_a_command_line_text_pass_makes_its_next_run_the_images_pass(
         capsys, after_run_env, tmp_path) -> None:
     """Before, only the window knew: `app.cli index` under "after-run" was the
     text pass every time, and its own advice was to type `--only-ocr`."""
+    # *Note, 2026-10-04, code review:* the folder is saved as the folder set
+    # first. A run over folders that are not the saved set no longer takes
+    # the "after-run" turn - see the test below.
+    from app.cli import ROOTS_STATE_KEY
+
     root = tmp_path / "docs"
     root.mkdir()
     (root / "notes.txt").write_text("pump station report", encoding="utf-8")
+    db = _db(after_run_env)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with SqliteStore(db) as store:
+        store.set_state(ROOTS_STATE_KEY, str(root))
     run = ("--env", str(after_run_env), "--json", "index", str(root),
            "--workers", "1", "--fake-embedder-for-bench")
 
@@ -231,6 +243,61 @@ def test_a_command_line_text_pass_makes_its_next_run_the_images_pass(
         with SqliteStore(_db(after_run_env)) as store:
             passes.append(store.get_state(IMAGES_DUE_STATE, ""))
     assert passes == ["text", "1", "images", "", "text", "1"]
+
+
+def test_a_run_over_other_folders_neither_reads_nor_records_the_images_pass(
+        capsys, after_run_env, tmp_path) -> None:
+    """2026-10-04, code review: a command-line run over one folder read the
+    index-wide "images due" flag and wrote it, so one folder's text pass made
+    the next run over every folder the images pass (and one folder's images
+    pass, which read every held scan in the index, cleared it). Such a run
+    reads as `INDEX_OCR_MODE` says, like "Index now", and records nothing."""
+    from app.cli import ROOTS_STATE_KEY
+
+    saved, other = tmp_path / "saved", tmp_path / "other"
+    for folder in (saved, other):
+        folder.mkdir()
+        (folder / "notes.txt").write_text("pump station report", encoding="utf-8")
+    db = _db(after_run_env)
+    db.parent.mkdir(parents=True, exist_ok=True)
+    with SqliteStore(db) as store:
+        store.set_state(ROOTS_STATE_KEY, f"{saved}|{other}")
+        store.set_state(IMAGES_DUE_STATE, "1")
+    code, out = _cli(capsys, "--env", str(after_run_env), "--json", "index", str(other),
+                     "--workers", "1", "--fake-embedder-for-bench")
+    assert code == 0
+    assert json.loads(out)["ocr_mode"] == "both", "not the saved set's images pass"
+    with SqliteStore(db) as store:
+        assert store.get_state(IMAGES_DUE_STATE, "") == "1", "and nothing recorded"
+
+
+def test_one_folder_s_images_pass_reads_only_that_folder_s_held_files(tmp_path) -> None:
+    """2026-10-04, code review: the images pass reads its work back from the
+    index (`ERR_NO_TEXT_LAYER` rows, the held-pictures archive list), and a
+    run over one folder read every folder's."""
+    from app.core.errors import make_error
+    from app.index.pipeline import Pipeline, PipelineConfig
+    from app.index.walker import WalkConfig
+
+    mine, theirs = tmp_path / "mine", tmp_path / "theirs"
+    for folder in (mine, theirs):
+        folder.mkdir()
+        (folder / "scan.pdf").write_bytes(b"%PDF-1.4 nothing")
+        (folder / "mail.pst").write_bytes(b"!BDN")
+    with SqliteStore(tmp_path / "index.db") as store:
+        for folder in (mine, theirs):
+            pdf = str(folder / "scan.pdf")
+            file_id = store.upsert_file(pdf, size_bytes=1, mtime_ns=1)
+            store.mark_skipped(file_id, make_error("ERR_NO_TEXT_LAYER", "t", path=pdf))
+        pipeline = Pipeline.__new__(Pipeline)
+        pipeline.store = store
+        pipeline.config = PipelineConfig(walk=WalkConfig(roots=[mine]), ocr_mode="images")
+        pipeline._log = SimpleNamespace(debug=lambda *a, **k: None)
+        pipeline._held_archives().note(mine / "mail.pst", held=2, finished=True)
+        pipeline._held_archives().note(theirs / "mail.pst", held=2, finished=True)
+        queued = [c.path for c in pipeline._no_text_layer_candidates()]
+        queued += [c.path for c in pipeline._held_archive_candidates()]
+    assert sorted(queued) == sorted([mine / "scan.pdf", mine / "mail.pst"])
 
 
 def test_a_command_line_run_over_the_saved_folders_uses_what_the_window_saved(
@@ -332,5 +399,7 @@ def test_an_offline_media_scan_is_built_like_every_other_run(tmp_path, monkeypat
     assert config.ocr_mode == "both", "the whole drive now: it is unplugged afterwards"
     assert config.file_time_limit_s == 45 and config.read_processes is True
     assert config.walk.volume_roots == {str(root).rstrip("\\/").lower(): 7}
+    # 2026-10-04, code review: its clean-up is this drive's rows, not the index.
+    assert config.prune_missing and config.prune_under == ("leasha-volume://7/",)
     assert config.walk.exclude_paths == own_paths(settings)
     assert seen["image_embedder"] is not None and seen["image_vectors"] is not None

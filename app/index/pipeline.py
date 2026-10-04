@@ -123,10 +123,10 @@ from app.index.resources import (
 )
 from app.index.read_order import ORDER_NEWEST, WorkList, normalise_order
 from app.index.stages import WAITING, StageClock
+from app.index import walker as _walker_module
 from app.index.walker import (
     Candidate,
     WalkConfig,
-    content_hash,
     enclosing_repo,
     has_changed,
     repo_kind_at,
@@ -135,6 +135,10 @@ from app.index.walker import (
 from app.storage.filters import MAIL_KINDS
 from app.storage.sqlite_store import FileStatus, SqliteStore
 from app.storage.vector_store import ImageVectorStore, VectorStore
+
+#: Still importable from here (tests do); this module itself calls
+#: `_walker_module.content_hash`, so a spy on the walker's sees every hash.
+content_hash = _walker_module.content_hash
 
 class _Unchanged:
     """The "skip this file" answer from `_classify`.
@@ -240,7 +244,9 @@ DISK_CHECK_EVERY = 200
 #: it is right up to about 100GB. `text` and `images` are the split that makes a
 #: terabyte tractable: the first pass makes search useful in a day or two and
 #: the second fills in the images behind it, with nobody waiting.
-OCR_MODES = ("both", "text", "images")
+#: *2026-10-04, code review:* declared in `run_setup`, which decides the pass,
+#: so the What gets read page can normalise it without importing this module.
+from app.index.run_setup import OCR_MODES  # noqa: E402, F401 - re-exported
 
 #: New chunks in one run above which the FTS5 index is merged afterwards.
 #:
@@ -920,7 +926,15 @@ class PipelineConfig:
     #: (the watch's "rescan this folder"), where an unlimited clean-up would
     #: `stat` every row of every other folder to learn nothing. None (the
     #: default) is the whole index, as before.
+    #: *2026-10-04, code review:* also every run `run_setup.build_pipeline_
+    #: config` builds that is not over the saved folder set - its own folders,
+    #: or an Offline Media drive's `leasha-volume://<id>` key.
     prune_under: Optional[tuple] = None
+    #: 2026-10-04, code review: the settings' `CACHE_PATH`, under which a PST
+    #: reader writes attachment bytes (`pst_libpff.configure_scratch`), swept
+    #: of leftovers at the start of each run. None leaves them in the system's
+    #: temporary folder, as before.
+    scratch_dir: Optional[Path] = None
 
     def resolved_limits(self) -> ResourceLimits:
         """Limits with `workers` and `min_free_gb` reconciled.
@@ -1766,6 +1780,9 @@ class Pipeline:
         # from the folder watch read every `.pst` the `auto` way. One row.
         from app.index.run_setup import apply_saved_pst_backend
         apply_saved_pst_backend(self.store)
+        # 2026-10-04, code review: attachment scratch folders under the cache,
+        # and the ones an ended process left behind swept away. Never raises.
+        self._prepare_scratch()
         self._suspended_fts_triggers = []
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
@@ -1943,6 +1960,11 @@ class Pipeline:
             # empties `workers` - a finished run must not go on showing the
             # last files it was reading, whoever reads `stats` next.
             stats.refresh_live()
+            # 2026-10-04, code review: what the readers noted about held
+            # pictures and pictures in mail, kept however the run ended. It
+            # was written only after a run that returned normally, so a run
+            # that raised forgot which archives' pictures it had held.
+            self._save_run_books()
 
         # 0w 3c: an archive this run stopped inside says so in the run's log.
         # The Indexing page's summary says it too, from the cursor, for as long
@@ -2067,9 +2089,10 @@ class Pipeline:
             self.store.set_state("last_run_stats", repr(stats.as_dict()))
         # Order 0z lane C: archives whose attached pictures wait for the
         # pictures pass. Written here, on the run's own thread, never by a worker.
-        self._held_archives().save()
         # Order 0z lane D: what this run learnt about pictures in mail.
-        self._image_book().save()
+        # (Also when the readers end, and at each resume-cursor write - see
+        # `_save_run_books`; anything the media backlog added is written here.)
+        self._save_run_books()
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         self.vectors.maybe_create_index()
         # **Always at the end of a run**, whatever the row threshold says. A run
@@ -2974,9 +2997,17 @@ class Pipeline:
 
         A file that has since been deleted or moved is skipped silently - the
         ordinary prune will deal with the row.
+
+        *2026-10-04, code review:* only rows under this run's folders
+        (`_in_run_roots`) - an images pass over one folder read every scanned
+        PDF in the index - and only rows with this code are read from the
+        store (`skip_codes`), not every skipped row (100,000+ held pictures).
         """
-        for record in self.store.iter_files(status=FileStatus.SKIPPED):
+        for record in self.store.iter_files(status=FileStatus.SKIPPED,
+                                            skip_codes=("ERR_NO_TEXT_LAYER",)):
             if record.skip_code != "ERR_NO_TEXT_LAYER":
+                continue
+            if not self._in_run_roots(record.path):
                 continue
             path = Path(record.path)
             if path.suffix.lower() != ".pdf":
@@ -3001,6 +3032,7 @@ class Pipeline:
         `retry=True` because the archive's row is INDEXED and unchanged - the
         text pass read it - and `_classify` would otherwise send it home. A
         file since deleted or moved is skipped; the prune deals with its rows.
+        *2026-10-04, code review:* only archives under this run's folders.
         """
         try:
             paths = self._held_archives().paths()
@@ -3008,6 +3040,8 @@ class Pipeline:
             self._log.debug("held-archive list unreadable: {}", exc)
             return
         for path in paths:
+            if not self._in_run_roots(path):
+                continue
             try:
                 stat = path.stat()
             except OSError:
@@ -3015,11 +3049,28 @@ class Pipeline:
             yield Candidate(path=path, size_bytes=stat.st_size,
                             mtime_ns=stat.st_mtime_ns, priority=0, retry=True)
 
+    def _in_run_roots(self, path: Any) -> bool:
+        """Is `path` under one of this run's folders (`walk.roots`)? For the
+        queues read back from the index, which hold rows from every folder.
+        A run with no folders (a test's bare pipeline) keeps everything."""
+        from app.index.archives import files_under
+
+        roots = list(getattr(self.config.walk, "roots", None) or ())
+        return not roots or files_under(path, roots) is not None
+
     def _locked_candidates(self) -> Iterator[Candidate]:
         """Files skipped as locked last time. The program holding them may have
-        closed since, and nothing else would ever look at them again."""
-        for record in self.store.iter_files(status=FileStatus.SKIPPED):
+        closed since, and nothing else would ever look at them again.
+
+        *2026-10-04, code review:* only rows with this code are read from the
+        store (`skip_codes`) - every skipped row was built and discarded here,
+        each run, 100,000+ held pictures included - and, as the images pass's
+        queues, only those under this run's folders."""
+        for record in self.store.iter_files(status=FileStatus.SKIPPED,
+                                            skip_codes=("ERR_FILE_LOCKED",)):
             if record.skip_code != "ERR_FILE_LOCKED":
+                continue
+            if not self._in_run_roots(record.path):
                 continue
             path = Path(record.path)
             try:
@@ -3134,7 +3185,15 @@ class Pipeline:
                 # A file read through another application is held open by it, so
                 # hashing its bytes fails - and those bytes are not what gets
                 # parsed anyway. mtime and size are all there is, and enough.
+                # *2026-10-04, code review:* and **never for a file with no
+                # known row** (new, or a PENDING name). Its answer is "changed"
+                # whatever the hash says, so hashing it here only read every
+                # new file in full on the one walker thread before a reader
+                # read it again; the reader hashes it now (`_read_stream`), in
+                # parallel. A file with a known hash is still hashed here when
+                # its date moved - the `robocopy` restore check.
                 verify_hash=(self.config.verify_hash and hash_now
+                             and known is not None
                              and not reads_externally(candidate.path)),
             )
         except Exception as exc:            # noqa: BLE001 - see the docstring
@@ -3874,7 +3933,10 @@ class Pipeline:
         """
         if digest is None and not reads_externally(candidate.path):
             try:
-                digest = content_hash(candidate.path)
+                # Through the walker module, where the change check's own hash
+                # lives, so the two are one function (2026-10-04, code review:
+                # every new file is hashed here now, not on the walker thread).
+                digest = _walker_module.content_hash(candidate.path)
             except OSError as exc:
                 yield _Extracted(candidate, None, error=to_app_error(
                     exc, "index.pipeline", code="ERR_FILE_LOCKED", path=str(candidate.path)))
@@ -5315,8 +5377,40 @@ class Pipeline:
                 self._persist_resume_progress()
             except Exception as exc:            # noqa: BLE001 - H4: never the run
                 self._log.warning("could not persist an archive's folder cursor: {}", exc)
+            # 2026-10-04, code review: the held-pictures list and the image
+            # book with the cursors, so a pulled plug costs seconds of them too.
+            self._save_run_books()
         finally:
             self._stats_ref.stage = ""
+
+    def _prepare_scratch(self) -> None:
+        """Point the PST reader's attachment scratch folders at this run's
+        `scratch_dir` and sweep leftovers (`pst_libpff.sweep_scratch`). A
+        config without one changes nothing. Never raises."""
+        scratch = getattr(self.config, "scratch_dir", None)
+        if not scratch:
+            return
+        try:
+            from app.extract import pst_libpff
+
+            pst_libpff.configure_scratch(scratch)
+            pst_libpff.sweep_scratch(scratch)
+        except Exception as exc:                # noqa: BLE001 - tidying only
+            self._log.debug("attachment scratch folder not prepared: {}", exc)
+
+    def _save_run_books(self) -> None:
+        """Write the held-pictures archive list and the junk-image book, if
+        either changed. On the run's own thread (each `save` holds its own
+        lock against the readers). **Never raises** - both are bookkeeping,
+        and this is also called from `run`'s `finally`."""
+        for book in (self.__dict__.get("_held_archive_book"),
+                     self.__dict__.get("_image_book_store")):
+            if book is None:
+                continue
+            try:
+                book.save()
+            except Exception as exc:            # noqa: BLE001 - see the docstring
+                self._log.warning("could not save the run's picture records: {}", exc)
 
     def _persist_resume_progress(self) -> None:
         """Flush every tracked resume position to `index_state`, at once.

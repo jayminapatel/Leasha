@@ -45,11 +45,13 @@ __all__ = [
     "IMAGES_DUE_STATE",
     "LAST_RUN_STATE",
     "NOW",
+    "OCR_MODES",
     "PST_BACKEND_STATE_KEY",
     "SCHEDULED",
     "WATCH",
     "apply_saved_pst_backend",
     "build_pipeline_config",
+    "covers_saved_folders",
     "images_due_after",
     "ocr_schedule",
     "ocr_what",
@@ -57,6 +59,7 @@ __all__ = [
     "pass_for_store",
     "read_images_due",
     "record_pass",
+    "run_kind",
     "saved_cloud_content_keys",
 ]
 
@@ -77,22 +80,59 @@ LAST_RUN_STATE = "index:last_run"
 
 #: Which kind of run is asking which pass it is.
 #:
-#: * `SCHEDULED` - Start, "Index now" on one folder, a command-line run, a
+#: * `SCHEDULED` - Start, a command-line run over the saved folders, the same
 #:   run in a separate process: under "after-run" the text and images passes
 #:   take turns, and the run records which one it was.
 #: * `WATCH` - a folder-watch batch: a handful of files just saved. Never the
 #:   images pass (it would leave the saved documents unread) and it records
 #:   nothing - a batch is not the corpus's text pass.
-#: * `NOW` - a retry of timed-out files, an Offline Media drive: files asked
+#: * `NOW` - a retry of timed-out files, an Offline Media drive, "Index now"
+#:   on one folder, a command-line run over folders it names: files asked
 #:   for now. They are read as `INDEX_OCR_MODE` says, whatever the schedule,
 #:   because the schedule's second pass would not come back for them - a
-#:   retry reads nothing else, and a drive is unplugged afterwards. Records
+#:   retry reads nothing else, a drive is unplugged afterwards, and the
+#:   images pass reads the whole index's ledger, not one folder's. Records
 #:   nothing either.
+#:
+#: *2026-10-04, code review:* "Index now" on one folder and a command-line
+#: run over named folders were `SCHEDULED`, so they read the index-wide
+#: "images due" flag and wrote it: one folder's text pass made the next Start
+#: over every folder the images pass, and one folder's images pass (which
+#: read every held scan in the index) cleared it. `run_kind` decides now:
+#: only a run over the saved folder set is `SCHEDULED`.
 SCHEDULED = "scheduled"
 WATCH = "watch"
 NOW = "now"
 
+#: The passes a run can be. *2026-10-04, code review:* declared here, where
+#: the pass is decided, and imported by `app.index.pipeline` - so the What
+#: gets read page (`presenter/coverage.py`) can ask `ocr_what` without
+#: importing the whole pipeline on the window's thread.
+OCR_MODES = ("both", "text", "images")
+
 _SCHEDULES = ("with-run", "after-run", "manual")
+
+
+def _folder_keys(folders: Any) -> frozenset[str]:
+    from app.core.osbridge.pathnames import path_key
+
+    return frozenset(path_key(str(Path(str(folder)).expanduser()).rstrip("\\/"))
+                     for folder in (folders or ()) if str(folder).strip())
+
+
+def covers_saved_folders(roots: Any, saved: Any) -> bool:
+    """Is a run over `roots` a run over the saved folder set - the same
+    folders, by `path_key`, in any order and spelling? False when nothing is
+    saved: a run with nothing to compare against is a run over its own
+    folders. No I/O."""
+    wanted = _folder_keys(saved)
+    return bool(wanted) and _folder_keys(roots) == wanted
+
+
+def run_kind(*, whole: bool, retry: bool = False) -> str:
+    """`SCHEDULED` for a run over the saved folder set, `NOW` for any other
+    (one folder, named folders, a retry). See `NOW` above."""
+    return SCHEDULED if whole and not retry else NOW
 
 
 # ---------------------------------------------------------------------------
@@ -108,8 +148,6 @@ def ocr_schedule(settings: Any) -> str:
 
 def ocr_what(settings: Any) -> str:
     """`INDEX_OCR_MODE`, normalised: `both`, `text` or `images`."""
-    from app.index.pipeline import OCR_MODES
-
     value = str(getattr(settings, "index_ocr_mode", "both") or "both").strip().lower()
     return value if value in OCR_MODES else "both"
 
@@ -131,7 +169,13 @@ def pass_for(settings: Any, kind: str = SCHEDULED, *, images_due: bool = False) 
         return "images"
     if schedule in ("after-run", "manual"):
         return "text"
-    return ocr_what(settings)
+    what = ocr_what(settings)
+    # *2026-10-04, code review:* "with-run" with `INDEX_OCR_MODE=images` made
+    # a folder-watch batch the images pass - the file just saved, a document,
+    # was walked past unread. A batch is never the images pass (`WATCH`).
+    if kind == WATCH and what == "images":
+        return "text"
+    return what
 
 
 def read_images_due(store: Any) -> bool:
@@ -245,7 +289,9 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
                           ocr_mode: str | None = None, archives: bool = True,
                           recheck_archives: bool = False,
                           pause_file: Path | None = None,
-                          read_order: str | None = None):
+                          read_order: str | None = None,
+                          whole: bool = False,
+                          prune_under: tuple | None = None):
     r"""The `PipelineConfig` every index run uses, from settings and flags.
 
     **One construction, shared, so the callers cannot drift apart.** It was
@@ -273,6 +319,17 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
       (`pass_for`, with no images pass due).
     * `read_order` - `newest` or `found` (`--order`); None asks the settings
       (`INDEX_ORDER`). See `app/index/read_order.py`.
+    * `whole` - this run is over the saved folder set (`covers_saved_folders`).
+      Only such a run's clean-up looks at the whole index;
+    * `prune_under` - what a run that is not `whole` cleans up under; None
+      is `roots` themselves (Offline Media passes its drive's own key).
+
+    *2026-10-04, code review:* `prune=True` with no `whole` pruned the whole
+    index. A command-line run over one folder (`app.cli index D:\A`) deleted
+    the rows of every other indexed folder whose files were not on disk at
+    that moment - a disconnected drive's, a folder moved for a day - and an
+    Offline Media Scan did the same from its drive. Now a run that is not
+    over the saved folder set prunes only under its own folders.
 
     Settings are read with their `config.py` defaults, so a partial settings
     object (a test's stand-in) builds the same configuration as a full one.
@@ -306,6 +363,15 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         )
     if ocr_mode is None:
         ocr_mode = pass_for(settings)
+    # The clean-up's reach: the whole index only for a run over the saved
+    # folders; otherwise this run's own folders (or what the caller names).
+    scope = None
+    if prune and not whole:
+        scope = tuple(str(item) for item in (
+            prune_under if prune_under is not None else roots))
+        # No folders to clean under is no clean-up - never the whole index
+        # (`PipelineConfig.prune_under` empty means "everywhere").
+        prune = bool(scope)
 
     return PipelineConfig(
         walk=WalkConfig(
@@ -328,6 +394,7 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         required_free_gb=int(setting("required_free_gb", 0)),
         verify_hash=verify_hash,
         prune_missing=prune,
+        prune_under=scope,
         force=force,
         retry_skipped=retry_skipped,
         # A folder marked as an archive is walked once and then checked
@@ -368,4 +435,7 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         # 2026-09-29. Newest first unless the settings or `--order` say not.
         read_order=normalise_order(
             read_order if read_order else setting("index_order", "")),
+        # 2026-10-04, code review: attachment scratch folders under the cache,
+        # not the system's temporary folder (`pst_libpff.configure_scratch`).
+        scratch_dir=getattr(settings, "cache_path", None) or None,
     )

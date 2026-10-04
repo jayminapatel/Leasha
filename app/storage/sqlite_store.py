@@ -3065,6 +3065,7 @@ class SqliteStore:
     def iter_files(
         self, status: Optional[str] = None, *, source_kind: Optional[str] = None,
         volume_id: Optional[int] = None,
+        skip_codes: Optional[Iterable[str]] = None,
     ) -> Iterator[FileRecord]:
         """Files, optionally narrowed. Filter in SQL, never in Python.
 
@@ -3076,6 +3077,11 @@ class SqliteStore:
         `volume_id` is the same idea for Offline Media: a rescan or a delete
         only ever cares about one source's rows, and `idx_files_volume` makes
         the filter free.
+
+        `skip_codes` (2026-10-04, code review) is the same idea for the index
+        run's re-queues: each wants one skip code, and an index with 100,000
+        held pictures (`ERR_OCR_HELD`) built a record for each, every run, to
+        find a few locked files. An empty collection matches nothing.
         """
         clauses: list[str] = []
         params: list[Any] = []
@@ -3088,6 +3094,12 @@ class SqliteStore:
         if volume_id is not None:
             clauses.append("volume_id = ?")
             params.append(volume_id)
+        if skip_codes is not None:
+            codes = [str(code) for code in skip_codes]
+            if not codes:
+                return
+            clauses.append(f"skip_code IN ({', '.join('?' for _ in codes)})")
+            params.extend(codes)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         for row in self.conn.execute(f"SELECT * FROM files{where} ORDER BY id", params):
             yield FileRecord.from_row(row)

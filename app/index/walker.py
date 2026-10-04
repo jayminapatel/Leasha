@@ -314,7 +314,9 @@ class WalkConfig:
     #: a full walk of a 100GB corpus to learn something the first walk already
     #: had in its hands.
     repo_sink: Optional[dict[str, str]] = None
-    #: `{root path, lowercased and without a trailing separator: volume_id}`.
+    #: `{volume_root_key(root): volume_id}` - the root without a trailing
+    #: separator, by `path_key` (2026-10-04, code review: was `.lower()`,
+    #: which is the same on Windows and differs from every other key on a Mac).
     #: A root in `roots` that is also a key here is a catalogued Offline Media
     #: source's current mount point - resolved by the caller (§1b: "at the
     #: last moment") immediately before the walk starts, never inside `walk()`
@@ -662,7 +664,7 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
 
     for root in config.roots:
         root = Path(root)
-        root_volume_id = config.volume_roots.get(str(root).rstrip("\\/").lower())
+        root_volume_id = config.volume_roots.get(volume_root_key(root))
         if not root.exists():
             # **Recorded, not merely skipped.** See `root_problems`: this
             # `continue` used to be silent, and a single mistyped or
@@ -863,6 +865,14 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
 
                 seen.add(key)
                 yield candidate
+
+
+def volume_root_key(root: Path | str) -> str:
+    r"""The key `WalkConfig.volume_roots` is filled and read by: the mount
+    point without a trailing separator, by `path_key` (`E:\` and `e:` are one
+    key on Windows). One function for both sides (2026-10-04, code review)."""
+    text = str(root)
+    return path_key(text.rstrip("\\/") or text)
 
 
 def content_hash(path: Path, *, chunk_bytes: int = HASH_CHUNK_BYTES) -> str:

@@ -109,7 +109,13 @@ def member_of(source: bytes | Path | str, inner: str, *,
                 nested = _NESTED.match(inner)
                 if nested is None:
                     return None
-                return member_of(zipped.read(nested.group(1)), nested.group(2),
+                # 2026-10-04, code review: the inner zip is read whole into
+                # memory, so `max_bytes` is asked of it first - a 5 GB zip
+                # inside a zip was read entire to open one small member.
+                outer = zipped.getinfo(nested.group(1))
+                if max_bytes is not None and outer.file_size > max_bytes:
+                    return None
+                return member_of(zipped.read(outer), nested.group(2),
                                  max_bytes=max_bytes)
             if max_bytes is not None and info.file_size > max_bytes:
                 return None

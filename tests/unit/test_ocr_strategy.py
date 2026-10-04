@@ -59,10 +59,12 @@ def _pipeline(store, root, *, ocr_mode="both"):
         return [l2_normalise([math.sin(abs(hash(t)) % 100 + i) for i in range(8)])
                 for t in texts]
 
+    # *Note, 2026-10-04, code review:* `name_only=False` - see the fixture.
     return Pipeline(store, _NoVectors(), Embedder(dim=8, encoder=encode),
                     PipelineConfig(
                         walk=WalkConfig(roots=[root],
-                                        extensions=frozenset({".png", ".txt"})),
+                                        extensions=frozenset({".png", ".txt"}),
+                                        name_only=False),
                         workers=1, min_free_gb=1, ocr_mode=ocr_mode))
 
 
@@ -76,7 +78,12 @@ def ledger(tmp_path):
     # file it sees, readable or not, so a scanned PDF sitting in the corpus
     # would arrive from the walk and prove nothing about the ledger. Elsewhere,
     # the only way it can reach the pass is the route under test.
-    elsewhere = tmp_path / "elsewhere"
+    # *Note, 2026-10-04, code review:* the ledger is now read only under the
+    # run's own folders (an images pass over one folder read every folder's
+    # scans), so "elsewhere" is inside the walked folder, and the walk is kept
+    # from seeing it the way the real images pass is: an extension set without
+    # `.pdf` and no name-only rows (`Pipeline._narrow_to_images`).
+    elsewhere = corpus / "elsewhere"
     elsewhere.mkdir()
     scanned = elsewhere / "manual.pdf"
     scanned.write_bytes(b"%PDF-1.4 not really a pdf")
@@ -136,6 +143,8 @@ def test_the_text_pass_does_not_read_the_ledger(ledger):
     assert "manual.pdf" not in candidates
 
 
+# Note, 2026-10-04, code review: the PDF is now under the walked folder, kept
+# from the walk by its extension set - see the `ledger` fixture.
 def test_the_images_pass_reaches_a_file_the_walk_cannot_see(ledger):
     r"""**The whole point of reading the ledger back.** The scanned PDF is not
     under the walked root at all here, so the only way it can reach the pass is
@@ -153,7 +162,7 @@ def test_the_images_pass_reaches_a_file_the_walk_cannot_see(ledger):
 def test_a_file_that_has_gone_is_skipped_silently(ledger):
     """The ordinary prune deals with the row; this pass is not the place."""
     store, corpus = ledger
-    (corpus.parent / "elsewhere" / "manual.pdf").unlink()
+    (corpus / "elsewhere" / "manual.pdf").unlink()
 
     retried = list(_pipeline(store, corpus, ocr_mode="images")
                    ._no_text_layer_candidates())
