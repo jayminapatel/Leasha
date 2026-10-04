@@ -300,18 +300,20 @@ def test_the_code_tab_passes_it_up(qapp, monkeypatch) -> None:
 def test_the_window_reads_the_setting_in_force_and_never_launches_inline(monkeypatch) -> None:
     from app.ui import shell
 
-    asked: dict = {}
-    monkeypatch.setattr(
-        shell, "open_at_line_async",
-        lambda path, line, **kwargs: asked.update(path=path, line=line, **kwargs))
+    from app.ui.presenter.opening import plan_for
+
+    asked: list = []
+    # 2026-10-04: through the one open route, which reads the editor at the click.
+    monkeypatch.setattr(shell, "open_row_async", lambda store, row, **kw: asked.append(row))
     window = SimpleNamespace(
         _settings=SimpleNamespace(code_editor="auto", code_editor_command=""),
-        _settings_overrides={"code_editor": "notepadpp"},
+        _settings_overrides={"code_editor": "notepadpp"}, _store=None,
         _show_error=lambda _e: None, notify=lambda *_a: None)
     shell.MainWindow._open_code_at(window, "D:/repo/x.py", 9)
-    assert asked["path"] == "D:/repo/x.py" and asked["line"] == 9
-    assert asked["choice"] == "notepadpp", "a choice just made in Settings applies at once"
-    assert asked["custom"] == ""
+    plan = plan_for(asked[0])
+    assert (plan.how, plan.path, plan.line) == ("code", "D:/repo/x.py", 9)
+    assert shell.MainWindow._editor_choice(window) == ("notepadpp", ""), (
+        "a choice just made in Settings applies at once")
 
 
 def test_a_changed_editor_applies_without_a_restart(tmp_path) -> None:

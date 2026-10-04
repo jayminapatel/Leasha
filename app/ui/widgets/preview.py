@@ -585,15 +585,13 @@ class PreviewPane(QWidget):
 
     def reveal_row(self, row: Any) -> None:
         """Show `row`'s file in its folder, on a worker. What a list with no
-        route of its own is given - see `attach_preview`."""
-        from app.ui.workers import open_async, open_row_async
+        route of its own is given - see `attach_preview`. The one open route,
+        with the row (2026-10-04): a catalogued drive, a zip member and an
+        attachment are each shown where they are."""
+        from app.ui.workers import open_row_async
 
-        if getattr(row, "volume_id", None) is not None:      # a catalogued volume
-            open_row_async(self.store, row, reveal=True, on_error=self.error.emit,
-                           component="ui.preview.reveal")
-            return
-        open_async(file_of_row(row), reveal=True, on_error=self.error.emit,
-                   component="ui.preview.reveal")
+        open_row_async(self.store, row, reveal=True, on_error=self.error.emit,
+                       component="ui.preview.reveal")
 
     def _open_clicked(self, _checked: bool = False) -> None:
         """"Open". For a message that is a file, the file itself; otherwise

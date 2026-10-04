@@ -37,11 +37,12 @@ from PyQt6.QtWidgets import (
 )
 
 from app.core.logging import logger
+from app.ui.presenter.opening import key_of
 from app.ui.view_of_file import View, read_turn
 from app.ui.widgets.buttons import style_all
 
 __all__ = ["PreviewWindow", "GEOMETRY_KEY", "ON_TOP_KEY", "TEXT_ONLY_NOTE",
-           "DWG_PREVIEW_ENABLED_KEY", "enabled_checkbox"]
+           "DWG_PREVIEW_ENABLED_KEY", "enabled_checkbox", "pop_out", "set_describe_options"]
 
 _log = logger.bind(component="ui.preview.window")
 
@@ -56,6 +57,40 @@ ON_TOP_KEY = "ui:preview_window_on_top"
 #: by default. Read when a window opens, so turning it off stops Leasha
 #: offering to run LibreDWG on the next drawing anybody pins.
 DWG_PREVIEW_ENABLED_KEY = "ui:dwg_preview_enabled"
+
+#: Describe's settings for every pop-out, told by the window
+#: (`set_describe_options`); these are the settings' own defaults until then.
+_DESCRIBE: dict = {"ollama_url": "http://127.0.0.1:11434",
+                   "ollama_vision_model": "llava", "chat_engine": "onnx"}
+
+
+def set_describe_options(*, ollama_url: str, ollama_vision_model: str,
+                         chat_engine: str) -> None:
+    """The window's Describe settings, for every pop-out it or the lightbox opens."""
+    _DESCRIBE.update(ollama_url=ollama_url, ollama_vision_model=ollama_vision_model,
+                     chat_engine=chat_engine)
+
+
+def pop_out(row: Any, *, store: Any, state: Any, on_error: Any, remember: Any,
+            closed: Any, body_provider: Any = None, siblings: Any = (),
+            index: int = 0) -> "PreviewWindow":
+    """Open `row` in a window of its own, shown. A pinned document and the
+    lightbox are both built here (2026-10-04) - they had drifted: the lightbox
+    opened a bare path and had no Describe settings. Open and Show in folder
+    take the row on show to the one route (`workers.open_row_async`)."""
+    from app.ui.workers import open_row_async
+
+    window = PreviewWindow(row, state=state, body_provider=body_provider,
+                           siblings=siblings, index=index, store=store)
+    window.remember.connect(remember)
+    window.open_requested.connect(
+        lambda shown: open_row_async(store, shown, on_error=on_error))
+    window.reveal_requested.connect(
+        lambda shown: open_row_async(store, shown, reveal=True, on_error=on_error))
+    window.closed.connect(closed)
+    window.show()
+    window.raise_()
+    return window
 
 MIN_WIDTH, MIN_HEIGHT = 520, 400
 
@@ -79,22 +114,25 @@ class PreviewWindow(QWidget):
     remember = pyqtSignal(dict)
     #: This window closed. The opener drops its reference.
     closed = pyqtSignal(object)
-    #: "Open the real file" / "Show in folder". §2g.
-    open_requested = pyqtSignal(str)
-    reveal_requested = pyqtSignal(str)
+    #: "Open the real file" / "Show in folder". §2g. 2026-10-04: they carry
+    #: the ROW on show, not its path, so the one open route (`pop_out`) can
+    #: resolve its drive, its moment and its line as every page does.
+    open_requested = pyqtSignal(object)
+    reveal_requested = pyqtSignal(object)
 
     def __init__(self, row: Any, *, state: Any = None,
                  body_provider: Any = None, siblings: Any = (),
                  index: int = 0, store: Any = None,
-                 ollama_url: str = "http://127.0.0.1:11434",
-                 ollama_vision_model: str = "llava",
-                 chat_engine: str = "onnx") -> None:
+                 ollama_url: Optional[str] = None,
+                 ollama_vision_model: Optional[str] = None,
+                 chat_engine: Optional[str] = None) -> None:
         # No parent: a parented widget with a window flag still minimises with
         # its owner, and a pinned document that vanishes with the main window
         # is not pinned. The same reasoning `log_window` records.
         super().__init__(None)
         self._row = row
-        self._path = str(getattr(row, "path", "") or "")
+        # The whole path: a Code row's `path` is shortened for its column (2026-10-04).
+        self._path = key_of(row)
         #: What `_render` actually reads. Equal to `self._path` until §4e's
         #: "Show full layout" swaps it for a cached converted PDF - `_path`
         #: itself never changes, because "Open the real file" and "Show in
@@ -126,11 +164,13 @@ class PreviewWindow(QWidget):
         # parameter: a pop-out that cannot reach the database must still
         # open, view-only, exactly as it always has.
         self._store = store
-        self._ollama_url = ollama_url
-        self._ollama_vision_model = ollama_vision_model
+        # Left out, the window's own (`set_describe_options`) - so the lightbox,
+        # which had none, describes with the same settings a pinned window does.
+        self._ollama_url = ollama_url or _DESCRIBE["ollama_url"]
+        self._ollama_vision_model = ollama_vision_model or _DESCRIBE["ollama_vision_model"]
         #: `CHAT_ENGINE` (2026-09-29): Describe is Florence-2 inside Leasha
         #: unless this says `ollama`. Told, like the address, never read from disk.
-        self._chat_engine = chat_engine
+        self._chat_engine = chat_engine or _DESCRIBE["chat_engine"]
         self._describe_file_id = getattr(row, "file_id", None)
         self._describe_generation = 0
 
@@ -263,10 +303,10 @@ class PreviewWindow(QWidget):
             self._print)
         self.open_button = self._button(
             "Open the real file", "Opens it in the application that owns it.",
-            lambda: self.open_requested.emit(self._path))
+            lambda: self.open_requested.emit(self._row))
         self.reveal_button = self._button(
             "Show in folder", "Opens the folder with this file selected.",
-            lambda: self.reveal_requested.emit(self._path))
+            lambda: self.reveal_requested.emit(self._row))
         self._offer_folder()
 
         bar = QHBoxLayout()
@@ -760,7 +800,7 @@ class PreviewWindow(QWidget):
         self._index = (self._index + delta) % len(self._siblings)
         row = self._siblings[self._index]
         self._row = row
-        self._path = str(getattr(row, "path", "") or "")
+        self._path = key_of(row)
         self._display_path = self._path
         self._offer_folder()
         self._view = View(turn=read_turn(self._state, self._path),

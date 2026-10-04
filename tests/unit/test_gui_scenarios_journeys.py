@@ -383,8 +383,9 @@ def test_enter_on_the_selected_row_opens_her_document(journeys, qtbot, monkeypat
     app, window, *_ = journeys
     view = window.search_view
     opened: list = []
-    monkeypatch.setattr(window, "_open_path",
-                        lambda path, reveal=False: opened.append((path, reveal)))
+    # 2026-10-04: the window hands the row to the one open route.
+    monkeypatch.setattr("app.ui.shell.open_row_async",
+                        lambda store, row, reveal=False, **_k: opened.append((row.path, reveal)))
 
     _type(qtbot, app, view, "volcanoes")
     qtbot.waitUntil(lambda: gui_row_count(view.results) > 0, timeout=4000)

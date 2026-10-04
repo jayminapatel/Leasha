@@ -67,9 +67,8 @@ from app.ui.rail_state import (
 # reads this file and refuses any store call it cannot prove is inside a
 # worker, and it cannot prove that of a module-level function defined here.
 from app.ui.presenter import index_counts
-from app.ui.workers import (
-    CallableWorker, open_async, open_at_line_async, open_attachment_async, open_in_explorer, run,
-)
+from app.ui.presenter.opening import Place
+from app.ui.workers import CallableWorker, open_row_async, run
 
 __all__ = ["MainWindow", "DARK_STYLESHEET"]
 
@@ -120,17 +119,6 @@ def _on_battery() -> bool:
 _BOUND_ELSEWHERE = frozenset({"Ctrl+K", "Ctrl+F", "Ctrl+,", "Ctrl+I", "Ctrl+P",
                               "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5"})
 
-
-
-def _moment_of(row: Any) -> Optional[int]:
-    """Seconds into a recording that a result row is about, else None. Pure."""
-    from app.core.media_open import seconds_for_result
-    from app.extract.media import media_extensions
-
-    ext = str(getattr(row, "ext", "") or "").lower().lstrip(".")
-    if f".{ext}" not in media_extensions():
-        return None
-    return seconds_for_result(getattr(row, "label", ""))
 
 
 class MainWindow(QMainWindow):
@@ -325,6 +313,7 @@ class MainWindow(QMainWindow):
         translator.just_enabled = interpret_on
         self.search_view = SearchView(engine, translator)
         self.search_view.result_opened.connect(self._open_result)
+        self._lend_open_context()   # 2026-10-04: the one open route, for every page
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
         self.search_view.reindex_requested.connect(self._reindex_for)
         self.search_view.error.connect(self._show_error)
@@ -827,11 +816,6 @@ class MainWindow(QMainWindow):
             from app.ui.controllers.mcp_controller import McpController
 
             self.mcp_ctl = McpController(self)
-            # 2026-10-04: every page's Open and Show in folder on an attachment or a
-            # zip member comes here (`workers.route_through_window`), not to Explorer.
-            from app.ui.workers import route_through_window
-
-            route_through_window(self._open_path)
             # "Clear search history" empties the log the search box's recent
             # searches are read from; without this it kept offering them.
             self.settings_view.history_cleared.connect(
@@ -1681,27 +1665,16 @@ class MainWindow(QMainWindow):
 
         **A copy, not a move**: the pane the button was pressed in keeps
         showing what it showed. Never raises - a window that will not open
-        must not take the results with it.
+        must not take the results with it. Built as the lightbox is
+        (`preview_window.pop_out`); its Open takes the row (2026-10-04).
         """
         try:
-            from app.ui.widgets.preview_window import PreviewWindow
+            from app.ui.widgets.preview_window import pop_out
 
-            window = PreviewWindow(
-                row, state=self._log_window_state(), body_provider=provider,
-                store=self._store,
-                ollama_url=str(getattr(
-                    self._settings, "ollama_url", "http://127.0.0.1:11434")),
-                ollama_vision_model=str(
-                    getattr(self._settings, "ollama_vision_model", "llava")),
-                chat_engine=str(getattr(self._settings, "chat_engine", "onnx")))
-            window.remember.connect(self._remember_log_window)
-            window.open_requested.connect(self._open_path)
-            window.reveal_requested.connect(
-                lambda path: self._open_path(path, reveal=True))
-            window.closed.connect(self._unpin)
+            window = pop_out(row, store=self._store, state=self._log_window_state(),
+                             body_provider=provider, on_error=self._show_error,
+                             remember=self._remember_log_window, closed=self._unpin)
             self._pinned.append(window)
-            window.show()
-            window.raise_()
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.warning("could not pin {}: {}", getattr(row, "path", ""), exc)
 
@@ -2016,110 +1989,54 @@ class MainWindow(QMainWindow):
     # -- actions ------------------------------------------------------------
 
     def _open_result(self, row: Any, *, reveal: bool = False) -> None:
-        """Open the file, or reveal it, without waiting for Explorer.
+        """Open a result row, or show it in its folder, without waiting.
 
-        **This was the "too slow" report.** `explorer /select,` takes a few
-        hundred milliseconds just to start, and the `exists()` check before it
-        is a stat that can block for seconds on a network share or a sleeping
-        drive - and both ran on the UI thread, so the window sat frozen through
-        a launch that is nearly free once it is off the critical path.
-
-        The click now returns immediately and the error, if any, arrives later.
-
-        **A row on a catalogued Offline Media volume needs resolving
-        first** (1b) - `row.path` for one of those is never a real
-        filesystem path, it is the letter-free key
-        `volume_synthetic_path` builds, and opening it directly would
-        report "missing" for a file that is sitting right there once the
-        drive is plugged in. `_open_volume_result` does the resolution and
-        the open in the same worker.
+        **This was the "too slow" report**: `explorer /select,` and the stat
+        before it ran on the UI thread. 2026-10-04: every page's Open now
+        takes one route with its row (`workers.open_row_async`), which
+        resolves a catalogued drive, finds a recording's moment and a code
+        hit's line, opens a message in Outlook and an attachment from a copy.
         """
-        if getattr(row, "volume_id", None) is not None:
-            self._open_volume_result(row, reveal=reveal)
-            return
-        # Work order 202626270515: a recording's hit says "at 12:41", and opening
-        # it goes there (`app.core.media_open`). Not for "reveal", which is the
-        # folder. A locator that is not a time (a sheet cell, a page) is None.
-        seconds = None if reveal else _moment_of(row)
-        if seconds is not None:
-            from app.ui.workers import open_media_async
-
-            open_media_async(row.path, seconds, on_error=self._show_error,
-                             on_note=self.notify)
-            return
-        self._open_path(row.path, reveal=reveal)
-
-    def _open_volume_result(self, row: Any, *, reveal: bool = False) -> None:
-        """Resolve a catalogued-volume row's current real path, then open
-        it - one worker, never the interface thread for either half."""
-        from app.ui.presenter import resolve_open_path
-
-        def _resolve_and_open() -> Any:
-            target = resolve_open_path(self._store, row)
-            return open_in_explorer(target, select=reveal)
-
-        worker = CallableWorker(_resolve_and_open, component="ui.open")
-        worker.signals.finished.connect(
-            lambda error: self._show_error(error) if error is not None else None)
-        worker.signals.failed.connect(self._show_error)
-        run(QThreadPool.globalInstance(), worker)
+        open_row_async(self._store, row, reveal=reveal, on_error=self._show_error)
 
     def _open_path(self, path: str, *, reveal: bool = False) -> None:
-        """The same, for a caller that has a path rather than a result row.
-
-        The Code tree hands up a path: its rows are repositories and files, not
-        search results, and giving it a fake row to satisfy an attribute lookup
-        would be the wrong way round.
-
-        **A file that came out of an email, or out of a zip** (2026-10-04),
-        has no path on disk: "Open" saves a read-only copy in Leasha's cache
-        and opens that (`workers.open_attachment_async`); "Show in folder" on a zip member
-        shows the zip. "Open in Outlook" is unchanged beside an attachment.
-        """
-        from app.ui.attachment_open import (
-            is_archive_attachment, opens_from_a_copy, zip_member_of,
-        )
-
-        zip_path = zip_member_of(path)[0]
-        if reveal and zip_path:
-            path = zip_path                      # Show in folder: the zip that holds it
-        elif reveal and is_archive_attachment(path):
-            # Show in folder on an attachment: the archive it is in (2026-10-04),
-            # found from its message's row - on a worker.
-            from app.ui.tasks import archive_of
-
-            worker = CallableWorker(archive_of, self._store, path, component="ui.reveal")
-            worker.signals.finished.connect(
-                lambda archive: open_async(archive, reveal=True, on_error=self._show_error))
-            worker.signals.failed.connect(self._show_error)
-            run(QThreadPool.globalInstance(), worker)
-            return
-        elif not reveal and opens_from_a_copy(path):
-            open_attachment_async(self._store, path, self._settings.cache_path,
-                                  on_error=self._show_error,
-                                  on_note=lambda text: self.notify(text, 8_000))
-            return
-        # The shared helper - see `workers.open_async`. This was the correct
-        # version and `files_view` had its own, blocking, copy; one function now,
-        # so a third caller cannot get it wrong.
-        # By here `path` is never an attachment or a zip member - each was
-        # handled above - so `open_async` cannot send it back to this route.
-        open_async(path, reveal=reveal, on_error=self._show_error)
+        """The same, for a caller with a path and no row - the log, a chip.
+        An attachment, a zip member or a message opens as it does from a row."""
+        open_row_async(self._store, Place(str(path or "")), reveal=reveal,
+                       on_error=self._show_error)
 
     def _open_code_at(self, path: str, line: int) -> None:
-        """A code result, in the person's editor, at its line. Order 0y §2c.
+        """A code result, in the person's editor, at its line. Order 0y §2c -
+        the editor is the setting in force (`_editor_choice`), read at the click."""
+        open_row_async(self._store, Place(str(path or ""), int(line or 0)),
+                       on_error=self._show_error)
 
-        Which editor is the "Open code results in" setting, read now rather
-        than at startup so a choice just made applies to this Enter. Finding
-        and starting the editor happen on a worker (`workers.open_at_line`).
-        """
+    def _editor_choice(self) -> tuple:
+        """`(CODE_EDITOR, CODE_EDITOR_COMMAND)` as they are now - a choice just
+        made in Settings applies to the next Enter, without a restart."""
         chosen = {key: str(self._settings_overrides.get(
                       key, getattr(self._settings, key, "")) or "")
                   for key in ("code_editor", "code_editor_command")}
-        open_at_line_async(path, line, choice=chosen["code_editor"] or "auto",
-                           custom=chosen["code_editor_command"],
-                           on_error=self._show_error,
-                           on_note=lambda text: self.notify(text, 10_000))
+        return chosen["code_editor"] or "auto", chosen["code_editor_command"]
+
+    def _lend_open_context(self) -> None:
+        """What every page's Open borrows from the window (2026-10-04) - see
+        `workers.OpenContext`. Errors and notes go to this window's own box
+        and toast; a message nothing can open is searched inside."""
+        from app.ui.widgets.preview_window import set_describe_options
+        from app.ui.workers import OpenContext, set_open_context
+
+        set_open_context(OpenContext(
+            store=self._store, cache_path=getattr(self._settings, "cache_path", None),
+            engine=self._engine, editor=self._editor_choice,
+            search_id=lambda: getattr(self.search_view, "_last_search_id", None),
+            on_error=self._show_error, on_note=lambda text: self.notify(text, 10_000),
+            search_inside=self._search_inside))
+        # The pop-outs' Describe settings, the same for a pinned window and the lightbox.
+        set_describe_options(
+            ollama_url=str(getattr(self._settings, "ollama_url", "http://127.0.0.1:11434")),
+            ollama_vision_model=str(getattr(self._settings, "ollama_vision_model", "llava")),
+            chat_engine=str(getattr(self._settings, "chat_engine", "onnx")))
 
     def _reindex_for(self, row: Any) -> None:
         folder = str(Path(row.path).parent)
@@ -2367,6 +2284,10 @@ class MainWindow(QMainWindow):
         # app gone from the screen immediately, then the staged teardown runs
         # invisibly while holding the lock.
         self.hide()
+        # 2026-10-04: nothing opens through a closed window's store.
+        from app.ui.workers import set_open_context
+
+        set_open_context(None)
         # 2026-10-04: AI access stops with the window - it runs only while Leasha is open.
         mcp_ctl = getattr(self, "mcp_ctl", None)
         if mcp_ctl is not None:

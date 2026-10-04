@@ -38,7 +38,6 @@ from app.ui.widgets.search_bar import (
 from app.ui.workers import (
     SearchWorker,
     decorate_results_async,
-    record_open_async,
     run,
     stop_timers,
 )
@@ -387,18 +386,11 @@ class SearchView(QWidget):
     def _on_opened(self, row: Any) -> None:
         """The click is the label: this result was the useful one.
 
-        **Emitted first, recorded after.** Everything in Layer 10 is derived
-        from these clicks, but `record_open` is a database *write* and it was
-        running on the UI thread between the double-click and the file opening -
-        so a busy or locked index made opening a result feel slow for a reason
-        that has nothing to do with opening it.
+        2026-10-04: recorded by the one open route (`tasks.open_target`, off
+        this thread), so an open from a pinned window or the lightbox counts
+        too - with this search's id, read from `_last_search_id` at the click.
         """
         self.result_opened.emit(row)
-
-        # Extracted to `workers.record_open_async` - it is a database write
-        # that must stay off this thread, every view needs it, and this file
-        # was at the 250-line limit the presenter guard allows.
-        record_open_async(self._engine, self._last_search_id, row.chunk_id)
 
     # -- interpreting a sentence --------------------------------------------
 

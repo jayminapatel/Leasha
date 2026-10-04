@@ -397,8 +397,8 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
         gui_mainwindow, quokkas, qtbot, monkeypatch):
     import app.ui.shell as shell
     opened: list[tuple] = []
-    monkeypatch.setattr(shell, "open_async",
-                        lambda path, reveal=False, on_error=None: opened.append((path, reveal)))
+    monkeypatch.setattr(shell, "open_row_async",      # the one route (2026-10-04)
+                        lambda store, row, reveal=False, **_k: opened.append((row.path, reveal)))
 
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
@@ -539,8 +539,8 @@ def test_ctrl_enter_in_the_box_reveals_the_result_when_interpret_is_off(
     key, so "reveal this result" (item 6a) never reached the box."""
     import app.ui.shell as shell
     seen: list[tuple] = []
-    monkeypatch.setattr(shell, "open_async",
-                        lambda path, reveal=False, on_error=None: seen.append((path, reveal)))
+    monkeypatch.setattr(shell, "open_row_async",      # the one route (2026-10-04)
+                        lambda store, row, reveal=False, **_k: seen.append((row.path, reveal)))
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
     _goto(window, "Search")
@@ -933,8 +933,8 @@ def test_enter_in_the_box_on_a_group_of_two_matches_opens_its_best_hit(
     box is where they are asking for the answer."""
     import app.ui.shell as shell
     opened: list[tuple] = []
-    monkeypatch.setattr(shell, "open_async",
-                        lambda path, reveal=False, on_error=None: opened.append((path, reveal)))
+    monkeypatch.setattr(shell, "open_row_async",      # the one route (2026-10-04)
+                        lambda store, row, reveal=False, **_k: opened.append((row.path, reveal)))
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
     _goto(window, "Search")
@@ -970,8 +970,8 @@ def test_ctrl_enter_is_interpret_when_it_is_on_and_reveal_when_it_is_off(
     monkeypatch.setattr(search_view_module, "interpret_into",
                         lambda _view: interpreted.append(1))
     revealed: list[tuple] = []
-    monkeypatch.setattr(shell, "open_async",
-                        lambda path, reveal=False, on_error=None: revealed.append((path, reveal)))
+    monkeypatch.setattr(shell, "open_row_async",      # the one route (2026-10-04)
+                        lambda store, row, reveal=False, **_k: revealed.append((row.path, reveal)))
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
     _goto(window, "Search")

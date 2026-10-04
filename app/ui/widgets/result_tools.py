@@ -41,8 +41,8 @@ class _PinnedRow(NamedTuple):
     """Just enough of a result row for "open" to work on a pinned path.
 
     `chunk_id=0` because a pin is not a search hit - there is no chunk to
-    record a click against, and `record_open_async` needs the attribute to
-    exist, not to mean anything here.
+    record a click against, and the open route reads the attribute (0 is
+    "nothing to record"), not to mean anything here.
     """
 
     path: str
@@ -200,18 +200,12 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
 def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
     """Work order 0h §3b: a thumbnail opens straight into the lightbox.
 
-    Self-contained rather than routed through `shell._pin_document` - that
-    path exists for the *in-app preview pane's* own pop-out button, and the
-    grid has no such pane to pop out from (it is deliberately just thumbnails
-    - see `thumbnail_grid.py`'s own docstring). `store` gives it the same
-    geometry/on-top persistence `_pin_document` gives every other pop-out;
-    `open_async`/`workers.py` gives "Open the real file" and "Show in
-    folder" the same worker-thread guarantee every other opener has, without
-    needing shell.py's `_open_path` specifically.
+    Not a pin of the in-app preview pane - the grid has no such pane (it is
+    deliberately just thumbnails, see `thumbnail_grid.py`). Built by the same
+    `preview_window.pop_out` a pinned document is (2026-10-04): its Open and
+    Show in folder take the photo's row to the one open route, and Describe
+    has the window's settings. `store` gives it the geometry/on-top memory.
     """
-    from app.ui.widgets.preview_window import PreviewWindow
-    from app.ui.workers import open_async
-
     open_windows: list = []
 
     def _state_now() -> dict:
@@ -232,18 +226,10 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
             index = sibling_list.index(row)
         except ValueError:
             index = 0
-        window = PreviewWindow(
-            row, state=_state_now(), siblings=sibling_list, index=index,
-            store=store)
-        window.remember.connect(_remember)
-        window.open_requested.connect(lambda path: open_async(path, on_error=on_error))
-        window.reveal_requested.connect(
-            lambda path: open_async(path, reveal=True, on_error=on_error))
-        window.closed.connect(
-            lambda w: open_windows.remove(w) if w in open_windows else None)
-        open_windows.append(window)          # kept alive - see PreviewWindow's own note
-        window.show()
-        window.raise_()
+        open_windows.append(_preview_window_mod.pop_out(   # kept alive - see PreviewWindow
+            row, store=store, state=_state_now(), siblings=sibling_list, index=index,
+            on_error=on_error, remember=_remember,
+            closed=lambda w: open_windows.remove(w) if w in open_windows else None))
 
     grid.opened.connect(_open)
 
@@ -324,6 +310,7 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     grid = ThumbnailGrid()
     results.rows_changed.connect(grid.show_rows)
     grid.reveal_requested.connect(on_reveal)
+    grid.file_requested.connect(on_opened)       # the menu's Open: the file (2026-10-04)
     grid.pin_requested.connect(pinned.pin)
     _wire_similar(results=results, grid=grid, engine=engine, on_error=on_error)
     _wire_lightbox(grid=grid, store=store, on_error=on_error)

@@ -80,14 +80,27 @@ def missing_paths(paths: Any) -> set[str]:
         text = str(path or "")
         # A message lives inside a .pst and has no file of its own; statting a
         # synthetic key would report every message as missing.
-        if not text or text.startswith("pst://"):
+        # 2026-10-04: any `scheme://` key (a catalogued drive's too), not only
+        # `pst://` - none is a path the disk can answer for.
+        if not text or "://" in text:
             continue
         try:
-            if not Path(text).exists():
+            if not Path(text).exists() and not _inside_a_file(Path(text)):
                 missing.add(text)
         except OSError:
             continue
     return missing
+
+
+def _inside_a_file(path: Path) -> bool:
+    """Whether `path` names something inside a file that is there - a member of
+    a zip (`D:\\a.zip/q3/report.docx`) or a message in an mbox. 2026-10-04: each
+    was marked missing, so the menu offered "re-index" for a file that opens.
+    Only reached for a path that does not exist, so a found file costs nothing."""
+    for parent in path.parents:
+        if parent.exists():
+            return parent.is_file()
+    return False
 
 
 def offline_volumes(store: Any, results: Any) -> dict[int, dict]:

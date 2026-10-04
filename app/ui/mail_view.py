@@ -55,7 +55,7 @@ from app.ui.widgets.mail_card import attach_mail
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
-from app.ui.workers import CallableWorker, run, stop_timers
+from app.ui.workers import CallableWorker, open_row_async, run, stop_timers
 
 __all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -334,16 +334,11 @@ class MailView(QWidget):
         super().keyPressEvent(event)
 
     def _open_selected(self, row: Any = None) -> None:
-        """Show what is inside the selected message.
+        """Open the selected message - in Outlook (the owner, 2026-10-04: the
+        same as the preview's "Open in Outlook"), by the one open route. A
+        message Outlook cannot show is searched inside, as Open always did here.
 
-        **Not "open the file", because there is no file.** A message's path is
-        synthetic - `pst://archive.pst/E12` - so handing it to Explorer opens
-        nothing and reports that nothing is there. Searching inside it is the
-        only way to read a message in this application, so that is what opening
-        one means.
-
-        `opened` is emitted as well, for anything that wants the id rather than
-        the content.
+        `opened` is emitted as well, for anything that wants the id.
         """
         # `row` from the pane's Open: the message on show, which after a click
         # in its conversation list (0y 4c) is not the row selected here.
@@ -351,8 +346,8 @@ class MailView(QWidget):
         if row is None:
             return
         self.opened.emit(row.file_id)
-        if row.path:
-            self.search_inside_requested.emit(row.path)
+        open_row_async(self._store, row, on_error=self.error.emit,
+                       search_inside=self.search_inside_requested.emit)
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu as the other two lists - see widgets/file_menu.py."""
@@ -366,10 +361,11 @@ class MailView(QWidget):
         if row is None:
             return
 
-        # No "Open" or "Show in folder": a message lives inside a .pst and has
-        # no file on disk to open. Offering either would be offering something
-        # that fails, which is worse than not offering it.
+        # 2026-10-04: Open (Outlook) and Show in folder (the archive), as the
+        # preview pane offers them - the open route does both for a message.
         show_for(self.results, point, row.path, FileActions(
+            open_file=lambda: self._open_selected(row), row=row,
+            reveal=lambda: open_row_async(self._store, row, reveal=True, on_error=self.error.emit),
             search_inside=lambda: self.search_inside_requested.emit(row.path),
             same_period=lambda: self.period_requested.emit(int(row.file_id)),
             copy=[("Copy subject", row.subject), ("Copy sender", row.sender)],

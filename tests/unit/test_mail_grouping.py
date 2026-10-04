@@ -413,7 +413,8 @@ def test_the_pane_open_button_acts_on_the_message_on_show(qapp, store) -> None:
         shown = next(row for row in view._rows if row.path == "pst://A/T0")
 
         view.preview.open_requested.emit(shown)
+        pump()          # 2026-10-04: by the one open route, on a worker
 
-        assert searched == ["pst://A/T0"]
+        assert searched == ["pst://A/T0"], "no Outlook identifier: searched inside"
     finally:
         view.shutdown()

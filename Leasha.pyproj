@@ -391,6 +391,7 @@
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\mail.py" />
     <Compile Include="app\ui\presenter\offline.py" />
+    <Compile Include="app\ui\presenter\opening.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
     <Compile Include="app\ui\presenter\rows.py" />

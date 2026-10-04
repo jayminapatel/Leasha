@@ -279,3 +279,57 @@ def test_the_button_is_in_the_button_system() -> None:
     from app.ui.widgets.buttons import lookup
 
     assert lookup("Open in Outlook") is not None
+
+
+# --- 2026-10-04: Open on a message is Outlook, from the Mail list too -------------
+
+def test_the_mail_lists_open_opens_the_message_in_outlook(qapp, store, monkeypatch) -> None:
+    """The owner's decision: Enter or a double-click on a message is the same
+    as the preview's "Open in Outlook" - not a search inside it."""
+    from app.core.osbridge import outlook as outlook_module
+    from tests.unit.test_mail_preview_card import pump
+
+    add_message(store, path="pst://Archive2019/0000ABCD", subject="School trip",
+                sender="dave@acme.com", sent_at=TUESDAY, body="x",
+                entry_id="0000ABCD", store_path="D:/mail/Archive2019.pst")
+    outlook = FakeOutlook()
+    monkeypatch.setattr(outlook_module, "show_in_outlook", outlook)
+    view = _mail_view(store, outlook)
+    searched: list[str] = []
+    view.search_inside_requested.connect(searched.append)
+    try:
+        view._open_selected(view._rows[0])        # as Enter or a double-click does
+        pump()
+        assert outlook.calls == [("0000ABCD", "D:/mail/Archive2019.pst")] and searched == []
+    finally:
+        view.shutdown()
+
+
+def test_the_mail_lists_menu_offers_open_and_show_in_folder_the_archive(
+        qapp, store, monkeypatch) -> None:
+    from app.ui import mail_view as mail_view_module
+    from app.ui import workers
+    from tests.unit.test_mail_preview_card import pump
+
+    add_message(store, path="pst://Archive2019/0000ABCD", subject="School trip",
+                sender="dave@acme.com", sent_at=TUESDAY, body="x",
+                entry_id="0000ABCD", store_path="D:/mail/Archive2019.pst")
+    menus: list = []
+    monkeypatch.setattr(mail_view_module, "show_for", lambda *a: menus.append(a[3]))
+    shown: list = []
+    monkeypatch.setattr(workers, "open_in_explorer",
+                        lambda path, select=True: shown.append((path, select)))
+    view = _mail_view(store, FakeOutlook())
+    try:
+        from PyQt6.QtCore import QPoint
+
+        monkeypatch.setattr(view, "selected_row", lambda: view._rows[0])
+        view._on_context_menu(QPoint(5, 5))
+        actions = menus[0]
+        assert actions.open_file is not None and actions.reveal is not None
+        assert actions.search_inside is not None, "Search inside stays its own action"
+        actions.reveal()
+        pump()
+        assert shown == [("D:/mail/Archive2019.pst", True)]
+    finally:
+        view.shutdown()

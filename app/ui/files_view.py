@@ -425,7 +425,7 @@ class FilesView(QWidget):
             return
 
         show_for(self.results, point, path, FileActions(
-            open_file=self._open_selected,
-            reveal=self._reveal_selected,
+            open_file=self._open_selected, reveal=self._reveal_selected,
+            row=self.results.current_row(),     # its Offline mark; its real path to copy
             search_inside=lambda: self.search_inside_requested.emit(path),
         ))

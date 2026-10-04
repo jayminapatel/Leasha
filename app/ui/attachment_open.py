@@ -16,7 +16,8 @@ next time. The archive is only ever read.
 
 **Where the work runs.** This module holds the decisions and the disk
 helpers. The worker body that reads the index is `tasks.save_attachment_copy`,
-and the worker that runs it is `workers.open_attachment_async` - the places
+and the worker that runs it is `tasks.open_target`, behind every page's
+Open (`workers.open_row_async`, 2026-10-04) - the places
 `test_ui_never_blocks` allows a store read and a worker to be.
 """
 

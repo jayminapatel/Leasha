@@ -502,14 +502,123 @@ def archive_of(store: Any, path: str) -> str:
     from app.ui.presenter.mail import attachment_of
 
     parent, name = attachment_of(path)
+    # 2026-10-04: a message's own key too - Mail's Show in folder, like the pane's.
+    parent = parent or str(path or "")
     record = store.get_file(parent) if parent else None
     message = store.get_message(record.id) if record is not None else None
     archive = str((message or {}).get("store_path") or "").strip()
     if not archive:
         raise AppErrorException(make_error(
-            "ERR_ATTACHMENT_OPEN", "ui.tasks", path=parent or path, name=name,
+            "ERR_ATTACHMENT_OPEN", "ui.tasks", path=parent or path,
+            name=name or "this message",
             details="the index does not say which archive it is in"))
     return archive
+
+
+def code_line(path: str, char_start: Any) -> int:
+    """The line a code hit's passage starts on, read from the file. **Worker.**
+
+    0 when the file cannot be read or the offset is past its end - the hit
+    then opens as a file does, which is what it did before (2026-10-04).
+    """
+    from app.extract.base import line_in_text
+    from app.extract.plaintext import read_text
+
+    try:
+        text, _degraded, _truncated = read_text(Path(path))
+        return line_in_text(text, int(char_start or 0))
+    except Exception as exc:                     # noqa: BLE001 - opens at the top instead
+        _log.debug("no line for {}: {}", path, exc)
+        return 0
+
+
+def _message_of(store: Any, row: Any, path: str) -> Optional[dict]:
+    """The `messages` row a result stands for, or None. Two lookups by key."""
+    try:
+        file_id = int(getattr(row, "file_id", 0) or 0)
+        if file_id <= 0 and "://" in path:
+            record = store.get_file(path)
+            file_id = int(record.id) if record is not None else 0
+        return store.get_message(file_id) if file_id > 0 else None
+    except Exception as exc:                     # noqa: BLE001 - opened as a file instead
+        _log.debug("no message row for {}: {}", path, exc)
+        return None
+
+
+def open_target(store: Any, row: Any, *, reveal: bool = False, cache_path: Any = None,
+                editor: Any = ("auto", ""), engine: Any = None, search_id: Any = None,
+                outlook: Any = None) -> Any:
+    r"""Open or reveal one row: every page's Open and Show in folder. **Worker.**
+
+    2026-10-04, the owner: "the same code should run for functions so they
+    are all consistent". The one body behind `workers.open_row_async`, acting
+    on `presenter.opening.plan_for`. Returns an `AppError`, a sentence for the
+    toast, a `SearchInside` (a message nothing can open), or None.
+
+    An opened indexed result is recorded for ranking (`record_open`) here,
+    whichever page it was opened from - it used to be the Search list only.
+    """
+    from app.core.errors import AppError, AppErrorException
+
+    from app.ui.presenter.opening import plan_for
+
+    plan = plan_for(row, reveal=reveal)
+    try:
+        outcome = _carry_out(store, row, plan, cache_path=cache_path,
+                             editor=editor, outlook=outlook)
+    except AppErrorException as exc:
+        outcome = exc.error
+    chunk_id = int(getattr(row, "chunk_id", 0) or 0)
+    if not reveal and engine is not None and chunk_id > 0 and not isinstance(outcome, AppError):
+        record_open(engine, search_id, chunk_id)
+    return outcome
+
+
+def _carry_out(store: Any, row: Any, plan: Any, *, cache_path: Any, editor: Any,
+               outlook: Any) -> Any:
+    """`open_target`'s steps, for one plan. Raises `AppErrorException`."""
+    from app.ui.attachment_open import zip_member_of
+    from app.ui.presenter.mail import original_target
+    from app.ui.presenter.opening import SearchInside, on_a_volume
+    from app.ui.widgets.mail_open import open_original
+    from app.ui.workers import open_at_line, open_in_explorer, open_media_at
+
+    how, path = plan.how, plan.path
+    if plan.volume:
+        # The drive's current mount point first, then the moment or the line
+        # on the real file - a volume row used to skip both.
+        path = resolve_open_path(store, on_a_volume(row))
+    if how == "reveal":
+        return open_in_explorer(path, select=True)
+    if how == "archive":
+        return open_in_explorer(archive_of(store, path), select=True)
+    if how == "copy":
+        target = save_attachment_copy(store, path, cache_path)
+        error = open_in_explorer(str(target), select=False)
+        if error is not None:
+            return error
+        where = "the zip" if zip_member_of(path)[0] else "the email"
+        return (f"Opened a copy of '{target.name}' from {where}. "
+                f"Changes to it are not saved back to {where}.")
+    if how in ("message", "file") and store is not None and not plan.volume:
+        # The owner's decision (2026-10-04): Open on a message opens it in
+        # Outlook, everywhere - what the preview's "Open in Outlook" does. A
+        # `.eml` or `.msg` on disk is a file and opens as one.
+        message = _message_of(store, row, path)
+        if message:
+            target = original_target(message, path)
+            return (open_original(target, outlook=outlook) if target is not None
+                    else SearchInside(path))
+    if how == "message":
+        return SearchInside(path)
+    if how == "media":
+        return open_media_at(path, plan.seconds)
+    if how == "code":
+        line = plan.line or code_line(path, plan.char_start)
+        if line:
+            choice, custom = editor or ("auto", "")
+            return open_at_line(path, line, choice=choice or "auto", custom=custom or "")
+    return open_in_explorer(path, select=False)
 
 
 def mail_details(store: Any, results: Any) -> dict:

@@ -94,6 +94,9 @@ def show_result_menu(view: Any, point: Any, show: Any = show_for) -> None:
     # because being able to ask is where trust comes from.
     terms, prefs = view.explain_context() if view.explain_context else ((), {})
     show(view._list, point, row.path, FileActions(
+        # What the list already knows, never a stat here (2026-10-04).
+        row=row, missing=row.path in getattr(view, "_missing", ()),
+        offline=int(getattr(row, "file_id", 0) or 0) in getattr(view, "_volumes", {}),
         open_file=lambda: view.opened.emit(row),
         reveal=lambda: view.reveal_requested.emit(row),
         reindex=lambda: view.reindex_requested.emit(row),

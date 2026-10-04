@@ -48,6 +48,7 @@ __all__ = [
     "supported_extensions",
     "extract",
     "normalise_whitespace",
+    "line_in_text",
     "reads_by_ocr",
     "looks_locked",
     "with_closing_warning",
@@ -209,6 +210,33 @@ def normalise_whitespace(text: str) -> str:
             blank_run = True
             out.append(line)
     return "\n".join(out).strip()
+
+
+def line_in_text(text: str, char_start: int) -> int:
+    """The line of `text` that offset `char_start` of `normalise_whitespace(text)`
+    falls on, counted from 1; 0 when it is past the end. 2026-10-04.
+
+    A code hit carries where its passage starts in the *indexed* text, which
+    has lost blank-line runs and its leading blank lines - so its line in the
+    file is found by replaying exactly what `normalise_whitespace` kept.
+    """
+    lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    kept: list[int] = []
+    blank_run = False
+    for number, line in enumerate(lines, 1):
+        if line.rstrip():
+            blank_run = False
+            kept.append(number)
+        elif not blank_run:
+            blank_run = True
+            kept.append(number)
+    first = next((i for i, number in enumerate(kept) if lines[number - 1].strip()), len(kept))
+    kept = kept[first:]                     # what the closing `.strip()` removed
+    indexed = normalise_whitespace(text)
+    if not 0 <= int(char_start) < len(indexed):
+        return 0
+    index = indexed.count("\n", 0, int(char_start))
+    return kept[index] if index < len(kept) else 0
 
 
 class DocumentBuilder:

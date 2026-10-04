@@ -241,13 +241,14 @@ def test_only_a_file_from_a_mail_archive_is_opened_this_way():
 @pytest.mark.gui
 def test_open_saves_the_copy_and_opens_it_on_a_worker(store, tmp_path, qtbot, monkeypatch):
     from app.extract import pst_attachment
-    from app.ui.workers import open_attachment_async
+    from app.ui import workers
 
     monkeypatch.setattr(pst_attachment, "read_attachment", lambda *a, **k: SHEET)
+    monkeypatch.setattr(workers, "_CONTEXT", workers.OpenContext(cache_path=tmp_path / "cache"))
+    monkeypatch.setattr(workers, "open_in_explorer",
+                        lambda path, select=True: opened.append(path))
     opened, notes, errors = [], [], []
-    open_attachment_async(
-        store, ATTACHMENT, tmp_path / "cache", on_error=errors.append, on_note=notes.append,
-        opener=lambda path, select: opened.append(path))
+    workers.open_row_async(store, ATTACHMENT, on_error=errors.append, on_note=notes.append)
     qtbot.waitUntil(lambda: bool(notes or errors), timeout=5000)
     assert not errors and opened and Path(opened[0]).read_bytes() == SHEET
     assert notes[0] == ("Opened a copy of 'Model CED.xlsm' from the email. "
@@ -257,15 +258,17 @@ def test_open_saves_the_copy_and_opens_it_on_a_worker(store, tmp_path, qtbot, mo
 @pytest.mark.gui
 def test_the_window_routes_open_on_an_attachment_to_the_copy_and_keeps_open_in_outlook(
         gui_mainwindow, monkeypatch):
-    from app.ui import shell
+    from app.ui import shell, workers
     from app.ui.presenter.mail import OPEN_IN_OUTLOOK, original_target
+    from app.ui.presenter.opening import plan_for
 
     _app, window, _store, _engine = gui_mainwindow
     asked = []
-    monkeypatch.setattr(shell, "open_attachment_async",
-                        lambda store, path, cache, **k: asked.append((path, cache)))
+    monkeypatch.setattr(shell, "open_row_async",
+                        lambda store, row, **k: asked.append((row.path, store)))
     window._open_path(ATTACHMENT)
-    assert asked == [(ATTACHMENT, window._settings.cache_path)]
+    assert asked == [(ATTACHMENT, window._store)] and plan_for(ATTACHMENT).how == "copy"
+    assert workers._CONTEXT.cache_path == window._settings.cache_path
     # And the parent message still offers Outlook, for the attachment's preview too.
     target = original_target({"entry_id": "2097188", "store_path": "D:/a/2024.pst"}, ATTACHMENT)
     assert target.kind == "outlook" and target.label == OPEN_IN_OUTLOOK
@@ -350,38 +353,32 @@ def test_neither_a_plain_file_a_zip_itself_nor_a_catalogued_drive_is_copied():
     assert not opens_from_a_copy("leasha-volume://1/Holiday/pack.zip/beach.jpg")
 
 
-@pytest.mark.gui
-def test_show_in_folder_on_a_zip_member_shows_the_zip(gui_mainwindow, monkeypatch):
-    from app.ui import shell
+def test_show_in_folder_on_a_zip_member_shows_the_zip():
+    from app.ui.presenter.opening import plan_for
 
-    _app, window, _store, _engine = gui_mainwindow
-    asked = []
-    monkeypatch.setattr(shell, "open_async", lambda path, **k: asked.append((path, k.get("reveal"))))
-    window._open_path(r"D:\Docs\backup.zip/q3/report.docx", reveal=True)
-    assert asked == [(r"D:\Docs\backup.zip", True)]
+    plan = plan_for(r"D:\Docs\backup.zip/q3/report.docx", reveal=True)
+    assert (plan.how, plan.path) == ("reveal", r"D:\Docs\backup.zip")
 
 
 # -- every page's Open, not only Search's (the owner's screenshot, 2026-10-04) --
 #
 # Double-click on an attachment on the Files page said "Not found on disk":
-# Open-from-a-copy was in the window's route only, and the Files page, a pinned
-# window and Show in folder reach Explorer through `workers.open_async`.
+# Open-from-a-copy was in the window's route only. There is one route now
+# (`workers.open_row_async`), and every page takes it.
 
 @pytest.mark.gui
 def test_the_files_page_double_click_on_an_attachment_opens_the_copy(gui_mainwindow, monkeypatch):
     from types import SimpleNamespace
 
-    from app.ui import shell, workers
+    from app.ui import files_view, workers
 
     _app, window, _store, _engine = gui_mainwindow
-    asked, explorer = [], []
-    monkeypatch.setattr(shell, "open_attachment_async",
-                        lambda store, path, cache, **k: asked.append(path))
-    monkeypatch.setattr(workers, "open_in_explorer",
-                        lambda path, select=False: explorer.append(path))
+    asked = []
+    monkeypatch.setattr(files_view, "open_row_async",
+                        lambda store, row, **k: asked.append(row.path))
     window.files_view._open(SimpleNamespace(path=ATTACHMENT, volume_id=None), reveal=False)
-    workers.open_async(ATTACHMENT)                  # a pinned window's Open, the same way
-    assert asked == [ATTACHMENT, ATTACHMENT] and not explorer
+    assert asked == [ATTACHMENT]
+    assert "open_row_async" in workers.__all__
 
 
 @pytest.mark.gui
@@ -398,14 +395,3 @@ def test_show_in_folder_on_an_attachment_shows_its_archive(gui_mainwindow, qtbot
     workers.open_async(ATTACHMENT, reveal=True)
     qtbot.waitUntil(lambda: bool(shown), timeout=5_000)
     assert shown == [("D:/OutlookArchive/2024.pst", True)]
-
-
-def test_without_a_window_an_ordinary_path_still_goes_to_explorer(monkeypatch):
-    from app.ui import workers
-
-    seen = []
-    monkeypatch.setattr(workers, "_WINDOW_ROUTE", lambda path, reveal=False: seen.append(path))
-    monkeypatch.setattr(workers, "run", lambda pool, worker: seen.append("explorer"))
-    workers.open_async(r"D:\Docs\notes.txt")
-    workers.open_async(ATTACHMENT, via_window=False)    # the window route's own last step
-    assert seen == ["explorer", "explorer"]

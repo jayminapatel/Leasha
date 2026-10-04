@@ -90,6 +90,10 @@ class ThumbnailGrid(QWidget):
     #: next/previous, so the grid is the one place that already has the
     #: ordering and does not need to reconstruct it.
     opened = pyqtSignal(object, list)
+    #: The menu's "Open": the file itself, as Open does on every other page
+    #: (2026-10-04). Double-click and Enter stay the lightbox (`opened`), and
+    #: the menu offers that as "View".
+    file_requested = pyqtSignal(object)
     reveal_requested = pyqtSignal(object)
     pin_requested = pyqtSignal(object)
     #: "More like this" from a photo's right-click menu - work order §2d.
@@ -212,8 +216,9 @@ class ThumbnailGrid(QWidget):
             return
 
         show_for(self._list, point, str(getattr(row, "path", "") or ""), FileActions(
-            open_file=lambda: self.opened.emit(row, self.image_rows()),
-            reveal=lambda: self.reveal_requested.emit(row),
+            open_file=lambda: self.file_requested.emit(row),
+            view=lambda: self.opened.emit(row, self.image_rows()),
+            reveal=lambda: self.reveal_requested.emit(row), row=row,
             pin=lambda: self.pin_requested.emit(row),
             similar=lambda: self.similar_requested.emit(row),
         ))
