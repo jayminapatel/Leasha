@@ -318,6 +318,8 @@ QPushButton[buttonRole="danger"] {{
    right for the words that are not there, so the padding is uneven by that much
    to put the drawn part in the middle: 8px either side of it. */
 QPushButton[iconOnly="true"] {{ padding-left: 8px; padding-right: 5px; }}
+/* The cell `buttons.put_on_row` sets on a row: the row shows through it. */
+QWidget#rowCell {{ background: transparent; }}
 QPushButton[buttonRole="primary"] {{
     background: {accent}; border: 1px solid {accent}; color: {accent_on};
     font-weight: 600;

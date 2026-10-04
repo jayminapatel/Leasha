@@ -1628,8 +1628,8 @@ class MainWindow(QMainWindow):
         # takes the primary's ink rather than every icon the same grey.
         for view in (self.files_view, getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
-                     indexing_view, settings_view):
-            for target in (view, getattr(view, "_nav", None)):
+                     indexing_view, settings_view, self.reports_view):
+            for target in (view, getattr(view, "_nav", None), getattr(view, "list", None)):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
                     retint(colours)

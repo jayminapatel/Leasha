@@ -250,6 +250,36 @@ class TestIndexNowOnAFolderLine:
         cell = box.tree.itemWidget(item, 4)
         assert button.geometry().bottom() <= cell.rect().bottom(), "cut off at the bottom"
 
+    @pytest.mark.parametrize("scheme", ["light", "dark"])
+    def test_the_cell_round_the_button_is_the_rows_own_colour(self, qtbot, scheme):
+        """Seen 2026-10-04 in the regrabbed Offline page: a grey block behind
+        the round Rescan button. The theme paints every plain `QWidget` the
+        window colour, and the cell `put_on_row` makes is one, over a white
+        row. The cell must show the row through it."""
+        from PyQt6.QtCore import QPoint
+
+        from app.ui import theme
+
+        box = _box(qtbot, ["/a", "/b"])
+        box.setStyleSheet(theme.stylesheet(scheme, detected=scheme, base_pt=9.0))
+        box.resize(900, 300)
+        box.show()
+        qtbot.waitExposed(box)
+        tree = box.tree
+        image = tree.viewport().grab().toImage()
+        item = tree.topLevelItem(1)
+        # The row's own colour, read from the row: the right end of its Folder
+        # column, past the short name "/b". (Sampling under the rows instead
+        # landed on a separator when the suite's font made the rows taller.)
+        folder = tree.visualRect(tree.indexFromItem(item, 0))
+        row_colour = image.pixel(QPoint(folder.right() - 3, folder.center().y()))
+        for column in (2, 4):                      # the Cloud content box, the Index now button
+            cell = tree.itemWidget(item, column)
+            beside = cell.mapTo(tree.viewport(), QPoint(cell.width() - 2, cell.height() // 2))
+            assert image.pixel(beside) == row_colour, (
+                f"{scheme}, column {column}: the cell is painted "
+                f"{image.pixelColor(beside).name()} over a {image.pixelColor(row_colour).name()} row")
+
     def test_the_settings_page_relays_it(self, qtbot):
         from app.ui.settings_view import SettingsView
 

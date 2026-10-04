@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.43 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
+**Doc version:** 7.44 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2012,7 +2012,28 @@ comments in `files_view.py` and `mail_view.py` that said `Ctrl+P` for weeks are 
 (`Ctrl+P` is "go to Files"). **`test_views_are_freed.py` caught the first version**: `add_to`
 was a closure holding the view, on a widget the view owns - the cycle `_weakly` documents -
 and `CodeView` stopped being freed. Held weakly now, and the same for Chat's bound
-`show_preview`. UNVERIFIED on the real window.
+`show_preview`. Seen in the real window afterwards: see the next entry.
+
+**2026-10-04 (evening) - the real window, the guide's pictures, and a grey block on every row
+cell.** The owner's Leasha was indexing, so the new code was not run in his window; instead the
+real `MainWindow` was built through the Windows platform (not offscreen) against the
+demonstration store and grabbed with `WA_DontShowOnScreen` - the toggle is where it should be
+on Files, Mail, Code and Chat, the Chat preview pane is under Local sources, the Offline list
+has Hardware ID and Rescan. **What the pictures showed that the offscreen grabs had not been
+looked at for**: a grey block behind every control set on a row (`setItemWidget` /
+`setCellWidget`) - the theme's `QWidget { background: {window} }` painting the holder over
+the white row. Fixed by naming the holders `rowCell` and one theme rule
+(`QWidget#rowCell { background: transparent; }`); `test_index_now_per_line.py` compares
+pixels beside the button and under the rows, light and dark. **The grab script is kept this
+time**: `tools/guide_pictures.py` retakes named pictures against `D:\Demo\leasha-guide` and
+swaps them into the guide by caption (`test_guide_pictures.py`); six pictures were retaken.
+The three that need a real search (results, results dark, timeline) are still by hand. The
+owner's own window remains unlooked-at until he restarts Leasha after the index run. **From
+the same pictures, the owner**: "What gets read" had no icon (added 1 October without a
+`CategoryNav.ICONS` row) and the Reports list never had any - `widgets/report_list.py` now,
+tinted by the window's loop with the `_nav`s; `test_category_icons.py` guards both lists.
+Open design question from him, answered in conversation and not ordered: whether *Folders to
+index* (Settings › What's indexed) belongs on the Indexing page.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

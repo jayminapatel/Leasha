@@ -33,11 +33,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   alone is now beside the View button on Files, Mail and Code, and beside Fast/Thoughtful on
   Chat. It shows or hides that tab's own preview pane and remembers the choice per tab; the
   View menu and Ctrl+Shift+P still do the same thing, and the toggle follows them.
+- **A grey block sat behind the controls on a row** - the Rescan button on a drive's line, the
+  Index now button and Cloud content box on a folder's, the tick boxes in the file-types
+  list. The row shows through now.
+- **Every list entry has its icon.** "What gets read" on the Indexing page had none beside
+  Status, Schedule and Tuning; the three reports on the Reports page had none at all.
 
 ### Docs
 
 - `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: notes dated 4 October 2026.
   `HANDOFF.md` 7.43.
+- The guide's pictures of Files, Mail, Code, Chat, Offline, Reports, Indexing › What gets read
+  and Settings › What's indexed are
+  retaken from the real window; `tools/guide_pictures.py` is the script that does it, kept this
+  time. `HANDOFF.md` 7.44.
 
 ### A file as an entry, and a Space Report that never holds the window (2026-10-03)
 

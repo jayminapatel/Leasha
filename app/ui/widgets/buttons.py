@@ -438,6 +438,10 @@ def put_on_row(tree: QWidget, item: object, column: int, button: QPushButton) ->
     Returns the cell, which is what `tree.itemWidget(item, column)` gives back.
     """
     cell = QWidget()
+    # The theme paints every plain QWidget the window colour; this one sits on
+    # a row, and was a grey block round the button (seen 2026-10-04 in the
+    # Offline page). Named so the theme can make it transparent.
+    cell.setObjectName("rowCell")
     layout = QHBoxLayout(cell)
     layout.setContentsMargins(4, 0, 4, 0)
     layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)

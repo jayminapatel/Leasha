@@ -482,6 +482,7 @@
     <Compile Include="app\ui\widgets\repo_health_note.py" />
     <Compile Include="app\ui\widgets\repo_ignore.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
+    <Compile Include="app\ui\widgets\report_list.py" />
     <Compile Include="app\ui\widgets\restart_note.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
@@ -573,6 +574,7 @@
     <Compile Include="tests\unit\test_button_system.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
+    <Compile Include="tests\unit\test_category_icons.py" />
     <Compile Include="tests\unit\test_cell_locators.py" />
     <Compile Include="tests\unit\test_chat_absence.py" />
     <Compile Include="tests\unit\test_chat_aggregate.py" />
@@ -723,6 +725,7 @@
     <Compile Include="tests\unit\test_gui_scenarios_journeys.py" />
     <Compile Include="tests\unit\test_gui_scenarios_orders.py" />
     <Compile Include="tests\unit\test_gui_scenarios_results.py" />
+    <Compile Include="tests\unit\test_guide_pictures.py" />
     <Compile Include="tests\unit\test_handoff_current.py" />
     <Compile Include="tests\unit\test_header_signal_safety.py" />
     <Compile Include="tests\unit\test_heif_preview.py" />
@@ -998,6 +1001,7 @@
     <Compile Include="tools\__init__.py" />
     <Compile Include="tools\extract_speed.py" />
     <Compile Include="tools\grab_ui.py" />
+    <Compile Include="tools\guide_pictures.py" />
     <Compile Include="tools\measure_ollama_chat.py" />
     <Compile Include="tools\measure_onnx_chat.py" />
     <Compile Include="tools\nightly.py" />

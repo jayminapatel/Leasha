@@ -324,6 +324,7 @@ class RootsBox(QGroupBox):
         cloud_box.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         cloud_box.stateChanged.connect(lambda _s: self._cloud_content_changed())
         cell = QWidget()
+        cell.setObjectName("rowCell")             # the row shows through (theme)
         cell_layout = QHBoxLayout(cell)
         cell_layout.setContentsMargins(0, 0, 0, 0)
         cell_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)

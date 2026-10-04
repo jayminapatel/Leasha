@@ -79,7 +79,8 @@ class CategoryNav(QWidget):
     ICONS = {
         "What's indexed": "folder", "Search": "search", "Models & AI": "cpu",
         "Appearance": "palette", "Storage & maintenance": "hard-drive",
-        "Status": "chart-column", "Schedule": "clock", "Tuning": "sliders-horizontal",
+        "Status": "chart-column", "What gets read": "eye", "Schedule": "clock",
+        "Tuning": "sliders-horizontal",
     }
 
     def retint(self, colours: dict) -> None:

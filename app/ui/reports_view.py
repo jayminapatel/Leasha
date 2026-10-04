@@ -19,8 +19,6 @@ from PyQt6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QPushButton,
     QSplitter,
     QTextBrowser,
@@ -32,6 +30,7 @@ from PyQt6.QtWidgets import (
 # (2026-10-02: moved to keep this view under its line limit).
 from app.ui.report_pdf import write_pdf as _write_pdf
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
+from app.ui.widgets.report_list import ReportList
 from app.ui.widgets.space_table import SpaceTables
 from app.ui.widgets.timeline_host import REPORT_KEY, attach_timeline, show_timeline_only
 from app.ui.workers import CallableWorker, run
@@ -95,13 +94,7 @@ class ReportsView(QWidget):
         )
         intro.setWordWrap(True)
 
-        self.list = QListWidget()
-        self.list.setAccessibleName("Available reports")
-        for key, title, description in REPORTS:
-            item = QListWidgetItem(title)
-            item.setData(REPORT_KEY, key)
-            item.setToolTip(description)
-            self.list.addItem(item)
+        self.list = ReportList(REPORTS)        # 2026-10-04: with icons, like the category lists
         self.list.currentRowChanged.connect(self._show_selected)
 
         self.timestamp = QLabel("")

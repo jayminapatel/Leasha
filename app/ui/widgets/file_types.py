@@ -404,6 +404,7 @@ class FileTypesEditor(QGroupBox):
             box.setChecked(bool(row["enabled"]))
             box.stateChanged.connect(lambda _s: self._mark_dirty())
             holder = QWidget()
+            holder.setObjectName("rowCell")       # the row shows through (theme)
             centred = QHBoxLayout(holder)
             centred.setContentsMargins(0, 0, 0, 0)
             centred.addWidget(box, alignment=Qt.AlignmentFlag.AlignCenter)
