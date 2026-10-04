@@ -201,6 +201,7 @@ def paint_totals(view: Any, payload: dict) -> None:
     if funnel is not None:
         # Read on the same worker as the rest of the payload - no second read.
         funnel.show_counts(payload.get("funnel"))
+        funnel.show_pictures(payload.get("pictures"))   # 2026-10-04
     timed_out = getattr(view, "timed_out", None)
     if timed_out is not None:
         # Order 0z F3. Also from this payload; `None` (not read) changes nothing.

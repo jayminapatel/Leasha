@@ -383,6 +383,8 @@ _TASK_NAMES = frozenset({
     "browse_files_page",
     "browse_messages_page",
     "status_funnel_counts",
+    "picture_status",
+    "funnel_and_pictures",
     "read_box",
     "_words_of",
     "_in_index",

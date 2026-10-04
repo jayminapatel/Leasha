@@ -130,6 +130,8 @@ PHASE_WORDS: dict[str, str] = {
     # The count is the headline's "files seen", climbing as it goes.
     "scanning": "Finding files, to read the newest first…",
     "media": "Reading videos and recordings…",
+    # 2026-10-04: Florence-2 tags, moved to the end of a run.
+    "photo_tags": "Describing the photos that have no text in them…",
     "tidying": "Tidying up the index…",
     "vector_index": "Organising the index so searches stay quick…",
     "word_index": "Tidying the word index so searches stay quick…",

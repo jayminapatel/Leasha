@@ -866,6 +866,8 @@
     <Compile Include="tests\unit\test_photo_tagger_page.py" />
     <Compile Include="tests\unit\test_photo_tagger_wording.py" />
     <Compile Include="tests\unit\test_photo_tags.py" />
+    <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
+    <Compile Include="tests\unit\test_picture_status.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />
     <Compile Include="tests\unit\test_pipeline_bench.py" />

@@ -30,10 +30,37 @@ from PyQt6.QtCore import QThreadPool
 from PyQt6.QtWidgets import QLabel
 
 from app.core.file_state import FUNNEL_ORDER, explain, funnel_line
-from app.ui.tasks import status_funnel_counts
+from app.ui.tasks import funnel_and_pictures
 from app.ui.workers import CallableWorker, run
 
-__all__ = ["StatusFunnel", "REFRESH_MIN_S", "OBJECT_NAME"]
+__all__ = ["StatusFunnel", "REFRESH_MIN_S", "OBJECT_NAME", "picture_line"]
+
+
+def picture_line(counts: Optional[Mapping[str, int]]) -> str:
+    """`Pictures: 40 of 15,011 read · faces looked for in 40 · 120 faces in 8
+    people, 5 still to sort · 300 waiting to be described`.
+
+    2026-10-04, the owner: "status of pictures indexing ... like it has for
+    files". "" when there are no pictures, and each part only when it says
+    something, as the files line does.
+    """
+    c = {k: int(v or 0) for k, v in (counts or {}).items()}
+    total = c.get("pictures", 0)
+    if not total:
+        return ""
+    parts = [f"Pictures: {c.get('read', 0):,} of {total:,} read"]
+    if c.get("faces_looked"):
+        parts.append(f"faces looked for in {c['faces_looked']:,}")
+    if c.get("faces"):
+        people = c.get("people", 0)
+        face_part = (f"{c['faces']:,} face{'s' if c['faces'] != 1 else ''} in "
+                     f"{people:,} {'person' if people == 1 else 'people'}")
+        if c.get("unsorted"):
+            face_part += f", {c['unsorted']:,} still to sort"
+        parts.append(face_part)
+    if c.get("to_describe"):
+        parts.append(f"{c['to_describe']:,} waiting to be described")
+    return " · ".join(parts)
 
 OBJECT_NAME = "indexFunnel"
 
@@ -60,6 +87,7 @@ class StatusFunnel(QLabel):
         self._busy = False
         self._last_read = 0.0
         self.counts: dict[str, int] = {}
+        self.pictures: dict[str, int] = {}
 
     # -- painting ------------------------------------------------------------
 
@@ -69,13 +97,33 @@ class StatusFunnel(QLabel):
         if not isinstance(counts, Mapping):
             return
         self.counts = {word: int(n or 0) for word, n in counts.items()}
-        self.setText(funnel_line(self.counts))
+        self._paint()
         # Every word on the line, with its sentence - "what does Deferred
         # mean" is answered where the word is.
         self.setToolTip("\n".join(
             f"{word}: {explain(word)}" for word in FUNNEL_ORDER
             if self.counts.get(word) or word == "Indexed"))
         self.setVisible(True)
+
+    def show_pictures(self, counts: Optional[Mapping[str, int]]) -> None:
+        """The picture line under the files line. UI thread, no I/O; `None`
+        changes nothing, as for `show_counts`."""
+        if not isinstance(counts, Mapping):
+            return
+        self.pictures = {key: int(n or 0) for key, n in counts.items()}
+        self._paint()
+
+    def _paint(self) -> None:
+        lines = [funnel_line(self.counts)]
+        pictures = picture_line(self.pictures)
+        if pictures:
+            lines.append(pictures)
+        self.setText("\n".join(lines))
+
+    def _show_both(self, result: Any) -> None:
+        if isinstance(result, Mapping):
+            self.pictures = dict(result.get("pictures") or self.pictures)
+            self.show_counts(result.get("files"))
 
     # -- reading -------------------------------------------------------------
 
@@ -92,9 +140,9 @@ class StatusFunnel(QLabel):
             return False
         self._busy = True
         self._last_read = now
-        worker = CallableWorker(status_funnel_counts, store, stats,
+        worker = CallableWorker(funnel_and_pictures, store, stats,
                                 component="ui.index.funnel")
-        worker.signals.finished.connect(self.show_counts)
+        worker.signals.finished.connect(self._show_both)
         worker.signals.done.connect(self._read_done)
         run(QThreadPool.globalInstance(), worker)
         return True

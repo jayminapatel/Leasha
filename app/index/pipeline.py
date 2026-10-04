@@ -301,6 +301,8 @@ PHASE_PLANNING = "planning"
 PHASE_SCANNING = "scanning"
 PHASE_READING = "reading"
 PHASE_MEDIA = "media"
+#: 2026-10-04. Florence-2 tags for photos with no text, at the end of a run.
+PHASE_PHOTO_TAGS = "photo_tags"
 PHASE_TIDYING = "tidying"
 PHASE_VECTOR_INDEX = "vector_index"
 PHASE_WORD_INDEX = "word_index"
@@ -1849,6 +1851,11 @@ class Pipeline:
         from app.extract.heif import register_heif
 
         register_heif()
+        # 2026-10-04: photos are tagged at the end of the run - see
+        # `_drain_photo_tags`. A folder-watch run of a few files tags as it reads.
+        from app.extract import florence_tagger
+
+        florence_tagger.defer(not light)
         self._face_stats = stats
         self._faces_since_cluster = 0
         if not light:
@@ -1996,6 +2003,8 @@ class Pipeline:
         if getattr(self, "_faces_since_cluster", 0):
             self._drain_face_cluster(stats)
             self._faces_since_cluster = 0
+        if not light:
+            self._drain_photo_tags(stats, on_progress)
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -5160,6 +5169,68 @@ class Pipeline:
             stats.enrichment_counts.get(self.KIND_FACE_CLUSTER, 0) + resolved)
         if resolved:
             self._log.info("sorted {} face(s) into piles or suggestions", resolved)
+
+    def _drain_photo_tags(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]] = None,
+    ) -> None:
+        r"""Florence-2 tags for the photos this index read with no text in them.
+
+        **2026-10-04, the owner's photo library.** Measured per photo on an
+        idle laptop: Florence-2 10.4 s, OCR 2.3, faces 0.9, CLIP 0.3 - tagging
+        was three quarters of the time, and every photo's faces, text and
+        picture search waited behind it. So a run reads every photo first
+        (`florence_tagger.defer`) and tags here, at its end; a stopped run
+        leaves the rest for the next one, which starts here again once its
+        own photos are read. The text written, and its "AI description"
+        label, are what `OcrExtractor` wrote when it tagged in place.
+
+        Never fatal, stops when asked, paced by the governor like every other
+        backlog; a photo Florence-2 has nothing to say about is noted and not
+        offered again (`note_photo_untaggable`). The new passages are embedded
+        before the run ends.
+        """
+        from app.extract import florence_tagger
+        from app.extract.ocr import OcrExtractor
+
+        florence_tagger.defer(False)
+        if not florence_tagger.available():
+            return
+        tagged = 0
+        announced = False
+        try:
+            for batch in self.store.iter_untagged_photos(OcrExtractor.extensions):
+                if self._stop.is_set():
+                    break
+                verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+                if verdict.action == "stop":
+                    break
+                if not announced:
+                    self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
+                    announced = True
+                for file_id, path in batch:
+                    if self._stop.is_set():
+                        break
+                    result = florence_tagger.tag_image(Path(path))
+                    if result is None or not (result.caption or result.tags):
+                        self.store.note_photo_untaggable(file_id)
+                        continue
+                    body = result.caption
+                    if result.tags:
+                        tag_line = "Tags: " + ", ".join(result.tags)
+                        body = body + chr(10) + tag_line if body else tag_line
+                    self.store.add_caption_chunk(file_id, body, label="AI description")
+                    self.store.mark_indexed(file_id)
+                    tagged += 1
+                    stats.current = Path(path).name
+                    if on_progress is not None:
+                        on_progress(stats)
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning("could not finish describing photos: {}. Indexing continues.", exc)
+        stats.enrichment_counts["photo_tags"] = tagged
+        if tagged:
+            self._log.info("described {} photo(s) with no text in them", tagged)
+            self._drain_unembedded(stats)
 
     def _maybe_detect_faces(self, candidate: Candidate, file_id: int) -> None:
         r"""Section 1a's own images-pass face step. Switch-gated, always.

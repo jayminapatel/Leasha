@@ -681,9 +681,12 @@ class OcrExtractor:
             # falls straight through to the unchanged behaviour below
             # (ERR_NO_TEXT_LAYER via the skip ledger).
             from app.extract.florence_tagger import available as florence_available
+            from app.extract.florence_tagger import deferred as florence_deferred
             from app.extract.florence_tagger import tag_image as florence_tag_image
 
-            if florence_available():
+            # 2026-10-04: during an index run, tagged at the run's end instead
+            # - see `Pipeline._drain_photo_tags`.
+            if florence_available() and not florence_deferred():
                 tagged = florence_tag_image(path)
                 if tagged is not None and (tagged.caption or tagged.tags):
                     tag_builder = DocumentBuilder(path, source_kind=SourceKind.FILE)

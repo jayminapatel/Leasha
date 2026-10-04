@@ -3639,6 +3639,50 @@ class SqliteStore:
         ).fetchone()
         return row is not None
 
+    #: What `note_photo_untaggable` writes, so `iter_untagged_photos` does not
+    #: offer the same photo to Florence-2 on every run.
+    PHOTO_TAGS_TRIED = "no text, and Florence-2 found nothing to describe"
+
+    def iter_untagged_photos(
+        self, extensions: Sequence[str], *, batch_size: int = 16,
+    ) -> Iterator[list[tuple[int, str]]]:
+        r"""`(file_id, path)` for photos read with no text and not yet tagged.
+
+        2026-10-04: Florence-2 tagging moved from the photo's own read to the
+        end of a run (`Pipeline._drain_photo_tags`), because at ~10 s a photo
+        it was three quarters of the time a photo library took - faces, text
+        and picture search waited behind it. Such a photo is recorded the way
+        a photo with no text always was (`SKIPPED`, `ERR_NO_TEXT_LAYER`) until
+        its tags arrive. Newest first, the order the run read them in.
+        """
+        cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
+        if not cleaned:
+            return
+        placeholders = ",".join("?" for _ in cleaned)
+        last_id: Optional[int] = None
+        while True:
+            rows = self.conn.execute(
+                f"""
+                SELECT f.id, f.path FROM files f
+                WHERE f.status = 'SKIPPED' AND f.skip_code = 'ERR_NO_TEXT_LAYER'
+                  AND f.ext IN ({placeholders})
+                  AND COALESCE(f.skip_detail, '') != ?
+                  AND (? IS NULL OR f.id < ?)
+                ORDER BY f.id DESC LIMIT ?
+                """,
+                [*cleaned, self.PHOTO_TAGS_TRIED, last_id, last_id, int(batch_size)],
+            ).fetchall()
+            if not rows:
+                return
+            yield [(int(row[0]), str(row[1])) for row in rows]
+            last_id = int(rows[-1][0])
+
+    def note_photo_untaggable(self, file_id: int) -> None:
+        """Florence-2 found nothing to say: leave it skipped, and stop asking."""
+        with self.write() as conn:
+            conn.execute("UPDATE files SET skip_detail = ? WHERE id = ?",
+                         (self.PHOTO_TAGS_TRIED, int(file_id)))
+
     def add_caption_chunk(self, file_id: int, caption: str,
                            *, label: str = "AI caption") -> int:
         r"""Append one labelled segment to a file that is already indexed.
@@ -3921,6 +3965,40 @@ class SqliteStore:
                 "UPDATE faces SET suggested_pile_id = ? WHERE id = ?",
                 (pile_id, face_id),
             )
+
+    def picture_counts(self, extensions: Sequence[str]) -> dict[str, int]:
+        """The Indexing page's picture line, read in one statement. 2026-10-04,
+        the owner: "status of pictures indexing ... like it has for files".
+
+        `extensions` from the caller (storage does not import `app.extract`).
+        Each count rides an index that already exists: `idx_files_ext`,
+        `idx_files_status_skip`, `idx_faces_unassigned`, `face_scans`' key.
+        How many photos *have* a description is left out on purpose - it needs
+        every chunk's label, which is a scan, five-secondly, during a run.
+        """
+        cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
+        empty = {"pictures": 0, "read": 0, "faces_looked": 0, "faces": 0,
+                 "people": 0, "unsorted": 0, "to_describe": 0}
+        if not cleaned:
+            return empty
+        marks = ",".join("?" for _ in cleaned)
+        try:
+            row = self.conn.execute(f"""
+                SELECT
+                  (SELECT count(*) FROM files WHERE ext IN ({marks})),
+                  (SELECT count(*) FROM files WHERE ext IN ({marks}) AND status != 'PENDING'),
+                  (SELECT count(*) FROM face_scans),
+                  (SELECT count(*) FROM faces),
+                  (SELECT count(*) FROM piles),
+                  (SELECT count(*) FROM faces
+                     WHERE pile_id IS NULL AND suggested_pile_id IS NULL),
+                  (SELECT count(*) FROM files
+                     WHERE status = 'SKIPPED' AND skip_code = 'ERR_NO_TEXT_LAYER'
+                       AND ext IN ({marks}) AND COALESCE(skip_detail, '') != ?)
+                """, [*cleaned, *cleaned, *cleaned, self.PHOTO_TAGS_TRIED]).fetchone()
+        except sqlite3.OperationalError:
+            return empty
+        return dict(zip(empty, (int(v or 0) for v in row)))
 
     def faces_stamp(self) -> tuple[int, int, int, int]:
         """`(faces, piles, grouped faces, suggested faces)` - what the naming

@@ -153,6 +153,22 @@ def reset() -> None:
         _engine, _engine_failed, _engine_attempts = None, False, 0
 
 
+#: 2026-10-04. While set, `OcrExtractor` leaves a no-text photo untagged and
+#: the index run tags it at its end (`Pipeline._drain_photo_tags`). Set by
+#: the run, in the index process only; the window's own Describe is untouched.
+_deferred = False
+
+
+def defer(on: bool) -> None:
+    """Tag photos at the end of the run (True) or as each is read (False)."""
+    global _deferred
+    _deferred = bool(on)
+
+
+def deferred() -> bool:
+    return _deferred
+
+
 def tag_image(path: Path) -> Optional[FlorenceResult]:
     """Caption + tags for one photo-class image. Never raises."""
     engine = _load()

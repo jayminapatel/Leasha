@@ -151,17 +151,33 @@ def test_a_model_chosen_in_settings_afterwards_wins(chat):
     assert chat.ctl._choice == ""
 
 
-def test_the_window_loads_the_chat_model_a_beat_after_start_up(gui_mainwindow, qtbot, monkeypatch):
-    """Off the start-up path: scheduled from the background work, after first paint."""
+def test_the_chat_model_loads_when_chat_is_first_opened_not_at_start_up(
+        gui_mainwindow, qtbot, monkeypatch):
+    """*2026-10-04, the owner (2.2a)*: this test asserted the opposite - a load a
+    beat after start-up. Loading a model holds Python's lock for the whole load
+    (5.5 s for the 1.66 GB chat model), which froze the window as it opened, so it
+    now loads the first time Chat comes forward, and says so in the status bar."""
     _app, window, _store, _engine = gui_mainwindow
-    called = []
+    preloaded, listed, said = [], [], []
     monkeypatch.setattr(chat_controller, "BACKGROUND_MODELS", True)
     monkeypatch.setattr(chat_controller, "PRELOAD_DELAY_MS", 10)
-    monkeypatch.setattr(window.chat_ctl, "preload", lambda: called.append(1))
+    monkeypatch.setattr(window.chat_ctl, "preload", lambda: preloaded.append(1))
     monkeypatch.setattr(window._translator, "enabled", False)
     window._start_model_choices()
-    assert called == [], "never inside the start-up work itself"
-    qtbot.waitUntil(lambda: called == [1], timeout=5000)
+    qtbot.wait(100)
+    assert preloaded == [], "nothing loads at start-up"
+
+    ctl = window.chat_ctl
+    monkeypatch.setattr(ctl, "list_models", lambda **kw: listed.append(kw))
+    ctl._opened, ctl._listed = False, False
+    ctl._tab_changed(window._tab_index.get(window.chat_view))
+    assert listed == [{"warm": True, "full": True}]
+
+    monkeypatch.setattr(window, "notify", lambda text, *a, **k: said.append(text))
+    monkeypatch.setattr(chat_controller, "LOADING_PAINT_MS", 1)
+    ctl.engine = None
+    ctl._warm(0)
+    assert said and said[0] == chat_controller.LOADING_WORDS
 
 
 def test_a_single_model_is_not_offered_as_a_choice(qtbot):

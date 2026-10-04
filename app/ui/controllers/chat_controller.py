@@ -68,6 +68,13 @@ MODEL_KEY = "ui:chat_model"
 #: loading the model (11.5-14.7 s on the owner's laptop), so it is loaded this long
 #: after the window's start-up work begins - after first paint, never during it.
 PRELOAD_DELAY_MS = 4000
+
+#: 2026-10-04 (2.2a): said while the chat model loads on the tab's first
+#: opening, and when it is ready. The pause before the load is what lets the
+#: sentence paint before the load holds the window still.
+LOADING_WORDS = "Getting the chat model ready - the window may pause for a few seconds…"
+READY_WORDS = "The chat model is ready."
+LOADING_PAINT_MS = 150
 #: How long a picked model must stay picked before it is loaded ahead of the next
 #: question: arrowing through the list must not load every model on the way.
 PICK_SETTLE_MS = 1500
@@ -271,8 +278,12 @@ class ChatController(QObject):
             self._opened = True
             self._load_sessions()
             self._check()
+            # 2026-10-04, the owner (2.2a): the model is loaded here, the first
+            # time the tab comes forward, no longer at start-up - loading one
+            # holds Python's lock for the whole load (measured 5.5 s for the
+            # 1.66 GB chat model), and the window froze with it as it opened.
             if not self._listed and (BACKGROUND_MODELS or self.menu_factory is not None):
-                self.list_models()
+                self.list_models(warm=True, full=True)
         elif self._available is False:
             self._check()
 
@@ -582,15 +593,18 @@ class ChatController(QObject):
         if BACKGROUND_MODELS or self.menu_factory is not None:
             self.list_models(warm=True)
 
-    def list_models(self, *, warm: bool = False) -> None:
+    def list_models(self, *, warm: bool = False, full: Optional[bool] = None) -> None:
         """Fill the model drop-down, on a worker; `warm` also loads the model in use.
 
         The start-up preload (`warm`) asks Ollama only when the model in use is
         Ollama's: nothing contacts another program at start-up for somebody who does
-        not use one. The full list is made when the tab is first opened."""
-        worker = CallableWorker(self._models, not warm, component="ui.chat")
+        not use one. The full list is made when the tab is first opened.
+        `full` (2026-10-04): the first opening asks for both, the full list and
+        the model loaded - see `_tab_changed`."""
+        full = (not warm) if full is None else bool(full)
+        worker = CallableWorker(self._models, full, component="ui.chat")
         worker.signals.finished.connect(
-            lambda result, w=warm: self._models_listed(result, warm=w, full=not w))
+            lambda result, w=warm, f=full: self._models_listed(result, warm=w, full=f))
         worker.signals.failed.connect(lambda error: _log.debug("chat: no model list ({})", error))
         run(QThreadPool.globalInstance(), worker)
 
@@ -685,6 +699,13 @@ class ChatController(QObject):
         worker = CallableWorker(self._warm_body, int(size or 0), free_mb, component="ui.chat")
         worker.signals.finished.connect(self._warmed)
         worker.signals.failed.connect(lambda error: _log.debug("chat: not warmed ({})", error))
+        if self.engine is None:
+            # 2026-10-04, the owner: "make sure the status is updated". The load
+            # holds the window still for seconds, so it is said first and the
+            # load starts a beat later, once the sentence is on screen.
+            self._w.notify(LOADING_WORDS, 30_000)
+            later(self, LOADING_PAINT_MS, lambda w=worker: run(QThreadPool.globalInstance(), w))
+            return
         run(QThreadPool.globalInstance(), worker)
 
     def _warm_body(self, size: int = 0, free_mb: Optional[int] = None) -> tuple:
@@ -709,6 +730,8 @@ class ChatController(QObject):
     def _warmed(self, result: Any) -> None:
         if isinstance(result, tuple) and len(result) == 3:
             self._adopt(result[0], result[1])
+            if result[2] and not self._closing:
+                self._w.notify(READY_WORDS, 6_000)
 
     # -- the message actions -----------------------------------------------------------
     def _rewind_to_last_question(self) -> str:

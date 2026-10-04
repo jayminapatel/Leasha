@@ -1961,9 +1961,11 @@ class MainWindow(QMainWindow):
             return
         if getattr(self._translator, "enabled", False) and menu is not None:
             self.interpret_ctl.list_if_needed()
-        chat_ctl = getattr(self, "chat_ctl", None)
-        if chat_ctl is not None:
-            later(self, chat_controller.PRELOAD_DELAY_MS, chat_ctl.preload)
+        # 2026-10-04, the owner (2.2a): the chat model is no longer loaded a
+        # beat after start-up (`chat_ctl.preload`). Loading it holds Python's
+        # lock for the whole load - 5.5 s measured for the 1.66 GB model - so
+        # the window froze while it opened (14.3 s at 22:08, with the
+        # reranker and the meaning model). It loads when Chat is first opened.
 
     def _warm_models(self) -> None:
         """Load the models off the first search's critical path."""

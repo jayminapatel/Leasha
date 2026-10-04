@@ -329,6 +329,28 @@ def status_funnel_counts(store: Any, stats: Any = None) -> dict[str, int]:
                          reading=reading, discovered=discovered)
 
 
+def picture_status(store: Any) -> dict[str, int]:
+    """Counts for the Indexing page's picture line. **Worker only.**
+
+    2026-10-04, the owner: "status of pictures indexing ... like it has for
+    files". The picture types are the OCR ladder's own (`OcrExtractor`), the
+    set every picture lane routes on.
+    """
+    from app.extract.ocr import OcrExtractor
+
+    return store.picture_counts(OcrExtractor.extensions)
+
+
+def funnel_and_pictures(store: Any, stats: Any = None) -> dict[str, Any]:
+    """Both lines of the funnel, in one worker read. **Worker only.**"""
+    out: dict[str, Any] = {"files": status_funnel_counts(store, stats)}
+    try:
+        out["pictures"] = picture_status(store)
+    except Exception as exc:                     # noqa: BLE001 - one line of the page
+        _log.debug("no picture status: {}", exc)
+    return out
+
+
 def offline_volume_marks(store: Any, results: Any) -> dict[int, dict]:
     r"""Which of this page's rows are on a catalogued Offline Media volume
     that is not connected right now, and what to say about it. §3a: "on
@@ -909,6 +931,11 @@ def read_index_summary(store: Any, settings: Any = None) -> dict[str, Any]:
         payload["funnel"] = status_funnel_counts(store)
     except Exception as exc:                     # noqa: BLE001 - one line of the page
         _log.debug("no status funnel: {}", exc)
+    # 2026-10-04: the picture line under it, with its own guard.
+    try:
+        payload["pictures"] = picture_status(store)
+    except Exception as exc:                     # noqa: BLE001 - one line of the page
+        _log.debug("no picture status: {}", exc)
     # 3c: archives a run stopped inside. Stats each one, so on the worker too.
     payload["part_read"] = read_part_read_archives(store)
     # Order 0z F3: the timed-out files by type, for the panel that offers to

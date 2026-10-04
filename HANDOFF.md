@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.64 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.65 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,26 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, later that night - the owner's three calls: 2.1a, 2.2a, a picture status.*
+  (1) **Florence-2 tags photos at the end of a run** (`Pipeline._drain_photo_tags`, phase
+  `photo_tags`): during a run `florence_tagger.defer(True)` makes `OcrExtractor` leave a no-text
+  photo `SKIPPED`/`ERR_NO_TEXT_LAYER` as it always recorded one Florence could not tag; the run's
+  end tags them newest first (`iter_untagged_photos`), adds the "AI description" passage, marks
+  them indexed and embeds them; one with nothing to say is noted (`note_photo_untaggable`) and not
+  offered again; a stopped run leaves the rest to the next. Expected main pass ~3.5 s a photo
+  instead of ~14 **(UNCONFIRMED over a whole run)**. *Correction to my earlier offer*: the
+  "existing background trickle" is Ollama Describe and skips under the ONNX engine - this is new.
+  (2) **The chat model loads when Chat is first opened**, not 4 s after start-up: loading an ONNX
+  model holds Python's lock for the whole load (measured: chat 5.5 s, reranker 1.3 s stall of the
+  main thread), which is what froze the window 14.3 s as it opened at 22:08. The status bar says
+  "Getting the chat model ready…" first. `test_the_window_loads_the_chat_model_a_beat_after_start_up`
+  asserted the old ruling and was replaced, with a dated note. **Still open**: the reranker and
+  the meaning model still load at start-up (~1.5 s stall); a load in another process is the cure.
+  (3) **The Indexing page's funnel has a picture line**: "Pictures: 40 of 15,011 read · faces
+  looked for in 40 · 120 faces in 8 people, 5 still to sort · 300 waiting to be described"
+  (`store.picture_counts`, existing indexes only; how many *have* a description is left out - it
+  would scan every chunk label every 5 s). Tests: `test_photo_tags_at_run_end.py`,
+  `test_picture_status.py`, `test_answer_model_choice_qt.py`.
 - *2026-10-04 note, night - pictures and people (the owner: "pictures very slow, the option where
   i name the people has nothing", then "should be updated periodically if not live").* Measured
   on the owner's photos (15,011: 10,782 jpg, 3,741 heic), idle machine, per photo: Florence-2
