@@ -208,14 +208,22 @@ def kind_for(path: Path) -> str:
 
 
 def _describe(path: Path) -> str:
-    """Size and modification date, for the card and the subtitle."""
+    """The size, for the card and the subtitle.
+
+    2026-10-04, the owner ("the same code should run"): **the date is the
+    facts grid's, not this line's.** This read the file's modification time
+    from disk while the grid beside it showed the row's own date - a
+    photo's shot date, an attachment's message's - so the pane showed two
+    dates for one file. The grid (`inspector.preview_facts`) has the one the
+    list shows.
+    """
     try:
         stat = path.stat()
     except OSError:
         return ""
-    from app.ui.presenter import format_size, format_when
+    from app.ui.presenter import format_size
 
-    return f"{format_size(stat.st_size)} · {format_when(stat.st_mtime_ns)}"
+    return format_size(stat.st_size)
 
 
 def _decode(raw: bytes) -> str:

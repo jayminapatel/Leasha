@@ -176,6 +176,7 @@
     <Compile Include="app\core\osbridge\programs.py" />
     <Compile Include="app\core\osbridge\stdio.py" />
     <Compile Include="app\core\priority.py" />
+    <Compile Include="app\core\row_facts.py" />
     <Compile Include="app\core\run_lock.py" />
     <Compile Include="app\core\runlog.py" />
     <Compile Include="app\core\scaffold.py" />
@@ -267,6 +268,7 @@
     <Compile Include="app\index\resolve.py" />
     <Compile Include="app\index\resources.py" />
     <Compile Include="app\index\run_events.py" />
+    <Compile Include="app\index\run_setup.py" />
     <Compile Include="app\index\scan.py" />
     <Compile Include="app\index\schedule.py" />
     <Compile Include="app\index\stages.py" />
@@ -309,6 +311,7 @@
     <Compile Include="app\search\gitquery.py" />
     <Compile Include="app\search\gitsearch.py" />
     <Compile Include="app\search\keyword.py" />
+    <Compile Include="app\search\marks.py" />
     <Compile Include="app\search\numbers.py" />
     <Compile Include="app\search\pasted.py" />
     <Compile Include="app\search\plain_notices.py" />
@@ -319,6 +322,7 @@
     <Compile Include="app\search\relax.py" />
     <Compile Include="app\search\rerank.py" />
     <Compile Include="app\search\rerank_bench.py" />
+    <Compile Include="app\search\run.py" />
     <Compile Include="app\search\saved.py" />
     <Compile Include="app\search\spelling.py" />
     <Compile Include="app\search\translate.py" />
@@ -378,6 +382,7 @@
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\coverage.py" />
     <Compile Include="app\ui\presenter\explain.py" />
+    <Compile Include="app\ui\presenter\facts.py" />
     <Compile Include="app\ui\presenter\formatting.py" />
     <Compile Include="app\ui\presenter\indexing.py" />
     <Compile Include="app\ui\presenter\interrupted.py" />
@@ -820,6 +825,7 @@
     <Compile Include="tests\unit\test_office_full_layout.py" />
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
+    <Compile Include="tests\unit\test_one_fact_one_function.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_attachment.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
@@ -915,6 +921,8 @@
     <Compile Include="tests\unit\test_run_events.py" />
     <Compile Include="tests\unit\test_run_lock.py" />
     <Compile Include="tests\unit\test_run_log.py" />
+    <Compile Include="tests\unit\test_run_setup.py" />
+    <Compile Include="tests\unit\test_run_setup_window.py" />
     <Compile Include="tests\unit\test_run_suite_processes.py" />
     <Compile Include="tests\unit\test_runlog.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
@@ -927,6 +935,7 @@
     <Compile Include="tests\unit\test_search_notices.py" />
     <Compile Include="tests\unit\test_search_policy.py" />
     <Compile Include="tests\unit\test_search_quality.py" />
+    <Compile Include="tests\unit\test_search_run.py" />
     <Compile Include="tests\unit\test_search_view.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
     <Compile Include="tests\unit\test_settings_are_used.py" />

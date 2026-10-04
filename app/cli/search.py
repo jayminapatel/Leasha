@@ -52,8 +52,12 @@ def cmd_files(args: argparse.Namespace) -> int:
 
     with SqliteStore(settings.fts_db) as store:
         page = find_files(store, line, limit=args.limit, preferences=preferences(settings))
-        hits = page["rows"]
         total = store.count_listed_files()
+        # 2026-10-04: an attachment's message (its folder and date) and a
+        # drive's name, read the way the Files tab reads them - one call.
+        from app.ui.tasks import file_row_context
+
+        hits = file_row_context(store, page["rows"])
 
     if args.json:
         print(json.dumps({"query": text, "matches": hits, "indexed_files": total,

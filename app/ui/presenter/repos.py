@@ -8,7 +8,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
-from app.ui.presenter.formatting import format_count, format_when, shorten_path
+from app.ui.presenter.facts import date_words
+from app.ui.presenter.formatting import format_count, shorten_path
 
 # ---------------------------------------------------------------------------
 # Repositories, for the Code tab
@@ -64,7 +65,8 @@ def repo_rows(
             name=name,
             files=format_count(count),
             kind=REPO_KINDS.get(str(row.get("kind", "")), "Repository"),
-            seen=format_when(seen_at, now=now) if seen_at else "",
+            # 2026-10-04: the date the Search tab's way, as every list.
+            seen=date_words(seen_at, now=now),
             path=shorten_path(root, limit=60),
             root=root,
             file_count=count,

@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from app.core.logging import logger
+from app.core.row_facts import archived_message_sql
 
 __all__ = [
     "DuplicateCopy",
@@ -212,6 +213,10 @@ def _local_source_name(path: str) -> str:
     return "This computer"
 
 
+#: A message read out of a mail archive - no size of its own (2026-10-04).
+_ARCHIVED_MESSAGE = archived_message_sql("")
+
+
 def find_duplicate_groups(
     store: Any, *, limit: int = DUPLICATE_GROUPS_SHOWN,
 ) -> list[DuplicateGroup]:
@@ -225,9 +230,14 @@ def find_duplicate_groups(
     lesson it exists to avoid repeating.
     """
     try:
+        # 2026-10-04: a message inside a mail archive carries the archive's
+        # size (`row_facts.archived_message_sql`), so two copies of one
+        # message were "reclaimable" at the size of the whole `.pst`. They are
+        # left out of every size here - there is no file of theirs to delete.
         hashes = store.conn.execute(
             "SELECT content_hash, size_bytes, COUNT(*) AS n "
             "FROM files WHERE content_hash IS NOT NULL "
+            f"AND NOT {_ARCHIVED_MESSAGE} "
             "GROUP BY content_hash HAVING COUNT(*) > 1 "
             "ORDER BY (COUNT(*) - 1) * size_bytes DESC LIMIT ?",
             (int(limit),),
@@ -242,7 +252,8 @@ def find_duplicate_groups(
         content_hash = row["content_hash"]
         try:
             members = store.conn.execute(
-                "SELECT path, volume_id FROM files WHERE content_hash = ?",
+                "SELECT path, volume_id FROM files WHERE content_hash = ? "
+                f"AND NOT {_ARCHIVED_MESSAGE}",
                 (content_hash,),
             ).fetchall()
         except Exception as exc:                  # noqa: BLE001
@@ -277,7 +288,8 @@ def total_reclaimable_bytes(store: Any) -> int:
         row = store.conn.execute(
             "SELECT SUM((n - 1) * size_bytes) AS reclaimable FROM ("
             "  SELECT size_bytes, COUNT(*) AS n FROM files "
-            "  WHERE content_hash IS NOT NULL GROUP BY content_hash "
+            f"  WHERE content_hash IS NOT NULL AND NOT {_ARCHIVED_MESSAGE} "
+            "  GROUP BY content_hash "
             "  HAVING COUNT(*) > 1"
             ")"
         ).fetchone()
@@ -547,12 +559,10 @@ def coverage_sentence(files_total: int, files_compared: int) -> str:
 
 
 def _size_words(size_bytes: int) -> str:
-    value = float(max(0, size_bytes))
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return f"{value:,.0f} {unit}" if unit == "B" else f"{value:,.1f} {unit}"
-        value /= 1024
-    return f"{value:,.1f} TB"
+    # 2026-10-04, the owner: one size formatter everywhere (`row_facts`).
+    from app.core.row_facts import format_size
+
+    return format_size(size_bytes)
 
 
 def _formatted_date(value: Optional[int]) -> str:

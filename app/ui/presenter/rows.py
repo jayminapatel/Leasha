@@ -12,14 +12,24 @@ from datetime import timedelta as _timedelta
 from typing import Any, Iterable, Mapping, Optional
 
 from app.core.file_state import derive
+from app.ui.presenter.facts import (
+    attachment_context,
+    date_words,
+    message_name,
+    own_size,
+    shown_date_ns,
+    size_words,
+    status_note,
+    volume_folder,
+)
 from app.ui.presenter.formatting import (
     format_address,
     format_recipients,
     format_sent,
     format_size,
-    format_when,
     shorten_path,
 )
+from app.ui.presenter.results import kind_tag
 
 # ---------------------------------------------------------------------------
 # Finding a file by its name
@@ -46,6 +56,10 @@ class FileRow:
     #: numbers were thrown away at formatting time, so the Files list could
     #: not have sorted correctly even if it had been allowed to.
     size_bytes: int = 0
+    #: 2026-10-04: **the date shown**, which is the date the list is ordered
+    #: by - a photo's own date (`taken_at_ns`), an attachment's message's
+    #: sent date, else the file's modification time (`facts.shown_date_ns`).
+    #: The name is kept because the Modified column sorts on it.
     mtime_ns: int = 0
     #: The full path. `folder` is shortened for the column and cannot be
     #: rejoined to it, and the preview pane needs the real thing.
@@ -69,20 +83,22 @@ class FileRow:
     status: str = ""
 
 
-#: What a status means to somebody looking at a list of files.
-_STATUS_NOTES = {
-    "SKIPPED": "indexed by name only - contents could not be read",
-    "FAILED": "could not be read",
-    "PENDING": "not indexed yet",
-}
-
-
 def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
-              offline_volumes: Any = ()) -> list[FileRow]:
+              offline_volumes: Any = (), register: Optional[str] = None) -> list[FileRow]:
     """Store rows to display rows for the Files list.
 
     `offline_volumes` is the set of volume ids not connected right now,
     decided on the worker (`tasks.offline_volume_ids`) - never here.
+
+    2026-10-04, the owner: **every fact the way the Search tab shows it**,
+    through the one function for each (`presenter.facts`): the type badge
+    (`kind_tag`, "DOC" not "DOCX"), the date (`shown_date_ns` read by
+    `date_words`, in the Search tab's plain/technical `register`), the size
+    (`size_words`), an attachment's folder ("from Dave · School trip", not its
+    `pst://` key), a catalogued drive's ("Holiday drive > Photos") and the
+    note on the name (`status_note`, the Status column's own sentence). An
+    attachment's message and a drive's name arrive on the row from the
+    worker (`tasks.file_row_context`, one read per page).
     """
     away = set(offline_volumes or ())
     out: list[FileRow] = []
@@ -91,25 +107,30 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
         name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
         folder = path[: len(path) - len(name)].rstrip("/\\") or path
         status = str(row.get("status", ""))
-        note = _STATUS_NOTES.get(status, "")
-        if status == "SKIPPED" and row.get("skip_code"):
-            note = f"{note} ({row['skip_code']})"
         volume_id = row.get("volume_id")
+        source_kind = str(row.get("source_kind", "") or "file")
+        if "message_subject" in row:
+            folder = attachment_context(row.get("message_sender"), row.get("message_subject"))
+        elif volume_id is not None:
+            folder = volume_folder(row.get("volume_label"), row.get("relative_path"),
+                                   volume_id=volume_id)
+        else:
+            folder = shorten_path(folder, limit=60)
+        shown = shown_date_ns(mtime_ns=row.get("mtime_ns"), taken_at_ns=row.get("taken_at_ns"),
+                              sent_at=row.get("message_sent_at"))
         out.append(FileRow(
             file_id=int(row.get("id", 0)),
             name=name,
-            folder=shorten_path(folder, limit=60),
-            kind=(str(row.get("ext", "")) or "?").upper(),
+            folder=folder,
+            kind=kind_tag(str(row.get("ext", "") or "")),
             # An attachment whose size is not known yet (schema 31 blanked
             # the archive's) shows nothing rather than "0 B".
-            size=("" if not int(row.get("size_bytes") or 0)
-                  and str(row.get("source_kind", "")) != "file"
-                  else format_size(int(row.get("size_bytes") or 0))),
-            modified=format_when(int(row.get("mtime_ns", 0)), now=now),
-            size_bytes=int(row.get("size_bytes", 0)),
-            mtime_ns=int(row.get("mtime_ns", 0)),
+            size=size_words(row.get("size_bytes"), path, source_kind),
+            modified=date_words(shown, register=register, now=now),
+            size_bytes=own_size(row.get("size_bytes"), path, source_kind),
+            mtime_ns=shown,
             path=path,
-            note=note,
+            note=status_note(status, row.get("skip_code")),
             volume_id=int(volume_id) if volume_id is not None else None,
             relative_path=str(row.get("relative_path", "") or ""),
             status=derive(status, row.get("skip_code"),
@@ -298,18 +319,20 @@ def mail_rows(
             sent_at = int(sent_at)
         except (TypeError, ValueError):
             sent_at = 0
-        size_bytes = int(row.get("size_bytes") or 0)
         # 2026-10-04, the owner's Mail screenshot: every message "1.9 GB". A
-        # message read out of an archive (`pst://`, both readers) is stored
-        # with the archive's size - it has no file of its own - so it shows
-        # none, as the Files page already does. A `.eml` or `.msg` on disk
-        # keeps its own.
-        if str(row.get("path") or "").startswith("pst://"):
-            size_bytes = 0
+        # message read out of an archive is stored with the archive's size -
+        # it has no file of its own - so it shows none. **The one rule**
+        # (`row_facts.own_size`), shared with Files, Search, the timeline,
+        # `/size` and the Space report: this caught `pst://` alone, and an
+        # `.mbox` or `.olm` message (`<archive>/123`) still showed the
+        # archive's. A `.eml` or `.msg` on disk keeps its own. Every Mail row
+        # is a message, so a row without its `source_kind` is read as one.
+        size_bytes = own_size(row.get("size_bytes"), row.get("path"),
+                              row.get("source_kind") or "eml")
         attached = bool(row.get("has_attach"))
         # An empty subject is common and meaningful. Blank looks like a
-        # rendering fault; saying so does not.
-        subject = str(row.get("subject") or "").strip() or "(no subject)"
+        # rendering fault; saying so does not. `message_name`, as every list.
+        subject = message_name(row.get("subject"))
         out.append(MailRow(
             file_id=int(row.get("file_id") or 0),
             sender=format_address(row.get("sender")),

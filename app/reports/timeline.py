@@ -56,6 +56,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, NamedTuple, Optional, Sequence
 
 from app.core.logging import logger
+from app.core.row_facts import message_name, own_size
 
 __all__ = [
     "KINDS", "PAGE_SIZE", "PHOTO_EXTS", "VIDEO_EXTS",
@@ -549,12 +550,17 @@ def _entry(row: Any, branch: int, connected: Optional[dict]) -> TimelineEntry:
     kind = "mail" if branch == BRANCH_MAIL else kind_of(
         row["ext"], row["file_source_kind"], row["repo_id"])
     path = str(row["path"])
+    # 2026-10-04, the owner ("the same code should run"): a message is named
+    # the way every list names it - its subject, or "(no subject)" - never by
+    # the last piece of its key (an EntryID); and one read out of an archive
+    # has no size of its own (`row_facts`), not the archive's.
     return TimelineEntry(
         file_id=int(row["file_id"]), path=path,
-        name=subject or _name_of(path, row["relative_path"] or ""),
+        name=(message_name(subject) if branch == BRANCH_MAIL
+              else subject or _name_of(path, row["relative_path"] or "")),
         ext=str(row["ext"] or ""), kind=kind, when_ns=int(row["when_ns"]),
         basis=_basis_of(branch, row["taken_at_is_hint"]),
-        size_bytes=int(row["size_bytes"] or 0),
+        size_bytes=own_size(row["size_bytes"], path, row["file_source_kind"]),
         source_name=str(row["source_name"] or ""), source_kind=str(row["source_kind"] or ""),
         source_status=str(row["source_status"] or "").lower(),
         volume_id=int(volume_id) if volume_id is not None else None,

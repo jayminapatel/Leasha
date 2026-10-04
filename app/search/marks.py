@@ -154,6 +154,21 @@ def status_marks(store: Any, results: Any) -> dict[int, str]:
     return out
 
 
+def parent_messages(store: Any, items: Any) -> Optional[dict[int, dict]]:
+    """`{attachment's file_id: its message's messages row}` for one page, in
+    one statement, or None when the store cannot answer in one (a test fake),
+    so the caller falls back to its per-message lookup. 2026-10-04."""
+    lookup = getattr(store, "messages_by_path", None)
+    if not callable(lookup):
+        return None
+    wanted = {int(file_id or 0): attachment_parent_path(path) for file_id, path in items}
+    wanted = {file_id: parent for file_id, parent in wanted.items() if parent}
+    if not wanted:
+        return {}
+    found = lookup(sorted(set(wanted.values())))
+    return {file_id: found[parent] for file_id, parent in wanted.items() if parent in found}
+
+
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 
@@ -178,6 +193,16 @@ def mail_details(store: Any, results: Any) -> dict:
     try:
         results = list(results or ())
         file_ids = [getattr(r, "file_id", 0) for r in results]
+
+        parents = parent_messages(store, [(getattr(r, "file_id", 0), getattr(r, "path", ""))
+                                          for r in results])
+        if parents is not None:
+            # 2026-10-04: one statement for the page's attachments
+            # (`store.messages_by_path`), not one `get_file` per parent.
+            details = dict(store.messages_for(file_ids))
+            for file_id, parent in parents.items():
+                details[file_id] = {**parent, "attachment_of": parent.get("file_id")}
+            return details
 
         parent_id_of: dict[int, int] = {}
         if hasattr(store, "get_file"):

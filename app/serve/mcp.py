@@ -187,19 +187,32 @@ class IndexTools:
         # would be typed with. It used to be a name-only lookup, so the same
         # words found something different here than on the tab.
         line = f"{text} type:{','.join(kinds)}" if kinds else text
+        from app.core.row_facts import has_own_size, own_size
+        from app.ui.presenter.facts import shown_date_ns
+        from app.ui.tasks import file_row_context
+
         with self._store() as store:
             page = find_files(store, line, limit=limit, preferences=self._preferences())
+            # The Files tab's own page context (2026-10-04): an attachment's
+            # message, so its date is the message's - one statement a page.
+            rows = file_row_context(store, page["rows"])
         files = []
-        for row in page["rows"]:
+        for row in rows:
             path = str(row.get("path") or "")
-            size = row.get("size_bytes")
+            kind = row.get("source_kind")
             # The name from the path - the query selects none, which is why
             # this said `null` - and a real 0-byte size kept as 0 (2026-10-04).
+            # Size and date by the same rules as every list (`row_facts`,
+            # `facts.shown_date_ns`): no archive's size on a message, and an
+            # attachment dated by its message.
+            when = shown_date_ns(mtime_ns=row.get("mtime_ns"), taken_at_ns=row.get("taken_at_ns"),
+                                 sent_at=row.get("message_sent_at"))
             files.append({"path": path,
                           "name": path.replace("\\", "/").rstrip("/").rpartition("/")[2],
                           "type": row.get("ext"),
-                          "size_bytes": int(size) if size is not None else None,
-                          "modified": _when((row.get("mtime_ns") or 0) / 1e9)})
+                          "size_bytes": (own_size(row.get("size_bytes"), path, kind)
+                                         if has_own_size(path, kind) else None),
+                          "modified": _when(when / 1e9) if when else ""})
         out: dict = {"name": text, "files": files,
                      "read_as": [a.label for a in page["applied"]]}
         if page.get("spelling"):

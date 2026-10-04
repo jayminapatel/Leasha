@@ -436,6 +436,12 @@ class SettingsController(QObject):
             # applied there.
             self._w.search_preferences = found
             self._w.search_view.set_search_preferences(found)
+            # 2026-10-04, the owner: Files and Code read their dates in the
+            # register the Search tab does (`presenter.facts.date_words`).
+            from app.ui.presenter import set_date_register
+            from app.ui.presenter.search import notice_register_for
+
+            set_date_register(notice_register_for("search", found))
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("the search behaviours could not be applied: {}", exc)
 

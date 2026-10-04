@@ -263,12 +263,10 @@ def _count_words(n: int) -> str:
 
 
 def _size_words(size_bytes: int) -> str:
-    value = float(max(0, size_bytes))
-    for unit in ("B", "KB", "MB", "GB", "TB"):
-        if value < 1024 or unit == "TB":
-            return f"{value:,.0f} {unit}" if unit == "B" else f"{value:,.1f} {unit}"
-        value /= 1024
-    return f"{value:,.1f} TB"
+    # 2026-10-04, the owner: one size formatter everywhere (`row_facts`).
+    from app.core.row_facts import format_size
+
+    return format_size(size_bytes)
 
 
 def render_inheritance_document(sources: Sequence[SourceSummary], *,

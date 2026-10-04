@@ -54,9 +54,16 @@ class Pin(NamedTuple):
 
     @property
     def label(self) -> str:
-        """What the panel shows. The name, or the path when there is none."""
-        return self.name or self.path.replace("\\", "/").rstrip("/").rpartition(
-            "/")[2] or self.path
+        """What the panel shows. The name, or the file's name when there is none.
+
+        2026-10-04: `presenter.display_name`, the one every list uses - a
+        pinned message with no name was labelled with its EntryID, the last
+        piece of its `pst://` key. A Search passage now carries its group's
+        name (`ResultRow.name`), so a pin from Search keeps "Dave — Trip".
+        """
+        from app.ui.presenter.facts import display_name
+
+        return display_name(self.name, self.path)
 
 
 def _as_pin(item: Any) -> Optional[Pin]:

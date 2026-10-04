@@ -248,12 +248,24 @@ from app.ui.presenter.results import (
     results_terminator,
     Terminator,
 )
+from app.ui.presenter.facts import (
+    attachment_context,
+    attachment_words,
+    date_register,
+    date_words,
+    display_name,
+    folder_words,
+    message_name,
+    set_date_register,
+    shown_date_ns,
+    status_note,
+    volume_folder,
+)
 from app.ui.presenter.rows import (
     LIST_TOTAL_CAP,
     MAIL_TOTAL_CAP,
     capped_total,
     FileRow,
-    _STATUS_NOTES,
     file_rows,
     file_summary,
     MailRow,
@@ -334,6 +346,9 @@ _TASK_NAMES = frozenset({
     "_ATTACHMENT_MARKER",
     "_attachment_parent_path",
     "mail_details",
+    "_parent_messages",
+    "file_row_context",
+    "volume_labels",
     "save_attachment_copy",
     "archive_of",
     "_read_external_run",
@@ -385,6 +400,9 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "attachment_context", "attachment_words", "date_register", "date_words",
+    "display_name", "folder_words", "message_name", "set_date_register",
+    "shown_date_ns", "status_note", "volume_folder",
     "cell_location",
     "GIT_ONLY",
     "CodeRoute",
