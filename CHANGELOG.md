@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.47 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 4.48 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,32 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [0.3.4] - 2026-10-04
+
+### The window on the Leasha brand (2026-10-04)
+
+The owner asked for the app to be assessed against the Leasha brand (`jeff-doc-leasha`,
+the 1 October rulings). It was on-brand where it is seen first - the logo, the one indigo,
+the calm copy - and off-brand in four measured places. Fixed the same day.
+
+- **The result badges can be read.** The word on a result's kind badge was white on the
+  brand's orange (2.1:1) and lime (2.4:1), under the 4.5:1 the brand's own rule exists for.
+  The badges now use the brand's text-safe tints of the same three hues, in both themes -
+  white on them is 5.0:1 or better. Every pair is measured in a test.
+- **One indigo.** The accent was a navy near the brand's indigo; it is the brand's
+  indigo now, `#15084B`, in the rail, the chips and every selected row.
+- **The app icon is the brand's symbol mark** - the cluster alone, without the shadow,
+  so it is clean at 16 px in the taskbar and the tray.
+- **Help › About Leasha.** The logo, what Leasha does in a sentence, the version and build,
+  Leasha Ltd and leasha.co.uk, and a button to the third-party notices. The window had
+  carried none of this.
+- The splash's three stripes were two units off the brand's blue and lime; exact now.
+  `assets/leasha-logo.svg` is the brand's outlined vector (the old one set the wordmark as
+  live text in a font most machines do not have).
+- **Not changed, by decision:** the dark theme's grey grounds (the brand has no dark-theme
+  ruling; the app's is kept) and the system font in the window (the brand's Aptos is for
+  documents; a desktop app follows "Make text bigger").
 
 ### Chat answers with the number, and shows the document (2026-10-04)
 
@@ -47,6 +73,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   and Settings › What's indexed are
   retaken from the real window; `tools/guide_pictures.py` is the script that does it, kept this
   time. `HANDOFF.md` 7.44.
+- The brand assessment: notes in the guide and the reference; `HANDOFF.md` 7.45;
+  `assets/leasha-lockup.png` / `-reversed.png`, `leasha-symbol.svg`, `leasha-logo-reversed.svg`
+  from the brand kit.
+- **Release 0.3.4** (schema 30; the index migrates on open, no re-index). The living
+  documents' *Applies to* moved to 0.3.4; archived documents and shipped work orders keep
+  the version they were written against.
 
 ### A file as an entry, and a Space Report that never holds the window (2026-10-03)
 

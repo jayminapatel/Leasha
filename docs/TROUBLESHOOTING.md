@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.

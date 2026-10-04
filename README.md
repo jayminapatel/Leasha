@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 3.0 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 3.1 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 **Search everything on this machine — by describing it in plain English.**
 

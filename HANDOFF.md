@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.44 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
+**Doc version:** 7.45 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -971,6 +971,8 @@ What that means for whoever picks this up on the Windows machine:
   session the same day) was picked up in the same pass: the Space Report is on
   the Reports page and the idle-tune scheduler is in the shell, tests in
   `test_idle_tune_and_space_report_ui.py`, unticked until the Windows run.
+
+*Note, 2026-10-04: the app is **0.3.4** (the brand release, a PATCH); the paragraph below is kept as written.*
 
 **Version 0.3.3. Eight of the nine live layers are code-complete; L8b is deferred by decision
 and L9 has not been started. 6,509 tests collected, 2 deselected (JVM - see below) and 1
@@ -2036,6 +2038,30 @@ tinted by the window's loop with the `_nav`s; `test_category_icons.py` guards bo
 He asked whether *Folders to index* (Settings › What's indexed) belongs on the Indexing page;
 decided 2026-10-04: **it stays where it is.** Settings holds what is set once, Indexing holds
 the run; the per-line Index now is the bridge. Not to be reopened without him.
+
+**2026-10-04 (night) - the brand assessment, and release 0.3.4.** The owner asked for the window
+to be assessed against the Leasha brand (`jeff-doc-leasha`: `brand.json`, the 1 October
+rulings). Measured, not judged: the kind badges were a white word on orange 2.13:1, lime
+2.41:1, blue 4.47:1 - under the brand's own 4.5:1 gate; the accent was `#2b1a7a`, a navy
+near the brand's indigo `#15084B` (the theme's comment said it was "the splash's navy" - the
+splash was already `15084B`); the icon carried the lockup's shadow ellipse; no About box.
+Decided by him: badges on the brand's text-safe tints in both themes (`0866BD`, `A35200`,
+`6B7600`, chrome `6C6685`; the word is `result_delegate.BADGE_INK`, white); accent to `15084B`; icon from the kit's `leasha-symbol-512.png`; Help › About
+Leasha (`widgets/about_dialog.py`: lockup by ground, `build_info()`, Leasha Ltd, notices).
+`test_brand_colours.py` carries the brand values and measures every pair. **Decided and NOT
+changed**: the dark theme's grey grounds (the brand has no dark ruling) and the system font
+(Aptos is for documents). The goldens still match within tolerance after the accent change,
+so they were not regrabbed. **Traps**: a first version gave the dark theme its own bright
+fills with dark ink; that was more than he approved and broke the redesign's "a label that
+changes hue with the theme is two labels" (`test_kind_badges_are_the_same_in_both_themes`),
+so it was taken back - one set, both themes. `test_the_stripes_are_the_splash_colours` now
+checks the family (same hue, darker) with a dated note, since the badges are tints of the
+stripes and no longer equal to them;
+`assets/leasha-lockup*.png` are the kit's tight lockups (1735x540), `leasha-logo.png` keeps
+its wide margins because the splash's layout counts on them. The brand guidelines in the
+company folder (`02 Brand/Guidelines`) do not yet say the app uses the system font - that
+sentence is the owner's to add there. Version bumped to **0.3.4** (PATCH: fixes; schema 25 ->
+30 since 0.3.3 migrates on open) - the VERSIONING map's renumbering question stays his.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

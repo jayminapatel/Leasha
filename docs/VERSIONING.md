@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 ## Scheme
 
@@ -20,7 +20,9 @@ this is a single-user desktop app with no public API and no external consumers.
 
 > *Note, 1 October 2026:* Layers 6 and 7 (graph and Office builder) were removed and cancelled, so `0.7.0` will
 > not mean what this map says. Layer 8 (Interpret and Chat) is built and runs on ONNX Runtime inside
-> Leasha by default. The app is still `0.3.3`; when it next moves, this map needs the owner's
+> Leasha by default. *(2026-10-04: it moved to `0.3.4`, a PATCH for the brand fixes and the
+> fixes since 19 September; the schema went 25 -> 30 by migration, no re-index.)* When the minor
+> next moves, this map needs the owner's
 > renumbering. The map below is kept as written.
 
 | Version | Milestone |
