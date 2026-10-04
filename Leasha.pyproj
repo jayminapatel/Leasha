@@ -613,6 +613,8 @@
     <Compile Include="tests\unit\test_chat_llm_roles.py" />
     <Compile Include="tests\unit\test_chat_markdown_qt.py" />
     <Compile Include="tests\unit\test_chat_memory.py" />
+    <Compile Include="tests\unit\test_chat_model_reliability.py" />
+    <Compile Include="tests\unit\test_chat_model_reliability_qt.py" />
     <Compile Include="tests\unit\test_chat_reconcile.py" />
     <Compile Include="tests\unit\test_chat_router.py" />
     <Compile Include="tests\unit\test_chat_router_conversation.py" />
@@ -932,6 +934,7 @@
     <Compile Include="tests\unit\test_run_setup_window.py" />
     <Compile Include="tests\unit\test_run_suite_processes.py" />
     <Compile Include="tests\unit\test_runlog.py" />
+    <Compile Include="tests\unit\test_sampling_speed.py" />
     <Compile Include="tests\unit\test_sanitise.py" />
     <Compile Include="tests\unit\test_saved_searches.py" />
     <Compile Include="tests\unit\test_scaffold.py" />
