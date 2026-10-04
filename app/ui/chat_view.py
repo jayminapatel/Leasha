@@ -24,6 +24,7 @@ from PyQt6.QtWidgets import (
 )
 
 from app.ui.presenter.chat import NOT_BUILT_LINE, THINKING_LINE, unavailable_text
+from app.ui.view_options import preview_toggle
 from app.ui.widgets.chat_answer_run import AnswerRun
 from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble
 from app.ui.widgets.chat_message_box import MessageBox
@@ -60,6 +61,8 @@ class ChatView(QWidget):
     web_toggled = pyqtSignal(bool)
     #: The person answered "Search the web for ...?" - `True` is Allow.
     web_decided = pyqtSignal(bool)
+    #: 2026-10-04: the Sources column's preview was shown (True) or hidden.
+    preview_toggled = pyqtSignal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -108,6 +111,9 @@ class ChatView(QWidget):
         # 2026-09-27, order 0x section 9).
         head.addStretch(0)
         head.addWidget(self.recheck_button)
+        # 2026-10-04: the same Preview toggle every other tab carries.
+        self.toggles = {"inspector": preview_toggle(self, checked=True, on_toggle=self.show_preview)}
+        head.addWidget(self.toggles["inspector"])
         head.addWidget(self.speed)
         centre = QWidget()
         column = QVBoxLayout(centre)
@@ -154,6 +160,12 @@ class ChatView(QWidget):
     def set_store(self, store: Any) -> None:
         """2026-10-04: the preview in the Sources column reads a message from it."""
         self.sources.set_store(store)
+
+    def show_preview(self, on: bool) -> None:
+        """Show or hide the Sources column's preview; the toggle follows."""
+        self.sources.preview.setVisible(bool(on))
+        self.toggles["inspector"].set_quietly(bool(on))
+        self.preview_toggled.emit(bool(on))
 
     @property
     def preview(self) -> Any:

@@ -58,6 +58,8 @@ _log = logger.bind(component="ui.chat")
 
 #: Keyed window state: which of Fast / Thoughtful was last chosen.
 SPEED_KEY = "ui:chat_speed"
+#: 2026-10-04: whether the Sources column's preview pane is showing ("on"/"off").
+PREVIEW_KEY = "ui:chat_preview"
 
 #: How long a stopped answer may take to wind down before the box is handed back anyway.
 #: The engine stops between pieces, but a model that is still *loading* sends nothing to stop
@@ -168,6 +170,9 @@ class ChatController(QObject):
         # 2026-10-04: the preview in the Sources column reads a message from
         # the window's store, as the Search pane's does (`attach_preview`).
         view.set_store(getattr(self._w, "_store", None))
+        view.preview_toggled.connect(
+            lambda on: save_state(self._w._store, PREVIEW_KEY, "on" if on else "off",
+                                  component="ui.chat"))
         view.reindex_requested.connect(lambda row: self._w._reindex_for(row))
         view.similar_requested.connect(self._similar)
         view.sessions.selected.connect(self._select)
@@ -307,13 +312,15 @@ class ChatController(QObject):
         return (True, bool(ok), str(reason or ""), note)
 
     def _load(self) -> tuple:
-        """Saved conversations and the remembered Fast / Thoughtful choice."""
-        speed = ""
+        """Saved conversations, the remembered Fast / Thoughtful choice, and
+        whether the preview pane was left showing (2026-10-04)."""
+        speed, preview = "", ""
         try:
             speed = self._w._store.get_state(SPEED_KEY, "") or ""
+            preview = self._w._store.get_state(PREVIEW_KEY, "") or ""
         except Exception as exc:                          # noqa: BLE001
             _log.debug("chat: no remembered speed ({})", exc)
-        return (self._sessions.load(), speed)
+        return (self._sessions.load(), speed, preview)
 
     # -- availability and loading -------------------------------------------------
     def _check(self) -> None:
@@ -336,11 +343,13 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _loaded(self, result: tuple) -> None:
-        found, speed = result
+        found, speed, preview = (*result, "")[:3]
         if self.view is None:
             return
         if speed:
             self.view.set_speed(speed)
+        if preview:
+            self.view.show_preview(preview != "off")
         if self.session.turns or self.session.shelf.items:
             found = [s for s in found if s.id != self.session.id]
             self.sessions = [self.session] + found        # something was begun already

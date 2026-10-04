@@ -51,7 +51,7 @@ from app.ui.debug_recorder import recorder_for
 from app.ui.theme import detect_scheme, stylesheet
 from app.ui.tray import TrayPresence
 from app.ui.state_writes import pool as state_write_pool, save_state, save_states
-from app.ui.view_options import load_prefs, save_prefs_later
+from app.ui.view_options import load_prefs, retint_toggles, save_prefs_later
 from app.ui.window_state import bring_forward, restore_window_state, save_window_state
 from app.ui.widgets.no_scroll import protect_all
 from app.ui.widgets.number_field import fit_all as fit_number_fields
@@ -1615,6 +1615,11 @@ class MainWindow(QMainWindow):
         # (§1c), so the palette is pushed to them the way the log pane's is.
         self.rail.retint(colours)
         retint_toolbar(self.search_view, colours)
+        # 2026-10-04: the Preview toggle on Files, Mail, Code and Chat too.
+        for view in (self.files_view, getattr(self, "mail_view", None),
+                     getattr(self, "code_view", None), getattr(self, "chat_view", None)):
+            if view is not None:
+                retint_toggles(view, colours)
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)

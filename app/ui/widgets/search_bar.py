@@ -405,23 +405,12 @@ def _mirror_switches(view: Any, row: Any, body: Any) -> dict:
         made[key] = toggle
 
     # The preview pane is a view preference (`view_options`); this toggle
-    # only calls the same `toggle_preview` Ctrl+Shift+P calls.
-    inspector = QToolButton()
-    inspector.setObjectName("toggle_inspector")
-    inspector.setProperty("iconToggle", True)
-    inspector.setCheckable(True)
-    inspector.setAutoRaise(True)
-    inspector.setText("Preview")
-    inspector.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-    inspector.setToolTip("Show or hide the preview pane beside the results  Ctrl+Shift+P")
-    inspector.setAccessibleName("Preview pane")
-    inspector.setFocusPolicy(Qt.FocusPolicy.TabFocus)
-    inspector.icon_name = "panel-right"
-    prefs = getattr(getattr(view, "view_button", None), "prefs", None)
-    inspector.setChecked(bool(getattr(prefs, "preview", False)))
-    toggle_preview = getattr(getattr(view, "view_button", None), "toggle_preview", None)
-    if callable(toggle_preview):
-        inspector.clicked.connect(lambda _c=False: toggle_preview())
+    # only calls the same `toggle_preview` Ctrl+Shift+P calls. 2026-10-04:
+    # made by `view_options.preview_toggle`, which Files, Mail, Code and Chat
+    # now share, so the four tabs carry one and the same control.
+    from app.ui.view_options import preview_toggle
+
+    inspector = preview_toggle(view)
     changed = getattr(view, "view_preferences_changed", None)
     if changed is not None:
         changed.connect(lambda p: _set_silently(inspector, bool(getattr(p, "preview", False))))

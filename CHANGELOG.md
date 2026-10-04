@@ -29,11 +29,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   there - a message as its card and text, a file as its pages - with Open, Show in folder and
   Pin in a window. Double-click still opens the file in its own program.
 - The clear button inside a find box now says what it is to a screen reader.
+- **The Preview toggle is on every tab that has a preview.** The icon that sat on the Search bar
+  alone is now beside the View button on Files, Mail and Code, and beside Fast/Thoughtful on
+  Chat. It shows or hides that tab's own preview pane and remembers the choice per tab; the
+  View menu and Ctrl+Shift+P still do the same thing, and the toggle follows them.
 
 ### Docs
 
 - `docs/USER_GUIDE.html` and `docs/TECHNICAL_REFERENCE.html`: notes dated 4 October 2026.
-  `HANDOFF.md` 7.42.
+  `HANDOFF.md` 7.43.
 
 ### A file as an entry, and a Space Report that never holds the window (2026-10-03)
 

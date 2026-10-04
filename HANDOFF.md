@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.42 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
+**Doc version:** 7.43 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -1999,6 +1999,20 @@ in a vertical splitter; one click on a source or on an answer's result row previ
 (`AnswerBubble.result_selected` -> `SourcesPane.preview_row`), the store arrives through
 `ChatView.set_store` from the chat controller, and the shell pins it like the other panes.
 `chat_view.py` is at 231 of its 250 lines. Rendered offscreen, UNVERIFIED on the real window.
+
+**2026-10-04 (later) - the Preview toggle is one control on five tabs, and three views had no
+line to spare.** The owner asked why the Search bar's icons were not on the other tabs.
+`view_options.preview_toggle` is the toggle; `search_bar._mirror_switches` builds Search's from
+it, and Files, Mail and Code add it with `self.view_button.add_to(top)` in place of
+`top.addWidget(self.view_button)` - a method rather than an import, because `files_view.py` sat
+at 249 lines and a single import line put it over (it did, on the first attempt). The toggle
+follows the View menu and `Ctrl+Shift+P` through `button().watchers`; Chat keeps its state in
+`ui:chat_preview`. Pinned, Timeline and Grid stay Search's: the panels exist nowhere else. The
+comments in `files_view.py` and `mail_view.py` that said `Ctrl+P` for weeks are corrected
+(`Ctrl+P` is "go to Files"). **`test_views_are_freed.py` caught the first version**: `add_to`
+was a closure holding the view, on a widget the view owns - the cycle `_weakly` documents -
+and `CodeView` stopped being freed. Held weakly now, and the same for Chat's bound
+`show_preview`. UNVERIFIED on the real window.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

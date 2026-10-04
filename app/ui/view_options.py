@@ -36,7 +36,8 @@ _log = logger.bind(component="ui.view")
 
 __all__ = [
     "load_prefs", "save_prefs", "build_menu", "apply_to_table", "apply_to_tree",
-    "button", "save_prefs_later",
+    "button", "save_prefs_later", "preview_toggle", "add_view_controls",
+    "retint_toggles", "PREVIEW_TOGGLE_TIP",
     "Density", "ViewPreferences", "DEFAULT_FONT_PT", "FONT_RANGE",
     "available_columns", "visible_columns", "row_height_for", "parse_prefs",
     "prefs_to_state", "DENSITIES", "Metrics", "remember_widths",
@@ -667,6 +668,7 @@ def button(
     widget.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
     widget.prefs = load_prefs(store, prefix) if store is not None else ViewPreferences()
     widget.available = tuple(key for key, _heading in columns)
+    watchers: list = []
 
     def changed(prefs: ViewPreferences) -> None:
         widget.prefs = prefs
@@ -674,6 +676,11 @@ def button(
             save_prefs_later(store, prefix, prefs)
         if on_change is not None:
             on_change(prefs)
+        for watcher in list(watchers):
+            try:
+                watcher(prefs)
+            except RuntimeError:                 # a mirror whose C++ side has gone
+                watchers.remove(watcher)
 
     def refit() -> None:
         """Forget every dragged width and measure the columns again.
@@ -726,6 +733,17 @@ def button(
     widget.toggle_preview = toggle_preview
     widget.remember_width = remember_width
     widget.refit = refit
+    # 2026-10-04: anything that mirrors the preferences on screen (the
+    # Preview icon toggle, `preview_toggle`) is told after each change; and
+    # `add_to(layout)` puts that toggle and this button on a tab's top row -
+    # a method rather than an import, because the three views that call it
+    # are at their line limit and an import line would put one over.
+    widget.watchers = watchers
+    # Weakly, as `on_change` is held: the button is the view's child, and a
+    # closure here that held the view would be the cycle `_weakly` describes
+    # (`test_views_are_freed.py` found it on the first attempt).
+    parent_ref = weakref.ref(parent) if parent is not None else (lambda: None)
+    widget.add_to = lambda layout: add_view_controls(layout, parent_ref())
     # **The button owns the preferences, so it owns the wiring that writes
     # them.** Passing the table here rather than making every view call
     # `remember_widths` itself is what keeps this one line instead of four in
@@ -735,6 +753,113 @@ def button(
         remember_widths(table, widget, columns)
     widget.clicked.connect(lambda: show())
     return widget
+
+
+# ---------------------------------------------------------------------------
+# The Preview icon toggle, the same on every tab (2026-10-04)
+# ---------------------------------------------------------------------------
+#
+# The owner: "there are icons in the search page for preview etc .. why are
+# they not in the other tabs? i.e consistent". The Search bar's icon toggles
+# came with its redesign (`widgets/search_bar.py`, order 202626160950 §3e)
+# and Files, Mail and Code had the same preference one click further away,
+# inside the View menu. This is that toggle, made once for every tab that
+# has a preview. Pinned, Timeline and Grid stay Search's: the panels they
+# show exist nowhere else, and a toggle that does nothing is forbidden.
+
+#: What the toggle says. The tooltip names the shortcut the window binds.
+PREVIEW_TOGGLE_TIP = "Show or hide the preview pane beside the results  Ctrl+Shift+P"
+
+
+def preview_toggle(view: Any, *, checked: Any = None, on_toggle: Any = None) -> Any:
+    """A checkable icon button that shows or hides a tab's preview pane.
+
+    With a `view.view_button` (Files, Mail, Code, Search) it reads and flips
+    that button's preference, so the pane is remembered exactly as the View
+    menu remembers it, and it follows a change made from the menu or the
+    shortcut (`watchers`). A tab with no preferences (Chat) passes `checked`
+    and `on_toggle(on)` instead. Paints its own icon, and repaints it when
+    it is flipped and when the window changes theme (`retint_toggles`).
+    """
+    from PyQt6.QtCore import Qt
+    from PyQt6.QtWidgets import QToolButton
+
+    from app.ui.widgets.icons import icon
+
+    # A bound method of the view (Chat's `show_preview`) is held weakly, as
+    # `button()` holds `on_change`: the toggle is the view's child, and a
+    # closure on it that held the view would keep the view alive.
+    on_toggle = _weakly(on_toggle)
+    toggle = QToolButton()
+    toggle.setObjectName("toggle_inspector")
+    toggle.setProperty("iconToggle", True)
+    toggle.setCheckable(True)
+    toggle.setAutoRaise(True)
+    toggle.setText("Preview")
+    toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+    toggle.setToolTip(PREVIEW_TOGGLE_TIP)
+    toggle.setAccessibleName("Preview pane")
+    toggle.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+    toggle.icon_name = "panel-right"
+
+    def paint(colours: Any = None) -> None:
+        if colours is None:
+            from app.ui.theme import theme_colours
+
+            colours = theme_colours()
+        dim = colours.get("text_dim", "#888888")
+        text = colours.get("accent_text", "#ffffff")
+        toggle.setIcon(icon("panel-right", text if toggle.isChecked() else dim))
+
+    def quietly(on: bool) -> None:
+        if toggle.isChecked() != bool(on):
+            toggle.blockSignals(True)
+            toggle.setChecked(bool(on))
+            toggle.blockSignals(False)
+        paint()
+
+    button = getattr(view, "view_button", None)
+    if on_toggle is None and button is not None:
+        toggle.setChecked(bool(getattr(getattr(button, "prefs", None), "preview", False)))
+        toggle.clicked.connect(lambda _c=False: button.toggle_preview())
+        watchers = getattr(button, "watchers", None)
+        if watchers is not None:
+            watchers.append(lambda prefs: quietly(bool(getattr(prefs, "preview", False))))
+    else:
+        toggle.setChecked(bool(checked))
+        if on_toggle is not None:
+            toggle.clicked.connect(lambda _c=False: on_toggle(toggle.isChecked()))
+    toggle.toggled.connect(lambda _on: paint())
+    toggle.retint = paint
+    toggle.set_quietly = quietly
+    paint()
+    return toggle
+
+
+def add_view_controls(layout: Any, view: Any) -> Any:
+    """Put the Preview toggle and the View button at the end of a tab's top
+    row, and name the toggle in `view.toggles` for the window's retint. One
+    line in a view, in place of `layout.addWidget(view.view_button)` - those
+    views are at their line limit."""
+    if view is None:                                 # the view has gone
+        return None
+    toggle = preview_toggle(view)
+    layout.addWidget(toggle)
+    layout.addWidget(view.view_button)
+    view.toggles = {**getattr(view, "toggles", {}), "inspector": toggle}
+    return toggle
+
+
+def retint_toggles(view: Any, colours: dict) -> None:
+    """Redraw a tab's icon toggles for a palette - what the window does for
+    every tab on a theme change."""
+    for toggle in dict(getattr(view, "toggles", {}) or {}).values():
+        repaint = getattr(toggle, "retint", None)
+        if repaint is not None:
+            try:
+                repaint(colours)
+            except RuntimeError:                 # the C++ side has gone
+                pass
 
 
 #: Set on a table while this module is sizing its columns, so the handler that

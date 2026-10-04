@@ -168,7 +168,7 @@ class CodeView(QWidget):
         top.addWidget(self.input, stretch=1)
         top.addWidget(self.git_button)
         top.addWidget(self.run_button)
-        top.addWidget(self.view_button)
+        self.view_button.add_to(top)         # 2026-10-04: the Preview toggle, then View
 
         layout = QVBoxLayout(self)
         self.chips = list_chips(self, layout, top, self._typed)

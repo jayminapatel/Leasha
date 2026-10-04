@@ -172,7 +172,8 @@ class MailView(QWidget):
         self._timer.setInterval(MAIL_DEBOUNCE_MS)
         self._timer.timeout.connect(self._run)
 
-        # Off until asked for - `Ctrl+P` or the View menu. The body comes from
+        # Off until asked for - the Preview toggle, `Ctrl+Shift+P` or the View
+        # menu (this said `Ctrl+P` for weeks; that is "go to Files"). The body comes from
         # `_message_body` rather than from the file, because a PST is a hundred
         # thousand messages in one file and there is nothing on disk to open
         # for any one of them.
@@ -187,7 +188,7 @@ class MailView(QWidget):
 
         top = QHBoxLayout()
         top.addWidget(self.input, stretch=1)
-        top.addWidget(self.view_button)
+        self.view_button.add_to(top)         # 2026-10-04: the Preview toggle, then View
 
         layout = QVBoxLayout(self)
         self.chips = list_chips(self, layout, top, self._run)
