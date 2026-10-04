@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from app.search.run import GROUP_FETCH_MULTIPLIER, fetch_depth  # noqa: F401 - re-exported
 from app.ui.presenter.explain import match_marker
 from app.ui.presenter.formatting import (
     BREADCRUMB_PARTS,
@@ -181,20 +182,9 @@ def to_rows(results: Iterable[Any], terms: Sequence[str], **kwargs: Any) -> list
 # what it returns today; this decides how to draw it.
 # ---------------------------------------------------------------------------
 
-#: How many chunks to fuse before grouping, as a multiple of the groups shown.
-#:
-#: **Grouping shrinks the list, so the fetch has to be deeper than the display.**
-#: If fifty chunks come back and thirty belong to one PDF, grouping yields far
-#: fewer documents than chunks - and a fetch sized for the display count would
-#: leave the page half empty on exactly the corpora this feature exists for.
-#: Four is enough for a document matching in a handful of places without
-#: quadrupling rerank cost.
-GROUP_FETCH_MULTIPLIER = 4
-
-
-def fetch_depth(display_count: int, *, multiplier: int = GROUP_FETCH_MULTIPLIER) -> int:
-    """How many chunks to ask for, to end up with `display_count` documents."""
-    return max(1, int(display_count)) * max(1, int(multiplier))
+#: `GROUP_FETCH_MULTIPLIER` and `fetch_depth` - how many chunks to fuse before
+#: grouping - are defined once in `app.search.run` since 2026-10-04, where the
+#: command line and the MCP server group by the same rule; imported above.
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,23 +287,17 @@ def group_results(
         conversation = (detail or {}).get("conversation")
         return ("conversation", str(conversation)) if conversation else row.file_id
 
-    order: list[Any] = []
-    collected: dict[Any, list[ResultRow]] = {}
-    for row in rows:
-        key = key_of(row)
-        if key not in collected:
-            collected[key] = []
-            # First appearance decides position, so the best-ranked chunk of a
-            # document decides where the document sits. No re-sorting needed.
-            order.append(key)
-        collected[key].append(row)
+    # The grouping rule itself - first appearance decides position, so the
+    # best-ranked chunk of a document decides where the document sits - is
+    # `app.search.run.group_by_document` since 2026-10-04, shared with the
+    # command line and the MCP server. Only the drawing is decided here.
+    from app.search.run import group_by_document
 
     groups = []
-    for key in order:
-        found = collected[key]
+    for found in group_by_document(rows, key_of):
         head = found[0].file_id
         group = _build_group(head, found, details.get(head), now=now, register=register)
-        if isinstance(key, tuple):
+        if isinstance(key_of(found[0]), tuple):
             group = _as_conversation(group, details)
         groups.append(group)
     groups = _distinguish_twins(groups)

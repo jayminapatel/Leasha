@@ -649,7 +649,15 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
             log.info("startup: loading the reranker",
                      model=settings.rerank_model, enabled=settings.rerank_enabled)
-            reranker = Reranker.from_settings(settings)
+            # **The Rerank box's saved value, not `.env` alone** (2026-10-04).
+            # The toolbar was restored from `ui:rerank_enabled` with signals
+            # blocked, so the engine kept `RERANK_ENABLED` - a box showing "on"
+            # whose searches never reranked, or the reverse. `rerank_wanted`
+            # is the one reading `app.cli search` and the MCP server use too.
+            from app.search.run import rerank_wanted
+
+            reranker = Reranker.from_settings(
+                settings, enabled=rerank_wanted(settings, store))
 
             # Work order 0h §1c. **Not loaded here, not warmed here.**
             # `clip_text_embedder_from_settings` builds a plain `Embedder`

@@ -225,7 +225,7 @@ class MailView(QWidget):
 
         worker = CallableWorker(   # the reading, the page, its total and the index's
             browse_messages_typed, self._store, self.input.text(), limit=PAGE_SIZE,
-            component="ui.mail", declined=tuple(self.chips.declined),
+            component="ui.mail", **self.chips.reading(),
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(

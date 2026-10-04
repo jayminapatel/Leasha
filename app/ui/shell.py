@@ -1459,7 +1459,8 @@ class MainWindow(QMainWindow):
             if self._mini is None:
                 from app.ui.widgets.mini_search import MiniSearch
 
-                self._mini = MiniSearch(self._engine)
+                self._mini = MiniSearch(   # the Settings switches, read per search
+                    self._engine, preferences=lambda: getattr(self, "search_preferences", None))
                 self._mini.chosen.connect(self._open_result)
                 self._mini.expanded.connect(self._search_from_mini)
             self._mini.summon()

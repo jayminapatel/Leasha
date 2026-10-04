@@ -170,21 +170,13 @@ class SavedSearches:
         `type:pdf`, so there is one doorway and one grammar. Doing it the
         other way round would leave the slash form unexpanded.
         """
-        from app.search.commands import expand_slashes
-        from app.search.saved import (
-            expand_saved, find, mentions_saved, names_in,
-        )
+        # The expansion is `app.search.run.expand_query` since 2026-10-04, so
+        # the command line, the shell, the mini box and the MCP server expand
+        # `saved:name` exactly as this box does. **Only the ones that
+        # resolved** are counted: a name nobody saved is left as typed.
+        from app.search.run import expand_query
 
-        query = expand_slashes(str(text or "").strip())
-        if not mentions_saved(query):
-            return query
-
-        # **Only the ones that resolved.** A name nobody saved is left in the
-        # box as typed - `expand_saved`'s rule - and counting a run for it
-        # would be recording that something happened which did not.
-        names = tuple(name for name in names_in(query)
-                      if find(self._saved, name) is not None)
-        query, scope = expand_saved(query, self._saved)
+        query, scope, names = expand_query(text, self._saved)
         if scope and self._on_scope is not None:
             self._on_scope(scope)
         self._note(names)
@@ -202,8 +194,9 @@ class SavedSearches:
             store = self._store
 
             def write() -> None:
-                for name in names:
-                    store.note_saved_search_run(name)
+                from app.search.run import note_saved_runs
+
+                note_saved_runs(store, names)
 
             run(QThreadPool.globalInstance(),
                 CallableWorker(write, component="ui.search.saved"))

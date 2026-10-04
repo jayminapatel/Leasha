@@ -330,7 +330,7 @@ class FilesView(QWidget):
 
         # Read on the worker the same way as every tab; 500 rows, like Mail (2026-10-01).
         worker = CallableWorker(browse_files_typed, self._store, self.input.text(), limit=PAGE_SIZE,
-                                component="ui.files", declined=tuple(self.chips.declined))
+                                component="ui.files", **self.chips.reading())
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show(rows, g, text)))

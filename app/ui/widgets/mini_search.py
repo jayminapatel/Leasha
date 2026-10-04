@@ -125,7 +125,8 @@ class MiniSearch(QFrame):
     #: for the question being asked.
     expanded = pyqtSignal(str)
 
-    def __init__(self, engine: Any, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, engine: Any, parent: Optional[QWidget] = None, *,
+                 preferences: Any = None) -> None:
         # Frameless *and* a Tool window: a Tool has no taskbar entry, which is
         # what makes this feel like a summoned thing rather than a second
         # application somebody now has to close.
@@ -133,6 +134,10 @@ class MiniSearch(QFrame):
                          | Qt.WindowType.FramelessWindowHint
                          | Qt.WindowType.WindowStaysOnTopHint)
         self._engine = engine
+        #: Returns the Settings search switches, read on every search so a
+        #: switch changed in Settings applies at once; `None` is the Search
+        #: surface's defaults (2026-10-04 - the box used to ignore them).
+        self._preferences = preferences if callable(preferences) else (lambda: preferences)
         self._generation = 0
         self._rows: list = []
         #: Every group the last response produced, before the chip filter -
@@ -311,11 +316,7 @@ class MiniSearch(QFrame):
         """One tier, on a worker, carrying a generation. Never raises."""
         from app.ui.workers import CallableWorker, run
 
-        # `/date 2017` becomes `date:2017` here, as it does in the Search tab
-        # and the CLI - the parser has never known about slashes.
-        from app.search.commands import expand_slashes
-
-        query = expand_slashes(self.box.text().strip())
+        query = self.box.text().strip()
         if not query or self._engine is None:
             self.list.clear()
             self._rows = []
@@ -325,29 +326,29 @@ class MiniSearch(QFrame):
         self._generation += 1
         generation = self._generation
         engine = self._engine
+        preferences = self._preferences()
 
         def ask() -> Any:
-            from app.search.policy import SEARCH, for_surface
-            from app.ui.presenter import fetch_depth, mail_details
+            from app.search.policy import SEARCH
+            from app.search.run import run_search
+            from app.ui.presenter import mail_details
 
-            # **The Search tab's policy, by name.** §3a is explicit: the
-            # kid-safe surface. Somebody who summoned this from inside Excel
-            # is the least likely person to want to debug a query.
-            #
-            # **Fetched deeper than it is shown.** §5a's chips need to count
-            # more than the seven rows on screen, or "14 files" is never
-            # true of anything this box could display - `fetch_depth` is the
-            # same "fetch deeper than the display" rule grouping already
-            # uses, not a second one invented here.
-            response = engine.search(query, limit=fetch_depth(ROWS),
-                                     policy=for_surface(SEARCH))
+            # **The Search tab's search, step for step** (2026-10-04, the
+            # owner's decision that every surface searches as that tab does):
+            # `/date 2017` and `saved:name` expanded, "mail from 2017" read as
+            # filters, the Settings switches for surface SEARCH - the kid-safe
+            # policy §3a asks for - the one rerank setting, repository history
+            # when a history switch is typed. `run_search` is the same code
+            # the command line and the MCP server run. Fetched at the Search
+            # tab's own depth, so §5a's chips count what that tab would list.
+            found = run_search(engine, query, surface=SEARCH, preferences=preferences,
+                               marks=False, note_saved=True)
             # **One more query, batched, on the same worker.** The rule
             # `mail_details` states: never one lookup per row. Without it a
             # message result has no subject and buckets as "files" for want
             # of a kind - this is the one call that fixes both.
-            details = mail_details(getattr(engine, "store", None),
-                                   getattr(response, "results", []) or [])
-            return response, details
+            details = mail_details(getattr(engine, "store", None), found.results)
+            return found, details
 
         worker = CallableWorker(ask, component="ui.mini.search")
         worker.signals.finished.connect(
@@ -362,11 +363,10 @@ class MiniSearch(QFrame):
         from app.ui.presenter import group_results, to_rows
 
         try:
-            response, details = payload
-            terms = tuple(getattr(getattr(response, "parsed", None),
+            found, details = payload
+            terms = tuple(getattr(getattr(found.response, "parsed", None),
                                   "terms", ()) or ())
-            groups = group_results(to_rows(
-                getattr(response, "results", []) or [], terms), details=details)
+            groups = group_results(to_rows(found.results, terms), details=details)
         except Exception as exc:                 # noqa: BLE001 - a list
             _log.debug("could not draw the mini results: {}", exc)
             return

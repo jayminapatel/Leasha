@@ -138,6 +138,20 @@ class ChipRow(QWidget):
     def retint(self, _colours: dict[str, str]) -> None:
         """Chips are stylesheet-drawn; nothing to re-render."""
 
+    def reading(self) -> dict:
+        r"""How a list tab's worker reads its line: `declined` and `preferences`.
+
+        2026-10-04: Files, Mail and Code read a sentence with the Settings
+        search switches, as Search always did - they were handed `None`, so a
+        switch turned off in Settings still applied on those tabs. The window
+        keeps the current switches on itself (`search_preferences`, set by
+        `SettingsController._apply_search_preferences`); outside a window -
+        a view built on its own in a test - there are none, which is each
+        surface's default, as before.
+        """
+        return {"declined": tuple(self.declined),
+                "preferences": getattr(self.window(), "search_preferences", None)}
+
 
 def list_chips(view: Any, layout: Any, top: Any, rerun: Any) -> "ChipRow":
     """The Search tab's chip row, under a list tab's box. **One wiring for all.**

@@ -22,7 +22,18 @@ def cmd_files(args: argparse.Namespace) -> int:
 
     Read-only, so no lock. It never embeds and never reranks, which is why it
     returns instantly.
+
+    2026-10-04 - **the Files tab's search, not a second one** (the owner's
+    decision that every surface searches as the window does): the line is read
+    by `app.search.run.find_files`, the function the Files tab's worker runs -
+    slash commands and plain English ("pdf from 2019"), the Settings search
+    switches, every switch through `store.browse_files`, and the tab's spelling
+    help for an empty list. The name still ranks first; a folder or the text
+    can match too, as on the tab. It used to be `search_files_by_name`, which
+    found something different from the tab for the same words.
     """
+    from app.search.policy import preferences
+    from app.search.run import find_files
     from app.storage.sqlite_store import SqliteStore
     from app.ui.presenter import file_rows
 
@@ -36,17 +47,25 @@ def cmd_files(args: argparse.Namespace) -> int:
             key="name", reason="give something to look for",
             suggestion=r'Part of a filename is enough: app.cli files invoice',
         ), args.json)
+    # `--type pdf,docx` is the switch the tab would be typed with.
+    line = f"{text} type:{args.type}" if args.type else text
 
     with SqliteStore(settings.fts_db) as store:
-        hits = store.search_files_by_name(
-            text, limit=args.limit, ext=args.type.split(",") if args.type else None
-        )
-        total = store.count_named_files()
+        page = find_files(store, line, limit=args.limit, preferences=preferences(settings))
+        hits = page["rows"]
+        total = store.count_listed_files()
 
     if args.json:
-        print(json.dumps({"query": text, "matches": hits, "indexed_files": total}, indent=2))
+        print(json.dumps({"query": text, "matches": hits, "indexed_files": total,
+                          "applied": [a.label for a in page["applied"]],
+                          "spelling": page.get("spelling") or None},
+                         indent=2, default=str))
         return EXIT_OK
 
+    if page.get("spelling"):
+        print(f"  {page['spelling']}")
+    if page["applied"]:
+        print(f"  (read as: {', '.join(a.label for a in page['applied'])})")
     if not hits:
         print(f"No file name contains '{text}'.")
         if total == 0:
@@ -134,6 +153,7 @@ def cmd_shell(args: argparse.Namespace) -> int:
     from app.search import vector
     from app.search.engine import SearchEngine
     from app.search.rerank import Reranker
+    from app.search.run import rerank_wanted
     from app.shell.repl import run_shell
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
@@ -150,7 +170,6 @@ def cmd_shell(args: argparse.Namespace) -> int:
         ), args.json)
 
     embedder = Embedder.from_settings(settings)
-    reranker = Reranker.from_settings(settings)
     # Work order 0h §1c: the third retrieval lane, same as every other real
     # search entry point in this file.
     clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
@@ -158,6 +177,9 @@ def cmd_shell(args: argparse.Namespace) -> int:
     with SqliteStore(settings.fts_db) as store, \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
             ImageVectorStore(settings.vector_path) as image_vectors:
+        # The window's Rerank switch, as `search` reads it (2026-10-04).
+        reranker = Reranker.from_settings(
+            settings, enabled=rerank_wanted(settings, store))
         engine = SearchEngine(
             store, vectors, embedder, reranker=reranker,
             image_vectors=image_vectors, clip_text_embedder=clip_text_embedder,
@@ -186,7 +208,9 @@ def cmd_search(args: argparse.Namespace) -> int:
     from app.index.embedder import Embedder
     from app.search import vector
     from app.search.engine import SearchEngine
+    from app.search.policy import SEARCH, preferences
     from app.search.rerank import Reranker
+    from app.search.run import rerank_wanted, run_search
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
 
@@ -210,8 +234,6 @@ def cmd_search(args: argparse.Namespace) -> int:
         ), args.json)
 
     embedder = Embedder.from_settings(settings)
-    reranker = Reranker.from_settings(
-        settings, enabled=settings.rerank_enabled and not args.no_rerank)
     # Work order 0h §1c: the third retrieval lane, same as every other real
     # search entry point in this file.
     clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
@@ -219,6 +241,11 @@ def cmd_search(args: argparse.Namespace) -> int:
     with SqliteStore(settings.fts_db) as store, \
             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
             ImageVectorStore(settings.vector_path) as image_vectors:
+        # **The window's Rerank switch, not `.env` alone** (2026-10-04):
+        # `rerank_wanted` reads what the toolbar and Settings saved, as the
+        # window's engine does; `--no-rerank` can still only turn it off.
+        reranker = Reranker.from_settings(
+            settings, enabled=rerank_wanted(settings, store) and not args.no_rerank)
         engine = SearchEngine(
             store, vectors, embedder, reranker=reranker,
             image_vectors=image_vectors, clip_text_embedder=clip_text_embedder,
@@ -238,61 +265,64 @@ def cmd_search(args: argparse.Namespace) -> int:
             # comparison between models meaningless, which is exactly what the
             # numbers were being used for.
             engine.warm_up()
-            # **`expand_slashes` first, exactly as every other caller does** - the
-            # window's presenter, the Code and Repos views, and `evaluate`. Without it
-            # `/newest` reaches `parse_query` unexpanded, comes back with an empty sort,
-            # and is silently dropped: the command line answered `report /newest` in
-            # relevance order and said nothing, while the window sorted by date. Found
-            # by running it against the real index on 2026-09-20. The comment a few
-            # lines above names this exact shape of bug - "it works from the app and not
-            # from the command line" - which is what makes it worth a note rather than a
-            # quiet one-word fix.
-            from app.search.commands import expand_slashes
-
-            response = engine.search(expand_slashes(raw), limit=args.limit)
-            # **The same federation the window does**, because the standing rule
-            # here is that a feature added for one entry point is added for the
-            # others - the shape of bug that gets reported as "it works from the
-            # app and not from the command line". `git_hits` returns `[]` unless
-            # a repository-only switch was typed, so this costs nothing on every
-            # other search.
-            try:
-                from app.search.federate import git_hits
-
-                found = git_hits(
-                    store.repos_list(), raw, limit=args.limit,
-                    start_rank=len(response.results) + 1,
-                )
-                response.results.extend(found)
-            except Exception as exc:              # noqa: BLE001 - one half
-                logger.bind(component="cli.search").warning(
-                    "the repository half of the search failed: {}", exc)
+            # **Exactly as the Search tab searches** (the owner's decision,
+            # 2026-10-04). `run_search` is the window's steps in order:
+            # `expand_slashes` and `saved:name` first - the 2026-09-20 bug was
+            # `/newest` reaching `parse_query` unexpanded and being silently
+            # dropped, so the command line answered `report /newest` in
+            # relevance order while the window sorted by date - then the
+            # plain-English filters, the Settings search switches, the rerank
+            # switch, repository history when a history switch was typed, and
+            # one row per document. Before this the command line skipped the
+            # filters, the switches and saved searches, and printed one row
+            # per passage.
+            found = run_search(engine, raw, surface=SEARCH,
+                               preferences=preferences(settings), limit=args.limit,
+                               note_saved=True)
         finally:
             engine.close()
 
         if args.json:
-            print(json.dumps(response.as_dict(), indent=2, default=str))
-            return EXIT_OK if response.results else EXIT_ERROR
+            print(json.dumps(found.as_dict(), indent=2, default=str))
+            return EXIT_OK if found.documents else EXIT_ERROR
 
-        if not print_response(response, raw):
+        if not print_response(found.response, raw, found=found):
             return EXIT_ERROR
     return EXIT_OK
 
 
-def print_response(response: Any, raw: str = "") -> bool:
-    """Print one search's results. Returns False when there were none.
+#: What a result's mark means, in the words a person reads.
+_STATUS_WORDS = {
+    "missing": "no longer on disk - moved or deleted since it was indexed",
+    "offline": "on a drive that is not connected - plug it in to open",
+}
+
+
+def print_response(response: Any, raw: str = "", *, found: Any = None) -> bool:
+    """Print one search's results, one per document. False when there were none.
 
     **Extracted so there is exactly one renderer.** `leasha shell` prints
     through this rather than repeating it - the order's rule is "no second
     renderer", and a copy that starts identical is the thing that stops being
     identical. It was inline in `cmd_search` until the REPL needed it.
+
+    `found` is the `run_search` answer: its documents (one per file, as the
+    Search tab lists them, with the missing/offline mark) and the filters the
+    line was read as. Without it the response's results are grouped here,
+    unmarked (2026-10-04).
     """
+    from app.search.run import documents as group_documents
+
     if response.parsed and response.parsed.unknown_operators:
         print(f"  (ignored: {', '.join(response.parsed.unknown_operators)})")
     # What was wrong with a date, and what would work - the same sentence the
     # window shows (order "dates" §1d, non-negotiable #8).
     for problem in getattr(response.parsed, "date_problems", ()) or ():
         print(f"  ! {problem}")
+    # What the plain-English rules read - the window draws these as chips.
+    applied = list(getattr(response, "applied", ()) or ())
+    if applied:
+        print(f"  (read as: {', '.join(str(a.label) for a in applied)})")
 
     # **Before the results, and on the way out too.** A search that quietly
     # returned worse results is the failure nobody reports, because it
@@ -302,20 +332,26 @@ def print_response(response: Any, raw: str = "") -> bool:
     if response.notices:
         print()
 
-    if not response.results:
+    shown = (found.documents if found is not None
+             else group_documents(response.results, marks=False))
+    if not shown:
         print(f"No results for {raw!r}." if raw else "No results.")
         if response.parsed and response.parsed.has_filters:
             print("  The filters may be excluding everything - try without them.")
         return False
 
-    for result in response.results:
+    for document in shown:
+        result = document.best
         page = f" p{result.page}" if result.page is not None else ""
-        print(f"{result.rank:>3}. {result.path}{page}")
+        more = f"   ({document.matches} matches)" if document.matches > 1 else ""
+        print(f"{document.rank:>3}. {result.path}{page}{more}")
+        if document.status in _STATUS_WORDS:
+            print(f"     ! {_STATUS_WORDS[document.status]}")
         print(f"     {result.explain()}   score {result.score:.4f}")
         print(f"     {_preview(result.text, 200)}")
         print()
 
-    print(f"{len(response.results)} result(s) in {response.elapsed_ms:.0f}ms"
+    print(f"{len(shown)} document(s) in {response.elapsed_ms:.0f}ms"
           f"{' (cached)' if response.from_cache else ''}"
           f"{', reranked' if response.reranked else ''}")
     if response.timings:
@@ -326,7 +362,9 @@ def print_response(response: Any, raw: str = "") -> bool:
 def add_files_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
     p_files = sub.add_parser(
         "files", parents=[common],
-        help="find a file by NAME (not by contents) - matches any part of the name")
+        help="find a file by NAME (not by contents) - matches any part of the name"
+             " [2026-10-04: searched as the Files tab searches, so a folder or the"
+             " text can match too, after the name]")
     p_files.add_argument("name", nargs="*", help="part of a filename, or a folder name")
     p_files.add_argument("--limit", type=int, default=50, metavar="N",
                          help="results to return (default 50)")

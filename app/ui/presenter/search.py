@@ -586,17 +586,12 @@ def auto_filters(store: Any, sentence: str, policy: Any = None,
     Called from `SearchWorker.run`, because the reading asks the store for its
     senders and file types - a query, so never on the interface thread.
     """
-    text = str(sentence or "")
-    if policy is not None and not getattr(policy, "auto_chips", True):
-        return text, ()
-    try:
-        from app.search.translate_rules import apply
+    # 2026-10-04: the reading itself is `app.search.run.read_filters`, so the
+    # command line, the shell, the mini box and the MCP server read a sentence
+    # exactly as this tab does. This name stays for the callers that use it.
+    from app.search.run import read_filters
 
-        applied = apply(text, store, declined=tuple(declined or ()))
-        return applied.query, tuple(applied.filters)
-    except Exception as exc:                       # noqa: BLE001 - a helper
-        _log.debug("no filters applied to this query: {}", exc)
-        return text, ()
+    return read_filters(store, sentence, policy, declined)
 
 
 #: Which offered chip fields an applied filter already answers, so the bar

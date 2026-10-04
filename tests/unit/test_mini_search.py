@@ -402,7 +402,10 @@ def test_it_runs_the_search_tabs_policy(qapp, engine):
     person to want to debug a query."""
     source = (pathlib.Path(__file__).resolve().parents[2] / "app" / "ui"
               / "widgets" / "mini_search.py").read_text(encoding="utf-8")
-    assert "for_surface(SEARCH)" in source
+    # 2026-10-04: the box searches through `run_search`, the Search tab's own
+    # steps, for surface SEARCH and with the Settings switches - it used to
+    # take the surface's defaults (`for_surface(SEARCH)`) and ignore them.
+    assert "run_search(" in source and "surface=SEARCH" in source
 
 
 def test_a_late_answer_never_overwrites_a_later_keystroke(qapp, engine):

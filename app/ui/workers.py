@@ -556,25 +556,17 @@ class SearchWorker(QRunnable):
             # the surface's policy applies them (`search_options`), and taken
             # off the options, because the engine has no such argument and must
             # not: it may not know a sentence was read at all.
-            options = dict(self._options)
-            query, applied = self._query, ()
-            if "declined" in options:
-                from app.ui.presenter.search import auto_filters
+            #
+            # 2026-10-04: the filters, the tier and the engine call are
+            # `app.search.run.search_once`, the step the command line, the
+            # shell, the mini box and the MCP server run too - one copy, so
+            # the window and they cannot read the same sentence differently.
+            # It also sets `response.applied` on every response, cached or
+            # not, so a chip is never carried over from another search.
+            from app.search.run import search_once
 
-                query, applied = auto_filters(
-                    getattr(self._engine, "store", None), self._query,
-                    options.get("policy"), options.pop("declined"))
-            if self._tier == "interim":
-                # The interim tier takes a scope too but not a rerank flag, so
-                # the options cannot simply be forwarded whole.
-                response = self._engine.interim(
-                    query, scope=options.get("scope", "all")
-                )
-            else:
-                response = self._engine.search(query, **options)
-            # Set on every response, cached or not, so a chip can never be
-            # carried over from the search that happened to fill the cache.
-            response.applied = applied
+            response = search_once(self._engine, self._query, tier=self._tier,
+                                   **self._options)
             _emit(self.signals, "finished", (self.generation, response))
         except Exception as exc:
             error = to_app_error(exc, "ui.search")

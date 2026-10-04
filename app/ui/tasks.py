@@ -18,6 +18,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from app.core.logging import logger
+# §5b's attachment-path rule lives in `app.search.marks` since 2026-10-04.
+from app.search.marks import ATTACHMENT_MARKER as _ATTACHMENT_MARKER  # noqa: F401
+from app.search.marks import attachment_parent_path as _attachment_parent_path  # noqa: F401
 from app.ui.presenter.code import REPO_FILE_LIMIT, code_type_filter, git_rows_matching
 from app.ui.presenter.formatting import format_size, format_when
 from app.ui.presenter.indexing import pictures_not_read_counts, warned_counts
@@ -179,30 +182,20 @@ def read_box(store: Any, raw: str, *, surface: str, preferences: Any = None,
     **One reading for every tab** (owner, 1 October 2026): *"the natural
     language search should be available on all search items and should behave
     exactly same across the application"*. Slash commands, then the plain-English
-    rules (`translate_rules.apply` - "mail about holiday from maya" becomes
-    `type:mail from:maya holiday`), then the parser. The Search tab reaches the
-    same rules through `SearchWorker`; this is the same call for Files, Mail and
-    Code, on a worker because the rules ask the store which senders exist.
+    rules, then the parser - `app.search.run.read_typed` since 2026-10-04, where
+    `app.cli files` and the MCP server read a line the same way.
     """
-    from app.search.commands import expand_slashes
-    from app.search.policy import from_settings
-    from app.search.query import parse_query
-    from app.ui.presenter.search import auto_filters
+    from app.search.run import read_typed
 
-    text = expand_slashes(str(raw or "").strip())
-    query, applied = auto_filters(store, text, from_settings(surface, preferences),
-                                  tuple(declined or ()))
-    return parse_query(query), tuple(applied)
+    return read_typed(store, raw, surface=surface, preferences=preferences,
+                      declined=declined)
 
 
 def _words_of(parsed: Any) -> str:
-    """The words left to match once filters are taken out, without the filler."""
-    from app.search.query import _INSTRUCTION_WORDS, _STOPWORDS
+    """The words left to match once filters are taken out (`run.words_of`)."""
+    from app.search.run import words_of
 
-    filler = _STOPWORDS | _INSTRUCTION_WORDS
-    words = [str(term) for term in (getattr(parsed, "terms", ()) or ())
-             if str(term).lower() not in filler]
-    return " ".join([*words, *(str(p) for p in (getattr(parsed, "phrases", ()) or ()))])
+    return words_of(parsed)
 
 
 def _in_index(count: Any) -> Optional[int]:
@@ -215,49 +208,25 @@ def _in_index(count: Any) -> Optional[int]:
 
 
 def _respelt(store: Any, words: Any, *, surface: str, preferences: Any = None) -> Any:
-    """The Search tab's spelling help for a list that came back empty, or None.
+    """The Search tab's spelling help for an empty list, or None (`run.respell`)."""
+    from app.search.run import respell
 
-    **The same rule the engine applies** (`SearchEngine._spelling`): exactly one
-    word the index has never seen, corrected by `spelling.from_store`. Asked
-    only when the list is empty - on the Files tab a word can be part of a
-    file's name that the text index has never held, and correcting a word that
-    still matches something would hide the very file asked for.
-    """
-    from app.search.keyword import unmatched_terms
-    from app.search.policy import from_settings
-    from app.search.spelling import from_store
-
-    words = tuple(str(word) for word in (words or ()) if str(word).strip())
-    if not words or from_settings(surface, preferences).typo_correction == "off":
-        return None
-    try:
-        missing = unmatched_terms(store, words)
-        return from_store(store, missing[0]) if len(missing) == 1 else None
-    except Exception as exc:                     # noqa: BLE001 - a suggestion, not the list
-        _log.debug("no spelling help for this list: {}", exc)
-        return None
+    return respell(store, words, surface=surface, preferences=preferences)
 
 
 def browse_files_typed(store: Any, raw: str, *, limit: int, preferences: Any = None,
                        declined: Any = ()) -> dict:
-    """`browse_files_page` for a typed line, read the shared way. **Worker.**"""
-    from app.search.query import with_terms
+    """`browse_files_page` for a typed line, read the shared way. **Worker.**
 
-    parsed, applied = read_box(store, raw, surface="files", preferences=preferences,
-                               declined=declined)
-    page = browse_files_page(store, parsed, limit=limit)
-    found = None if page["rows"] else _respelt(
-        store, _words_of(parsed).split(), surface="files", preferences=preferences)
-    if found is not None:
-        corrected = with_terms(parsed, tuple(
-            found.suggestion if str(term).lower() == found.typed else term
-            for term in parsed.terms))
-        again = browse_files_page(store, corrected, limit=limit)
-        if again["rows"]:
-            page, parsed = again, corrected
-            page["spelling"] = found.sentence()
-    page.update(parsed=parsed, applied=applied,
-                in_index=_in_index(getattr(store, "count_listed_files", None)))
+    The search is `app.search.run.find_files` (2026-10-04), the one `app.cli
+    files` and the MCP `find_files` tool run; this adds the tab's page - its
+    bounded total and offline volumes - and the whole-index count.
+    """
+    from app.search.run import find_files
+
+    page = find_files(store, raw, limit=limit, preferences=preferences, declined=declined,
+                      page=lambda parsed: browse_files_page(store, parsed, limit=limit))
+    page.update(in_index=_in_index(getattr(store, "count_listed_files", None)))
     return page
 
 
@@ -359,46 +328,19 @@ def offline_volume_marks(store: Any, results: Any) -> dict[int, dict]:
     that is not connected right now, and what to say about it. §3a: "on
     **<name>** (offline, scanned <date>) - plug it in to open".
 
-    **Online rows are absent from the returned dict entirely.** They open
-    normally through 1b's ordinary resolution and 3a asks for nothing to
-    be said about them - a decoration on every row of a drive that is
-    plugged in right now would be noise, not information.
-
-    **Worker only** - `connected_volumes` is a live Windows volume check,
-    the same reason `missing_paths` is worker-only. Never raises: a
-    decoration that fails to compute costs a missing sentence, not the
-    search that found the row.
+    **Online rows are absent from the returned dict entirely.** **Worker
+    only.** The check is `app.search.marks.offline_volumes` since 2026-10-04,
+    so the command line and the MCP server mark the same rows; this adds the
+    date as the list says it.
     """
-    rows = [row for row in (results or ()) if getattr(row, "volume_id", None) is not None]
-    if not rows:
-        return {}
-    from app.index.offline_media import connected_volumes
+    from app.search.marks import offline_volumes
 
-    try:
-        online = connected_volumes(store)
-    except Exception:                            # noqa: BLE001 - a decoration, not the search
-        online = {}
-
-    marks: dict[int, dict] = {}
-    volumes_seen: dict[int, Any] = {}
-    for row in rows:
-        volume_id = int(row.volume_id)
-        if volume_id in online:
-            continue
-        if volume_id not in volumes_seen:
-            try:
-                volumes_seen[volume_id] = store.get_volume(volume_id)
-            except Exception:                     # noqa: BLE001
-                volumes_seen[volume_id] = None
-        record = volumes_seen[volume_id]
-        if record is None:
-            continue
-        scanned_at = int(getattr(record, "last_scanned_at", 0) or 0)
-        marks[int(getattr(row, "file_id", 0))] = {
-            "name": record.name,
-            "scanned": format_when(scanned_at * 1_000_000_000) if scanned_at else "",
-        }
-    return marks
+    return {
+        file_id: {"name": mark["name"],
+                  "scanned": (format_when(mark["scanned_at"] * 1_000_000_000)
+                              if mark["scanned_at"] else "")}
+        for file_id, mark in offline_volumes(store, results).items()
+    }
 
 
 def placeholder_marks(results: Any) -> set[str]:
@@ -454,54 +396,13 @@ def record_open(engine: Any, search_id: Any, chunk_id: Any) -> None:
 def missing_paths(paths: Any) -> set[str]:
     """Which of these no longer exist on disk. **Worker thread only.**
 
-    `Path.exists()` is a filesystem stat: microseconds on a warm local disk,
-    *seconds* on a network share or a drive that has spun down. It was being
-    called once per row while filling the results model - twenty stats for a
-    normal page, five hundred for a full one - on the UI thread, inside the
-    virtualisation work whose whole purpose was to make that list cheap.
-
-    Done once per result set, off-thread, and passed in. Never raises: a
-    disconnected drive means "cannot open it", not a crash, and a result whose
-    file has vanished is a real finding that must still be shown.
+    One filesystem stat per path, so never on the interface thread - see
+    `app.search.marks.missing_paths`, where the rule lives since 2026-10-04
+    so every search surface marks the same files.
     """
-    from pathlib import Path as _Path
+    from app.search.marks import missing_paths as _missing
 
-    missing = set()
-    for path in paths or ():
-        text = str(path or "")
-        # A message lives inside a .pst and has no file of its own; statting a
-        # synthetic key would report every message as missing.
-        if not text or text.startswith("pst://"):
-            continue
-        try:
-            if not _Path(text).exists():
-                missing.add(text)
-        except OSError:
-            continue
-    return missing
-
-
-#: §5b. The path convention `email_pst.py`'s `_attachment_documents` writes:
-#: `f"{message_key}/attachments/{name}"`. Read back here rather than carried
-#: as a column, because no schema holds the link - the file's own `path`
-#: already says everything needed, and reading it beats a migration nobody
-#: asked this order to make.
-_ATTACHMENT_MARKER = "/attachments/"
-
-
-def _attachment_parent_path(path: str) -> str:
-    """The message this attachment belongs to, or `""` if `path` is not one.
-
-    **Only the PST-via-Outlook attachment convention produces this shape.**
-    A standalone `.eml`/`.msg` or an mbox message never separately indexes
-    its attachments - only their *names*, inside the message's own text and
-    `has_attach` - so those never reach here at all; `/has attachment` still
-    finds the message, just never gets a row of its own for what was
-    attached to it.
-    """
-    text = str(path or "")
-    index = text.find(_ATTACHMENT_MARKER)
-    return text[:index] if index > 0 else ""
+    return _missing(paths)
 
 
 def save_attachment_copy(store: Any, path: str, cache_path: Any, *,
@@ -548,64 +449,14 @@ def archive_of(store: Any, path: str) -> str:
 def mail_details(store: Any, results: Any) -> dict:
     """Subjects and senders for the messages on one page of results.
 
-    **One query for the page, never one per row.** At the fetch depth grouping
-    needs, a per-row lookup is fifty queries per keystroke - the shape of
-    slowness that gets blamed on the search itself.
-
-    **§5b's exception, and it is a real one.** An attachment's own file_id
-    has no row in `messages` - it is not itself a message - so its *parent's*
-    row is what supplies "its message is the context" (§5b). The parent is
-    found by path (`_attachment_parent_path`), which costs one indexed
-    `get_file` lookup per *distinct attachment* on the page - never per row,
-    and zero when a page holds no attachments at all, which is nearly every
-    page. A bulk by-path lookup in `sqlite_store.py` would remove even that,
-    and is the natural next step for whoever next has that file open; it is
-    outside this order's file scope today.
-
-    Never raises. A missing subtitle is a cosmetic loss; failing the search that
-    produced it is not, and a store that has been closed underneath a worker is
-    a normal condition during shutdown rather than an error.
+    **One query for the page, never one per row**, and an attachment carries
+    its parent message's details. **Worker only.** The rule lives in
+    `app.search.marks.mail_details` since 2026-10-04, so the MCP server reads
+    mail the same batched way rather than one result at a time.
     """
-    if store is None or not hasattr(store, "messages_for"):
-        return {}
-    try:
-        results = list(results or ())
-        file_ids = [getattr(r, "file_id", 0) for r in results]
+    from app.search.marks import mail_details as _details
 
-        parent_id_of: dict[int, int] = {}
-        if hasattr(store, "get_file"):
-            # **Keyed by path, not by row.** Several attachments can share one
-            # parent message - a reply with the same two files re-attached is
-            # the ordinary case - and resolving each would be exactly the
-            # per-row lookup this function's own docstring exists to avoid.
-            resolved: dict[str, Optional[int]] = {}
-            for result in results:
-                file_id = getattr(result, "file_id", 0)
-                parent_path = _attachment_parent_path(getattr(result, "path", ""))
-                if not parent_path:
-                    continue
-                if parent_path not in resolved:
-                    try:
-                        record = store.get_file(parent_path)
-                    except Exception:              # noqa: BLE001 - a subtitle, not the search
-                        record = None
-                    resolved[parent_path] = record.id if record is not None else None
-                parent_id = resolved[parent_path]
-                if parent_id is not None:
-                    parent_id_of[file_id] = parent_id
-
-        wanted = list(dict.fromkeys([*file_ids, *parent_id_of.values()]))
-        details = dict(store.messages_for(wanted))
-        for file_id, parent_id in parent_id_of.items():
-            parent_detail = details.get(parent_id)
-            if parent_detail:
-                # Marked so `_build_group` draws this as an attachment whose
-                # *parent's* detail this is, never as a message in its own
-                # right - the two share every other key.
-                details[file_id] = {**parent_detail, "attachment_of": parent_id}
-        return details
-    except Exception:                            # noqa: BLE001 - see docstring
-        return {}
+    return _details(store, results)
 
 
 # ---------------------------------------------------------------------------

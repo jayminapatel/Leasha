@@ -236,7 +236,7 @@ class CodeView(QWidget):
         worker = CallableWorker(
             code_rows_typed, self._store, self._scope, self.input.text(),
             cached=self._scoped_rows, repos=self._repos, limit=REPO_FILE_LIMIT,
-            component="ui.code", declined=tuple(self.chips.declined),
+            component="ui.code", **self.chips.reading(),
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
