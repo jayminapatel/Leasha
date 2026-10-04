@@ -2089,7 +2089,11 @@ selection showed two clipboard tests and the golden comparison failing "only in 
 run" (and `test_tray` beside it). The brand commit's message blamed a busy machine; that was
 wrong. The platform is set in `main()` now and a test imports the tool in a child process and
 checks the variable is untouched. **A tool that a test imports must have no import-time
-side effects on the environment.**
+side effects on the environment.** *Later:* the last three pictures (the More menu, the
+mini search box - `MiniSearch` with `_search()` called directly, since `summon` asks for the
+keyboard and a box that is not the active window dismisses itself - and the Photo Tagger)
+are the tool's too (`WINDOWS`, `grab_window`); all 29 pictures are taken by it now. The
+`v0.3.4` tag was moved to this commit on the owner's word.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

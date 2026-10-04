@@ -33,6 +33,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   search results in both themes, the timeline, the Space Report and the five menus - so the
   guide shows the brand's mark, indigo and badges. By hand still: the More menu, the mini
   search box, the Photo Tagger window.
+- The last three pictures - the More menu, the mini search box, the Photo Tagger window - are
+  taken by the tool too; all 29 now. The `v0.3.4` tag was moved to the commit that carries
+  this (the owner, 2026-10-04).
 - `docs/TROUBLESHOOTING.md` 1.5: a table of this week's problems and what they mean.
   `docs/GLOSSARY.md` 1.3: ten terms added. `README.md` 3.2: the picture tool and the About
   box. `HANDOFF.md` 7.47.

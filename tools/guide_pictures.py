@@ -79,7 +79,15 @@ CAPTIONS: dict[str, str] = {
     "menu-view": "View menu",
     "menu-go": "Go menu",
     "menu-help": "Help menu",
+    # 2026-10-04 (later): the last three that were by hand (`WINDOWS`).
+    "more-menu": "The More menu",
+    "mini-search": "The mini search box",
+    "photo-tagger": "The Photo Tagger window",
 }
+
+#: Pictures that are neither a page nor a bar menu: each has its own taker
+#: in `grab_window`, because each is a different kind of thing.
+WINDOWS = ("more-menu", "mini-search", "photo-tagger")
 
 #: Picture name -> the menu's title on the bar. A menu is not a page: it is
 #: popped up off the screen and grabbed on its own.
@@ -127,9 +135,12 @@ def menu_of(window, title: str):
 
 def grab_menu(app, window, title: str):
     """The menu drawn as it opens, without opening it on the screen."""
+    return grab_popup(app, menu_of(window, title))
+
+
+def grab_popup(app, menu):
     from PyQt6.QtCore import QPoint, Qt
 
-    menu = menu_of(window, title)
     menu.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     menu.popup(QPoint(0, 0))
     grab_ui._pump(app, 10)
@@ -139,6 +150,47 @@ def grab_menu(app, window, title: str):
         menu.hide()
         menu.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
         grab_ui._pump(app, 5)
+
+
+def grab_window(app, window, store, name: str):
+    """The three that are neither a page nor a bar menu."""
+    from PyQt6.QtCore import Qt
+
+    if name == "more-menu":
+        # The "..." at the right of the Search bar.
+        grab_ui._reach(app, window, grab_ui.SURFACES["search-home"])
+        return grab_popup(app, window.search_view.more_menu)
+    if name == "mini-search":
+        # Ctrl+Alt+L's box, with "boiler" searched. Not `summon`: that asks
+        # for the keyboard, and a box that then finds it is not the active
+        # window dismisses itself.
+        from app.ui.widgets.mini_search import MiniSearch
+
+        box = MiniSearch(window._engine)
+        box.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        box.show()
+        box.box.setText("boiler")
+        box._search()
+        grab_ui._require(app, lambda: box.list.count() > 0, "the mini box's results for 'boiler'")
+        grab_ui._settle(app, window, "the mini box")
+        try:
+            return box.grab()
+        finally:
+            box.close()
+    if name == "photo-tagger":
+        # Go > People in photos, as the window builds it.
+        from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
+
+        tagger = PhotoTaggerWindow(store, window)
+        tagger.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        tagger.resize(900, 600)
+        tagger.show()
+        grab_ui._settle(app, window, "the Photo Tagger")
+        try:
+            return tagger.grab()
+        finally:
+            tagger.close()
+    raise SystemExit(f"no taker for {name!r}")
 
 
 def _grab_in_dark(app, window, store, name: str):
@@ -194,6 +246,8 @@ def take(names: list[str], out: Path) -> list[Path]:
         for name in names:
             if name in MENUS:
                 image = grab_menu(app, window, MENUS[name])
+            elif name in WINDOWS:
+                image = grab_window(app, window, store, name)
             elif name.endswith("-dark"):
                 image = _grab_in_dark(app, window, store, name)
             else:

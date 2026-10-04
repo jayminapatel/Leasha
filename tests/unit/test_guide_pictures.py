@@ -53,7 +53,8 @@ def test_every_caption_names_a_surface_the_grab_tool_can_reach():
     from tools import grab_ui
 
     for name in guide_pictures.CAPTIONS:
-        assert name in grab_ui.SURFACES or name in guide_pictures.MENUS, name
+        assert (name in grab_ui.SURFACES or name in guide_pictures.MENUS
+                or name in guide_pictures.WINDOWS), name
 
 
 @pytest.mark.gui
@@ -65,6 +66,19 @@ def test_every_menu_picture_names_a_menu_on_the_bar_and_help_has_about(gui_mainw
         assert guide_pictures.menu_of(window, title) is not None
     texts = [a.text().replace("&", "") for a in guide_pictures.menu_of(window, "Help").actions()]
     assert texts == ["Keyboard shortcuts", "About Leasha"]
+
+
+@pytest.mark.gui
+def test_the_three_windows_the_tool_takes_can_be_taken_offscreen(gui_mainwindow):
+    """The More menu and the Photo Tagger, each a picture with something in
+    it - here offscreen, through the same code the tool runs. Not the mini
+    box: its taker waits for a real search's results, and this fixture's
+    engine is a stub (the tool itself runs the keyword engine over the demo
+    store)."""
+    app, window, store, _engine = gui_mainwindow
+    for name in ("more-menu", "photo-tagger"):
+        image = guide_pictures.grab_window(app, window, store, name)
+        assert not image.isNull() and image.width() > 100, name
 
 
 def test_the_swap_replaces_only_the_named_picture_and_keeps_the_line_ends(tmp_path):
