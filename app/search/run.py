@@ -59,6 +59,7 @@ __all__ = [
     "note_saved_runs",
     "read_filters",
     "read_typed",
+    "rerank_choice",
     "rerank_wanted",
     "respell",
     "run_search",
@@ -102,11 +103,25 @@ def rerank_wanted(settings: Any, store: Any = None) -> bool:
     stored = ""
     if store is not None:
         try:
-            stored = str(store.get_state(RERANK_STATE, "") or "").strip().lower()
+            stored = str(store.get_state(RERANK_STATE, "") or "")
         except Exception as exc:                 # noqa: BLE001 - fall back to .env
             _log.debug("could not read the rerank switch: {}", exc)
-    if stored in ("on", "off"):
-        return stored == "on"
+    return rerank_choice(stored, settings)
+
+
+def rerank_choice(stored: Any, settings: Any) -> bool:
+    r"""`rerank_wanted` for a stored value already in hand. **Pure.**
+
+    2026-10-04, code review: the window restored its two Rerank boxes only
+    when `ui:rerank_enabled` held a value, so with `RERANK_ENABLED=true` in
+    `.env` and the box never touched, the engine reranked (`main.py` reads
+    `rerank_wanted`) while the toolbar showed unticked and every search from
+    the Search tab asked for `rerank=False`. The window now sets both boxes
+    from this, with the value it has already read - no second store read.
+    """
+    text = str(stored or "").strip().lower()
+    if text in ("on", "off"):
+        return text == "on"
     return bool(getattr(settings, "rerank_enabled", False))
 
 
@@ -393,24 +408,34 @@ class Document:
 
 
 def documents(results: Sequence[Any], *, store: Any = None, limit: int = 0,
-              marks: bool = True) -> list[Document]:
+              marks: bool = True, history: Sequence[Any] = ()) -> list[Document]:
     r"""`results` as one `Document` per file, best first, ranked from 1.
 
     With `marks` and a `store`, each carries its mail details and its
     missing/offline mark - two batched reads for the page, the window's own
     (`tasks.decorate_results`), only over the documents kept.
+
+    `history` - repository history rows (`git_results`), appended **after**
+    the index's documents are capped at `limit`, as the window lists them
+    below its own. 2026-10-04, code review: the cap was applied to
+    `[*index, *history]`, so with `limit` index documents or more the history
+    rows - whose `git` subprocess had already run - were never shown on the
+    command line or over MCP. A history row (`file_id` < 0) is not a file on
+    disk: it gets no stat and no mail lookup, and is always `ok`.
     """
     groups = group_by_document(results)
     if limit:
         groups = groups[:limit]
+    groups += group_by_document(history)
     heads = [group[0] for group in groups]
     details: dict = {}
     status: dict = {}
-    if marks and heads:
+    on_disk = [head for head in heads if int(getattr(head, "file_id", 0) or 0) >= 0]
+    if marks and on_disk:
         from app.search.marks import mail_details, status_marks
 
-        details = mail_details(store, heads) if store is not None else {}
-        status = status_marks(store, heads)
+        details = mail_details(store, on_disk) if store is not None else {}
+        status = status_marks(store, on_disk)
     out = []
     for rank, group in enumerate(groups, start=1):
         head = group[0]
@@ -484,13 +509,16 @@ def run_search(engine: Any, text: str, *, surface: str = "search",
       the window's toolbar does.
     * `limit` - documents wanted; `0` keeps every document the engine's
       ordinary depth found, as the window's list does. The engine is asked
-      for at least its ordinary depth, so the top documents are the window's.
+      for **exactly** the window's depth (its `FUSED_LIMIT`), whatever
+      `limit` is - 2026-10-04, code review: a limit of 20 asked for 80
+      chunks, and under `/newest` or `/oldest` a deeper fetch lists
+      different documents than the Search tab. History rows come after the
+      capped index documents (`documents`).
     * `note_saved` - count a run of each saved search used. The window does;
       a read-only surface (MCP) does not.
 
     Raises what the engine raises; the history half never does.
     """
-    from app.search.engine import FUSED_LIMIT
     from app.search.policy import from_settings
 
     store = getattr(engine, "store", None)
@@ -509,13 +537,14 @@ def run_search(engine: Any, text: str, *, surface: str = "search",
     options: dict = {"scope": chosen_scope, "policy": from_settings(surface, preferences)}
     if rerank is not None:
         options["rerank"] = bool(rerank)
-    if limit:
-        options["limit"] = max(FUSED_LIMIT, fetch_depth(limit))
+    # No `limit` for the engine (2026-10-04, code review): the Search tab
+    # passes none, so the engine's own `FUSED_LIMIT` is the one depth.
     response = search_once(engine, expanded.query, tier="full",
                            declined=tuple(declined or ()), **options)
     git = git_results(store, expanded.query,
                       start_rank=len(getattr(response, "results", None) or []) + 1)
     run = SearchRun(raw=str(text or ""), expanded=expanded.query, scope=chosen_scope,
                     response=response, git=git, saved_names=expanded.names)
-    run.documents = documents(run.results, store=store, limit=limit, marks=marks)
+    run.documents = documents(getattr(response, "results", None) or [], store=store,
+                              limit=limit, marks=marks, history=git)
     return run

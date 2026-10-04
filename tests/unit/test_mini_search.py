@@ -420,6 +420,57 @@ def test_a_late_answer_never_overwrites_a_later_keystroke(qapp, engine):
     box.dismiss()
 
 
+def test_typing_pauses_neither_read_nor_count_saved_searches(qapp, monkeypatch):
+    r"""2026-10-04, code review: every 180 ms pause read the saved searches from
+    the store and wrote a run of each one used. Now they are read once per
+    summon, and a run is counted once - when Enter opens a result."""
+    from app.search import run as run_module
+    from app.search.engine import SearchEngine
+    from app.storage.sqlite_store import SqliteStore
+
+    store = SqliteStore(pathlib.Path(tempfile.mkdtemp()) / "saved.db").connect()
+    file_id = store.upsert_file("C:/work/safety.txt", parent_dir="C:/work", ext="txt",
+                                size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="file")
+    store.replace_chunks(file_id, [{"ordinal": 0, "text": "the safety induction record"}])
+    store.save_search("induct", "safety induction", "all")
+
+    class _NoVectors:
+        def search(self, *_a, **_k):
+            return []
+
+    class _NoModel:
+        def embed(self, _t):
+            raise RuntimeError("no model")
+
+    engine = SearchEngine(store, _NoVectors(), _NoModel())
+    reads: list = []
+    real_load = run_module.load_saved
+    monkeypatch.setattr(run_module, "load_saved", lambda s: reads.append(1) or real_load(s))
+    try:
+        box = MiniSearch(engine)
+        box.summon()
+        for _ in range(50):
+            qapp.processEvents()
+            if box._saved is not None:
+                break
+            time.sleep(0.01)
+        assert box._saved and len(reads) == 1
+        for typed in ("saved:induct", "saved:induct ", "saved:induct"):
+            _searched(qapp, box, typed)
+        assert len(reads) == 1, "a typing pause read the saved searches again"
+        assert store.saved_searches()[0]["run_count"] == 0, "a typing pause counted a run"
+        box._take()
+        for _ in range(50):
+            qapp.processEvents()
+            if store.saved_searches()[0]["run_count"]:
+                break
+            time.sleep(0.01)
+        assert store.saved_searches()[0]["run_count"] == 1
+    finally:
+        engine.close()
+        store.close()
+
+
 def test_a_box_with_no_engine_is_not_an_error(qapp):
     box = MiniSearch(None)
     box.summon()

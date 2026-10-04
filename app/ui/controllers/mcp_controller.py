@@ -36,6 +36,9 @@ class McpController(QObject):
 
         self._w = window
         self.host = McpHost()
+        #: The `IndexTools` the running server answers with - kept so Stop and
+        #: closing the window can close the index it holds open (2026-10-04).
+        self.tools: Any = None
         box = window.settings_view.mcp_box
         self._box = box
         box.start_requested.connect(self.start)
@@ -62,19 +65,31 @@ class McpController(QObject):
             # AI programs search as the Search tab does now (2026-10-04).
             return getattr(window, "search_preferences", None)
 
+        controller = self
+
         def start_server() -> Any:
-            return host.start(IndexTools(settings, models, switches), int(port),
-                              key_for(store))
+            if host.running:
+                return host.start(controller.tools, int(port), "")
+            tools = IndexTools(settings, models, switches)
+            url = host.start(tools, int(port), key_for(store))
+            old, controller.tools = controller.tools, tools
+            if old is not None:
+                old.close(wait_s=0)
+            return url
 
         self._box.show_busy("Starting…")
         self._run(start_server, lambda url: (self._box.show_running(str(url)), self.refresh()),
                   "ui.mcp.start")
 
     def stop(self) -> None:
-        host = self.host
+        host, controller = self.host, self
 
         def stop_server() -> str:
             host.stop()
+            # 2026-10-04, code review: and the index the server held open.
+            tools, controller.tools = controller.tools, None
+            if tools is not None:
+                tools.close()
             return ""
 
         self._box.show_busy("Stopping…")
@@ -89,11 +104,25 @@ class McpController(QObject):
             self.refresh()
 
     def shutdown(self) -> None:
-        """On close. Stops the server thread; short, bounded wait."""
+        """On close. Stops the server thread; short, bounded wait.
+
+        2026-10-04, code review: **new calls are refused first**, then the
+        server stops, then a call already running is given a moment to finish
+        before the index it reads is closed - all before the window closes its
+        own engine and store, whose models a running search is using.
+        """
+        tools, self.tools = self.tools, None
+        if tools is not None:
+            tools.refuse()
         try:
             self.host.stop(timeout_s=2.0)
         except Exception as exc:                 # noqa: BLE001 - closing regardless
             _log.debug("stopping the MCP server on close: {}", exc)
+        if tools is not None:
+            try:
+                tools.close(wait_s=2.0)
+            except Exception as exc:             # noqa: BLE001 - closing regardless
+                _log.debug("closing the MCP server's index on close: {}", exc)
 
     # -- programs ----------------------------------------------------------------
 
@@ -110,7 +139,11 @@ class McpController(QObject):
                 states[program.key] = ("not installed" if not program.installed()
                                        else "connected" if is_connected(program)
                                        else "not connected")
-            return states, key_for(store)
+            # 2026-10-04, code review: read, not made - a refresh beside Start
+            # could make a second key. Only when there is none yet is one made
+            # (so "Copy address and key" has one), and `key_for` inserts it
+            # only if absent, so a Start at the same moment gets the same key.
+            return states, key_for(store, create=False) or key_for(store)
 
         self._run(read_states, lambda found: self._box.show_programs(*found), "ui.mcp.status")
 

@@ -1311,6 +1311,23 @@ def test_restored_settings_reach_the_deferred_settings_page(tmp_path):
         assert built.settings_view.rerank.isChecked() is False
 
 
+def test_a_never_touched_rerank_box_follows_rerank_enabled(tmp_path, monkeypatch):
+    r"""2026-10-04, code review: with `RERANK_ENABLED=true` and the box never
+    touched, the engine reranked (`main.py` reads `rerank_wanted`) while the
+    toolbar started unticked - and every Search tab search asked `rerank=False`."""
+    import sys
+
+    module = sys.modules[__name__]
+    monkeypatch.setattr(module, "ENV", ENV.replace("RERANK_ENABLED=false", "RERANK_ENABLED=true"))
+    with _unpumped_window(tmp_path, "rerank_from_env") as (app, built, _s, settings):
+        assert settings.rerank_enabled is True
+        toolbar = getattr(built.search_view, "rerank_toggle", None)
+        if toolbar is not None:
+            assert toolbar.isChecked() is True, "the toolbar disagreed with the engine"
+        _pump(app)
+        assert built.settings_view.rerank.isChecked() is True
+
+
 def test_no_method_reachable_before_the_pages_exist_touches_them_directly():
     r"""A source-level pin for the runtime tests above.
 

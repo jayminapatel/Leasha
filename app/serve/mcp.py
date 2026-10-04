@@ -28,6 +28,13 @@ The index is opened afresh for each call, as `app.cli search` opens it, so
 the server sees what an index run has just written; WAL makes reading beside
 a run safe.
 
+*Note, 2026-10-04, code review: the paragraph above is no longer how it
+works.* The index stays open between calls (`_OpenIndex`) and is reopened
+when the database file or the paths change; SQLite's WAL and LanceDB's read
+consistency still show each call what a run has just written, and the
+engine's result cache keys on the index generation. Measured on a temporary
+index: see `IndexTools`.
+
 **The bridge.** A program that can only start a command - Claude Desktop,
 whose settings file is reported to lose every server when one is given by
 address (anthropics/claude-code#37286) - runs `app.cli mcp`, which speaks
@@ -38,6 +45,7 @@ is stopped and where to start it.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
 import secrets
@@ -83,6 +91,23 @@ INSTRUCTIONS = (
 
 STOPPED = ("Leasha's AI access is stopped. Open Leasha, go to Settings > Models & AI > "
            "AI programs, and press Start.")
+#: 2026-10-04, code review: the bridge said `STOPPED` for every failure, so a
+#: changed key or a slow search sent the person to press a Start that was
+#: already pressed. Each failure now says what it is.
+KEY_CHANGED = ("Leasha's key for AI programs has changed since this program was connected. "
+               "In Leasha, go to Settings > Models & AI > AI programs and connect this "
+               "program again.")
+TIMED_OUT = ("Leasha did not answer within {seconds} seconds. It may be busy indexing - "
+             "try again in a moment.")
+SERVER_ERROR = ("Leasha's AI access is running but could not answer this ({what}). Try again; "
+                "if it keeps happening, press Stop and Start in Settings > Models & AI > "
+                "AI programs.")
+#: A call that arrives while Leasha is closing.
+CLOSING = "Leasha is closing, so its AI access has stopped. Open Leasha again and ask again."
+#: How long the bridge waits for one answer.
+BRIDGE_TIMEOUT_S = 120
+#: How long Stop lets open connections finish before closing them.
+GRACEFUL_S = 2
 
 
 def endpoint(port: int) -> str:
@@ -90,12 +115,29 @@ def endpoint(port: int) -> str:
 
 
 def key_for(store: Any, *, create: bool = True) -> str:
-    """The key AI programs send, made once and kept. `""` if none and not `create`."""
+    """The key AI programs send, made once and kept. `""` if none and not `create`.
+
+    2026-10-04, code review: **made once even when two workers ask at once.**
+    Start and the status refresh both asked on workers; each found no key,
+    made one and wrote it, and the last write won - so the server could be
+    started with a key the box and the settings files no longer held. The
+    key is now inserted only if absent, inside the store's one write
+    transaction, and whatever is there afterwards is the answer.
+    """
     key = str(store.get_state(KEY_STATE, "") or "")
-    if not key and create:
-        key = secrets.token_urlsafe(32)
-        store.set_state(KEY_STATE, key)
-    return key
+    if key or not create:
+        return key
+    made = secrets.token_urlsafe(32)
+    writer = getattr(store, "write", None)
+    if not callable(writer):                     # a test double: no transactions
+        store.set_state(KEY_STATE, made)
+        return made
+    with writer() as conn:
+        conn.execute("INSERT OR IGNORE INTO index_state (key, value, updated_at) "
+                     "VALUES (?, ?, ?)", (KEY_STATE, made, int(time.time())))
+        row = conn.execute("SELECT value FROM index_state WHERE key = ?",
+                           (KEY_STATE,)).fetchone()
+    return str(row[0]) if row and row[0] else made
 
 
 # ---------------------------------------------------------------------------
@@ -125,22 +167,86 @@ class IndexTools:
         self._settings = settings
         self._models = models
         self._preferences = preferences or (lambda: _preferences_of(settings))
+        # 2026-10-04, code review: **the index stays open between calls.**
+        # Each search used to open the store and both vector stores, build an
+        # engine with its own thread pool and an empty result cache, warm it
+        # and close it all again. `_index` is reused while the index it opened
+        # is still the one `settings` names; `_lock` guards it and the count
+        # of calls in flight, which `close` waits for. Measured on this laptop,
+        # a temporary 3,000-document index, keyword-only, 30 searches: a new
+        # query 36-40 ms -> 8-12 ms median; a repeated one 42-66 ms -> 2 ms
+        # (the cache now survives); `index_status` 4-9 ms -> 0.3 ms.
+        self._lock = threading.Lock()
+        self._idle = threading.Condition(self._lock)
+        self._index: _OpenIndex | None = None
+        self._calls = 0
+        self._closed = False
 
     def _missing(self) -> dict | None:
         if self._settings.fts_db.is_file():
             return None
         return {"error": "No index has been built yet. Open Leasha and index some folders first."}
 
-    def _store(self) -> Any:
-        from app.storage.sqlite_store import SqliteStore
+    # -- what stays open, and closing it --------------------------------------
 
-        return SqliteStore(self._settings.fts_db)
+    def _identity(self) -> tuple:
+        """Which index `settings` names now: the paths, the vector size and the
+        database file itself, so a reset that replaced the file reopens."""
+        settings = self._settings
+        try:
+            found = settings.fts_db.stat()
+            file_key: tuple = (found.st_ino, found.st_dev)
+        except OSError:
+            file_key = ()
+        return (str(settings.fts_db), file_key, str(settings.vector_path),
+                int(getattr(settings, "embed_dim", 0) or 0))
+
+    @contextlib.contextmanager
+    def _open(self) -> Any:
+        """The open index for one call. Raises `_Closing` once `close` began."""
+        with self._lock:
+            if self._closed:
+                raise _Closing()
+            identity = self._identity()
+            index = self._index
+            if index is None or index.identity != identity or index.vectors_failed():
+                if index is not None and index.users == 0:
+                    index.close()                # else its last call closes it
+                self._index = index = _OpenIndex(self._settings, identity)
+            index.users += 1
+            self._calls += 1
+        try:
+            yield index
+        finally:
+            with self._lock:
+                index.users -= 1
+                self._calls -= 1
+                if index.users == 0 and index is not self._index:
+                    index.close()                # replaced, or closed, while in use
+                self._idle.notify_all()
+
+    def refuse(self) -> None:
+        """Answer every call from now on with `CLOSING`. Never blocks."""
+        with self._lock:
+            self._closed = True
+
+    def close(self, *, wait_s: float = 2.0) -> None:
+        """Refuse new calls, wait up to `wait_s` for those in flight, then close
+        the index. A call still running after that closes it when it ends."""
+        with self._lock:
+            self._closed = True
+            deadline = time.monotonic() + max(0.0, wait_s)
+            while self._calls and (left := deadline - time.monotonic()) > 0:
+                self._idle.wait(left)
+            index, self._index = self._index, None
+            if index is not None and index.users == 0:
+                index.close()
+
+    # -- the four tools -----------------------------------------------------
 
     def search(self, query: str, limit: int = 10) -> dict:
-        from app.search.engine import SearchEngine
         from app.search.policy import SEARCH
         from app.search.run import run_search
-        from app.storage.vector_store import ImageVectorStore, VectorStore
 
         raw = str(query or "").strip()
         if not raw:
@@ -149,15 +255,9 @@ class IndexTools:
         if missing:
             return missing
         limit = max(1, min(int(limit or 10), SEARCH_LIMIT_MAX))
-        embedder, reranker, clip = self._models()
-        settings = self._settings
-        with self._store() as store, \
-                VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
-                ImageVectorStore(settings.vector_path) as image_vectors:
-            engine = SearchEngine(store, vectors, embedder, reranker=reranker,
-                                  image_vectors=image_vectors, clip_text_embedder=clip)
-            try:
-                engine.warm_up()
+        try:
+            with self._open() as index:
+                engine = index.engine_for(self._models)
                 # **The Search tab's search** (2026-10-04): slashes and saved
                 # searches, the plain-English filters, the Settings switches,
                 # the window's reranker as its Rerank box set it, history on a
@@ -165,8 +265,8 @@ class IndexTools:
                 # used to be a bare engine search, one row per passage.
                 found = run_search(engine, raw, surface=SEARCH,
                                    preferences=self._preferences(), limit=limit)
-            finally:
-                engine.close()
+        except _Closing:
+            return {"error": CLOSING}
         response = found.response
         return {"query": raw, "read_as": [a.label for a in found.applied],
                 "results": [self._result(document) for document in found.documents],
@@ -191,11 +291,15 @@ class IndexTools:
         from app.ui.presenter.facts import shown_date_ns
         from app.ui.tasks import file_row_context
 
-        with self._store() as store:
-            page = find_files(store, line, limit=limit, preferences=self._preferences())
-            # The Files tab's own page context (2026-10-04): an attachment's
-            # message, so its date is the message's - one statement a page.
-            rows = file_row_context(store, page["rows"])
+        try:
+            with self._open() as index:
+                store = index.store
+                page = find_files(store, line, limit=limit, preferences=self._preferences())
+                # The Files tab's own page context (2026-10-04): an attachment's
+                # message, so its date is the message's - one statement a page.
+                rows = file_row_context(store, page["rows"])
+        except _Closing:
+            return {"error": CLOSING}
         files = []
         for row in rows:
             path = str(row.get("path") or "")
@@ -229,13 +333,17 @@ class IndexTools:
         if missing:
             return missing
         limit = max(1, min(int(max_chars or 20_000), TEXT_CHARS_MAX))
-        with self._store() as store:
-            record = store.get_file(key)
-            if record is None:
-                return {"error": f"'{key}' is not in the index. Use the path exactly as "
-                                 "search returned it."}
-            text = join_chunks(store.chunks_for_file(int(record.id)))
-            mail = _mail_of(store, record.id, key)
+        try:
+            with self._open() as index:
+                store = index.store
+                record = store.get_file(key)
+                if record is None:
+                    return {"error": f"'{key}' is not in the index. Use the path exactly as "
+                                     "search returned it."}
+                text = join_chunks(store.chunks_for_file(int(record.id)))
+                mail = _mail_of(store, record.id, key)
+        except _Closing:
+            return {"error": CLOSING}
         out: dict = {"path": key, "chars": len(text), "truncated": len(text) > limit,
                      "text": text[:limit]}
         if mail:
@@ -246,12 +354,17 @@ class IndexTools:
         missing = self._missing()
         if missing:
             return missing
-        with self._store() as store:
-            def count(table: str) -> int:
-                return int(store.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+        try:
+            with self._open() as index:
+                store = index.store
 
-            return {"files": count("files"), "messages": count("messages"),
-                    "passages": count("chunks")}
+                def count(table: str) -> int:
+                    return int(store.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+                return {"files": count("files"), "messages": count("messages"),
+                        "passages": count("chunks")}
+        except _Closing:
+            return {"error": CLOSING}
 
     @staticmethod
     def _result(document: Any) -> dict:
@@ -267,6 +380,75 @@ class IndexTools:
         if mail:
             out["mail"] = mail
         return out
+
+
+class _Closing(Exception):
+    """A call that arrived after `IndexTools.close` began."""
+
+
+class _OpenIndex:
+    r"""The index as `IndexTools` keeps it open between calls. 2026-10-04, code review.
+
+    One `SqliteStore` - a connection per thread, so the SDK's worker threads
+    read side by side - and the two vector stores, opened **deferred**, as the
+    window opens them: a vector store that cannot open no longer fails the
+    whole call (it raised out of `__enter__`); the engine searches by keyword
+    and says so (`NOTICE_NO_VECTORS`), and the next call tries to open it
+    again. The engine is built on the first search, with the window's models,
+    and rebuilt only if the window's models change (a moved index replaces
+    its engine). `log_usage=False`: MCP is read-only, so its searches are not
+    written to the usage log - they appeared among the window's recent
+    searches, and each could wait 30 s on the write lock during an index run.
+    """
+
+    def __init__(self, settings: Any, identity: tuple) -> None:
+        from app.storage.sqlite_store import SqliteStore
+        from app.storage.vector_store import ImageVectorStore, VectorStore
+
+        self.identity = identity
+        self.users = 0
+        self._settings = settings
+        self._lock = threading.Lock()
+        self._engine: Any = None
+        self._models: tuple = ()
+        self._spent: list = []
+        self.store = SqliteStore(settings.fts_db).connect()
+        self.vectors = VectorStore(settings.vector_path, dim=settings.embed_dim, deferred=True)
+        self.image_vectors = ImageVectorStore(settings.vector_path, deferred=True)
+        for vectors in (self.vectors, self.image_vectors):
+            vectors.warm()
+
+    def vectors_failed(self) -> bool:
+        """A vector store failed to open, so the next call opens afresh."""
+        return any(v.deferred_error() is not None for v in (self.vectors, self.image_vectors))
+
+    def engine_for(self, models: Callable[[], tuple]) -> Any:
+        from app.search.engine import SearchEngine
+
+        embedder, reranker, clip = models()
+        with self._lock:
+            same = len(self._models) == 3 and all(
+                a is b for a, b in zip(self._models, (embedder, reranker, clip)))
+            if self._engine is not None and same:
+                return self._engine
+            if self._engine is not None:
+                # Closed with the index: a search may still be running on it.
+                self._spent.append(self._engine)
+            engine = SearchEngine(self.store, self.vectors, embedder, reranker=reranker,
+                                  image_vectors=self.image_vectors, clip_text_embedder=clip,
+                                  log_usage=False)
+            engine.warm_up()
+            self._engine, self._models = engine, (embedder, reranker, clip)
+            return engine
+
+    def close(self) -> None:
+        for step in (*(e.close for e in (*self._spent, self._engine) if e is not None),
+                     self.vectors.close, self.image_vectors.close, self.store.close):
+            try:
+                step()
+            except Exception as exc:             # noqa: BLE001 - closing regardless
+                _log.debug("closing the MCP server's index: {}", exc)
+        self._engine, self._spent = None, []
 
 
 def _mail_of(store: Any, file_id: Any, path: str) -> dict | None:
@@ -395,26 +577,66 @@ def build_server(tools: Any) -> Any:
 
 
 class _Forward:
-    """The bridge's side: each call goes to Leasha's running server."""
+    """The bridge's side: each call goes to Leasha's running server.
 
-    def __init__(self, url: str, key: str) -> None:
+    `read_key` reads the key from the index again (`app.cli mcp` passes one):
+    2026-10-04, code review - when Leasha's answer is "wrong key" the key is
+    read once more and the call retried, so a key made after the bridge
+    started is picked up without restarting the AI program.
+    """
+
+    def __init__(self, url: str, key: str,
+                 read_key: Callable[[], str] | None = None) -> None:
         self._url = url
         self._key = key
+        self._read_key = read_key
+        #: The last HTTP status Leasha answered with - the SDK turns a 401
+        #: into a generic error, so the bridge watches the responses itself.
+        self._status = 0
 
     async def _call(self, name: str, arguments: dict) -> dict:
+        retried = False
+        while True:
+            self._status = 0
+            try:
+                return await self._call_async(name, arguments)
+            except Exception as exc:             # noqa: BLE001 - said as an answer
+                why = _failure_of(exc, self._status)
+                _log.debug("bridge call {} failed ({}): {}", name, why, exc)
+            if why == "key" and not retried and self._fresh_key():
+                retried = True
+                continue
+            return {"error": _FAILURE_WORDS[why].format(seconds=BRIDGE_TIMEOUT_S,
+                                                        what=f"HTTP {self._status}"
+                                                        if self._status else "no answer")}
+
+    def _fresh_key(self) -> bool:
+        """Read the key again; True if it changed, so a retry can succeed."""
+        if self._read_key is None:
+            return False
         try:
-            return await self._call_async(name, arguments)
-        except Exception as exc:                 # noqa: BLE001 - said as an answer
-            _log.debug("bridge call {} failed: {}", name, exc)
-            return {"error": STOPPED}
+            key = str(self._read_key() or "")
+        except Exception as exc:                 # noqa: BLE001 - the answer says why
+            _log.debug("could not read Leasha's key again: {}", exc)
+            return False
+        if not key or key == self._key:
+            return False
+        self._key = key
+        return True
 
     async def _call_async(self, name: str, arguments: dict) -> dict:
         import httpx2
         from mcp import Client
         from mcp.client.streamable_http import streamable_http_client
 
+        async def noted(response: Any) -> None:
+            if response.status_code >= 400:
+                self._status = int(response.status_code)
+
         headers = {"Authorization": f"Bearer {self._key}"}
-        async with httpx2.AsyncClient(headers=headers, timeout=120) as http,                 Client(streamable_http_client(self._url, http_client=http)) as client:
+        async with httpx2.AsyncClient(headers=headers, timeout=BRIDGE_TIMEOUT_S,
+                                      event_hooks={"response": [noted]}) as http, \
+                Client(streamable_http_client(self._url, http_client=http)) as client:
             result = await client.call_tool(name, arguments)
         if result.structured_content is not None:
             content = result.structured_content
@@ -438,9 +660,43 @@ class _Forward:
         return await self._call("index_status", {})
 
 
-def bridge_server(url: str, key: str) -> Any:
-    """The stdio server `app.cli mcp` runs, forwarding to `url` with `key`."""
-    return build_server(_Forward(url, key))
+_FAILURE_WORDS = {"stopped": STOPPED, "key": KEY_CHANGED, "timeout": TIMED_OUT,
+                  "server": SERVER_ERROR}
+
+
+def _failure_of(exc: BaseException, status: int) -> str:
+    """`stopped`, `key`, `timeout` or `server` for a failed bridge call.
+
+    Connection refused is the one case that means the server is not running;
+    a 401 is a key that no longer matches; a read that ran out of time is a
+    busy Leasha; anything else - a 5xx, a broken answer - is an error from a
+    server that is there. The SDK wraps each in task-group exception groups.
+    """
+    import httpx2
+
+    if status == 401:
+        return "key"
+    found: list[BaseException] = []
+    pending: list[BaseException] = [exc]
+    while pending:
+        current = pending.pop()
+        found.append(current)
+        pending.extend(getattr(current, "exceptions", ()) or ())
+        for linked in (current.__cause__, current.__context__):
+            if linked is not None and linked not in found and len(found) < 50:
+                pending.append(linked)
+    if any(isinstance(e, (httpx2.ConnectError, httpx2.ConnectTimeout, ConnectionRefusedError))
+           for e in found):
+        return "stopped"
+    if any(isinstance(e, (httpx2.TimeoutException, TimeoutError)) for e in found):
+        return "timeout"
+    return "server"
+
+
+def bridge_server(url: str, key: str, read_key: Callable[[], str] | None = None) -> Any:
+    """The stdio server `app.cli mcp` runs, forwarding to `url` with `key`.
+    `read_key` reads the key again after a "wrong key" answer (2026-10-04)."""
+    return build_server(_Forward(url, key, read_key))
 
 
 # ---------------------------------------------------------------------------
@@ -490,8 +746,12 @@ class McpHost:
         port = int(port)
         _check_port_free(port)
         app = _KeyRequired(build_server(tools).streamable_http_app(host="127.0.0.1"), key)
+        # `timeout_graceful_shutdown` (2026-10-04, code review): an AI program
+        # holding its event stream open kept uvicorn waiting for it forever, so
+        # Stop left a loop and a thread behind on every Stop/Start.
         config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
-                                lifespan="on", access_log=False)
+                                lifespan="on", access_log=False,
+                                timeout_graceful_shutdown=GRACEFUL_S)
         server = uvicorn.Server(config)
         thread = threading.Thread(target=server.run, name="leasha-mcp", daemon=True)
         self._server, self._thread, self.port = server, thread, port
@@ -513,6 +773,13 @@ class McpHost:
             server.should_exit = True
         if thread is not None and thread is not threading.current_thread():
             thread.join(timeout_s)
+            if thread.is_alive() and server is not None:
+                # Still serving after the graceful window (2026-10-04, code
+                # review): uvicorn's own "stop now", then a short last wait.
+                server.force_exit = True
+                thread.join(1.0)
+            if thread.is_alive():
+                _log.warning("the MCP server's thread did not stop within {}s", timeout_s + 1)
         self._server, self._thread = None, None
         _log.info("MCP server stopped")
 

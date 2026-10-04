@@ -32,12 +32,17 @@ def cmd_mcp(args: argparse.Namespace) -> int:
 
     settings = _load(args)
     setup_logging(settings.log_path)
-    key = ""
-    if settings.fts_db.is_file():
+
+    def read_key() -> str:
+        # Read again after a "wrong key" answer (2026-10-04, code review), so
+        # a key Leasha made after this bridge started is used without a restart.
+        if not settings.fts_db.is_file():
+            return ""
         with SqliteStore(settings.fts_db) as store:
-            key = str(store.get_state(KEY_STATE, "") or "")
+            return str(store.get_state(KEY_STATE, "") or "")
+
     logger.bind(component="cli.mcp").info("MCP bridge to {}", endpoint(settings.mcp_port))
-    bridge_server(endpoint(settings.mcp_port), key).run("stdio")
+    bridge_server(endpoint(settings.mcp_port), read_key(), read_key).run("stdio")
     return EXIT_OK
 
 
