@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.68 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.69 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,12 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note, after the faces came - two groups for one person.* The owner named a second
+  group "Jason": `rename_pile` raised `UNIQUE constraint failed: piles.name` (`idx_piles_name`) and
+  the page said "Could not rename". The page now asks on a worker whether the name is taken
+  (`pile_id_named`, any case) and, if so, offers "Put these faces with Jason?" - confirmed, as a
+  drag-combine is - then `combine_piles`; `rename_pile` itself combines rather than raising if the
+  name is taken by the time it runs. Tests: two in `test_people_during_a_run.py`.
 - *2026-10-05 note, later - "no faces, nothing, keeps skipping": the archive shortcut.*
   `PhotosMaster` is marked as an archive (Indexing > Folders). Under "after-run" the text pass
   held all 15,010 photos (`ERR_OCR_HELD`) and then recorded the folder as fully indexed

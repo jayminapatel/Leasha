@@ -147,3 +147,53 @@ def test_the_page_reloads_when_the_stamp_moves_and_not_otherwise(qapp, store, mo
     page._stamp_ready((5, 1, 5, 0))              # a run grouped five faces
     assert reloads == [1]
     page.deleteLater()
+
+
+# --- two groups for one person (2026-10-05) -------------------------------------
+
+def test_naming_a_second_group_after_a_named_person_combines_them(store):
+    """The owner: "there are two sets both are jason they need to be merged" -
+    the second name raised `UNIQUE constraint failed: piles.name`."""
+    photo = store.upsert_file(path="/photos/j.jpg", size_bytes=1, mtime_ns=1,
+                              source_kind="file")
+    first = store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))
+    second = store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([0.9, 0.1]))
+    jason = store.split_pile([first])
+    other = store.split_pile([second])
+    store.rename_pile(jason, "Jason")
+
+    assert store.pile_id_named("jason", exclude=other) == jason, "any case"
+    store.rename_pile(other, "jason")                     # no IntegrityError
+
+    piles = store.conn.execute("SELECT id, name FROM piles").fetchall()
+    assert [(r[0], r[1]) for r in piles] == [(jason, "Jason")]
+    owners = {r[0] for r in store.conn.execute("SELECT pile_id FROM faces")}
+    assert owners == {jason}
+
+
+def test_the_page_asks_before_combining_and_no_leaves_both(qapp, store, monkeypatch):
+    from PyQt6.QtCore import QThreadPool
+    from PyQt6.QtWidgets import QMessageBox
+
+    from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
+
+    photo = store.upsert_file(path="/photos/k.jpg", size_bytes=1, mtime_ns=1,
+                              source_kind="file")
+    jason = store.split_pile([store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))])
+    other = store.split_pile([store.add_face(photo, (0, 0, 1, 1), fc.to_bytes([0.0, 1.0]))])
+    store.rename_pile(jason, "Jason")
+    page = PhotoTaggerPage(store)
+    monkeypatch.setattr(page, "reload", lambda: None)
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.No)
+    page._name_checked(other, "Jason", jason)
+    QThreadPool.globalInstance().waitForDone(5000)
+    assert store.conn.execute("SELECT count(*) FROM piles").fetchone()[0] == 2
+
+    monkeypatch.setattr(QMessageBox, "question",
+                        lambda *a, **k: QMessageBox.StandardButton.Yes)
+    page._name_checked(other, "Jason", jason)
+    QThreadPool.globalInstance().waitForDone(5000)
+    assert store.conn.execute("SELECT count(*) FROM piles").fetchone()[0] == 1
+    page.deleteLater()

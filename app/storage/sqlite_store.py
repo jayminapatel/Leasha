@@ -4156,11 +4156,32 @@ class SqliteStore:
         file this pile's faces belong to gets its `People:` segment
         rebuilt - a rename changes what every one of those files should say."""
         cleaned = (name or "").strip() or None
+        # 2026-10-05, the owner: "there are two sets both are jason they need
+        # to be merged". Names are unique (`idx_piles_name`), so naming a
+        # second group after a person who already has one raised
+        # `UNIQUE constraint failed` and the page said "Could not rename". The
+        # page now asks first (`PhotoTaggerPage._rename`); if the name is taken
+        # by the time this runs, the two are combined rather than refused.
+        taken = self.pile_id_named(cleaned, exclude=pile_id) if cleaned else None
+        if taken is not None:
+            self.combine_piles(pile_id, taken)
+            return
         affected = self._files_with_pile(pile_id)
         with self.write() as conn:
             conn.execute("UPDATE piles SET name = ? WHERE id = ?", (cleaned, pile_id))
         for file_id in affected:
             self.sync_people_segment(file_id)
+
+    def pile_id_named(self, name: Optional[str], *, exclude: Optional[int] = None
+                      ) -> Optional[int]:
+        """The group already called `name` (any case), other than `exclude`."""
+        cleaned = (name or "").strip()
+        if not cleaned:
+            return None
+        row = self.conn.execute(
+            "SELECT id FROM piles WHERE name = ? COLLATE NOCASE AND id IS NOT ? LIMIT 1",
+            (cleaned, exclude)).fetchone()
+        return int(row[0]) if row else None
 
     def combine_piles(self, source_id: int, target_id: int) -> int:
         r"""Section 2b's drag-pile-onto-pile. Every face `source_id` owns -

@@ -442,11 +442,37 @@ class PhotoTaggerPage(QWidget):
             return
         from app.ui.workers import CallableWorker, run
 
-        worker = CallableWorker(
-            self._store.rename_pile, pile_id, name, component="ui.photo_tagger")
-        worker.signals.finished.connect(lambda _r: self.reload())
-        worker.signals.failed.connect(
+        # 2026-10-05, the owner: two groups both named "Jason" should be one.
+        # Whether the name is taken is asked on a worker, and a taken name is
+        # offered as a combine - confirmed, as dragging one group onto another is.
+        check = CallableWorker(self._store.pile_id_named, name, exclude=pile_id,
+                               component="ui.photo_tagger")
+        check.signals.finished.connect(
+            lambda taken, n=name: self._name_checked(pile_id, n, taken))
+        check.signals.failed.connect(
             lambda error: _warn_write_failed(self, "Could not rename", error))
+        run(self._pool, check)
+
+    def _name_checked(self, pile_id: int, name: str, taken: Any) -> None:
+        from app.ui.workers import CallableWorker, run
+
+        if taken is not None:
+            answer = QMessageBox.question(
+                self, "Put these faces with them?",
+                f"There is already a group called {name.strip()}. Put these faces "
+                f"with {name.strip()}? The two groups become one.")
+            if answer != QMessageBox.StandardButton.Yes:
+                return
+            worker = CallableWorker(self._store.combine_piles, pile_id, int(taken),
+                                    component="ui.photo_tagger")
+            worker.signals.failed.connect(
+                lambda error: _warn_write_failed(self, "Could not combine", error))
+        else:
+            worker = CallableWorker(self._store.rename_pile, pile_id, name,
+                                    component="ui.photo_tagger")
+            worker.signals.failed.connect(
+                lambda error: _warn_write_failed(self, "Could not rename", error))
+        worker.signals.finished.connect(lambda _r: self.reload())
         run(self._pool, worker)
 
     def _combine(self, source_id: int, target_id: int) -> None:
