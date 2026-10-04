@@ -812,7 +812,8 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
 
         assert hasattr(built, "mail_view") and built.mail_view is not None
         assert hasattr(built, "code_view") and built.code_view is not None
-        assert built.rail.count() == 9, (
+        # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
+        assert built.rail.count() == 10, (
                 "Mail, Code and Chat must all be inserted")
     finally:
         store.close()
@@ -850,8 +851,9 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         for _ in range(5):
             app.processEvents()
 
+        # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Mail", "Code", "Chat", "Offline", "Reports",
+            "Search", "Files", "Photos", "Mail", "Code", "Chat", "Offline", "Reports",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -1094,7 +1096,8 @@ def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path
         _pump(app)
 
         assert built.indexing_view is not None and built.settings_view is not None
-        assert built.rail.count() == 9
+        # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
+        assert built.rail.count() == 10
 
 
 def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
@@ -1107,7 +1110,8 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
         _pump(app)
 
         titles = [built.rail.tabText(i) for i in range(built.rail.count())]
-        assert titles == ["Search", "Files", "Mail", "Code", "Chat", "Offline",
+        # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
+        assert titles == ["Search", "Files", "Photos", "Mail", "Code", "Chat", "Offline",
                           "Reports", "Indexing", "Settings"]
         assert built.rail._pill_index == titles.index("Indexing"), (
             "the pill must open the Indexing page")

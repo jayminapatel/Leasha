@@ -71,6 +71,8 @@ _FIELD_ALIASES = {
     "shows": "shows",
     "place": "place", "near": "place", "location": "place",
     "who": "who",
+    # 2026-10-05: what a picture has - faces named, text read ... (`ONLY_VALUES`).
+    "only": "only",
     "status": "status", "state": "status",
 }
 
@@ -291,6 +293,9 @@ class ParsedQuery:
     not_shows: tuple[str, ...] = ()
     not_place: tuple[str, ...] = ()
     not_who: tuple[str, ...] = ()
+    #: 2026-10-05, the Photos tab: `only:unnamed`, `-only:named` - see `ONLY_VALUES`.
+    only: tuple[str, ...] = ()
+    not_only: tuple[str, ...] = ()
     not_volumes: tuple[str, ...] = ()
     not_senders: tuple[str, ...] = ()
     not_recipients: tuple[str, ...] = ()
@@ -347,7 +352,7 @@ class ParsedQuery:
         return bool(
             self.ext or self.after or self.before or self.paths
             or self.repos or self.shows or self.place or self.volumes
-            or self.who
+            or self.who or self.only
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes or self.statuses
             or self.has_attachment is not None or self.scope != "all"
@@ -764,6 +769,8 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     shows: list[str] = []
     place: list[str] = []
     who: list[str] = []
+    only: list[str] = []
+    not_only: list[str] = []
     volumes: list[str] = []
     senders: list[str] = []
     recipients: list[str] = []
@@ -820,6 +827,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             target = {
                 "ext": not_ext, "path": not_paths, "repo": not_repos,
                 "shows": not_shows, "place": not_place, "who": not_who,
+                "only": not_only,
                 "volume": not_volumes,
                 "sender": not_senders, "recipient": not_recipients,
                 "subject": not_subjects, "name": not_names,
@@ -827,7 +835,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             if target is not None:
                 if fld == "ext":
                     target.extend(_norm_ext(val))
-                elif fld in ("repo", "shows", "place", "who", "volume"):
+                elif fld in ("repo", "shows", "place", "who", "volume", "only"):
                     target.extend(part.strip().lower()
                                   for part in val.split(",") if part.strip())
                 elif val:
@@ -865,6 +873,11 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 part = part.strip().lower()
                 if part:
                     place.append(part)
+        elif fld == "only":
+            for part in val.split(","):
+                part = part.strip().lower()
+                if part:
+                    only.append(part)
         elif fld == "who":
             # Work order 0j section 3a. Same comma-separated shape as
             # `repo:`/`shows:`/`place:` - see `ParsedQuery.who`.
@@ -1087,6 +1100,8 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         not_shows=tuple(dict.fromkeys(not_shows)),
         not_place=tuple(dict.fromkeys(not_place)),
         not_who=tuple(dict.fromkeys(not_who)),
+        only=tuple(dict.fromkeys(only)),
+        not_only=tuple(dict.fromkeys(not_only)),
         not_volumes=tuple(dict.fromkeys(not_volumes)),
         not_senders=tuple(not_senders),
         not_recipients=tuple(not_recipients),

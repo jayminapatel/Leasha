@@ -51,6 +51,7 @@ SURFACES: dict[str, dict[str, str]] = {
     "search-home": {"page": "Search", "state": "home"},
     "search-results": {"page": "Search", "state": "results"},
     "files": {"page": "Files"},
+    "photos": {"page": "Photos"},
     "mail": {"page": "Mail"},
     "code": {"page": "Code"},
     "chat": {"page": "Chat"},

@@ -43,6 +43,7 @@ from app.ui.controllers.timeline_controller import TimelineController
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
+from app.ui.photos_view import PhotosView
 from app.ui.offline_media_view import OfflineMediaView
 from app.ui.reports_view import ReportsView
 from app.ui.search_view import SearchView
@@ -674,6 +675,16 @@ class MainWindow(QMainWindow):
         # remembered number, is what keeps the refresh below correct
         # regardless of how many tabs an insertion has shifted.
         after_files = self._tab_index[self.files_view]
+        # 2026-10-05, the owner: "a chip just for pictures designed to view find
+        # and deal with pictures including namings". Photos, right after Files.
+        self.photos_view = PhotosView(store)
+        self.photos_view.error.connect(self._show_error)
+        self.photos_view.open_requested.connect(self._open_path)
+        self.photos_view.reveal_requested.connect(self._reveal_path)
+        photos_wrapped = wrap_if_needed(self.photos_view, scroll=False)
+        self.rail.insertTab(after_files + 1, photos_wrapped, "Photos", icon="image")
+        self._tab_wrapped[self.photos_view] = photos_wrapped
+        after_files += 1
         mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
         self.rail.insertTab(after_files + 1, mail_wrapped, "Mail", icon="mail")
         self._tab_wrapped[self.mail_view] = mail_wrapped
@@ -1364,6 +1375,8 @@ class MainWindow(QMainWindow):
 
         go = bar.addMenu("&Go")
         add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
+        add(go, "Photos", self._show_photos, icon="image",
+            tip="See, find and name your photos")
         add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
         add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
         add(go, "Offline", lambda: self._show(self.offline_media_view), icon="hard-drive")
@@ -1669,6 +1682,10 @@ class MainWindow(QMainWindow):
                      getattr(self, "code_view", None), getattr(self, "chat_view", None)):
             if view is not None:
                 retint_toggles(view, colours)
+        # 2026-10-05: the Photos tab's View icon follows the theme too.
+        photos = getattr(self, "photos_view", None)
+        if photos is not None:
+            photos.view_button.retint(colours)
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)
@@ -1849,6 +1866,9 @@ class MainWindow(QMainWindow):
             self.offline_media_view.refresh()
         elif index == self._tab_index.get(self.reports_view):
             self.reports_view.refresh()
+        elif index == self._tab_index.get(getattr(self, "photos_view", None)):
+            # 2026-10-05: on the way in - a run, or a name given, changes it.
+            self.photos_view.refresh()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
@@ -2040,6 +2060,19 @@ class MainWindow(QMainWindow):
         hit's line, opens a message in Outlook and an attachment from a copy.
         """
         open_row_async(self._store, row, reveal=reveal, on_error=self._show_error)
+
+    def _reveal_path(self, path: str) -> None:
+        """Show `path` in its folder - the Photos tab's "Show in folder"."""
+        self._open_path(path, reveal=True)
+
+    def _show_photos(self, *, naming: bool = False) -> None:
+        """Bring the Photos tab forward - on its naming page when `naming`."""
+        view = getattr(self, "photos_view", None)
+        if view is None:
+            return
+        self._show(view)
+        if naming:
+            view.show_naming()
 
     def _open_path(self, path: str, *, reveal: bool = False) -> None:
         """The same, for a caller with a path and no row - the log, a chip.
@@ -2397,7 +2430,8 @@ class MainWindow(QMainWindow):
         for view in (self.search_view, self.files_view,
                      getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
-                     getattr(self, "chat_view", None)):
+                     getattr(self, "chat_view", None),
+                     getattr(self, "photos_view", None)):
             if view is None:
                 continue
             stage(type(view).__name__, view.shutdown)

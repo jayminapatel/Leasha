@@ -43,7 +43,7 @@ from app.storage.migrations import (
     CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
 )
 
-__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion"]
+__all__ = ["SqliteStore", "FileRecord", "ChunkRecord", "FileStatus", "VolumeRecord", "volume_synthetic_path", "VOLUME_PATH_SCHEME", "FaceRecord", "PileRecord", "PileSample", "PendingSuggestion", "PhotoRow"]
 
 _log = logger.bind(component="storage.sqlite")
 
@@ -537,6 +537,34 @@ class PileRecord:
     name: Optional[str]
     face_count: int
     samples: tuple[PileSample, ...]
+
+
+@dataclass(frozen=True)
+class PhotoRow:
+    """One picture on the Photos page (2026-10-05). Everything the page sorts,
+    narrows and lists by, read in `photo_library` - never per photo."""
+
+    file_id: int
+    path: str
+    ext: str
+    size_bytes: int
+    mtime_ns: int
+    taken_at_ns: Optional[int]
+    taken_is_hint: bool
+    place: Optional[str]
+    people: tuple[str, ...]
+    faces: int
+    described: bool
+    has_text: bool
+    page_like: bool
+    status: str
+    scanned: bool = False
+    tags: tuple[str, ...] = ()
+
+    @property
+    def when_ns(self) -> int:
+        """When it is from: the date taken, else the file's own date."""
+        return int(self.taken_at_ns or self.mtime_ns or 0)
 
 
 @dataclass(frozen=True)
@@ -4131,6 +4159,125 @@ class SqliteStore:
                     self._decline(conn, face_id, int(pile_id))
         if row is not None:
             self.sync_people_segment(int(row["file_id"]))
+
+    #: The labels `add_caption_chunk` writes for a picture's description and
+    #: the text read from it (`pipeline._drain_photo_tags` / `_drain_picture_text`).
+    PHOTO_DESCRIPTION_LABEL = "AI description"
+    PHOTO_TEXT_LABEL = "Text read from the image"
+
+    def photo_library(self, extensions: Sequence[str]) -> list[PhotoRow]:
+        """Every picture, newest first, for the Photos page. 2026-10-05.
+
+        Three statements merged here rather than one with correlated
+        subqueries: measured on the owner's 15,010 pictures, the one-statement
+        form took 103 s, these three 0.06 s together."""
+        cleaned = sorted({str(e).lstrip(".").lower() for e in extensions if str(e).strip()})
+        if not cleaned:
+            return []
+        marks = ",".join("?" for _ in cleaned)
+        try:
+            files = self.conn.execute(
+                f"SELECT id, path, ext, size_bytes, mtime_ns, taken_at_ns, "
+                f"taken_at_is_hint, place, status, skip_code FROM files "
+                f"WHERE ext IN ({marks})", cleaned).fetchall()
+            people: dict[int, list[str]] = {}
+            faces: dict[int, int] = {}
+            for file_id, name in self.conn.execute(
+                    f"SELECT x.file_id, p.name FROM faces x "
+                    f"JOIN files f ON f.id = x.file_id "
+                    f"LEFT JOIN piles p ON p.id = x.pile_id "
+                    f"WHERE f.ext IN ({marks})", cleaned):
+                faces[file_id] = faces.get(file_id, 0) + 1
+                if name and name not in people.setdefault(file_id, []):
+                    people[file_id].append(name)
+            labels: dict[int, set[str]] = {}
+            for file_id, label in self.conn.execute(
+                    f"SELECT c.file_id, c.label FROM files f JOIN chunks c ON c.file_id = f.id "
+                    f"WHERE f.ext IN ({marks}) AND c.label IN (?, ?)",
+                    [*cleaned, self.PHOTO_DESCRIPTION_LABEL, self.PHOTO_TEXT_LABEL]):
+                labels.setdefault(file_id, set()).add(label)
+            scanned = {int(r[0]) for r in self.conn.execute(
+                f"SELECT s.file_id FROM face_scans s JOIN files f ON f.id = s.file_id "
+                f"WHERE f.ext IN ({marks})", cleaned)}
+            tags: dict[int, list[str]] = {}
+            for file_id, tag in self.conn.execute(
+                    f"SELECT t.file_id, t.tag FROM file_tags t JOIN files f ON f.id = t.file_id "
+                    f"WHERE f.ext IN ({marks})", cleaned):
+                tags.setdefault(file_id, []).append(str(tag))
+        except sqlite3.OperationalError:
+            return []
+        rows = []
+        for r in files:
+            file_id = int(r[0])
+            found = labels.get(file_id, ())
+            rows.append(PhotoRow(
+                file_id=file_id, path=r[1], ext=r[2], size_bytes=int(r[3] or 0),
+                mtime_ns=int(r[4] or 0), taken_at_ns=r[5], taken_is_hint=bool(r[6]),
+                place=r[7], people=tuple(sorted(people.get(file_id, ()), key=str.casefold)),
+                faces=faces.get(file_id, 0),
+                described=self.PHOTO_DESCRIPTION_LABEL in found,
+                has_text=self.PHOTO_TEXT_LABEL in found or (
+                    r[8] == "INDEXED" and file_id in scanned),
+                page_like=r[9] == "ERR_PAGE_TEXT_LATER", status=r[8],
+                scanned=file_id in scanned, tags=tuple(tags.get(file_id, ()))))
+        rows.sort(key=lambda row: row.when_ns, reverse=True)
+        return rows
+
+    def note_photo_rewritten(self, file_id: int, size_bytes: int, mtime_ns: int) -> None:
+        """"Write names into photos" changed this photo's bytes, not its
+        pictures: record the new size so the next run's unchanged check
+        (`walker`, size and modified time) does not read it all again."""
+        with self.write() as conn:
+            conn.execute("UPDATE files SET size_bytes = ?, mtime_ns = ? WHERE id = ?",
+                         (int(size_bytes), int(mtime_ns), int(file_id)))
+
+    def photo_metadata_rows(self, file_ids: Optional[Sequence[int]] = None
+                            ) -> list[tuple[int, str, tuple[str, ...], str]]:
+        """`(file_id, path, people, description)` for every photo with a
+        person named or a description - or just `file_ids` - for "Write
+        names into photos"."""
+        params: list[Any] = []
+        where = ""
+        if file_ids is not None:
+            ids = [int(f) for f in file_ids]
+            if not ids:
+                return []
+            where = f"WHERE f.id IN ({','.join('?' for _ in ids)})"
+            params = ids
+        names: dict[int, list[str]] = {}
+        paths: dict[int, str] = {}
+        for file_id, path, name in self.conn.execute(
+                f"SELECT f.id, f.path, p.name FROM files f JOIN faces x ON x.file_id = f.id "
+                f"JOIN piles p ON p.id = x.pile_id {where} "
+                f"{'AND' if where else 'WHERE'} p.name IS NOT NULL", params):
+            paths[file_id] = path
+            if name not in names.setdefault(file_id, []):
+                names[file_id].append(name)
+        described: dict[int, str] = {}
+        for file_id, path, text in self.conn.execute(
+                f"SELECT f.id, f.path, c.text FROM files f JOIN chunks c ON c.file_id = f.id "
+                f"{where} {'AND' if where else 'WHERE'} c.label = ?",
+                [*params, self.PHOTO_DESCRIPTION_LABEL]):
+            paths[file_id] = path
+            body = str(text or "")
+            prefix = self.PHOTO_DESCRIPTION_LABEL + ":"
+            described[file_id] = body[len(prefix):].strip() if body.startswith(prefix) else body
+        return [(fid, paths[fid], tuple(sorted(names.get(fid, ()), key=str.casefold)),
+                 described.get(fid, "")) for fid in sorted(paths)]
+
+    def photo_details(self, file_id: int) -> dict[str, str]:
+        """The description and the text read from one picture, for the
+        Photos page's info panel - `{label: text}`, the label prefix removed."""
+        out: dict[str, str] = {}
+        for label, text in self.conn.execute(
+                "SELECT label, text FROM chunks WHERE file_id = ? ORDER BY ordinal",
+                (int(file_id),)):
+            key = label or "Text"
+            body = str(text or "")
+            if label and body.startswith(label + ":"):
+                body = body[len(label) + 1:].lstrip()
+            out[key] = (out[key] + "\n" + body) if key in out else body
+        return out
 
     def suggestion_counts(self) -> list[tuple[int, str, int]]:
         """`(pile_id, name, waiting)` for every named person with suggestions

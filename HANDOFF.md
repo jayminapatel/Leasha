@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.71 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.72 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,40 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - the Photos tab.* The owner: "a chip just for pictures designed to view find and
+  deal with pictures including namings", "list, small thumbnail or normal thumbnail etc design a system",
+  "make it like a professional photo management/viewer", "like other tabs where i can narrow by year name
+  location etc etc .. also have / commands". A rail tab after Files (`app/ui/photos_view.py`):
+  - **Data:** `SqliteStore.photo_library(exts)` reads every picture in three statements (0.11 s for the
+    owner's 15,010; one statement with correlated subqueries took 103 s) into `PhotoRow`s - people,
+    faces, place, tags, described, has text, scanned. Narrowing is in memory (`presenter/photos.py`).
+  - **One grammar:** the box is read by `run.read_typed` like every tab (`who:`, `date:`, `place:`,
+    `shows:`, `path:`, `type:`, `name:`, `size:`, `sort:`, words, `-word`), chips included. New shared
+    switch **`only:`** (named, unnamed, no-faces, described, undescribed, text, screenshots): parser
+    (`ParsedQuery.only/not_only`), `Command`, and `storage/filters.ONLY_SQL` so Files and Search honour
+    it too. It is the one operator kept from the translation model (`commands._NOT_FOR_MODEL`, pinned to
+    `{"only"}` by a test): the prompt is at its 2,100-character ceiling (2,139 with it).
+  - **Left** `PhotoSidebar`: People to name (faces waiting), All photos, People/Years/Places/Only/Types
+    with counts; a click writes the switch into the box (`toggle_in_box`), a second click takes it out.
+  - **Centre** `PhotoBrowser`: one model, four views - Details (name, date, people, place, shows, type,
+    size, folder; sortable) and Small/Medium/Large thumbnails (96/160/256), one shared selection; a
+    month label while a date-ordered grid scrolls. Thumbnails: `photo_thumbs` - a 320 px JPEG per photo
+    in `<data>/thumbs` keyed by path+size+mtime, JPEG draft decode, newest-asked first, four at a time.
+  - **Right** `PhotoInfo`: picture, date, place, people, shows, description, text read, pixels, camera
+    and lens EXIF, Open / Show in folder / Name people. Double-click: `PhotoViewer` (arrows, F, Esc).
+  - **Naming** is on the tab as well ("People to name" swaps the centre for `PhotoTaggerPage`,
+    Accept all included). "Also", the owner said: Go > People in photos and Settings' button still
+    open the separate window, as `test_wired_features.py` holds.
+  - **View** icon and the window's View menu: Details/Small/Medium/Large, Sort by, Info panel -
+    remembered under `ui:photos_mode`, `ui:photos_sort`, `ui:photos_info`.
+  - **Option b, "Write names into photos…"** (`app/index/photo_metadata.py`, dialog
+    `widgets/photo_write_dialog.py`, CLI `app.cli photos --write-names [--inside] [--dry-run]`): XMP
+    `dc:subject`, `Iptc4xmpExt:PersonInImage`, `dc:description`. Sidecar `.xmp` by default; `--inside`
+    rewrites only JPEG (APP1) and PNG (iTXt) byte-for-byte around the packet - no re-encode, the
+    camera's own XMP kept, a copy first, mtime restored, and `note_photo_rewritten` records the new size
+    so the next run does not read the photo again. Dated note above non-negotiable 10.
+  - `app.cli photos "who:Jason date:2019"` lists the library as the tab narrows it.
+  - Tests: `test_photos_page.py`, `test_photo_metadata_write.py`; rail-order tests updated (ten tabs).
 - *2026-10-05 note - Accept all.* The owner: "need to mass accept names as most cases the system was
   right". Above the "Is this ...?" chips, "Accept all" with a menu: Everyone (n), then each named person
   (n). It asks first with the numbers per person, then `SqliteStore.accept_all_suggestions(pile_id=None)`

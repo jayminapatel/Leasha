@@ -354,6 +354,19 @@ COMMANDS: tuple[Command, ...] = (
         icon="☺",
         source="who",
     ),
+    Command(
+        name="only",
+        aliases=(),
+        # 2026-10-05, the Photos tab: "narrow by year name location etc etc ..
+        # also have / commands". What a picture has, read by
+        # `presenter.photos` and by `storage.filters` for every other tab.
+        summary="Only pictures that have this",
+        example="/only unnamed",
+        value_hint="named, unnamed, no-faces, described, undescribed, text, screenshots",
+        icon="◐",
+        values=("named", "unnamed", "no-faces", "described", "undescribed", "text",
+                "screenshots"),
+    ),
 )
 
 #: Things the search box understands that are **not filters**. Adoptions §3.
@@ -539,6 +552,11 @@ _TERSE_FOR_MODEL: dict[str, str] = {
     "status": "indexed|skipped|failed",
 }
 
+#: Operators the model is not told about. 2026-10-05: `/only` is a Photos-tab
+#: switch, typed or clicked, never what a sentence translates to - and telling
+#: the model would take the prompt over the ceiling above (2,139 of 2,100).
+_NOT_FOR_MODEL = frozenset({"only"})
+
 
 def grammar_for_model() -> str:
     """The operator grammar, for Layer 8a's translation prompt.
@@ -583,6 +601,8 @@ def grammar_for_model() -> str:
 
     lines = ["Operators (use only these):"]
     for command in COMMANDS:
+        if command.name in _NOT_FOR_MODEL:
+            continue
         if command.alias_of:
             # Another spelling of a filter already listed (`between:` is
             # `date:`). The prompt is paid for on every translation and sits

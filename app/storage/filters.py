@@ -51,6 +51,29 @@ __all__ = ["file_filter_sql", "epoch_ns", "MAIL_KINDS", "merge_by_date",
 MAIL_KINDS = MAIL_SOURCE_KINDS
 
 
+#: `/only` values -> a condition on `files f`. 2026-10-05. `face_scans` marks
+#: a picture the faces lane has looked at, which is what tells a picture with
+#: no faces from a document with none. `presenter.photos` reads the same words
+#: over its rows; the labels are `add_caption_chunk`'s.
+ONLY_SQL: dict[str, str] = {
+    "named": ("EXISTS (SELECT 1 FROM faces o JOIN piles op ON op.id = o.pile_id "
+              "WHERE o.file_id = f.id AND op.name IS NOT NULL)"),
+    "unnamed": ("EXISTS (SELECT 1 FROM faces o LEFT JOIN piles op ON op.id = o.pile_id "
+                "WHERE o.file_id = f.id AND op.name IS NULL)"),
+    "no-faces": ("EXISTS (SELECT 1 FROM face_scans os WHERE os.file_id = f.id) "
+                 "AND NOT EXISTS (SELECT 1 FROM faces o WHERE o.file_id = f.id)"),
+    "described": ("EXISTS (SELECT 1 FROM chunks oc WHERE oc.file_id = f.id "
+                  "AND oc.label = 'AI description')"),
+    "undescribed": ("EXISTS (SELECT 1 FROM face_scans os WHERE os.file_id = f.id) "
+                    "AND NOT EXISTS (SELECT 1 FROM chunks oc WHERE oc.file_id = f.id "
+                    "AND oc.label = 'AI description')"),
+    "text": ("(EXISTS (SELECT 1 FROM chunks oc WHERE oc.file_id = f.id "
+             "AND oc.label = 'Text read from the image') OR (f.status = 'INDEXED' "
+             "AND EXISTS (SELECT 1 FROM face_scans os WHERE os.file_id = f.id)))"),
+    "screenshots": ("(f.skip_code = 'ERR_PAGE_TEXT_LATER' OR lower(f.path) LIKE '%screenshot%' "
+                    "OR lower(f.path) LIKE '%screen shot%' OR lower(f.path) LIKE '%snip%')"),
+}
+
 def _date_clause(op: str) -> str:
     r"""`after:`/`before:` against **the date a file is from**, not its mtime.
 
@@ -311,6 +334,18 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
             "f.id IN (SELECT fc.file_id FROM faces fc "
             f"JOIN piles p ON p.id = fc.pile_id WHERE {conditions})")
         params.extend(parsed.who)
+
+    # 2026-10-05, the Photos tab's `/only` - what a picture has. Every other
+    # tab honours it too (`test_every_tab_offers_every_switch`); a document
+    # is never "unnamed" or "described", so it simply narrows to pictures.
+    for value in getattr(parsed, "only", ()):
+        condition = ONLY_SQL.get(value)
+        if condition is not None:
+            clauses.append(condition)
+    for value in getattr(parsed, "not_only", ()):
+        condition = ONLY_SQL.get(value)
+        if condition is not None:
+            clauses.append(f"NOT ({condition})")
 
     for name in parsed.names:
         # The **basename**, not the whole path - `path:` already answers "which

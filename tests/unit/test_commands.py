@@ -67,7 +67,13 @@ def test_the_model_is_told_only_about_operators_that_exist():
     nothing and give no hint why - the failure that makes AI search feel
     unpredictable and therefore useless over your own archive."""
     grammar = grammar_for_model()
+    from app.search.commands import _NOT_FOR_MODEL
+
     for command in COMMANDS:
+        # 2026-10-05: `/only` (the Photos tab) is kept from the model on purpose -
+        # `commands._NOT_FOR_MODEL`, pinned by `test_only_only_is_kept_from_the_model`.
+        if command.name in _NOT_FOR_MODEL:
+            continue
         if command.alias_of:
             # Order 0x §6a: another spelling of a filter (`between:` is
             # `date:`). The model is told the filter once, under its own
@@ -438,3 +444,13 @@ def test_every_kind_word_offered_actually_narrows_a_search():
     for word in command_for("type").values:
         parsed = parse_query(expand_slashes(f"/type {word} report"))
         assert parsed.ext, f"/type {word} produced no extension filter"
+
+
+def test_only_only_is_kept_from_the_model():
+    """2026-10-05. The one switch the translation model is not told about,
+    and why: `/only` is clicked or typed on the Photos tab, and the prompt
+    sits at its ceiling (2,139 of 2,100 with it). Anything else added here
+    is a feature quietly dropped from translation - so it is a list of one."""
+    from app.search.commands import _NOT_FOR_MODEL
+
+    assert _NOT_FOR_MODEL == frozenset({"only"})

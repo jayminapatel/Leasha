@@ -171,7 +171,9 @@ def _launch_journey(running) -> None:
     assert window.is_visible()
     assert window.window_text() == "Leasha"
     rail = set(e2e.names(window, "CheckBox"))
-    for page in ("Search", "Files", "Mail", "Code", "Chat", "Offline", "Reports", "Settings"):
+    # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
+    for page in ("Search", "Files", "Photos", "Mail", "Code", "Chat", "Offline", "Reports",
+                 "Settings"):
         assert page in rail, f"{page!r} is missing from the rail: {sorted(rail)}"
     assert e2e.by_id(window, "searchBox", "Edit").is_visible()
 

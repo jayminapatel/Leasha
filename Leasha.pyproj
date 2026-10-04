@@ -138,6 +138,7 @@
     <Compile Include="app\cli\media.py" />
     <Compile Include="app\cli\offline_media.py" />
     <Compile Include="app\cli\ollama.py" />
+    <Compile Include="app\cli\photos.py" />
     <Compile Include="app\cli\report.py" />
     <Compile Include="app\cli\repos.py" />
     <Compile Include="app\cli\scan.py" />
@@ -263,6 +264,7 @@
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
+    <Compile Include="app\index\photo_metadata.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\pipeline_bench.py" />
     <Compile Include="app\index\quantize_model.py" />
@@ -379,6 +381,7 @@
     <Compile Include="app\ui\log_lines.py" />
     <Compile Include="app\ui\mail_view.py" />
     <Compile Include="app\ui\offline_media_view.py" />
+    <Compile Include="app\ui\photos_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
     <Compile Include="app\ui\presenter\activity.py" />
@@ -396,6 +399,7 @@
     <Compile Include="app\ui\presenter\mail.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
+    <Compile Include="app\ui\presenter\photos.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
     <Compile Include="app\ui\presenter\rows.py" />
@@ -496,8 +500,15 @@
     <Compile Include="app\ui\widgets\number_field.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
     <Compile Include="app\ui\widgets\offline_media_rows.py" />
+    <Compile Include="app\ui\widgets\photo_browser.py" />
+    <Compile Include="app\ui\widgets\photo_info.py" />
+    <Compile Include="app\ui\widgets\photo_page_parts.py" />
+    <Compile Include="app\ui\widgets\photo_sidebar.py" />
     <Compile Include="app\ui\widgets\photo_tagger_page.py" />
     <Compile Include="app\ui\widgets\photo_tagger_window.py" />
+    <Compile Include="app\ui\widgets\photo_thumbs.py" />
+    <Compile Include="app\ui\widgets\photo_viewer.py" />
+    <Compile Include="app\ui\widgets\photo_write_dialog.py" />
     <Compile Include="app\ui\widgets\pinned_panel.py" />
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
@@ -867,11 +878,13 @@
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
+    <Compile Include="tests\unit\test_photo_metadata_write.py" />
     <Compile Include="tests\unit\test_photo_tagger.py" />
     <Compile Include="tests\unit\test_photo_tagger_page.py" />
     <Compile Include="tests\unit\test_photo_tagger_wording.py" />
     <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
+    <Compile Include="tests\unit\test_photos_page.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
     <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />

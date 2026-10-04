@@ -211,6 +211,13 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Set roughly when a folder of scans is from…": ("calendar", "secondary"),
     "Remove selected from this pile": ("folder-minus", "secondary"),
     "Move selected to a new pile": ("split", "secondary"),
+    # 2026-10-05: the Photos tab, and Accept all on its naming page.
+    "Accept all": ("list-checks", "primary"),
+    # 2026-10-04: each model's processor, measured (`device_box.py`).
+    "Test this machine": ("flask-conical", "secondary"),
+    "Back to photos": ("image", "secondary"),
+    "Name people": ("users", "secondary"),
+    "Write names into photos…": ("save", "secondary"),
     # -- Dialog button boxes -------------------------------------------------------
     "OK": ("check", "primary"),
     "Cancel": ("x", "secondary"),

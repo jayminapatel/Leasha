@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.4 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.5 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -50,6 +50,13 @@ change it deliberately, write down why, and update `HANDOFF.md`.
 8. **Every layer ships a CLI entry point before it ships UI**, so it can be tested headless.
 9. **Measure, do not assume.** The performance budget in `BUILD_SPEC_V2.md` is per stage
    precisely so a miss can be attributed. "It feels fast" is not a result.
+    *2026-10-05 note on rule 10 below - the owner's one exception.* "go ahead with option a but an option b
+    button which can be used": names and descriptions stay in the index (option a), and the
+    Photos tab's "Write names into photos…" (and `app.cli photos --write-names`) writes them
+    into photos' XMP only when the owner presses it - never during indexing. Sidecar `.xmp`
+    files by default, so no photo changes; into JPEG and PNG only when chosen, after a copy of
+    each is kept, pixels untouched and the modified time put back
+    (`app/index/photo_metadata.py`). The indexer itself stays read-only.
 10. **Read-only against user data.** The indexer opens and reads. It never modifies, moves or
     deletes a document or an email.
 11. **Anything tunable has a UI, or is not tunable.** No setting ever requires editing a file.

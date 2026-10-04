@@ -798,6 +798,7 @@ class _ManageFacesDialog(QDialog):
         self._list.itemSelectionChanged.connect(self._selection_changed)
 
         select_all = QPushButton("Select all")
+        select_all.setToolTip("Select every face in this group")
         select_all.clicked.connect(self._list.selectAll)
         self._not_this = QPushButton(f"Not {who}")
         self._not_this.setToolTip(

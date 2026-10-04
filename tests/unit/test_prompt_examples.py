@@ -121,7 +121,13 @@ def test_every_operator_is_still_named():
     what it is told about, and one that vanishes is a feature that quietly
     stops working."""
     text = prompt()
+    from app.search.commands import _NOT_FOR_MODEL
+
     for command in COMMANDS:
+        # 2026-10-05: `/only` (the Photos tab) is kept from the model on purpose -
+        # `commands._NOT_FOR_MODEL`, pinned by `test_only_only_is_kept_from_the_model`.
+        if command.name in _NOT_FOR_MODEL:
+            continue
         # Order 0x §6a: a spelling row (`between:`) is its filter's other
         # name, and the filter it names is what must be here.
         assert f"{command.alias_of or command.name}:" in text

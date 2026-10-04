@@ -97,6 +97,7 @@ def test_no_tab_offers_a_command_it_cannot_honour() -> None:
         "shows": ("shows", "dog"),
         "place": ("place", "leeds"),
         "who": ("who", "Daddy"),
+        "only": ("only", "unnamed"),
         "status": ("statuses", "skipped"),
     }
     for tab, names in SUBSETS.items():

@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.3 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -231,3 +231,14 @@ and `202626270514`.
 | Text-safe tint | A brand colour darkened until white text on it reaches 4.5:1. The kind badges use them | Brand `brand.json` `textSafe`; `test_brand_colours.py` |
 | Lockup / symbol | The brand's logo with its wordmark / the cluster alone. The About box shows the lockup; the icon is the symbol | `assets/leasha-lockup*.png`, `leasha-symbol.svg` |
 | Demonstration store | The small index in `D:\Demo\leasha-guide` that the guide's pictures are taken against; never the owner's data | `tools/guide_pictures.py` |
+
+## Added 5 October 2026
+
+| Term | Means | Notes |
+|---|---|---|
+| Photos tab | The rail tab for pictures: narrowing lists on the left, the photos as Details or Small/Medium/Large thumbnails, an info panel, a full-size viewer, and People to name | `app/ui/photos_view.py`; the Photo Tagger page now opens inside it |
+| `only:` | The shared switch for what a picture has: named, unnamed, no-faces, described, undescribed, text, screenshots | `ParsedQuery.only`, `storage.filters.ONLY_SQL`; the one operator not told to the translation model |
+| Accept all | Yes to every waiting "Is this ...?" suggestion, for everyone or one person, after the numbers are shown | `SqliteStore.accept_all_suggestions` |
+| Write names into photos | Option b: the people and the description written into a photo's own XMP, on demand only - the owner's exception to non-negotiable 10 | `app/index/photo_metadata.py`; CLI `photos --write-names` |
+| Sidecar | A `.xmp` file beside a photo carrying its metadata, so the photo itself is not changed - the default for Write names into photos | Adobe's `IMG_0001.xmp`; `IMG_0001.HEIC.xmp` when two photos share a stem |
+| Thumbnail cache | 320-pixel copies of pictures in `<data>/thumbs`, named by path, size and modified time, so a changed photo gets a new one | `widgets/photo_thumbs.py` |

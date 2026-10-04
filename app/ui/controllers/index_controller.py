@@ -375,7 +375,15 @@ class IndexController(QObject):
         already running or the window is closing. `_start_indexing` takes the
         images pass because `_images_due` is now set (`run_setup.pass_for`)."""
         view = getattr(self._w, "indexing_view", None)
-        if view is None or view.is_running() or getattr(self._w, "_closing", False):
+        if view is None or getattr(self._w, "_closing", False):
+            return
+        if view.is_running():
+            # 2026-10-05: another run took the turn first, so the images wait for
+            # the next Start - which is exactly what this released sentence says.
+            if self._images_due:
+                self._w.notify(
+                    "Text is indexed. Images and scans are still to read - press Start "
+                    "again to do those.", 30_000)
             return
         if not self._images_due:                 # taken back meanwhile - nothing is due
             return

@@ -51,6 +51,7 @@ from app.cli.extract import add_convert_parser, add_extract_parser
 from app.cli.formats import add_formats_parser
 from app.cli.index import add_index_parser, add_reembed_parser
 from app.cli.media import add_media_parser
+from app.cli.photos import add_photos_parser
 from app.cli.mcp_server import add_mcp_parser
 from app.cli.maintenance import (
     add_diagnose_parser,
@@ -100,6 +101,7 @@ from app.cli.index import (  # noqa: F401
     cmd_reembed,
 )
 from app.cli.media import cmd_media  # noqa: F401
+from app.cli.photos import cmd_photos  # noqa: F401
 from app.cli.maintenance import (  # noqa: F401
     cmd_diagnose,
     cmd_doctor,
@@ -184,6 +186,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_rerank_bench_parser(sub, common)
     add_formats_parser(sub, common)
     add_media_parser(sub, common)
+    add_photos_parser(sub, common)
     add_search_parser(sub, common)
     add_mcp_parser(sub, common)
 
