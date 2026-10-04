@@ -1214,6 +1214,16 @@ you your
 #: still mean exactly what they say.
 AND_TERM_LIMIT = 1
 
+#: **The shortest last word that is searched as a prefix while typing.**
+#:
+#: Measured 2026-10-04 with `tools/fts_scale_bench.py` on a million chunks:
+#: `b*` took 2,372 ms, `ba*` 821 ms, `bar*` 23 ms and `barn*` 1 ms - a one- or
+#: two-letter prefix matches most of the index, and every match is scored
+#: before the top hundred are kept. Shorter than this, the last word is left
+#: out while there are others (`pump v` searches for `pump` until the third
+#: letter) and searched as typed when it is alone.
+PREFIX_MIN_CHARS = 3
+
 
 #: Words somebody is saying **to** the application, not looking **for**.
 #:
@@ -1372,7 +1382,11 @@ def to_fts_match(parsed: ParsedQuery, *, prefix_last: bool = False,
                 # whole feature exists to remove.
                 continue
             if prefix_last and term == last_term and not term.endswith("*"):
-                term = term + "*"
+                # 2026-10-04: only from `PREFIX_MIN_CHARS` letters on.
+                if len(term) >= PREFIX_MIN_CHARS:
+                    term = term + "*"
+                elif len(content) > 1:
+                    continue
             quoted = _fts_quote(term)
             if quoted:
                 quoted_terms.append(quoted)

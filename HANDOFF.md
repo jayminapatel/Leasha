@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.58 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.59 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2348,6 +2348,57 @@ the real window, a real disconnected SMB share, cold-disk hashing, v33 on the ow
 The Start-menu shortcut (`bfa1268`) is the "Compiling to exe vs source" session's work, committed
 here at its request. Open for the owner, not changed: HANDOFF line ~780 says the packaging
 decisions were taken while `docs/ORDER_REGISTER.md` section 5 still lists five open.
+
+**2026-10-04 (after the review) - The SQLite index measured at scale, and what it changed.** The
+owner: "does our sql lite have indexes and is optimized for fast search", then "build the
+synthetic scale benchmark", then "do 1 to 4". **Part of this landed in `b4583d2` under another
+session's message** (that session committed the working tree while this one was mid-work - see
+the last bullet); the rest is the commit after it.
+- **`tools/fts_scale_bench.py`** builds an index through `SqliteStore` (the real schema and
+  migrations; synthetic Zipf-distributed text, 35% mail) and times the app's own
+  `keyword.search`, `browse_files` and `browse_messages`. `build --db X --files N`, then
+  `measure --db X`. Refuses anything under `DATA_PATH`. Measured on 997,768 chunks (5% of the
+  20M target, `representative: false`), warm cache, idle laptop, best of five.
+- **The finding: a search costs what it matches, not what it returns.** FTS5 scores every match
+  before `LIMIT`. Rare word 1 ms; a word in 24% of chunks 302 ms (the keyword stage's budget is
+  60 ms); with a filter 610-870 ms; typing `b` 2,372 ms. **Indexes are not the problem** - every
+  hot statement already uses one; the composite indexes proposed first measured no gain and were
+  not added. Unmerged segments (15 vs 1) changed nothing measurable at this size.
+- **Fixed, with tests (`test_search_scale_bounds.py`)**: (1) `query.PREFIX_MIN_CHARS = 3` - a
+  shorter last word is left out while typing (`pump v` searches `pump`), alone it is searched as
+  typed; (2) `keyword._bounded` - when a search would score over `SCORED_MATCHES` (10,000), a word
+  in 10%+ of the newest 20,000 chunks is left out if other words remain, and what is still too
+  broad is scored over the newest chunks only (a `rowid` floor). Share is estimated by counting
+  in that window (<1.5 ms; `chunks_vocab` costs what the word matches, 50 ms for `the`). A small
+  index searches exactly as before; (3) a filtered search takes FTS5's top 1,000 first and
+  falls back to scoring everything only when that does not fill the page - same rows, 655 ->
+  286 ms; (4) every connection: `cache_size` 64 MB, `mmap_size` 256 MB (middling word 31 -> 14 ms).
+  **After all four, same bench**: common word 302 -> 43 ms, everywhere-word 1,469 -> 110, filtered
+  610-870 -> 43-76, typing `ba` 821 -> 19, `pump v` 1,676 -> 22. **The ranking changes for a
+  query that is only common words**: its results come from the newest chunks, not the whole
+  index. A single letter alone (`b`) is now the literal word and usually finds nothing.
+- **Fixed, found on the way**: the Mail tab's newest-first list sorted every message
+  (`ORDER BY sent_at IS NULL, ...` defeats `idx_messages_sent`) - two queries now, 306 -> 6.45 ms,
+  same order (`test_mail_list_order.py`). `fts_stem`'s scratch table was ready per store but
+  exists per connection, so every thread after the first stemmed to `""` and its wildcards
+  matched nothing. A reset left `files_fts` full of dead segments (the owner's empty index:
+  6.9 MB of 7.4 MB) and `optimize_fts` merged only `chunks_fts`; both fixed (in `b4583d2`).
+  Four tests already red at `a55bff1` were stale, not the code: the chat-engine race, the
+  `ERR_FILE_MISSING` code, the funnel spy seeing a PRAGMA, and the osbridge guard
+  (`startmenu.py` moved to `app/core/osbridge/`).
+- **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
+  to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- **Open**: the Files tab's content half (`browse_files`) and Mail's "words" filter are not bounded yet
+  (1,054 ms and 664 ms on the bench). `keyword.search` still builds a statement it never runs
+  (the block above `_run_match`'s call) - dead code, harmless, misleading. The owner's index was
+  empty at 19:11 today with planner statistics for 3,299 files - a reset, which the owner
+  confirmed was intended.
+- **Trap: two sessions, one working tree.** The other session's `git add -A` swept this one's
+  uncommitted edits into `b4583d2`, and its full-suite run caught a half-written
+  `sqlite_store.py` (`test_slash_context`, which reads source). A session that commits must add
+  its own paths, never `-A`, while another is open on the same folder - or use a worktree.
+**UNVERIFIED** at 20M chunks (extrapolated: cost grows with matches) and on the owner's real
+corpus, where content words are rarer than the bench's planted `pump`.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

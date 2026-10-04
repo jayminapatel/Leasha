@@ -350,6 +350,11 @@ NOTICE_RELAXED = "NOTICE_RELAXED"
 #: **Named on the page, with the way back**, because a phrase search is a
 #: narrowing and every narrowing this application does has to be visible.
 NOTICE_EXACT = "NOTICE_EXACT"
+#: 2026-10-04. A word in a tenth or more of the index was left out of the
+#: search, because scoring every match of it cost seconds at scale
+#: (`keyword._bounded`). **Said, because it changes the answer**: the person
+#: typed that word and the results do not weigh it.
+NOTICE_LEFT_OUT = "NOTICE_LEFT_OUT"
 
 
 @dataclass(frozen=True)
@@ -924,6 +929,13 @@ class SearchEngine:
                 NOTICE_UNMATCHED_TERMS,
                 "Not in the index: " + ", ".join(unmatched)
                 + ". Results match the remaining words only.",
+            ))
+        left_out = keyword.left_out(self.store, parsed)
+        if left_out:
+            notices.append(Notice(
+                NOTICE_LEFT_OUT,
+                "Left out as too common to narrow the search: "
+                + ", ".join(left_out) + ". Put it in quotes to require it.",
             ))
         # **Only when the vector half was actually asked a question.**
         #

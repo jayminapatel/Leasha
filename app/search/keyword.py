@@ -28,7 +28,7 @@ from app.core.logging import logger
 from app.search.query import ParsedQuery, _fts_quote
 from app.storage.filters import epoch_ns, file_filter_sql, merge_by_date
 
-__all__ = ["search", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP"]
+__all__ = ["search", "left_out", "KEYWORD_LIMIT", "Eligibility", "ELIGIBLE_CAP"]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
 KEYWORD_LIMIT = 100
@@ -47,6 +47,117 @@ _filter_sql = file_filter_sql
 _epoch_ns = epoch_ns
 
 
+# ---------------------------------------------------------------------------
+# Bounding the scored set - 2026-10-04, measured with tools/fts_scale_bench.py
+# ---------------------------------------------------------------------------
+#
+# **A search costs what it matches, not what it returns.** FTS5 scores every
+# matching chunk before `LIMIT` keeps a hundred, and no index changes that. On a
+# million chunks: a word in 166 of them took 1 ms, one in 10,120 took 31 ms, one
+# in 244,310 (a quarter) took 302 ms - five times the 60 ms the keyword stage has
+# in BUILD_SPEC_V2 - and a filter on top of that 610-870 ms.
+#
+# So the scored set is bounded, and only when it would otherwise exceed
+# `SCORED_MATCHES`: a small index searches exactly as it always did.
+#
+# * **A word in `COMMON_SHARE` or more of the index is left out** of a query that
+#   has other words. Its BM25 weight is close to nothing - it is in a tenth of
+#   everything - and it is what made the query expensive.
+# * **What is still too broad is scored over the newest chunks only**, as many
+#   as hold about `SCORED_MATCHES` matches - a `rowid` range, which FTS5 seeks
+#   to in its own index rather than filtering after.
+#
+# How common a word is comes from counting its matches among the newest
+# `COMMON_SAMPLE` chunks, under 1.5 ms for any word at any index size. The
+# vocabulary table answers exactly, but costs what the word matches: 50 ms for
+# `the` on a million chunks, which is the cost this exists to avoid.
+
+#: A word in at least this share of the index is "common".
+COMMON_SHARE = 0.10
+#: The newest chunks a word's share is estimated from.
+COMMON_SAMPLE = 20_000
+#: The most matches one search scores. About 25-80 ms on the laptop.
+SCORED_MATCHES = 10_000
+#: How many top-ranked chunks a filtered search draws on before it falls back
+#: to scoring every match. 655 ms became 286 ms with identical results.
+OVERFETCH = 1_000
+
+
+def _share(store: Any, expression: str, top: int) -> float:
+    """The share of the newest `COMMON_SAMPLE` chunks that match `expression`."""
+    sample = min(COMMON_SAMPLE, top)
+    if sample <= 0 or not expression:
+        return 0.0
+    try:
+        found = store.conn.execute(
+            "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ? AND rowid > ?",
+            (expression, top - sample)).fetchone()[0]
+    except sqlite3.Error:
+        return 0.0
+    return int(found) / sample
+
+
+def _bounded(store: Any, parsed: ParsedQuery, prefix_last: bool) -> tuple[ParsedQuery, int]:
+    """`(query, floor)`: common words left out, and the rowid to score above (0 = all)."""
+    bounded, floor, _left_out = _bound(store, parsed, prefix_last)
+    return bounded, floor
+
+
+def left_out(store: Any, parsed: ParsedQuery, *, prefix_last: bool = False) -> tuple[str, ...]:
+    """The words a search for `parsed` leaves out as too common - for the notice
+    that says so (`engine.NOTICE_LEFT_OUT`). Empty on an index small enough to
+    score everything. A few constant-cost counts; never raises."""
+    try:
+        return _bound(store, parsed, prefix_last)[2]
+    except Exception:                                    # noqa: BLE001 - a notice, never a failure
+        return ()
+
+
+def _bound(store: Any, parsed: ParsedQuery,
+           prefix_last: bool) -> tuple[ParsedQuery, int, tuple[str, ...]]:
+    """`_bounded`, and which words it left out."""
+    dropped: tuple[str, ...] = ()
+    try:
+        top = int(store.conn.execute("SELECT max(id) FROM chunks").fetchone()[0] or 0)
+    except (sqlite3.Error, AttributeError, TypeError):
+        return parsed, 0, ()
+    if top <= SCORED_MATCHES:
+        return parsed, 0, ()
+
+    terms = list(parsed.terms)
+    if len(terms) > 1 and not parsed.phrases and len(parsed.or_groups) <= 1 \
+            and not parsed.expansions:
+        from app.search.query import _STOPWORDS, PREFIX_MIN_CHARS
+
+        typing = terms[-1] if prefix_last else None
+        common = []
+        for term in terms:
+            if term == typing:
+                continue
+            share = _share(store, _fts_quote(term), top)
+            if share >= COMMON_SHARE and share * top > SCORED_MATCHES:
+                common.append(term)
+        # **Only a word that is searched counts as one that remains.** A
+        # half-typed last word under the prefix minimum is not searched, and a
+        # stopword is searched only when nothing else is left - leaving `pump`
+        # out of `pump v` or `pump of` searched for `v` or `of` (measured: no
+        # results for `pump v` on the bench).
+        searched = [t for t in terms if t not in common
+                    and not (t == typing and len(t) < PREFIX_MIN_CHARS)
+                    and t.lower().rstrip("*") not in _STOPWORDS]
+        if common and searched:
+            from app.search.query import with_terms
+
+            _log.debug("left out of the search as too common: {}", common)
+            parsed = with_terms(parsed, [t for t in terms if t not in common])
+            dropped = tuple(common)
+
+    share = _share(store, parsed.fts_match(prefix_last=prefix_last), top)
+    if share * top <= SCORED_MATCHES:
+        return parsed, 0, dropped
+    return parsed, max(0, top - int(SCORED_MATCHES / share)), dropped
+
+
 def search(
     store: Any,
     parsed: ParsedQuery,
@@ -60,13 +171,15 @@ def search(
     whose every token was punctuation. That is not an error: the caller decides
     whether a filter-only query should list matching files instead.
     """
-    expression = parsed.fts_match(prefix_last=prefix_last)
     where, params = _filter_sql(parsed)
-
-    if not expression:
+    if not parsed.fts_match(prefix_last=prefix_last):
         if not parsed.has_filters:
             return []
         return _filter_only(store, where, params, limit)
+
+    # 2026-10-04: bounded before anything is scored - see `_bounded`.
+    parsed, floor = _bounded(store, parsed, prefix_last)
+    expression = parsed.fts_match(prefix_last=prefix_last)
 
     # **The narrow query first, and only widen if it was not enough.**
     #
@@ -98,7 +211,7 @@ def search(
     # and for an explicit `AND`, which is already narrow.
     narrow = _narrow_first(parsed, prefix_last)
     if narrow and narrow != expression:
-        rows = _run_match(store, narrow, where, params, limit)
+        rows = _run_match(store, narrow, where, params, limit, floor)
         if len(rows) >= limit:
             return rows
 
@@ -162,7 +275,7 @@ def search(
         """
         arguments = [expression, limit]
 
-    return _run_match(store, expression, where, params, limit)
+    return _run_match(store, expression, where, params, limit, floor)
 
 
 def _narrow_first(parsed: ParsedQuery, prefix_last: bool) -> str:
@@ -176,53 +289,71 @@ def _narrow_first(parsed: ParsedQuery, prefix_last: bool) -> str:
 
 
 def _run_match(store: Any, expression: str, where: str, params: list[Any],
-               limit: int) -> list[dict[str, Any]]:
-    """One FTS5 query, in whichever of the two shapes suits the filters."""
-    if where:
-        sql = f"""
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
+               limit: int, floor: int = 0) -> list[dict[str, Any]]:
+    """One FTS5 query, in whichever of the two shapes suits the filters.
+
+    `floor` is the rowid scoring starts above (`_bounded`); 0 scores everything.
+
+    2026-10-04: **a filtered search draws on the top `OVERFETCH` first.** Those
+    are the best-ranked chunks overall, so the first `limit` of them that pass
+    the filter *are* the filtered top `limit` - exactly the rows the full
+    statement returns, at FTS5's top-k cost rather than at the cost of scoring
+    and joining every match. Only when they do not fill the page (a filter few
+    rows pass) does the full statement run, as before.
+    """
+    columns = """c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
                    c.char_start, c.char_end,
                    f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
-                   f.volume_id, f.relative_path,
-                   bm25(chunks_fts) AS score
-            FROM chunks_fts
-            JOIN chunks c ON c.id = chunks_fts.rowid
-            JOIN files  f ON f.id = c.file_id
-            WHERE chunks_fts MATCH ?{where}
-            ORDER BY score
-            LIMIT ?
-        """
-        arguments = [expression, *params, limit]
-    else:
-        sql = """
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
-                   c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
-                   f.volume_id, f.relative_path,
+                   f.volume_id, f.relative_path"""
+    bound = " AND rowid > ?" if floor else ""
+    bound_args = [floor] if floor else []
+    top_sql = f"""
+            SELECT {columns},
                    top.score AS score
             FROM (
                 SELECT rowid AS chunk_id, rank AS score
                 FROM chunks_fts
-                WHERE chunks_fts MATCH ?
+                WHERE chunks_fts MATCH ?{bound}
                 ORDER BY rank
                 LIMIT ?
             ) AS top
             JOIN chunks c ON c.id = top.chunk_id
             JOIN files  f ON f.id = c.file_id
+            WHERE 1=1{where}
             ORDER BY top.score
+            LIMIT ?
         """
-        arguments = [expression, limit]
+    attempts: list[tuple[str, list[Any]]] = []
+    if where:
+        attempts.append((top_sql, [expression, *bound_args,
+                                   max(OVERFETCH, limit * 10), *params, limit]))
+        attempts.append((f"""
+            SELECT {columns},
+                   bm25(chunks_fts) AS score
+            FROM chunks_fts
+            JOIN chunks c ON c.id = chunks_fts.rowid
+            JOIN files  f ON f.id = c.file_id
+            WHERE chunks_fts MATCH ?{bound.replace("rowid", "chunks_fts.rowid")}{where}
+            ORDER BY score
+            LIMIT ?
+        """, [expression, *bound_args, *params, limit]))
+    else:
+        attempts.append((top_sql, [expression, *bound_args, limit, limit]))
 
-    try:
-        rows = store.conn.execute(sql, arguments).fetchall()
-    except sqlite3.OperationalError as exc:
-        # Unreachable if query.py did its job. Loud, because it means the
-        # sanitiser has a hole - not something to swallow as "no results".
-        _log.error(
-            "FTS5 rejected a sanitised expression - this is a sanitiser bug, not a bad query. "
-            "expression={!r} error={}", expression, exc,
-        )
-        return []
+    rows: list[Any] = []
+    for sql, arguments in attempts:
+        try:
+            rows = store.conn.execute(sql, arguments).fetchall()
+        except sqlite3.OperationalError as exc:
+            # Unreachable if query.py did its job. Loud, because it means the
+            # sanitiser has a hole - not something to swallow as "no results".
+            _log.error(
+                "FTS5 rejected a sanitised expression - this is a sanitiser bug, not a bad query. "
+                "expression={!r} error={}", expression, exc,
+            )
+            return []
+        if len(rows) >= limit:
+            break
 
     return [dict(row) for row in rows]
 

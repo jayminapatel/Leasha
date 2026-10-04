@@ -83,6 +83,11 @@ NO_REPO = -1
 WRITE_CACHE_FLOOR_KIB = 16 * 1024
 WRITE_CACHE_CEILING_KIB = 256 * 1024
 
+#: 2026-10-04. Every connection's page cache (KiB) and memory-mapped read
+#: ceiling (bytes) - see `_new_connection` for the measurement.
+SEARCH_CACHE_KIB = 64 * 1024
+SEARCH_MMAP_BYTES = 256 * 1024 * 1024
+
 #: 2026-09-30. SQLite's per-connection switch for triggers, by its number in
 #: Python's `sqlite3` (3.12 and later). None on an older Python, where
 #: `SqliteStore` then writes the keyword index row by row as it always did.
@@ -910,6 +915,15 @@ class SqliteStore:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("PRAGMA synchronous = NORMAL")
             conn.execute("PRAGMA foreign_keys = ON")
+            # 2026-10-04, measured on a million chunks (`tools/fts_scale_bench.py`):
+            # SQLite's default 2 MB page cache re-reads the word index's pages
+            # on every search. 64 MB of cache and 256 MB of memory-mapped reads
+            # took a middling word from 31 to 14 ms and with `type:pdf` from 71
+            # to 15. Both are ceilings, not allocations - a connection holds
+            # only what it has read - and the indexer's own larger cache for a
+            # big job (`size_write_cache`) sits on top as before.
+            conn.execute(f"PRAGMA cache_size = -{SEARCH_CACHE_KIB}")
+            conn.execute(f"PRAGMA mmap_size = {SEARCH_MMAP_BYTES}")
         except sqlite3.OperationalError as exc:
             try:
                 conn.close()
@@ -2151,16 +2165,31 @@ class SqliteStore:
             FROM messages m
             JOIN files f ON f.id = m.file_id
             {where} {file_where}
-            -- `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
-            -- 3.30. The bundled version is newer, but the version a user's
-            -- Python happens to ship is not something this should depend on,
-            -- and the two forms cost the same.
-            ORDER BY m.sent_at IS NULL, m.sent_at {direction}, m.file_id {direction}
-            LIMIT ?
         """
+        # `sent_at IS NULL` rather than `NULLS LAST`, which needs SQLite
+        # 3.30. The bundled version is newer, but the version a user's
+        # Python happens to ship is not something this should depend on,
+        # and the two forms cost the same.
+        #
+        # *Note, 2026-10-04: the last clause above was not so.* Either form
+        # sorts every message before `LIMIT`, because `idx_messages_sent`
+        # cannot be read in `sent_at IS NULL, sent_at` order - 583 ms for the
+        # newest 500 of 35,000 (`tools/fts_scale_bench.py`). So two queries,
+        # the way `browse_files` lists by date: dated messages walk the index
+        # (its entries are `(sent_at, rowid)` and `file_id` is the rowid, so
+        # the tie-break is free) and stop at the limit; undated ones fill
+        # whatever is left. The order is unchanged.
         params.extend(file_params or ())
-        params.append(max(1, int(limit)))
-        return [dict(row) for row in self.conn.execute(sql, params)]
+        capped = max(1, int(limit))
+        rows = self.conn.execute(
+            sql + f" AND m.sent_at IS NOT NULL "
+                  f"ORDER BY m.sent_at {direction}, m.file_id {direction} LIMIT ?",
+            [*params, capped]).fetchall()
+        if len(rows) < capped:
+            rows += self.conn.execute(
+                sql + f" AND m.sent_at IS NULL ORDER BY m.file_id {direction} LIMIT ?",
+                [*params, capped - len(rows)]).fetchall()
+        return [dict(row) for row in rows]
 
     def _message_where(
         self,
@@ -2625,14 +2654,18 @@ class SqliteStore:
         if not text:
             return ""
         try:
-            if not getattr(self, "_stem_ready", False):
+            # 2026-10-04: ready per *connection*. A `TEMP` table exists only on
+            # the connection that made it, and each thread has its own - a flag
+            # on the store made the second thread to stem get "no such table"
+            # and an empty stem, so its wildcards matched nothing.
+            if getattr(self._local, "stem_conn", None) is not self.conn:
                 self.conn.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_probe "
                     "USING fts5(text, tokenize='porter unicode61')")
                 self.conn.execute(
                     "CREATE VIRTUAL TABLE IF NOT EXISTS temp.stem_probe_v "
                     "USING fts5vocab('stem_probe', 'row')")
-                self._stem_ready = True
+                self._local.stem_conn = self.conn
             self.conn.execute("DELETE FROM temp.stem_probe")
             self.conn.execute(
                 "INSERT INTO temp.stem_probe(text) VALUES (?)", (text,))
