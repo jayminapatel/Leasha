@@ -659,6 +659,30 @@ class OcrExtractor:
         if not self._worth_reading(path):
             return
 
+        # 2026-10-04, the owner: "faces then description then ocr". During an
+        # index run a picture is recorded at once, so its faces and picture
+        # search come first; what it shows and its text are read at the end
+        # of the run (`Pipeline._drain_picture_text`).
+        from app.extract.florence_tagger import deferred as pictures_deferred
+
+        if pictures_deferred():
+            # Photo or page, by the ladder's free rungs only - the file's name
+            # and a 256-pixel thumbnail's whiteness, ~5 ms and no OCR engine. A
+            # detection probe would cost what reading costs (`_probe_by_reading`).
+            from app.extract.heif import register_heif
+
+            register_heif()
+            try:
+                routed = ocr_ladder.route(
+                    path, white_fraction_threshold=_white_fraction_threshold())
+                page = routed.decision is ocr_ladder.RouteDecision.FULL_OCR
+            except Exception as exc:             # noqa: BLE001 - undecided is a photo
+                log.debug("picture not sorted: {}: {}", type(exc).__name__, exc)
+                page = False
+            raise_error("ERR_PAGE_TEXT_LATER" if page else "ERR_PICTURE_TEXT_LATER",
+                        "extract.ocr", path=str(path))
+            return
+
         result = ocr_image(path)
         if result.engine_missing:
             # **`ERR_OCR_UNAVAILABLE`, never `ERR_NO_TEXT_LAYER`.** The engine

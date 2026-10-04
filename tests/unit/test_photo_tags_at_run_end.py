@@ -41,25 +41,24 @@ def _no_text_photo(store, name):
 
 
 def test_a_photo_read_during_a_run_is_not_tagged_there(tmp_path, monkeypatch):
+    """*2026-10-04, later*: while the run reads pictures, neither tagging nor text
+    reading happens there - the owner's order moved both to the run's end
+    (`test_pictures_faces_then_text.py`). This asserted that text was read in
+    place; it is not any more."""
     from app.extract import ocr
+    from app.core.errors import AppErrorException
 
     asked, read = [], []
-
-    def ocr_image(path):
-        read.append(path)
-        return SimpleNamespace(engine_missing=False, empty=True, elapsed_s=0.0)
-
-    monkeypatch.setattr(ocr, "ocr_image", ocr_image)
+    monkeypatch.setattr(ocr, "ocr_image", lambda path: read.append(path))
     monkeypatch.setattr(florence_tagger, "available", lambda: True)
     monkeypatch.setattr(florence_tagger, "tag_image", lambda path: asked.append(path))
     photo = tmp_path / "a.jpg"
     photo.write_bytes(b"not really a jpeg")
 
     florence_tagger.defer(True)
-    extractor = ocr.OcrExtractor()
-    documents = list(extractor.extract(photo))
-    assert read, "the photo's text was read - so the tagger was really skipped"
-    assert asked == [] and documents == []
+    with pytest.raises(AppErrorException):
+        list(ocr.OcrExtractor().extract(photo))
+    assert asked == [] and read == []
 
 
 def _pipeline(store):
@@ -68,6 +67,8 @@ def _pipeline(store):
     built = module.Pipeline.__new__(module.Pipeline)
     built.store = store
     built._stop = threading.Event()
+    built._stop.set()                  # as it is at every run's end
+    built._interrupted = False         # nobody pressed Stop
     built.governor = SimpleNamespace(
         wait_while_throttled=lambda should_stop: SimpleNamespace(action="go"))
     built._log = __import__("app.core.logging", fromlist=["logger"]).logger

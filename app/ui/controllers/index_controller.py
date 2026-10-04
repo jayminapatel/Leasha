@@ -51,6 +51,11 @@ from app.ui.workers import CallableWorker, run
 
 _log = logger.bind(component="ui.shell")
 
+#: 2026-10-04: how long after a finished text pass the images pass starts on
+#: its own - long enough for the finished run's page and its save of the
+#: "images due" flag to settle first.
+IMAGES_PASS_DELAY_MS = 3000
+
 
 def _on_battery() -> bool:
     """A confirmed "running unplugged" answer, and only that. `None` - no
@@ -352,9 +357,29 @@ class IndexController(QObject):
         # An images pass that has run makes the next Start a text pass again.
         self._set_images_due(due)
         if due:
+            # *2026-10-04, the owner reversed "offered, never started" (the
+            # docstring above, kept as written)*: a text pass over a photo
+            # library held every picture and the owner saw "it is skipping all
+            # the files". The images pass now starts on its own once the text
+            # pass has finished; a stopped or failed run still changes nothing
+            # (`images_due_after` returns None for it, above). The sentence that
+            # said "press Start again" is no longer true, so it is replaced.
             self._w.notify(
-                "Text is indexed. Images and scans are still to read - press Start "
-                "again to do those.", 30_000)
+                "Text is indexed. Reading the images and scans now.", 30_000)
+            from app.ui.later import later
+
+            later(self, IMAGES_PASS_DELAY_MS, self._start_images_pass)
+
+    def _start_images_pass(self) -> None:
+        """The images pass, after a finished text pass - unless something is
+        already running or the window is closing. `_start_indexing` takes the
+        images pass because `_images_due` is now set (`run_setup.pass_for`)."""
+        view = getattr(self._w, "indexing_view", None)
+        if view is None or view.is_running() or getattr(self._w, "_closing", False):
+            return
+        if not self._images_due:                 # taken back meanwhile - nothing is due
+            return
+        self._w._start_indexing()
 
     def _refresh_tuning_status(self) -> None:
         """§5d's status line, and the rates Auto-tune resolves against.

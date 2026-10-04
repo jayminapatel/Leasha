@@ -60,6 +60,8 @@ def picture_line(counts: Optional[Mapping[str, int]]) -> str:
         parts.append(face_part)
     if c.get("to_describe"):
         parts.append(f"{c['to_describe']:,} waiting to be described")
+    if c.get("text_to_read"):
+        parts.append(f"text still to read in {c['text_to_read']:,}")
     return " · ".join(parts)
 
 OBJECT_NAME = "indexFunnel"

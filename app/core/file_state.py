@@ -109,6 +109,9 @@ EXPLANATIONS: dict[str, str] = {
 DEFERRED_CODES: frozenset[str] = frozenset({
     "ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY",
     "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
+    # 2026-10-04, the owner: a picture's description and text, read at the
+    # end of the run that read it (`ERR_PICTURE_TEXT_LATER`).
+    "ERR_PICTURE_TEXT_LATER", "ERR_PAGE_TEXT_LATER",
     # 2026-10-04, the owner ("do the recommended"): Outlook busy or closed is
     # passing, and the error's own words promise a retry "on the next pass" -
     # which a settled skip never gave. Every run now reads it again.

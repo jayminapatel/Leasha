@@ -369,6 +369,30 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         action_type=ActionType.SKIP_CONTINUE,
         action_payload=r"venv\Scripts\python.exe -m app.cli index --only-ocr",
     ),
+    # 2026-10-04, the owner: "faces then description then ocr". A picture's
+    # faces and picture search are done as it is read; what it shows and any
+    # text in it are read at the end of the same run (`Pipeline.
+    # _drain_picture_text`). A queue, not a failure - Deferred, not Skipped.
+    "ERR_PICTURE_TEXT_LATER": _Spec(
+        message="'{path}' is a photo: its faces and picture search are done; what "
+                "it shows, and then any text in it, are read at the end of this run.",
+        suggestion=(
+            "Nothing to do - it is read in turn. A run stopped before the end "
+            "carries on with it next time."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
+    # Its twin for a picture the ladder's free rungs say is a page - a scan's
+    # name, or mostly white paper: its text is read at the end of the run, and
+    # it is not described, because "a page of text" says nothing its text does not.
+    "ERR_PAGE_TEXT_LATER": _Spec(
+        message="'{path}' looks like a page: its text is read at the end of this run.",
+        suggestion=(
+            "Nothing to do - it is read in turn. A run stopped before the end "
+            "carries on with it next time."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     "ERR_OCR_FAILED": _Spec(
         message="Could not read any text from '{path}'.",
         suggestion=(

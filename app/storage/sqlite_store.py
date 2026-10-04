@@ -3677,6 +3677,60 @@ class SqliteStore:
             yield [(int(row[0]), str(row[1])) for row in rows]
             last_id = int(rows[-1][0])
 
+    #: `skip_detail` on an `ERR_PICTURE_TEXT_LATER` photo once its description
+    #: has been tried - the end of the run then reads its text.
+    PICTURE_DESCRIBED = "described; its text is read next"
+
+    def iter_pictures_waiting(
+        self, extensions: Sequence[str], *, code: str = "ERR_PICTURE_TEXT_LATER",
+        described: Optional[bool] = None, batch_size: int = 16,
+    ) -> Iterator[list[tuple[int, str]]]:
+        """`(file_id, path)` for pictures waiting on the end of a run, newest
+        first, by their code (`ERR_PICTURE_TEXT_LATER` a photo,
+        `ERR_PAGE_TEXT_LATER` a page). `described`: False - not yet described;
+        True - described, text still to read; None - either. 2026-10-04."""
+        cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
+        if not cleaned:
+            return
+        marks = ",".join("?" for _ in cleaned)
+        test = {True: "AND f.skip_detail = ?", False: "AND f.skip_detail IS NOT ?",
+                None: "AND ? IS NOT NULL"}[described]
+        last_id: Optional[int] = None
+        while True:
+            rows = self.conn.execute(
+                f"""SELECT f.id, f.path FROM files f
+                    WHERE f.status = 'SKIPPED' AND f.skip_code = ?
+                      AND f.ext IN ({marks}) {test}
+                      AND (? IS NULL OR f.id < ?)
+                    ORDER BY f.id DESC LIMIT ?""",
+                [code, *cleaned, self.PICTURE_DESCRIBED, last_id, last_id, int(batch_size)],
+            ).fetchall()
+            if not rows:
+                return
+            yield [(int(r[0]), str(r[1])) for r in rows]
+            last_id = int(rows[-1][0])
+
+    def note_picture_described(self, file_id: int) -> None:
+        with self.write() as conn:
+            conn.execute("UPDATE files SET skip_detail = ? WHERE id = ?",
+                         (self.PICTURE_DESCRIBED, int(file_id)))
+
+    def note_picture_text_read(self, file_id: int, *, found_any: bool) -> None:
+        """The end of a picture's run: indexed when its description or its text
+        gave it anything, else the settled "no text" every such photo had."""
+        if found_any:
+            self.mark_indexed(file_id)
+            return
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE files SET skip_code = 'ERR_NO_TEXT_LAYER', skip_detail = ? "
+                "WHERE id = ?", (self.PHOTO_TAGS_TRIED, int(file_id)))
+
+    def face_scanned(self, file_id: int) -> bool:
+        row = self.conn.execute("SELECT 1 FROM face_scans WHERE file_id = ?",
+                                (int(file_id),)).fetchone()
+        return row is not None
+
     def note_photo_untaggable(self, file_id: int) -> None:
         """Florence-2 found nothing to say: leave it skipped, and stop asking."""
         with self.write() as conn:
@@ -3978,7 +4032,7 @@ class SqliteStore:
         """
         cleaned = [str(ext).lstrip(".").lower() for ext in extensions if str(ext).strip()]
         empty = {"pictures": 0, "read": 0, "faces_looked": 0, "faces": 0,
-                 "people": 0, "unsorted": 0, "to_describe": 0}
+                 "people": 0, "unsorted": 0, "to_describe": 0, "text_to_read": 0}
         if not cleaned:
             return empty
         marks = ",".join("?" for _ in cleaned)
@@ -3993,9 +4047,16 @@ class SqliteStore:
                   (SELECT count(*) FROM faces
                      WHERE pile_id IS NULL AND suggested_pile_id IS NULL),
                   (SELECT count(*) FROM files
-                     WHERE status = 'SKIPPED' AND skip_code = 'ERR_NO_TEXT_LAYER'
-                       AND ext IN ({marks}) AND COALESCE(skip_detail, '') != ?)
-                """, [*cleaned, *cleaned, *cleaned, self.PHOTO_TAGS_TRIED]).fetchone()
+                     WHERE status = 'SKIPPED' AND ext IN ({marks}) AND (
+                       (skip_code = 'ERR_NO_TEXT_LAYER' AND COALESCE(skip_detail, '') != ?)
+                       OR (skip_code = 'ERR_PICTURE_TEXT_LATER'
+                           AND skip_detail IS NOT ?))),
+                  (SELECT count(*) FROM files
+                     WHERE status = 'SKIPPED'
+                       AND skip_code IN ('ERR_PICTURE_TEXT_LATER', 'ERR_PAGE_TEXT_LATER')
+                       AND ext IN ({marks}))
+                """, [*cleaned, *cleaned, *cleaned, self.PHOTO_TAGS_TRIED,
+                      self.PICTURE_DESCRIBED, *cleaned]).fetchone()
         except sqlite3.OperationalError:
             return empty
         return dict(zip(empty, (int(v or 0) for v in row)))

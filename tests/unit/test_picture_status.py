@@ -43,7 +43,7 @@ def test_the_counts_follow_a_photo_library(store):
 
     assert store.picture_counts(PICTURE_EXTS) == {
         "pictures": 5, "read": 3, "faces_looked": 1, "faces": 2,
-        "people": 1, "unsorted": 1, "to_describe": 1}
+        "people": 1, "unsorted": 1, "to_describe": 1, "text_to_read": 0}
 
 
 def test_the_line_reads_as_a_sentence():

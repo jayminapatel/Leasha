@@ -303,6 +303,8 @@ PHASE_READING = "reading"
 PHASE_MEDIA = "media"
 #: 2026-10-04. Florence-2 tags for photos with no text, at the end of a run.
 PHASE_PHOTO_TAGS = "photo_tags"
+#: 2026-10-04. Text read from pictures, last of all (the owner's order).
+PHASE_PICTURE_TEXT = "picture_text"
 PHASE_TIDYING = "tidying"
 PHASE_VECTOR_INDEX = "vector_index"
 PHASE_WORD_INDEX = "word_index"
@@ -1221,6 +1223,24 @@ def _is_transient_partial(warning: Any) -> bool:
     return bool(context.get("transient"))
 
 
+def _settle(stats: Any, code: str, *, indexed: bool) -> None:
+    """Move one picture this run counted as waiting to how it ended, so the
+    run's summary says what happened rather than what was still to come:
+    indexed, or the settled "no text" (`ERR_NO_TEXT_LAYER`). A picture a
+    earlier run left waiting was never counted here, and changes nothing."""
+    by_code = getattr(stats, "skipped_by_code", None)
+    if not isinstance(by_code, dict) or not by_code.get(code):
+        return
+    by_code[code] -= 1
+    if not by_code[code]:
+        del by_code[code]
+    if indexed:
+        stats.skipped = max(0, int(getattr(stats, "skipped", 0) or 0) - 1)
+        stats.indexed = int(getattr(stats, "indexed", 0) or 0) + 1
+    else:
+        by_code["ERR_NO_TEXT_LAYER"] = by_code.get("ERR_NO_TEXT_LAYER", 0) + 1
+
+
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
 
@@ -2005,6 +2025,7 @@ class Pipeline:
             self._faces_since_cluster = 0
         if not light:
             self._drain_photo_tags(stats, on_progress)
+            self._drain_picture_text(stats, on_progress)
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -5125,10 +5146,10 @@ class Pipeline:
                 for pile_id, embeddings in raw_centroids.items()
             }
             for batch in self.store.iter_unclustered_faces(batch_size=32):
-                if self._stop.is_set():
+                if self._interrupted:
                     break
                 verdict = self.governor.wait_while_throttled(
-                    should_stop=self._stop.is_set)
+                    should_stop=lambda: self._interrupted)
                 stats.paused_seconds = self.governor.paused_seconds
                 stats.pauses = self.governor.pauses
                 stats.paused = self.governor.paused
@@ -5200,16 +5221,16 @@ class Pipeline:
         announced = False
         try:
             for batch in self.store.iter_untagged_photos(OcrExtractor.extensions):
-                if self._stop.is_set():
+                if self._interrupted:
                     break
-                verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+                verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
                 if verdict.action == "stop":
                     break
                 if not announced:
                     self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
                     announced = True
                 for file_id, path in batch:
-                    if self._stop.is_set():
+                    if self._interrupted:
                         break
                     result = florence_tagger.tag_image(Path(path))
                     if result is None or not (result.caption or result.tags):
@@ -5231,6 +5252,103 @@ class Pipeline:
         if tagged:
             self._log.info("described {} photo(s) with no text in them", tagged)
             self._drain_unembedded(stats)
+
+    def _drain_picture_text(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]] = None,
+    ) -> None:
+        r"""The end of a run, in the owner's order: describe, then read text.
+
+        2026-10-04, the owner: "faces then description then ocr", then (a):
+        "fast, efficient and comprehensive". Pictures were recorded as they
+        were read, sorted by the ladder's free rungs into photos
+        (`ERR_PICTURE_TEXT_LATER`) and pages (`ERR_PAGE_TEXT_LATER`), with
+        their faces and picture search done. Here: every photo is described
+        (Florence-2) - pages are not, "a page of text" says nothing their text
+        does not; then text is read last, pages first (the most valuable) and
+        then photos, so a photographed receipt or sign is not missed - the
+        OCR ladder still makes a photo with no text cheap. A picture either
+        gave something and is indexed, or keeps the settled "no text" every
+        such photo had. Stops when asked; the rest waits for the next run's
+        end. New passages are embedded before the run ends.
+        """
+        from app.extract import florence_tagger
+        from app.extract.ocr import OcrExtractor, ocr_image
+
+        florence_tagger.defer(False)
+        # The reads this run recorded may still be in the open write group; the
+        # queries below must see them.
+        self._commit_write_group()
+        found = 0
+
+        def paced() -> bool:
+            if self._interrupted:
+                return False
+            verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
+            return verdict.action != "stop"
+
+        try:
+            tagging = florence_tagger.available()
+            announced = False
+            for batch in self.store.iter_pictures_waiting(
+                    OcrExtractor.extensions, code="ERR_PICTURE_TEXT_LATER",
+                    described=False):
+                if not paced():
+                    return
+                if not announced:
+                    self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
+                    announced = True
+                for file_id, path in batch:
+                    if self._interrupted:
+                        return
+                    result = florence_tagger.tag_image(Path(path)) if tagging else None
+                    if result is not None and (result.caption or result.tags):
+                        body = result.caption
+                        if result.tags:
+                            tag_line = "Tags: " + ", ".join(result.tags)
+                            body = body + chr(10) + tag_line if body else tag_line
+                        self.store.add_caption_chunk(file_id, body, label="AI description")
+                        found += 1
+                        stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
+                    self.store.note_picture_described(file_id)
+                    stats.current = Path(path).name
+                    if on_progress is not None:
+                        on_progress(stats)
+
+            announced = False
+            waiting = (("ERR_PAGE_TEXT_LATER", None), ("ERR_PICTURE_TEXT_LATER", True))
+            for code, described in waiting:
+                for batch in self.store.iter_pictures_waiting(
+                        OcrExtractor.extensions, code=code, described=described):
+                    if not paced():
+                        return
+                    if not announced:
+                        self._announce_phase(stats, on_progress, PHASE_PICTURE_TEXT)
+                        announced = True
+                    for file_id, path in batch:
+                        if self._interrupted:
+                            return
+                        text = ocr_image(Path(path))
+                        if not text.empty and not text.engine_missing:
+                            self.store.add_caption_chunk(
+                                file_id, text.text, label="Text read from the image")
+                            found += 1
+                            stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
+                        has_any = self.store.conn.execute(
+                            "SELECT 1 FROM chunks WHERE file_id = ? LIMIT 1",
+                            (file_id,)).fetchone() is not None
+                        self.store.note_picture_text_read(file_id, found_any=has_any)
+                        _settle(stats, code, indexed=has_any)
+                        stats.current = Path(path).name
+                        if on_progress is not None:
+                            on_progress(stats)
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning("could not finish reading pictures: {}. Indexing continues.", exc)
+        finally:
+            stats.enrichment_counts["picture_text"] = found
+            if found:
+                self._log.info("described or read {} picture(s) at the end of the run", found)
+                self._drain_unembedded(stats)
 
     def _maybe_detect_faces(self, candidate: Candidate, file_id: int) -> None:
         r"""Section 1a's own images-pass face step. Switch-gated, always.
@@ -5258,6 +5376,10 @@ class Pipeline:
 
         path = candidate.path
         if not reads_by_ocr(path):
+            return
+        # 2026-10-04: a deferred picture is read again by the next run if this
+        # one stopped before its end - its faces are not stored twice.
+        if self.store.face_scanned(file_id):
             return
 
         try:
@@ -6778,11 +6900,17 @@ class Pipeline:
         # top of this order. Every other skip code here (a locked, corrupt or
         # unreadable file) does not get this treatment - CLIP is not
         # confidently more able to open a file OCR could not.
-        if item.error is not None and item.error.code == "ERR_NO_TEXT_LAYER":
+        if item.error is not None and item.error.code in (
+                "ERR_NO_TEXT_LAYER", "ERR_PICTURE_TEXT_LATER", "ERR_PAGE_TEXT_LATER"):
             self._maybe_embed_image(candidate, file_id)
             # Work order 0h §2a: same reasoning as the CLIP call just above -
             # a photo OCR found no text in is still a photo worth hashing.
             self._maybe_compute_phash(candidate, file_id)
+            # 2026-10-04: **and its faces.** They were looked for only in a
+            # photo that produced a document, which every photo did while
+            # Florence-2 tagged in place; with tags (and then text) moved to
+            # the end of the run, a photo with no text got no face scan at all.
+            self._maybe_detect_faces(candidate, file_id)
 
     # -- guards and bookkeeping ---------------------------------------------
 

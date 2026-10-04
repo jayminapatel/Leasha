@@ -170,6 +170,40 @@ def test_a_stopped_text_pass_does_not_make_the_images_due(window) -> None:
         del built.notify
 
 
+def test_a_finished_text_pass_starts_the_images_pass_on_its_own(window, monkeypatch) -> None:
+    """*2026-10-04, the owner* ("it is skipping all the files"): a text pass over
+    a photo library holds every picture, and the images pass waited for a second
+    Start nobody knew to press. It now starts by itself - and not when it is no
+    longer due, nor on top of a run."""
+    from app.index.pipeline import IndexStats
+    from app.ui.controllers import index_controller
+
+    _app, built, _started = window
+    built._settings = built._settings.model_copy(update={"index_ocr_pass": "after-run"})
+    said: list = []
+    starts: list = []
+    scheduled: list = []
+    built.notify = lambda text, *_a, **_k: said.append(text)
+    monkeypatch.setattr(built, "_start_indexing", lambda **_k: starts.append(1))
+    monkeypatch.setattr("app.ui.later.later",
+                        lambda owner, ms, fn: scheduled.append((ms, fn)))
+    ctl = built.index_ctl
+    try:
+        ctl._images_due = False
+        ctl._offer_images_pass(IndexStats(ocr_mode="text"))
+        assert said == ["Text is indexed. Reading the images and scans now."]
+        assert [ms for ms, _fn in scheduled] == [index_controller.IMAGES_PASS_DELAY_MS]
+        scheduled[0][1]()
+        assert starts == [1], "the images pass started"
+
+        ctl._images_due = False                  # taken back before the timer fired
+        scheduled[0][1]()
+        assert starts == [1], "nothing started"
+    finally:
+        ctl._images_due = False
+        del built.notify
+
+
 def test_what_another_process_recorded_reaches_the_window(window) -> None:
     """`app.cli index` records the images pass as the window does; the window
     reads it on the external-run tick it already has."""
