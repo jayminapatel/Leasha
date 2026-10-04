@@ -17,6 +17,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Docs
+
+- The guide's Help menu picture is retaken with About Leasha in it; `tools/guide_pictures.py`
+  takes the five menu pictures as well as the pages. `HANDOFF.md` 7.46.
+
 ## [0.3.4] - 2026-10-04
 
 ### The window on the Leasha brand (2026-10-04)

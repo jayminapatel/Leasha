@@ -63,6 +63,19 @@ CAPTIONS: dict[str, str] = {
     "settings-models": "Settings, Models and AI",
     "settings-appearance": "Settings, Appearance",
     "settings-storage": "Settings, Storage and maintenance",
+    # 2026-10-04: the menus, each grabbed as the menu itself (`MENUS`).
+    "menu-file": "File menu",
+    "menu-edit": "Edit menu",
+    "menu-view": "View menu",
+    "menu-go": "Go menu",
+    "menu-help": "Help menu",
+}
+
+#: Picture name -> the menu's title on the bar. A menu is not a page: it is
+#: popped up off the screen and grabbed on its own.
+MENUS: dict[str, str] = {
+    "menu-file": "File", "menu-edit": "Edit", "menu-view": "View",
+    "menu-go": "Go", "menu-help": "Help",
 }
 grab_ui.SURFACES.setdefault("indexing-what-gets-read",
                             {"page": "Indexing", "category": "What gets read"})
@@ -77,6 +90,31 @@ def _dress(window, name: str) -> None:
             [str(DEMO / "documents"), str(DEMO / "pictures"),
              str(DEMO / "documents" / "rent-2025.csv")],
             first=[str(DEMO / "documents")])
+
+
+def menu_of(window, title: str):
+    """The menu on the window's bar with this title (its `&` ignored)."""
+    for action in window.menuBar().actions():
+        menu = action.menu()
+        if menu is not None and menu.title().replace("&", "") == title:
+            return menu
+    raise SystemExit(f"the menu bar has no {title!r} menu")
+
+
+def grab_menu(app, window, title: str):
+    """The menu drawn as it opens, without opening it on the screen."""
+    from PyQt6.QtCore import QPoint, Qt
+
+    menu = menu_of(window, title)
+    menu.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    menu.popup(QPoint(0, 0))
+    grab_ui._pump(app, 10)
+    try:
+        return menu.grab()
+    finally:
+        menu.hide()
+        menu.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, False)
+        grab_ui._pump(app, 5)
 
 
 def take(names: list[str], out: Path) -> list[Path]:
@@ -103,10 +141,13 @@ def take(names: list[str], out: Path) -> list[Path]:
     written: list[Path] = []
     try:
         for name in names:
-            target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
-            _dress(window, name)
-            grab_ui._pump(app, 10)
-            image = target.grab()
+            if name in MENUS:
+                image = grab_menu(app, window, MENUS[name])
+            else:
+                target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
+                _dress(window, name)
+                grab_ui._pump(app, 10)
+                image = target.grab()
             path = out / f"{name}.png"
             if not image.save(str(path), "PNG"):
                 raise RuntimeError(f"could not write {path}")

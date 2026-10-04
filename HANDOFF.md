@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.45 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.46 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2062,6 +2062,10 @@ its wide margins because the splash's layout counts on them. The brand guideline
 company folder (`02 Brand/Guidelines`) do not yet say the app uses the system font - that
 sentence is the owner's to add there. Version bumped to **0.3.4** (PATCH: fixes; schema 25 ->
 30 since 0.3.3 migrates on open) - the VERSIONING map's renumbering question stays his.
+*Later the same night:* he kept **0.3.4**. `tools/guide_pictures.py` takes the five menu
+pictures too (`MENUS`, `grab_menu`: the menu popped up off the screen and grabbed), and the
+guide's Help menu picture is retaken with About Leasha in it. Still by hand: results, results
+dark, timeline, the More menu, the mini search box, the Photo Tagger window.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

@@ -38,7 +38,18 @@ def test_every_caption_names_a_surface_the_grab_tool_can_reach():
     from tools import grab_ui
 
     for name in guide_pictures.CAPTIONS:
-        assert name in grab_ui.SURFACES, name
+        assert name in grab_ui.SURFACES or name in guide_pictures.MENUS, name
+
+
+@pytest.mark.gui
+def test_every_menu_picture_names_a_menu_on_the_bar_and_help_has_about(gui_mainwindow):
+    """The Help picture was the one left "by hand" on 4 October, the day
+    About Leasha was added to it."""
+    _app, window, _store, _engine = gui_mainwindow
+    for title in guide_pictures.MENUS.values():
+        assert guide_pictures.menu_of(window, title) is not None
+    texts = [a.text().replace("&", "") for a in guide_pictures.menu_of(window, "Help").actions()]
+    assert texts == ["Keyboard shortcuts", "About Leasha"]
 
 
 def test_the_swap_replaces_only_the_named_picture_and_keeps_the_line_ends(tmp_path):
