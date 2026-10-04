@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.65 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.66 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,16 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, last - View in the menu, the tab's View an icon.* The owner: "the view in each
+  tab should be in the view in the menu and should be dynamic ... if the view has to stay on each
+  tab it should be a icon similar to preview consistent across all". The menu bar's View now
+  fills as it opens (`MainWindow._fill_view_menu`): Preview pane (Ctrl+Shift+P), then the options
+  of the tab in front, built by that tab's own button (`view_button.menu_for`), so the two can never
+  differ; a tab's own "Preview pane" is not repeated; Indexing, Settings and Chat show Preview pane
+  alone. The tab's View stays (a right-click on a column heading opens it) as an icon
+  (`view_options._as_icon`, `sliders-horizontal`), drawn and retinted like the Preview toggle; its
+  text is still "View" for screen readers and tests. No `*_view.py` touched (250-line guard).
+  Grabbed offscreen and looked at; UNVERIFIED in the real window. `test_view_menu_follows_the_tab.py`.
 - *2026-10-04 note, later that night - the owner's three calls: 2.1a, 2.2a, a picture status.*
   (1) **Florence-2 tags photos at the end of a run** (`Pipeline._drain_photo_tags`, phase
   `photo_tags`): during a run `florence_tagger.defer(True)` makes `OcrExtractor` leave a no-text

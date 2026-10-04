@@ -281,6 +281,10 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     row.addWidget(chips, 1)
     row.addStretch(1)
     view.toggles = _mirror_switches(view, row, body)
+    # 2026-10-04: the View button is an icon on every tab (`view_options._as_icon`),
+    # retinted with the toggles beside it.
+    if isinstance(view.toggles, dict):
+        view.toggles = {**view.toggles, "view": view_button}
     row.addWidget(view_button)
     row.addWidget(view.more_button)
     bar_layout.addLayout(row)

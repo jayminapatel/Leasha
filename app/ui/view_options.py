@@ -676,6 +676,7 @@ def button(
         else "Text size and row spacing"
     )
     widget.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+    _as_icon(widget)
     widget.prefs = load_prefs(store, prefix) if store is not None else ViewPreferences()
     widget.available = tuple(key for key, _heading in columns)
     watchers: list = []
@@ -709,12 +710,18 @@ def button(
                 pass
         changed(replace(widget.prefs, widths=()))
 
-    def show(at: Any = None) -> None:
-        menu = build_menu(
-            widget, widget.prefs, columns=columns,
+    def menu_for(parent: Any) -> Any:
+        """This tab's View menu, built as a click builds it - for the window's
+        own View menu too (2026-10-04), so the two can never say different
+        things."""
+        return build_menu(
+            parent, widget.prefs, columns=columns,
             available=widget.available, on_change=changed, grouping=grouping,
             on_fit=refit, conversations=conversations,
         )
+
+    def show(at: Any = None) -> None:
+        menu = menu_for(widget)
         menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
     def toggle_preview() -> None:
@@ -740,6 +747,7 @@ def button(
             save_prefs_later(store, prefix, widget.prefs)
 
     widget.show_menu = show
+    widget.menu_for = menu_for
     widget.toggle_preview = toggle_preview
     widget.remember_width = remember_width
     widget.refit = refit
@@ -776,6 +784,40 @@ def button(
 # inside the View menu. This is that toggle, made once for every tab that
 # has a preview. Pinned, Timeline and Grid stay Search's: the panels they
 # show exist nowhere else, and a toggle that does nothing is forbidden.
+
+#: 2026-10-04, the owner: "the view in each tab should be in the view in the
+#: menu and should be dynamic ... if the view has to stay on each tab it
+#: should be a icon similar to preview consistent across all". It stays - a
+#: right-click on a column heading opens it - so it is an icon, drawn and
+#: retinted exactly as the Preview toggle is, and the window's View menu shows
+#: the same options for whichever tab is in front (`MainWindow._fill_view_menu`).
+VIEW_ICON = "sliders-horizontal"
+
+
+def _as_icon(widget: Any) -> None:
+    """Make a tab's View button an icon beside Preview's, the same size and
+    the same colours. Its text stays "View", which is what a screen reader and
+    every test that finds it by name read."""
+    from PyQt6.QtCore import Qt
+
+    from app.ui.widgets.icons import icon
+
+    widget.setProperty("iconToggle", True)
+    widget.setAutoRaise(True)
+    widget.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+    widget.setAccessibleName("View options")
+    widget.icon_name = VIEW_ICON
+
+    def paint(colours: Any = None) -> None:
+        if colours is None:
+            from app.ui.theme import theme_colours
+
+            colours = theme_colours()
+        widget.setIcon(icon(VIEW_ICON, colours.get("text_dim", "#888888")))
+
+    widget.retint = paint
+    paint()
+
 
 #: What the toggle says. The tooltip names the shortcut the window binds.
 PREVIEW_TOGGLE_TIP = "Show or hide the preview pane beside the results  Ctrl+Shift+P"
@@ -856,7 +898,8 @@ def add_view_controls(layout: Any, view: Any) -> Any:
     toggle = preview_toggle(view)
     layout.addWidget(toggle)
     layout.addWidget(view.view_button)
-    view.toggles = {**getattr(view, "toggles", {}), "inspector": toggle}
+    view.toggles = {**getattr(view, "toggles", {}), "inspector": toggle,
+                    "view": view.view_button}            # 2026-10-04: an icon too
     return toggle
 
 

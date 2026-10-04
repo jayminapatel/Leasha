@@ -1359,6 +1359,8 @@ class MainWindow(QMainWindow):
         view = bar.addMenu("&View")
         add(view, "Preview pane", self._toggle_preview, "Ctrl+Shift+P",
             icon="panel-right", tip="Show or hide the preview pane beside the results")
+        # 2026-10-04, the owner: the tab's View options here too, changing with the tab.
+        view.aboutToShow.connect(lambda menu=view: self._fill_view_menu(menu))
 
         go = bar.addMenu("&Go")
         add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
@@ -1377,6 +1379,37 @@ class MainWindow(QMainWindow):
         add(help_menu, "About Leasha", self._show_about, icon="info",
             tip="Which build this is, who made it, and what it is built on")
         self.setMenuBar(bar)
+
+    def _fill_view_menu(self, menu: Any) -> None:
+        """View, as it opens: Preview pane, then the options of the tab in front.
+
+        2026-10-04, the owner: "the view in each tab should be in the view in
+        the menu and should be dynamic i.e. content changes depending on the
+        tab you are in". Built by the tab's own View button (`menu_for`), so the
+        menu and the tab's icon can never offer different things; a tab with
+        no View options (Indexing, Settings, Chat) shows Preview pane alone.
+        """
+        for action in getattr(self, "_view_menu_extra", ()):
+            menu.removeAction(action)
+        self._view_menu_extra = []
+        old = getattr(self, "_view_menu_built", None)
+        if old is not None:
+            old.deleteLater()
+        self._view_menu_built = None
+        maker = getattr(getattr(self._current_view(), "view_button", None), "menu_for", None)
+        if maker is None:
+            return
+        built = maker(menu)
+        self._view_menu_built = built
+        self._view_menu_extra = [menu.addSeparator()]
+        # A tab's own menu may offer Preview pane too; the window's item above,
+        # with its shortcut, already flips that same preference - once is enough.
+        already = {a.text().replace("&", "") for a in menu.actions() if a.text()}
+        for action in list(built.actions()):
+            if action.text() and action.text().replace("&", "") in already:
+                continue
+            menu.addAction(action)
+            self._view_menu_extra.append(action)
 
     def _show_shortcuts(self) -> None:
         """Help → Keyboard shortcuts: the bindings, read from the menu itself."""
