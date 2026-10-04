@@ -97,6 +97,57 @@ def test_only_a_whole_run_moves_the_schedule(window, tmp_path) -> None:
     assert told == [1], "a whole run"
 
 
+def test_one_folder_s_index_now_neither_reads_nor_records_the_images_pass(
+        window, tmp_path) -> None:
+    """2026-10-04, code review: "Index now" on one folder read the index-wide
+    "images due" flag (so under "after-run" it ran the whole index's images
+    pass, scoped to one folder) and wrote it when it finished."""
+    from app.index.pipeline import IndexStats
+    from app.index.run_setup import OCR_MODES
+
+    _app, built, started = window
+    built._settings = built._settings.model_copy(
+        update={"index_ocr_pass": "after-run", "index_ocr_mode": "both"})
+    built.notify = lambda *_a, **_k: None
+    ctl = built.index_ctl
+    folder = tmp_path / "one"
+    folder.mkdir()
+    try:
+        ctl._images_due = True
+        ctl._index_resolved(TUNED, [str(folder)], [str(folder)], False)
+        assert started[-1].config.ocr_mode == "both", "as INDEX_OCR_MODE says"
+        assert ctl._pass_flags() == [], "and the child is told the same"
+        ctl._offer_images_pass(IndexStats(ocr_mode="both"))
+        assert ctl._images_due is True, "nothing recorded"
+        ctl._index_resolved(TUNED, [str(folder)], None, False)
+        assert started[-1].config.ocr_mode == "images", "Start is the images pass"
+        assert OCR_MODES == ("both", "text", "images")
+    finally:
+        ctl._images_due = False
+        ctl._pass_whole = True
+        del built.notify
+
+
+def test_the_what_gets_read_page_hears_that_the_images_are_due(window) -> None:
+    """2026-10-04, code review: the pictures sentence re-implemented the pass
+    rule and never knew the images were due."""
+    from app.ui.presenter.coverage import PICTURES
+
+    _app, built, _started = window
+    box = built.indexing_view.tuning.coverage
+    ctl = built.index_ctl
+    try:
+        box.note_levers({"index_ocr_pass": "after-run"})
+        assert box.sentences[PICTURES].text().startswith("Text in photos")
+        ctl._images_due = False
+        built._show_external_run({"locked": False, "record": None, "link": None,
+                                  "front_requested": False, "images_due": True})
+        assert box.sentences[PICTURES].text().startswith("This run reads only photos")
+    finally:
+        ctl._images_due = False
+        box.note_levers({"images_due": False})
+
+
 def test_a_stopped_text_pass_does_not_make_the_images_due(window) -> None:
     from app.index.pipeline import IndexStats
 

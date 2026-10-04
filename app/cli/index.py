@@ -459,7 +459,18 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
     from app.index.resolve import resolve_for_run
 
     from app.index.interrupted import read_unfinished_run
-    from app.index.run_setup import read_images_due, saved_cloud_content_keys
+    from app.index.run_setup import (
+        covers_saved_folders, read_images_due, saved_cloud_content_keys,
+    )
+
+    # *2026-10-04, code review:* is this a run over the saved folder set -
+    # with no folders named, or naming exactly those (the window's own run
+    # in a separate process names them)? Only such a run takes the "after-run"
+    # turn and records it, and only its clean-up looks at the whole index. A
+    # run over other folders read and wrote the index-wide images flag and
+    # pruned every other folder's rows that were not on disk at that moment.
+    whole = retry is None and (from_settings or covers_saved_folders(
+        roots, _saved_roots(settings)))
 
     with SqliteStore(settings.fts_db) as _store:
         tuned = resolve_for_run(settings, _store)
@@ -474,8 +485,9 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         # 2026-10-04: which pass this run is, by the rule every run uses
         # (`run_setup.pass_for`) - so after a text pass under "after-run" the
         # next run here is the images pass, as it is in the window.
-        ocr_mode = _ocr_mode(args, settings, images_due=read_images_due(_store),
-                             retry=retry is not None)
+        ocr_mode = _ocr_mode(args, settings,
+                             images_due=whole and read_images_due(_store),
+                             retry=retry is not None, whole=whole)
         # 2026-10-04: and the folders saved in Settings come with their cloud
         # opt-ins, as they do in the window. Named folders are this run's own.
         saved_cloud = saved_cloud_content_keys(_store) if from_settings else frozenset()
@@ -511,6 +523,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         pause_file=(Path(args.pause_file).expanduser()
                     if getattr(args, "pause_file", None) else None),
         read_order=getattr(args, "order", None),
+        whole=whole,
     )
 
     if getattr(args, "fake_embedder_for_bench", False):
@@ -648,7 +661,8 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
             stats = pipeline.run(on_progress=None if args.quiet else show)
         _record_finished_run(store, settings, stats, ocr_mode=ocr_mode,
                              retry=retry is not None, whole=from_settings,
-                             finished=not getattr(pipeline, "_interrupted", False))
+                             finished=not getattr(pipeline, "_interrupted", False),
+                             saved_set=whole)
 
     if events is not None:
         # The last line the window reads. Everything a person would be told
@@ -936,7 +950,8 @@ def cmd_timed_out(args: argparse.Namespace) -> int:
 
 
 def _ocr_mode(args: argparse.Namespace, settings: Settings, *,
-              images_due: bool = False, retry: bool = False) -> str:
+              images_due: bool = False, retry: bool = False,
+              whole: bool = True) -> str:
     """Which pass this run is: `both`, `text` or `images`.
 
     A flag on the command line wins over the setting, because naming one is an
@@ -948,15 +963,17 @@ def _ocr_mode(args: argparse.Namespace, settings: Settings, *,
     is `run_setup.pass_for`, the rule the window, the separate process and the
     folder watch use: `images_due` makes it the images pass under "after-run",
     and a retry (`retry`) reads as `INDEX_OCR_MODE` says, whatever the schedule.
+    *2026-10-04, code review:* so does a run that is not over the saved folder
+    set (`whole` False) - see `run_setup.run_kind`.
     """
     if getattr(args, "only_ocr", False):
         return "images"
     if getattr(args, "skip_ocr", False):
         return "text"
 
-    from app.index.run_setup import NOW, SCHEDULED, pass_for
+    from app.index.run_setup import pass_for, run_kind
 
-    return pass_for(settings, NOW if retry else SCHEDULED, images_due=images_due)
+    return pass_for(settings, run_kind(whole=whole, retry=retry), images_due=images_due)
 
 
 def _images_pass_follows(settings: Settings) -> bool:
@@ -973,7 +990,8 @@ def _images_pass_follows(settings: Settings) -> bool:
 
 
 def _record_finished_run(store, settings: Settings, stats, *, ocr_mode: str,
-                         retry: bool, whole: bool, finished: bool) -> None:
+                         retry: bool, whole: bool, finished: bool,
+                         saved_set: bool = True) -> None:
     """What a command-line run leaves for the next one. Never raises.
 
     *2026-10-04.* Two records the window has always kept for its own runs,
@@ -988,14 +1006,18 @@ def _record_finished_run(store, settings: Settings, stats, *, ocr_mode: str,
 
     A run that was stopped or failed part-way changes neither: the next run
     carries on as the same pass, and the schedule still owes a whole run.
+
+    *2026-10-04, code review:* the pass is recorded only for a run over the
+    saved folder set (`saved_set`, `run_setup.covers_saved_folders`) - one
+    folder's text pass made the next run over every folder the images pass.
     """
     from datetime import datetime
 
-    from app.index.run_setup import LAST_RUN_STATE, NOW, SCHEDULED, record_pass
+    from app.index.run_setup import LAST_RUN_STATE, record_pass, run_kind
 
     finished = bool(finished and getattr(stats, "stopped_early", None) is None)
-    record_pass(store, settings, ocr_mode, kind=NOW if retry else SCHEDULED,
-                finished=finished)
+    record_pass(store, settings, ocr_mode,
+                kind=run_kind(whole=saved_set, retry=retry), finished=finished)
     if whole and finished and not retry:
         try:
             store.set_state(LAST_RUN_STATE,

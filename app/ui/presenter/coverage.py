@@ -46,6 +46,7 @@ _DEFAULTS: dict[str, Any] = {
     "video_indexing_enabled": False, "audio_transcription_enabled": False,
     "caption_trickle_enabled": False, "people_recognition_enabled": False,
     "index_watch_folders": False, "pst_backend": "auto", "index_cloud": False,
+    "images_due": False,
 }
 
 _READ = "Word, Excel, PowerPoint, PDF, text, CSV and HTML are read for their words."
@@ -140,11 +141,24 @@ def _zips(levers: Any) -> str:
 
 
 def _pictures(levers: Any) -> str:
-    # `cli.index._ocr_mode` / `IndexController._ocr_mode_for_run`: the pass
-    # decides *when*, the mode decides *what*, and the pass wins.
-    when = str(_value(levers, "index_ocr_pass") or "with-run").strip().lower()
-    what = str(_value(levers, "index_ocr_mode") or "both").strip().lower()
-    if when == "after-run":
+    # `run_setup.pass_for`: the pass decides *when*, the mode decides *what*,
+    # and the pass wins. *2026-10-04, code review:* this re-implemented the
+    # rule and could not see `images_due` (an "after-run" text pass finished,
+    # so the next run is the images pass); it asks `run_setup` now - Qt-free,
+    # and importing nothing heavier than logging. `images_due` is optional in
+    # `levers`; absent, it is False, as a fresh window's is.
+    from types import SimpleNamespace
+
+    from app.index.run_setup import ocr_schedule, ocr_what, pass_for
+
+    asked = SimpleNamespace(index_ocr_pass=_value(levers, "index_ocr_pass"),
+                            index_ocr_mode=_value(levers, "index_ocr_mode"))
+    when = ocr_schedule(asked)
+    what = ocr_what(asked)
+    this_run = pass_for(asked, images_due=_flag(levers, "images_due"))
+    if when == "after-run" and this_run == "images":
+        first = "This run reads only photos and scanned pages."
+    elif when == "after-run":
         first = ("Text in photos and scanned pages is read after each run, so "
                  "everything else is searchable first.")
     elif when == "manual":

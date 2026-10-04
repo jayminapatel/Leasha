@@ -827,7 +827,7 @@ class _Scratch:
 
     def write(self, name: str, data: bytes) -> Path:
         if self._dir is None:
-            self._dir = Path(tempfile.mkdtemp(prefix="lkg_attach_"))
+            self._dir = Path(tempfile.mkdtemp(prefix=SCRATCH_PREFIX, dir=_scratch_parent()))
         target = self._dir / _attachment_filename(name)
         target.write_bytes(data)
         return target
@@ -836,6 +836,76 @@ class _Scratch:
         if self._dir is not None:
             shutil.rmtree(self._dir, ignore_errors=True)
             self._dir = None
+
+
+#: 2026-10-04, code review: the scratch folders' name, and where they go.
+#: `close` removes each - but not when the process ends first (a run stopped
+#: by ending its process, a reader left stuck in native code), and 33 were
+#: found in the owner's %TEMP%. They now go under the settings' `CACHE_PATH`
+#: (`configure_scratch`, called by `Pipeline.run`), and each run sweeps the
+#: ones left behind (`sweep_scratch`).
+SCRATCH_PREFIX = "lkg_attach_"
+#: The sub-folder of `CACHE_PATH` they go in.
+SCRATCH_FOLDER = "pst-attachments"
+#: A scratch folder untouched this long is a leftover: each attachment written
+#: or removed touches it, and a reader's time limit is minutes.
+SCRATCH_STALE_S = 6 * 3600
+
+_scratch_root: Optional[Path] = None
+
+
+def _scratch_parent() -> Optional[str]:
+    """The folder scratch folders are made in: the configured one if it can be
+    made, else None - the system's temporary folder, as before."""
+    root = _scratch_root
+    if root is None:
+        return None
+    try:
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        _log.debug("attachment scratch folder unusable, using the temp folder: {}", exc)
+        return None
+    return str(root)
+
+
+def configure_scratch(cache_path: Any) -> Optional[Path]:
+    """Put attachment scratch folders under `cache_path` (None: the system's
+    temporary folder). Returns the folder used. No I/O until one is needed."""
+    global _scratch_root
+    _scratch_root = (Path(cache_path) / SCRATCH_FOLDER) if cache_path else None
+    return _scratch_root
+
+
+def sweep_scratch(cache_path: Any = None, *, older_than_s: float = SCRATCH_STALE_S,
+                  now: Optional[float] = None) -> int:
+    """Remove scratch folders left behind by a reader that never closed - under
+    `cache_path`'s scratch folder and in the system's temporary folder (where
+    they went before). Only folders named `SCRATCH_PREFIX*` untouched for
+    `older_than_s`, so a reader still at work keeps its own. Returns how many
+    went. **Never raises**: tidying."""
+    import time
+
+    current = time.time() if now is None else now
+    places = [Path(tempfile.gettempdir())]
+    if cache_path:
+        places.insert(0, Path(cache_path) / SCRATCH_FOLDER)
+    removed = 0
+    for place in places:
+        try:
+            entries = list(place.glob(f"{SCRATCH_PREFIX}*"))
+        except OSError:
+            continue
+        for entry in entries:
+            try:
+                if not entry.is_dir() or current - entry.stat().st_mtime < older_than_s:
+                    continue
+                shutil.rmtree(entry, ignore_errors=True)
+                removed += not entry.exists()
+            except OSError:
+                continue
+    if removed:
+        _log.info("removed {} attachment scratch folder(s) left by earlier runs", removed)
+    return removed
 
 
 def _attachment_filename(name: str) -> str:

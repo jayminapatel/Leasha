@@ -3193,6 +3193,11 @@ class SqliteStore:
         `volume_id` is the same idea for Offline Media: a rescan or a delete
         only ever cares about one source's rows, and `idx_files_volume` makes
         the filter free.
+
+        `skip_codes` (2026-10-04, code review) is the same idea for the index
+        run's re-queues: each wants one skip code, and an index with 100,000
+        held pictures (`ERR_OCR_HELD`) built a record for each, every run, to
+        find a few locked files. An empty collection matches nothing.
         """
         clauses: list[str] = []
         params: list[Any] = []

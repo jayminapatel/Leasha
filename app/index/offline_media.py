@@ -536,6 +536,8 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
     from app.index.pipeline import Pipeline
     from app.index.resolve import resolve_for_run
     from app.index.run_setup import NOW, build_pipeline_config, pass_for
+    from app.index.walker import volume_root_key
+    from app.storage.sqlite_store import volume_synthetic_path
     from app.storage.vector_store import ImageVectorStore, VectorStore
 
     tuned = resolve_for_run(settings, store)
@@ -548,11 +550,16 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
     # configuration every run uses (`run_setup.build_pipeline_config`),
     # scoped to the one mount point. The pass is `NOW`: the drive is
     # unplugged afterwards, so an images pass later would not find it.
+    # *2026-10-04, code review:* and its clean-up is this drive's rows only
+    # (`prune_under`, the drive's own `leasha-volume://<id>` key). It was the
+    # whole index's: a Scan of a USB stick deleted the rows of every indexed
+    # folder whose files were not on disk at that moment.
     config = build_pipeline_config(
         settings, [root], tuned=tuned, verify_hash=verify_hash,
-        ocr_mode=pass_for(settings, NOW))
+        ocr_mode=pass_for(settings, NOW),
+        prune_under=(volume_synthetic_path(volume_id, ""),))
     config = _replace(config, walk=_replace(
-        config.walk, volume_roots={str(root).rstrip("\\/").lower(): volume_id}))
+        config.walk, volume_roots={volume_root_key(root): volume_id}))
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 
     with IndexRunLock(store, owner=run_lock_owner), \
