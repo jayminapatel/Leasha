@@ -109,6 +109,10 @@ EXPLANATIONS: dict[str, str] = {
 DEFERRED_CODES: frozenset[str] = frozenset({
     "ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY",
     "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
+    # 2026-10-04, the owner ("do the recommended"): Outlook busy or closed is
+    # passing, and the error's own words promise a retry "on the next pass" -
+    # which a settled skip never gave. Every run now reads it again.
+    "ERR_OUTLOOK_BUSY",
 })
 
 #: The per-file time limit's code. Written by `app/index/file_watch.py` (order

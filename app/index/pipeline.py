@@ -1026,6 +1026,13 @@ def _archive_resume_key(path: Path) -> str:
     return f"{ARCHIVE_RESUME_PREFIX}{digest.hexdigest()}"
 
 
+def file_state_deferred_codes() -> frozenset[str]:
+    """The skip codes every run reads again - `app.core.file_state.DEFERRED_CODES`."""
+    from app.core.file_state import DEFERRED_CODES
+
+    return DEFERRED_CODES
+
+
 #: How many names `_produce` writes in one transaction while it scans.
 WAITING_BATCH = 2_000
 
@@ -2596,10 +2603,10 @@ class Pipeline:
     #: `ERR_MEDIA_HELD` is the video and audio twin of `ERR_OCR_HELD` (held for
     #: the images pass), and `ERR_MEDIA_INTERRUPTED` is a recording whose
     #: transcription was stopped part-way: neither has settled anything.
-    DEFERRED_SKIP_CODES = frozenset({
-        "ERR_OCR_HELD", "ERR_FILE_LOCKED", "ERR_CLOUD_ONLY",
-        "ERR_MEDIA_HELD", "ERR_MEDIA_INTERRUPTED", "ERR_MEDIA_BACKLOG",
-    })
+    #: 2026-10-04: **the Status column's own list** (`file_state.DEFERRED_CODES`),
+    #: not a second copy - the two had to be kept in step by hand, and a code
+    #: that is retried must read as Deferred, not Skipped.
+    DEFERRED_SKIP_CODES = file_state_deferred_codes()
 
     def _is_deferred(self, skip_code: Optional[str]) -> bool:
         """Is this skip a queue entry that the current pass should honour?

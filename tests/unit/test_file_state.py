@@ -320,3 +320,23 @@ def test_a_run_in_a_separate_process_keeps_the_funnel_live(qtbot, store) -> None
     assert funnel.tick(view, stats) is True
     qtbot.waitUntil(lambda: "Reading 1" in funnel.text(), timeout=5000)
     assert funnel.text().startswith("Indexed 4 · ")
+
+
+def test_outlook_busy_is_retried_and_reads_as_deferred() -> None:
+    """2026-10-04, the owner ("do the recommended"): the error promises a retry
+    "on the next pass", and the run now gives one - from the one list the
+    Status column and the indexer share."""
+    from app.core.file_state import DEFERRED, DEFERRED_CODES, derive
+    from app.index.pipeline import Pipeline
+
+    assert derive("SKIPPED", "ERR_OUTLOOK_BUSY") == DEFERRED
+    assert Pipeline.DEFERRED_SKIP_CODES is DEFERRED_CODES, "one list, not two copies"
+    assert "ERR_OUTLOOK_BUSY" in Pipeline.DEFERRED_SKIP_CODES
+
+
+def test_the_files_date_column_is_headed_date() -> None:
+    """It shows a photo's taken date and an attachment's sent date, so "Date"
+    (2026-10-04, was "Modified"); the key is unchanged for saved choices."""
+    from app.ui.files_view import COLUMNS
+
+    assert ("modified", "Date") in [(key, heading) for key, heading, *_ in COLUMNS]

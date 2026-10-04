@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.57 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.58 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **The Files list's date column is headed "Date"** (it was "Modified"): it shows a photo's
+  taken date and an attachment's sent date as well as a file's last change. Your column
+  choices are kept.
+- **An Outlook archive skipped because Outlook was busy is read again on the next run**, as
+  the message about it always said. It shows as Deferred, not Skipped.
 - **Everything that does the same job now does it the same way**, after a check of the whole
   program. What that changes for you:
   - **Open works the same from every page.** An email opens in Outlook from Search, Mail, Chat,

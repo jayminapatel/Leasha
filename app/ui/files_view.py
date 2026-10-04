@@ -64,7 +64,11 @@ __all__ = ["FilesView", "NAME_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 COLUMNS: tuple[tuple[str, str, str, bool], ...] = (
     ("name", "Name", "name", False),
     ("size", "Size", "size", True),
-    ("modified", "Modified", "modified", True),
+    # *Corrected 4 October 2026, the owner ("do the recommended"): headed
+    # "Date", was "Modified"* - the column shows a photo's taken date and an
+    # attachment's sent date as well (`presenter.facts.shown_date_ns`). The
+    # key stays `modified`, so saved column choices still apply.
+    ("modified", "Date", "modified", True),
     ("type", "Type", "kind", False),
     # 2026-09-29: the one-word Status (`app.core.file_state`), before Folder so
     # the stretching column stays last.

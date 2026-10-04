@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.55 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.56 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2295,6 +2295,13 @@ name is Queued, not also Discovered; `test_write_groups`: a PENDING placeholder 
 read). `test_ui_review_0x9` asserted no icons on Reports, which the owner asked for earlier this
 day - now asserts each entry has one. `test_grab_ui` timed out at its 30 s limit under the full
 suite and passes alone (5 in 2 min) - load-sensitive, left as it is.
+**The three open points, decided** (the owner: "do the recommended", 2026-10-04): (1) the Files
+column is headed **Date** (`files_view.COLUMNS`; key `modified` unchanged, so saved column
+choices hold; the preview's facts label "Modified" was not part of the decision and is
+unchanged); (2) `ERR_OUTLOOK_BUSY` is in `file_state.DEFERRED_CODES`, so every run re-reads it
+and it reads Deferred - and `Pipeline.DEFERRED_SKIP_CODES` is now that same set, not a second
+copy kept in step by hand; (3) drag-out of an attachment left as it is. The five agent worktrees
+and their branches were removed after checking each was merged into `main`.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
