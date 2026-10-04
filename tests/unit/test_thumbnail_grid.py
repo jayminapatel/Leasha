@@ -156,7 +156,10 @@ def test_image_rows_preserves_order_for_the_lightbox(qapp, tmp_path):
 
 
 def test_a_thumbnail_is_decoded_off_the_ui_thread_and_painted(qapp, tmp_path):
+    # Dated note, 2026-10-04, code review: shown first - a hidden grid
+    # decodes nothing (`test_a_hidden_grid_decodes_nothing_until_shown`).
     grid = ThumbnailGrid()
+    grid.show()
     png = _png(tmp_path)
     grid.show_rows([_Row(str(png), "png")])
     placeholder_key = grid._list.item(0).icon().cacheKey()
@@ -170,6 +173,7 @@ def test_a_photo_that_fails_to_decode_keeps_its_placeholder(qapp, tmp_path):
     """H4: never a crash, and never an empty cell either - the placeholder
     icon set in `show_rows` stays exactly where it was."""
     grid = ThumbnailGrid()
+    grid.show()                                 # dated note, 2026-10-04: see above
     broken = tmp_path / "broken.jpg"
     broken.write_bytes(b"not a real jpeg")
     grid.show_rows([_Row(str(broken), "jpg")])
@@ -219,3 +223,124 @@ def test_enabled_checkbox_uses_its_own_key(qapp):
     })()
     enabled_checkbox(store_stub, on_toggle=lambda _checked: None)
     assert seen == [GRID_ENABLED_KEY]
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-04, code review: decode only while shown, once, on a pool of its own
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def decodes(monkeypatch):
+    """Every path handed to the decoder, recorded; the grids' cache emptied."""
+    import threading
+
+    from app.ui.widgets import thumbnail_grid
+
+    seen: list = []
+    thumbnail_grid._CACHE.clear()
+
+    def fake(path, **_kwargs):
+        seen.append((path, threading.current_thread() is threading.main_thread()))
+        return QImage(8, 8, QImage.Format.Format_RGB32)
+
+    monkeypatch.setattr(thumbnail_grid, "decode_thumbnail", fake)
+    yield seen
+    thumbnail_grid._CACHE.clear()
+
+
+def _wait_for_decodes(qapp):
+    from app.ui.widgets.thumbnail_grid import decode_pool
+
+    decode_pool().waitForDone(3_000)
+    _pump(qapp, tries=5)
+
+
+def test_a_hidden_grid_decodes_nothing_until_shown(qapp, decodes):
+    """`rows_changed` fires on every repaint of the list, and the grid is off
+    by default - so each repaint decoded every photo for a grid nobody saw."""
+    grid = ThumbnailGrid()
+    grid.show_rows([_Row("a.jpg", "jpg"), _Row("b.jpg", "jpg")])
+    _wait_for_decodes(qapp)
+    assert decodes == []
+
+    grid.show()
+    _wait_for_decodes(qapp)
+    assert sorted(decodes) == [("a.jpg", False), ("b.jpg", False)], "on a worker, once each"
+    grid.close()
+
+
+def test_the_same_photos_again_are_not_decoded_or_redrawn_again(qapp, decodes):
+    """A tier swap, a details redraw, a chevron: the same photos, nothing new."""
+    grid = ThumbnailGrid()
+    grid.show()
+    rows = [_Row("a.jpg", "jpg")]
+    grid.show_rows(rows)
+    _wait_for_decodes(qapp)
+    first = grid._list.item(0)
+    grid.show_rows([_Row("a.jpg", "jpg"), _Row("notes.txt", "txt")])
+    _wait_for_decodes(qapp)
+    assert decodes == [("a.jpg", False)]
+    assert grid._list.item(0) is first, "the cell was not rebuilt"
+    grid.close()
+
+
+def test_a_photo_decoded_once_comes_from_the_cache_after(qapp, decodes):
+    grid = ThumbnailGrid()
+    grid.show()
+    grid.show_rows([_Row("a.jpg", "jpg")])
+    _wait_for_decodes(qapp)
+    grid.show_rows([])
+    other = ThumbnailGrid()
+    other.show()
+    other.show_rows([_Row("a.jpg", "jpg")])
+    _wait_for_decodes(qapp)
+    assert decodes == [("a.jpg", False)], "the second time is the cache"
+    grid.close()
+    other.close()
+
+
+def test_the_cache_key_is_the_rows_path_mtime_and_size_without_a_stat():
+    from app.ui.widgets.thumbnail_grid import cache_key
+
+    class Row(NamedTuple):
+        path: str
+        mtime_ns: int
+        size_bytes: int
+
+    assert cache_key(Row("a.jpg", 5, 9)) == ("a.jpg", 5, 9)
+    assert cache_key(Row("a.jpg", 6, 9)) != cache_key(Row("a.jpg", 5, 9)), "changed file"
+
+
+def test_decodes_queue_on_the_grids_own_pool_and_are_taken_back(qapp, monkeypatch):
+    """Fifty photos used to queue on the global pool ahead of the next search
+    and every Open, and a new result set cancelled none of them."""
+    import threading
+
+    from PyQt6.QtCore import QThreadPool
+
+    from app.ui.widgets import thumbnail_grid
+
+    thumbnail_grid._CACHE.clear()
+    gate = threading.Event()
+    started: list = []
+
+    def slow(path, **_kwargs):
+        started.append(path)
+        gate.wait(5)
+        return None
+
+    monkeypatch.setattr(thumbnail_grid, "decode_thumbnail", slow)
+    grid = ThumbnailGrid()
+    grid.show()
+    assert grid._pool is not QThreadPool.globalInstance()
+    grid.show_rows([_Row(f"{n}.jpg", "jpg") for n in range(8)])
+    for _ in range(100):
+        if len(started) >= thumbnail_grid.DECODE_THREADS:
+            break
+        time.sleep(0.01)
+    grid.show_rows([])                          # a new result set
+    gate.set()
+    _wait_for_decodes(qapp)
+    assert len(started) == thumbnail_grid.DECODE_THREADS, "the queued six never started"
+    assert grid._queued == []
+    grid.close()

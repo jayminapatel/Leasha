@@ -669,6 +669,14 @@ def test_a_worker_body_is_only_called_through_a_worker(path):
     # decoding even one on the UI thread is the freeze non-negotiable #5
     # forbids - `_load_thumbnails` hands every one of them to its own worker.
     ("widgets/thumbnail_grid.py", "_load_thumbnails"),
+    # 2026-10-04, code review: four more that ran on the interface thread -
+    # the logs folder's mkdir and Explorer launch, the location dialog's
+    # walk of the whole index and its per-keystroke stats, and the stat per
+    # path dropped on the window.
+    ("widgets/environment_box.py", "_open_folder"),
+    ("widgets/index_flows.py", "_measure"),
+    ("widgets/index_flows.py", "_check"),
+    ("shell.py", "dropEvent"),
     # 2026-09-07 UI freeze: `resolve_for_run` falls through to `compute_
     # profile.detect()` on a cold hardware-profile cache, which shells out
     # to PowerShell twice with 10s/15s timeouts - all of it used to run
@@ -699,6 +707,11 @@ def test_a_long_operation_starts_a_worker(module, method):
                 f"{module}.{method} delegates to {helper}(), which is not in "
                 f"workers.py - so nothing here can vouch for it")
             helper_body = workers.split(f"def {helper}(")[1].split("\ndef ")[0]
+            # 2026-10-04, code review: one more hop is still delegation -
+            # `open_async` wraps a path and hands it to `open_row_async`.
+            for onward in set(re.findall(r"\b(\w+_async)\(", helper_body)) - {helper}:
+                if f"def {onward}(" in workers:
+                    helper_body += workers.split(f"def {onward}(")[1].split("\ndef ")[0]
             assert "Worker(" in helper_body or "run(" in helper_body, (
                 f"{module}.{method} delegates to {helper}(), which does its "
                 f"work inline - the delegation only moved the block")

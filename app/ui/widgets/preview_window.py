@@ -813,10 +813,14 @@ class PreviewWindow(QWidget):
         """2026-09-30: "Show in folder" only for a row that is a real file. A
         pinned message out of a mail archive has an address (`pst://...`) for
         a path and no file of its own; the button used to be on for it and
-        ask Explorer for something that is not there."""
-        from app.ui.presenter.rows import file_of_row
+        ask Explorer for something that is not there.
 
-        self.reveal_button.setEnabled(bool(file_of_row(self._row)))
+        2026-10-04, code review: the right-click menu's rule, `opening.usable`
+        - the one route shows a message's archive and a catalogued drive's
+        file in their folders, and this kept the button off for both."""
+        from app.ui.presenter.opening import usable
+
+        self.reveal_button.setEnabled(usable(self._row))
 
     def _restore(self, state: Any) -> None:
         """Size and pin, from the app's own state. Never raises."""

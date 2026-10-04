@@ -245,15 +245,124 @@ def test_every_open_of_an_indexed_result_is_recorded_once_off_the_ui_thread(laun
 
     from app.ui import workers
 
+    # Dated note, 2026-10-04, code review: the search id is the ROW's own now
+    # (`ResultRow.search_id`), not one the window lends - see the test below.
     recorded: list = []
     engine = SimpleNamespace(record_open=lambda search_id, chunk_id: recorded.append(
         (search_id, chunk_id, threading.current_thread() is threading.main_thread())))
-    workers.set_open_context(workers.OpenContext(engine=engine, search_id=lambda: 41))
-    workers.open_row_async(None, SimpleNamespace(path=r"D:\a.txt", chunk_id=7))
-    workers.open_row_async(None, SimpleNamespace(path=r"D:\a.txt", chunk_id=7), reveal=True)
-    workers.open_row_async(None, SimpleNamespace(path=r"D:\b.txt", chunk_id=0))
+    workers.set_open_context(workers.OpenContext(engine=engine))
+    workers.open_row_async(None, SimpleNamespace(path=r"D:\a.txt", chunk_id=7, search_id=41))
+    workers.open_row_async(None, SimpleNamespace(path=r"D:\a.txt", chunk_id=7, search_id=41),
+                           reveal=True)
+    workers.open_row_async(None, SimpleNamespace(path=r"D:\b.txt", chunk_id=0, search_id=41))
     _pump()
     assert recorded == [(41, 7, False)]
+
+
+def test_an_open_is_credited_to_the_rows_own_search_and_never_to_another(launched):
+    """2026-10-04, code review: every open was credited to the Search tab's
+    current search - a Chat source, a mini-search hit, a window pinned from an
+    earlier search. A row carries the search it came from; one with none
+    records nothing."""
+    from app.ui import workers
+
+    recorded: list = []
+    engine = SimpleNamespace(record_open=lambda search_id, chunk_id: recorded.append(
+        (search_id, chunk_id)))
+    workers.set_open_context(workers.OpenContext(engine=engine))
+    assert not hasattr(workers.OpenContext(), "search_id"), "no window-wide search id"
+    workers.open_row_async(None, SimpleNamespace(path=r"D:\a.txt", chunk_id=7, search_id=12))
+    workers.open_row_async(None, SimpleNamespace(path=r"D:\c.txt", chunk_id=8))   # Chat
+    _pump()
+    assert recorded == [(12, 7)]
+
+
+def test_the_search_list_stamps_its_search_on_every_row(qtbot):
+    from app.ui.results_view import ResultsView
+
+    view = ResultsView()
+    qtbot.addWidget(view)
+    hit = SimpleNamespace(chunk_id=3, file_id=1, path=r"D:\a.txt", text="pump", score=1.0,
+                          ext="txt", rank=1)
+    view.show_results([hit], ["pump"], search_id=55)
+    assert [row.search_id for row in view._rows] == [55]
+    view.show_results([hit], ["pump"])
+    assert [row.search_id for row in view._rows] == [None]
+
+
+class _BoxStore:
+    """A message read out of an mbox and one out of an `.olm`, by key."""
+
+    keys = {r"D:\mail\home.mbox/123": 11,
+            r"D:\mail\work.olm/Accounts/x/Inbox/message_00001.xml": 12}
+
+    def get_file(self, path):
+        number = self.keys.get(path)
+        return SimpleNamespace(id=number) if number else None
+
+    def get_message(self, file_id):
+        return {"file_id": file_id, "entry_id": "", "store_path": ""} if file_id else None
+
+
+@pytest.mark.parametrize(("key", "archive"), [
+    (r"D:\mail\home.mbox/123", r"D:\mail\home.mbox"),
+    (r"D:\mail\work.olm/Accounts/x/Inbox/message_00001.xml", r"D:\mail\work.olm"),
+])
+def test_show_in_folder_on_an_mbox_or_olm_message_shows_the_archive_file(
+        launched, key, archive):
+    """2026-10-04, code review: only `pst://` was a message to the route; an
+    mbox or `.olm` message was revealed as its key and failed "moved or
+    deleted". From a row that says it is mail, and from the key alone."""
+    from app.ui import workers
+
+    workers.open_row_async(None, SimpleNamespace(path=key, file_id=11, source_kind="eml"),
+                           reveal=True)
+    workers.open_row_async(None, key, reveal=True)
+    _pump()
+    assert launched == [("explorer", archive, True)] * 2
+
+
+def test_open_on_an_mbox_message_given_only_its_key_is_searched_inside(launched):
+    """`Place` has no file id: `_message_of` looked a key up only when it had
+    `://`, so the key went to Explorer. Now it is found, and - nothing being
+    able to show an mbox message - searched inside, as from its row."""
+    from app.ui import workers
+
+    inside: list = []
+    workers.open_row_async(_BoxStore(), r"D:\mail\home.mbox/123", search_inside=inside.append)
+    workers.open_row_async(_BoxStore(), SimpleNamespace(
+        path=r"D:\mail\work.olm/Accounts/x/Inbox/message_00001.xml", file_id=12),
+        search_inside=inside.append)
+    _pump()
+    assert sorted(inside) == [r"D:\mail\home.mbox/123",
+                              r"D:\mail\work.olm/Accounts/x/Inbox/message_00001.xml"]
+    assert launched == []
+
+
+def test_an_mbox_message_on_a_catalogued_drive_shows_the_archive_on_the_drive(
+        launched, monkeypatch):
+    from app.ui import tasks, workers
+
+    monkeypatch.setattr(tasks, "resolve_open_path",
+                        lambda store, row: r"E:\mail\home.mbox\123")
+    workers.open_row_async(object(), SimpleNamespace(
+        path="leasha-volume://1/mail/home.mbox/123", volume_id=1,
+        relative_path="mail/home.mbox/123"), reveal=True)
+    _pump()
+    assert launched == [("explorer", r"E:\mail\home.mbox", True)]
+
+
+def test_plain_files_that_look_numbered_are_not_messages():
+    from app.ui.presenter.opening import mail_container, plan_for
+
+    assert mail_container(r"D:\photos\2024/123") == ""
+    assert mail_container(SimpleNamespace(path=r"D:\a.mbox/1", source_kind="file")) == ""
+    assert mail_container(r"D:\mail\note.eml") == ""
+    assert mail_container("pst://s/1") == ""
+    assert plan_for(r"D:\photos\2024/123", reveal=True).path == r"D:\photos\2024/123"
+    # A row that says it is mail is read by its shape even without the suffix.
+    assert mail_container(SimpleNamespace(path=r"D:\Inbox.mbox\mbox/7",
+                                          source_kind="eml")) == r"D:\Inbox.mbox\mbox"
 
 
 def test_a_web_address_goes_to_the_browser_not_to_a_worker(launched, monkeypatch):

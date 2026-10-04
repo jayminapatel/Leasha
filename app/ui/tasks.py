@@ -540,6 +540,7 @@ def code_line(path: str, char_start: Any) -> int:
 
 def _message_of(store: Any, row: Any, path: str) -> Optional[dict]:
     """The `messages` row a result stands for, or None. Two lookups by key."""
+
     try:
         file_id = int(getattr(row, "file_id", 0) or 0)
         if file_id <= 0 and is_message_key(path):  # 2026-10-04, code review: mbox/olm too
@@ -552,8 +553,7 @@ def _message_of(store: Any, row: Any, path: str) -> Optional[dict]:
 
 
 def open_target(store: Any, row: Any, *, reveal: bool = False, cache_path: Any = None,
-                editor: Any = ("auto", ""), engine: Any = None, search_id: Any = None,
-                outlook: Any = None) -> Any:
+                editor: Any = ("auto", ""), engine: Any = None, outlook: Any = None) -> Any:
     r"""Open or reveal one row: every page's Open and Show in folder. **Worker.**
 
     2026-10-04, the owner: "the same code should run for functions so they
@@ -563,6 +563,13 @@ def open_target(store: Any, row: Any, *, reveal: bool = False, cache_path: Any =
 
     An opened indexed result is recorded for ranking (`record_open`) here,
     whichever page it was opened from - it used to be the Search list only.
+
+    2026-10-04, code review: **with the search the row came from** - its own
+    `search_id`, stamped by the Search list (`ResultsView.show_results`) and
+    carried by the row into a pinned window or the lightbox. It used to be
+    the Search tab's *current* search, whatever surface the row came from
+    (Chat, the mini search, a window pinned from an earlier search), which
+    credited the wrong query. A row with no search id records nothing.
     """
     from app.core.errors import AppError, AppErrorException
 
@@ -575,9 +582,43 @@ def open_target(store: Any, row: Any, *, reveal: bool = False, cache_path: Any =
     except AppErrorException as exc:
         outcome = exc.error
     chunk_id = int(getattr(row, "chunk_id", 0) or 0)
-    if not reveal and engine is not None and chunk_id > 0 and not isinstance(outcome, AppError):
+    search_id = getattr(row, "search_id", None)
+    if (not reveal and engine is not None and chunk_id > 0 and search_id is not None
+            and not isinstance(outcome, AppError)):
         record_open(engine, search_id, chunk_id)
     return outcome
+
+
+def dropped_roots(paths: Any) -> list[str]:
+    """The folders to index for what was dropped on the window. **Worker.**
+
+    A folder is itself, a file its folder. 2026-10-04, code review: this was
+    `Path.is_dir()` per dropped path in `MainWindow.dropEvent`, on the
+    interface thread - a stat each, which blocks on a sleeping drive.
+    """
+    folders: set[str] = set()
+    for text in paths or ():
+        path = Path(str(text))
+        try:
+            folders.add(str(path) if path.is_dir() else str(path.parent))
+        except OSError:
+            folders.add(str(path.parent))
+    return sorted(folders)
+
+
+def make_folder(folder: Any) -> str:
+    """Make `folder` if it is not there; `""`, or the sentence saying why not.
+    **Worker** - the logs and sessions folders' Open (2026-10-04, code review)."""
+    try:
+        Path(folder).mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return f"Could not open {folder}: {exc}"
+    return ""
+
+
+def _cut_tail(path: str, length: int) -> str:
+    """`path` less its last `length` characters, either slash. Pure."""
+    return path[:-length].rstrip("\\/") if 0 < length < len(path) else path
 
 
 def _carry_out(store: Any, row: Any, plan: Any, *, cache_path: Any, editor: Any,
@@ -585,7 +626,7 @@ def _carry_out(store: Any, row: Any, plan: Any, *, cache_path: Any, editor: Any,
     """`open_target`'s steps, for one plan. Raises `AppErrorException`."""
     from app.ui.attachment_open import zip_member_of
     from app.ui.presenter.mail import original_target
-    from app.ui.presenter.opening import SearchInside, on_a_volume
+    from app.ui.presenter.opening import SearchInside, key_of, on_a_volume
     from app.ui.widgets.mail_open import open_original
     from app.ui.workers import open_at_line, open_in_explorer, open_media_at
 
@@ -594,6 +635,10 @@ def _carry_out(store: Any, row: Any, plan: Any, *, cache_path: Any, editor: Any,
         # The drive's current mount point first, then the moment or the line
         # on the real file - a volume row used to skip both.
         path = resolve_open_path(store, on_a_volume(row))
+        # 2026-10-04, code review: the plan named less than the row - the
+        # `.mbox`/`.olm` a message is in - so the same tail comes off the
+        # resolved path (`<letter>:\x.mbox\123` -> `<letter>:\x.mbox`).
+        path = _cut_tail(path, len(key_of(row)) - len(plan.path))
     if how == "reveal":
         return open_in_explorer(path, select=True)
     if how == "archive":

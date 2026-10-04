@@ -1141,6 +1141,8 @@ class MainWindow(QMainWindow):
         are merged. A request that named folders (a drop, "Index this folder")
         also brings the Indexing page forward, as it does when it is not late.
         """
+        if getattr(self, "_drops_in_flight", 0):
+            return                     # 2026-10-04, code review: a drop's folders land first
         queued, self._queued_index_requests = self._queued_index_requests, []
         if not queued or getattr(self, "indexing_view", None) is None:
             return
@@ -2034,7 +2036,6 @@ class MainWindow(QMainWindow):
         set_open_context(OpenContext(
             store=self._store, cache_path=getattr(self._settings, "cache_path", None),
             engine=self._engine, editor=self._editor_choice,
-            search_id=lambda: getattr(self.search_view, "_last_search_id", None),
             on_error=self._show_error, on_note=lambda text: self.notify(text, 10_000),
             search_inside=self._search_inside))
         # The pop-outs' Describe settings, the same for a pinned window and the lightbox.
@@ -2161,11 +2162,30 @@ class MainWindow(QMainWindow):
         paths = [
             url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()
         ]
-        folders = [p if Path(p).is_dir() else str(Path(p).parent) for p in paths]
-        if folders:
-            self._show(getattr(self, "indexing_view", None))
-            self._start_indexing(roots=sorted(set(folders)))
         event.acceptProposedAction()
+        if not paths:
+            return
+        # 2026-10-04, code review: which dropped path is a folder is a stat
+        # each - `tasks.dropped_roots`, on a worker, never here.
+        from app.ui.tasks import dropped_roots
+
+        # Counted, so a replay of requests made before the Indexing page was
+        # built waits for this drop's folders rather than starting without them.
+        self._drops_in_flight = getattr(self, "_drops_in_flight", 0) + 1
+        worker = CallableWorker(dropped_roots, paths, component="ui.drop")
+        worker.signals.finished.connect(self._index_dropped)
+        worker.signals.failed.connect(lambda _error: self._index_dropped([]))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _index_dropped(self, folders: Any) -> None:
+        """What `dropEvent`'s worker found: index it, at top priority - joined
+        with anything asked for while it was being found, as one run, the way
+        `_replay_index_requests` joins requests made before the page existed."""
+        self._drops_in_flight = max(0, getattr(self, "_drops_in_flight", 1) - 1)
+        if folders:
+            self._queued_index_requests.append((list(folders), False))
+        if getattr(self, "indexing_view", None) is not None:
+            self._replay_index_requests()
 
     #: How long closing waits for background threads to notice and stop. Long
     #: enough for a batch to finish and commit; short enough that nobody reaches

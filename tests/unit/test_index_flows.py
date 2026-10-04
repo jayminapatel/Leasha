@@ -42,6 +42,25 @@ def qapp():
     yield QApplication.instance() or QApplication([])
 
 
+def settled(dialog):
+    """Dated note, 2026-10-04, code review: the dialog asks a worker about the
+    folder in the box once the typing pauses, and measures the index once,
+    as it opens - so a test waits for both answers before reading it."""
+    import time
+
+    from PyQt6.QtCore import QThreadPool
+
+    app = QApplication.instance()
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        QThreadPool.globalInstance().waitForDone(50)
+        app.processEvents()
+        if not dialog.checking() and not dialog._check_timer.isActive():
+            break
+        time.sleep(0.01)
+    return dialog
+
+
 def make_index(root: Path) -> Path:
     (root / "vectors").mkdir(parents=True)
     (root / "fts").mkdir(parents=True)
@@ -86,6 +105,7 @@ def test_adopting_is_offered_only_where_an_index_exists(qapp, tmp_path: Path):
 
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(empty))
+    settled(dialog)
 
     assert not dialog.adopt.isEnabled()
     assert dialog.move.isEnabled()
@@ -100,6 +120,7 @@ def test_moving_onto_an_existing_index_is_not_offered(qapp, tmp_path: Path):
 
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(other))
+    settled(dialog)
 
     assert dialog.adopt.isEnabled()
     assert not dialog.move.isEnabled()
@@ -110,6 +131,7 @@ def test_choosing_the_current_location_is_refused(qapp, tmp_path: Path):
 
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(current))
+    settled(dialog)
 
     assert "already is" in dialog.consequence.text()
 
@@ -121,6 +143,7 @@ def test_each_option_says_what_it_will_do_before_it_is_chosen(qapp, tmp_path: Pa
 
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(empty))
+    settled(dialog)
 
     dialog.move.setChecked(True)
     assert "removes the original" in dialog.consequence.text()
@@ -138,6 +161,7 @@ def test_the_choice_reports_what_was_picked(qapp, tmp_path: Path):
 
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(other))
+    settled(dialog)
     dialog.adopt.setChecked(True)
 
     choice = dialog.choice()
@@ -149,6 +173,7 @@ def test_a_fresh_start_is_available_anywhere(qapp, tmp_path: Path):
     current = make_index(tmp_path / "current")
     dialog = IndexLocationDialog(current)
     dialog.destination.setText(str(tmp_path / "brand-new"))
+    settled(dialog)
     dialog.fresh.setChecked(True)
 
     assert dialog.choice().action == FRESH
@@ -315,3 +340,48 @@ def test_the_cost_states_the_rate_it_assumed(qapp):
 
     assert "chunks/sec" in dialog.cost.text()
     assert "embed-bench" in dialog.cost.text()
+
+
+# --- 2026-10-04, code review: nothing on the interface thread ---------------
+
+def test_typing_a_path_does_no_io_on_the_interface_thread(qapp, tmp_path, monkeypatch):
+    """`textChanged` ran `folder_gb` - a walk of the whole index - up to three
+    times, and `resolve`, `exists` and `disk_usage`, per keystroke, on the
+    thread that paints. Now the index is measured once, on a worker, and the
+    folder is checked on a worker once the typing pauses."""
+    import threading
+
+    from app.ui.widgets import index_flows
+
+    measured: list = []
+    checked: list = []
+    real_size, real_check = index_flows.folder_gb, index_flows.check_destination
+    monkeypatch.setattr(index_flows, "folder_gb", lambda path: measured.append(
+        threading.current_thread() is threading.main_thread()) or real_size(path))
+    monkeypatch.setattr(index_flows, "check_destination", lambda text, current: checked.append(
+        (text, threading.current_thread() is threading.main_thread()))
+        or real_check(text, current))
+    monkeypatch.setattr(index_flows, "looks_like_an_index", lambda path: pytest.fail(
+        "a stat on the interface thread") if threading.current_thread()
+        is threading.main_thread() else False)
+
+    current = make_index(tmp_path / "current")
+    dialog = IndexLocationDialog(current)
+    for typed in ("D", "D:", "D:/n", "D:/ne", "D:/new"):
+        dialog.destination.setText(typed)
+    assert dialog.consequence.text() == index_flows.CHECKING
+    assert not dialog.buttons.button(dialog.buttons.StandardButton.Ok).isEnabled()
+    settled(dialog)
+
+    assert measured == [False], "measured once, on a worker"
+    assert [main for _text, main in checked] == [False] * len(checked)
+    assert checked[-1][0] == "D:/new" and len(checked) <= 2, "one check after the pause"
+
+
+def test_an_answer_about_text_since_replaced_is_dropped(qapp, tmp_path):
+    current = make_index(tmp_path / "current")
+    dialog = settled(IndexLocationDialog(current))
+    stale = dialog._check_generation
+    dialog.destination.setText(str(tmp_path / "elsewhere"))
+    dialog._checked({"occupied": True, "same": False, "free_gb": 1.0}, stale)
+    assert dialog._facts is None, "the old text's answer is not this text's"

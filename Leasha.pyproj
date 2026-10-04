@@ -1026,6 +1026,7 @@
     <Compile Include="tests\unit\test_what_gets_read_qt.py" />
     <Compile Include="tests\unit\test_why_result.py" />
     <Compile Include="tests\unit\test_wildcards.py" />
+    <Compile Include="tests\unit\test_window_off_thread.py" />
     <Compile Include="tests\unit\test_window_opens.py" />
     <Compile Include="tests\unit\test_window_state.py" />
     <Compile Include="tests\unit\test_window_stays_maximised.py" />

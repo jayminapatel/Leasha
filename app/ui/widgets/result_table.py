@@ -446,4 +446,5 @@ def redraw_with_details(results: Any, response: Any, terms: Any, summary: str,
         details=found.get("details", {}), missing=found.get("missing", set()),
         volumes=found.get("volumes", {}),
         placeholders=found.get("placeholders", set()),
-        statuses=found.get("statuses", {}))
+        statuses=found.get("statuses", {}),
+        search_id=getattr(response, "search_id", None))   # 2026-10-04, code review

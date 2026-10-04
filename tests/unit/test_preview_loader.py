@@ -179,6 +179,9 @@ def test_a_message_with_no_file_uses_the_text_it_was_given(tmp_path: Path):
 
 # --- things that are not read here ------------------------------------------
 
+# Dated note, 2026-10-04, code review: a PDF's bytes ARE read now - here, on
+# the worker - because the pane's `QPdfDocument.load(path)` read and parsed
+# the file on the interface thread. What this test still holds: no text body.
 def test_a_pdf_is_not_read_into_memory(tmp_path: Path):
     """It is paged by the viewer. Reading it here would pull the whole document
     in to hand it straight back."""
@@ -419,3 +422,40 @@ def test_offline_volume_subtitle_reads_nothing_for_an_ordinary_row(tmp_path: Pat
         assert offline_volume_subtitle(store, row) == ""
     finally:
         store.close()
+
+
+def test_a_pdf_arrives_as_bytes_read_on_the_worker(tmp_path: Path, monkeypatch):
+    """2026-10-04, code review: the pane loads them from memory, as it does an
+    attachment's; over the in-memory cap it keeps the path, which this
+    worker has just stat'ed."""
+    from app.ui import preview_loader
+
+    document = tmp_path / "report.pdf"
+    document.write_bytes(b"%PDF-1.4\n" + b"0" * 5000)
+    preview = load_preview(str(document), page=2)
+    assert preview.meta["data"] == document.read_bytes()
+    assert preview.path == str(document) and preview.page == 2
+
+    monkeypatch.setattr(preview_loader, "IN_MEMORY_CAP", 100)
+    large = load_preview(str(document))
+    assert "data" not in large.meta and large.kind == KIND_PDF
+
+
+def test_the_pane_never_loads_a_pdf_from_its_path_when_it_has_the_bytes(
+        tmp_path: Path, monkeypatch):
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    from app.ui.widgets.preview import PreviewPane
+
+    pane = PreviewPane()
+    if pane._pdf is None:
+        pytest.skip("no QtPdf here")
+    loaded: list = []
+    monkeypatch.setattr(pane._pdf_document, "load", lambda source: loaded.append(source))
+    pane._show_pdf(str(tmp_path / "report.pdf"), 0, data=b"%PDF-1.4")
+    assert loaded and not isinstance(loaded[0], str), "from the buffer, not the disk"
+    pane.close()

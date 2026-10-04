@@ -108,6 +108,13 @@ def _retain(worker: Any) -> Any:
     return worker
 
 
+def release(worker: Any) -> None:
+    """Stop holding a worker that will never run - one taken back from its
+    pool with `QThreadPool.tryTake` (the thumbnail grid's cancel, 2026-10-04,
+    code review), which therefore never says it is done."""
+    _IN_FLIGHT.discard(worker)
+
+
 def stop_timers(view: Any, *names: str) -> None:
     """Stop a view's debounce timers and stale anything still in flight.
 
@@ -221,13 +228,17 @@ class OpenContext:
     page tested on its own still opens, with what it passes itself. `editor`
     and `search_id` are read at the click, so a choice just made in Settings
     and the search on screen now are the ones used.
+
+    Dated note, 2026-10-04, code review: there is no `search_id` here any
+    more. It was the Search tab's current search, lent to every open from
+    every surface; the row carries its own now (`ResultRow.search_id`), see
+    `tasks.open_target`.
     """
 
     store: Any = None
     cache_path: Any = None
     engine: Any = None
     editor: Callable[[], tuple] | None = None
-    search_id: Callable[[], Any] | None = None
     on_error: Callable[[Any], Any] | None = None
     on_note: Callable[[str], Any] | None = None
     search_inside: Callable[[str], Any] | None = None
@@ -302,7 +313,6 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False, on_error: Any 
         open_target, store if store is not None else context.store, row, reveal=reveal,
         cache_path=context.cache_path, engine=context.engine,
         editor=context.editor() if context.editor else ("auto", ""),
-        search_id=context.search_id() if context.search_id else None,
         component=component)
 
     def landed(result: Any) -> None:

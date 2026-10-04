@@ -41,10 +41,11 @@ from app.ui.presenter import (
     doctor_report,
     logs_cleared_message,
     logs_summary,
+    make_folder,
 )
 from app.ui.widgets.buttons import button_row, style_button
 from app.ui.view_options import weak_slot
-from app.ui.workers import CallableWorker, open_in_explorer, run
+from app.ui.workers import CallableWorker, open_async, run
 
 __all__ = ["EnvironmentBox"]
 
@@ -284,15 +285,22 @@ class EnvironmentBox(QGroupBox):
         self._open_folder(self.sessions_folder(), on_error=self.recording_status)
 
     def _open_folder(self, folder: Path, on_error: Any = None) -> None:
+        """Make the folder if it is not there, then open it - **both on a
+        worker**. 2026-10-04, code review: the `mkdir` and the Explorer launch
+        ran here, on the interface thread; now `tasks.make_folder`, then the
+        one open route (`workers.open_async`)."""
         target = on_error if on_error is not None else self.logs_status
-        try:
-            folder.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            target.setText(f"Could not open {folder}: {exc}")
-            return
-        error = open_in_explorer(str(folder), select=False)
-        if error is not None:
-            target.setText(getattr(error, "message", str(error)))
+
+        def made(problem: str) -> None:
+            if problem:
+                target.setText(problem)
+                return
+            open_async(str(folder), on_error=lambda error: target.setText(
+                getattr(error, "message", str(error))), component="ui.environment.open")
+
+        worker = CallableWorker(make_folder, folder, component="ui.environment.open")
+        worker.signals.finished.connect(made)
+        run(QThreadPool.globalInstance(), worker)
 
     # -- the logs -------------------------------------------------------------
 

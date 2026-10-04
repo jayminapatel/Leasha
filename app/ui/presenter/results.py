@@ -88,6 +88,12 @@ class ResultRow:
     #: as the list - never the `pst://` key a message's `path` is.
     name: str = ""
     folder: str = ""
+    #: 2026-10-04, code review: the search this row came from, so an open of
+    #: it - from the list, a pinned window or the lightbox - is credited to
+    #: that search (`tasks.open_target`), not to whatever the Search tab
+    #: shows by then. None for a row no logged search produced: nothing is
+    #: recorded for it.
+    search_id: Optional[int] = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -122,8 +128,11 @@ def cell_location(locator: Any) -> str:
     return f"Sheet '{sheet}' · near {column}{row}"
 
 
-def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> ResultRow:
-    """Turn a `SearchResult` into something a list widget can draw."""
+def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70,
+           search_id: Optional[int] = None) -> ResultRow:
+    """Turn a `SearchResult` into something a list widget can draw.
+
+    `search_id`: the logged search it came from (2026-10-04, code review)."""
     page = getattr(result, "page", None)
     # **The cell wins over the sheet number.** For a spreadsheet `page` is the
     # sheet *index*, so "page 3" is both true and useless - it names a thing
@@ -173,6 +182,7 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70) -> Result
         volume_id=(int(result.volume_id) if getattr(result, "volume_id", None) is not None
                    else None),
         relative_path=str(getattr(result, "relative_path", "") or ""),
+        search_id=search_id,
     )
 
 

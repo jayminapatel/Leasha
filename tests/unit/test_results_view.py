@@ -298,3 +298,42 @@ def test_the_whole_row_still_toggles_by_activation(qtbot):
     assert 1 in view._expanded
     view._on_activated(view._model.index(0, 0))
     assert 1 not in view._expanded
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-04, code review: one insert, and the selection put back after it
+# ---------------------------------------------------------------------------
+
+def test_a_rebuild_inserts_once_and_does_not_reselect_the_same_row(qtbot):
+    """`_rebuild` appended row by row and set the current index inside the
+    loop - every repaint (a tier, the details redraw, a chevron) fired
+    `selected` mid-fill and the pane started a read before the list was
+    whole."""
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1), result(2, 2), result(3, 3)], ["pump"])
+    view._list.setCurrentIndex(view._model.index(1, 0))
+    inserts: list = []
+    selected: list = []
+    view._model.rowsInserted.connect(lambda *_a: inserts.append(1))
+    view.selected.connect(selected.append)
+
+    view._rebuild()                               # a preference toggled
+
+    assert inserts == [1], "the rows went in at once"
+    assert selected == [], "the same row: the pane has nothing new to read"
+    assert view.current_row().file_id == 2
+
+
+def test_a_redraw_with_new_words_reselects_once_after_the_fill(qtbot):
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1), result(2, 2)], ["pump"], search_id=1)
+    view._list.setCurrentIndex(view._model.index(1, 0))
+    seen: list = []
+    view.selected.connect(lambda row: seen.append(
+        (row.file_id if row else None, view._model.rowCount())))
+
+    view.show_results([result(1, 1), result(2, 2)], ["pump"], keep_scroll=True, search_id=2)
+
+    assert seen == [(2, 3)], "once, with the list whole (two rows and the terminator)"

@@ -363,8 +363,8 @@ class SearchView(QWidget):
         # of query text still starts at the top, unchanged from before.
         raw = response.parsed.raw if response.parsed else ""
         keep_scroll = bool(raw) and raw == self._shown_query
-        self.results.show_results(response.results, terms, summary=summary,
-                                  register=register, keep_scroll=keep_scroll)
+        self.results.show_results(response.results, terms, summary=summary, register=register,
+                                  keep_scroll=keep_scroll, search_id=response.search_id)
         self._shown_query = raw
 
         generation = self._shown_generation
@@ -383,6 +383,9 @@ class SearchView(QWidget):
         """Translate the sentence in the box, then search what it produced."""
         interpret_into(self)
 
+    # Dated note, 2026-10-04, code review: the id is no longer read from
+    # `_last_search_id` at the click - each row carries its own search's
+    # (`ResultRow.search_id`, stamped by `show_results` above).
     def _on_opened(self, row: Any) -> None:
         """The click is the label: this result was the useful one.
 

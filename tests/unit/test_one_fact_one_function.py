@@ -283,3 +283,16 @@ def test_one_size_formatter_everywhere():
         assert (format_size(value) == size_words(value) == space_words(value)
                 == inheritance_words(value))
     assert format_size(three_tb) == "3.0 TB"
+
+
+
+def test_a_message_out_of_an_mbox_or_olm_is_never_called_by_its_key():
+    """2026-10-04, code review: the key was told by the extension, so an
+    unnamed mbox message showed "123" and an `.olm` one "message_00001.xml"."""
+    from app.ui.presenter import display_name
+
+    assert display_name("", r"D:\mail\home.mbox/123") == "Message"
+    assert display_name("", r"D:\mail\w.olm/Accounts/x/Inbox/message_00001.xml") == "Message"
+    assert display_name("", r"D:\Inbox.mbox\mbox/7", "", "eml") == "Message"
+    assert display_name("", r"D:\photos\2024/123", "", "file") == "123"
+    assert display_name("Trip", r"D:\mail\home.mbox/123") == "Trip"
