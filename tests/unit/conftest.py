@@ -96,6 +96,18 @@ class _FakeReranker:
         pass
 
 
+@pytest.fixture(scope="session", autouse=True)
+def no_models_listed_or_loaded_unasked():
+    """2026-10-04: a test window never lists Ollama's models or loads a chat model
+    ahead of a question (`chat_controller.BACKGROUND_MODELS`) - the test env names
+    the real `127.0.0.1:11434`, and a test must not need, or reach, a real Ollama.
+    A test of those features turns it back on, or hands in a `menu_factory`."""
+    from app.ui.controllers import chat_controller
+
+    chat_controller.BACKGROUND_MODELS = False
+    yield
+
+
 @pytest.fixture(scope="module")
 def gui_mainwindow(tmp_path_factory):
     """`(app, window, store, engine)` - see the module docstring."""

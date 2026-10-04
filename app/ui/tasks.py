@@ -1362,3 +1362,79 @@ def resolve_open_path(store: Any, row: Any) -> str:
             details="Volume not currently connected.",
         )
     return str(resolved)
+
+
+def answer_model_menu(settings: Any, engine: str = "", ollama_name: str = "", *,
+                      ollama: bool = True) -> dict:
+    r"""Every model that can answer, and the one Settings would use. **Worker.**
+
+    2026-10-04, the owner: "if multiple models are available they should be listed
+    so they can be changed at chat or search time". For the Chat tab's drop-down and
+    Interpret's menu on the Search page: the ONNX chat models that are downloaded
+    (the catalogue, then the disk) and Ollama's installed text models (`/api/tags`,
+    a local request that fails quickly when Ollama is not running).
+
+    `engine` and `ollama_name` say what the caller uses now ("" for Settings'); the
+    answer's `"default"` is that model's option. `"free_mb"` is the memory free right
+    now, for loading a model ahead of time. `ollama=False` leaves Ollama unasked - the
+    start-up preload when nothing in use is Ollama's. Never raises.
+    """
+    from app.chat.llm import probe_installed
+    from app.chat.roles import InstalledModels, answer_options, default_option
+    from app.llm.engines import engine_of
+
+    onnx_rows: list[tuple[str, str, int]] = []
+    serving = ""
+    cache = getattr(settings, "model_cache", None)
+    try:
+        from app.ort import catalogue, hub
+
+        if cache:
+            rows = catalogue.load().for_job("chat")
+            for entry in [e for e in rows if e.is_verified] + [e for e in rows if not e.is_verified]:
+                if hub.resolve(entry.model(), Path(cache)) is not None:
+                    onnx_rows.append((entry.key, entry.label, int(entry.approx_mb)))
+            found = catalogue.best("chat", Path(cache))
+            serving = found[0].key if found is not None else ""
+    except Exception as exc:                     # noqa: BLE001 - Ollama's may still be listed
+        _log.debug("the downloaded chat models could not be listed: {}", exc)
+    installed = probe_installed(
+        str(getattr(settings, "ollama_url", "") or "http://127.0.0.1:11434"),
+        timeout=3.0) if ollama else InstalledModels()
+    options = answer_options(onnx_rows, installed)
+    free_mb = 0
+    try:
+        import psutil
+
+        free_mb = int(psutil.virtual_memory().available / 1024 ** 2)
+    except Exception as exc:                     # noqa: BLE001 - unknown means "do not preload"
+        _log.debug("free memory unknown: {}", exc)
+    name = ollama_name or str(getattr(settings, "ollama_model", "") or "")
+    return {"options": options, "free_mb": free_mb,
+            "default": default_option(options, engine or engine_of(settings), serving, name)}
+
+
+def interpret_client(settings: Any, value: str, *, warm: bool = False) -> Any:
+    """The client Interpret talks to for a model picked on the Search page, loaded
+    when `warm` (2026-10-04). **Worker** - an ONNX model is looked up in the
+    catalogue and may load 1-2 GB. `None` for a value that names no model."""
+    from types import SimpleNamespace
+
+    from app.chat.roles import parse_option
+    from app.llm.engines import text_model
+
+    engine, name = parse_option(value)
+    if not engine:
+        return None
+    chosen = SimpleNamespace(
+        chat_engine=engine, model_cache=getattr(settings, "model_cache", None),
+        embed_device=getattr(settings, "embed_device", "auto"),
+        ollama_url=getattr(settings, "ollama_url", "http://127.0.0.1:11434"), ollama_model=name)
+    client = text_model(chosen, name if engine == "ollama" else "",
+                        onnx_model=name if engine == "onnx" else "")
+    if warm and hasattr(client, "warm"):
+        try:
+            client.warm()
+        except Exception as exc:                 # noqa: BLE001 - the first press pays instead
+            _log.debug("Interpret's model was not warmed: {}", exc)
+    return client

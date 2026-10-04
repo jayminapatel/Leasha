@@ -97,6 +97,9 @@ class ChatSettings:
     #: `onnx` - the chat model inside Leasha (`app/ort/llm.py`) - or `ollama`
     #: (`CHAT_ENGINE`, 2026-09-29), and the model folder and processor it uses.
     engine: str = "onnx"
+    #: 2026-10-04: the ONNX model picked on the Chat tab (a catalogue key), or "" for
+    #: the one Settings would choose. Never read from `.env`; the tab hands it over.
+    onnx_model: str = ""
     model_cache: str = ""
     device: str = "auto"
     #: Documents put in front of the answering model, at most.

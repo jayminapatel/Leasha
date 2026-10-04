@@ -63,6 +63,17 @@ JSON_SYSTEM = ("You are a helpful assistant. Reply with one JSON object and noth
 #: was asked for (`OLLAMA_DEFAULT_CONTEXT`), so budgets stay as they were.
 CONTEXT_TOKENS = 4096
 
+#: How many prompts' starts are kept (2026-10-04, the owner: "the chat is really
+#: slow"). One was kept before, so a Chat turn - router, then the answer, then the
+#: next question's router - threw each away just before it was wanted again: the
+#: answer's 456 tokens of standing instructions were read afresh every question
+#: (about 14 s on the owner's laptop) and the router's 85 every time (about 2.5 s).
+#: Three covers the router, the planner and the answer; Interpret shares the client.
+PREFIX_SLOTS = 3
+#: ...and at most this much memory for them (Qwen 2.5 1.5B: 56 KB a token, so a
+#: full 4096-token prompt is 230 MB). The newest is always kept.
+PREFIX_BUDGET_BYTES = 384 * 1024 ** 2
+
 
 def chatml(messages: Sequence[Mapping[str, str]], *, system: Optional[str] = None) -> str:
     """Qwen's chat format, ending with an open assistant turn."""
@@ -221,6 +232,8 @@ class OnnxLLM:
         self._asked = self._model if model and hub.by_key(model) is not None else ""
         self._loaded: Optional[_Loaded] = None
         self._loaded_key = ""
+        #: The catalogue key of the copy that was loaded ("" before) - `serves`.
+        self._serving = ""
         self._load_error: Optional[BaseException] = None
         self._lock = threading.Lock()          # loading
         self._busy = threading.Lock()          # one reply at a time
@@ -265,6 +278,17 @@ class OnnxLLM:
         """
         found = hub.resolve_any(self._copies(), self.cache_dir)
         return found[0].label if found is not None else ""
+
+    def serves(self, key: str) -> bool:
+        """Whether `key` is the copy this client answers with: the one loaded, or the
+        one it would load (2026-10-04, so a model picked by name that is already the
+        shared one is not loaded twice). Reads the disk - worker threads only."""
+        if not key:
+            return False
+        if self._loaded is not None and self._loaded_key == self._model:
+            return self._serving == key
+        found = hub.resolve_any(self._copies(), self.cache_dir)
+        return found is not None and found[0].key == key
 
     def health(self, *, force: bool = False) -> bool:
         """Up means "can answer": the model is downloaded and did not fail to load."""
@@ -337,6 +361,7 @@ class OnnxLLM:
                 started = time.monotonic()
                 self._loaded = _Loaded(folder, spec, self.device, self._format_of(spec.key))
                 self._loaded_key = self._model      # the choice, whichever copy served it
+                self._serving = spec.key
                 self._load_error = None
                 _log.info("{} loaded in {:.1f}s on the {}", spec.key, time.monotonic() - started,
                           "graphics card" if self._loaded.on_gpu else "processor")
@@ -386,11 +411,12 @@ class OnnxLLM:
             # the part this prompt shares with it, and only the rest is read.
             # Exact for the 4-bit model: its cached and recomputed answers agree
             # token for token (the int8 copy's did not - see `hub.QWEN_1_5B_Q4`).
-            reuse = self._shared_prefix(loaded, ids)
+            # 2026-10-04: from whichever of the kept prompts shares the most.
+            reuse, kept = self._shared_prefix(loaded, ids)
             loaded.decoder.reset()
             if reuse:
                 loaded.decoder.past = {name: value[:, :, :reuse, :]
-                                       for name, value in self._prefix_past.items()}
+                                       for name, value in kept.items()}
             captured = {"done": False}
 
             def step(new_ids: list[int], position: int) -> np.ndarray:
@@ -404,8 +430,7 @@ class OnnxLLM:
                 if not captured["done"]:
                     # The cache right after the whole prompt, before any reply.
                     captured["done"] = True
-                    self._prefix_ids = list(ids)
-                    self._prefix_past = dict(loaded.decoder.past)
+                    self._keep_prefix(ids, dict(loaded.decoder.past))
                 return logits
 
             produced: list[int] = []
@@ -420,20 +445,41 @@ class OnnxLLM:
                     piece, shown = text[len(shown):], text
                     yield piece
 
-    def _shared_prefix(self, loaded: Any, ids: list[int]) -> int:
-        """How many leading tokens of `ids` the kept cache already holds. At least
-        one token is always left to read, so the model has something to answer."""
-        previous = getattr(self, "_prefix_ids", None)
-        if not previous or getattr(self, "_prefix_owner", None) is not loaded:
+    def _shared_prefix(self, loaded: Any, ids: list[int]) -> tuple[int, dict]:
+        """`(n, cache)`: how many leading tokens of `ids` a kept prompt already holds,
+        and that prompt's cache - the kept prompt sharing the most. At least one token
+        is always left to read, so the model has something to answer."""
+        if getattr(self, "_prefix_owner", None) is not loaded:
             self._prefix_owner = loaded
-            self._prefix_ids, self._prefix_past = [], {}
-            return 0
-        shared = 0
-        for a, b in zip(previous, ids):
-            if a != b:
-                break
-            shared += 1
-        return min(shared, len(ids) - 1)
+            self._slots: list[tuple[list[int], dict]] = []
+            return 0, {}
+        best, cache = 0, {}
+        for previous, past in self._slots:
+            shared = 0
+            for a, b in zip(previous, ids):
+                if a != b:
+                    break
+                shared += 1
+            if shared > best:
+                best, cache = shared, past
+        return min(best, len(ids) - 1), cache
+
+    def _keep_prefix(self, ids: list[int], past: dict) -> None:
+        """Keep this prompt's cache, newest last. A kept prompt that is the start of
+        this one is dropped (this one serves every prompt it served); the oldest go
+        when there are more than `PREFIX_SLOTS` or they pass `PREFIX_BUDGET_BYTES`."""
+        ids = list(ids)
+        slots = [(old, kept) for old, kept in getattr(self, "_slots", [])
+                 if ids[:len(old)] != old]
+        slots.append((ids, past))
+
+        def size(kept: dict) -> int:
+            return sum(int(getattr(v, "nbytes", 0)) for v in kept.values())
+
+        while len(slots) > 1 and (len(slots) > PREFIX_SLOTS
+                                  or sum(size(k) for _i, k in slots) > PREFIX_BUDGET_BYTES):
+            slots.pop(0)
+        self._slots = slots
 
     @staticmethod
     def _until_stop(pieces: Iterator[str], stop: Optional[list[str]]) -> Iterator[str]:

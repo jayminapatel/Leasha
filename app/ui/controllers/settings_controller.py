@@ -397,6 +397,10 @@ class SettingsController(QObject):
         a stale "yes" would let a generate call proceed against a model that is
         not installed, failing several seconds later for no visible reason.
         """
+        # 2026-10-04: a model chosen here wins over the one picked on the Search page.
+        picker = getattr(self._w, "interpret_ctl", None)
+        if picker is not None:
+            picker.settings_chose(model)
         self._w._translator.reconfigure(
             model=model or None, timeout_s=float(timeout_s), enabled=enabled)
         save_states(self._w._store, {

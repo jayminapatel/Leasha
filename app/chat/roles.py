@@ -35,6 +35,8 @@ __all__ = [
     "RoleModels", "resolve_roles", "suggest_modes", "SMALL_MODEL_B", "AFFORDABLE_MAX_B",
     "InstalledModels", "is_vision_name", "size_of", "ram_line", "NO_VISION_MODEL_LINE",
     "OLLAMA_UNREACHABLE_LINE", "MEMORY_OVERHEAD",
+    "ModelOption", "option_value", "parse_option", "answer_options", "default_option",
+    "fits_in_memory", "PRELOAD_SHARE",
 ]
 
 #: A model this size or smaller may play router/planner.
@@ -258,3 +260,99 @@ def ram_line(models: Sequence[str], sizes: Mapping[str, int], ram_mb: int = 0) -
     if left_out:
         text += f" (No size is known for {', '.join(left_out)}, so it is not counted.)"
     return text
+
+
+# ---------------------------------------------------------------------------
+# Choosing the answering model at chat or search time (2026-10-04)
+# ---------------------------------------------------------------------------
+# The owner: "if multiple models are available they should be listed so they can
+# be changed at chat or search time". One list for the Chat tab's drop-down and for
+# Interpret's on the Search page: every model that can write an answer - the ones
+# inside Leasha (ONNX) that are downloaded, and Ollama's installed text models.
+
+ONNX_PREFIX = "onnx:"
+OLLAMA_PREFIX = "ollama:"
+
+
+@dataclass(frozen=True)
+class ModelOption:
+    """One model a person can pick. `value` names the runner and the model."""
+
+    value: str
+    label: str
+    size_bytes: int = 0
+
+    @property
+    def engine(self) -> str:
+        return parse_option(self.value)[0]
+
+    @property
+    def name(self) -> str:
+        return parse_option(self.value)[1]
+
+
+def option_value(engine: str, name: str) -> str:
+    """`"onnx:<catalogue key>"` or `"ollama:<installed name>"`; "" with no name."""
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    return (ONNX_PREFIX if str(engine).strip().lower() == "onnx" else OLLAMA_PREFIX) + name
+
+
+def parse_option(value: str) -> tuple[str, str]:
+    """`(engine, name)` from an option's value; `("", "")` for anything else."""
+    text = str(value or "").strip()
+    for prefix in (ONNX_PREFIX, OLLAMA_PREFIX):
+        if text.startswith(prefix) and len(text) > len(prefix):
+            return prefix[:-1], text[len(prefix):]
+    return "", ""
+
+
+def answer_options(onnx: Sequence[tuple[str, str, int]],
+                   installed: InstalledModels) -> list[ModelOption]:
+    """Every model that can answer, inside Leasha first, then Ollama's smallest first.
+
+    `onnx` is `(catalogue key, label, approx MB)` for each downloaded chat copy.
+    Ollama's picture readers are left out by *name* (`llava` and its kind are
+    Describe's), not by Ollama's `vision` capability: a model that also reads
+    pictures - `gemma4` - is still a chat model. Models that only make vectors are
+    left out too (`probe_installed` drops those already)."""
+    out = [ModelOption(option_value("onnx", key), f"{label} · in Leasha · {_gb(mb * 1024 ** 2)}",
+                       int(mb) * 1024 ** 2)
+           for key, label, mb in onnx if key]
+    for choice in rank(installed.names):
+        if not choice.selectable or is_vision_name(choice.name):
+            continue
+        size = size_of(choice.name, installed.sizes)
+        where = f"Ollama · {_gb(size)}" if size else "Ollama"
+        out.append(ModelOption(option_value("ollama", choice.name), f"{choice.name} · {where}",
+                               size))
+    return out
+
+
+def default_option(options: Sequence[ModelOption], engine: str, onnx_key: str = "",
+                   ollama_name: str = "") -> str:
+    """The option Settings would use now, so the drop-down starts on it: the ONNX copy
+    that serves, or the configured Ollama model (`mistral` finds `mistral:latest`).
+    "" when it is not among the options."""
+    if str(engine).strip().lower() == "onnx":
+        wanted = option_value("onnx", onnx_key)
+        return wanted if any(o.value == wanted for o in options) else ""
+    names = [o.name for o in options if o.engine == "ollama"]
+    hit = _installed_match(ollama_name, names)
+    return option_value("ollama", hit) if hit else ""
+
+
+#: Share of the memory free right now that a model loaded ahead of time may take.
+#: The same 60% `ram_line` calls comfortable, against what is free rather than
+#: what is fitted, because the point is not to push the index run into swap.
+PRELOAD_SHARE = 0.6
+
+
+def fits_in_memory(size_bytes: int, free_mb: int) -> bool:
+    """Whether a model of `size_bytes` may be loaded before anybody asks for it.
+    Unknown size or unknown free memory: no - loading ahead is a courtesy, and a
+    courtesy that pushes the machine into swap is not one."""
+    if size_bytes <= 0 or free_mb <= 0:
+        return False
+    return size_bytes * MEMORY_OVERHEAD <= free_mb * 1024 ** 2 * PRELOAD_SHARE

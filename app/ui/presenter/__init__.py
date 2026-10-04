@@ -369,6 +369,8 @@ _TASK_NAMES = frozenset({
     "browse_messages_typed",
     "code_rows_typed",
     "_respelt",
+    "answer_model_menu",
+    "interpret_client",
 })
 
 

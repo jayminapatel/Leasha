@@ -526,8 +526,14 @@ def _build_more(view: Any, interpret: QAction, rerank: QAction) -> tuple:
     from PyQt6.QtCore import Qt
     from PyQt6.QtWidgets import QMenu, QToolButton
 
+    from app.ui.widgets.model_picker import ModelMenu
+
     menu = QMenu(view)
     menu.addAction(interpret)
+    # 2026-10-04: which model Interpret uses, under it; filled by `InterpretModels`.
+    view.interpret_models = ModelMenu(menu)
+    view.interpret_models.follow(interpret)
+    menu.addMenu(view.interpret_models)
     menu.addAction(rerank)
     button = QToolButton(view)
     button.setObjectName("moreButton")

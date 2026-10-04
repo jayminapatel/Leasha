@@ -96,6 +96,18 @@ class LLM(Protocol):
     def context_window(self) -> int: ...
 
 
+def _takes(method: Any, keyword: str) -> bool:
+    """Whether `method` accepts `keyword` (a test double's `generate` may not)."""
+    import inspect  # noqa: PLC0415
+
+    try:
+        params = inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return False
+    return keyword in params or any(p.kind is inspect.Parameter.VAR_KEYWORD
+                                    for p in params.values())
+
+
 class OllamaLLM:
     """`OllamaClient`, plus streaming and the model's real context window.
 
@@ -137,9 +149,17 @@ class OllamaLLM:
         return list(self.client.available_models())
 
     def warm(self, **kwargs: Any) -> bool:
+        if _takes(self.client.warm, "num_ctx"):
+            kwargs.setdefault("num_ctx", self.num_ctx)
         return bool(self.client.warm(**kwargs))
 
     def generate(self, prompt: str, **kwargs: Any) -> Any:
+        # 2026-10-04: with the window `chat_stream` uses. Without it the router's and
+        # the planner's calls ran at Ollama's default and the answer at `num_ctx`, and
+        # Ollama reloads a model every time the window changes (3.9-4.9 s each,
+        # measured on qwen2.5:1.5b) - twice a question.
+        if _takes(self.client.generate, "num_ctx"):
+            kwargs.setdefault("num_ctx", self.num_ctx)
         return self.client.generate(prompt, **kwargs)
 
     # -- the window ----------------------------------------------------------
