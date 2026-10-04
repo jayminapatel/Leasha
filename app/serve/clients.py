@@ -24,12 +24,14 @@ a command can use the same entry - `bridge_entry`, under "Other programs".
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import re
 import shutil
 import sys
-import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -120,9 +122,33 @@ def is_connected(program: Program) -> bool:
         return False
 
 
+#: Backups of one settings file kept: the oldest (the file as it was before
+#: Leasha first touched it) and this many of the newest.
+KEEP_BACKUPS = 3
+
+
+def _refuse_without_command(program: Program) -> None:
+    r"""A program that rewrites its own file while it runs (`command` set) is
+    never edited beside it. 2026-10-04, code review: without the `claude`
+    command on PATH, Connect fell back to rewriting `~/.claude.json` - which
+    Claude Code may be rewriting at that moment, so either write could be lost.
+    """
+    if program.command and not _own_command(program):
+        raise AppErrorException(make_error(
+            "ERR_MCP_CONFIG", "serve.clients", path=str(program.path()),
+            details=f"{program.name} changes this file itself while it runs, and its "
+                    f"'{program.command}' command was not found on this computer's PATH, "
+                    "so Leasha did not edit it.",
+            suggestion=(f"Use \"Copy address and key\" below and add Leasha in "
+                        f"{program.name} yourself, or make its '{program.command}' "
+                        "command available and press Connect again. Nothing in the file "
+                        "was changed.")))
+
+
 def connect(program: Program, url: str, key: str) -> Path | None:
     """Put Leasha's entry in `program`'s settings file. Returns the backup's
     path (None when there was no file before). **Worker thread.**"""
+    _refuse_without_command(program)
     if _own_command(program):
         # Remove first: an entry left from an earlier port or key is replaced, not kept.
         backup = _by_command(program, ["remove", "--scope", "user", ENTRY_NAME], check=False)
@@ -148,6 +174,7 @@ def disconnect(program: Program) -> Path | None:
 
     if not program.path().is_file():
         return None
+    _refuse_without_command(program)
     if _own_command(program):
         return _by_command(program, ["remove", "--scope", "user", ENTRY_NAME], check=False)
     return _rewrite(program.path(), change)
@@ -172,20 +199,58 @@ def _by_command(program: Program, arguments: list[str], *, check: bool = True,
     except (OSError, subprocess.SubprocessError) as exc:
         raise AppErrorException(make_error(
             "ERR_MCP_CONFIG", "serve.clients", path=str(path),
-            details=f"{type(exc).__name__}: {exc}")) from exc
+            # A timeout's message quotes the command, header and all.
+            details=_redact(f"{type(exc).__name__}: {exc}"))) from None
     if check and done.returncode != 0:
+        # The key never reaches an error message or the log (2026-10-04, code
+        # review): the program's own output may echo the header it was given.
         raise AppErrorException(make_error(
             "ERR_MCP_CONFIG", "serve.clients", path=str(path),
-            details=(done.stderr or done.stdout).strip()[:400]))
+            details=_redact((done.stderr or done.stdout).strip())[:400]))
     return saved
 
 
+def _redact(text: str) -> str:
+    """`Bearer <key>` as `Bearer ...`, wherever it appears."""
+    return re.sub(r"(?i)(Bearer\s+)\S+", r"\1...", str(text or ""))
+
+
 def _backup(path: Path) -> Path | None:
+    r"""A copy beside `path`, named to the microsecond, then old copies pruned.
+
+    2026-10-04, code review: named to the second, two Connects in one second
+    wrote the second backup over the first; and none was ever removed, so
+    every Connect and Disconnect left one more. `KEEP_BACKUPS` of the newest
+    are kept, and always the oldest - the file before Leasha first changed it.
+    """
     if not path.is_file():
         return None
-    backup = path.with_name(f"{path.name}.leasha-backup-{time.strftime('%Y%m%d-%H%M%S')}")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    backup = path.with_name(f"{path.name}.leasha-backup-{stamp}")
+    suffix = 1
+    while backup.exists():
+        backup = path.with_name(f"{path.name}.leasha-backup-{stamp}-{suffix}")
+        suffix += 1
     shutil.copy2(path, backup)
+    _prune_backups(path)
     return backup
+
+
+def _prune_backups(path: Path) -> None:
+    """Keep the oldest backup and the `KEEP_BACKUPS` newest. Never raises."""
+    # Ordered by name - the time it was made, oldest first (an older
+    # to-the-second name sorts before the same second's newer ones). Not by
+    # the file's modified time: `copy2` keeps the settings file's own.
+    try:
+        backups = sorted(path.parent.glob(f"{glob.escape(path.name)}.leasha-backup-*"),
+                         key=lambda found: found.name)
+    except OSError:
+        return
+    for stale in backups[1:-KEEP_BACKUPS] if len(backups) > KEEP_BACKUPS + 1 else ():
+        try:
+            stale.unlink()
+        except OSError:
+            continue
 
 
 def _rewrite(path: Path, change: Any) -> Path | None:

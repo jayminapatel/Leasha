@@ -18,6 +18,7 @@ a failed search.
 
 from __future__ import annotations
 
+import stat
 from pathlib import Path
 from typing import Any, Optional
 
@@ -76,8 +77,16 @@ def missing_paths(paths: Any) -> set[str]:
     is a real finding that must still be shown.
     """
     missing = set()
-    for path in paths or ():
-        text = str(path or "")
+    # 2026-10-04, code review: **each path, folder and drive is asked once per
+    # call.** The window hands in one row per *passage*, so a document matching
+    # five times was statted five times; and a missing row walked every parent
+    # folder, per row, with nothing remembered - on a share that has gone away
+    # that is fifty rows times the folder depth, each a network timeout.
+    # `seen` remembers every answer; a drive or share root that does not
+    # answer marks everything under it missing without asking again.
+    seen: dict[Path, Optional[bool]] = {}
+    # `dict.fromkeys`: each distinct path once, in order.
+    for text in dict.fromkeys(str(path or "") for path in paths or ()):
         # A message lives inside a .pst and has no file of its own; statting a
         # synthetic key would report every message as missing.
         # 2026-10-04: any `scheme://` key (a catalogued drive's too), not only
@@ -85,21 +94,37 @@ def missing_paths(paths: Any) -> set[str]:
         if not text or "://" in text:
             continue
         try:
-            if not Path(text).exists() and not _inside_a_file(Path(text)):
+            path = Path(text)
+            if path.anchor and _kind(Path(path.anchor), seen) is None:
+                missing.add(text)                # the drive or share is not there
+            elif _kind(path, seen) is None and not _inside_a_file(path, seen):
                 missing.add(text)
-        except OSError:
+        except (OSError, ValueError):
             continue
     return missing
 
 
-def _inside_a_file(path: Path) -> bool:
+def _kind(path: Path, seen: dict) -> Optional[bool]:
+    """`True` a file, `False` a folder, `None` not there - one stat, remembered."""
+    if path not in seen:
+        try:
+            seen[path] = stat.S_ISREG(path.stat().st_mode)
+        except (OSError, ValueError):
+            seen[path] = None
+    return seen[path]
+
+
+def _inside_a_file(path: Path, seen: Optional[dict] = None) -> bool:
     """Whether `path` names something inside a file that is there - a member of
     a zip (`D:\\a.zip/q3/report.docx`) or a message in an mbox. 2026-10-04: each
     was marked missing, so the menu offered "re-index" for a file that opens.
-    Only reached for a path that does not exist, so a found file costs nothing."""
+    Only reached for a path that does not exist, so a found file costs nothing.
+    `seen` is `missing_paths`' memo, so rows sharing a folder share its stats."""
+    seen = {} if seen is None else seen
     for parent in path.parents:
-        if parent.exists():
-            return parent.is_file()
+        kind = _kind(parent, seen)
+        if kind is not None:
+            return kind
     return False
 
 

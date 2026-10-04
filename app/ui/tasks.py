@@ -104,14 +104,17 @@ def decorate_results(store: Any, results: Any) -> dict:
     # A drive's name rides in with the mail details (2026-10-04): a row on a
     # catalogued drive is never mail, so the two never share a key.
     details = {**volume_labels(store, results), **mail_details(store, results)}
+    missing = missing_paths(
+        getattr(row, "path", "") for row in results or ()
+        if getattr(row, "volume_id", None) is None
+    )
     return {
         "details": details,
-        "missing": missing_paths(
-            getattr(row, "path", "") for row in results or ()
-            if getattr(row, "volume_id", None) is None
-        ),
+        "missing": missing,
         "volumes": volumes,
-        "placeholders": placeholder_marks(results),
+        # 2026-10-04, code review: the missing set is reused - a path already
+        # known gone (or on a share that did not answer) is not statted again.
+        "placeholders": placeholder_marks(results, skip=missing),
         # The Status word per row - one batched read, and the offline answer
         # the line above already paid for rather than a second volume check.
         "statuses": result_statuses(store, results, offline=volumes),
@@ -348,7 +351,7 @@ def offline_volume_marks(store: Any, results: Any) -> dict[int, dict]:
     }
 
 
-def placeholder_marks(results: Any) -> set[str]:
+def placeholder_marks(results: Any, *, skip: Any = ()) -> set[str]:
     r"""202626270514 3d: which of this page's rows are cloud placeholders
     *right now* - a OneDrive/SharePoint file with Files On-Demand set,
     never hydrated (or dehydrated again since). "3a, the per-file
@@ -370,12 +373,16 @@ def placeholder_marks(results: Any) -> set[str]:
     from app.core import winfs
 
     marks: set[str] = set()
+    # 2026-10-04, code review: each path once (the page is one row per
+    # passage), none of `skip` (paths already found missing), no `scheme://`.
+    asked: set[str] = set(skip or ())
     for row in results or ():
         if getattr(row, "volume_id", None) is not None:
             continue
         text = str(getattr(row, "path", "") or "")
-        if not text or text.startswith("pst://"):
+        if not text or "://" in text or text in asked:
             continue
+        asked.add(text)
         try:
             if winfs.is_cloud_placeholder(Path(text)):
                 marks.add(text)

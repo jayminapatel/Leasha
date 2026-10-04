@@ -128,7 +128,11 @@ def _mcp(settings, text: str) -> dict:
     from app.serve.mcp import IndexTools
     from tests.unit.conftest import _NoModel
 
-    return IndexTools(settings, lambda: (_NoModel(), None, None)).search(text, limit=50)
+    tools = IndexTools(settings, lambda: (_NoModel(), None, None))
+    try:
+        return tools.search(text, limit=50)
+    finally:
+        tools.close()               # 2026-10-04: the server keeps its index open
 
 
 def _shared(settings, text: str):
@@ -357,6 +361,133 @@ def test_the_list_tabs_read_with_the_windows_switches(qapp):
         source = (Path(__file__).resolve().parents[2] / "app" / "ui" / name).read_text(
             encoding="utf-8")
         assert "**self.chips.reading()" in source, name
+
+
+def test_history_rows_come_after_the_capped_documents_and_are_never_statted(monkeypatch):
+    r"""2026-10-04, code review: the cap was applied to index and history rows
+    together, so with `limit` index documents the history rows - whose `git`
+    had already run - never showed; and each was statted and could read
+    "missing"."""
+    from app.search import marks
+    from app.search.engine import SearchResult
+    from app.search.run import documents
+
+    def hit(file_id, rank, path=None):
+        return SearchResult(chunk_id=rank, file_id=file_id,
+                            path=path or f"C:/nowhere/{file_id}.txt",
+                            text=f"passage {rank}", score=1.0 / rank, rank=rank)
+
+    statted: list = []
+    real = marks.missing_paths
+    monkeypatch.setattr(marks, "missing_paths",
+                        lambda paths: statted.extend(paths) or real(()))
+    index = [hit(1, 1), hit(2, 2), hit(3, 3)]
+    history = [hit(-4, 4, "repo@abc123"), hit(-5, 5, "repo@def456")]
+    found = documents(index, store=object(), limit=2, history=history)
+    assert [d.best.file_id for d in found] == [1, 2, -4, -5]
+    assert [d.rank for d in found] == [1, 2, 3, 4]
+    assert {d.best.file_id: d.status for d in found}[-4] == "ok"
+    assert not any("repo@" in str(p) for p in statted), "a history row was statted"
+
+
+def test_run_search_asks_the_engine_for_the_windows_depth(index, monkeypatch):
+    r"""2026-10-04, code review: a limit of 20 asked for 80 chunks while the
+    Search tab asks for the engine's own 50, so `/newest` could list different
+    documents. And history is appended after the cap."""
+    from app.search import run as run_module
+    from app.search.engine import SearchResult
+
+    _env, settings, _real = index
+    asked: list = []
+    history = [SearchResult(chunk_id=0, file_id=-9, path="repo@abc", text="x", score=0.0,
+                            rank=99)]
+    monkeypatch.setattr(run_module, "git_results", lambda *a, **k: list(history))
+    with _engine(settings) as engine:
+        real_search = engine.search
+
+        def search(raw, **options):
+            asked.append(options)
+            return real_search(raw, **options)
+
+        engine.search = search
+        found = run_module.run_search(engine, "report", limit=1)
+    assert "limit" not in asked[0], "the engine was asked for a different depth"
+    assert [d.best.file_id for d in found.documents][-1] == -9
+    assert len(found.documents) == 2
+
+
+def test_a_missing_page_stats_each_path_and_folder_once(tmp_path, monkeypatch):
+    r"""2026-10-04, code review: the window hands in one row per passage, and a
+    missing row walked every parent folder per row with nothing remembered -
+    on a share that has gone, fifty rows times the folder depth, each a timeout."""
+    import pathlib
+
+    from app.search.marks import missing_paths
+
+    counted: list = []
+    real_stat = pathlib.Path.stat
+
+    def stat(self, *a, **k):
+        counted.append(str(self))
+        return real_stat(self, *a, **k)
+
+    monkeypatch.setattr(pathlib.Path, "stat", stat)
+    deep = tmp_path / "gone" / "a" / "b" / "c"
+    paths = [str(deep / f"file{i}.txt") for i in range(50)] * 3        # passages
+    assert missing_paths(paths) == set(paths)
+    assert len(counted) == len(set(counted)), "a path or folder was statted twice"
+    assert len(counted) <= 50 + 6, f"{len(counted)} stats for 50 files in one folder"
+
+
+def test_rows_on_a_drive_that_is_not_there_cost_one_stat(monkeypatch):
+    import os
+    import pathlib
+
+    from app.search.marks import missing_paths
+
+    letter = next((d for d in "QXYZJKW" if not os.path.exists(f"{d}:\\")), None)
+    if letter is None or os.name != "nt":
+        pytest.skip("no unused drive letter here")
+    counted: list = []
+    real_stat = pathlib.Path.stat
+    monkeypatch.setattr(pathlib.Path, "stat",
+                        lambda self, *a, **k: counted.append(self) or real_stat(self, *a, **k))
+    paths = [f"{letter}:/share/projects/2019/file{i}.txt" for i in range(50)]
+    assert missing_paths(paths) == set(paths)
+    assert len(counted) == 1, "each row asked a drive that had already not answered"
+
+
+def test_the_list_does_not_ask_a_missing_file_whether_it_is_in_the_cloud(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.core import winfs
+    from app.ui.tasks import decorate_results
+
+    asked: list = []
+    monkeypatch.setattr(winfs, "is_cloud_placeholder", lambda p: asked.append(str(p)) or False)
+    here = tmp_path / "here.txt"
+    here.write_text("x", encoding="utf-8")
+    gone = str(tmp_path / "gone.txt")
+    rows = [SimpleNamespace(file_id=1, path=str(here), volume_id=None)] * 3 + \
+        [SimpleNamespace(file_id=2, path=gone, volume_id=None)] * 3
+    found = decorate_results(None, rows)
+    assert found["missing"] == {gone}
+    assert asked == [str(here)], "each passage, or a missing file, was asked again"
+
+
+def test_the_rerank_box_starts_as_the_engine_reranks():
+    r"""2026-10-04, code review: never touched, the toolbar box started unticked
+    while `RERANK_ENABLED=true` made the engine rerank."""
+    from types import SimpleNamespace
+
+    from app.search.run import rerank_choice
+
+    on, off = SimpleNamespace(rerank_enabled=True), SimpleNamespace(rerank_enabled=False)
+    assert rerank_choice("", on) is True and rerank_choice("", off) is False
+    assert rerank_choice("off", on) is False and rerank_choice(" ON ", off) is True
+    shell = (Path(__file__).resolve().parents[2] / "app" / "ui" / "shell.py").read_text(
+        encoding="utf-8")
+    assert shell.count("rerank_choice(") == 2 and "if stored_rerank:" not in shell
 
 
 def test_every_surface_calls_the_one_search():

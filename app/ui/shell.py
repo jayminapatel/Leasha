@@ -525,10 +525,13 @@ class MainWindow(QMainWindow):
         # saved, so the two disagreed from the first launch after anybody
         # changed it - and the toolbar is the one every search actually reads.
         stored_rerank = self._read_state("ui:rerank_enabled", "")
-        if stored_rerank:
-            # The toolbar's box is the Search page's, so it stays here; the
-            # Settings copy of it is set in `_construct_deferred_pages`.
-            self._set_toolbar_rerank(stored_rerank == "on")
+        # 2026-10-04, code review: never touched, the box follows
+        # `RERANK_ENABLED` as the engine does (`run.rerank_choice`), no new read.
+        from app.search.run import rerank_choice
+
+        # The toolbar's box is the Search page's, so it stays here; the
+        # Settings copy of it is set in `_construct_deferred_pages`.
+        self._set_toolbar_rerank(rerank_choice(stored_rerank, self._settings))
 
         self.tray = TrayPresence(self)
         self.tray.minimise_to_tray = self._read_state("ui:tray_minimise", "") == "on"
@@ -840,9 +843,11 @@ class MainWindow(QMainWindow):
             from app.ui.widgets.what_gets_read import gather_levers
             gather_levers(self.indexing_view.tuning.coverage, self.settings_view,
                           pst_backend=self._read_state("ui:pst_backend", "auto") or "auto")
-            stored_rerank = self._read_state("ui:rerank_enabled", "")
-            if stored_rerank:
-                self.settings_view.rerank.setChecked(stored_rerank == "on")
+            # 2026-10-04, code review: `.env`'s value when never touched.
+            from app.search.run import rerank_choice
+
+            self.settings_view.rerank.setChecked(rerank_choice(
+                self._read_state("ui:rerank_enabled", ""), self._settings))
             # Read again rather than taken from `self.tray`: `__init__` may since have
             # cleared those flags because the desktop has no notification area, and
             # this box shows what was *chosen*, as it always did.

@@ -152,6 +152,14 @@ class MiniSearch(QFrame):
         self._chip_kinds: list = []
         #: `None` for "all", or one of `_chip_kinds`.
         self._active_chip: Optional[str] = None
+        #: The saved searches, read once per summon on a worker; `None` until
+        #: that read lands (`run_search` then reads them itself). 2026-10-04,
+        #: code review: every 180 ms pause re-read them from the store.
+        self._saved: Optional[tuple] = None
+        #: The saved searches the last answer expanded - counted as run only
+        #: when Enter or a click opens one of its results (2026-10-04, code
+        #: review: each typing pause wrote a counter).
+        self._saved_names: tuple = ()
 
         self.setObjectName("miniSearch")
         self.setFrameShape(QFrame.Shape.StyledPanel)
@@ -234,6 +242,7 @@ class MiniSearch(QFrame):
         self.list.clear()
         self._rows = []
         self._reset_chips()
+        self._load_saved()
         self.show()
         self.raise_()
         self.activateWindow()
@@ -270,6 +279,7 @@ class MiniSearch(QFrame):
         self.box.clear()
         self.list.clear()
         self._rows = []
+        self._saved_names = ()
         self._reset_chips()
 
     def keyPressEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
@@ -312,6 +322,40 @@ class MiniSearch(QFrame):
     def _typed(self, _text: str) -> None:
         self._timer.start()
 
+    def _load_saved(self) -> None:
+        """The saved searches, once per summon, on a worker. Never raises."""
+        store = getattr(self._engine, "store", None)
+        if store is None:
+            self._saved = ()
+            return
+        try:
+            from app.search.run import load_saved
+            from app.ui.workers import CallableWorker, run
+
+            worker = CallableWorker(load_saved, store, component="ui.mini.saved")
+            worker.signals.finished.connect(self._took_saved)
+            run(QThreadPool.globalInstance(), worker)
+        except Exception as exc:                 # noqa: BLE001 - run_search reads them instead
+            _log.debug("saved searches not read ahead: {}", exc)
+
+    def _took_saved(self, saved: Any) -> None:
+        self._saved = tuple(saved or ())
+
+    def _note_saved(self) -> None:
+        """Count a run of the saved searches the chosen answer used, on a worker."""
+        names, store = self._saved_names, getattr(self._engine, "store", None)
+        self._saved_names = ()
+        if not names or store is None:
+            return
+        try:
+            from app.search.run import note_saved_runs
+            from app.ui.workers import CallableWorker, run
+
+            run(QThreadPool.globalInstance(),
+                CallableWorker(note_saved_runs, store, names, component="ui.mini.saved"))
+        except Exception as exc:                 # noqa: BLE001 - a counter
+            _log.debug("saved-search run not counted: {}", exc)
+
     def _search(self) -> None:
         """One tier, on a worker, carrying a generation. Never raises."""
         from app.ui.workers import CallableWorker, run
@@ -327,6 +371,7 @@ class MiniSearch(QFrame):
         generation = self._generation
         engine = self._engine
         preferences = self._preferences()
+        saved = self._saved
 
         def ask() -> Any:
             from app.search.policy import SEARCH
@@ -341,8 +386,10 @@ class MiniSearch(QFrame):
             # when a history switch is typed. `run_search` is the same code
             # the command line and the MCP server run. Fetched at the Search
             # tab's own depth, so §5a's chips count what that tab would list.
+            # 2026-10-04, code review: the box's saved list, read once per
+            # summon, and no counter written per typing pause - `_take` counts.
             found = run_search(engine, query, surface=SEARCH, preferences=preferences,
-                               marks=False, note_saved=True)
+                               saved=saved, marks=False, note_saved=False)
             # **One more query, batched, on the same worker.** The rule
             # `mail_details` states: never one lookup per row. Without it a
             # message result has no subject and buckets as "files" for want
@@ -371,6 +418,7 @@ class MiniSearch(QFrame):
             _log.debug("could not draw the mini results: {}", exc)
             return
 
+        self._saved_names = tuple(getattr(found, "saved_names", ()) or ())
         self._all_groups = list(groups)
         self._active_chip = None
         self._rebuild_chips()
@@ -495,6 +543,9 @@ class MiniSearch(QFrame):
         row = self.list.currentRow()
         if 0 <= row < len(self._rows):
             chosen = self._rows[row]
+            # A saved search's run counts here, once (2026-10-04, code review).
+            # Handed to the window instead, the window's box counts it.
+            self._note_saved()
             self.dismiss()
             self.chosen.emit(chosen)
             return
