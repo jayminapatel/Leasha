@@ -530,44 +530,37 @@ def run_scoped_pipeline(settings: Any, store: Any, root: Path, volume_id: int, *
     """
     from dataclasses import replace as _replace
 
-    from app.index.embedder import Embedder
-    from app.extract.media import MediaConfig
-    from app.index.pipeline import Pipeline, PipelineConfig
-    from app.index.resources import limits_from_settings
-    from app.index.resolve import resolve_for_run
-    from app.index.walker import WalkConfig, own_paths
-    from app.storage.vector_store import VectorStore
     from app.core.run_lock import IndexRunLock
+    from app.index.clip_embedder import ClipImageEmbedder
+    from app.index.embedder import Embedder
+    from app.index.pipeline import Pipeline
+    from app.index.resolve import resolve_for_run
+    from app.index.run_setup import NOW, build_pipeline_config, pass_for
+    from app.storage.vector_store import ImageVectorStore, VectorStore
 
     tuned = resolve_for_run(settings, store)
-    limits = _replace(limits_from_settings(settings), workers=tuned.workers)
-
-    config = PipelineConfig(
-        walk=WalkConfig(
-            roots=[root],
-            volume_roots={str(root).rstrip("\\/").lower(): volume_id},
-            include_cloud=False,
-            exclude_paths=own_paths(settings),
-            name_only=settings.index_name_only,
-        ),
-        limits=limits,
-        min_free_gb=settings.min_free_gb,
-        required_free_gb=settings.required_free_gb,
-        embed_batch=tuned.embed_batch,
-        dedup_chunks=settings.embed_dedup,
-        verify_hash=verify_hash,
-        caption_trickle_enabled=settings.caption_trickle_enabled,
-        ollama_url=settings.ollama_url,
-        ollama_vision_model=settings.ollama_vision_model,
-        chat_engine=getattr(settings, "chat_engine", "onnx"),
-        people_recognition_enabled=settings.people_recognition_enabled,
-        media=MediaConfig.from_settings(settings),
-    )
+    # *Corrected 4 October 2026, the owner: "the same code should run".* This
+    # built its own `PipelineConfig`, and had drifted from every other run:
+    # no pass (every picture read on a text pass), no time limits, no reader
+    # processes, no junk-picture filter or attachment rule, no archive
+    # recheck interval or read order - and no picture embedder, so the photos
+    # on a catalogued drive never reached picture search. Now it is the
+    # configuration every run uses (`run_setup.build_pipeline_config`),
+    # scoped to the one mount point. The pass is `NOW`: the drive is
+    # unplugged afterwards, so an images pass later would not find it.
+    config = build_pipeline_config(
+        settings, [root], tuned=tuned, verify_hash=verify_hash,
+        ocr_mode=pass_for(settings, NOW))
+    config = _replace(config, walk=_replace(
+        config.walk, volume_roots={str(root).rstrip("\\/").lower(): volume_id}))
     embedder = Embedder.from_settings(settings, threads=tuned.onnx_threads)
 
     with IndexRunLock(store, owner=run_lock_owner), \
-            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
-        pipeline = Pipeline(store, vectors, embedder, config)
+            VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors, \
+            ImageVectorStore(settings.vector_path) as image_vectors:
+        pipeline = Pipeline(store, vectors, embedder, config,
+                            image_embedder=ClipImageEmbedder.from_settings(settings),
+                            image_vectors=image_vectors)
         return pipeline.run(on_progress=on_progress)
 
 

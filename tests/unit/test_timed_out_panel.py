@@ -375,5 +375,18 @@ def test_a_run_in_its_own_process_is_told_which_pass_it_is(window) -> None:
         assert "--skip-ocr" in ctl._child_run(tuned, ["C:/docs"], None, False).argv
         retried = ctl._child_run(tuned, ["C:/docs"], None, False, retry=RetryTimedOut("pdf"))
         assert "--only-ocr" not in retried.argv and "--skip-ocr" not in retried.argv
+        # 2026-10-04: and the pass a retry takes is the same in both places.
+        # The window used `_ocr_mode_for_run` (here the images pass, which
+        # reads only the pictures inside a retried mailbox) while the child
+        # worked out "text"; both now ask `run_setup.pass_for(..., NOW)`.
+        from app.cli import build_parser
+        from app.cli.index import _ocr_mode
+
+        ctl._images_due = True
+        argv = retried.argv
+        args = build_parser().parse_args(argv[argv.index("index"):])
+        in_process = ctl._run_pass(RetryTimedOut("pdf"))
+        assert in_process == "both"
+        assert _ocr_mode(args, built._settings, images_due=True, retry=True) == in_process
     finally:
         ctl._images_due = False

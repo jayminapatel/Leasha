@@ -26,7 +26,6 @@ this module with the same rules as the rest of `app/ui`.
 
 from __future__ import annotations
 
-from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -36,7 +35,7 @@ from PyQt6.QtWidgets import QMessageBox
 
 from app.core.logging import logger
 from app.core.run_lock import GUI
-from app.index.resources import limits_from_settings
+from app.index.run_setup import IMAGES_DUE_STATE, LAST_RUN_STATE
 from app.index.schedule import SchedulePolicy
 from app.ui.scheduler import IndexScheduler
 # **Worker bodies live in the presenter**, not here: `test_ui_never_blocks`
@@ -76,7 +75,9 @@ class IndexController(QObject):
 
     #: Store state: a text pass has finished and its images are still to read,
     #: so the next Start under "after-run" is the images pass (2026-10-04).
-    IMAGES_DUE_STATE = "index:images_pass_due"
+    #: Declared in `app/index/run_setup.py` since the same day, where the
+    #: command line reads and writes it by the same rules.
+    IMAGES_DUE_STATE = IMAGES_DUE_STATE
 
     def __init__(self, window: Any) -> None:
         super().__init__(window)
@@ -84,6 +85,13 @@ class IndexController(QObject):
         #: See `IMAGES_DUE_STATE`. Read from the store after start-up
         #: (`load_images_due`); False until then, which is the old behaviour.
         self._images_due = False
+        #: True while this window's own write of `IMAGES_DUE_STATE` is queued,
+        #: so a read of the store taken before it lands is not believed.
+        self._images_due_saving = False
+        #: Was the run now going a whole run over the saved folders - not one
+        #: folder's "Index now", not a retry? Only a whole run moves the
+        #: schedule (`_schedule_after_run`). Set in `_index_resolved`.
+        self._whole_run = True
 
     # -- the schedule -------------------------------------------------------
 
@@ -111,9 +119,24 @@ class IndexController(QObject):
         # this thing going to run on its own, and when" showed nothing at all,
         # on a page whose whole job is to answer that.
         self._w.scheduler.state_changed.connect(self._w.indexing_view.set_next_run)
-        self._w.indexing_view.finished.connect(lambda _stats: self._w.scheduler.notify_finished())
+        self._w.indexing_view.finished.connect(self._schedule_after_run)
         self._w.scheduler.start()
         self._w.indexing_view.set_next_run(self._w.scheduler.status())
+
+    def _schedule_after_run(self, stats: Any) -> None:
+        """A finished run, as far as the schedule is concerned.
+
+        *2026-10-04.* Every finished run used to count, so "Index now" on one
+        folder, or a retry of a few timed-out files, pushed the next scheduled
+        run over *every* folder back by a whole interval - the folders nobody
+        had touched went unindexed for that much longer. Only a whole run over
+        the saved folders is what the schedule is waiting for.
+        """
+        from app.index.timed_out_retry import was_retry
+
+        if not self._whole_run or was_retry(stats):
+            return
+        self._w.scheduler.notify_finished()
 
     def _schedule_changed(self, policy: Any) -> None:
         """Apply a schedule change immediately, and persist it.
@@ -134,7 +157,7 @@ class IndexController(QObject):
         self._w.indexing_view.schedule_box.set_schedule_status(self._w.scheduler.status())
 
     def _load_last_index_time(self) -> Optional[datetime]:
-        raw = self._w._store.get_state("index:last_run")
+        raw = self._w._store.get_state(LAST_RUN_STATE)
         if not raw:
             return None
         try:
@@ -148,7 +171,7 @@ class IndexController(QObject):
         # A worker body already: `IndexScheduler.notify_finished` hands this
         # to a `CallableWorker`, which is why it is named in
         # `test_ui_never_blocks.OFF_THREAD` rather than queued again here.
-        self._w._store.set_state("index:last_run", when.isoformat(timespec="seconds"))
+        self._w._store.set_state(LAST_RUN_STATE, when.isoformat(timespec="seconds"))
 
     # -- the tuning screen's evidence ---------------------------------------
 
@@ -203,19 +226,29 @@ class IndexController(QObject):
         run. Neither setting can express that alone, which is why the schedule
         is its own control rather than a fourth value crammed into the mode.
         """
-        schedule = str(getattr(self._w._settings, "index_ocr_pass", "with-run")
-                       or "with-run")
         # *Corrected 4 October 2026, the owner: "this is the second time it is
         # running why is it not scanning for faces".* Under "after-run" every
         # Start was the text pass: the notice below said "press Start again" to
         # read the images, and Start held them all again - so no picture, and
         # no face, was ever read from the window. The text pass that finishes
         # now marks the images as due, and the next Start is the images pass.
-        if schedule == "after-run" and self._images_due:
-            return "images"
-        if schedule in ("after-run", "manual"):
-            return "text"
-        return str(getattr(self._w._settings, "index_ocr_mode", "both"))
+        # *Later the same day, "the same code should run"*: the rule is
+        # `run_setup.pass_for`, which the command line and the folder watch
+        # use too, and which normalises both settings as they do.
+        from app.index.run_setup import pass_for
+
+        return pass_for(self._w._settings, images_due=self._images_due)
+
+    def _run_pass(self, retry: Any = None) -> str:
+        """The pass for a run about to be built: `_ocr_mode_for_run`, or for a
+        retry (order 0z F3) what `INDEX_OCR_MODE` says, whatever the schedule -
+        the rule `app.cli index --retry-timed-out` follows, so a retry takes
+        the same pass in this window and in a separate process."""
+        if retry is None:
+            return self._w._ocr_mode_for_run()
+        from app.index.run_setup import NOW, pass_for
+
+        return pass_for(self._w._settings, NOW)
 
     def load_images_due(self) -> None:
         """Whether a finished text pass left its images to read - from the
@@ -225,14 +258,29 @@ class IndexController(QObject):
             return
         worker = CallableWorker(store.get_state, self.IMAGES_DUE_STATE, "",
                                 component="ui.index.images_due")
-        worker.signals.finished.connect(lambda value: self._set_images_due(value == "1"))
+        worker.signals.finished.connect(lambda value: self._adopt_images_due(value == "1"))
         worker.signals.failed.connect(lambda _e: None)
         run(QThreadPool.globalInstance(), worker)
 
+    def _adopt_images_due(self, due: Any) -> None:
+        """What the store says, unless this window's own newer write of it has
+        not landed yet. Reading, not deciding: nothing is written back."""
+        if due is None or self._images_due_saving:
+            return
+        self._images_due = bool(due)
+
     def _set_images_due(self, due: bool) -> None:
         self._images_due = bool(due)
-        save_states(self._w._store, {self.IMAGES_DUE_STATE: "1" if due else ""},
-                    component="ui.index.images_due")
+        self._images_due_saving = True
+        worker = save_states(self._w._store, {self.IMAGES_DUE_STATE: "1" if due else ""},
+                             component="ui.index.images_due", owner=self,
+                             on_saved=self._images_due_saved,
+                             on_failed=lambda _e: self._images_due_saved())
+        if worker is None:
+            self._images_due_saved()
+
+    def _images_due_saved(self) -> None:
+        self._images_due_saving = False
 
     def _offer_images_pass(self, _stats: Any) -> None:
         """After a text-only run, say the images are still to do.
@@ -243,23 +291,27 @@ class IndexController(QObject):
         application uninstalled. `manual` says nothing at all, which is what
         the word means.
         """
-        if str(getattr(self._w._settings, "index_ocr_pass", "")) != "after-run":
-            return
+        from app.index.run_setup import NOW, SCHEDULED, images_due_after
         from app.index.timed_out_retry import was_retry
 
-        if was_retry(_stats):
-            # Order 0z F3: a retry read a few timed-out files. It was not the
-            # text pass, so "Text is indexed" would not be true of it.
+        # Order 0z F3: a retry read a few timed-out files. It was not the text
+        # pass, so "Text is indexed" would not be true of it. *2026-10-04*: the
+        # rule is `run_setup.images_due_after`, which the command line follows
+        # too - and a run stopped part-way changes nothing, since the next
+        # Start carries it on as the same pass.
+        finished = (not getattr(self._w.indexing_view, "_stopping", False)
+                    and getattr(_stats, "stopped_early", None) is None)
+        due = images_due_after(
+            self._w._settings, str(getattr(_stats, "ocr_mode", "") or ""),
+            kind=NOW if was_retry(_stats) else SCHEDULED, finished=finished)
+        if due is None:
             return
-        mode = str(getattr(_stats, "ocr_mode", "") or "")
-        if mode == "images":
-            # The images pass has run: the next Start is a text pass again.
-            self._set_images_due(False)
-            return
-        self._set_images_due(True)
-        self._w.notify(
-            "Text is indexed. Images and scans are still to read - press Start "
-            "again to do those.", 30_000)
+        # An images pass that has run makes the next Start a text pass again.
+        self._set_images_due(due)
+        if due:
+            self._w.notify(
+                "Text is indexed. Images and scans are still to read - press Start "
+                "again to do those.", 30_000)
 
     def _refresh_tuning_status(self) -> None:
         """§5d's status line, and the rates Auto-tune resolves against.
@@ -469,6 +521,9 @@ class IndexController(QObject):
             self._w.indexing_view.show_external(
                 payload.get("record"), locked=bool(payload.get("locked")))
         self._w._run_link(payload.get("link"))
+        # 2026-10-04: a run another process finished - `app.cli index` - may
+        # have made the images pass due, or done it. Read with the rest.
+        self._adopt_images_due(payload.get("images_due"))
         if payload.get("front_requested"):
             self._w._front_self()
 
@@ -806,10 +861,8 @@ class IndexController(QObject):
         """
         from app.index.clip_embedder import ClipImageEmbedder
         from app.index.embedder import Embedder
-        from app.extract.media import MediaConfig
-        from app.index.pipeline import Pipeline, PipelineConfig
-        from app.index.read_order import normalise_order
-        from app.index.walker import WalkConfig
+        from app.index.pipeline import Pipeline
+        from app.index.run_setup import build_pipeline_config
 
         self._w._resolving_index = False
         self._w.toast.clear()
@@ -823,6 +876,10 @@ class IndexController(QObject):
             self._w.indexing_view.start_button.setEnabled(True)
             return
 
+        # 2026-10-04: only a whole run over the saved folders moves the
+        # schedule - see `_schedule_after_run`. Either path below.
+        self._whole_run = roots is None and retry is None
+
         # Work order 0x §2: the same run, in a child process, when the
         # "Index in a separate process" switch is on. Everything below this
         # line is the in-process path, unchanged.
@@ -832,9 +889,6 @@ class IndexController(QObject):
                 total_estimate=self._w._scan_total(chosen))
             repaint_totals(self._w.indexing_view)
             return
-
-        limits = replace(limits_from_settings(self._w._settings),
-                         workers=tuned.workers)
 
         # Work order 0h §1c's flagged gap, closed: the only real Pipeline(
         # construction site that had never been given image_embedder=/
@@ -860,74 +914,33 @@ class IndexController(QObject):
         pipeline = Pipeline(
             self._w._store, self._w._vectors,
             Embedder.from_settings(self._w._settings, threads=tuned.onnx_threads),
-            PipelineConfig(
-                walk=WalkConfig(
-                    roots=[Path(root) for root in chosen],
-                    # §2b: the master switch gates whether ANY folder's
-                    # cloud content is eligible at all; the per-folder set
-                    # says which ones, when it is. Off (the default) means
-                    # names-only everywhere, whatever any row says.
-                    cloud_content_roots=(
-                        frozenset(self._w.settings_view.current_cloud_content_roots())
-                        if self._w.settings_view.cloud.isChecked() else frozenset()
-                    ),
-                    cloud_content_cap_bytes=int(getattr(
-                        self._w._settings, "cloud_content_cap_mb", 1024)) * 1024 * 1024,
-                    name_only=bool(getattr(
-                        self._w._settings, "index_name_only", True)),
-                    # 2026-09-29: "Index this folder first", in order.
-                    priority_roots=[Path(folder) for folder in self._first_folders()],
+            # *Corrected 4 October 2026, the owner: "where ever possible the
+            # same code should run".* This was a `PipelineConfig` of its own,
+            # field by field beside the command line's, and had drifted: it
+            # never left out Leasha's own folders (`own_paths`), so a folder
+            # holding the index, the logs or the models was read into itself.
+            # Now it is the construction every run uses; what is this run's
+            # own is passed in - the folders, the cloud opt-ins as the folder
+            # list shows them, "first", prune, "Rescan archived", the pass.
+            build_pipeline_config(
+                self._w._settings, [Path(root) for root in chosen], tuned=tuned,
+                # §2b: the master switch gates whether ANY folder's cloud
+                # content is eligible at all; the per-folder set says which
+                # ones, when it is. Off (the default) means names-only
+                # everywhere, whatever any row says.
+                cloud_content_roots=(
+                    frozenset(self._w.settings_view.current_cloud_content_roots())
+                    if self._w.settings_view.cloud.isChecked() else frozenset()
                 ),
-                # Memory, CPU, battery and disk ceilings, from .env. Without
-                # these an index run competes with whatever the person is
-                # actually doing, and gets switched off for good.
-                limits=limits,
-                min_free_gb=self._w._settings.min_free_gb,
-                required_free_gb=int(getattr(self._w._settings, "required_free_gb", 0)),
-                ocr_mode=self._w._ocr_mode_for_run(),
-                junk_images=bool(getattr(
-                    self._w._settings, "index_junk_image_filter", True)),
-                mail_attachments=str(getattr(
-                    self._w._settings, "mail_attachments", "documents")),
-                embed_batch=tuned.embed_batch,
-                dedup_chunks=bool(getattr(self._w._settings, "embed_dedup", True)),
-                two_phase=bool(getattr(self._w._settings, "index_two_phase", True)),
-                bulk_fts=str(getattr(self._w._settings, "index_bulk_fts", "auto")),
-                # 0x §5b: "Read files in separate processes".
-                read_processes=bool(getattr(
-                    self._w._settings, "index_read_processes", False)),
-                # 0z lane B: the time limits (`app/index/file_watch.py`).
-                file_time_limit_s=int(getattr(
-                    self._w._settings, "index_file_time_limit_s", 120)),
-                stall_limit_s=int(getattr(
-                    self._w._settings, "index_stall_limit_s", 600)),
-                prune_missing=roots is None,     # a folder-scoped run must not prune the rest
+                # 2026-09-29: "Index this folder first", in order.
+                first=tuple(self._first_folders()),
+                prune=roots is None,     # a folder-scoped run must not prune the rest
                 # A folder marked as an archive is walked once and then checked
                 # with one `stat` - the largest single saving available on a
                 # settled corpus. `recheck_archives` is the "Rescan archived
                 # folders now" button, which walks them all in full this once.
                 recheck_archives=recheck_archives,
-                recheck_days=int(getattr(self._w._settings, "archive_recheck_days", 30)),
-                caption_trickle_enabled=bool(
-                    getattr(self._w._settings, "caption_trickle_enabled", False)),
-                ollama_url=str(getattr(
-                    self._w._settings, "ollama_url", "http://127.0.0.1:11434")),
-                ollama_vision_model=str(
-                    getattr(self._w._settings, "ollama_vision_model", "llava")),
-                chat_engine=str(getattr(self._w._settings, "chat_engine", "onnx")),
-                people_recognition_enabled=bool(getattr(
-                    self._w._settings, "people_recognition_enabled", False)),
-                # Work order 202626270515: video and audio, off unless the
-                # two switches in Settings say otherwise.
-                media=MediaConfig.from_settings(self._w._settings),
-                # Work order 202626130120 (0t) section 6: resolved above, off
-                # this thread, by the same resolve_for_run call that decided
-                # tuned.workers - see its own docstring for why the notice
-                # cannot be computed from the Pipeline's cached profile alone.
-                gpu_regression_notice=tuned.gpu_regression_notice,
-                # 2026-09-29: newest first, unless Tuning says "as found".
-                read_order=normalise_order(
-                    getattr(self._w._settings, "index_order", "")),
+                ocr_mode=self._run_pass(retry),
             ),
             image_embedder=image_embedder, image_vectors=self._w._image_vectors,
         )
@@ -1008,6 +1021,12 @@ class IndexController(QObject):
         "after-run" the images pass this window decided on
         (`_ocr_mode_for_run`) ran as the text pass. A retry is its own run and
         names no pass.
+
+        *2026-10-04*: and the child takes the same pass for it as this window
+        does (`_run_pass`): both ask `run_setup.pass_for(settings, NOW)` of the
+        same settings (`settings_environment`). No flag could say it - a
+        retry's pass can be `both`, and the flags name only `text` and
+        `images`.
         """
         if retry is not None:
             return []

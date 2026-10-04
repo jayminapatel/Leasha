@@ -400,7 +400,7 @@ def _pipeline_config(settings: Any, store: Any, corpus_root: Path,
 
     Returns `(config, resolved tuning)`.
     """
-    from app.cli.index import build_pipeline_config
+    from app.index.run_setup import build_pipeline_config
     from app.index.resolve import resolve_for_run
 
     tuned = resolve_for_run(settings, store)

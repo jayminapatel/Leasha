@@ -1752,6 +1752,13 @@ class Pipeline:
         _media.configure(
             self.config.media,
             pacer=self._media_pace, should_stop=self._stop.is_set)
+        # 2026-10-04, the owner: "the same code should run". The PST reader
+        # chosen in Settings, read from this run's own index, here - the one
+        # place every run passes through. Before, only the window's process
+        # was told, and a run in a separate process, from the command line or
+        # from the folder watch read every `.pst` the `auto` way. One row.
+        from app.index.run_setup import apply_saved_pst_backend
+        apply_saved_pst_backend(self.store)
         self._suspended_fts_triggers = []
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.

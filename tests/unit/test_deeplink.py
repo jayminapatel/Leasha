@@ -324,7 +324,11 @@ def test_the_watcher_still_answers_when_there_is_no_link(store):
 
     payload = _read_external_run(store)
     assert payload["link"] is None
-    assert set(payload) == {"locked", "record", "link", "front_requested"}
+    # 2026-10-04: and whether the images pass is due, which a command-line
+    # run records (`run_setup.record_pass`) and the window reads on this tick.
+    assert set(payload) == {"locked", "record", "link", "front_requested",
+                            "images_due"}
+    assert payload["images_due"] is False
 
 
 def test_a_broken_store_costs_the_watcher_nothing(store):

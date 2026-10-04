@@ -7,7 +7,6 @@ import json
 import os
 import sys
 import time
-from dataclasses import replace
 from pathlib import Path
 
 from app.cli._common import EXIT_ERROR, EXIT_OK, _load, _report, _saved_roots
@@ -16,7 +15,11 @@ from app.core.config import Settings
 from app.core.errors import make_error
 from app.core.logging import logger, setup_logging
 from app.core.run_lock import COMMAND_LINE, IndexRunLock
-from app.index.resources import limits_from_settings
+# 2026-10-04, the owner: "where ever possible the same code should run for
+# functions so they are all consistent and standard". `build_pipeline_config`
+# moved to `app/index/run_setup.py`, where the window's own run and Offline
+# Media build their configuration too; still exported from here by this name.
+from app.index.run_setup import build_pipeline_config  # noqa: F401
 
 _ENRICHMENT_LABELS = dict(
     unembedded_chunk="vector(s) repaired",
@@ -117,133 +120,6 @@ def _saved_first_folders(store) -> list[str]:
         logger.bind(component="cli.index").debug(
             "could not read the folders to index first: {}", exc)
         return []
-
-
-def build_pipeline_config(settings: Settings, roots: list[Path], *, tuned: object,
-                          workers: int | None = None, memory_mb: int | None = None,
-                          cpu_percent: int | None = None, full_speed: bool = False,
-                          first: tuple = (), include_cloud: bool = False,
-                          cloud_content_roots: frozenset = frozenset(),
-                          cloud_content_cap_mb: int | None = None,
-                          verify_hash: bool = True, prune: bool = True,
-                          force: bool = False, retry_skipped: bool = False,
-                          ocr_mode: str | None = None, archives: bool = True,
-                          recheck_archives: bool = False,
-                          pause_file: Path | None = None,
-                          read_order: str | None = None):
-    r"""The `PipelineConfig` a command-line run uses, from settings and flags.
-
-    **One construction, shared, so two callers cannot drift apart.** It was
-    written inline in `cmd_index`, and `app/index/pipeline_bench.py` kept a
-    copy of it with a comment asking to be kept in step - which is the kind of
-    promise that holds until the first busy day. Work order 0x §2 made it
-    matter more: the window's child-process runs go through `cmd_index` too,
-    and the benchmark that decides whether they land has to measure the same
-    configuration they use.
-
-    `tuned` is what `resolve.resolve_for_run` decided for this machine (its
-    `workers`, `embed_batch` and `gpu_regression_notice` are read); the
-    caller resolves it because doing so needs the store. Every keyword is a
-    `cmd_index` flag, with the flag's default, so a caller that passes
-    nothing gets exactly what `app.cli index FOLDER` does:
-
-    * `workers`, `memory_mb`, `cpu_percent` - override the settings for this
-      run, as `--workers`, `--memory-mb` and `--cpu-percent` do;
-    * `full_speed` - no CPU ceiling, no pausing on battery, normal priority;
-    * `cloud_content_roots` - normalised folder keys whose cloud-only files
-      may be downloaded and read;
-    * `ocr_mode` - `both`, `text` or `images`; None asks the settings, the
-      way `_ocr_mode` does with no flag.
-    * `read_order` - `newest` or `found` (`--order`); None asks the settings
-      (`INDEX_ORDER`). See `app/index/read_order.py`.
-    """
-    from app.extract.media import MediaConfig
-    from app.index.pipeline import PipelineConfig
-    from app.index.read_order import normalise_order
-    from app.index.walker import WalkConfig, own_paths
-
-    limits = replace(limits_from_settings(settings), workers=tuned.workers)
-    # A flag typed on the command still wins: it is a decision about this
-    # run, and a tuning mode is a standing preference.
-    if workers:
-        limits = replace(limits, workers=workers)
-    if memory_mb:
-        limits = replace(limits, memory_mb=memory_mb)
-    if cpu_percent is not None:
-        limits = replace(limits, cpu_percent=cpu_percent)
-    if full_speed:
-        # An explicit opt-out for a machine nobody is using. Named for what it
-        # costs rather than what it gives: this is the setting that makes the
-        # computer unusable while it runs.
-        limits = replace(
-            limits, cpu_percent=0, pause_on_battery=False, low_priority=False,
-            workers=workers or max(1, (os.cpu_count() or 2) - 1),
-        )
-    if ocr_mode is None:
-        ocr_mode = _ocr_mode(argparse.Namespace(), settings)
-
-    return PipelineConfig(
-        walk=WalkConfig(
-            roots=list(roots),
-            priority_roots=[Path(p).expanduser() for p in (first or ())],
-            include_cloud=include_cloud,
-            cloud_content_roots=frozenset(cloud_content_roots),
-            cloud_content_cap_bytes=(
-                cloud_content_cap_mb or settings.cloud_content_cap_mb
-            ) * 1024 * 1024,
-            # Never index our own index, logs, cache or models. Indexing the
-            # project folder had the run reading the log file it was writing.
-            exclude_paths=own_paths(settings),
-            # Every file gets a row, whether or not anything can read it - see
-            # `WalkConfig.name_only`. Off makes the walk behave as it did.
-            name_only=settings.index_name_only,
-        ),
-        limits=limits,
-        min_free_gb=settings.min_free_gb,
-        required_free_gb=settings.required_free_gb,
-        verify_hash=verify_hash,
-        prune_missing=prune,
-        force=force,
-        retry_skipped=retry_skipped,
-        # A folder marked as an archive is walked once and then checked
-        # cheaply - see `app/index/archives.py`. `--all-roots` is the escape
-        # hatch that ignores the modes entirely without touching the records.
-        ocr_mode=ocr_mode,
-        junk_images=bool(getattr(settings, "index_junk_image_filter", True)),
-        mail_attachments=str(getattr(settings, "mail_attachments", "documents")),
-        archives=archives,
-        recheck_archives=recheck_archives,
-        recheck_days=settings.archive_recheck_days,
-        # Resolved for this machine and this mode, by the caller.
-        embed_batch=tuned.embed_batch,
-        dedup_chunks=settings.embed_dedup,
-        two_phase=settings.index_two_phase,
-        bulk_fts=settings.index_bulk_fts,
-        # 0x §5b: "Read files in separate processes". The window's child
-        # indexer runs through here too, so it honours the same switch.
-        read_processes=bool(getattr(settings, "index_read_processes", False)),
-        # 0z lane B: the time limits, from the same settings - the window's
-        # child indexer runs through here, so it honours them too.
-        file_time_limit_s=int(getattr(settings, "index_file_time_limit_s", 120)),
-        stall_limit_s=int(getattr(settings, "index_stall_limit_s", 600)),
-        caption_trickle_enabled=settings.caption_trickle_enabled,
-        ollama_url=settings.ollama_url,
-        ollama_vision_model=settings.ollama_vision_model,
-        chat_engine=getattr(settings, "chat_engine", "onnx"),
-        people_recognition_enabled=settings.people_recognition_enabled,
-        # Work order 202626270515. Off unless VIDEO_INDEXING_ENABLED and/or
-        # AUDIO_TRANSCRIPTION_ENABLED are on in `.env`.
-        media=MediaConfig.from_settings(settings),
-        # Work order 202626130120 (0t) section 6: resolved once, by the same
-        # resolve_for_run call the window uses before it builds a Pipeline.
-        gpu_regression_notice=tuned.gpu_regression_notice,
-        # 2026-09-20. The command line's half of the Indexing page's Pause
-        # button - see `add_index_parser` for why it is a file and not a verb.
-        pause_file=pause_file,
-        # 2026-09-29. Newest first unless the settings or `--order` say not.
-        read_order=normalise_order(
-            read_order if read_order else getattr(settings, "index_order", "")),
-    )
 
 
 class _EventSession:
@@ -583,6 +459,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
     from app.index.resolve import resolve_for_run
 
     from app.index.interrupted import read_unfinished_run
+    from app.index.run_setup import read_images_due, saved_cloud_content_keys
 
     with SqliteStore(settings.fts_db) as _store:
         tuned = resolve_for_run(settings, _store)
@@ -594,6 +471,14 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         # the command line named none. `--first` still wins: it is a decision
         # about this run.
         first = tuple(args.first or ()) or tuple(_saved_first_folders(_store))
+        # 2026-10-04: which pass this run is, by the rule every run uses
+        # (`run_setup.pass_for`) - so after a text pass under "after-run" the
+        # next run here is the images pass, as it is in the window.
+        ocr_mode = _ocr_mode(args, settings, images_due=read_images_due(_store),
+                             retry=retry is not None)
+        # 2026-10-04: and the folders saved in Settings come with their cloud
+        # opt-ins, as they do in the window. Named folders are this run's own.
+        saved_cloud = saved_cloud_content_keys(_store) if from_settings else frozenset()
     if unfinished and not machine:
         print(unfinished_run_line(unfinished, carrying_on=True))
     _tuning_log = logger.bind(component="cli.index")
@@ -607,7 +492,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
     cloud_keys = frozenset(
         str(Path(p).expanduser()).rstrip("\\/").lower()
         for p in (args.allow_cloud_content or [])
-    ) | frozenset(getattr(args, "cloud_content_key", None) or ())
+    ) | frozenset(getattr(args, "cloud_content_key", None) or ()) | saved_cloud
 
     config = build_pipeline_config(
         settings, roots, tuned=tuned,
@@ -620,7 +505,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         prune=not args.no_prune,
         force=bool(getattr(args, "force", False)),
         retry_skipped=bool(getattr(args, "retry_skipped", False)),
-        ocr_mode=_ocr_mode(args, settings),
+        ocr_mode=ocr_mode,
         archives=not bool(getattr(args, "all_roots", False)),
         recheck_archives=bool(getattr(args, "recheck_archives", False)),
         pause_file=(Path(args.pause_file).expanduser()
@@ -761,6 +646,9 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
             stats = pipeline.run(on_progress=events.progress)
         else:
             stats = pipeline.run(on_progress=None if args.quiet else show)
+        _record_finished_run(store, settings, stats, ocr_mode=ocr_mode,
+                             retry=retry is not None, whole=from_settings,
+                             finished=not getattr(pipeline, "_interrupted", False))
 
     if events is not None:
         # The last line the window reads. Everything a person would be told
@@ -847,7 +735,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         if said:
             print(f"          {said}")
     if (retry is None and _images_pass_follows(settings)
-            and _ocr_mode(args, settings) == "text"):
+            and ocr_mode == "text"):
         # **Said, not started.** A second pass over a scanned corpus is hours;
         # launching it without asking, from a command somebody ran to index
         # their documents, is the kind of surprise that gets an application
@@ -1047,34 +935,28 @@ def cmd_timed_out(args: argparse.Namespace) -> int:
     return EXIT_OK
 
 
-def _ocr_mode(args: argparse.Namespace, settings: Settings) -> str:
+def _ocr_mode(args: argparse.Namespace, settings: Settings, *,
+              images_due: bool = False, retry: bool = False) -> str:
     """Which pass this run is: `both`, `text` or `images`.
 
     A flag on the command line wins over the setting, because naming one is an
     instruction. Without a flag the setting decides, so the choice made once in
     Settings applies to the scheduled runs as well - which is the whole reason
     it is a setting and not only a flag.
+
+    *2026-10-04, the owner: "the same code should run".* Without a flag this
+    is `run_setup.pass_for`, the rule the window, the separate process and the
+    folder watch use: `images_due` makes it the images pass under "after-run",
+    and a retry (`retry`) reads as `INDEX_OCR_MODE` says, whatever the schedule.
     """
     if getattr(args, "only_ocr", False):
         return "images"
     if getattr(args, "skip_ocr", False):
         return "text"
 
-    from app.index.pipeline import OCR_MODES
+    from app.index.run_setup import NOW, SCHEDULED, pass_for
 
-    # **`INDEX_OCR_PASS` decides *when*, `INDEX_OCR_MODE` decides *what*.**
-    # They meet here because a run is only ever one pass: asking for the images
-    # to be done after the run means this run is the text one, and the images
-    # pass is a second `--only-ocr` run. Neither setting can express that
-    # alone, which is why the schedule half is its own control rather than a
-    # fourth value squeezed into the mode.
-    schedule = str(getattr(settings, "index_ocr_pass", "with-run")
-                   or "with-run").strip().lower()
-    if schedule in ("after-run", "manual"):
-        return "text"
-
-    stored = str(getattr(settings, "index_ocr_mode", "both") or "both").strip().lower()
-    return stored if stored in OCR_MODES else "both"
+    return pass_for(settings, NOW if retry else SCHEDULED, images_due=images_due)
 
 
 def _images_pass_follows(settings: Settings) -> bool:
@@ -1085,8 +967,42 @@ def _images_pass_follows(settings: Settings) -> bool:
     today *and* the images eventually, and somebody on a laptop wants to choose
     the evening it happens.
     """
-    return str(getattr(settings, "index_ocr_pass", "with-run")
-               or "with-run").strip().lower() == "after-run"
+    from app.index.run_setup import ocr_schedule
+
+    return ocr_schedule(settings) == "after-run"
+
+
+def _record_finished_run(store, settings: Settings, stats, *, ocr_mode: str,
+                         retry: bool, whole: bool, finished: bool) -> None:
+    """What a command-line run leaves for the next one. Never raises.
+
+    *2026-10-04.* Two records the window has always kept for its own runs,
+    now kept for this one by the same rules:
+
+    * **which pass is due** (`run_setup.record_pass`): a text pass that
+      finished under "after-run" makes the next run the images pass, and an
+      images pass that finished makes it the text pass again;
+    * **when the saved folders were last indexed** (`index:last_run`), for a
+      run over the folders saved in Settings (`whole`) that finished - the
+      time the window's schedule counts its interval from.
+
+    A run that was stopped or failed part-way changes neither: the next run
+    carries on as the same pass, and the schedule still owes a whole run.
+    """
+    from datetime import datetime
+
+    from app.index.run_setup import LAST_RUN_STATE, NOW, SCHEDULED, record_pass
+
+    finished = bool(finished and getattr(stats, "stopped_early", None) is None)
+    record_pass(store, settings, ocr_mode, kind=NOW if retry else SCHEDULED,
+                finished=finished)
+    if whole and finished and not retry:
+        try:
+            store.set_state(LAST_RUN_STATE,
+                            datetime.now().isoformat(timespec="seconds"))
+        except Exception as exc:                 # noqa: BLE001 - see docstring
+            logger.bind(component="cli.index").debug(
+                "could not record when the index last ran: {}", exc)
 
 
 def cmd_reembed(args: argparse.Namespace) -> int:

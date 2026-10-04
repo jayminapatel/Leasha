@@ -122,7 +122,8 @@ class _Reporter:
 
 def cmd_watch(args: argparse.Namespace) -> int:
     """Watch the indexed folders and index what changes. Work order 0z F1."""
-    from app.cli.index import _private_stdin, _redirect_stdout, build_pipeline_config
+    from app.cli.index import _private_stdin, _redirect_stdout
+    from app.index.run_setup import build_pipeline_config
     from app.core.run_lock import INDEX_MUTEX_NAME
     from app.index.clip_embedder import ClipImageEmbedder
     from app.index.embedder import Embedder
@@ -164,8 +165,15 @@ def cmd_watch(args: argparse.Namespace) -> int:
                 reporter.event("stopped", {"batches": 0, "indexed": 0, "removed": 0})
             return EXIT_OK
 
+        # 2026-10-04: the pass by the rule every run uses (`run_setup.pass_for`)
+        # - a watch batch is never the images pass and records none.
+        from app.index.run_setup import WATCH, pass_for
+
+        watch_pass = pass_for(settings, WATCH)
+
         def config(for_roots: list) -> Any:
-            return build_pipeline_config(settings, list(for_roots), tuned=tuned, prune=False)
+            return build_pipeline_config(settings, list(for_roots), tuned=tuned,
+                                         prune=False, ocr_mode=watch_pass)
 
         if getattr(args, "fake_embedder_for_bench", False):
             # For measuring and testing where the real model was never

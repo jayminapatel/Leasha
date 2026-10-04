@@ -337,7 +337,10 @@ class SettingsController(QObject):
         ignored. In `index_state` rather than `.env`: it is a decision about how
         this window starts a run, and the walker takes it as a parameter.
         """
-        save_state(self._w._store, "ui:index_cloud", "on" if enabled else "off",
+        from app.index.run_setup import CLOUD_SWITCH_STATE_KEY
+
+        # Also read by `app.cli index` for the saved folders (2026-10-04).
+        save_state(self._w._store, CLOUD_SWITCH_STATE_KEY, "on" if enabled else "off",
                    component="ui.settings")
 
     def _limits_changed(self, values: dict) -> None:
@@ -662,7 +665,12 @@ class SettingsController(QObject):
             "They apply to the next index run.", 12_000)
 
     def _save_pst_backend(self, backend: str) -> None:
-        save_state(self._w._store, "ui:pst_backend", backend,
+        # The key every index run reads it back from (`run_setup.apply_saved_
+        # pst_backend`, in `Pipeline.run`) - 2026-10-04, so a run in a separate
+        # process or from the command line reads a `.pst` the chosen way too.
+        from app.index.run_setup import PST_BACKEND_STATE_KEY
+
+        save_state(self._w._store, PST_BACKEND_STATE_KEY, backend,
                    component="ui.settings", owner=self,
                    on_failed=lambda error: _log.warning(
                        "PST backend choice not saved: {}", error))

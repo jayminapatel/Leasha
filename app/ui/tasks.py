@@ -661,6 +661,18 @@ def _read_external_run(store: Any) -> dict:
         found["front_requested"] = take_front_request(store)
     except Exception as exc:                     # noqa: BLE001 - a front request, not a run
         _log.debug("could not read the front request: {}", exc)
+
+    # 2026-10-04: whether the images pass is due, which a run in another
+    # process (`app.cli index`) records by the same rule as this window's own
+    # runs (`run_setup.record_pass`). One row, on the same tick; the window
+    # takes it up in `IndexController._adopt_images_due`. Left out when it
+    # cannot be read: "unknown" must not overwrite what the window knows.
+    from app.index.run_setup import IMAGES_DUE_STATE
+
+    try:
+        found["images_due"] = (store.get_state(IMAGES_DUE_STATE, "") or "") == "1"
+    except Exception as exc:                     # noqa: BLE001 - a status, not a run
+        _log.debug("could not read whether the images pass is due: {}", exc)
     return found
 
 
