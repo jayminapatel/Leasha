@@ -44,6 +44,7 @@ from pathlib import Path
 import numpy as np
 from typing import Callable, Iterable, Iterator, Optional, Sequence, Union
 
+from app.core.model_devices import device_for as _device_for
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 from app.index import backends
@@ -154,8 +155,7 @@ class ClipImageEmbedder:
         """
         fields: dict = dict(
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
-            device=str(getattr(settings, "embed_device", backends.AUTO)
-                       or backends.AUTO),
+            device=_device_for(settings, "pictures"),  # 2026-10-04: per model (`model_devices`)
         )
         fields.update(overrides)
         return cls(**fields)

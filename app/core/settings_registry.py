@@ -877,6 +877,44 @@ SETTINGS: tuple[Setting, ...] = (
              "same model produces the same vectors either way, so switching "
              "does not invalidate an index.",
     ),
+    # 2026-10-04, the owner: one choice per model, set by measuring this
+    # machine (`app/core/model_devices.py`, Indexing > Tuning > Devices).
+    Setting(
+        key="DEVICE_MEANING", label='Meaning model runs on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help="The processor for the meaning model. Automatic uses what Test this machine measured here, and 'Run models on' until it has run.",
+    ),
+    Setting(
+        key="DEVICE_RERANK", label='Search reranker runs on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help='The processor for the reranker that orders the best matches. Automatic uses what Test this machine measured here.',
+    ),
+    Setting(
+        key="DEVICE_OCR", label='Text in pictures runs on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help='The processor for reading text in pictures and scans. Automatic uses what Test this machine measured here.',
+    ),
+    Setting(
+        key="DEVICE_FACES", label='Faces run on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help='The processor for finding faces in photos. Automatic uses what Test this machine measured here.',
+    ),
+    Setting(
+        key="DEVICE_PICTURES", label='Picture search runs on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help='The processor for picture search (CLIP). Automatic uses what Test this machine measured here.',
+    ),
+    Setting(
+        key="DEVICE_DESCRIBE", label='Photo descriptions run on', kind="choice",
+        default="auto", group="Tuning", surface="indexing.tuning",
+        choices=("auto", "cpu", "gpu"), restart=True,
+        help='The processor for describing photos (Florence-2). Automatic uses what Test this machine measured here.',
+    ),
 
     # --- Storage -----------------------------------------------------------
     Setting(

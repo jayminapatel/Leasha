@@ -120,6 +120,11 @@ class ComputeBox(QGroupBox):
         for value, label in (("auto", "Automatic"), ("cpu", "Processor"),
                              ("gpu", "Graphics card")):
             self.embed_device.addItem(label, value)
+        # *Note, 2026-10-04 (the owner): the "one choice for all three" below is
+        # no longer the whole story - each model now has its own choice and a
+        # measured test (Devices, `widgets/device_box.py`), and this control is
+        # what a model on Automatic follows until this machine has been tested.
+        # The tooltip is kept as written.*
         self.embed_device.setToolTip(
             "Which processor runs the meaning model, the reranker and OCR.\n"
             "One choice for all three: a machine where two of them used the\n"

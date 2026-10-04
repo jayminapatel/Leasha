@@ -163,6 +163,7 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\model_devices.py" />
     <Compile Include="app\core\model_fetch.py" />
     <Compile Include="app\core\osbridge\__init__.py" />
     <Compile Include="app\core\osbridge\_platform.py" />
@@ -248,6 +249,7 @@
     <Compile Include="app\index\backends.py" />
     <Compile Include="app\index\child_run.py" />
     <Compile Include="app\index\clip_embedder.py" />
+    <Compile Include="app\index\device_test.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
@@ -455,6 +457,7 @@
     <Compile Include="app\ui\widgets\debounce.py" />
     <Compile Include="app\ui\widgets\debug_pane.py" />
     <Compile Include="app\ui\widgets\defaults.py" />
+    <Compile Include="app\ui\widgets\device_box.py" />
     <Compile Include="app\ui\widgets\editor_box.py" />
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\epub_view.py" />
@@ -814,6 +817,7 @@
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
+    <Compile Include="tests\unit\test_model_devices.py" />
     <Compile Include="tests\unit\test_model_dropdowns.py" />
     <Compile Include="tests\unit\test_model_manager_qt.py" />
     <Compile Include="tests\unit\test_name_only.py" />
@@ -868,6 +872,7 @@
     <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
+    <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />
     <Compile Include="tests\unit\test_pinned_panel.py" />
     <Compile Include="tests\unit\test_pipeline_bench.py" />

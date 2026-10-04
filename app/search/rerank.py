@@ -26,6 +26,7 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Optional, Sequence
 
+from app.core.model_devices import device_for as _device_for
 from app.core.gpu_serialize import (
     gpu_exclusive,
     is_transient_gpu_error,
@@ -111,7 +112,7 @@ class Reranker:
             top_n=int(getattr(settings, "rerank_top_n", RERANK_TOP_N)),
             window_chars=int(getattr(settings, "rerank_window_chars",
                                      RERANK_WINDOW_CHARS)),
-            device=str(getattr(settings, "embed_device", "auto") or "auto"),
+            device=_device_for(settings, "rerank"),  # 2026-10-04: per model (`model_devices`)
         )
         fields.update(overrides)
         return cls(str(getattr(settings, "rerank_model", "")

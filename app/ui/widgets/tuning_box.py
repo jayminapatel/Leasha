@@ -100,12 +100,17 @@ class TuningBox(QGroupBox):
         self.machine.benchmark_requested.connect(self.benchmark_requested)
 
         self.compute = ComputeBox(settings)
+        # 2026-10-04, the owner: each model's processor, and a test for this machine.
+        from app.ui.widgets.device_box import DeviceBox
+
+        self.devices = DeviceBox(settings)
         self.resources = ResourcesBox(settings)
         self.coverage = LongRunBox()
         self.strategy = StrategyBox(settings)
         self.converter = ConverterBox(settings)
 
-        for box in (self.compute, self.resources, self.strategy, self.converter):
+        for box in (self.compute, self.devices, self.resources, self.strategy,
+                    self.converter):
             box.changed.connect(self.changed)
         self.coverage.changed.connect(
             lambda: self.coverage_changed.emit(self.coverage.values()))
@@ -124,6 +129,7 @@ class TuningBox(QGroupBox):
         layout.addWidget(self.tuned_status)
         layout.addWidget(self.machine)
         layout.addWidget(self.compute)
+        layout.addWidget(self.devices)
         layout.addWidget(self.resources)
         # `self.coverage` is laid out on the *What gets read* page now
         # (`indexing_layout.assemble_pages`, 1 October 2026); this box still
@@ -148,6 +154,7 @@ class TuningBox(QGroupBox):
             self.mode.blockSignals(False)
 
         self.compute.load(settings)
+        self.devices.load(settings)
         self.resources.load(settings)
         self.coverage.load(settings)
         self.strategy.load(settings)

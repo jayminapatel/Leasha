@@ -555,7 +555,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # only before extraction/indexing does.
     from app.extract import ocr as _ocr
 
-    _ocr.configure_device(settings.embed_device)
+    from app.core.model_devices import device_for
+
+    _ocr.configure_device(device_for(settings, "ocr"))  # 2026-10-04: per model (`model_devices`)
 
     # **A breadcrumb before each stage that can block.**
     #

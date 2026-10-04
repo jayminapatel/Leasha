@@ -70,7 +70,9 @@ def _load(args: argparse.Namespace) -> Settings:
     # because this is the one function every command's settings pass through.
     from app.extract import ocr
 
-    ocr.configure_device(settings.embed_device)
+    from app.core.model_devices import device_for
+
+    ocr.configure_device(device_for(settings, "ocr"))  # 2026-10-04: per model (`model_devices`)
     return settings
 
 

@@ -67,7 +67,9 @@ SURFACE_MODULES = {
     # was already the panel for what gets read, so it moved screen rather
     # than being rebuilt.
     "indexing.tuning": ("widgets/tuning_box.py", "widgets/tuning_groups.py",
-                        "widgets/long_run_box.py", "widgets/converter_box.py"),
+                        "widgets/long_run_box.py", "widgets/converter_box.py",
+                        # 2026-10-04: each model's processor (Devices).
+                        "widgets/device_box.py"),
     "settings.reading": ("settings_view.py", "widgets/file_types.py"),
     # `storage_box` too: EMBED_MODEL and EMBED_DIM are Models settings whose
     # flow lives with the index location it invalidates.
@@ -101,6 +103,14 @@ def _registry_driven_keys(path: Path) -> set[str]:
         from app.ui.widgets.chat_box import chat_settings
 
         return {setting.key for setting in chat_settings()}
+    # 2026-10-04: the Devices group builds one choice per model the same way
+    # (`setObjectName(key)` from `model_devices.MODELS`). What proves the
+    # controls exist is `test_model_devices.py::test_the_devices_table_has_a_
+    # row_and_a_test_for_every_model`, which builds it and checks every name.
+    if path.name == "device_box.py":
+        from app.core.model_devices import MODELS
+
+        return {key for _model, key, _label in MODELS}
     return set()
 
 

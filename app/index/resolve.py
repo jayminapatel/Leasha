@@ -64,6 +64,38 @@ class Resolved:
         }
 
 
+def test_this_machine_if_new(settings: Any) -> bool:
+    r"""Test each model on the processor and the graphics card before a run on a
+    machine never tested here. True when it tested.
+
+    2026-10-05, the owner: "this test mechanism should be on every indexing
+    option so it can get tested and the setting set". Every run - Start, a
+    folder's "Index now", the schedule, the command line - resolves its tuning
+    here first, so every one of them tests an untested machine, once; the
+    result is kept per machine (`model_devices`). Only while "Run models on"
+    is Automatic: somebody who chose a processor outright is not overruled,
+    and Test this machine (Indexing > Tuning > Devices) is there for them.
+    Runs on the caller's worker, under the window's "Checking your hardware".
+    Never raises, as `resolve_for_run` promises.
+    """
+    try:
+        if str(getattr(settings, "embed_device", "auto") or "auto") != "auto":
+            return False
+        from app.core.model_devices import needs_test
+
+        if not needs_test(settings):
+            return False
+        from app.index.device_test import gpu_usable, run_device_test
+
+        if not gpu_usable()[0]:
+            return False
+        run_device_test(settings)
+        return True
+    except Exception as exc:                         # noqa: BLE001 - see docstring
+        _log.warning("this machine was not tested before the run: {}", exc)
+        return False
+
+
 def resolve_for_run(settings: Any, store: Any = None,
                     profile: Any = None) -> Resolved:
     r"""The effective tuning numbers for one run.
@@ -78,6 +110,7 @@ def resolve_for_run(settings: Any, store: Any = None,
     detected, an envelope that has nothing to say - each of them lands on the
     stored value, which is the behaviour from before any of this existed.
     """
+    test_this_machine_if_new(settings)
     mode = str(getattr(settings, "index_tuning_mode", "defaults") or "defaults")
     stored = {
         "INDEX_WORKERS": int(getattr(settings, "index_workers", 0) or 0),

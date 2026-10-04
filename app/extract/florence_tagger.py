@@ -47,6 +47,7 @@ the model is downloaded"; nothing is fetched while indexing.
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 import time
 from dataclasses import dataclass
@@ -85,7 +86,9 @@ def _settings() -> tuple[Optional[Path], str]:
 
         settings = load_settings(create_dirs=False, check_writable=False)
         cache = getattr(settings, "model_cache", None)
-        return (Path(cache) if cache else None), str(getattr(settings, "embed_device", "auto"))
+        from app.core.model_devices import device_for
+
+        return (Path(cache) if cache else None), device_for(settings, "describe")
     except Exception:                              # noqa: BLE001 - never blocks indexing
         return None, "auto"
 
@@ -158,6 +161,10 @@ def reset() -> None:
 #: the run, in the index process only; the window's own Describe is untouched.
 _deferred = False
 
+#: Set while a photo is asked again on the processor after the graphics
+#: driver failed - so a second failure is not retried for ever. 2026-10-04.
+_retrying: contextvars.ContextVar[bool] = contextvars.ContextVar("florence_retrying", default=False)
+
 
 def defer(on: bool) -> None:
     """Tag photos at the end of the run (True) or as each is read (False)."""
@@ -182,6 +189,20 @@ def tag_image(path: Path) -> Optional[FlorenceResult]:
         with Image.open(path) as im:
             caption, tags = engine.caption_and_tags(im.convert("RGB"))
     except Exception as exc:                        # noqa: BLE001 - one image, not the run
+        from app.core.gpu_serialize import is_transient_gpu_error, mark_gpu_unreliable
+
+        if is_transient_gpu_error(exc) and not _retrying.get():
+            # 2026-10-04: the graphics driver failed mid-run. Every model is
+            # told (the latch `backends.choose` reads), this one reloads on the
+            # processor, and this photo is asked again - not recorded as having
+            # nothing to describe because the card had a bad moment.
+            mark_gpu_unreliable(f"Florence-2: {type(exc).__name__}")
+            reset()
+            token = _retrying.set(True)
+            try:
+                return tag_image(path)
+            finally:
+                _retrying.reset(token)
         log.debug("Florence-2 tagging failed on {}: {}: {}",
                   Path(path).name, type(exc).__name__, exc)
         return None

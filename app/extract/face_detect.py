@@ -81,6 +81,22 @@ def available() -> bool:
         return False
 
 
+def _choice() -> Any:
+    """Which processor faces run on - `backends.choose` on this machine's choice
+    for faces, as OCR asks for its own. The processor when anything is unclear."""
+    from app.index import backends
+
+    try:
+        from app.core.compute_profile import detect
+        from app.core.config import load_settings
+        from app.core.model_devices import device_for
+
+        return backends.choose(detect(), device_for(load_settings(), "faces"))
+    except Exception as exc:                        # noqa: BLE001 - the processor is always there
+        log.debug("faces stay on the processor: {}", exc)
+        return backends.choose(None, backends.CPU)
+
+
 def _load() -> Optional[Any]:
     """The `FaceAnalysis` app, loaded and prepared once. `None` when it
     cannot be - absent package, no model pack downloaded and no network to
@@ -100,8 +116,21 @@ def _load() -> Optional[Any]:
             from insightface.app import FaceAnalysis
 
             started = time.monotonic()
-            app = FaceAnalysis(name=MODEL_PACK)
-            app.prepare(ctx_id=-1, det_size=DET_SIZE)   # -1: CPU, no GPU assumed
+            # 2026-10-04: the processor this machine's choice for faces names
+            # (`model_devices`, Indexing > Tuning > Devices); it was always the
+            # processor (`ctx_id=-1`). A graphics card that will not build it
+            # falls back to the processor here, as every other model does.
+            choice = _choice()
+            try:
+                app = FaceAnalysis(name=MODEL_PACK, providers=list(choice.providers))
+                app.prepare(ctx_id=0 if choice.is_gpu else -1, det_size=DET_SIZE)
+            except Exception as exc:                # noqa: BLE001 - the processor, then
+                if not choice.is_gpu:
+                    raise
+                log.warning("faces would not load on the graphics card ({}); "
+                            "using the processor", exc)
+                app = FaceAnalysis(name=MODEL_PACK, providers=["CPUExecutionProvider"])
+                app.prepare(ctx_id=-1, det_size=DET_SIZE)   # -1: CPU
             _engine = app
             log.info("face detection model loaded in {:.1f}s ({})",
                      time.monotonic() - started, MODEL_PACK)

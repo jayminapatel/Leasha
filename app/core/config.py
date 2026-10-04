@@ -204,6 +204,15 @@ class Settings(BaseModel):
     #: processor to within floating-point noise, so unlike `EMBED_MODEL` this
     #: does not invalidate an index - which is why it is a plain control.
     embed_device: str = "auto"
+    #: 2026-10-04, the owner: one processor choice per model, measured per
+    #: machine - see `app/core/model_devices.py`. `auto` follows this
+    #: machine's last device test, and until one has run, `embed_device`.
+    device_meaning: str = "auto"
+    device_rerank: str = "auto"
+    device_ocr: str = "auto"
+    device_faces: str = "auto"
+    device_pictures: str = "auto"
+    device_describe: str = "auto"
     #: **Changed on a measurement, not a preference.** `rerank-bench` on the
     #: owner's machine, 30 candidates windowed to 600 characters, median of
     #: three passes:
@@ -484,6 +493,12 @@ SETTING_KEYS: tuple[str, ...] = (
     "EMBED_MODEL",
     "EMBED_DIM",
     "EMBED_DEVICE",
+    "DEVICE_MEANING",
+    "DEVICE_RERANK",
+    "DEVICE_OCR",
+    "DEVICE_FACES",
+    "DEVICE_PICTURES",
+    "DEVICE_DESCRIBE",
     "RERANK_MODEL",
     "RERANK_ENABLED",
     "RERANK_TOP_N",
@@ -643,6 +658,12 @@ def load_settings(
             embed_model=values.get("EMBED_MODEL") or "BAAI/bge-small-en-v1.5",
             embed_dim=_as_int("EMBED_DIM", values.get("EMBED_DIM", "384")),
             embed_device=(values.get("EMBED_DEVICE") or "auto").strip().lower(),
+            device_meaning=(values.get("DEVICE_MEANING") or "auto").strip().lower(),
+            device_rerank=(values.get("DEVICE_RERANK") or "auto").strip().lower(),
+            device_ocr=(values.get("DEVICE_OCR") or "auto").strip().lower(),
+            device_faces=(values.get("DEVICE_FACES") or "auto").strip().lower(),
+            device_pictures=(values.get("DEVICE_PICTURES") or "auto").strip().lower(),
+            device_describe=(values.get("DEVICE_DESCRIBE") or "auto").strip().lower(),
             rerank_model=values.get("RERANK_MODEL") or "Xenova/ms-marco-MiniLM-L-6-v2",
             rerank_enabled=_as_bool("RERANK_ENABLED", values.get("RERANK_ENABLED", "false")),
             rerank_top_n=_as_int(
@@ -818,6 +839,15 @@ def load_settings(
             key="EMBED_DEVICE",
             reason=f"must be auto, cpu or gpu, got {settings.embed_device!r}",
         ))
+    # 2026-10-04: each model's own choice, held to the same three.
+    for _model in ("meaning", "rerank", "ocr", "faces", "pictures", "describe"):
+        _value = getattr(settings, f"device_{_model}")
+        if _value not in ("auto", "cpu", "gpu"):
+            raise AppErrorException(make_error(
+                "ERR_CONFIG_INVALID", "core.config",
+                key=f"DEVICE_{_model.upper()}",
+                reason=f"must be auto, cpu or gpu, got {_value!r}",
+            ))
 
     # The other closed sets, checked the same way and for the same reason: a
     # typed value that silently falls back to the default leaves somebody

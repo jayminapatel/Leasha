@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING, Callable, Iterable, Iterator, Optional, Sequen
 if TYPE_CHECKING:                  # numpy is imported where it is used - see `_finish`
     import numpy as np
 
+from app.core.model_devices import device_for as _device_for
 from app.core.errors import AppErrorException, make_error
 from app.core.gpu_serialize import (
     gpu_exclusive,
@@ -275,8 +276,7 @@ class Embedder:
         fields: dict = dict(
             dim=int(getattr(settings, "embed_dim", 384) or 384),
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
-            device=str(getattr(settings, "embed_device", backends.AUTO)
-                       or backends.AUTO),
+            device=_device_for(settings, "meaning"),  # 2026-10-04: per model (`model_devices`)
             quantised=bool(getattr(settings, "embed_quantised", False)),
         )
         fields.update(overrides)

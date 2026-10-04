@@ -95,11 +95,21 @@ def _window(tmp_path):
 
 
 def _pump(app, ms: int = 5_000) -> None:
+    """Drain a chain of workers, not one round of them. *2026-10-04*: Start now
+    asks a worker whether this machine needs its device test before the
+    resolve worker is even created, so one wait-then-process round stopped
+    before the run existed."""
     from PyQt6.QtCore import QThreadPool
 
     QThreadPool.globalInstance().waitForDone(ms)
     for _ in range(5):
         app.processEvents()
+    # Then a short round per link, not a full wait: a window keeps workers of
+    # its own alive, so `waitForDone` returns at its timeout, not when idle.
+    for _round in range(3):
+        QThreadPool.globalInstance().waitForDone(300)
+        for _ in range(5):
+            app.processEvents()
 
 
 # --- the guard itself: nothing heavy runs on the calling thread -------------

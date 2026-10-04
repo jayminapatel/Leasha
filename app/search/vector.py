@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Sequence
 
+from app.core.model_devices import device_for as _device_for
 from app.core.errors import AppErrorException
 from app.core.logging import logger
 from app.search.query import ParsedQuery
@@ -350,7 +351,7 @@ def clip_text_embedder_from_settings(
     return Embedder(
         CLIP_TEXT_MODEL, dim=CLIP_TEXT_DIM,
         cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
-        device=str(getattr(settings, "embed_device", "auto") or "auto"),
+        device=_device_for(settings, "meaning"),  # 2026-10-04: per model (`model_devices`)
         on_progress=on_progress,
     )
 

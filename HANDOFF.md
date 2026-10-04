@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.66 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.67 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,38 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - pictures in the owner's order, each model's processor, and two pushed
+  faults.* The owner: "it is skipping all the files" (the after-run text pass held every photo -
+  the images pass now **starts by itself** once a text pass finishes, `_start_images_pass`;
+  "offered, never started" reversed by the owner, dated note kept), then "faces then description
+  then ocr", then (a) "fast, efficient and comprehensive", then yes to the graphics card with a
+  setting and a test. **Pictures**: as each is read - EXIF, hash, CLIP, faces, and a ~5 ms sort by
+  the OCR ladder's free rungs into a photo (`ERR_PICTURE_TEXT_LATER`) or a page
+  (`ERR_PAGE_TEXT_LATER`), both Deferred; at the run's end (`Pipeline._drain_picture_text`)
+  photos are described (Florence-2), pages are not, then text is read last - pages first, then
+  photos. A detection-only probe was not used at read time: it costs what reading costs
+  (`_probe_by_reading`'s measurement). Faces were looked for only in photos that produced a
+  document - every photo while Florence tagged in place, almost none once it did not; now in the
+  skip path too, and never twice for one photo (`store.face_scanned`). **Two faults already
+  pushed, now fixed**: `Pipeline._stop` is set at the end of *every* run to unwind its threads, so
+  end-of-run steps that checked it quit at once - `_drain_photo_tags` (`367fc7e`) never ran in a
+  real run, nor did the last face grouping (`490a358`; the every-25-faces grouping did). They
+  answer to a real Stop (`_interrupted`) only. **Devices** (Indexing > Tuning > Devices,
+  `app/core/model_devices.py`, `app/index/device_test.py`, `widgets/device_box.py`): a choice per
+  model (`DEVICE_MEANING`, `_RERANK`, `_OCR`, `_FACES`, `_PICTURES`, `_DESCRIBE`); Automatic follows
+  this machine's last test (`STATE_PATH/device_test.json`, keyed by the machine fingerprint),
+  else "Run models on". "Test this machine" and a Test per row; an untested machine is tested before
+  its first index while "Run models on" is Automatic (not overruled when Processor is chosen).
+  Faces can now use the graphics card at all (`ctx_id=-1` before); Florence-2 asks a photo again
+  on the processor after a driver failure rather than recording it as having nothing to say.
+  **Measured on this laptop** (Iris Xe, DirectML, 86 s): graphics card for descriptions 7.99 ->
+  4.03 s, OCR 2.62 -> 1.54, faces 0.142 -> 0.037, CLIP 0.119 -> 0.079, reranker 0.105 -> 0.046;
+  the meaning model stays on the processor - on the card it loads the full-precision file, its
+  vectors agree only to 0.97-0.98 with the quantised ones, and it is slower. **Not yet saved on
+  this machine**: the run above was a dry run - press Test this machine once (about 90 s).
+  Tests: `test_pictures_faces_then_text.py`, `test_model_devices.py`; the pipeline tests that
+  index real images pass. UNVERIFIED: a whole library run; the window's freeze while each model
+  loads during a test (measured 5.5 s for the chat model) is not cured, only announced.
 - *2026-10-04 note, last - View in the menu, the tab's View an icon.* The owner: "the view in each
   tab should be in the view in the menu and should be dynamic ... if the view has to stay on each
   tab it should be a icon similar to preview consistent across all". The menu bar's View now
