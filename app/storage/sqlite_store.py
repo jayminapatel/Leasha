@@ -1673,6 +1673,45 @@ class SqliteStore:
             self._bump_generation(conn)
         return file_id
 
+    def add_waiting_files(self, rows: Sequence[dict[str, Any]]) -> int:
+        """A `PENDING` row for each file not in the index yet; returns how many.
+
+        2026-10-04, the owner: "it should get the names first and then scan
+        faces or text ... file list comes up first". The run's scan writes the
+        names of the files it is about to read, so the Files page lists every
+        one - by name, searchable - before the first is read.
+
+        **INSERT OR IGNORE, so a row already there is never touched**: an
+        INDEXED file that changed keeps its row, and its words, until it is
+        read again. A `PENDING` row is never taken for a finished one -
+        `Pipeline._classify` settles only INDEXED, NAME_ONLY and skipped rows,
+        which is how an interrupted run already resumed. `rows` carry `path`,
+        `parent_dir`, `ext`, `size_bytes`, `mtime_ns` and optionally
+        `volume_id` and `relative_path`. One transaction for the batch.
+        """
+        added = 0
+        with self.write(deferring=True) as conn:
+            for row in rows:
+                cursor = conn.execute(
+                    """
+                    INSERT OR IGNORE INTO files
+                        (path, parent_dir, ext, size_bytes, mtime_ns, status, source_kind,
+                         volume_id, relative_path)
+                    VALUES (?, ?, ?, ?, ?, 'PENDING', 'file', ?, ?)
+                    """,
+                    (str(row["path"]), str(row["parent_dir"]), str(row.get("ext") or ""),
+                     int(row.get("size_bytes") or 0), int(row.get("mtime_ns") or 0),
+                     row.get("volume_id"), row.get("relative_path")),
+                )
+                if cursor.rowcount == 1:
+                    added += 1
+                    conn.execute(
+                        "INSERT INTO files_fts(rowid, name, folder) VALUES (?, ?, ?)",
+                        (cursor.lastrowid, _basename(str(row["path"])), str(row["parent_dir"])))
+            if added:
+                self._bump_generation(conn)
+        return added
+
     def get_file(self, path: str) -> Optional[FileRecord]:
         row = self.conn.execute("SELECT * FROM files WHERE path = ?", (str(path),)).fetchone()
         return FileRecord.from_row(row) if row else None

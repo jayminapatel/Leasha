@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.53 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.54 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2207,6 +2207,30 @@ his machine: `PEOPLE_RECOGNITION_ENABLED=true`, `face_detect.available()` True.
 `test_timed_out_panel.py::test_under_after_run_the_start_after_a_text_pass_is_the_images_pass`.
 **Asked, not built yet**: "it should get the names first and then scan faces or text ... file
 list comes up first" - see the reply of this date.
+
+**2026-10-04 (night, last) - Names first.** *Note above corrected: built, the owner said
+"recommended and push".* In the "newest" order the scan already found every file before reading
+any, but held the list in memory only. `Pipeline._produce` now writes each file it queues for
+reading as a `PENDING` row (`store.add_waiting_files`: INSERT OR IGNORE, so an existing row is
+never touched; `files_fts` gets the name), in batches of `WAITING_BATCH` (2,000) as the scan goes.
+**Safe by the existing rule**: `_classify` settles only INDEXED, NAME_ONLY and skipped rows, so a
+PENDING row is always read - the same way an interrupted run resumes. **Fault found by the
+existing tests, fixed**: on its turn a new file met its own PENDING row with matching size and
+date and was not hashed (`test_the_scan_does_not_hash_new_files`); `_classify` now asks
+`has_changed` as if a PENDING row were absent. The Status page subtracts PENDING rows from
+"Discovered" so a file is not counted twice. "As found" order unchanged. Mail inside a `.pst`
+is still listed as the archive is read. **Not measured** on a large drive: one insert per new
+file, batched; the owner's 13,256 is small. `test_read_order.py`.
+
+**And the images-pass fix (`ab6f4c4`) did not reach a separate-process run.** The owner:
+"confirm the individual index and main index is same code". They are - Start and a folder's
+Index now both go through `IndexController._start_indexing` (`roots=` for one folder), and with
+`INDEX_SEPARATE_PROCESS=true` (his setting) both become `_child_run`. But `_child_run` never told
+the child which pass it was, and `app.cli index._ocr_mode` answers "text" for every run under
+`after-run` - so the images pass the window decided on would have run as the text pass again.
+`_child_run` now passes `--only-ocr` / `--skip-ocr` from `_ocr_mode_for_run` (`_pass_flags`; a
+timed-out retry names no pass). The child's final stats carry `ocr_mode`, so a finished images
+pass clears the flag. `test_a_run_in_its_own_process_is_told_which_pass_it_is`.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

@@ -985,7 +985,7 @@ class IndexController(QObject):
             prune=roots is None, recheck_archives=recheck_archives,
             workers=int(getattr(tuned, "workers", 0) or 0),
             cloud_content_keys=cloud, first=self._first_folders(),
-            extra=child_arguments(retry))
+            extra=[*child_arguments(retry), *self._pass_flags(retry)])
         env = dict(os.environ)
         env.update(settings_environment(settings))
         log_path = getattr(settings, "log_path", None)
@@ -997,6 +997,22 @@ class IndexController(QObject):
         # An attribute, no I/O; the reads are a worker's (`StatusFunnel`).
         run.read_store = getattr(self._w, "_store", None)
         return run
+
+    def _pass_flags(self, retry: Any = None) -> list[str]:
+        """Which pass, for the child - the in-process run's `ocr_mode`.
+
+        *Added 4 October 2026, the owner: "confirm the individual index and
+        main index is same code".* They are (`_start_indexing`, with `roots=`
+        for one folder) - but in a child process neither was told which pass
+        it was, and the child worked it out from the settings alone, so under
+        "after-run" the images pass this window decided on
+        (`_ocr_mode_for_run`) ran as the text pass. A retry is its own run and
+        names no pass.
+        """
+        if retry is not None:
+            return []
+        mode = self._w._ocr_mode_for_run()
+        return {"images": ["--only-ocr"], "text": ["--skip-ocr"]}.get(mode, [])
 
     def _first_folders(self) -> list[str]:
         """2026-09-29: the folder list's "Index this folder first", in order,

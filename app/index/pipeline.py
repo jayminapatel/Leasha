@@ -1026,6 +1026,18 @@ def _archive_resume_key(path: Path) -> str:
     return f"{ARCHIVE_RESUME_PREFIX}{digest.hexdigest()}"
 
 
+#: How many names `_produce` writes in one transaction while it scans.
+WAITING_BATCH = 2_000
+
+
+def _waiting_row(candidate: "Candidate") -> dict:
+    """What `store.add_waiting_files` needs to list one found file by name."""
+    return {"path": _candidate_row_key(candidate), "parent_dir": _candidate_parent_dir(candidate),
+            "ext": indexed_ext(candidate.path), "size_bytes": candidate.size_bytes,
+            "mtime_ns": candidate.mtime_ns, "volume_id": candidate.volume_id,
+            "relative_path": candidate.relative_path}
+
+
 def _candidate_row_key(candidate: "Candidate") -> str:
     """The row key for a bare candidate that never became a `Document` -
     a name-only file or one recorded as skipped. Mirrors `Document.row_key`'s
@@ -2298,6 +2310,12 @@ class Pipeline:
         roots = list(self.config.walk.roots)
         ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
         worklist = WorkList(self._spill_dir()) if ordered else None
+        #: 2026-10-04, the owner: "file list comes up first". The names of the
+        #: files the scan finds to read, written in batches as it goes
+        #: (`store.add_waiting_files`), so the Files page lists them before
+        #: the first one is read. The "newest" order only - "as found" reads
+        #: each file as soon as it is found anyway.
+        waiting: list[dict] = []
         halted = False
         next_ask = 0.0
         try:
@@ -2344,6 +2362,9 @@ class Pipeline:
 
                 if worklist is not None:
                     worklist.add(candidate, decision)
+                    waiting.append(_waiting_row(candidate))
+                    if len(waiting) >= WAITING_BATCH:
+                        self._write_waiting(waiting)
                     continue
 
                 # (priority, sequence) keeps PriorityQueue from ever comparing
@@ -2351,6 +2372,7 @@ class Pipeline:
                 # walker's deterministic order within a priority band.
                 sequence += 1
                 self._queue_work(work, (candidate.priority, sequence, candidate, decision))
+            self._write_waiting(waiting)
             if worklist is not None and not halted and not self._stop.is_set():
                 sequence = self._read_in_order(work, stats, worklist)
         except Exception as exc:                # noqa: BLE001 - a walker crash must not hang the run
@@ -2387,6 +2409,17 @@ class Pipeline:
                     "walk", time.perf_counter() - self._run_started_pc)
             for _ in range(self.config.worker_count()):
                 work.put((10_000, sequence + 1, _STOP, None))
+
+    def _write_waiting(self, waiting: list[dict]) -> None:
+        """Write and empty the batch of names. **Never raises**: a name that
+        could not be listed early is listed when its file is read, as before."""
+        if not waiting:
+            return
+        try:
+            self.store.add_waiting_files(waiting)
+        except Exception as exc:                # noqa: BLE001 - see the docstring
+            self._log.warning("could not list {:,} file name(s) early: {}", len(waiting), exc)
+        waiting.clear()
 
     def _read_in_order(self, work: queue.PriorityQueue, stats: IndexStats,
                        worklist: WorkList) -> int:
@@ -3071,12 +3104,19 @@ class Pipeline:
                 return UNCHANGED
             return None                      # write the name row, read nothing
 
+        # **A `PENDING` row knows nothing about the contents** (2026-10-04): the
+        # scan writes one for each file it lists by name before reading
+        # (`store.add_waiting_files`), with the file's own size and date. Taken
+        # as known, it made every new file look unchanged by date and size, so
+        # none was hashed - `test_the_scan_does_not_hash_new_files` said so.
+        # The file is asked about as if never seen, which is what it is.
+        known = record if record is not None and record.status != FileStatus.PENDING else None
         try:
             changed, digest = has_changed(
                 candidate,
-                known_mtime_ns=record.mtime_ns if record else None,
-                known_size=record.size_bytes if record else None,
-                known_hash=record.content_hash if record else None,
+                known_mtime_ns=known.mtime_ns if known else None,
+                known_size=known.size_bytes if known else None,
+                known_hash=known.content_hash if known else None,
                 # A file read through another application is held open by it, so
                 # hashing its bytes fails - and those bytes are not what gets
                 # parsed anyway. mtime and size are all there is, and enough.

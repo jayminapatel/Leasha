@@ -456,3 +456,46 @@ def test_the_command_line_accepts_order() -> None:
     assert parser.parse_args(["index"]).order is None
     with pytest.raises(SystemExit):
         parser.parse_args(["index", "--order", "sideways"])
+
+
+def test_every_found_file_is_listed_by_name_before_the_first_is_read(tmp_path: Path) -> None:
+    """2026-10-04, the owner: "it should get the names first and then scan faces
+    or text ... file list comes up first". When the first file is read, every
+    file the scan found is already a row - Queued (`PENDING`) and findable by
+    name - and the run then reads each one, as before."""
+    root = tmp_path / "corpus"
+    ages = _corpus(root)
+    listed: list[tuple] = []
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, root)
+        original = pipeline._write_one
+
+        def write_one(item):
+            if not listed:
+                listed.extend(store.conn.execute(
+                    "SELECT path, status FROM files ORDER BY path").fetchall())
+            return original(item)
+
+        pipeline._write_one = write_one
+        stats = pipeline.run()
+        assert len(listed) == len(ages)
+        assert {status for _path, status in listed} == {"PENDING"}
+        assert store.search_files_by_name("y-new", limit=5), "found by name while queued"
+        assert stats.indexed == len(ages)
+        statuses = {row[0] for row in store.conn.execute("SELECT status FROM files")}
+    assert statuses == {"INDEXED"}, "every queued name was read"
+
+
+def test_listing_names_never_touches_a_row_already_there(tmp_path: Path) -> None:
+    with SqliteStore(tmp_path / "index.db") as store:
+        kept = store.upsert_file("C:/a/report.txt", size_bytes=5, mtime_ns=1,
+                                 status="INDEXED", content_hash="h")
+        added = store.add_waiting_files([
+            {"path": "C:/a/report.txt", "parent_dir": "C:/a", "ext": "txt",
+             "size_bytes": 9, "mtime_ns": 2},
+            {"path": "C:/a/new.txt", "parent_dir": "C:/a", "ext": "txt",
+             "size_bytes": 3, "mtime_ns": 2}])
+        assert added == 1
+        record = store.get_file("C:/a/report.txt")
+        assert (record.id, record.status, record.size_bytes) == (kept, "INDEXED", 5)
+        assert store.get_file("C:/a/new.txt").status == "PENDING"

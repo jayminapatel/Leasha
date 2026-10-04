@@ -352,3 +352,28 @@ def test_under_after_run_the_start_after_a_text_pass_is_the_images_pass(window) 
     finally:
         ctl._images_due = False
         del built.notify
+
+
+def test_a_run_in_its_own_process_is_told_which_pass_it_is(window) -> None:
+    """2026-10-04, the owner: "confirm the individual index and main index is
+    same code". They are; but a child process was never told the pass, and
+    worked out "text" from the settings every time under "after-run" - so the
+    images pass the window had decided on ran as the text pass."""
+    from types import SimpleNamespace
+
+    from app.index.timed_out_retry import RetryTimedOut
+
+    _app, built, _started = window
+    built._settings = built._settings.model_copy(update={"index_ocr_pass": "after-run"})
+    ctl, tuned = built.index_ctl, SimpleNamespace(workers=2)
+    try:
+        ctl._images_due = True
+        whole = ctl._child_run(tuned, ["C:/docs"], None, False).argv
+        one_folder = ctl._child_run(tuned, ["C:/docs/a"], ["C:/docs/a"], True).argv
+        assert "--only-ocr" in whole and "--only-ocr" in one_folder, "Start and Index now alike"
+        ctl._images_due = False
+        assert "--skip-ocr" in ctl._child_run(tuned, ["C:/docs"], None, False).argv
+        retried = ctl._child_run(tuned, ["C:/docs"], None, False, retry=RetryTimedOut("pdf"))
+        assert "--only-ocr" not in retried.argv and "--skip-ocr" not in retried.argv
+    finally:
+        ctl._images_due = False

@@ -347,6 +347,9 @@ def status_funnel_counts(store: Any, stats: Any = None) -> dict[str, int]:
         # `presenter.progress_for`); for an archive `indexed` counts messages,
         # which can overtake `seen` - hence the floor at zero.
         discovered = max(0, int(getattr(stats, "seen", 0) or 0) - done - reading)
+        # 2026-10-04: a file the scan has listed by name (a `PENDING` row) is
+        # already counted as Queued by the store - not twice.
+        discovered = max(0, discovered - int(grouped["by_status"].get("PENDING", 0) or 0))
     return funnel_counts(grouped["by_status"], grouped["coded"], grouped["offline"],
                          reading=reading, discovered=discovered)
 
