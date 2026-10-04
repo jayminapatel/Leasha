@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.58 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.59 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **Leasha is in the Start menu.** The installer adds a per-user shortcut that opens the
+  window without a console and groups with it on the taskbar. `.\leasha shortcut` adds it to an
+  existing installation; `.\leasha shortcut remove` takes it out.
 - **The Files list's date column is headed "Date"** (it was "Modified"): it shows a photo's
   taken date and an attachment's sent date as well as a file's last change. Your column
   choices are kept.

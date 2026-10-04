@@ -798,6 +798,28 @@ if (-not $SkipOptional -and -not $Preflight) {
 }
 
 # ---------------------------------------------------------------------------
+# Start-menu shortcut. 2026-10-04, the owner.
+# ---------------------------------------------------------------------------
+#
+# **Not asked**, unlike the questions around it: a Start-menu entry changes
+# nothing about how the machine behaves, and it is what anybody expects an
+# installer to leave behind. Per-user (%APPDATA%), no administrator rights.
+# It runs venv\Scripts\pythonw.exe -m app.main directly, so no console flashes,
+# and carries the window's own taskbar ID so the two group together - see
+# app/core/startmenu.py. '.\leasha shortcut remove' takes it out again.
+
+if (-not $Preflight) {
+    Invoke-Step -Name "Add Leasha to the Start menu" -Optional `
+        -Fix "Run it by hand later: .\leasha shortcut" `
+        -Action {
+            & "$ProjectPath\venv\Scripts\python.exe" -m app.cli shortcut create
+            if ($LASTEXITCODE -ne 0) { throw "shortcut create exited $LASTEXITCODE" }
+            $lnk = Join-Path $env:APPDATA "Microsoft\Windows\Start Menu\Programs\Leasha.lnk"
+            if (-not (Test-Path $lnk)) { throw "no shortcut at $lnk" }
+        }
+}
+
+# ---------------------------------------------------------------------------
 # leasha:// links - the second optional question. Adoptions section 7a.
 # ---------------------------------------------------------------------------
 #

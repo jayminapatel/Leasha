@@ -45,7 +45,7 @@ from app.cli.bench import (
     add_embed_bench_parser,
     add_rerank_bench_parser,
 )
-from app.cli.desktop import add_completions_parser, add_open_parser
+from app.cli.desktop import add_completions_parser, add_open_parser, add_shortcut_parser
 from app.cli.evaluate import add_evaluate_parser
 from app.cli.extract import add_convert_parser, add_extract_parser
 from app.cli.formats import add_formats_parser
@@ -89,7 +89,7 @@ from app.cli.bench import (  # noqa: F401
     cmd_embedbench,
     cmd_rerank_bench,
 )
-from app.cli.desktop import cmd_completions, cmd_open  # noqa: F401
+from app.cli.desktop import cmd_completions, cmd_open, cmd_shortcut  # noqa: F401
 from app.cli.evaluate import cmd_evaluate  # noqa: F401
 from app.cli.extract import _write_extract_json, cmd_convert, cmd_extract  # noqa: F401
 from app.cli.formats import cmd_formats  # noqa: F401
@@ -180,6 +180,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_shell_parser(sub, common)
     add_open_parser(sub, common)
     add_completions_parser(sub, common)
+    add_shortcut_parser(sub, common)
     add_rerank_bench_parser(sub, common)
     add_formats_parser(sub, common)
     add_media_parser(sub, common)

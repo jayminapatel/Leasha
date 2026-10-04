@@ -87,6 +87,38 @@ def _launcher_path() -> str:
     return str(found if found.exists() else Path(sys.executable))
 
 
+def cmd_shortcut(args: argparse.Namespace) -> int:
+    r"""Add or remove Leasha in the Start menu. `app.core.startmenu`.
+
+    `create` (the default) writes the per-user shortcut, `remove` deletes it,
+    `show` prints what it holds. Off Windows, `create` says so rather than
+    pretending.
+    """
+    from app.core.startmenu import create, exists, remove, shortcut_path, shortcut_spec
+
+    action = str(getattr(args, "action", "") or "create")
+    root = project_root()
+
+    if action == "remove":
+        print("Removed Leasha from the Start menu." if remove() else
+              "Nothing to remove: Leasha was not in the Start menu.")
+        return EXIT_OK
+
+    if action == "show":
+        print(f"{'file':<20} {shortcut_path()} "
+              f"({'present' if exists() else 'not there'})")
+        for key, value in shortcut_spec(root).items():
+            print(f"{key:<20} {value}")
+        return EXIT_OK
+
+    if create(root):
+        print(f"Leasha is in the Start menu: {shortcut_path()}")
+        return EXIT_OK
+    print("Could not add Leasha to the Start menu. This only works on Windows, "
+          f"from an installation with {shortcut_spec(root)['target']}.")
+    return EXIT_OK
+
+
 def cmd_completions(args: argparse.Namespace) -> int:
     r"""Emit or install the PowerShell tab completer.
 
@@ -149,6 +181,16 @@ def add_open_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentPa
         "--path", default="",
         help="what a link should run; defaults to this installation")
     p_open.set_defaults(func=cmd_open)
+
+
+def add_shortcut_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
+    p_shortcut = sub.add_parser(
+        "shortcut", parents=[common],
+        help="add or remove Leasha in the Start menu")
+    p_shortcut.add_argument(
+        "action", nargs="?", default="create", choices=["create", "remove", "show"],
+        help="create (the default), remove, or show what it holds")
+    p_shortcut.set_defaults(func=cmd_shortcut)
 
 
 def add_completions_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:

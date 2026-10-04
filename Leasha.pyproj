@@ -182,6 +182,7 @@
     <Compile Include="app\core\scaffold.py" />
     <Compile Include="app\core\settings_registry.py" />
     <Compile Include="app\core\single_instance.py" />
+    <Compile Include="app\core\startmenu.py" />
     <Compile Include="app\core\version.py" />
     <Compile Include="app\core\volumes_win.py" />
     <Compile Include="app\core\winfs.py" />
@@ -967,6 +968,7 @@
     <Compile Include="tests\unit\test_staging.py" />
     <Compile Include="tests\unit\test_start_indexing_resolves_off_thread.py" />
     <Compile Include="tests\unit\test_start_while_running.py" />
+    <Compile Include="tests\unit\test_startmenu.py" />
     <Compile Include="tests\unit\test_startup_import_order.py" />
     <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
