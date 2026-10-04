@@ -226,50 +226,48 @@ class Row:
 
 
 def test_clicking_a_transcript_hit_opens_the_recording_at_that_time(window, monkeypatch):
-    from app.ui import workers
+    """The window hands the row to the one open route (2026-10-04), which reads
+    the moment off it - `presenter.opening.plan_for` is that decision."""
+    from app.ui import shell
+    from app.ui.presenter.opening import plan_for
 
-    moments, plain = [], []
-    monkeypatch.setattr(workers, "open_media_async",
-                        lambda path, seconds, **kw: moments.append((path, seconds, sorted(kw))))
-    monkeypatch.setattr("app.ui.shell.open_async", lambda path, **kw: plain.append(path))
-    window._open_result(Row(r"D:\v\holiday.mp4", "mp4", "12:41"))
-    assert moments == [(r"D:\v\holiday.mp4", 761, ["on_error", "on_note"])]
-    assert plain == []
-
-
-def test_everything_else_opens_exactly_as_it_did(window, monkeypatch):
-    from app.ui import workers
-
-    moments, plain = [], []
-    monkeypatch.setattr(workers, "open_media_async",
-                        lambda path, seconds, **kw: moments.append(path))
-    monkeypatch.setattr("app.ui.shell.open_async",
-                        lambda path, **kw: plain.append((path, kw["reveal"])))
-    window._open_result(Row(r"D:\books\q3.xlsx", "xlsx", "Q3!D14"))     # a cell, not a time
-    window._open_result(Row(r"D:\notes\a.txt", "txt", "12:41"))         # not a recording
-    window._open_result(Row(r"D:\v\holiday.mp4", "mp4", "12:41"), reveal=True)   # the folder
-    window._open_result(Row(r"D:\v\holiday.mp4", "mp4", ""))            # no time known
-    assert moments == []
-    assert [reveal for _p, reveal in plain] == [False, False, True, False]
+    rows = []
+    monkeypatch.setattr(shell, "open_row_async", lambda store, row, **kw: rows.append((row, kw)))
+    hit = Row(r"D:\v\holiday.mp4", "mp4", "12:41")
+    window._open_result(hit)
+    assert rows == [(hit, {"reveal": False, "on_error": window._show_error})]
+    plan = plan_for(hit)
+    assert (plan.how, plan.path, plan.seconds) == ("media", r"D:\v\holiday.mp4", 761)
 
 
-def test_the_worker_hands_a_note_to_the_toast_and_an_error_to_the_error(qtbot, monkeypatch, tmp_path):
+def test_everything_else_opens_exactly_as_it_did():
+    from app.ui.presenter.opening import plan_for
+
+    assert plan_for(Row(r"D:\books\q3.xlsx", "xlsx", "Q3!D14")).how == "file"   # a cell, not a time
+    assert plan_for(Row(r"D:\notes\a.txt", "txt", "12:41")).how == "file"       # not a recording
+    assert plan_for(Row(r"D:\v\holiday.mp4", "mp4", "12:41"), reveal=True).how == "reveal"
+    assert plan_for(Row(r"D:\v\holiday.mp4", "mp4", "")).how == "file"         # no time known
+
+
+def test_the_worker_hands_a_note_to_the_toast_and_an_error_to_the_error(qtbot, monkeypatch):
     from app.core import media_open as mo
-    from app.ui.workers import open_media_async
+    from app.core.errors import make_error
+    from app.ui import workers
 
     notes, errors = [], []
+    monkeypatch.setattr(workers, "_CONTEXT", workers.OpenContext())
     monkeypatch.setattr(mo, "open_at", lambda path, seconds: mo.OpenOutcome(
         opened=True, note=f"Opened. At {seconds}"))
-    open_media_async("x.mp4", 761, on_error=errors.append, on_note=notes.append)
+    workers.open_row_async(None, Row("x.mp4", "mp4", "12:41"),
+                           on_error=errors.append, on_note=notes.append)
     qtbot.waitUntil(lambda: bool(notes), timeout=5000)
     assert notes == ["Opened. At 761"] and errors == []
-
-    from app.core.errors import make_error
 
     boom = make_error("ERR_FILE_CORRUPT", "ui.open", path="x.mp4")
     monkeypatch.setattr(mo, "open_at", lambda path, seconds: mo.OpenOutcome(
         opened=False, error=boom))
-    open_media_async("x.mp4", 5, on_error=errors.append, on_note=notes.append)
+    workers.open_row_async(None, Row("x.mp4", "mp4", "0:05"),
+                           on_error=errors.append, on_note=notes.append)
     qtbot.waitUntil(lambda: bool(errors), timeout=5000)
     assert errors == [boom] and len(notes) == 1
 

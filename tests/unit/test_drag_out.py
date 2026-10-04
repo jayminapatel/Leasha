@@ -83,3 +83,12 @@ def test_existing_of_nothing_is_empty():
 
 def test_existing_never_raises_on_a_malformed_path():
     assert existing(["\x00bad"]) == ()
+
+
+def test_a_file_inside_a_zip_or_on_a_catalogued_drive_drags_nothing():
+    """2026-10-04: neither is a file Explorer can take; each dragged its key.
+    Dragging the read-only copy would mean writing it mid-gesture, on the
+    interface thread - Open makes that copy instead."""
+    assert draggable(SimpleNamespace(path="D:/Docs/backup.zip/q3/report.docx")) == ""
+    assert draggable(SimpleNamespace(path="leasha-volume://3/Holiday/beach.jpg")) == ""
+    assert draggable(SimpleNamespace(path="D:/Docs/backup.zip")) == "D:/Docs/backup.zip"

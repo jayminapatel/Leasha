@@ -291,18 +291,68 @@ def test_the_text_can_be_selected_and_copied(qapp, files):
     assert flags & Qt.TextInteractionFlag.TextSelectableByKeyboard
 
 
-def test_the_exits_report_the_path(qapp, files):
-    """§2g: "Open the real file" and "Show in folder", both routed through
-    the window's existing worker-backed open paths."""
+def test_the_exits_report_the_row(qapp, files):
+    """§2g: "Open the real file" and "Show in folder". 2026-10-04: they carry
+    the row on show, so its drive, moment and line reach the open route."""
     png, _txt = files
-    window = PreviewWindow(Row(png), state={})
+    row = Row(png)
+    window = PreviewWindow(row, state={})
     opened: list = []
     revealed: list = []
     window.open_requested.connect(opened.append)
     window.reveal_requested.connect(revealed.append)
     window.open_button.click()
     window.reveal_button.click()
-    assert opened == [str(png)] and revealed == [str(png)]
+    assert opened == [row] and revealed == [row]
+
+
+def test_a_pinned_window_and_the_lightbox_open_the_row_by_the_one_route(qapp, files, monkeypatch):
+    """Finding 4 (2026-10-04): both are built by `pop_out`, and both hand the
+    ROW on show - after an arrow key, the sibling's - to `open_row_async`."""
+    from app.ui import workers
+    from app.ui.widgets import preview_window
+
+    png, txt = files
+    first, second = Row(png), Row(txt)
+    asked: list = []
+    monkeypatch.setattr(workers, "open_row_async",
+                        lambda store, row, **kw: asked.append(
+                            (store, row, kw.get("reveal", False))))
+    errors: list = []
+    window = preview_window.pop_out(first, store="the store", state={}, on_error=errors.append,
+                                    remember=lambda _v: None, closed=lambda _w: None,
+                                    siblings=[first, second], index=0)
+    window.open_button.click()
+    window._navigate(1)
+    window.reveal_button.click()
+    window.close()
+    assert asked == [("the store", first, False), ("the store", second, True)]
+
+
+def test_a_pinned_code_row_reads_and_opens_its_whole_path(qapp, files):
+    """Finding 3: a Code row's `path` is shortened for its column; the window
+    used it, and so read and opened a path that is not there."""
+    from types import SimpleNamespace
+
+    _png, txt = files
+    row = SimpleNamespace(path="…" + str(txt)[-12:], full_path=str(txt), name=txt.name,
+                          page=0, line_no=3)
+    window = PreviewWindow(row, state={})
+    assert window._path == str(txt) and window.toolTip() == str(txt)
+    window.close()
+
+
+def test_the_lightbox_describes_with_the_windows_settings(qapp, files, monkeypatch):
+    from app.ui.widgets import preview_window
+
+    monkeypatch.setattr(preview_window, "_DESCRIBE", dict(preview_window._DESCRIBE))
+    preview_window.set_describe_options(ollama_url="http://box:1", ollama_vision_model="moondream",
+                                        chat_engine="ollama")
+    png, _txt = files
+    window = PreviewWindow(Row(png), state={})
+    assert (window._ollama_url, window._ollama_vision_model, window._chat_engine) == (
+        "http://box:1", "moondream", "ollama")
+    window.close()
 
 
 def test_a_document_shown_as_text_says_so(qapp):

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import subprocess
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
@@ -28,11 +29,12 @@ from app.core.osbridge import hidden_console_flags, new_console_flags
 
 __all__ = [
     "CallableWorker",
+    "OpenContext",
+    "copy_path_async",
     "open_async",
-    "route_through_window",
     "open_at_line",
-    "open_at_line_async",
     "open_row_async",
+    "set_open_context",
     "IndexWorker",
     "SearchWorker",
     "WorkerSignals",
@@ -211,147 +213,158 @@ class WorkerSignals(QObject):
     done = pyqtSignal()                # always, success or failure
 
 
-#: The window's own open route, for a path that is not a file on disk - an
-#: email attachment or a file inside a zip. Set by `MainWindow`
-#: (`route_through_window`); None without a window, as in a test of one view.
-_WINDOW_ROUTE: Callable[..., Any] | None = None
+@dataclass
+class OpenContext:
+    """What the window lends every Open and Show in folder. 2026-10-04.
 
-
-def route_through_window(handler: Callable[..., Any] | None) -> None:
-    """Send attachments and zip members from every `open_async` to `handler`.
-
-    2026-10-04, the owner's screenshot: double-clicking an attachment on the
-    Files page said "Not found on disk". Open-from-a-copy had been built into
-    the window's route (`MainWindow._open_path`) only, and the Files page, a
-    pinned window's Open and Show in folder each reach Explorer through this
-    module instead. The fix is here, where every one of them passes, so a
-    page added later cannot miss it either.
+    Set once by `MainWindow` (`set_open_context`); every field optional, so a
+    page tested on its own still opens, with what it passes itself. `editor`
+    and `search_id` are read at the click, so a choice just made in Settings
+    and the search on screen now are the ones used.
     """
-    global _WINDOW_ROUTE
-    _WINDOW_ROUTE = handler
+
+    store: Any = None
+    cache_path: Any = None
+    engine: Any = None
+    editor: Callable[[], tuple] | None = None
+    search_id: Callable[[], Any] | None = None
+    on_error: Callable[[Any], Any] | None = None
+    on_note: Callable[[str], Any] | None = None
+    search_inside: Callable[[str], Any] | None = None
 
 
-def open_async(path: str, *, reveal: bool = False,
-               on_error: Any = None, component: str = "ui.open",
-               via_window: bool = True) -> None:
-    r"""Hand a path to Explorer on a worker thread. Never blocks the UI.
+#: The window's, or an empty one without a window - as in a test of one view.
+_CONTEXT = OpenContext()
 
-    An email attachment or a file inside a zip goes to the window's route
-    instead (`route_through_window`) - it has no path Explorer can open.
-    `via_window=False` is that route's own last step, so it cannot loop.
 
-    `open_in_explorer` shells out, and on a network share or a sleeping
-    external drive that is seconds of a frozen window - which is why its own
-    docstring forbids calling it on the UI thread. It was called there anyway
-    from `files_view`, and `shell._open_path` had already grown the correct
-    version for search results.
+def set_open_context(context: OpenContext | None) -> None:
+    """Lend every open the window's store, settings and toasts; None on close.
 
-    One function, so the third caller cannot get it wrong. It returns an
-    `AppError` rather than raising, so the *result* is what carries a problem
-    and `failed` is reserved for something genuinely unexpected - both are
-    routed to `on_error`.
+    Replaces `route_through_window` (2026-10-04, the same day): that sent an
+    attachment from another page *back* to the window's route. There is one
+    route now, `open_row_async`, and the window only lends it what it knows.
+    """
+    global _CONTEXT
+    _CONTEXT = context if context is not None else OpenContext()
+
+
+def open_async(path: str, *, reveal: bool = False, on_error: Any = None,
+               component: str = "ui.open") -> None:
+    """`open_row_async` for a caller with a path and no row - the log, a chip."""
+    if path:
+        from app.ui.presenter.opening import Place
+
+        open_row_async(None, Place(str(path)), reveal=reveal, on_error=on_error,
+                       component=component)
+
+
+def open_row_async(store: Any, row: Any, *, reveal: bool = False, on_error: Any = None,
+                   on_note: Any = None, search_inside: Any = None,
+                   component: str = "ui.open") -> None:
+    r"""Open, or show in its folder, one row - **the** route. Never blocks the UI.
+
+    2026-10-04, the owner: "where ever possible the same code should run for
+    functions so they are all consistent and standard". Every page's Open and
+    Show in folder - Search, Files, Mail, Code, Chat, the timeline, the mini
+    search, a pinned window, the lightbox - comes here with its ROW, so a
+    catalogued drive is resolved, a recording opens at its moment, code at its
+    line, an attachment or zip member from a read-only copy, a message in
+    Outlook, and the open is recorded for ranking, the same way from all of
+    them. The decision is `presenter.opening.plan_for`; the work, on a worker,
+    is `tasks.open_target`. A path alone is wrapped (`open_async`).
+
+    `on_error`, `on_note` and `search_inside` are the caller's when given,
+    else the window's (`OpenContext`) - a caller's own error route is kept.
+    A web address goes to the browser here: it is not a file.
     """
     from PyQt6.QtCore import QThreadPool
 
-    if not path:
-        return
-    if via_window and _WINDOW_ROUTE is not None:
-        from app.ui.attachment_open import is_archive_attachment, zip_member_of
+    from app.ui.presenter.opening import Place, SearchInside, is_web, key_of
+    from app.ui.tasks import open_target
 
-        if is_archive_attachment(path) or zip_member_of(path)[0]:
-            _WINDOW_ROUTE(path, reveal=reveal)
-            return
-    worker = CallableWorker(open_in_explorer, path, select=reveal,
-                            component=component)
-    if on_error is not None:
-        worker.signals.finished.connect(
-            lambda error: on_error(error) if error is not None else None)
-        worker.signals.failed.connect(on_error)
+    if row is None:
+        return
+    row = Place(row) if isinstance(row, str) else row
+    key = key_of(row)
+    if not key:
+        return
+    context = _CONTEXT
+    if is_web(key):
+        from PyQt6.QtCore import QUrl
+        from PyQt6.QtGui import QDesktopServices
+
+        QDesktopServices.openUrl(QUrl(key))
+        return
+    errors = on_error or context.on_error
+    notes = on_note or context.on_note
+    inside = search_inside or context.search_inside
+    worker = CallableWorker(
+        open_target, store if store is not None else context.store, row, reveal=reveal,
+        cache_path=context.cache_path, engine=context.engine,
+        editor=context.editor() if context.editor else ("auto", ""),
+        search_id=context.search_id() if context.search_id else None,
+        component=component)
+
+    def landed(result: Any) -> None:
+        if isinstance(result, AppError):
+            if errors is not None:
+                errors(result)
+        elif isinstance(result, SearchInside):
+            if inside is not None:
+                inside(result.path)
+        elif result and notes is not None:
+            notes(str(result))
+
+    worker.signals.finished.connect(landed)
+    if errors is not None:
+        worker.signals.failed.connect(errors)
     run(QThreadPool.globalInstance(), worker)
 
 
-def open_attachment_async(store: Any, path: str, cache_path: Any, *,
-                          on_error: Any = None, on_note: Any = None,
-                          opener: Callable[..., Any] | None = None) -> None:
-    """Save a read-only copy of an attachment or zip member and open it. 2026-10-04.
+def copy_path_async(row: Any, *, store: Any = None) -> None:
+    """Put a row's real path on the clipboard. 2026-10-04.
 
-    The owner: "build the open on attachment, save a copy and open it". The
-    copy is written by `tasks.save_attachment_copy` and opened in its own
-    program, both on this worker. A problem comes back as an `AppError` with
-    the way out; success as a note that the copy is not the original.
+    A file on a catalogued drive is copied as its path on the drive's current
+    letter, resolved on a worker - Search and Files used to copy the internal
+    `leasha-volume://` key while the timeline copied the real one. A drive that
+    is not plugged in copies the key, without an error. Anything else is
+    copied as it is, at once.
     """
-    from pathlib import Path
-
     from PyQt6.QtCore import QThreadPool
+    from PyQt6.QtGui import QGuiApplication
 
-    from app.ui.attachment_open import zip_member_of
-    from app.ui.tasks import save_attachment_copy
+    from app.ui.presenter.opening import key_of
+    from app.ui.tasks import resolve_open_path
 
-    if not path:
+    key = key_of(row)
+
+    def put(text: Any) -> None:
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(str(text or key))
+
+    if getattr(row, "volume_id", None) is None:
+        put(key)
         return
-    where = "the zip" if zip_member_of(path)[0] else "the email"
+    reader = store if store is not None else _CONTEXT.store
 
-    def save_and_open() -> Any:
-        from app.core.errors import AppErrorException
-
+    def resolved() -> str:
         try:
-            target = save_attachment_copy(store, path, cache_path)
-        except AppErrorException as exc:
-            return exc.error
-        error = (opener or open_in_explorer)(str(target), select=False)
-        return error if isinstance(error, AppError) else target
+            return resolve_open_path(reader, row)
+        except Exception:                        # noqa: BLE001 - not plugged in: the key
+            return key
 
-    worker = CallableWorker(save_and_open, component="ui.attachment_open")
-
-    def finished(result: Any) -> None:
-        if isinstance(result, AppError):
-            if on_error is not None:
-                on_error(result)
-        elif on_note is not None and result is not None:
-            on_note(f"Opened a copy of '{Path(result).name}' from {where}. "
-                    f"Changes to it are not saved back to {where}.")
-
-    worker.signals.finished.connect(finished)
-    if on_error is not None:
-        worker.signals.failed.connect(on_error)
+    worker = CallableWorker(resolved, component="ui.copy_path")
+    worker.signals.finished.connect(put)
     run(QThreadPool.globalInstance(), worker)
 
 
 def open_media_at(path: str, seconds: Any) -> Any:
-    """Worker body for `open_media_async`: an `AppError` or a sentence or None."""
+    """A recording at its moment (`tasks.open_target`): an `AppError`, a sentence or None."""
     from app.core import media_open
 
     outcome = media_open.open_at(path, seconds)
     return outcome.error if outcome.error is not None else (outcome.note or None)
-
-
-def open_media_async(path: str, seconds: Any, *, on_error: Any = None,
-                     on_note: Any = None, component: str = "ui.open") -> None:
-    r"""Open a recording at the moment a result is about. Never blocks the UI.
-
-    Work order 202626270515. The same worker discipline as `open_async` (the
-    player lookup is stat calls and the launch a process start), with one more
-    thing to say: when no installed player can be told where to start, the file
-    is opened plainly and `on_note` is handed the sentence that says *which
-    moment* - so a result that cannot seek still tells the person where to look.
-    """
-    from PyQt6.QtCore import QThreadPool
-
-    if not path:
-        return
-    worker = CallableWorker(open_media_at, path, seconds, component=component)
-
-    def _done(result: Any) -> None:
-        if isinstance(result, AppError):
-            if on_error is not None:
-                on_error(result)
-        elif result and on_note is not None:
-            on_note(str(result))
-
-    worker.signals.finished.connect(_done)
-    if on_error is not None:
-        worker.signals.failed.connect(on_error)
-    run(QThreadPool.globalInstance(), worker)
 
 
 def editor_creationflags(command: Any) -> int:
@@ -380,7 +393,7 @@ def open_at_line(path: str, line: Any, *, choice: str = "auto", custom: str = ""
                  launch: Any = None, fallback: Any = None) -> Any:
     r"""Open a code result in the person's editor, at its line. Order 0y §2c.
 
-    Worker body for `open_at_line_async`. Returns an `AppError`, or a sentence
+    Worker body, reached from `tasks.open_target`. Returns an `AppError`, or a sentence
     worth saying, or None - the same contract as `open_media_at`.
 
     `choice` and `custom` are the two settings (`CODE_EDITOR`,
@@ -429,67 +442,6 @@ def open_at_line(path: str, line: Any, *, choice: str = "auto", custom: str = ""
 
     error = plain(path, select=False)
     return error if error is not None else note
-
-
-def open_at_line_async(path: str, line: Any, *, choice: str = "auto", custom: str = "",
-                       on_error: Any = None, on_note: Any = None,
-                       component: str = "ui.open") -> None:
-    """`open_at_line` on a worker. Never blocks the UI (non-negotiable #5).
-
-    Finding the editor is stat calls and starting it is a process start - the
-    same two costs `open_async` keeps off the interface thread.
-    """
-    from PyQt6.QtCore import QThreadPool
-
-    if not path:
-        return
-    worker = CallableWorker(open_at_line, path, line, choice=choice, custom=custom,
-                            component=component)
-
-    def _done(result: Any) -> None:
-        if isinstance(result, AppError):
-            if on_error is not None:
-                on_error(result)
-        elif result and on_note is not None:
-            on_note(str(result))
-
-    worker.signals.finished.connect(_done)
-    if on_error is not None:
-        worker.signals.failed.connect(on_error)
-    run(QThreadPool.globalInstance(), worker)
-
-
-def open_row_async(store: Any, row: Any, *, reveal: bool = False,
-                   on_error: Any = None, component: str = "ui.open") -> None:
-    r"""`open_async`, for a result row rather than a bare path.
-
-    Offline Media §1b/3a/3c: `row.path` for one on a catalogued volume
-    (`row.volume_id is not None`) is never a real filesystem path - it is the
-    letter-free key `volume_synthetic_path` builds - and needs resolving
-    through the volume's *current* mount point first, which is a live
-    Windows volume check and so never the interface thread. An ordinary row
-    goes straight to `open_async`, unchanged. One function so a third caller
-    (`files_view`, after `shell._open_volume_result`) cannot get it wrong.
-    """
-    if row is None:
-        return
-    if getattr(row, "volume_id", None) is None:
-        open_async(str(getattr(row, "path", "") or ""), reveal=reveal,
-                  on_error=on_error, component=component)
-        return
-
-    from PyQt6.QtCore import QThreadPool
-    from app.ui.tasks import resolve_open_path
-
-    def _resolve_and_open() -> Any:
-        return open_in_explorer(resolve_open_path(store, row), select=reveal)
-
-    worker = CallableWorker(_resolve_and_open, component=component)
-    if on_error is not None:
-        worker.signals.finished.connect(
-            lambda error: on_error(error) if error is not None else None)
-        worker.signals.failed.connect(on_error)
-    run(QThreadPool.globalInstance(), worker)
 
 
 class CallableWorker(QRunnable):
@@ -804,36 +756,6 @@ def save_search_async(store: Any, name: str, query: str, scope: str,
     run(QThreadPool.globalInstance(), worker)
 
 
-def record_open_async(engine: Any, search_id: Any, chunk_id: Any) -> None:
-    """Record that a result was opened, off the interface thread.
-
-    **Extracted from `search_view` so every view can use it**, and because
-    `search_view.py` was at 249 of the 250 code lines the presenter guard
-    allows - a view at its limit is a view that starts pushing logic somewhere
-    worse.
-
-    `record_open` is a database *write*. It was running on the UI thread
-    between the double-click and the file opening, so a busy or locked index
-    made opening a result feel slow for a reason that had nothing to do with
-    opening it.
-
-    It once took four arguments where three were wanted, so every click raised
-    a TypeError inside the worker; the worker caught it, as it must, and
-    `record_open` swallows failures because a click is never worth blocking on.
-    Two safety nets in a row turned a wrong call into silence, and Layer 10's
-    table was empty by construction. That is the argument for
-    `test_a_worker_is_called_with_arguments_it_accepts`, not for removing
-    either net.
-    """
-    from PyQt6.QtCore import QThreadPool
-
-    from app.ui.tasks import record_open
-
-    worker = CallableWorker(record_open, engine, search_id, chunk_id,
-                            component="ui.search.record")
-    run(QThreadPool.globalInstance(), worker)
-
-
 def filter_offers_async(store: Any, sentence: str, preferences: Any,
                         on_done: Callable, applied: Any = ()) -> None:
     """Read the filters a typed sentence contains, off the interface thread.
@@ -859,7 +781,7 @@ def decorate_results_async(store: Any, results: Any, on_done: Callable) -> None:
     comment above `mail_details` said "one query, not fifty", and nobody had
     asked the prior question of whether it belonged on this thread at all.
 
-    Here for the same reason as `record_open_async`: every view that shows
+    Here because every view that shows
     results wants it, and the view it came from was at the 250-line limit.
     """
     from PyQt6.QtCore import QThreadPool

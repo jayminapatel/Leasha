@@ -190,7 +190,8 @@ class TimelineView(QWidget):
     def _show_menu(self, fold: Any, where: Any) -> None:
         entry = fold.head
         actions = FileActions(open_file=lambda: self.opened.emit(entry),
-                              reveal=lambda: self.reveal_requested.emit(entry))
+                              reveal=lambda: self.reveal_requested.emit(entry),
+                              offline=not entry.reachable)     # never a stat (2026-10-04)
         menu = build_menu(self, entry.real_path or entry.path, actions)
         if fold.folded:
             menu.addSeparator()

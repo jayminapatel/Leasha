@@ -162,6 +162,8 @@ def test_missing_file_offers_reindex_and_it_fires(qapp, tmp_path: Path, copied):
         FileActions(
             open_file=lambda: fired.append("open"),
             reindex=lambda: fired.append("reindex"),
+            # 2026-10-04: the list says so (decided on a worker); the menu never stats.
+            missing=True,
         ),
     )
 
@@ -203,3 +205,101 @@ def test_explicit_copy_pairs_fire_with_their_own_values(qapp, tmp_path: Path, co
     _action(menu, "Copy subject").trigger()
     _action(menu, "Copy sender").trigger()
     assert copied == ["HACCP review", "a@b.c"]
+
+
+# -- 2026-10-04: one rule with the open route, and never a stat on this thread --
+
+@pytest.mark.parametrize("path", [
+    "pst://2024/2097188/attachments/Model CED.xlsm",     # an email attachment
+    "D:/Docs/backup.zip/q3/report.docx",                 # a file inside a zip
+    "pst://2024/2097188",                                # a message (Outlook)
+    "leasha-volume://3/Holiday/beach.jpg",               # a catalogued drive's file
+])
+def test_open_and_show_in_folder_are_offered_for_everything_the_route_opens(
+        qapp, path, monkeypatch):
+    """Finding 1: each of these was greyed out because the menu statted the
+    path - and Search offered "File is missing" for a file that opens."""
+    def no_stat(*_a, **_k):
+        raise AssertionError("the menu statted a path on the interface thread")
+
+    monkeypatch.setattr(Path, "exists", no_stat)
+    parent = QWidget()
+    menu = build_menu(parent, path, FileActions(
+        open_file=lambda: None, reveal=lambda: None, reindex=lambda: None))
+    assert _action(menu, "Open").isEnabled() and _action(menu, "Show in folder").isEnabled()
+    assert all("missing" not in action.text() for action in menu.actions())
+
+
+def test_a_drive_that_is_out_greys_open_and_offers_no_reindex(qapp):
+    from types import SimpleNamespace
+
+    parent = QWidget()
+    for actions in (
+        FileActions(open_file=lambda: None, reveal=lambda: None, reindex=lambda: None,
+                    offline=True),                                      # Search's mark
+        FileActions(open_file=lambda: None, reveal=lambda: None, reindex=lambda: None,
+                    row=SimpleNamespace(path="leasha-volume://3/a.jpg", status="Offline")),
+    ):
+        menu = build_menu(parent, "leasha-volume://3/a.jpg", actions)
+        assert not _action(menu, "Open").isEnabled()
+        assert not _action(menu, "Show in folder").isEnabled()
+        assert all("missing" not in action.text() for action in menu.actions())
+
+
+def test_copy_path_on_a_catalogued_drive_copies_its_real_path(qapp, monkeypatch):
+    """Finding 9: Search and Files copied the internal `leasha-volume://` key."""
+    from types import SimpleNamespace
+
+    from app.ui import workers
+
+    asked = []
+    monkeypatch.setattr(workers, "copy_path_async", lambda row, **_k: asked.append(row))
+    row = SimpleNamespace(path="leasha-volume://3/a.jpg", volume_id=3)
+    parent = QWidget()
+    menu = build_menu(parent, row.path, FileActions(row=row))
+    _action(menu, "Copy path").trigger()
+    assert asked == [row]
+
+
+def test_copy_path_resolves_on_a_worker_and_copies_the_key_when_the_drive_is_out(
+        qapp, qtbot, monkeypatch):
+    from types import SimpleNamespace
+
+    from app.ui import tasks, workers
+
+    row = SimpleNamespace(path="leasha-volume://3/a.jpg", volume_id=3)
+    monkeypatch.setattr(tasks, "resolve_open_path", lambda store, r: r"E:\a.jpg")
+    workers.copy_path_async(row, store=object())
+    qtbot.waitUntil(lambda: QApplication.clipboard().text() == r"E:\a.jpg", timeout=5000)
+
+    def offline(store, r):
+        raise RuntimeError("not plugged in")
+
+    monkeypatch.setattr(tasks, "resolve_open_path", offline)
+    workers.copy_path_async(row, store=object())
+    qtbot.waitUntil(lambda: QApplication.clipboard().text() == row.path, timeout=5000)
+
+
+def test_the_photo_grids_open_opens_the_file_and_view_opens_the_lightbox(qapp, monkeypatch):
+    """Finding 8: the grid's "Open" opened the lightbox, unlike every other list."""
+    from types import SimpleNamespace
+
+    from app.ui.widgets import thumbnail_grid
+
+    menus = []
+    monkeypatch.setattr(thumbnail_grid, "show_for", lambda *a: menus.append(a[3]))
+    grid = thumbnail_grid.ThumbnailGrid()
+    row = SimpleNamespace(path="D:/p/beach.jpg", ext="jpg", chunk_id=1, file_id=1)
+    grid._rows = [row]
+    monkeypatch.setattr(grid._list, "itemAt", lambda _p: None)
+    monkeypatch.setattr(grid._list, "selectedItems", lambda: [object()])
+    monkeypatch.setattr(grid, "_row_at", lambda _item: row)
+    files, lightbox = [], []
+    grid.file_requested.connect(files.append)
+    grid.opened.connect(lambda r, siblings: lightbox.append(r))
+    from PyQt6.QtCore import QPoint
+
+    grid._on_context_menu(QPoint(1, 1))
+    menus[0].open_file()
+    menus[0].view()
+    assert files == [row] and lightbox == [row]

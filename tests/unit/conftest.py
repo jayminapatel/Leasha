@@ -186,6 +186,20 @@ def windows_left_open_stop_watching_the_run_lock():
             pass
 
 
+@pytest.fixture(scope="module", autouse=True)
+def the_open_route_forgets_a_finished_modules_window():
+    r"""2026-10-04: every page's Open borrows the window's store and error box
+    (`workers.OpenContext`, set by `MainWindow`). A module's window is never
+    closed (see `gui_mainwindow`), so without this a later module's Open would
+    use a closed store and put up a modal box on a hidden window - a hang."""
+    yield
+    try:
+        from app.ui.workers import set_open_context
+    except Exception:                    # noqa: BLE001 - no Qt, nothing was set
+        return
+    set_open_context(None)
+
+
 @pytest.fixture
 def no_leaked_widgets():
     r"""Delete the top-level widgets *this test* built, and nothing else.

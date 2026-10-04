@@ -60,7 +60,13 @@ def draggable(row: Any) -> str:
     if row is None:
         return ""
     path = str(getattr(row, "path", "") or "").strip()
-    if not path or path.startswith("pst://"):
+    # 2026-10-04: nor a file inside a zip (`D:\a.zip/q3/x.docx`) or a key on a
+    # catalogued drive (`leasha-volume://`) - neither is a file Explorer can
+    # take. Dragging the read-only copy would mean writing it mid-gesture, on
+    # this thread; Open makes that copy instead (`tasks.open_target`).
+    from app.ui.attachment_open import zip_member_of
+
+    if not path or "://" in path or zip_member_of(path)[0]:
         return ""
     return path
 

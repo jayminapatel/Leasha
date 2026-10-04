@@ -174,6 +174,35 @@ def test_context_menu_offers_more_like_this_for_a_text_row(qtbot, monkeypatch):
     assert similar[0].file_id == 1
 
 
+@pytest.mark.parametrize("marks,missing,offline", [
+    ({}, False, False),                                     # an attachment: opens
+    ({"_missing": {"pst://s/1/attachments/a.xlsx"}}, True, False),
+    ({"_volumes": {1: {"name": "Backup"}}}, False, True),
+])
+def test_the_search_menu_passes_what_the_list_knows_never_a_stat(qtbot, monkeypatch,
+                                                                 marks, missing, offline):
+    """Finding 1 (2026-10-04): the menu decides Open from the list's own marks."""
+    from PyQt6.QtCore import QItemSelectionModel
+
+    import app.ui.results_view as results_view_module
+
+    view = ResultsView()
+    qtbot.addWidget(view)
+    view.show_results([result(1, 1, path="pst://s/1/attachments/a.xlsx")], ["pump"])
+    for name, value in marks.items():
+        setattr(view, name, value)
+    index = view._model.index(0, 0)
+    view._list.setCurrentIndex(index)
+    view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
+    captured: dict = {}
+    monkeypatch.setattr(results_view_module, "show_for",
+                        lambda _w, _p, _path, actions: captured.update(actions=actions))
+    view._on_context_menu(view._list.visualRect(index).center())
+    actions = captured["actions"]
+    assert (actions.missing, actions.offline) == (missing, offline)
+    assert actions.row is not None and actions.row.file_id == 1
+
+
 def test_context_menu_offers_more_like_this_for_a_photo_row_too(qtbot, monkeypatch):
     r"""The whole point of item 2d's UI half: a photo result is a
     `SearchResult` exactly like a passage, distinguished only by `ext` - so

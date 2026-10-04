@@ -16,6 +16,13 @@ deleted since it was indexed cannot be opened, so "Open" is greyed out and a
 when it is the thing that would actually help. Offering an action that then
 fails is worse than not offering it, because the person has to discover the
 failure themselves.
+
+2026-10-04: **checked against what the list already knows, never the disk.**
+The menu used to stat the path here, on the interface thread - and greyed out
+Open for an email attachment, a file inside a zip, a message and a file on a
+catalogued drive, every one of which the open route opens. The rule is
+`presenter.opening.usable`, the same one the route lives by: a list passes
+its own `missing` and `offline` marks (decided on a worker), and the row.
 """
 
 from __future__ import annotations
@@ -50,8 +57,22 @@ class FileActions:
         same_period: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
         extra: Optional[list[tuple[str, str, Callable[[], None]]]] = None,
+        view: Optional[Callable[[], None]] = None,
+        row: Any = None,
+        missing: bool = False,
+        offline: bool = False,
     ) -> None:
         self.open_file = open_file
+        #: 2026-10-04: the photo grid's lightbox, now that its "Open" opens the
+        #: file as every other list's does.
+        self.view = view
+        #: The row the menu is for. Read for its offline mark and, by "Copy
+        #: path", for a catalogued drive's real path (`workers.copy_path_async`).
+        self.row = row
+        #: What the list knows and the menu must not stat for: the file has gone
+        #: (decided on a worker - `tasks.missing_paths`), or its drive is out.
+        self.missing = missing
+        self.offline = offline
         self.reveal = reveal
         self.search_inside = search_inside
         self.reindex = reindex
@@ -91,13 +112,23 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     or not the file still exists - and when a file has gone missing, its path is
     often exactly what somebody needs in order to work out where it went.
     """
+    from app.ui.presenter.opening import usable
+
     menu = QMenu(parent)
-    exists = _exists(path)
+    exists = usable(actions.row if actions.row is not None else path,
+                    missing=actions.missing, offline=actions.offline)
 
     if actions.open_file is not None:
         action = QAction("Open", parent)
         action.setEnabled(exists)
         action.triggered.connect(lambda: actions.open_file())
+        menu.addAction(action)
+
+    if actions.view is not None:
+        action = QAction("View", parent)
+        action.setToolTip("Shows the picture in a window of its own; the arrow keys "
+                          "move through the others.")
+        action.triggered.connect(lambda: actions.view())
         menu.addAction(action)
 
     if actions.reveal is not None:
@@ -147,7 +178,7 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     menu.addSeparator()
 
     copy_path = QAction("Copy path", parent)
-    copy_path.triggered.connect(lambda: _copy(path))
+    copy_path.triggered.connect(lambda: _copy_path(path, actions.row))
     menu.addAction(copy_path)
 
     if actions.copy:
@@ -170,7 +201,7 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
             action.triggered.connect(lambda _checked=False, run=callback: run())
             menu.addAction(action)
 
-    if not exists and actions.reindex is not None:
+    if actions.missing and actions.reindex is not None:
         menu.addSeparator()
         action = QAction("File is missing - re-index this folder", parent)
         action.triggered.connect(lambda: actions.reindex())
@@ -179,13 +210,14 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     return menu
 
 
-def _exists(path: str) -> bool:
-    """Never raises. A path on a disconnected drive, a malformed one, or one too
-    long for the filesystem all mean "cannot open it", not "crash the menu"."""
-    try:
-        return Path(path).exists()
-    except OSError:
-        return False
+def _copy_path(path: str, row: Any) -> None:
+    """The real path: resolved for a file on a catalogued drive (2026-10-04)."""
+    if row is not None and getattr(row, "volume_id", None) is not None:
+        from app.ui.workers import copy_path_async
+
+        copy_path_async(row)
+        return
+    _copy(path)
 
 
 def _copy(text: str) -> None:
