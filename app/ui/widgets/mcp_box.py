@@ -88,6 +88,9 @@ class McpBox(QGroupBox):
         self.port.setObjectName("MCP_PORT")
         self.port.setRange(1024, 65535)
         self.port.setValue(int(getattr(settings, "mcp_port", 8737) or 8737))
+        from app.ui.widgets.number_field import fit
+
+        fit(self.port)
         self.port.setToolTip(
             "The port on this computer that AI programs connect to. Only this computer "
             "can reach it. After changing it, press Stop, Start, and Connect again.")

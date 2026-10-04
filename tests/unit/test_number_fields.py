@@ -234,6 +234,7 @@ COVERED = {
     "widgets/media_box.py": "window",
     "widgets/add_file_type.py": "dialog",
     "widgets/timed_out_panel.py": "window",     # order 0z F3, on the Indexing page
+    "widgets/mcp_box.py": "window",             # 2026-10-04, Settings > AI programs
 }
 
 _SPIN_TYPES = {"QSpinBox", "QDoubleSpinBox", "QTimeEdit", "QDateEdit",

@@ -218,7 +218,10 @@ def test_the_funnel_worker_adds_the_live_numbers(store) -> None:
         workers={"1": {"file": "big.pdf"}, "2": {"file": ""}, "3": {"file": "a.docx"}})
     counts = status_funnel_counts(store, stats)
     assert counts["Reading"] == 2
-    assert counts["Discovered"] == 40 - 28 - 2
+    # 2026-10-04: a file the scan has listed by name is a PENDING row, counted
+    # as Queued by the store - so it is not also counted as Discovered.
+    pending = store.conn.execute("SELECT COUNT(*) FROM files WHERE status = 'PENDING'").fetchone()[0]
+    assert counts["Discovered"] == 40 - 28 - 2 - pending
     assert counts["Indexed"] == 4
     # Nothing running: the store's numbers only.
     idle = status_funnel_counts(store)

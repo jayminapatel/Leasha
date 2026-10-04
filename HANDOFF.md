@@ -2283,6 +2283,18 @@ skipped panel still starts an ordinary run - `retry_skipped` would re-read every
 only `ERR_OUTLOOK_BUSY` is not already retried; (3) drag-out of an attachment.
 **UNVERIFIED on Windows**: real Outlook, Explorer, editor and player launches, the pickers' layout
 in the real window, PST reading through the saved backend - the tests stub every launcher.
+**The full suite, run once after the merges** (alone, ~12,300 tests): 8 failures and 1 error, each
+fixed or explained. Three were mine from `2df4bac` (pushed earlier, run only on a focused
+selection then): the AI programs box's buttons were not in `buttons.BUTTONS`, its port field was
+not fitted (`number_field.fit`, `test_number_fields.COVERED`), and `MCP_PORT`/`MCP_AUTOSTART` were
+not in `config.SETTING_KEYS` (a separate process could not read them). One was the rows agent's
+rewording of the Files notes - **reverted to the old words where they were true** (`facts._KEPT_NOTES`,
+dated note); the Status column's sentence is used only where the old note was wrong (a held
+picture). Two tests predated names-first and were given dated notes (`test_file_state`: a listed
+name is Queued, not also Discovered; `test_write_groups`: a PENDING placeholder is not a committed
+read). `test_ui_review_0x9` asserted no icons on Reports, which the owner asked for earlier this
+day - now asserts each entry has one. `test_grab_ui` timed out at its 30 s limit under the full
+suite and passes alone (5 in 2 min) - load-sensitive, left as it is.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

@@ -126,6 +126,12 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Reset to defaults": ("rotate-ccw", "secondary"),
     "Save file types": ("save", "primary"),
     "Convert a .pst to .eml files…": ("arrow-right-left", "secondary"),
+    # -- Settings › Models & AI › AI programs (2026-10-04) ----------------------
+    "Start": ("play", "secondary"),
+    "Connect": ("plus", "secondary"),
+    "Disconnect": ("x", "secondary"),
+    "Copy address and key": ("copy", "secondary"),
+    "Copy bridge command": ("copy", "secondary"),
     # -- Settings › Search -----------------------------------------------------
     "Clear search history": ("eraser", "danger"),
     "Reset search behaviour to defaults": ("rotate-ccw", "secondary"),

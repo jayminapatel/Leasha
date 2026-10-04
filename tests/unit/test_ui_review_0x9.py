@@ -617,7 +617,12 @@ def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
             gui_pump(app, 4)
             names = reports.list
             assert REPORT_KEY == Qt.ItemDataRole.UserRole
-            assert all(names.item(r).data(Qt.ItemDataRole.DecorationRole) is None
+            # *Corrected 4 October 2026:* the owner asked for an icon on each
+            # report ("there are no icons for the reports on the report page"),
+            # so each entry now carries one on purpose - the fault this
+            # guarded was a blank icon slot holding a string, which stays fixed
+            # (the key is still read back from `UserRole`, asserted above).
+            assert all(names.item(r).data(Qt.ItemDataRole.DecorationRole) is not None
                        for r in range(names.count()))
             names.setCurrentRow(0)
             gui_pump(app, 4)

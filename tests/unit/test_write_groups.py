@@ -163,6 +163,9 @@ def test_a_failure_part_way_through_a_group_keeps_nothing_half_written(tmp_path)
     with SqliteStore(db) as store:
         orphans = store.conn.execute(
             "SELECT COUNT(*) FROM files f WHERE f.source_kind <> 'archive' "
+            # 2026-10-04: not a name the scan listed before reading (PENDING,
+            # `store.add_waiting_files`) - a placeholder, not a committed read.
+            "AND f.status <> 'PENDING' "
             "AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id)").fetchone()[0]
     assert orphans == 0, "a message row was committed without its passages"
 

@@ -237,9 +237,19 @@ def test_the_files_note_is_the_status_columns_sentence(status, code):
     from app.core.file_state import explain
     from app.ui.presenter import file_rows
 
+    from app.core.file_state import derive
+
     row = file_rows([{"id": 1, "path": "D:/a/x.pdf", "ext": "pdf", "size_bytes": 1,
                       "mtime_ns": COPIED_NS, "status": status, "skip_code": code}])[0]
-    assert row.note.startswith(explain(row.status))
+    # *Corrected 4 October 2026, the same night:* an existing note keeps its
+    # words where they were true (the standing rule on wording); the Status
+    # column's sentence replaces only a note that was wrong - a file whose word
+    # is not its status's plain one, such as a held picture ("Deferred").
+    if row.status != derive(status, None):
+        assert row.note.startswith(explain(row.status))
+    else:
+        assert row.note.startswith({"SKIPPED": "indexed by name only", "FAILED": "could not be read",
+                                    "PENDING": "not indexed yet"}[status])
 
 
 # -- 9. the date register --------------------------------------------------------

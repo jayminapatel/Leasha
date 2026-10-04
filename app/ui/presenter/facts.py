@@ -200,6 +200,14 @@ def attachment_words(count: Optional[int] = None, *, has_attach: bool = False) -
 UNSEARCHABLE_WORDS = frozenset({QUEUED, DEFERRED, TIMED_OUT, SKIPPED, FAILED, NAME_ONLY})
 
 
+#: The Files list's notes as they were before 2026-10-04 - kept (see `status_note`).
+_KEPT_NOTES = {
+    "SKIPPED": "indexed by name only - contents could not be read",
+    "FAILED": "could not be read",
+    "PENDING": "not indexed yet",
+}
+
+
 def status_note(status: Any, skip_code: Any = None) -> str:
     """Why a file's contents cannot be searched, in the Status column's words.
 
@@ -211,7 +219,16 @@ def status_note(status: Any, skip_code: Any = None) -> str:
     word = derive(status, skip_code)
     if word not in UNSEARCHABLE_WORDS:
         return ""
-    note = explain(word)
+    # *Corrected 4 October 2026, the same night:* the existing notes are kept,
+    # word for word, wherever they were true - the standing rule says an
+    # existing tooltip is never reworded. The Status column's explanation is
+    # used only where the old note was wrong: a file whose word differs from
+    # its plain status (a picture held for the images pass was "contents
+    # could not be read"; it is waiting, not failed).
+    if word == derive(status, None) and str(status or "").upper() in _KEPT_NOTES:
+        note = _KEPT_NOTES[str(status or "").upper()]
+    else:
+        note = explain(word)
     code = str(skip_code or "")
     if code and str(status or "").upper() in ("SKIPPED", "FAILED"):
         note = f"{note} ({code})"
