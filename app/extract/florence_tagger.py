@@ -120,6 +120,9 @@ def _load() -> Any:
     with _engine_lock:
         if _engine is not None or _engine_failed:
             return _engine
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-04: HEIC was unreadable here
         try:
             from app.ort.florence import OnnxFlorence
 

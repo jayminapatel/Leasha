@@ -207,6 +207,7 @@
     <Compile Include="app\extract\exif.py" />
     <Compile Include="app\extract\face_detect.py" />
     <Compile Include="app\extract\florence_tagger.py" />
+    <Compile Include="app\extract\heif.py" />
     <Compile Include="app\extract\iwork.py" />
     <Compile Include="app\extract\junk_images.py" />
     <Compile Include="app\extract\legacy_office.py" />
@@ -855,6 +856,7 @@
     <Compile Include="tests\unit\test_pause_button.py" />
     <Compile Include="tests\unit\test_pause_is_visible.py" />
     <Compile Include="tests\unit\test_pdf_ocr.py" />
+    <Compile Include="tests\unit\test_people_during_a_run.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
     <Compile Include="tests\unit\test_phase_progress.py" />
     <Compile Include="tests\unit\test_phash.py" />

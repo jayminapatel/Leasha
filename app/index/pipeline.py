@@ -162,6 +162,12 @@ __all__ = ["Pipeline", "IndexStats", "PipelineConfig"]
 #: and the cursor write is one small UPDATE, so this can be low.
 CHECKPOINT_EVERY = 50
 
+#: 2026-10-04. Faces found between groupings during a run, so the people to
+#: name appear while a photo library is still being read rather than after it
+#: (`Pipeline._maybe_detect_faces`). Grouping 25 faces against the existing
+#: piles is vector arithmetic - milliseconds - against seconds a photo to find them.
+FACE_CLUSTER_EVERY = 25
+
 #: ...but also checkpoint on *time*, whichever comes first.
 #:
 #: A count alone is wrong whenever files are big or few. A folder of ten
@@ -1838,6 +1844,13 @@ class Pipeline:
         self._announce_phase(stats, on_progress, PHASE_CATCH_UP)
         # 0z F1: not for a few files from the folder watch - see `light`.
         light = bool(self.config.light)
+        # 2026-10-04: a run's pictures, HEIC included (`app/extract/heif.py`),
+        # and its stats for the face grouping that now runs during it.
+        from app.extract.heif import register_heif
+
+        register_heif()
+        self._face_stats = stats
+        self._faces_since_cluster = 0
         if not light:
             self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
@@ -1978,6 +1991,11 @@ class Pipeline:
         # read now, after everything else - see `app/index/media_backlog.py`.
         if not light:
             self._drain_media_backlog(stats, on_progress)
+        # 2026-10-04: faces found this run are grouped now, not at the start of
+        # the next one - see `FACE_CLUSTER_EVERY`.
+        if getattr(self, "_faces_since_cluster", 0):
+            self._drain_face_cluster(stats)
+            self._faces_since_cluster = 0
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -5137,7 +5155,9 @@ class Pipeline:
             self._log.warning(
                 "could not finish face clustering: {}. Indexing continues.", exc)
 
-        stats.enrichment_counts[self.KIND_FACE_CLUSTER] = resolved
+        # Added to, not replaced: it now runs several times in one run.
+        stats.enrichment_counts[self.KIND_FACE_CLUSTER] = (
+            stats.enrichment_counts.get(self.KIND_FACE_CLUSTER, 0) + resolved)
         if resolved:
             self._log.info("sorted {} face(s) into piles or suggestions", resolved)
 
@@ -5180,6 +5200,18 @@ class Pipeline:
         for detection in detections:
             self.store.add_face(file_id, detection.bbox, detection.embedding)
         self.store.mark_face_scanned(file_id)
+
+        # 2026-10-04, the owner: the people to name should update during a
+        # run. Grouping ran only at the *start* of a run, so a first run over
+        # a photo library - stopped part-way, as long runs are - left every
+        # face it found ungrouped and the naming page empty (40 faces, 0
+        # piles). Grouping a batch is vector arithmetic against the existing
+        # piles, so doing it every `FACE_CLUSTER_EVERY` faces costs little.
+        self._faces_since_cluster = getattr(self, "_faces_since_cluster", 0) + len(detections)
+        stats = getattr(self, "_face_stats", None)
+        if stats is not None and self._faces_since_cluster >= FACE_CLUSTER_EVERY:
+            self._faces_since_cluster = 0
+            self._drain_face_cluster(stats)
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""

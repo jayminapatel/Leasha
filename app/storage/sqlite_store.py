@@ -3922,6 +3922,21 @@ class SqliteStore:
                 (pile_id, face_id),
             )
 
+    def faces_stamp(self) -> tuple[int, int, int, int]:
+        """`(faces, piles, grouped faces, suggested faces)` - what the naming
+        page compares to decide whether to re-read. Four counts over two small
+        tables; 2026-10-04, so the page follows a run without re-reading every
+        pile on a timer. `(0, 0, 0, 0)` on an index without the tables."""
+        try:
+            row = self.conn.execute(
+                "SELECT (SELECT count(*) FROM faces), (SELECT count(*) FROM piles), "
+                "(SELECT count(*) FROM faces WHERE pile_id IS NOT NULL), "
+                "(SELECT count(*) FROM faces WHERE suggested_pile_id IS NOT NULL)"
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return (0, 0, 0, 0)
+        return tuple(int(v or 0) for v in row)  # type: ignore[return-value]
+
     def pending_suggestions(self, limit: int = 20) -> list["PendingSuggestion"]:
         r"""Section 2c's own queue: every face suggested against an
         already-*named* pile, oldest first, capped so the strip never grows

@@ -1,0 +1,149 @@
+r"""People to name appear while photos are read, and HEIC photos can be read.
+
+Layer: L2/L5
+
+Found 2026-10-04 on the owner's library (15,011 pictures, a run stopped
+part-way): 40 faces found and 0 piles, so the naming page was empty - grouping
+ran only at the *start* of a run. And all 3,741 `.heic` photos failed every
+picture model in the index process, because nothing there registered
+`pillow-heif`. The owner: "the pictures for naming should be updated
+periodically if not live".
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from app.index import face_clustering as fc
+from app.storage.sqlite_store import SqliteStore
+
+
+# --- HEIC ----------------------------------------------------------------------
+
+def test_a_heic_photo_opens_once_the_indexer_has_registered_it(tmp_path):
+    pillow_heif = pytest.importorskip("pillow_heif")
+    from PIL import Image
+
+    from app.extract.heif import register_heif
+
+    path = tmp_path / "photo.heic"
+    pillow_heif.from_pillow(Image.new("RGB", (32, 24), (200, 30, 30))).save(str(path))
+    assert register_heif() is True
+    with Image.open(path) as opened:
+        assert opened.size == (32, 24)
+
+
+def test_face_detection_reads_a_heic_photo_opencv_cannot(tmp_path):
+    """OpenCV cannot decode HEIC; the faces lane reads it through Pillow, in
+    the blue-green-red order the model expects."""
+    pillow_heif = pytest.importorskip("pillow_heif")
+    cv2 = pytest.importorskip("cv2")
+    import numpy as np
+    from PIL import Image
+
+    from app.extract.face_detect import _read_bgr
+
+    path = tmp_path / "photo.heic"
+    pillow_heif.from_pillow(Image.new("RGB", (16, 12), (220, 10, 10))).save(str(path))
+    assert cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR) is None
+    image = _read_bgr(path, cv2, np)
+    assert image is not None and image.shape == (12, 16, 3)
+    blue, green, red = (int(v) for v in image[6, 8])
+    assert red > 150 and blue < 80, "channels reversed to BGR"
+
+
+def test_every_picture_model_registers_heic_where_it_loads():
+    """Read from the files, not run: the loaders need model downloads a unit
+    test has not got, and other tests replace `_load` for their own session."""
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2] / "app"
+    for relative, name in (("extract/florence_tagger.py", "_load"),
+                           ("extract/face_detect.py", "_load"),
+                           ("extract/ocr.py", "_load_engine"),
+                           ("index/clip_embedder.py", "__init__")):
+        text = (root / relative).read_text(encoding="utf-8")
+        found = [node for node in ast.walk(ast.parse(text))
+                 if isinstance(node, ast.FunctionDef) and node.name == name]
+        assert found, (relative, name)
+        assert "register_heif()" in ast.get_source_segment(text, found[0]), relative
+
+
+# --- grouping during a run ----------------------------------------------------
+
+@pytest.fixture
+def store(tmp_path):
+    with SqliteStore(tmp_path / "index.db") as opened:
+        yield opened
+
+
+def _pipeline(store, monkeypatch, every):
+    from app.index import pipeline as module
+
+    monkeypatch.setattr(module, "FACE_CLUSTER_EVERY", every)
+    built = module.Pipeline.__new__(module.Pipeline)
+    built.store = store
+    built.config = SimpleNamespace(people_recognition_enabled=True)
+    built._log = module._log if hasattr(module, "_log") else __import__(
+        "app.core.logging", fromlist=["logger"]).logger
+    built._face_stats = SimpleNamespace(enrichment_counts={})
+    built._faces_since_cluster = 0
+    calls = []
+    built._drain_face_cluster = lambda stats: calls.append(stats)
+    return built, calls
+
+
+def test_faces_are_grouped_every_few_found_not_only_at_the_next_run(store, monkeypatch):
+    from app.extract import face_detect
+
+    built, calls = _pipeline(store, monkeypatch, every=3)
+    face = face_detect.FaceDetection(bbox=(0, 0, 10, 10),
+                                     embedding=fc.to_bytes([1.0, 0.0]), confidence=0.9)
+    monkeypatch.setattr(face_detect, "detect_faces", lambda path: [face, face])
+
+    for number in range(4):                      # 2, 4 (group), 6, 8 (group)
+        file_id = store.upsert_file(path=f"/photos/p{number}.jpg", size_bytes=1,
+                                    mtime_ns=1, source_kind="file")
+        built._maybe_detect_faces(SimpleNamespace(path=Path(f"/photos/p{number}.jpg")), file_id)
+
+    assert len(calls) == 2
+
+
+def test_the_stamp_changes_when_faces_are_grouped(store):
+    file_id = store.upsert_file(path="/photos/a.jpg", size_bytes=1, mtime_ns=1,
+                                source_kind="file")
+    first = store.add_face(file_id, (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))
+    before = store.faces_stamp()
+    store.split_pile([first])
+    assert store.faces_stamp() != before
+    assert store.faces_stamp()[:3] == (1, 1, 1)
+
+
+# --- the naming page follows -------------------------------------------------
+
+@pytest.fixture(scope="module")
+def qapp():
+    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PyQt6.QtWidgets import QApplication
+
+    yield QApplication.instance() or QApplication([])
+
+
+def test_the_page_reloads_when_the_stamp_moves_and_not_otherwise(qapp, store, monkeypatch):
+    from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
+
+    page = PhotoTaggerPage(store)
+    reloads = []
+    monkeypatch.setattr(page, "reload", lambda: reloads.append(1))
+    page._stamp_ready((0, 0, 0, 0))              # the first stamp only records
+    page._stamp_ready((0, 0, 0, 0))              # nothing changed
+    assert reloads == []
+    page._stamp_ready((5, 1, 5, 0))              # a run grouped five faces
+    assert reloads == [1]
+    page.deleteLater()

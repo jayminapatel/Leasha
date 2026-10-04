@@ -238,6 +238,9 @@ def _load_engine() -> Any:
     the corpus.
     """
     global _engine, _engine_failed, _engine_is_gpu, _warned_transient_gpu
+    from app.extract.heif import register_heif
+
+    register_heif()                          # 2026-10-04: HEIC was unreadable here
 
     if _engine is not None or _engine_failed:
         return _engine

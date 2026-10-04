@@ -66,6 +66,12 @@ PLAIN: dict[str, Any] = {
     # surfaces; these are the sentences the universal tab shows.
     "NOTICE_SPELLING": lambda message: message,
     "NOTICE_RELAXED": lambda message: message,
+    # 2026-10-04 (`keyword._bounded`): the full suite's coverage test asked.
+    # Quotes are syntax, so the plain form says what happened and stops.
+    "NOTICE_LEFT_OUT": lambda message: (
+        _words(message).capitalize() + " is in so much of what you have that it "
+        "would not narrow anything, so these match the rest of what you typed."
+    ),
     # §4a's notice, and **it was missing until the §7 coverage test asked**.
     # The technical form tells somebody to put quotes round part of it, which
     # is syntax advice on the one tab that exists so nobody needs syntax; the

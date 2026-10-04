@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.63 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.64 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,25 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note, night - pictures and people (the owner: "pictures very slow, the option where
+  i name the people has nothing", then "should be updated periodically if not live").* Measured
+  on the owner's photos (15,011: 10,782 jpg, 3,741 heic), idle machine, per photo: Florence-2
+  10.4 s, OCR 2.3, faces 0.9, CLIP 0.3 - **Florence-2 is three quarters of the time** (left as is;
+  the owner's call). Fixed: (1) **no HEIC photo could be read by any picture model in the index
+  process** - `pillow-heif` was registered only by the window's preview; `app/extract/heif.py`
+  now registers it at run start and in each model's loader; (2) **face detection reads through
+  OpenCV, which cannot decode HEIC at all** - it returned "no faces" instantly and marked the photo
+  scanned for good; it falls back to Pillow in BGR (`face_detect._read_bgr`; six real HEIC photos:
+  2-4 faces each, where two had been "0"); (3) **faces were grouped only at the start of the next
+  run**, so a stopped first run left 40 faces and 0 people to name; now every
+  `FACE_CLUSTER_EVERY` (25) faces and at the run's end; (4) the naming page read once; it now
+  checks `faces_stamp()` every 30 s while on screen and re-reads only when it moved. Correction to
+  my own first reading: a failed OCR probe does **not** switch the probe off for the run - only
+  its log line says "every image now takes the full recognition pass". Also from the full suite
+  on `36e4259` (7 failed, 1 error, 12,796 passed): `NOTICE_LEFT_OUT` had no plain wording; the
+  `/` popup's late answer read a deleted QLineEdit (`when_done` now); `Leasha.pyproj`; the LO
+  timer, the keyboard scenario and `test_grab_ui` passed alone or are environmental.
+  Tests: `test_people_during_a_run.py`. UNVERIFIED: a whole run over the library.
 - *2026-10-04 note, latest - the owner's "error in the UI" was Reset index at 13:02.* Logged in
   `errors_2026-10-04.jsonl`: `ERR_UNEXPECTED` in `ui.reset`, from `VectorStore.drop` ->
   LanceDB `drop_table` -> `Access is denied. (os error 5)`, with SQLite already cleared - a

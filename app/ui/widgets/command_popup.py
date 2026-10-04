@@ -512,13 +512,19 @@ def attach_to(line_edit: QLineEdit,
 
         from app.ui.workers import CallableWorker, run
 
+        from app.ui.later import when_done
+
         worker = CallableWorker(
             suggest, name, "", True, context, component="ui.commands")
-        worker.signals.finished.connect(
-            lambda found, k=key, n=name, p=partial: _fetched(k, n, p, found))
+        # 2026-10-04, the full suite: an answer arriving after the box was
+        # destroyed read `line_edit.text()` from a deleted QLineEdit
+        # (`test_tab_cycles_the_chips_and_asks_the_engine_nothing_more`).
+        # The project's rule for late answers - dropped with the box.
         # A menu is a convenience. A store that is mid-index or closed costs
         # the suggestions and nothing else - the static values are already up.
-        worker.signals.failed.connect(lambda _error: None)
+        when_done(line_edit, worker,
+                  finished=lambda found, k=key, n=name, p=partial: _fetched(k, n, p, found),
+                  failed=lambda _error: None)
         run(QThreadPool.globalInstance(), worker)
         _show_or_hide()
 

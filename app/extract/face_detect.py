@@ -93,6 +93,9 @@ def _load() -> Optional[Any]:
     with _engine_lock:
         if _engine is not None or _engine_failed:
             return _engine
+        from app.extract.heif import register_heif
+
+        register_heif()                  # 2026-10-04: HEIC was unreadable here
         try:
             from insightface.app import FaceAnalysis
 
@@ -112,6 +115,32 @@ def _load() -> Optional[Any]:
     return _engine
 
 
+def _read_bgr(path: Path, cv2: Any, np: Any) -> Optional[Any]:
+    """The picture as OpenCV's BGR array, or `None` when nothing can read it.
+
+    **2026-10-04: OpenCV cannot decode HEIC**, whatever Pillow has had
+    registered, so every `.heic` photo - 3,741 of the owner's 15,011 - came
+    back "no faces" in no time and was marked as scanned, never to be looked
+    at again. When `imdecode` gives up, Pillow (with `pillow-heif`) reads it
+    and the channels are reversed to BGR, the order the model expects.
+    """
+    image = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR)
+    if image is not None:
+        return image
+    try:
+        from PIL import Image
+
+        from app.extract.heif import register_heif
+
+        register_heif()
+        with Image.open(path) as opened:
+            rgb = np.asarray(opened.convert("RGB"))
+    except Exception as exc:                        # noqa: BLE001 - unreadable, as before
+        log.debug("no picture to look for faces in {}: {}", Path(path).name, exc)
+        return None
+    return np.ascontiguousarray(rgb[:, :, ::-1])
+
+
 def detect_faces(path: Path) -> list[FaceDetection]:
     """Every face `insightface` finds in one image. Never raises - one
     unreadable or face-free photo costs an empty list, not a crashed
@@ -128,8 +157,7 @@ def detect_faces(path: Path) -> list[FaceDetection]:
         # is what its models were trained expecting) rather than PIL -
         # matched here rather than converting, so channel order is never a
         # silent quality bug nothing would notice on a face-shaped image.
-        image = cv2.imdecode(
-            np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR)
+        image = _read_bgr(path, cv2, np)
         if image is None:
             return []
         faces = app.get(image)

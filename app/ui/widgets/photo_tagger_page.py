@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QMimeData, QSize, Qt, QThreadPool, pyqtSignal
+from PyQt6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, pyqtSignal
 from PyQt6.QtGui import QDrag, QIcon, QPixmap
 from PyQt6.QtWidgets import (
     QAbstractItemView, QDialog, QDialogButtonBox, QFileDialog, QGridLayout,
@@ -36,6 +36,10 @@ from PyQt6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.number_field import fit_all as fit_number_fields
+
+#: How often the page looks for faces grouped since it last read them, while
+#: it is on screen. 2026-10-04.
+FOLLOW_MS = 30_000
 
 __all__ = ["PhotoTaggerPage"]
 
@@ -193,6 +197,16 @@ class PhotoTaggerPage(QWidget):
         self._store = store
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
+        # 2026-10-04, the owner: "the pictures for naming should be updated
+        # periodically if not live". Grouping now happens during a run
+        # (`Pipeline._maybe_detect_faces`), so the page looks every
+        # `FOLLOW_MS` while it is on screen - four counts, on a worker - and
+        # re-reads the piles only when they changed, so it does nothing while
+        # nothing happens and never resets a list somebody is working in.
+        self._stamp: Optional[tuple] = None
+        self._follow = QTimer(self)
+        self._follow.setInterval(FOLLOW_MS)
+        self._follow.timeout.connect(self._check_for_new_faces)
 
         title = QLabel("Name the people in your photos")
         title.setObjectName("photoTaggerTitle")
@@ -253,6 +267,41 @@ class PhotoTaggerPage(QWidget):
         # The button system (widgets/buttons.py): every action button in
         # here gets its icon, its kind and its natural width.
         style_all(self)
+
+    # -- following a run ---------------------------------------------------
+
+    def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().showEvent(event)
+        self._follow.start()
+        self._check_for_new_faces()
+
+    def hideEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        self._follow.stop()
+        super().hideEvent(event)
+
+    def _check_for_new_faces(self) -> None:
+        from app.ui.workers import CallableWorker, run
+
+        worker = CallableWorker(self._store.faces_stamp, component="ui.photo_tagger.follow")
+        worker.signals.finished.connect(self._stamp_ready)
+        run(self._pool, worker)
+
+    def _stamp_ready(self, stamp: Any) -> None:
+        stamp = tuple(stamp or ())
+        if stamp == self._stamp:
+            return
+        first = self._stamp is None
+        self._stamp = stamp
+        # The constructor has just read the piles; the first stamp only
+        # records what that read saw.
+        if not first and not self._busy_naming():
+            self.reload()
+
+    def _busy_naming(self) -> bool:
+        """Whether somebody is mid-edit in the list - then the next tick reloads."""
+        state = self._list.state()
+        return state == self._list.State.EditingState or (
+            self._list.hasFocus() and bool(self._list.selectedItems()))
 
     # -- loading ----------------------------------------------------------
 

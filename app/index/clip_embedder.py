@@ -117,6 +117,9 @@ class ClipImageEmbedder:
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
+        from app.extract.heif import register_heif
+
+        register_heif()                          # 2026-10-04: HEIC was unreadable here
         self.model_name = model_name
         self.dim = dim
         self.cache_dir = cache_dir
