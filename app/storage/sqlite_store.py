@@ -3183,7 +3183,10 @@ class SqliteStore:
         `skip_codes` (2026-10-04, code review): only rows whose `skip_code` is
         one of these - "the skipped files a run reads again" without building
         a record for every other skip. With `status`, `idx_files_status_skip`
-        (schema v33) answers it. An empty collection matches nothing.
+        (schema v33) answers it. An empty collection matches nothing. Each of
+        the index run's re-queues wants one code, and an index with 100,000
+        held pictures (`ERR_OCR_HELD`) built a record for each, every run, to
+        find a few locked files.
 
         `source_kind` matters at scale rather than for tidiness: an archive of
         200,000 emails is 200,000 rows, and a caller that wants only the few
@@ -3194,10 +3197,6 @@ class SqliteStore:
         only ever cares about one source's rows, and `idx_files_volume` makes
         the filter free.
 
-        `skip_codes` (2026-10-04, code review) is the same idea for the index
-        run's re-queues: each wants one skip code, and an index with 100,000
-        held pictures (`ERR_OCR_HELD`) built a record for each, every run, to
-        find a few locked files. An empty collection matches nothing.
         """
         clauses: list[str] = []
         params: list[Any] = []
