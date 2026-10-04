@@ -1944,6 +1944,7 @@ Reopening these without new evidence wastes time. The reasoning matters more tha
 | Ollama never in the search hot path | Search must work with it stopped, crashed or uninstalled | Nothing |
 | FastEmbed ONNX, not Ollama, for embeddings | An Ollama crash would otherwise kill search; a 7B rerank could never hit <2s on CPU | A local embedding server that is genuinely more reliable than in-process |
 | RRF fusion, not score normalisation | BM25 scores and cosine distances are not comparable; RRF throws the scores away and fuses on rank, so there is nothing to calibrate or drift | Measured recall showing weighted normalisation beats it |
+| *Folders to index* stays in Settings › What's indexed, not on the Indexing page (owner, 2026-10-04) | Settings holds what is set once - the list, how each line is read, cloud, read-first; Indexing holds the run. The per-line Index now is the bridge between them | The owner saying so |
 | ANN index only past 100k rows | A flat scan beats a badly trained IVF_PQ index below that | Benchmarks on the real corpus |
 | Cloud placeholders skipped by default | Reading a OneDrive placeholder downloads the whole file; a naive walk would hydrate an entire library | Nothing - it is opt-in, which is the correct default |
 | Token count estimated, not tokenized | Loading the real tokenizer would drag the embedding model into extraction, which must run with no model present. `token_cost` is biased high because guessing low means silent truncation at embed time, while guessing high only means slightly smaller chunks | Measured recall showing the estimate costs real results |
@@ -2032,8 +2033,9 @@ owner's own window remains unlooked-at until he restarts Leasha after the index 
 the same pictures, the owner**: "What gets read" had no icon (added 1 October without a
 `CategoryNav.ICONS` row) and the Reports list never had any - `widgets/report_list.py` now,
 tinted by the window's loop with the `_nav`s; `test_category_icons.py` guards both lists.
-Open design question from him, answered in conversation and not ordered: whether *Folders to
-index* (Settings › What's indexed) belongs on the Indexing page.
+He asked whether *Folders to index* (Settings › What's indexed) belongs on the Indexing page;
+decided 2026-10-04: **it stays where it is.** Settings holds what is set once, Indexing holds
+the run; the per-line Index now is the bridge. Not to be reopened without him.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
