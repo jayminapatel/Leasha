@@ -2402,6 +2402,9 @@ the last bullet); the rest is the commit after it.
   `addopts = -q` removed file names from its logs - it passes `-v` now. An earlier run on c0477b5
   hung for an hour after "Windows fatal exception: access violation" in its second part; with no
   file names in that log it cannot be traced (UNCONFIRMED which test) - the next crash will be.
+  Confirming run on b7efbc9: 13 failed, a mostly different set, no crash; all 13 pass alone (20 s).
+  The suite at three processes beside a live index run is load-flaky in its timing tests -
+  read a failure there as "rerun it alone" before calling it a regression.
 - *2026-10-05 note - the Photos tab.* The owner: "a chip just for pictures designed to view find and
   deal with pictures including namings", "list, small thumbnail or normal thumbnail etc design a system",
   "make it like a professional photo management/viewer", "like other tabs where i can narrow by year name
