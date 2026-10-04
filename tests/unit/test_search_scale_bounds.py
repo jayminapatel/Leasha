@@ -107,6 +107,15 @@ def test_a_query_of_only_common_words_is_scored_over_the_newest(big):
     assert all(hit["chunk_id"] > floor for hit in hits)
 
 
+def test_a_filter_the_newest_chunks_miss_still_finds_its_matches(big):
+    """The one `dwg` file is the oldest, outside the newest slice: the bounded
+    search widens rather than answering "nothing"."""
+    _bounded, floor = keyword._bounded(big, parse_query("pump"), False)
+    assert floor > 0
+    hits = keyword.search(big, parse_query("pump type:dwg"), limit=5)
+    assert hits and all(hit["ext"] == "dwg" for hit in hits)
+
+
 def test_a_small_index_is_searched_exactly_as_before(big, monkeypatch):
     monkeypatch.setattr(keyword, "SCORED_MATCHES", 10_000)
     query = parse_query("pump report")

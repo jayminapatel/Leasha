@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.59 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.60 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,16 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-04 note - the Open item below is done, except the Mail count.* On the same bench, for
+  `pump`: the Files list 611 -> 24 ms (newest matches scored, widening four-fold until the page
+  fills, because `LISTED_FILES` can empty the newest slice); its count 434 -> 23 ms (streaming
+  `DISTINCT` over `UNION ALL` stops at the cap, same number); the Code tab's repositories 378 ->
+  0.3 ms and the Mail list 432 -> 20 ms (walk their own order and ask FTS5 per row - `CROSS JOIN`
+  keeps the order - only past `MATCH_WALK_MIN` = 50,000 matches; below it the old form is faster;
+  same rows). **The same widening was missing from keyword search's filtered path**: a newest slice
+  with no PDF in it answered `type:pdf` with nothing; fixed. The dead statements in
+  `keyword.search` are gone. **Still open: `count_messages_matching` for a common word, 487 ms**
+  - exact, and no cheaper exact form was found. Tests: `test_tab_scale_bounds.py`.
 - **Open**: the Files tab's content half (`browse_files`) and Mail's "words" filter are not bounded yet
   (1,054 ms and 664 ms on the bench). `keyword.search` still builds a statement it never runs
   (the block above `_run_match`'s call) - dead code, harmless, misleading. The owner's index was

@@ -300,7 +300,7 @@ def measure(db: Path, out: Path | None) -> dict:
         print("\n== 1. keyword search as the app runs it")
         report["keyword"] = _keyword_suite(store)
 
-        print("\n== 2. filtered search: today's shape against top-k first, then filter")
+        print("\n== 2. filtered search: keyword.search (bounded) against an unbounded top-k, then filter")
         rows = []
         for name, raw, scope in [c for c in KEYWORD if c[1].split()[-1].startswith(("type:", "after:"))
                                  or c[2] != "all"]:

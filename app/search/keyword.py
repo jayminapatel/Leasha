@@ -240,41 +240,10 @@ def search(
     # match. That case keeps the single statement, where the filter is part of
     # the same query - and its cost is bounded by the filter rather than by the
     # corpus.
-    if where:
-        sql = f"""
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
-                   c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
-                   f.volume_id, f.relative_path,
-                   bm25(chunks_fts) AS score
-            FROM chunks_fts
-            JOIN chunks c ON c.id = chunks_fts.rowid
-            JOIN files  f ON f.id = c.file_id
-            WHERE chunks_fts MATCH ?{where}
-            ORDER BY score
-            LIMIT ?
-        """
-        arguments = [expression, *params, limit]
-    else:
-        sql = """
-            SELECT c.id AS chunk_id, c.file_id, c.text, c.page, c.label,
-                   c.char_start, c.char_end,
-                   f.path, f.ext, f.mtime_ns, f.taken_at_ns, f.content_hash,
-                   f.volume_id, f.relative_path,
-                   top.score AS score
-            FROM (
-                SELECT rowid AS chunk_id, rank AS score
-                FROM chunks_fts
-                WHERE chunks_fts MATCH ?
-                ORDER BY rank
-                LIMIT ?
-            ) AS top
-            JOIN chunks c ON c.id = top.chunk_id
-            JOIN files  f ON f.id = c.file_id
-            ORDER BY top.score
-        """
-        arguments = [expression, limit]
-
+    #
+    # *Note, 2026-10-04: both shapes now live in `_run_match`, and a filtered
+    # search draws on the top-k first - the paragraph above is kept as written.
+    # The two statements that stood here were built and never run.*
     return _run_match(store, expression, where, params, limit, floor)
 
 
@@ -286,6 +255,21 @@ def _narrow_first(parsed: ParsedQuery, prefix_last: bool) -> str:
         return parsed.fts_match(prefix_last=prefix_last, force_and=True)
     except TypeError:                            # an older ParsedQuery
         return ""
+
+
+def _widening(store: Any, floor: int) -> list[int]:
+    """`floor`, then floors each holding four times as many chunks, then 0."""
+    if not floor:
+        return [0]
+    try:
+        top = int(store.conn.execute("SELECT max(id) FROM chunks").fetchone()[0] or 0)
+    except (sqlite3.Error, TypeError):
+        return [floor, 0]
+    floors, lower = [], floor
+    while lower > 0:
+        floors.append(lower)
+        lower = max(0, top - 4 * (top - lower))
+    return floors + [0]
 
 
 def _run_match(store: Any, expression: str, where: str, params: list[Any],
@@ -323,20 +307,28 @@ def _run_match(store: Any, expression: str, where: str, params: list[Any],
             ORDER BY top.score
             LIMIT ?
         """
-    attempts: list[tuple[str, list[Any]]] = []
-    if where:
-        attempts.append((top_sql, [expression, *bound_args,
-                                   max(OVERFETCH, limit * 10), *params, limit]))
-        attempts.append((f"""
+    full_sql = f"""
             SELECT {columns},
                    bm25(chunks_fts) AS score
             FROM chunks_fts
             JOIN chunks c ON c.id = chunks_fts.rowid
             JOIN files  f ON f.id = c.file_id
-            WHERE chunks_fts MATCH ?{bound.replace("rowid", "chunks_fts.rowid")}{where}
+            WHERE chunks_fts MATCH ? AND chunks_fts.rowid > ?{where}
             ORDER BY score
             LIMIT ?
-        """, [expression, *bound_args, *params, limit]))
+        """
+    attempts: list[tuple[str, list[Any]]] = []
+    if where:
+        # 2026-10-04: **a filter can empty the newest slice** - the newest
+        # chunks may hold no PDFs at all - so a bounded filtered search that
+        # does not fill the page widens four-fold at a time down to the whole
+        # index. Any match that exists is still found; only a filter few rows
+        # pass pays for the wider reads.
+        for lower in _widening(store, floor):
+            if lower == 0:
+                attempts.append((top_sql.replace(" AND rowid > ?", ""),
+                                 [expression, max(OVERFETCH, limit * 10), *params, limit]))
+            attempts.append((full_sql, [expression, lower, *params, limit]))
     else:
         attempts.append((top_sql, [expression, *bound_args, limit, limit]))
 

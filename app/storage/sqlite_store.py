@@ -88,6 +88,19 @@ WRITE_CACHE_CEILING_KIB = 256 * 1024
 SEARCH_CACHE_KIB = 64 * 1024
 SEARCH_MMAP_BYTES = 256 * 1024 * 1024
 
+#: 2026-10-04. The most chunk matches a list on the Files or Mail tab reads
+#: before it changes how it reads them, and the newest chunks a word's share
+#: is estimated from - the same numbers as `keyword.SCORED_MATCHES` and
+#: `keyword.COMMON_SAMPLE`; see `SqliteStore.chunk_match_share`.
+MATCH_SCORED_MAX = 10_000
+MATCH_SAMPLE = 20_000
+#: Past this many matches a list ordered by something other than rank
+#: (Mail by date, the Code tab's repositories) walks its own order and asks
+#: FTS5 per row instead of collecting every match. Measured on the bench:
+#: at ~45,000 matches the two cost the same (153 / 135 ms); at 10,000 the
+#: walk was 331 ms against 12; at 244,000 it was 17.6 against 538.
+MATCH_WALK_MIN = 50_000
+
 #: 2026-09-30. SQLite's per-connection switch for triggers, by its number in
 #: Python's `sqlite3` (3.12 and later). None on an older Python, where
 #: `SqliteStore` then writes the keyword index row by row as it always did.
@@ -2146,7 +2159,7 @@ class SqliteStore:
         where, params = self._message_where(
             sender=sender, recipient=recipient, subject=subject,
             has_attachment=has_attachment, after=after, before=before,
-            words=words)
+            words=words, walk_words=True)
         # **The file-level switches, built by the one shared definition.**
         # `browse_messages` has always joined `files`, so `/type`, `/path`,
         # `/name`, `/size` and `/repo` cost nothing to honour here - they were
@@ -2201,8 +2214,12 @@ class SqliteStore:
         after: Optional[int] = None,
         before: Optional[int] = None,
         words: str = "",
+        walk_words: bool = False,
     ) -> tuple[str, list[Any]]:
         """`(" WHERE ...", params)` over `messages m` for the Mail tab's filters.
+
+        `walk_words` (the list, not the count): common words are matched per
+        message as the date index is walked - see the words clause below.
 
         Shared by `browse_messages` and `count_messages_matching`, so the
         count under the list is the count of exactly the rows it pages through.
@@ -2261,7 +2278,21 @@ class SqliteStore:
         # subject, sender and recipients, so one FTS match over them covers
         # the headers and the body alike. Every word must appear.
         expression = _all_words_match(words)
-        if expression:
+        if expression and walk_words and self._match_is_broad(expression):
+            # 2026-10-04: **common words, read newest first.** Collecting every
+            # message the words match cost what they match - 538 ms for a word
+            # in a quarter of a million chunks. Walking the date index and
+            # asking FTS5 about each message's own chunks (`CROSS JOIN` keeps
+            # that order; without it SQLite scanned the index once per message,
+            # 112 s) stops at the page: 17.6 ms, the same rows. For a rare word
+            # the walk is the slow way (1.5 s), so it is used only past
+            # `MATCH_WALK_MIN` matches. The count keeps the other form.
+            clauses.append(
+                "EXISTS (SELECT 1 FROM chunks c CROSS JOIN chunks_fts "
+                "ON chunks_fts.rowid = c.id "
+                "WHERE c.file_id = m.file_id AND chunks_fts MATCH ?)")
+            params.append(expression)
+        elif expression:
             clauses.append(
                 "m.file_id IN (SELECT c.file_id FROM chunks_fts "
                 "JOIN chunks c ON c.id = chunks_fts.rowid WHERE chunks_fts MATCH ?)")
@@ -2676,6 +2707,54 @@ class SqliteStore:
             return ""
         return str(row["term"]) if row else ""
 
+    def chunk_match_share(self, expression: str) -> tuple[float, int]:
+        """`(share, top)`: the share of the newest `MATCH_SAMPLE` chunks that
+        match `expression`, and the highest chunk id. Never raises.
+
+        **Constant cost** - under 1.5 ms for any word at a million chunks,
+        because FTS5 seeks a rowid range inside its own index. The vocabulary
+        table answers exactly but costs what the word matches (50 ms for
+        `the`), which is the cost this exists to avoid.
+        """
+        try:
+            top = int(self.conn.execute("SELECT max(id) FROM chunks").fetchone()[0] or 0)
+            sample = min(MATCH_SAMPLE, top)
+            if sample <= 0 or not expression:
+                return 0.0, top
+            found = self.conn.execute(
+                "SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ? AND rowid > ?",
+                (expression, top - sample)).fetchone()[0]
+            return int(found) / sample, top
+        except (sqlite3.Error, AppErrorException):
+            return 0.0, 0
+
+    def _match_is_broad(self, expression: str) -> bool:
+        """Whether walking and asking per row beats collecting every match."""
+        share, top = self.chunk_match_share(expression)
+        return share * top > MATCH_WALK_MIN
+
+    def _widening(self, floor: int) -> list[int]:
+        """`floor`, then floors each holding four times as many chunks, then 0."""
+        if not floor:
+            return [0]
+        try:
+            top = int(self.conn.execute("SELECT max(id) FROM chunks").fetchone()[0] or 0)
+        except sqlite3.Error:
+            return [floor, 0]
+        floors, lower = [], floor
+        while lower > 0:
+            floors.append(lower)
+            lower = max(0, top - 4 * (top - lower))
+        return floors + [0]
+
+    def _match_floor(self, expression: str) -> int:
+        """The chunk id a ranked list scores above so it scores about
+        `MATCH_SCORED_MAX` matches - the newest; 0 to score them all."""
+        share, top = self.chunk_match_share(expression)
+        if share * top <= MATCH_SCORED_MAX:
+            return 0
+        return max(0, top - int(MATCH_SCORED_MAX / share))
+
     def browse_files(
         self,
         parsed: Any,
@@ -2839,16 +2918,27 @@ class SqliteStore:
                 FROM chunks_fts
                 JOIN chunks c ON c.id = chunks_fts.rowid
                 JOIN files  f ON f.id = c.file_id
-                WHERE chunks_fts MATCH ? AND {LISTED_FILES} {where}
+                WHERE chunks_fts MATCH ? AND chunks_fts.rowid > ?
+                      AND {LISTED_FILES} {where}
             )
             GROUP BY id
             ORDER BY {by_date_outer if wants_sort else 'score'}
             LIMIT ?
         """
+        # 2026-10-04: the contents half scores the newest matches only once a
+        # word matches more than `MATCH_SCORED_MAX` chunks - ranked, as the
+        # search box is (`keyword._bounded`). 1,103 ms for `pump` on the bench.
+        # The list is filtered (`LISTED_FILES` leaves mail out, and every switch
+        # applies), so the newest slice can hold too few listed files: it widens
+        # four-fold at a time, down to every match, until the page is full.
+        floor = self._match_floor(literal)
         try:
-            rows = self.conn.execute(
-                sql, [literal, *params, literal, *params, capped]
-            ).fetchall()
+            for lower in self._widening(floor):
+                rows = self.conn.execute(
+                    sql, [literal, *params, literal, lower, *params, capped]
+                ).fetchall()
+                if len(rows) >= capped:
+                    break
         except sqlite3.OperationalError as exc:
             # **Only a missing table.** An index built before `chunks_fts` or
             # `files_fts` existed is a real case and the name half alone is a
@@ -2924,12 +3014,16 @@ class SqliteStore:
         literal = '"' + cleaned.replace('"', '""') + '"'
         sql = f"""
             SELECT COUNT(*) AS n FROM (
-                SELECT id FROM (
+                -- 2026-10-04: `DISTINCT` over `UNION ALL` streams, so `LIMIT`
+                -- stops it once it has seen `cap + 1` files; `UNION` built the
+                -- whole set first (434 ms for a common word on the bench). The
+                -- same number.
+                SELECT DISTINCT id FROM (
                     SELECT f.id AS id
                     FROM files_fts
                     JOIN files f ON f.id = files_fts.rowid
                     WHERE files_fts MATCH ? AND {LISTED_FILES} {where}
-                    UNION
+                    UNION ALL
                     SELECT f.id
                     FROM chunks_fts
                     JOIN chunks c ON c.id = chunks_fts.rowid
@@ -3006,6 +3100,25 @@ class SqliteStore:
         # by contents - the same two halves `browse_files` unions, so a file
         # that would appear in the list cannot fail to light up its repository.
         literal = '"' + cleaned.replace('"', '""') + '"'
+        contents = f"""
+                SELECT f.repo_id
+                FROM chunks_fts
+                JOIN chunks c ON c.id = chunks_fts.rowid
+                JOIN files  f ON f.id = c.file_id
+                WHERE chunks_fts MATCH ? AND f.repo_id IS NOT NULL {where}"""
+        if self._match_is_broad(literal):
+            # 2026-10-04: a common word asks each repository whether any of its
+            # chunks match, stopping at the first - not every match for the
+            # few repositories there are (378 ms for `pump` on the bench).
+            # `CROSS JOIN` keeps the order: files by repository, their chunks,
+            # then FTS5 asked about one chunk at a time.
+            contents = f"""
+                SELECT r.id FROM repos r
+                WHERE EXISTS (
+                    SELECT 1 FROM files f
+                    CROSS JOIN chunks c ON c.file_id = f.id
+                    CROSS JOIN chunks_fts ON chunks_fts.rowid = c.id
+                    WHERE f.repo_id = r.id AND chunks_fts MATCH ? {where})"""
         sql = f"""
             SELECT DISTINCT repo_id FROM (
                 SELECT f.repo_id AS repo_id
@@ -3013,12 +3126,7 @@ class SqliteStore:
                 WHERE files_fts MATCH ? AND f.repo_id IS NOT NULL {where}
 
                 UNION
-
-                SELECT f.repo_id
-                FROM chunks_fts
-                JOIN chunks c ON c.id = chunks_fts.rowid
-                JOIN files  f ON f.id = c.file_id
-                WHERE chunks_fts MATCH ? AND f.repo_id IS NOT NULL {where}
+                {contents}
             )
         """
         try:
