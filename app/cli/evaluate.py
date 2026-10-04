@@ -82,7 +82,16 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
         )
 
         def search(query: str) -> list[str]:
-            return [result.path for result in engine.search(query, limit=args.k).results]
+            # `expand_slashes`, as every other entry point does (2026-10-04) - a
+            # question written `/type pdf` was measured unexpanded. **Only
+            # that**, not `run_search`: this measures the engine's chunk-level
+            # ranking against the recorded baselines, and the window's filter
+            # reading, Settings switches and one-row-per-document grouping
+            # would make every number incomparable with them.
+            from app.search.commands import expand_slashes
+
+            found = engine.search(expand_slashes(query), limit=args.k)
+            return [result.path for result in found.results]
 
         translate = None
         if args.interpret:

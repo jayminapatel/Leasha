@@ -115,7 +115,11 @@ def run_shell(engine: Any, settings: Any, *, renderer: Any = None,
 
     from app.shell.completer import LeashaCompleter
 
+    from app.search.policy import preferences
+
     completer = LeashaCompleter(getattr(engine, "store", None))
+    # The Settings search switches, read once for the session (2026-10-04).
+    search_switches = preferences(settings)
 
     if session is None:
         history = history_path(settings)
@@ -154,7 +158,7 @@ def run_shell(engine: Any, settings: Any, *, renderer: Any = None,
             _print_help()
             continue
 
-        last = _run_one(engine, text, renderer)
+        last = _run_one(engine, text, renderer, preferences=search_switches)
         completer.last_response = last
     return 0
 
@@ -167,22 +171,31 @@ def _print_help() -> None:
         print(line)
 
 
-def _run_one(engine: Any, text: str, renderer: Any = None) -> Any:
+def _run_one(engine: Any, text: str, renderer: Any = None, *,
+             preferences: Any = None) -> Any:
     """One search, printed by the CLI's own renderer. **Never raises.**
 
     A session that dies on one bad search is a session nobody trusts with a
     long one.
+
+    2026-10-04: **searched as the Search tab searches** - `run_search`, the
+    function `app.cli search` and the MCP server run. It used to be a bare
+    `engine.search(text)`, so `/newest` and `/type pdf` were never expanded
+    here, nor saved searches, plain-English filters or the Settings switches.
     """
     if renderer is None:
         from app.cli import print_response as renderer
+    from app.search.policy import SEARCH
+    from app.search.run import run_search
 
     try:
-        response = engine.search(text)
+        found = run_search(engine, text, surface=SEARCH, preferences=preferences,
+                           note_saved=True)
     except Exception as exc:                     # noqa: BLE001 - see docstring
         print(f"That search could not be run: {exc}")
         return None
     try:
-        renderer(response, text)
+        renderer(found.response, text, found=found)
     except Exception as exc:                     # noqa: BLE001
         print(f"The results could not be printed: {exc}")
-    return response
+    return found.response

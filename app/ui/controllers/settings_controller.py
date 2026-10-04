@@ -426,8 +426,13 @@ class SettingsController(QObject):
 
             # What was changed in this session wins over what was loaded at
             # start-up, which is the whole reason the overrides exist.
-            self._w.search_view.set_search_preferences(
-                preferences(self._w._settings, self._w._settings_overrides))
+            found = preferences(self._w._settings, self._w._settings_overrides)
+            # 2026-10-04: kept on the window as well, where the Files, Mail and
+            # Code tabs (`ChipRow.reading`) and the mini box read them on every
+            # search - they were given none, so a switch turned off here still
+            # applied there.
+            self._w.search_preferences = found
+            self._w.search_view.set_search_preferences(found)
         except Exception as exc:                 # noqa: BLE001 - never fatal
             _log.debug("the search behaviours could not be applied: {}", exc)
 

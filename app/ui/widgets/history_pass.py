@@ -62,10 +62,11 @@ def run_history_pass(
         # application that forks a process, and the modules on the typing path
         # are forbidden from importing it - see `test_nothing_that_runs_on_a_
         # keystroke_imports_this`. Deferring it is what makes that true rather
-        # than a technicality.
-        from app.search.federate import git_hits
+        # than a technicality. `git_results` (2026-10-04) is the history step
+        # `app.search.run.run_search` takes for the command line and MCP too.
+        from app.search.run import git_results
 
-        return git_hits(store.repos_list(), query, start_rank=base)
+        return git_results(store, query, start_rank=base)
 
     worker = CallableWorker(work, component="ui.search.git")
     worker.signals.finished.connect(on_rows)

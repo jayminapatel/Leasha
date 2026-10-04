@@ -107,11 +107,24 @@ class IndexTools:
 
     `models` returns `(embedder, reranker, clip_text_embedder)`; called only
     by `search`, so the other three never load a model.
+
+    `preferences` returns the Settings search switches (`policy.preferences`
+    shape); inside Leasha, the window's current ones, so a switch changed in
+    Settings applies here at once. Left out, `settings`' own.
+
+    **`search` and `find_files` search exactly as the Search and Files tabs
+    do** (the owner's decision, 2026-10-04): `app.search.run.run_search` and
+    `find_files`, the functions the window's steps are - saved searches,
+    plain-English filters, the switches, one result per document with a
+    `status` mark (`ok`, `missing`, `offline`). Neither writes anything: a
+    saved search's run is not counted from here.
     """
 
-    def __init__(self, settings: Any, models: Callable[[], tuple]) -> None:
+    def __init__(self, settings: Any, models: Callable[[], tuple],
+                 preferences: Callable[[], Any] | None = None) -> None:
         self._settings = settings
         self._models = models
+        self._preferences = preferences or (lambda: _preferences_of(settings))
 
     def _missing(self) -> dict | None:
         if self._settings.fts_db.is_file():
@@ -124,8 +137,9 @@ class IndexTools:
         return SqliteStore(self._settings.fts_db)
 
     def search(self, query: str, limit: int = 10) -> dict:
-        from app.search.commands import expand_slashes
         from app.search.engine import SearchEngine
+        from app.search.policy import SEARCH
+        from app.search.run import run_search
         from app.storage.vector_store import ImageVectorStore, VectorStore
 
         raw = str(query or "").strip()
@@ -144,16 +158,23 @@ class IndexTools:
                                   image_vectors=image_vectors, clip_text_embedder=clip)
             try:
                 engine.warm_up()
-                # `expand_slashes` first, as every other entry point does - see
-                # `cli.search.cmd_search` for the bug it prevents.
-                response = engine.search(expand_slashes(raw), limit=limit)
+                # **The Search tab's search** (2026-10-04): slashes and saved
+                # searches, the plain-English filters, the Settings switches,
+                # the window's reranker as its Rerank box set it, history on a
+                # history switch, one result per document with its mark. It
+                # used to be a bare engine search, one row per passage.
+                found = run_search(engine, raw, surface=SEARCH,
+                                   preferences=self._preferences(), limit=limit)
             finally:
                 engine.close()
-            results = [self._result(store, r) for r in response.results]
-        return {"query": raw, "results": results,
+        response = found.response
+        return {"query": raw, "read_as": [a.label for a in found.applied],
+                "results": [self._result(document) for document in found.documents],
                 "notices": [n.as_dict() for n in response.notices]}
 
     def find_files(self, name: str, type: str = "", limit: int = 25) -> dict:
+        from app.search.run import find_files
+
         text = str(name or "").strip()
         if not text:
             return {"error": "Give part of a file name."}
@@ -162,15 +183,28 @@ class IndexTools:
             return missing
         limit = max(1, min(int(limit or 25), SEARCH_LIMIT_MAX * 4))
         kinds = [k.strip().lstrip(".") for k in str(type or "").split(",") if k.strip()]
+        # **The Files tab's search** (2026-10-04), `type` as the switch the tab
+        # would be typed with. It used to be a name-only lookup, so the same
+        # words found something different here than on the tab.
+        line = f"{text} type:{','.join(kinds)}" if kinds else text
         with self._store() as store:
-            hits = store.search_files_by_name(text, limit=limit, ext=kinds or None)
+            page = find_files(store, line, limit=limit, preferences=self._preferences())
         files = []
-        for hit in hits:
-            row = dict(hit)
-            files.append({"path": row.get("path"), "name": row.get("name"),
-                          "type": row.get("ext"), "size_bytes": row.get("size_bytes") or None,
+        for row in page["rows"]:
+            path = str(row.get("path") or "")
+            size = row.get("size_bytes")
+            # The name from the path - the query selects none, which is why
+            # this said `null` - and a real 0-byte size kept as 0 (2026-10-04).
+            files.append({"path": path,
+                          "name": path.replace("\\", "/").rstrip("/").rpartition("/")[2],
+                          "type": row.get("ext"),
+                          "size_bytes": int(size) if size is not None else None,
                           "modified": _when((row.get("mtime_ns") or 0) / 1e9)})
-        return {"name": text, "files": files}
+        out: dict = {"name": text, "files": files,
+                     "read_as": [a.label for a in page["applied"]]}
+        if page.get("spelling"):
+            out["spelling"] = page["spelling"]
+        return out
 
     def read_text(self, path: str, max_chars: int = 20_000) -> dict:
         from app.ui.preview_loader import join_chunks
@@ -207,39 +241,54 @@ class IndexTools:
                     "passages": count("chunks")}
 
     @staticmethod
-    def _result(store: Any, result: Any) -> dict:
-        found = result.as_dict()
-        text = " ".join(str(found.get("text") or "").split())
-        out = {"rank": found["rank"], "path": found["path"], "page": found.get("page") or None,
-               "score": found["score"],
+    def _result(document: Any) -> dict:
+        """One document of a search: its best passage, how many passages
+        matched, whether it can be opened now, and its mail card."""
+        best = document.best
+        text = " ".join(str(getattr(best, "text", "") or "").split())
+        out = {"rank": document.rank, "path": best.path, "page": best.page or None,
+               "score": round(float(best.score), 6), "matches": document.matches,
+               "status": document.status,
                "passage": text if len(text) <= SNIPPET_CHARS else text[:SNIPPET_CHARS - 1] + "…"}
-        mail = _mail_of(store, found.get("file_id"), str(found["path"]))
+        mail = _mail_card(document.mail, best.path)
         if mail:
             out["mail"] = mail
         return out
 
 
 def _mail_of(store: Any, file_id: Any, path: str) -> dict | None:
-    """Subject, sender and date for a message, or the message an attachment came on."""
-    from app.ui.presenter.mail import attachment_of
+    """Subject, sender and date for a message, or the message an attachment came on.
 
-    try:
-        message = store.get_message(int(file_id or 0))
-        attached = ""
-        if not message:
-            parent, attached = attachment_of(path)
-            record = store.get_file(parent) if parent else None
-            message = store.get_message(record.id) if record is not None else None
-        if not message:
-            return None
-    except Exception as exc:                     # noqa: BLE001 - a result without its card
-        _log.debug("no mail details for {}: {}", path, exc)
+    Through `app.search.marks.mail_details`, the batched read the results list
+    and `search` use (2026-10-04), so one file reads its card the same way.
+    """
+    from types import SimpleNamespace
+
+    from app.search.marks import mail_details
+
+    details = mail_details(store, [SimpleNamespace(file_id=int(file_id or 0), path=path)])
+    return _mail_card(details.get(int(file_id or 0)), path)
+
+
+def _mail_card(detail: Any, path: str) -> dict | None:
+    """A `mail_details` entry as the tools say it, or None for a non-message."""
+    from app.search.marks import ATTACHMENT_MARKER
+
+    if not detail:
         return None
-    mail = {"subject": message.get("subject") or "", "from": message.get("sender") or "",
-            "sent": _when(message.get("sent_at"))}
-    if attached:
-        mail["attachment"] = attached
+    mail = {"subject": detail.get("subject") or "", "from": detail.get("sender") or "",
+            "sent": _when(detail.get("sent_at"))}
+    if detail.get("attachment_of"):
+        text = str(path or "")
+        mail["attachment"] = text[text.find(ATTACHMENT_MARKER) + len(ATTACHMENT_MARKER):]
     return mail
+
+
+def _preferences_of(settings: Any) -> dict:
+    """The Settings search switches, from `settings` alone (no window)."""
+    from app.search.policy import preferences
+
+    return preferences(settings)
 
 
 def _when(seconds: Any) -> str:
@@ -279,13 +328,22 @@ def _register(server: Any, tools: Any) -> None:
         Leasha's own switches: `type:pdf`, `/newest`, `from:dave`. Returns the best
         matches, each with its path, a passage and, for mail, the subject, sender
         and date. Use `read_text` with a path for the whole text.
+
+        2026-10-04: one result per document - its best passage, `matches` (how
+        many passages matched) and `status`: `ok`, `missing` (gone from disk)
+        or `offline` (on a drive not connected). `read_as` lists the filters
+        the words were read as, and `saved:name` runs a saved search.
         """
         return await _invoke(tools.search, query, limit)
 
     @server.tool(annotations=read_only)
     async def find_files(name: str, type: str = "", limit: int = 25) -> dict:
         """Find files by part of their NAME (not their contents). `type` narrows
-        to extensions, comma-separated: `pdf` or `xlsx,xlsm`."""
+        to extensions, comma-separated: `pdf` or `xlsx,xlsm`.
+
+        2026-10-04: searched as Leasha's Files tab searches - names rank first,
+        and a folder or the file's text can match too; switches (`after:2019`)
+        and plain English ("pdf from 2019") work."""
         return await _invoke(tools.find_files, name, type, limit)
 
     @server.tool(annotations=read_only)

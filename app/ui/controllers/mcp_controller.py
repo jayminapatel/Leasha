@@ -55,9 +55,16 @@ class McpController(QObject):
         from app.serve.mcp import IndexTools, key_for
 
         settings, store, host, models = self._w._settings, self._w._store, self.host, self._models
+        window = self._w
+
+        def switches() -> Any:
+            # The window's current Settings search switches, read per call, so
+            # AI programs search as the Search tab does now (2026-10-04).
+            return getattr(window, "search_preferences", None)
 
         def start_server() -> Any:
-            return host.start(IndexTools(settings, models), int(port), key_for(store))
+            return host.start(IndexTools(settings, models, switches), int(port),
+                              key_for(store))
 
         self._box.show_busy("Starting…")
         self._run(start_server, lambda url: (self._box.show_running(str(url)), self.refresh()),

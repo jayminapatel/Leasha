@@ -558,6 +558,12 @@ class ChatEngine:
     # ------------------------------------------------------------------ retrieval
 
     def _search(self, query: str, limit: int) -> Any:
+        # `rerank=False` on purpose, not an oversight of the Rerank setting
+        # (noted 2026-10-04): one chat turn runs up to `max_rounds` of these,
+        # widening as it goes, and judges the passages itself (`assess`, then
+        # the verifier). A cross-encoder pass per round - measured at 0.46s to
+        # 8s per search - would multiply the wait on every round, before the
+        # model has written a word. Chat keeps its own policy (`CHAT_POLICY`).
         return self.search_engine.search(query, limit=limit, rerank=False, use_cache=True,
                                          policy=CHAT_POLICY)
 
