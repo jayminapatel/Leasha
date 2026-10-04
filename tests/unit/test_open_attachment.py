@@ -187,7 +187,8 @@ def test_the_copy_is_the_attachment_read_only_in_leashas_cache(store, tmp_path):
     assert copy.parent.parent == tmp_path / "cache" / OPENED_FOLDER
     assert not os.access(copy, os.W_OK), "the copy must be read-only"
     assert asked == {"archive": "D:/OutlookArchive/2024.pst", "entry_id": "2097188",
-                     "name": "Model CED.xlsm", "folder_path": "Top/Inbox", "folder_index": 50}
+                     "name": "Model CED.xlsm", "folder_path": "Top/Inbox", "folder_index": 50,
+                     "search": True, "max_bytes": None}
     # A second Open replaces this session's copy rather than failing on it.
     assert save_attachment_copy(store, ATTACHMENT, tmp_path / "cache", reader=reader) == copy
 

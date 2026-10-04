@@ -393,6 +393,8 @@ class PreviewPane(QWidget):
         that is off by default into a program that would not start. An optional
         component must never be able to do that, whatever goes wrong inside it.
         """
+        #: An attachment's PDF bytes, kept alive while the document reads them.
+        self._pdf_buffer = None
         try:
             from PyQt6.QtPdf import QPdfDocument
             from PyQt6.QtPdfWidgets import QPdfView
@@ -705,6 +707,9 @@ class PreviewPane(QWidget):
             self._highlight_as(None)
             self.text.document().setMarkdown(preview.body)
             self.stack.setCurrentWidget(self.text)
+        elif preview.kind == KIND_IMAGE and preview.meta.get("image") is not None:
+            # An attachment's picture, decoded from memory on the worker.
+            self._draw_image(preview.meta["image"], self._generation)
         elif preview.kind == KIND_IMAGE:
             self._show_image(preview.path)
         elif preview.kind == KIND_SPREADSHEET:
@@ -718,7 +723,7 @@ class PreviewPane(QWidget):
             self.epub.show_chapters(preview.meta.get("chapters"))
             self.stack.setCurrentWidget(self.epub)
         elif preview.kind == KIND_PDF and self._pdf is not None:
-            self._show_pdf(preview.path, preview.page)
+            self._show_pdf(preview.path, preview.page, data=preview.meta.get("data"))
         else:
             self._show_card(
                 f"{preview.title}\n{preview.subtitle}\n\n"
@@ -796,9 +801,21 @@ class PreviewPane(QWidget):
         ))
         self.stack.setCurrentWidget(self.image)
 
-    def _show_pdf(self, path: str, page: int) -> None:
+    def _show_pdf(self, path: str, page: int, *, data: Any = None) -> None:
         try:
-            self._pdf_document.load(path)
+            if data is not None:
+                # An attachment's bytes, read on the worker (2026-10-04). The
+                # buffer is kept: the document reads its pages from it.
+                from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
+
+                buffer = QBuffer()
+                buffer.setData(QByteArray(bytes(data)))
+                buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+                self._pdf_document.load(buffer)
+                self._pdf_buffer = buffer
+            else:
+                self._pdf_document.load(path)
+                self._pdf_buffer = None
             if page > 0:
                 navigator = self._pdf.pageNavigator()
                 if navigator is not None:

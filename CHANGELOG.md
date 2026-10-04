@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.51 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.52 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **The preview shows an attachment's own pages.** A PDF, a picture or a workbook that came
+  with an email is drawn in the preview pane - pages, picture or grid - under its message,
+  without saving a copy anywhere. Other types still show their words, as before; so does an
+  attachment the index cannot place in its archive yet (anything indexed before today's
+  change - reindex to have them). The same works for a file inside a zip on disk.
+- **Open on a file inside a large zip no longer reads the whole zip into memory** - it reads
+  only the one file. A 5 GB backup zip would have needed 5 GB of memory for one document.
 - **Open works on a file from an email, and on a file inside a zip.** Leasha saves a copy and
   opens it in its own program - Excel for a spreadsheet, and so on. The copy is read-only and
   kept in Leasha's own folder, so a change to it is never taken for a change to the mail;

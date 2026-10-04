@@ -368,7 +368,7 @@ def _spreadsheet_notice(sheets: list[SheetGrid]) -> str:
     )
 
 
-def _read_xlsx_sheets(path: Path) -> list[SheetGrid]:
+def _read_xlsx_sheets(path: Any) -> list[SheetGrid]:
     """Every sheet of a modern workbook, read with `openpyxl` - already a
     dependency, per §4b. `read_only` and `data_only`: a formula's last
     *result* is what belongs in a grid somebody is looking at, not
@@ -382,8 +382,10 @@ def _read_xlsx_sheets(path: Path) -> list[SheetGrid]:
         # and nowhere broader: real workbooks trigger it constantly and none
         # of it is actionable from a preview pane.
         warnings.simplefilter("ignore", UserWarning)
+        # A path, or a file-like of bytes in memory (an attachment, 2026-10-04).
         workbook = openpyxl.load_workbook(
-            str(path), read_only=True, data_only=True, keep_links=False)
+            path if hasattr(path, "read") else str(path),
+            read_only=True, data_only=True, keep_links=False)
     try:
         sheets = []
         for name in workbook.sheetnames:
@@ -1004,6 +1006,61 @@ def _attachment_parent(store: Any, path: str) -> Optional[tuple[Any, str, str]]:
     return message, parent_path, name
 
 
+#: The most of an attachment or a zip member read into memory to show its
+#: pages. A PDF that size is a manual or a drawing set; past it, Open.
+IN_MEMORY_CAP = 50 * 1024 * 1024
+#: Workbooks `openpyxl` reads from memory. `.xls` needs the converter, which
+#: needs a file on disk - so it shows its words, as before.
+_IN_MEMORY_SHEETS = frozenset({".xlsx", ".xlsm"})
+
+
+def in_memory_preview(path: str, message: Any, *, page: int = 0,
+                      reader: Any = None) -> Optional[Preview]:
+    """The pages of an attachment or a zip member, from memory. **Worker.**
+
+    2026-10-04, the owner: "do both" - see an attachment in the pane without
+    saving a copy. The bytes are read (`attachment_open.bytes_of`) and drawn
+    from memory: a PDF's pages, a picture, a workbook's grid. Nothing is
+    written to disk.
+
+    None - and the pane shows the words it showed before - for any other
+    type, for a file over `IN_MEMORY_CAP`, for a message whose place in its
+    archive the index does not hold (read through Outlook, or indexed before
+    schema 32: the search for it takes 38 s, not a thing to start behind a
+    down-arrow), and for anything that fails. **Never raises.**
+    """
+    from app.ui.attachment_open import bytes_of, opens_from_a_copy, shown_name
+
+    if not opens_from_a_copy(path):
+        return None
+    name = shown_name(path)
+    suffix = Path(name).suffix.lower()
+    kind = kind_for(Path(name))
+    if suffix in _HEIF_SUFFIXES or not (
+            kind in (KIND_PDF, KIND_IMAGE) or suffix in _IN_MEMORY_SHEETS):
+        return None
+    cap = CAPS[KIND_IMAGE] if kind == KIND_IMAGE else IN_MEMORY_CAP
+    try:
+        data = bytes_of(path, message, reader=reader, search=False, max_bytes=cap)
+        if kind == KIND_PDF:
+            return Preview(kind=KIND_PDF, path=path, title=name, page=page,
+                           meta={"data": data})
+        if kind == KIND_IMAGE:
+            image = decode_image_data(data)
+            return (Preview(kind=KIND_IMAGE, path=path, title=name, meta={"image": image})
+                    if image is not None else None)
+        import io
+
+        sheets = _read_xlsx_sheets(io.BytesIO(data))
+    except Exception as exc:                    # noqa: BLE001 - the words are still there
+        _log.debug("no pages from memory for {}: {}", path, exc)
+        return None
+    if not sheets:
+        return None
+    return Preview(kind=KIND_SPREADSHEET, path=path, title=name,
+                   notice=_spreadsheet_notice(sheets), meta={"sheets": sheets})
+
+
 def offline_volume_subtitle(store: Any, row: Any) -> str:
     r"""Offline Media §3a's own sentence for one row's volume, reused rather
     than recomputed - see `presenter.offline_volume_note`. `""` when the
@@ -1147,13 +1204,31 @@ def load_preview_for(row: Any, *, body_provider: Any = None,
     # the message's own words under it. The quoted-text notice stays.
     mail = mail_preview(store, row)
     if mail is not None:
+        notice = (attachment_notice(mail.attachment) if mail.attachment
+                  else quoted_notice(mail.quoted_removed))
+        row_path = str(getattr(row, "path", "") or "")
+        # 2026-10-04, the owner: "do both" - an attachment's own pages, read
+        # into memory on this worker. No copy is written. The words below
+        # are the fallback whenever that cannot be done.
+        parent = _attachment_parent(store, row_path) if mail.attachment else None
+        if parent is not None:
+            pages = in_memory_preview(row_path, parent[0], page=int(getattr(row, "page", 0) or 0))
+            if pages is not None:
+                return replace(pages, body=mail.copy_header + mail.body,
+                               title=mail.card.subject, notice=notice,
+                               meta={**pages.meta, "mail": mail})
         return Preview(
             kind=KIND_TEXT, body=mail.copy_header + mail.body,
-            path=str(getattr(row, "path", "") or ""), title=mail.card.subject,
-            notice=(attachment_notice(mail.attachment) if mail.attachment
-                    else quoted_notice(mail.quoted_removed)),
+            path=row_path, title=mail.card.subject,
+            notice=notice,
             meta={"mail": mail},
         )
+
+    # The same for a file inside a zip on disk ("the same should be for zips").
+    pages = in_memory_preview(str(getattr(row, "path", "") or ""), None,
+                              page=int(getattr(row, "page", 0) or 0))
+    if pages is not None:
+        return pages
 
     body = str(getattr(row, "preview_text", "") or "")
     if not body and body_provider is not None:
@@ -1296,6 +1371,30 @@ def decode_image(path: str):
     from app.extract.exif import read_orientation
     orientation = read_orientation(Path(str(path)))
     return _apply_orientation(image, orientation)
+
+
+def decode_image_data(data: bytes):
+    """An image in memory to a `QImage`, upright. **Worker thread only.**
+
+    `decode_image`'s twin for bytes that have no file (2026-10-04, an
+    attachment in the preview pane). `QImageReader.setAutoTransform` applies
+    the EXIF orientation `decode_image` reads from the file. None for
+    anything that will not decode.
+    """
+    from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
+    from PyQt6.QtGui import QImageReader
+
+    try:
+        buffer = QBuffer()
+        buffer.setData(QByteArray(bytes(data)))
+        buffer.open(QIODevice.OpenModeFlag.ReadOnly)
+        reader = QImageReader(buffer)
+        reader.setAutoTransform(True)
+        image = reader.read()
+        buffer.close()
+    except Exception:                            # noqa: BLE001 - boundary
+        return None
+    return None if image.isNull() else image
 
 
 def _decode_heif(path: str):

@@ -35,10 +35,12 @@ from app.core.logging import logger
 
 __all__ = [
     "OPENED_FOLDER",
+    "bytes_of",
     "clear_opened",
     "is_archive_attachment",
     "opens_from_a_copy",
     "read_zip_member",
+    "shown_name",
     "write_copy",
     "zip_member_of",
 ]
@@ -77,12 +79,61 @@ def opens_from_a_copy(path: Any) -> bool:
     return is_archive_attachment(path) or bool(zip_member_of(path)[0])
 
 
-def read_zip_member(zip_path: str, inside: str) -> bytes:
+def shown_name(path: Any) -> str:
+    """The name of the file itself: `report.pdf` for `D:\\a\\b.zip/q3/report.pdf`
+    and for `pst://s/1/attachments/pack.zip/q3/report.pdf`. No I/O."""
+    from app.ui.presenter.mail import attachment_of
+
+    text = str(path or "")
+    zip_path, inside = zip_member_of(text)
+    if not zip_path:
+        inside = attachment_of(text)[1]
+    return inside.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+
+
+def bytes_of(path: str, message: dict | None, *, reader: Any = None,
+             search: bool = True, max_bytes: int | None = None) -> bytes:
+    """The bytes of the attachment or zip member `path` names. **Worker body.**
+
+    `message` is the parent message's `messages` row for an attachment (the
+    caller reads it - this module does not touch the store), None for a zip
+    member. `search` and `max_bytes` are `read_attachment`'s. Raises
+    `AppErrorException` (`ERR_ATTACHMENT_OPEN`) with the way out.
+    """
+    from app.extract.pst_attachment import member_of, read_attachment
+    from app.ui.presenter.mail import attachment_of
+
+    zip_path, inside = zip_member_of(path)
+    if zip_path:
+        return read_zip_member(zip_path, inside, max_bytes=max_bytes)
+    parent_path, rest = attachment_of(path)
+    name, _, inner = rest.partition("/")
+    if not message:
+        raise AppErrorException(make_error(
+            "ERR_ATTACHMENT_OPEN", "ui.attachment_open", path=parent_path, name=name,
+            details="its message is not in the index"))
+    data = (reader or read_attachment)(
+        message.get("store_path") or "", str(message.get("entry_id") or ""), name,
+        folder_path=message.get("folder_path"), folder_index=message.get("folder_index"),
+        search=search, max_bytes=max_bytes)
+    if inner:
+        member = member_of(data, inner, max_bytes=max_bytes)
+        if member is None:
+            raise AppErrorException(make_error(
+                "ERR_ATTACHMENT_OPEN", "ui.attachment_open", path=parent_path, name=inner,
+                details=f"'{name}' no longer holds that file"))
+        return member
+    return data
+
+
+def read_zip_member(zip_path: str, inside: str, *, max_bytes: int | None = None) -> bytes:
     """`inside` out of the zip on disk - read-only, nested zips too."""
     from app.extract.pst_attachment import member_of
 
     try:
-        data = member_of(Path(zip_path).read_bytes(), inside)
+        if not Path(zip_path).is_file():
+            raise FileNotFoundError(zip_path)
+        data = member_of(Path(zip_path), inside, max_bytes=max_bytes)
     except OSError as exc:
         raise AppErrorException(make_error(
             "ERR_ATTACHMENT_OPEN", "ui.attachment_open", path=zip_path, name=inside,

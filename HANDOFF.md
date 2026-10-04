@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.49 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.50 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2139,6 +2139,18 @@ migration for zip rows: the index is being rebuilt. `test_open_attachment.py`. *
 runs**: the worker body that reads the index is `tasks.save_attachment_copy`, the worker
 `workers.open_attachment_async`; `attachment_open.py` keeps the predicates and disk helpers.
 The first placement put both in `attachment_open.py`, and `test_ui_never_blocks` refused it.
+
+**2026-10-04 (later) - An attachment's pages in the preview pane, from memory.** The owner:
+"do both" (this and the MCP server). `preview_loader.in_memory_preview` reads an attachment's
+or a zip member's bytes on the pane's worker (`attachment_open.bytes_of`; the store lookups
+stay in `preview_loader`/`tasks`, where the guard allows them) and returns a PDF (`meta["data"]`,
+loaded by the pane through a `QBuffer` it keeps in `_pdf_buffer`), a picture (`meta["image"]`,
+`decode_image_data`, EXIF upright by `QImageReader.setAutoTransform`) or an `.xlsx`/`.xlsm` grid.
+**Never the slow search**: `read_attachment(search=False)` takes the message only where
+schema 32 says it is, so a pre-32 row or one read through Outlook shows its words as before.
+Caps: 25 MB for a picture, 50 MB otherwise (`IN_MEMORY_CAP`), checked before reading.
+**Fault found and fixed**: `read_zip_member` read the whole zip into memory for one member
+(`Path.read_bytes()`); `member_of` now opens a zip on disk by path. `test_attachment_in_pane.py`.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a
