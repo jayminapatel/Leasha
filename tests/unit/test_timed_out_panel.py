@@ -327,3 +327,28 @@ def test_nothing_is_collected_in_the_middle_of_a_test() -> None:
     import gc
 
     assert not gc.isenabled()
+
+
+def test_under_after_run_the_start_after_a_text_pass_is_the_images_pass(window) -> None:
+    """2026-10-04, the owner: "this is the second time it is running why is it
+    not scanning for faces". Under "after-run" every Start was the text pass,
+    so the notice's "press Start again" held every picture again."""
+    from app.index.pipeline import IndexStats
+
+    _app, built, _started = window
+    built._settings = built._settings.model_copy(update={"index_ocr_pass": "after-run"})
+    built.notify = lambda *_a, **_k: None
+    ctl = built.index_ctl
+    try:
+        ctl._images_due = False
+        assert ctl._ocr_mode_for_run() == "text"
+        ctl._offer_images_pass(IndexStats(ocr_mode="text"))
+        assert ctl._ocr_mode_for_run() == "images", "the next Start reads the images"
+        ctl._offer_images_pass(IndexStats(ocr_mode="images"))
+        assert ctl._ocr_mode_for_run() == "text", "and then text again"
+        built._settings = built._settings.model_copy(update={"index_ocr_pass": "manual"})
+        ctl._images_due = True
+        assert ctl._ocr_mode_for_run() == "text", "manual stays manual"
+    finally:
+        ctl._images_due = False
+        del built.notify

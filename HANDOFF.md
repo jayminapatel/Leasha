@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.52 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 7.53 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2194,6 +2194,19 @@ in Mail showed the archive's size** (1.9 GB): `rows.mail_rows` shows none for a 
 message; the stored value is unchanged (`_row_type_and_size` keeps the archive's on a message
 row, as `test_a_message_row_keeps_the_archives` pins). Also: the bridge's Python name moved to
 `osbridge.stdio.console_python` (`test_osbridge_guard`).
+
+**2026-10-04 (night, later) - "after-run" never reached the images pass from the window.**
+The owner: "this is the second time it is running why is it not scanning for faces" (15,010
+`ERR_OCR_HELD`, 0 read). `IndexController._ocr_mode_for_run` returned "text" for every Start
+under `INDEX_OCR_PASS=after-run`, while `_offer_images_pass` told him to "press Start again".
+The command line had `--only-ocr`; the window had nothing. Faces are found when a picture is
+read (`pipeline._maybe_detect_faces`), so none were. Fixed: a finished non-images run sets store
+state `index:images_pass_due`, the next Start under after-run is `images`, a finished images
+pass clears it; read back after start-up (`load_images_due`). `manual` unchanged. Checked on
+his machine: `PEOPLE_RECOGNITION_ENABLED=true`, `face_detect.available()` True.
+`test_timed_out_panel.py::test_under_after_run_the_start_after_a_text_pass_is_the_images_pass`.
+**Asked, not built yet**: "it should get the names first and then scan faces or text ... file
+list comes up first" - see the reply of this date.
 
 **2026-10-03 - a root may be one file, and four places assumed it was a folder.** "Add file…"
 in Folders to index (the owner, 2026-10-02: "can it be file to index"). `walker.walk` walks a

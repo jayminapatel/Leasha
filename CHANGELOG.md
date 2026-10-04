@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.54 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.55 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### After 0.3.4 (2026-10-04)
 
+- **With "When to read images" set to after the run, pressing Start again now reads the
+  images** - and so finds the faces in them. It ran the text pass again instead, holding every
+  picture back a second time, so no photo was ever read from the window with that setting.
+  Leasha now remembers that a text pass has finished, across a restart.
 - **Double-clicking an attachment on the Files page opens it.** It said "Not found on disk":
   the new Open-from-a-copy had reached the Search page only. Every page now goes the same
   way - Files, a pinned window's Open - and **Show in folder** on an attachment shows the

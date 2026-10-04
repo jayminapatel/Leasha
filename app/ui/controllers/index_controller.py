@@ -74,9 +74,16 @@ class IndexController(QObject):
     rule that applied when the receiver was the window itself.
     """
 
+    #: Store state: a text pass has finished and its images are still to read,
+    #: so the next Start under "after-run" is the images pass (2026-10-04).
+    IMAGES_DUE_STATE = "index:images_pass_due"
+
     def __init__(self, window: Any) -> None:
         super().__init__(window)
         self._w = window
+        #: See `IMAGES_DUE_STATE`. Read from the store after start-up
+        #: (`load_images_due`); False until then, which is the old behaviour.
+        self._images_due = False
 
     # -- the schedule -------------------------------------------------------
 
@@ -198,9 +205,34 @@ class IndexController(QObject):
         """
         schedule = str(getattr(self._w._settings, "index_ocr_pass", "with-run")
                        or "with-run")
+        # *Corrected 4 October 2026, the owner: "this is the second time it is
+        # running why is it not scanning for faces".* Under "after-run" every
+        # Start was the text pass: the notice below said "press Start again" to
+        # read the images, and Start held them all again - so no picture, and
+        # no face, was ever read from the window. The text pass that finishes
+        # now marks the images as due, and the next Start is the images pass.
+        if schedule == "after-run" and self._images_due:
+            return "images"
         if schedule in ("after-run", "manual"):
             return "text"
         return str(getattr(self._w._settings, "index_ocr_mode", "both"))
+
+    def load_images_due(self) -> None:
+        """Whether a finished text pass left its images to read - from the
+        store, on a worker, once the window is running."""
+        store = self._w._store
+        if store is None:
+            return
+        worker = CallableWorker(store.get_state, self.IMAGES_DUE_STATE, "",
+                                component="ui.index.images_due")
+        worker.signals.finished.connect(lambda value: self._set_images_due(value == "1"))
+        worker.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _set_images_due(self, due: bool) -> None:
+        self._images_due = bool(due)
+        save_states(self._w._store, {self.IMAGES_DUE_STATE: "1" if due else ""},
+                    component="ui.index.images_due")
 
     def _offer_images_pass(self, _stats: Any) -> None:
         """After a text-only run, say the images are still to do.
@@ -219,6 +251,12 @@ class IndexController(QObject):
             # Order 0z F3: a retry read a few timed-out files. It was not the
             # text pass, so "Text is indexed" would not be true of it.
             return
+        mode = str(getattr(_stats, "ocr_mode", "") or "")
+        if mode == "images":
+            # The images pass has run: the next Start is a text pass again.
+            self._set_images_due(False)
+            return
+        self._set_images_due(True)
         self._w.notify(
             "Text is indexed. Images and scans are still to read - press Start "
             "again to do those.", 30_000)

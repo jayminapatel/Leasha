@@ -937,6 +937,8 @@ class MainWindow(QMainWindow):
             mcp_ctl = getattr(self, "mcp_ctl", None)
             if mcp_ctl is not None:
                 mcp_ctl.start_if_wanted()
+            # Whether the next Start is the images pass (2026-10-04).
+            self.index_ctl.load_images_due()
             # §2f: after construction, like `_restore_last_category` (M13).
             self._restore_last_page()
             self._refresh_status()
