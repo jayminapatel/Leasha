@@ -50,8 +50,8 @@ __all__ = [
 
 # Brand colours (non-theme)
 BRAND_NAVY = "#15084B"
-BRAND_STRIPE_GREEN = "#A1B000"
-BRAND_STRIPE_BLUE = "#0778D9"
+BRAND_STRIPE_GREEN = "#A1B002"      # brand.json, exact (2026-10-04; was A1B000)
+BRAND_STRIPE_BLUE = "#0A79DB"       # brand.json, exact (2026-10-04; was 0778D9)
 BRAND_STRIPE_ORANGE = "#FF9933"
 BRAND_TEXT_FAINT = "#9b95c4"
 

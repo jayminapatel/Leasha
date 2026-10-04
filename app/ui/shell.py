@@ -1367,6 +1367,8 @@ class MainWindow(QMainWindow):
         help_menu = bar.addMenu("&Help")
         add(help_menu, "Keyboard shortcuts", self._show_shortcuts, icon="keyboard",
             tip="Every shortcut, in one list")
+        add(help_menu, "About Leasha", self._show_about, icon="info",
+            tip="Which build this is, who made it, and what it is built on")
         self.setMenuBar(bar)
 
     def _show_shortcuts(self) -> None:
@@ -1379,6 +1381,12 @@ class MainWindow(QMainWindow):
         lines.append(f"{'Ctrl+Enter':<14} Interpret")
         lines.append(f"{'Ctrl+F':<14} Search (also Ctrl+K)")
         QMessageBox.information(self, "Keyboard shortcuts", "\n".join(lines))
+
+    def _show_about(self) -> None:
+        """Help > About Leasha (2026-10-04, the brand assessment)."""
+        from app.ui.widgets.about_dialog import AboutDialog
+
+        AboutDialog(self).exec()
 
     def _tint_menu_icons(self, colours: dict) -> None:
         from app.ui.widgets.icons import icon

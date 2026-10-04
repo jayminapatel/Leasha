@@ -91,13 +91,18 @@ PALETTES: dict[str, dict[str, str]] = {
         "accent_on": "#15131f",
         "rail_on_bg": "#2a2150",       # == accent_soft
         "rail_hover": "#2d2f33",       # == surface_hover
-        # **Kind badges carry the brand stripes** (§0.1-5): the three splash
-        # colours, identical in both palettes by design - a badge is a label,
-        # and a label that changes hue with the theme is two labels.
-        "kind_doc": "#0778d9",
-        "kind_mail": "#ff9933",
-        "kind_code": "#a1b000",
-        "kind_other": "#6b5bd6",
+        # **Kind badges carry the brand stripes** (§0.1-5), identical in both
+        # palettes by design - a badge is a label, and a label that changes
+        # hue with the theme is two labels. 2026-10-04, the brand assessment:
+        # the splash's three colours with a white word on them measured
+        # 2.1:1 on orange and 2.4:1 on lime, so the badges are the brand's
+        # text-safe tints of the same hues (brand.json `textSafe`) - white on
+        # them is 5.8, 5.6, 5.0 and 5.4 to 1. The splash keeps the full
+        # colours: there they are stripes, not grounds for a word.
+        "kind_doc": "#0866bd",
+        "kind_mail": "#a35200",
+        "kind_code": "#6b7600",
+        "kind_other": "#6c6685",       # the brand's chrome
         # A chip is a removable filter drawn on the accent's soft ground.
         "chip_bg": "#2a2150",
         "chip_text": "#c3b7ff",
@@ -137,12 +142,13 @@ PALETTES: dict[str, dict[str, str]] = {
         # #858b93 was 3.4 to 1 on white and 3.2 on the window. This is 4.9 and
         # 4.6, and still lighter than `text_dim`. Was #858b93.
         "text_faint": "#6b7178",
-        # Navy-derived (202626160950 §1a). Dark enough to be text on white;
-        # the soft ground is the same hue at a whisper.
-        "accent": "#2b1a7a",
+        # The brand's indigo, `15084B` (2026-10-04; was the splash's navy
+        # #2b1a7a, a second indigo nobody had measured against the first).
+        # 18.0 to 1 on white; the soft ground is the same hue at a whisper.
+        "accent": "#15084b",
         "accent_soft": "#e9e4fb",
-        "accent_text": "#2b1a7a",
-        "accent_bar": "#2b1a7a",
+        "accent_text": "#15084b",
+        "accent_bar": "#15084b",
         "focus_ring": "#4a37b0",
         # See the dark palette's comment: a neutral grey rail, aligned with
         # the rest of the window's own surface tokens rather than a fixed
@@ -156,17 +162,17 @@ PALETTES: dict[str, dict[str, str]] = {
         "rail": "#f0f1f3",             # == surface_alt
         "rail_text": "#585e66",        # == text_dim
         "rail_on": "#ffffff",
-        "rail_on_text": "#2b1a7a",     # == accent_text
+        "rail_on_text": "#15084b",     # == accent_text
         # White on the navy accent: 13.7 to 1. See the dark palette's note.
         "accent_on": "#ffffff",
         "rail_on_bg": "#e9e4fb",       # == accent_soft
         "rail_hover": "#e8eaed",       # == surface_hover
-        "kind_doc": "#0778d9",
-        "kind_mail": "#ff9933",
-        "kind_code": "#a1b000",
-        "kind_other": "#6b5bd6",
+        "kind_doc": "#0866bd",
+        "kind_mail": "#a35200",
+        "kind_code": "#6b7600",
+        "kind_other": "#6c6685",
         "chip_bg": "#e9e4fb",
-        "chip_text": "#2b1a7a",
+        "chip_text": "#15084b",
         "toast_bg": "#1b1826",
         "toast_text": "#f6f5f9",
         "mark": "#fff0c2",

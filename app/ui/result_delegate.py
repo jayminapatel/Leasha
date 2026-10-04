@@ -460,20 +460,25 @@ def _fill_row(painter: QPainter, rect: QRect, colour: QColor) -> None:
     painter.restore()
 
 
+#: The word on a kind badge. White in both themes: the fills are the brand's
+#: text-safe tints, chosen so white reads on every one (`test_brand_colours`).
+BADGE_INK = "#ffffff"
+
+
 def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict,
                  icon: Any = None) -> None:
     """§4a: the kind badge - stripe colour, white word, provider icon in the
     corner. The colours are the same in both themes by design."""
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-    fill = QColor(colours.get(badge_token(kind), colours.get("kind_other", "#6b5bd6")))
+    fill = QColor(colours.get(badge_token(kind), colours.get("kind_other", "#6c6685")))
     painter.fillPath(_rounded(QRectF(rect), ROW_RADIUS), QBrush(fill))
     word = badge_word(kind)
     font = QFont(painter.font())
     font.setBold(True)
     font.setPointSizeF(max(6.0, min(9.0, rect.height() / 4.0)))
     painter.setFont(font)
-    painter.setPen(QPen(QColor("#ffffff")))
+    painter.setPen(QPen(QColor(BADGE_INK)))
     painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), word)
     if icon is not None and not icon.isNull() and rect.height() >= 28:
         side = 12

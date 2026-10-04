@@ -50,13 +50,30 @@ def test_kind_badges_are_the_same_in_both_themes():
 
 
 def test_the_stripes_are_the_splash_colours():
+    """Note, 2026-10-04 (the brand assessment, the owner's decision): the
+    badges were the splash's three colours exactly, and a white word on them
+    measured 2.1:1 on orange and 2.4:1 on lime. They are now the brand's
+    text-safe tints of the *same hues*; the splash keeps the full colours.
+    So this checks the family, not equality: each badge is its stripe,
+    darkened. `test_brand_colours.py` pins the exact values."""
+    import colorsys
+
     from app.ui import splash
     from app.ui.theme import PALETTES, Theme
 
+    def hue_and_lightness(colour: str) -> tuple[float, float]:
+        r, g, b = (int(colour.lstrip("#")[i:i + 2], 16) / 255 for i in (0, 2, 4))
+        hue, lightness, _s = colorsys.rgb_to_hls(r, g, b)
+        return hue * 360, lightness
+
     dark = PALETTES[Theme.DARK]
-    assert dark["kind_doc"].lower() == splash.BRAND_STRIPE_BLUE.lower()
-    assert dark["kind_mail"].lower() == splash.BRAND_STRIPE_ORANGE.lower()
-    assert dark["kind_code"].lower() == splash.BRAND_STRIPE_GREEN.lower()
+    for token, stripe in (("kind_doc", splash.BRAND_STRIPE_BLUE),
+                          ("kind_mail", splash.BRAND_STRIPE_ORANGE),
+                          ("kind_code", splash.BRAND_STRIPE_GREEN)):
+        badge_hue, badge_light = hue_and_lightness(dark[token])
+        stripe_hue, stripe_light = hue_and_lightness(stripe)
+        assert abs(badge_hue - stripe_hue) < 8, f"{token} is not its stripe's hue"
+        assert badge_light < stripe_light, f"{token} is not darker than its stripe"
 
 
 @pytest.mark.parametrize("scheme", ["system", "light", "dark"])

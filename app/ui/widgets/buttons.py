@@ -187,6 +187,7 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Print": ("printer", "secondary"),
     "Open the real file": ("external-link", "primary"),
     "Show full layout": ("file-text", "secondary"),
+    "Third-party notices": ("file-text", "secondary"),   # Help > About, 2026-10-04
     "Show simplified view": ("eye", "secondary"),
     "Describe": ("sparkles", "secondary"),
     "Open them all": ("external-link", "secondary"),

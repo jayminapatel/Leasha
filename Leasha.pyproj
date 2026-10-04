@@ -414,6 +414,7 @@
     <Compile Include="app\ui\view_of_file.py" />
     <Compile Include="app\ui\view_options.py" />
     <Compile Include="app\ui\widgets\__init__.py" />
+    <Compile Include="app\ui\widgets\about_dialog.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
@@ -560,6 +561,7 @@
     <Compile Include="tests\unit\e2e_support.py" />
     <Compile Include="tests\unit\fake_index_child.py" />
     <Compile Include="tests\unit\interrupted_run_child.py" />
+    <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
@@ -571,6 +573,7 @@
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
     <Compile Include="tests\unit\test_between_dates.py" />
+    <Compile Include="tests\unit\test_brand_colours.py" />
     <Compile Include="tests\unit\test_button_system.py" />
     <Compile Include="tests\unit\test_cache_key.py" />
     <Compile Include="tests\unit\test_cad.py" />
@@ -1112,12 +1115,16 @@
     <Content Include="assets\icons\zoom-in.svg" />
     <Content Include="assets\icons\zoom-out.svg" />
     <Content Include="assets\leasha-256.png" />
+    <Content Include="assets\leasha-lockup-reversed.png" />
+    <Content Include="assets\leasha-lockup.png" />
     <Content Include="assets\leasha-logo-400dpi.jpg" />
+    <Content Include="assets\leasha-logo-reversed.svg" />
     <Content Include="assets\leasha-logo-white.png" />
     <Content Include="assets\leasha-logo.png" />
     <Content Include="assets\leasha-logo.svg" />
     <Content Include="assets\leasha-mark-64.png" />
     <Content Include="assets\leasha-source.png" />
+    <Content Include="assets\leasha-symbol.svg" />
     <Content Include="assets\leasha-tray.ico" />
     <Content Include="assets\leasha.ico" />
     <Content Include="config\extractors.toml" />
