@@ -636,8 +636,13 @@ def test_a_retry_through_the_indexing_process(tmp_path) -> None:
     opened = tmp_path / "opened.txt"
     # `python -m app.cli ...` becomes `python -c <the same, with a slow reader
     # that also notes every file it is asked for>`.
+    # 2026-10-05: through `private_locks`, as `test_file_watch` does - without it
+    # this real index run took the machine's run lock and failed whenever the
+    # owner's Leasha was indexing (it was, during the overnight full suite).
     program = textwrap.dedent("""
         import sys, time
+        from tests import private_locks
+        private_locks.install()          # this is a real index run: not the machine's lock
         import app.index.pipeline as pipeline_module
         real = pipeline_module.extract
         def extract(path, **kwargs):

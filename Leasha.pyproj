@@ -896,6 +896,7 @@
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
+    <Compile Include="tests\unit\test_preview_late_answer.py" />
     <Compile Include="tests\unit\test_preview_loader.py" />
     <Compile Include="tests\unit\test_preview_pane.py" />
     <Compile Include="tests\unit\test_preview_rows.py" />

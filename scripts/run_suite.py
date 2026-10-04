@@ -147,7 +147,11 @@ def main(argv: list[str] | None = None) -> int:
     for number, group in enumerate(groups):
         log = work / f"part{number}.txt"
         handle = open(log, "w", encoding="utf-8", errors="replace")
-        command = [sys.executable, "-m", "pytest", *group, "-rf",
+        # 2026-10-05: `-v` undoes the project's `addopts = -q`, which dropped the
+        # file names from the log - so a crashed part could never say which file
+        # it died in (`FILE_LINE` matched nothing; "Last file it started: (none
+        # started)"). One line per file, the dots after it, as pytest's default.
+        command = [sys.executable, "-m", "pytest", *group, "-v", "-rf",
                    "-p", "no:cacheprovider", f"--timeout={args.timeout}",
                    f"--basetemp={work / f'tmp{number}'}"]
         process = subprocess.Popen(command, cwd=ROOT, stdout=handle,

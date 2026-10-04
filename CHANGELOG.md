@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.60 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 4.61 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,41 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Photos, people and pictures read in the right order (2026-10-04 and 05)
+
+- **A Photos tab.** Every picture you have, newest first, as a list with its details or as
+  small, medium or large thumbnails. Narrow by person, year, place or what it has from the list
+  on the left - or type it, as on every tab: `/who Jason`, `/date 2019`, `/place London`,
+  `/only unnamed`. Click a photo for everything Leasha knows about it - when, where, who, what it
+  shows, any text in it, the camera - and double-click to see it full size, with the arrow keys
+  for the next one. Your 15,000 photos open in about a tenth of a second.
+- **Name people where your photos are.** "People to name" opens on the Photos tab, and **Accept
+  all** says Yes to every face Leasha has suggested - for everyone, or one person - after
+  showing you how many. Naming a second group "Jason" now combines it with the first rather than
+  failing; a No to "Is this Jason?" is remembered; and "Manage faces" is a proper window that
+  scrolls, with Not this person, Make a new person and Move to.
+- **Write names into your photos, if you want to.** Leasha keeps names in its own index and never
+  changes a photo for that. "Write names into photos…" also puts the people and the description
+  into the photos themselves, so Windows Photos, Lightroom or Apple Photos see them - as a small
+  file beside each photo by default, or inside JPEGs and PNGs after a copy of each is kept. It
+  runs only when you press it.
+- **Faces appeared at last.** Indexing a picture folder skipped every photo after the first run:
+  the folder was treated like an unchanged archive while its pictures were still waiting. Fixed
+  for every kind of file. Faces are grouped every few photos during a run, so people to name
+  appear while it is still going.
+- **Pictures are read in your order** - faces first, then descriptions, then text - and a photo
+  of a beach is no longer read for text like a scanned page.
+- **iPhone photos (HEIC)** are now read by every picture model, with their date and place.
+- **Each model chooses its own processor.** Indexing > Tuning has a Devices table: press "Test
+  this machine" and each model is timed on the processor and the graphics card and uses whichever
+  is faster and gives the same answer. Measured on the owner's laptop: descriptions 8.0 s a photo
+  on the processor, 4.0 s on the graphics card.
+- **Search stays quick on a large index.** A word in almost everything (`the`, `report`) is left
+  out of the match, with a notice saying so, and Files, Mail and Code are bounded the same way.
+- **The View menu follows the tab you are on**, and each tab's view options are an icon beside
+  Preview. The Chat model loads the first time you open Chat, not at start-up.
+- **Reset index works even when Windows will not let go of a file.**
 
 ### After 0.3.4 (2026-10-04)
 

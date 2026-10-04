@@ -134,8 +134,16 @@ class DeviceBox(QGroupBox):
             return
         worker = CallableWorker(_results_for_this_machine, self._settings,
                                 component="ui.devices.read")
-        when_done(self, worker, finished=self.show_results)
+        when_done(self, worker, finished=self._stored)
         run(self._pool, worker)
+
+    def _stored(self, results: Any) -> None:
+        """What was saved - unless a test has started since, whose answer is newer.
+        2026-10-05, the full suite: a slow read of the saved results landed after
+        a quick test and painted "Not yet tested" over its answer."""
+        if self._busy or getattr(self, "_tested_here", False):
+            return
+        self.show_results(results)
 
     def test(self, models: Optional[list[str]] = None) -> bool:
         """Run the test on a worker. False when one is already running."""
@@ -155,6 +163,7 @@ class DeviceBox(QGroupBox):
         return True
 
     def _tested(self, results: Any) -> None:
+        self._tested_here = True
         self._set_busy(False)
         self.show_results(results)
         self.status.setText("Tested. Rows on Automatic use the faster processor that "

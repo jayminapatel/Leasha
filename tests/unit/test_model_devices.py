@@ -206,3 +206,15 @@ def test_a_run_tests_an_untested_machine_only_when_run_models_on_is_automatic(se
     assert resolve.test_this_machine_if_new(settings) is True and ran == [1]
     assert resolve.test_this_machine_if_new(settings) is False, "once per machine"
     assert ran == [1]
+
+
+def test_a_late_read_of_the_saved_results_never_paints_over_a_fresh_test(qapp, settings):
+    """2026-10-05, the full suite: the box's first read of the saved results
+    can finish after a quick test, and painted "Not yet tested" over it."""
+    from app.ui.widgets.device_box import DeviceBox
+
+    box = DeviceBox(settings)
+    box._tested({"models": {"faces": {"cpu_s": 0.9, "gpu_s": 0.5, "winner": "gpu"}}})
+    box._stored({})                                  # the saved read lands late
+    assert "graphics card 0.50 s" in box.results["faces"].text()
+    box.deleteLater()

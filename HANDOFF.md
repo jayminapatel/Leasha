@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.72 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.73 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,20 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - the overnight full suite, and what it found.* On fdb779c: 13,027 passed, 11
+  failed, no process crashed, 27 minutes over three processes. Rerun alone, nine passed (budgets and
+  races under three processes plus the owner's own index run: a 495 ms "cold suggest" against 300,
+  a hung-reader timer, GUI focus and selection scenarios). Two were real, and fixed:
+  `DeviceBox` painted a late read of the saved results over a fresh Test ("Not yet tested"), now
+  ignored once a test has run; and `test_a_retry_through_the_indexing_process` started a real index
+  child without `tests/private_locks`, so it took the machine's run mutex and failed whenever the
+  owner's Leasha was indexing - as it was, all night. Also found: `PreviewPane._rendered` and
+  `_draw_image` reached by lambdas on worker signals after the pane was deleted ("wrapped C/C++
+  object of type QLabel has been deleted") - both through `when_done` now; and
+  `scripts/run_suite.py` could never name the file a crashed part died in, because the project's
+  `addopts = -q` removed file names from its logs - it passes `-v` now. An earlier run on c0477b5
+  hung for an hour after "Windows fatal exception: access violation" in its second part; with no
+  file names in that log it cannot be traced (UNCONFIRMED which test) - the next crash will be.
 - *2026-10-05 note - the Photos tab.* The owner: "a chip just for pictures designed to view find and
   deal with pictures including namings", "list, small thumbnail or normal thumbnail etc design a system",
   "make it like a professional photo management/viewer", "like other tabs where i can narrow by year name

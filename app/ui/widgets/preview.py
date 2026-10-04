@@ -651,10 +651,14 @@ class PreviewPane(QWidget):
             store=self.store,
             component="ui.preview",
         )
-        worker.signals.finished.connect(
-            lambda preview, g=generation: self._rendered(preview, g))
-        worker.signals.failed.connect(
-            lambda error, g=generation: self._failed(error, g))
+        # 2026-10-05, full suite: a lambda on the worker's signal outlived the
+        # pane and drew on a deleted label ("wrapped C/C++ object of type QLabel
+        # has been deleted"). Through `when_done`, the late answer dies with it.
+        from app.ui.later import when_done
+
+        when_done(self, worker,
+                  finished=lambda preview, g=generation: self._rendered(preview, g),
+                  failed=lambda error, g=generation: self._failed(error, g))
         run(QThreadPool.globalInstance(), worker)
 
     # -- drawing -------------------------------------------------------------
@@ -788,10 +792,11 @@ class PreviewPane(QWidget):
         self._generation += 1
         generation = self._generation
         worker = CallableWorker(decode_image, path, component="ui.preview.image")
-        worker.signals.finished.connect(
-            lambda image, g=generation: self._draw_image(image, g))
-        worker.signals.failed.connect(
-            lambda _e, g=generation: self._draw_image(None, g))
+        from app.ui.later import when_done
+
+        when_done(self, worker,                  # 2026-10-05: see `_start`
+                  finished=lambda image, g=generation: self._draw_image(image, g),
+                  failed=lambda _e, g=generation: self._draw_image(None, g))
         run(QThreadPool.globalInstance(), worker)
 
     def _draw_image(self, image: Any, generation: int) -> None:

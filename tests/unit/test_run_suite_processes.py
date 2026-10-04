@@ -91,3 +91,31 @@ def test_the_docstring_names_the_crash_codes_so_the_next_reader_connects_them():
     """A number like 0xC0000374 is what somebody will paste into a search box."""
     text = (ROOT / "scripts" / "run_suite.py").read_text(encoding="utf-8")
     assert "0xC0000374" in text and "0xC0000005" in text
+
+
+def test_a_crashed_part_can_name_the_file_it_died_in(tmp_path, monkeypatch, capsys):
+    """2026-10-05: the project's `addopts = -q` took the file names out of every
+    part's log, so a part that died of an access violation reported "Last file
+    it started: (none started)" and the crash could not be traced. The runner
+    asks for `-v`, and a crashed part names its file."""
+    import subprocess
+    import sys
+
+    seen = []
+
+    class Died:
+        def __init__(self, command, cwd, stdout, stderr):
+            seen.append(command)
+            stdout.write("tests/unit/test_first.py::test_one PASSED [ 50%]\n"
+                         "tests/unit/test_crash.py::test_boom ")
+            stdout.flush()
+
+        def wait(self):
+            return 0xC0000005
+
+    monkeypatch.setattr(subprocess, "Popen", Died)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: ["tests/unit/test_x.py"])
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
+    assert run_suite.main(["-j", "1"]) == 1
+    assert "-v" in seen[0] and seen[0][0] == sys.executable
+    assert "Last file it started: tests/unit/test_crash.py" in capsys.readouterr().out
