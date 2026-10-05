@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.89 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.90 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,31 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (15:00) - `test_later.py` waits by the clock; three whole-suite runs asked for on
+one commit (`0ad1fa0`).** The owner: *"run the full tests one in windows ... one in cloud in linux
+... test the mac tests on github actions"*, then *"fix it"* about the one Windows failure.
+
+- **Windows, this laptop** (`scripts/run_suite.py`, Leasha closed): 13,208 passed, 1 failed, none
+  crashed, 19 minutes. The failure, `test_later.py::test_it_runs_when_the_owner_is_still_alive`,
+  had failed in three of the day's whole-suite runs and never alone. **Fixed:** `_pump` turned
+  the loop with `app.exec()` and a timer that quit it - so anything else asking the application
+  to quit ended it early, and a 5 ms timer had one fixed 80 ms window. It now runs by the clock,
+  and that test waits until the call has happened (five seconds at most). Which of the two causes
+  it was is **not established**. Six of six, three times, alone; not yet re-run under four
+  processes.
+- **GitHub's Windows check has not passed in its last 40 runs** (19 failed, 21 cancelled by a
+  newer push), which goes back before this day. In the latest (`0ad1fa0`) it is one test,
+  `test_grab_ui.py::test_fresh_grabs_match_the_goldens_within_tolerance`: on the runner
+  `dark-1024x600/search-home.png` and `dark-1100x760/search-results.png` are at distance 14 and
+  `light-1100x760/search-results.png` at 16 from the goldens. It passes on the laptop. Only that
+  one log was read - the earlier 39 are **not** known to be the same failure. Not fixed.
+- **`ci.yml` cancels a run in progress when `main` is pushed** (`concurrency: ci-<branch>`,
+  `cancel-in-progress`). A push therefore kills a macOS run started by hand - which is why this
+  commit was made and **held back from GitHub** until that run ended.
+- **Linux (cloud routine `trig_01W9AChUTMzWCEH5FNbfxTTu`) and macOS (Actions run 37287477563):**
+  started on `0ad1fa0`; results are in the entry above this one if there is one, otherwise they
+  had not finished when this was written.
 
 **2026-10-05 (14:10) - a fault in Leasha is re-read next run; pause-on-battery is off by
 default; the suite no longer cares about the battery; one guard this thread broke is mended.**

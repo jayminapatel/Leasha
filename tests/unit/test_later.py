@@ -37,9 +37,25 @@ def app():
     return QCoreApplication.instance() or QCoreApplication([])
 
 
-def _pump(app, ms: int = 80) -> None:
-    QTimer.singleShot(ms, app.quit)
-    app.exec()
+def _pump(app, ms: int = 80, until=None) -> None:
+    """Turn the event loop for `ms`, or until `until()` is true if that is sooner.
+
+    **By the clock, not by `app.exec()` and a timer that quits it** (2026-10-05).
+    That form ended whenever *anything* asked the application to quit - a quit
+    left queued by an earlier test file in the same process ends the loop at
+    once - and it gave a 5 ms timer exactly one fixed window to fire in.
+    `test_it_runs_when_the_owner_is_still_alive` failed that way in three of
+    one day's whole-suite runs (`assert [] == [True]`) and never alone. Which
+    of the two it was is not established; this form is immune to both.
+    """
+    import time
+
+    end = time.monotonic() + ms / 1000.0
+    while time.monotonic() < end:
+        app.processEvents()
+        if until is not None and until():
+            return
+        time.sleep(0.002)
 
 
 class _Owner(QObject):
@@ -55,7 +71,9 @@ def test_it_runs_when_the_owner_is_still_alive(app):
     owner = _Owner()
     fired = []
     later(owner, 5, lambda: fired.append(True))
-    _pump(app)
+    # Up to five seconds, and no longer than it takes: a busy machine may be
+    # late with a 5 ms timer, and "late" is not what this test is about.
+    _pump(app, 5000, until=lambda: bool(fired))
     assert fired == [True], "a deferred call must still happen in the ordinary case"
 
 
