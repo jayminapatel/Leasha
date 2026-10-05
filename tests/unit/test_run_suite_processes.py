@@ -119,3 +119,20 @@ def test_a_crashed_part_can_name_the_file_it_died_in(tmp_path, monkeypatch, caps
     assert run_suite.main(["-j", "1"]) == 1
     assert "-v" in seen[0] and seen[0][0] == sys.executable
     assert "Last file it started: tests/unit/test_crash.py" in capsys.readouterr().out
+
+
+def test_a_process_that_ended_without_a_summary_did_not_finish():
+    """2026-10-05: pytest-timeout ends the process with exit 1, which is also
+    "some tests failed". With no summary line that was reported as "finished
+    (no summary)" and the run as "0 failed, 0 process(es) crashed"."""
+    ended = "=" * 20 + " 3 failed, 4000 passed in 812.40s (0:13:32) " + "=" * 20
+    cut_short = "tests/unit/test_x.py ....\n+++++++++++ Timeout +++++++++++\n"
+    assert run_suite.part_died(1, cut_short) is True
+    assert run_suite.part_died(0, "") is True
+    assert run_suite.part_died(1, "collected 9 items\n" + ended + "\n") is False
+    assert run_suite.part_died(0, "==== 5 skipped in 0.10s ====") is False
+    assert run_suite.part_died(5, "==== no tests ran in 0.01s ====") is False
+    assert run_suite.part_died(-1073741819, ended) is True              # a native crash
+    source = (ROOT / "scripts" / "run_suite.py").read_text(encoding="utf-8")
+    assert "STOPPED EARLY" in source and "'no summary'" not in source
+    assert run_suite.TIMEOUT_MARK in "+++++++++++ Timeout +++++++++++"

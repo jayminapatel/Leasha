@@ -110,6 +110,25 @@ def choose_processes(requested: Optional[int], free_gb: Optional[float]) -> tupl
     return requested, ""
 
 
+#: What pytest-timeout prints before it ends the process.
+TIMEOUT_MARK = "+ Timeout +"
+
+
+#: pytest's last line, whatever the counts: "==== 3 failed, 9 passed in 12.34s ====",
+#: "==== 5 skipped in 0.10s ====", "==== no tests ran in 0.01s ====".
+LAST_LINE = re.compile(r"^=+ .* in [\d.]+s.*=+\s*$", re.MULTILINE)
+
+
+def part_died(code: int, log_text: str) -> bool:
+    """Did this process stop before it finished its files?
+
+    Yes if its exit code is not one pytest gives, **and yes if it gave an
+    ordinary code but never printed its last line** - pytest always prints it
+    when it reaches the end, so without it the end was not reached.
+    """
+    return code not in NORMAL_EXITS or not LAST_LINE.search(log_text or "")
+
+
 def _free_gb() -> Optional[float]:
     try:
         import psutil
@@ -170,8 +189,21 @@ def main(argv: list[str] | None = None) -> int:
                              if re.search(r"\d+ (passed|failed)", line)), "")
         tally = ", ".join(f"{count} {word}" for count, word in SUMMARY.findall(last_summary))
         failures.update(m.group(2) for m in map(FAILED_LINE.match, text.splitlines()) if m)
-        if code in NORMAL_EXITS:
-            print(f"  part {number}: finished ({tally or 'no summary'}) - {len(group)} files", flush=True)
+        if not part_died(code, text):
+            print(f"  part {number}: finished ({tally or 'nothing passed or failed'}) - "
+                  f"{len(group)} files", flush=True)
+        elif code in NORMAL_EXITS:
+            # 2026-10-05: an ordinary exit code and no summary line. pytest-timeout
+            # ends the whole process (`os._exit(1)`) when one test overruns, and 1
+            # is also "some tests failed" - so this read "finished (no summary)"
+            # and the run ended "0 failed, 0 process(es) crashed" with most of the
+            # suite not run. Found on a trial branch where every process stopped
+            # on a blocked pop-up and the total said all was well.
+            crashed += 1
+            why = ("one test ran past the time limit and pytest-timeout ended the process"
+                   if TIMEOUT_MARK in text else "it ended without a summary line")
+            print(f"  part {number}: STOPPED EARLY, exit {code} - {why}. Last file it "
+                  f"started: {last_file}. Its later tests did NOT run.", flush=True)
         else:
             crashed += 1
             print(f"  part {number}: CRASHED, exit {code} (0x{code & 0xFFFFFFFF:X}) - the process "
