@@ -874,6 +874,7 @@
     <Compile Include="tests\unit\test_osbridge.py" />
     <Compile Include="tests\unit\test_osbridge_guard.py" />
     <Compile Include="tests\unit\test_osbridge_pathnames.py" />
+    <Compile Include="tests\unit\test_outlook_busy.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />

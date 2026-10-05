@@ -663,6 +663,62 @@ class _ComStore:
         return _ComFolder(self._store.GetRootFolder())
 
 
+#: What Outlook answers a call with while it is starting, showing a dialog or
+#: serving another caller: `RPC_E_CALL_REJECTED` and
+#: `RPC_E_SERVERCALL_RETRYLATER`. Neither is about the archive, and both pass.
+OUTLOOK_BUSY_HRESULTS = (-2147418111, -2147417846)
+
+#: How long to wait before asking Outlook again, in turn: fifteen seconds in
+#: all. Four readers start together at the top of a run, each wakes Outlook,
+#: and it refuses whichever calls arrive while it is still coming up.
+OUTLOOK_BUSY_WAITS_S = (0.25, 0.5, 1.0, 2.0, 4.0, 8.0)
+
+
+def is_outlook_busy(exc: BaseException) -> bool:
+    """Did Outlook refuse the call because it was busy, not because of the file?"""
+    code = getattr(exc, "hresult", None)
+    if code is None and getattr(exc, "args", None) and isinstance(exc.args[0], int):
+        code = exc.args[0]
+    return code in OUTLOOK_BUSY_HRESULTS
+
+
+def when_outlook_answers(call: Callable[[], Any], *,
+                         waits: Sequence[float] = OUTLOOK_BUSY_WAITS_S,
+                         sleep: Optional[Callable[[float], None]] = None) -> Any:
+    """Make a call to Outlook, asking again while it says it is busy.
+
+    2026-10-05, the owner's run of twenty archives through Outlook: three were
+    skipped as "An unexpected error occurred ... This is a bug" within eight
+    seconds of the run starting, each on `pywintypes.com_error: (-2147418111,
+    'Call was rejected by callee.')` from the very first thing asked of Outlook
+    (its list of stores). The other seventeen, asked a moment later, were read.
+    A refusal that passes in a second is waited out; anything else is raised at
+    once, and so is a refusal that outlasts every wait.
+    """
+    import time
+
+    pause = sleep or time.sleep
+    for wait in (*waits, None):
+        try:
+            return call()
+        except Exception as exc:                          # noqa: BLE001 - re-raised below
+            if wait is None or not is_outlook_busy(exc):
+                raise
+            pause(wait)
+    return None                                           # unreachable
+
+
+def outlook_stayed_busy(path: Any, exc: BaseException) -> AppErrorException:
+    """Outlook refused every try. **A lock, not a fault and not a damaged file:**
+    `ERR_FILE_LOCKED` is the one code the next run reads again by itself."""
+    return AppErrorException(make_error(
+        "ERR_FILE_LOCKED", "extract.pst", path=str(path),
+        suggestion=("Outlook was busy and did not answer. Leave Outlook open and idle; "
+                    "the archive is read again automatically on the next run."),
+        details=f"Outlook refused the call after {len(OUTLOOK_BUSY_WAITS_S) + 1} tries: {exc}",
+    ))
+
+
 class Win32ComSession:
     """The live Outlook, through MAPI. Windows only.
 
@@ -705,19 +761,32 @@ class Win32ComSession:
         self._attached: list[str] = []
 
     def stores(self) -> Iterator[_ComStore]:
-        for store in self._namespace.Stores:
-            yield _ComStore(store)
+        # Read whole, and asked again while Outlook is busy (2026-10-05): this
+        # is the first call every reader makes, and the one it refused.
+        yield from when_outlook_answers(
+            lambda: [_ComStore(store) for store in self._namespace.Stores])
 
     def attach(self, path: Path) -> None:
         """Load a .pst into Outlook if it is not already there."""
         target = str(path).lower()
-        for store in self.stores():
+        try:
+            already = list(self.stores())
+        except Exception as exc:                          # noqa: BLE001 - re-raised unless busy
+            if is_outlook_busy(exc):
+                raise outlook_stayed_busy(path, exc) from exc
+            raise
+        for store in already:
             if (store.file_path or "").lower() == target:
                 return
         try:
-            self._namespace.AddStore(str(path))
+            when_outlook_answers(lambda: self._namespace.AddStore(str(path)))
             self._attached.append(target)
         except Exception as exc:                          # noqa: BLE001
+            # 2026-10-05: busy is neither of the two below. Called "corrupt" it
+            # would have been settled and never read again; left as it was, it
+            # reached the owner as a bug in Leasha.
+            if is_outlook_busy(exc):
+                raise outlook_stayed_busy(path, exc) from exc
             # A file another program holds is retried next pass; a damaged one
             # is settled. Reporting a lock as corruption dropped it for good.
             code = "ERR_FILE_LOCKED" if looks_locked(exc) else "ERR_FILE_CORRUPT"
@@ -739,7 +808,14 @@ class Win32ComSession:
                 self._com_initialised = False
 
     def _detach(self) -> None:
-        for store in self.stores():
+        # **Never raises** (2026-10-05). It runs in `extract`'s `finally`, so
+        # an Outlook too busy to list its stores here replaced the error the
+        # read had actually ended on with a second one from the tidying-up.
+        try:
+            stores = list(self.stores()) if self._attached else []
+        except Exception:                                 # noqa: BLE001 - leaving it attached is harmless
+            stores = []
+        for store in stores:
             if (store.file_path or "").lower() in self._attached:
                 try:
                     self._namespace.RemoveStore(store._store.GetRootFolder())

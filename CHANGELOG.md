@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.68 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.69 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Mail archives are no longer skipped because Outlook was busy for a moment (2026-10-05)
+
+- **An archive read through Outlook waits for Outlook instead of giving up.** At the start of a
+  run Outlook could refuse the first few requests while it was still starting, and the archive
+  was skipped with "An unexpected error occurred". Leasha now asks again for up to fifteen
+  seconds, and an archive Outlook still will not open is tried again on the next run.
+- **The run's log says when archives are being read through Outlook**, and that reading them
+  directly is available - it is a choice under Indexing, What gets read.
 
 ### The log keeps every line, and a skipped file says why on the page (2026-10-05)
 

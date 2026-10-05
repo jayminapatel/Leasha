@@ -268,6 +268,17 @@ def apply_saved_pst_backend(store: Any) -> Optional[str]:
         extractor = extractor_for(Path("x.pst"))
         if extractor is not None and getattr(extractor, "backend", chosen) != chosen:
             extractor.backend = chosen
+        # 2026-10-05: said in the run's log. The owner's archives were being
+        # read through Outlook by a choice saved days earlier, and nothing in
+        # the run said so - "it should have read them direct".
+        if chosen == PstBackend.OUTLOOK:
+            from app.extract import pst_libpff
+
+            log.info(
+                "Outlook archives are read through Outlook in this run, as chosen under "
+                "Indexing, What gets read ('How to read archives'){}",
+                " - reading them directly is available on this computer and needs no Outlook"
+                if pst_libpff.available() else "")
     except Exception as exc:                         # noqa: BLE001 - see docstring
         log.debug("could not apply the PST reader choice: {}", exc)
         return None

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.86 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.87 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,37 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (12:50) - the three "unexpected error" skips: diagnosed from the owner's fresh
+run, and fixed. The archives are being read through Outlook because a saved setting says so.**
+The owner: *"i started indexing and there are errors"*, then *"it should have read them direct"*.
+
+- **What happened, from the new ERROR lines:** `2026.pst`, `2007.pst` and `2009.pst` each ended
+  on `pywintypes.com_error: (-2147418111, 'Call was rejected by callee.')` at
+  `Win32ComSession.stores` - the first thing a reader asks of Outlook - at 12:37:16 and 12:37:20,
+  four to eight seconds after the scan finished. Four readers start together, each wakes Outlook,
+  and it refuses the calls that arrive while it is still coming up. Then `_detach`, in `extract`'s
+  `finally`, asked the same question, was refused again, and its error replaced the first.
+- **Fixed** (`extract/email_pst.py`): `when_outlook_answers` asks again while Outlook says it is
+  busy (`RPC_E_CALL_REJECTED`, `RPC_E_SERVERCALL_RETRYLATER`; 0.25 s doubling to 8 s, about
+  fifteen seconds in all) round the store list and `AddStore`; a refusal that outlasts that is
+  `ERR_FILE_LOCKED` with its own sentence - the one code a later run reads again by itself - and
+  never `ERR_FILE_CORRUPT` (which settles the file for good) or a bug; `_detach` never raises.
+  `tests/unit/test_outlook_busy.py` (5) with a namespace that refuses a set number of calls.
+  **UNVERIFIED against a real Outlook** - it needs the owner's next run.
+- **Why Outlook at all: `ui:pst_backend` is `outlook` in the owner's store** (saved at
+  1790877328, about 1 October; read read-only), so `choose_backend` never tried libpff. libpff
+  **is** available (`pst_libpff.available()` true, twelve of twelve fresh processes with four
+  threads asking at once - a race there was the first guess, and it is not one). The setting is
+  the owner's: this thread did not change it. A run now says so in its log
+  (`run_setup.apply_saved_pst_backend`): "Outlook archives are read through Outlook in this run,
+  as chosen under Indexing, What gets read ... reading them directly is available".
+- **For the owner:** Indexing > What gets read > "How to read archives" > Automatic. The three
+  archives are `FAILED` / `ERR_UNEXPECTED` in the index as it stands, which is a settled state:
+  an ordinary next run will not read them again, so reset the index (or change the setting and
+  reset) to have all twenty read directly.
+- **Not run:** the whole suite - the owner was indexing. The mail-archive test files and the
+  guards: 143 passed.
 
 **2026-10-05 (early afternoon) - four faults behind one line on the Indexing page, and the
 `test_grab_ui` error diagnosed and fixed. Corrects two things said below.** The owner: *"do the
