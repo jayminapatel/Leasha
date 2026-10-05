@@ -777,6 +777,12 @@ class ChatController(QObject):
         view = self.view
         if view is None or self._ask is not None or not question.strip():
             return
+        # 2026-10-05: the last check found no helper, so there is nobody to
+        # ask. The box and Send are greyed, but `ask` itself went ahead and the
+        # worker called the engine anyway; the test that says "asking is a
+        # no-op" passed only when it looked before the worker had started.
+        if self._available is False:
+            return
         if not again:
             self._again = 0
         session = self.session

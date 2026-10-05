@@ -2,6 +2,8 @@
 # project folder, not pip-installed.
 
 [tool.pytest.ini_options]
+# pytest-qt's binding, named: the trial venv can see PyQt6 too.
+qt_api = "pyside6"
 minversion = "8.0"
 testpaths = ["tests"]
 # pytest still walks the rootdir looking for conftest files, and basetemp lives
