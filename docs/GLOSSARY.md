@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.5 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -242,3 +242,5 @@ and `202626270514`.
 | Write names into photos | Option b: the people and the description written into a photo's own XMP, on demand only - the owner's exception to non-negotiable 10 | `app/index/photo_metadata.py`; CLI `photos --write-names` |
 | Sidecar | A `.xmp` file beside a photo carrying its metadata, so the photo itself is not changed - the default for Write names into photos | Adobe's `IMG_0001.xmp`; `IMG_0001.HEIC.xmp` when two photos share a stem |
 | Thumbnail cache | 320-pixel copies of pictures in `<data>/thumbs`, named by path, size and modified time, so a changed photo gets a new one | `widgets/photo_thumbs.py` |
+| Tray status line | The live line in the tray icon's menu and tooltip: what indexing is doing, or how many files the index holds; clicking it opens Indexing | `presenter/tray_words.py`, fed by the same signals as the pill |
+| Name date | A date read from a photo's file name when its metadata has none - a precise hint, shown "about 11 Aug 2022, 16:22" | `era_hints.guess_moment`; after EXIF, before the folder year |

@@ -148,9 +148,9 @@ class PhotoInfo(QWidget):
         inner.addWidget(self.picture)
         inner.addWidget(self.title)
         inner.addLayout(self.form)
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        inner.addWidget(line)
+        self.rule = QFrame()
+        self.rule.setFrameShape(QFrame.Shape.HLine)
+        inner.addWidget(self.rule)
         inner.addLayout(self.camera)
         inner.addWidget(self.name_button, 0, Qt.AlignmentFlag.AlignLeft)
         inner.addStretch(1)
@@ -181,7 +181,8 @@ class PhotoInfo(QWidget):
         self._row = row
         self._generation += 1
         has = row is not None
-        for widget in (self.picture, self.title, self.open_button, self.reveal_button):
+        for widget in (self.picture, self.title, self.open_button, self.reveal_button,
+                       self.rule):
             widget.setVisible(has)
         self.empty.setVisible(not has)
         self.name_button.setVisible(has and row.faces > len(row.people))

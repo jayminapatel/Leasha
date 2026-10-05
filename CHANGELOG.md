@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.61 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.62 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -35,6 +35,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   into the photos themselves, so Windows Photos, Lightroom or Apple Photos see them - as a small
   file beside each photo by default, or inside JPEGs and PNGs after a copy of each is kept. It
   runs only when you press it.
+- **The tray icon says what indexing is doing.** Right-click the icon by the clock: "Indexing – 1,240
+  of 15,010" while a run goes, "Up to date – 152,340 files · last run 03:10" when it has finished, or
+  "Stopped part-way – click to carry on". It used to say "N indexed" - only the files the last run had
+  newly read, which looked wrong - and never changed during a run. Click the line to open Indexing.
+- **Photos with no date inside them are dated from their name.** Many phone and WhatsApp photos have
+  no date taken in the file (Windows shows none either), but have it in their name -
+  `2022-08-11_16-22-38`, `IMG-20130607-WA0010`. Leasha reads it there now, so they show "about
+  11 Aug 2022, 16:22" instead of "about 2022". Reindex to apply it to photos already indexed.
 - **Faces appeared at last.** Indexing a picture folder skipped every photo after the first run:
   the folder was treated like an unchanged archive while its pictures were still waiting. Fixed
   for every kind of file. Faces are grouped every few photos during a run, so people to name

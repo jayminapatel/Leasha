@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.74 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.75 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,15 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - the tray's status line.* The owner: right-click on the tray icon "says indexed
+  but the count does not seem right". It was "Indexing: N indexed", N being the files the *last run*
+  newly read (a handful when little changed; the images pass's when that ran last), set only when a
+  run finished. Now a live line from the pill's own data (`IndexingView.progressed`/`totals_shown`
+  -> `MainWindow._paint_tray` -> `presenter/tray_words.tray_status`): "Indexing – 1,240 of 15,010",
+  "Paused – …", "Up to date – 152,340 files · last run 03:10", "Stopped part-way – click to carry on",
+  "The last run stopped with a problem – click to see it", and "N files in the index" when idle.
+  Clicking it opens the window on the Indexing page (`TrayPresence.show_indexing`). The owner chose
+  this (option 1 of three: live line, running/idle only, or remove it).
 - *2026-10-05 note - dates from the file name.* The owner: "dates are in the meta data of the
   file". Checked on their index (read-only): 6,132 pictures held only a folder-year guess. Of a
   random 200, 58 had a date taken Leasha can read since d6b444c (HEIC EXIF), kept stale because an

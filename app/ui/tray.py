@@ -218,8 +218,12 @@ class TrayPresence:
         menu.addAction("Show Leasha", self.restore)
         menu.addAction("Search…", self.restore_and_search)
         menu.addSeparator()
-        self._status_action = menu.addAction("Indexing: idle")
-        self._status_action.setEnabled(False)
+        # 2026-10-05: a live line, and a way in - clicking it opens the
+        # Indexing page (see `presenter.tray_words`).
+        from app.ui.presenter.tray_words import IDLE_WORDS
+
+        self._status_action = menu.addAction(IDLE_WORDS, self.show_indexing)
+        self._status_action.setToolTip("Open the Indexing page")
         menu.addSeparator()
         # **A real quit.** Through the window's close path, so the mutex is
         # released and SQLite is flushed - see the module docstring.
@@ -265,14 +269,22 @@ class TrayPresence:
         if self._tray is not None:
             self._tray.hide()
 
+    def show_indexing(self) -> None:
+        """The status line's click: the window, on its Indexing page."""
+        self.restore()
+        page = getattr(self._window, "show_indexing_page", None)
+        if callable(page):
+            page()
+
     def set_status(self, text: str) -> None:
-        """The tooltip and menu line, so the tray is informative while hidden."""
+        """The tooltip and menu line, so the tray is informative while hidden.
+        2026-10-05: the whole line is `text` - `presenter.tray_words` words it."""
         if self._tray is None:
             return
         self._tray.setToolTip(f"Leasha — {text}")
         action = getattr(self, "_status_action", None)
-        if action is not None:
-            action.setText(f"Indexing: {text}")
+        if action is not None and action.text() != text:
+            action.setText(text)
 
     def notify_hidden(self) -> None:
         """Say where the window went, once.

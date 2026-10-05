@@ -409,6 +409,7 @@
     <Compile Include="app\ui\presenter\space_rows.py" />
     <Compile Include="app\ui\presenter\timed_out.py" />
     <Compile Include="app\ui\presenter\timeline.py" />
+    <Compile Include="app\ui\presenter\tray_words.py" />
     <Compile Include="app\ui\presenter\watch_words.py" />
     <Compile Include="app\ui\preview_loader.py" />
     <Compile Include="app\ui\rail_state.py" />

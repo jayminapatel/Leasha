@@ -301,3 +301,43 @@ def test_the_tray_holds_no_store_or_engine():
     tree = ast.parse(TRAY.read_text(encoding="utf-8"))
     imported = {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
     assert not any("storage" in name or "search" in name for name in imported)
+
+
+# --- the live status line (2026-10-05) ---------------------------------------------
+
+def test_the_status_line_says_what_indexing_is_doing_now():
+    """The owner: the line "says indexed but the count does not seem right". It
+    was the last run's new files only, and never moved during a run."""
+    import datetime as dt
+
+    from app.ui.presenter.tray_words import IDLE_WORDS, tray_status
+
+    assert tray_status("idle") == IDLE_WORDS
+    assert tray_status("idle", documents=152340) == "152,340 files in the index"
+    assert tray_status("running", value=1240, total=15010) == "Indexing – 1,240 of 15,010"
+    assert tray_status("running") == "Indexing – finding files…"
+    assert tray_status("running", value=5, total=9, paused=True) == "Paused – 5 of 9"
+    assert tray_status("finished", documents=152340,
+                       finished_at=dt.datetime(2026, 10, 5, 3, 10)) == (
+        "Up to date – 152,340 files · last run 03:10")
+    assert tray_status("finished", stopped_early=True) == (
+        "Stopped part-way – click to carry on")
+    assert tray_status("failed").startswith("The last run stopped with a problem")
+
+
+def test_the_window_paints_the_tray_from_the_pills_data():
+    from types import SimpleNamespace
+
+    from app.ui.shell import MainWindow
+
+    shown = []
+    window = SimpleNamespace(tray=SimpleNamespace(set_status=shown.append),
+                             _last_document_count=12)
+    window._paint_tray = lambda *args: MainWindow._paint_tray(window, *args)
+    MainWindow._paint_tray(window, "running", 3, 40, 100, False, False, "")
+    assert shown[-1] == "Indexing – 40 of 100"
+    MainWindow._paint_tray(window, "finished", 3, 1, 1, False, False, "")
+    assert shown[-1].startswith("Up to date – 12 files · last run ")
+    window._last_document_count = 15
+    MainWindow._totals_for_tray(window, 15)
+    assert shown[-1].startswith("Up to date – 15 files")

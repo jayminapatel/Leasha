@@ -868,9 +868,6 @@ class MainWindow(QMainWindow):
                 theme=self._theme_preference, motion=self._motion)
             self.settings_view.window_box.motion_changed.connect(self._motion_changed)
             self.settings_view.tray_changed.connect(self._tray_changed)
-            self.indexing_view.finished.connect(
-                lambda stats: self.tray.set_status(
-                    f"{getattr(stats, 'indexed', 0):,} indexed"))
 
             # The two rail entries, appended in the order they always had. Indexing
             # has no button - it is the pill's page - and Settings is the foot page.
@@ -887,6 +884,9 @@ class MainWindow(QMainWindow):
             # emits. Nothing here touches the store.
             self.indexing_view.progressed.connect(self._paint_pill)
             self.indexing_view.totals_shown.connect(self._totals_for_pill)
+            # 2026-10-05: the tray's line follows the same two signals.
+            self.indexing_view.progressed.connect(self._paint_tray)
+            self.indexing_view.totals_shown.connect(self._totals_for_tray)
 
             # Once, for the controls that did not exist when `__init__` ran it.
             guarded = protect_all(self)
@@ -1934,6 +1934,32 @@ class MainWindow(QMainWindow):
     def _apply_motion(self) -> None:
         for pane in self._preview_panes():
             pane.motion = self._motion
+
+    def _paint_tray(self, state: str, _indexed: int, value: int, total: int,
+                    paused: bool, stopped_early: bool, _error: str) -> None:
+        """The tray menu's live line, from the pill's data. UI thread, no I/O."""
+        import datetime as _dt
+
+        from app.ui.presenter.tray_words import tray_status
+
+        if state == "finished":
+            self._tray_finished_at = _dt.datetime.now()
+        self._tray_state = (state, value, total, paused, stopped_early)
+        self.tray.set_status(tray_status(
+            state, value=value, total=total, paused=paused, stopped_early=stopped_early,
+            documents=getattr(self, "_last_document_count", None),
+            finished_at=getattr(self, "_tray_finished_at", None)))
+
+    def _totals_for_tray(self, _documents: int) -> None:
+        """A new count: the idle or finished line says it."""
+        state, value, total, paused, stopped_early = getattr(
+            self, "_tray_state", ("idle", 0, 0, False, False))
+        if state != "running":
+            self._paint_tray(state, 0, value, total, paused, stopped_early, "")
+
+    def show_indexing_page(self) -> None:
+        """The tray status line's click."""
+        self._show(getattr(self, "indexing_view", None))
 
     def _totals_for_pill(self, documents: int) -> None:
         """The Indexing page counted; the pill shows the figure when idle."""

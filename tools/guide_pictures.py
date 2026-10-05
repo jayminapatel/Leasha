@@ -58,6 +58,7 @@ CAPTIONS: dict[str, str] = {
     "search-results-dark": "Search results in the dark theme",
     "timeline": "The Life Timeline at June 2015",
     "files": "The Files page",
+    "photos": "The Photos page",                 # 2026-10-05: the Photos tab
     "mail": "The Mail page",
     "code": "The Code page",
     "chat": "The Chat page",
@@ -115,6 +116,11 @@ def _dress(window, name: str) -> None:
         for row in range(reports.count()):
             if reports.item(row).data(REPORT_KEY) == REPORT_SHOWN[name]:
                 reports.setCurrentRow(row)
+    if name == "photos":
+        # 2026-10-05: a photo selected, so the info panel shows what it is for.
+        browser = window.photos_view.browser
+        if browser.model.rowCount():
+            browser.select_path(str(browser.model.row_at(0).path))
     if name == "settings-whats-indexed":
         # The demo store has no roots. Two folders and a file, set without
         # emitting (nothing is written), so the per-line controls are seen.
