@@ -1,0 +1,4 @@
+# What building the Windows installer needs, beyond requirements.txt.
+# Installed by packaging/build.ps1 when missing; kept out of requirements-dev.txt
+# so the test machines (CI) do not install it.
+pyinstaller==6.22.3

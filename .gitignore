@@ -100,6 +100,8 @@ $RECYCLE.BIN/
 build/
 dist/
 *.spec
+# ...except the one Leasha's installer is built from (2026-10-05).
+!packaging/leasha.spec
 
 # --- pytest scratch --------------------------------------------------------
 # Set by --basetemp in pyproject.toml. pytest DELETES this folder's contents on

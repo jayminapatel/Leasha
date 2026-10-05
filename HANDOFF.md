@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.100 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.101 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,20 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (23:54, from the clock) - a Windows installer, built as far as the Setup.exe.**
+Order `202626082213` released by the owner and §4.1-4.3 built in `packaging/`; the order's
+dated note has the detail. Build: `.\packaging\build.ps1` (10 min; output in `build\`,
+ignored by git). The frozen folder runs, indexes and opens its window here.
+
+- **Traps:** a packaged Leasha reads `_internal\.env` (`project_root()` is `_internal`), so the
+  installer writes it there. `sys.executable` is `Leasha.exe` - children go through
+  `own_python()`. `*.spec` is ignored by `.gitignore`; `packaging/leasha.spec` is excepted.
+  PyInstaller prints "Error: typer is required" while scanning `mcp`; harmless.
+- **Next:** install Inno Setup (`winget install --id JRSoftware.InnoSetup -e`, the owner's to
+  run), then `build.ps1` makes `build\installer\Leasha-Setup-0.3.4.exe`.
+- New guard: `tests/unit/test_powershell_files.py` walks every tracked `.ps1` (non-negotiable 7);
+  it was per-script before, and `build.ps1` had none.
 
 **2026-10-05 (23:20, from the clock) - the whole suite on Linux, on this laptop.** WSL Ubuntu
 24.04, Python 3.12.3, `~/Leasha` at `572dba7`, three processes: **13,181 passed, 5 failed, no

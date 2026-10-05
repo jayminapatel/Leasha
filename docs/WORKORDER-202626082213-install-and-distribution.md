@@ -1,11 +1,40 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 0.5 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.0 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **Thread:** the single merged thread
+
+> **2026-10-05 (23:54) - RELEASED by the owner and §4.1-4.3 built, for the owner's own
+> use.** The owner asked "can you create the windows install now too", the same evening the
+> PySide6 port this order was waiting on (2026-09-27 note) was finished. The 2026-10-04
+> decision stands: no copy goes to anyone else; this build is for the owner's machines.
+>
+> **Built:** `packaging/` - `leasha.spec` (PyInstaller 6.22.3, one folder, two programs:
+> `Leasha.exe` with no console and `leasha-cli.exe`, which runs `-m`, `-c` and scripts the way
+> `python.exe` does, so the window's own children work frozen - `osbridge.stdio.own_python()`),
+> `leasha_entry.py`, `installer.iss` (Inno Setup 6: per-user without admin, per-machine as an
+> option; asks where the index goes, default `%LOCALAPPDATA%\Leasha\Data`, warns below 300 GB
+> free; writes `_internal\.env` only when none exists, so an upgrade keeps it; uninstall never
+> touches the index), `build.ps1` (one command; `-Release` copies to the Releases folder) and
+> `requirements-build.txt`. The folder is **1.1 GB** before compression, not the 400-600 MB
+> §2 guessed: LanceDB 192 MB, OpenCV for the OCR reader 112 MB, Qt 94 MB, Arrow 81 MB, ONNX
+> Runtime 68 MB, PyAV 63 MB. PyTorch, transformers and torchvision, installed on the laptop
+> but never imported by Leasha, are excluded (they made the first build 1.6 GB).
+>
+> **Checked on this laptop, from the built folder:** `leasha-cli.exe` runs code, a module and
+> `doctor.py`; an index run of the demo store (8 files, then 9 pictures with
+> `INDEX_READ_PROCESSES=true`, none skipped); the window starts off-screen to "entering the
+> event loop" (window 774 ms, ready 5.8 s), no errors.
+>
+> **Not done yet:** the `Setup.exe` itself (Inno Setup was not installed on the laptop); §4.2
+> step 4 (models at install - the app fetches them on first use) and step 6 (`doctor.py` at
+> the end of install); §5 (the LibreOffice tickbox); and every acceptance item - A1 needs a
+> clean machine, A5/A6 need winget publishing, which the 2026-10-04 decision rules out for now.
+> Installing a packaged Leasha on the owner's laptop beside the source copy is the next check:
+> both read whatever `DATA_PATH` they are given, and only one window can run at a time.
 
 **Decisions made 2026-09-20, on the owner's delegation - see the dated note at the end of this
 file.** All five [FINALISE] questions and the signing question now have an answer, so the gate

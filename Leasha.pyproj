@@ -73,6 +73,7 @@
     <Folder Include="config" />
     <Folder Include="docs" />
     <Folder Include="docs\mockups" />
+    <Folder Include="packaging" />
     <Folder Include="scripts" />
     <Folder Include="tests" />
     <Folder Include="tests\fixtures" />
@@ -572,6 +573,7 @@
     <Compile Include="archive\tools\bench_results_paint.py" />
     <Compile Include="archive\tools\measure_onnx_photo.py" />
     <Compile Include="doctor.py" />
+    <Compile Include="packaging\leasha_entry.py" />
     <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
     <Compile Include="scripts\run_suite.py" />
@@ -884,6 +886,7 @@
     <Compile Include="tests\unit\test_osbridge_pathnames.py" />
     <Compile Include="tests\unit\test_outlook_busy.py" />
     <Compile Include="tests\unit\test_own_python.py" />
+    <Compile Include="tests\unit\test_packaging_entry.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
     <Compile Include="tests\unit\test_part_read_archives.py" />
@@ -916,6 +919,7 @@
     <Compile Include="tests\unit\test_places.py" />
     <Compile Include="tests\unit\test_plain_everywhere.py" />
     <Compile Include="tests\unit\test_policy_reaches_the_engine.py" />
+    <Compile Include="tests\unit\test_powershell_files.py" />
     <Compile Include="tests\unit\test_presenter.py" />
     <Compile Include="tests\unit\test_preview_extracted.py" />
     <Compile Include="tests\unit\test_preview_late_answer.py" />
@@ -1299,6 +1303,8 @@
     <Content Include="docs\adding-a-file-type.md" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
+    <Content Include="packaging\build.ps1" />
+    <Content Include="packaging\requirements-build.txt" />
     <Content Include="pyproject.toml" />
     <Content Include="requirements-dev.txt" />
     <Content Include="requirements.txt" />
