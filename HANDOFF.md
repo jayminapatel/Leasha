@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.101 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.103 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -63,6 +63,15 @@ line, no traceback and no window.
 
 ## 3. Current state
 
+**2026-10-06 (00:39, from the clock) - the installer exists.** `build\installer\Leasha-Setup-0.3.4.exe`
+(325 MB, SHA256 `A79158951F1F7E8034154423C3B916171E05DB90CEEAD13EEB371F0E8DDE6BDA`), copied with its `.sha256` to the Releases folder on Google Drive
+(`.\packaging\build.ps1 -Release`). It downloads the two search models when ticked, offers
+LibreOffice, and runs `doctor.py` at the end. Order `202626082213`'s dated note has the detail,
+including the two Inno Setup rules that broke the owner's first build. **Not yet installed
+anywhere**: installing it changes the owner's account (an entry in Installed apps, a Start-menu
+shortcut), so that is theirs. Choose `D:\Leasha\Data` at "Where to keep the index" to share the
+real index with the source copy; only one window runs at a time.
+
 **2026-10-05 (23:54, from the clock) - a Windows installer, built as far as the Setup.exe.**
 Order `202626082213` released by the owner and §4.1-4.3 built in `packaging/`; the order's
 dated note has the detail. Build: `.\packaging\build.ps1` (10 min; output in `build\`,
@@ -112,6 +121,12 @@ worktree, its venv and `.env`, and the scratch demo copy gone).
 - **Results on `572dba7`:** laptop, whole suite **13,282 passed, 0 failed** (with PyQt6 still
   installed); after its removal the Qt-heavy files again, 193 passed, 0 failed. GitHub with only
   PySide6 installed: Windows green, **macOS 13,066 passed, 0 failed** (run 37345260729).
+- *Note 2026-10-06: `~/Leasha` is now at `7050503` (pulled from GitHub; a line-ending-only
+  change to `Leasha.pyproj` was stashed first). It has a hand-written `.env` putting the index in
+  `~/LeashaData`, apart from `D:\Leasha\Data`. The window opens there through WSLg. Launchers: `Leasha
+  (WSL)` on the Windows desktop and Start menu (`wsl.exe -d Ubuntu-24.04`, log `/tmp/leasha-wsl.log`),
+  and `~/.local/share/applications/leasha.desktop` plus `~/Desktop/leasha.desktop` in Ubuntu.
+  A trial for the owner; only start-up was checked, not search or indexing.*
 - **WSL on the laptop:** the owner installed Ubuntu 24.04. A copy of the repository is at
   `~/Leasha` in it (cloned from a bundle - git in WSL refuses `/mnt/d` without a global
   `safe.directory` exception, which was not added), with a venv made `--without-pip` plus
