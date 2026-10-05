@@ -170,6 +170,7 @@
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
     <Compile Include="app\core\osbridge\dirwatch.py" />
+    <Compile Include="app\core\osbridge\frontwindow.py" />
     <Compile Include="app\core\osbridge\launch.py" />
     <Compile Include="app\core\osbridge\outlook.py" />
     <Compile Include="app\core\osbridge\pathnames.py" />

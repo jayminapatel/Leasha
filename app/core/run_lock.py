@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import json
 import os
-import sys
 import time
 from types import TracebackType
 from typing import Any, Optional, Type
@@ -465,17 +464,10 @@ FRONT_MESSAGE_NAME = "Leasha.KnowledgeGraph.V2.FrontWindow"
 
 def front_message_id() -> int:
     """This session's number for `FRONT_MESSAGE_NAME`; 0 off Windows or on failure."""
-    if sys.platform != "win32":
-        return 0
-    try:
-        import ctypes
+    # The `user32` call lives in osbridge, with every other Windows-only call.
+    from app.core.osbridge import frontwindow
 
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        user32.RegisterWindowMessageW.argtypes = [ctypes.c_wchar_p]
-        user32.RegisterWindowMessageW.restype = ctypes.c_uint
-        return int(user32.RegisterWindowMessageW(FRONT_MESSAGE_NAME))
-    except Exception:                    # noqa: BLE001
-        return 0
+    return frontwindow.front_message_id(FRONT_MESSAGE_NAME)
 
 
 def front_window(pid: int, hwnd: int) -> Optional[bool]:
@@ -498,37 +490,6 @@ def front_window(pid: int, hwnd: int) -> Optional[bool]:
     every four seconds. The posted message reaches it at once, hidden or not,
     and its handler shows it exactly as the tray icon does.
     """
-    if sys.platform != "win32":
-        return None
-    try:
-        import ctypes
-        from ctypes import wintypes
+    from app.core.osbridge import frontwindow
 
-        user32 = ctypes.WinDLL("user32", use_last_error=True)
-        user32.IsWindow.argtypes = [wintypes.HWND]
-        user32.GetWindowThreadProcessId.argtypes = [
-            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
-        user32.IsIconic.argtypes = [wintypes.HWND]
-        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
-        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
-        user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
-        user32.PostMessageW.argtypes = [
-            wintypes.HWND, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM]
-
-        handle = wintypes.HWND(hwnd)
-        if not user32.IsWindow(handle):
-            return None
-        owner = wintypes.DWORD(0)
-        user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
-        if owner.value != int(pid):
-            return None
-        user32.AllowSetForegroundWindow(int(pid))
-        message = front_message_id()
-        if message and user32.PostMessageW(handle, message, 0, 0):
-            return True
-        if user32.IsIconic(handle):
-            user32.ShowWindow(handle, 9)     # SW_RESTORE - back to maximised if it was
-        user32.SetForegroundWindow(handle)
-        return False
-    except Exception:                    # noqa: BLE001 - a nicety; the poll still fronts it
-        return None
+    return frontwindow.front_window(pid, hwnd, FRONT_MESSAGE_NAME)

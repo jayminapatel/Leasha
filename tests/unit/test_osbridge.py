@@ -719,3 +719,23 @@ def test_winfs_still_offers_every_name():
         "FILE_ATTRIBUTE_OFFLINE", "FILE_ATTRIBUTE_RECALL_ON_OPEN",
         "FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS", "CLOUD_PLACEHOLDER_MASK",
         "file_attributes", "is_cloud_placeholder", "describe_placeholder"]
+
+
+# ---------------------------------------------------------------------------
+# frontwindow.py - a second launch fronting the open window (moved 2026-10-05)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("system", ["darwin", "linux"])
+def test_off_windows_no_window_is_fronted_and_the_caller_is_told(on, system):
+    """Off Windows there is no `user32`: 0 and None mean "nothing was touched",
+    so the second launch falls back to the polled `request_front`. Reaching
+    `ctypes.WinDLL` here would raise - and be swallowed - so the import of
+    `wintypes` is what this really guards on a Mac."""
+    from app.core import run_lock
+    from app.core.osbridge import frontwindow
+
+    on(system)
+    assert frontwindow.front_message_id("Leasha.Test") == 0
+    assert frontwindow.front_window(1, 1, "Leasha.Test") is None
+    assert run_lock.front_message_id() == 0
+    assert run_lock.front_window(1, 1) is None
