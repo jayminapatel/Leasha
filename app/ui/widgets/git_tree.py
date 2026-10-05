@@ -35,8 +35,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
+from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import GitScope
@@ -77,7 +77,7 @@ class GitTree(QTreeWidget):
     #: branch has to be *read* before it can be listed and the read is a
     #: subprocess: the view would otherwise have to own a fetch, a cache and
     #: the rule about which scopes need one. `None` means "ask the index".
-    scoped = pyqtSignal(object, object)
+    scoped = Signal(object, object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -377,7 +377,7 @@ def attach_git_tree(results: Any):
     Here rather than in the view because `code_view.py` is at the 250-line
     guard, and a splitter assembled in three places would drift.
     """
-    from PyQt6.QtWidgets import QLabel, QSplitter, QVBoxLayout
+    from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout
 
     tree = GitTree()
 
@@ -594,7 +594,7 @@ def git_search_running(view: Any, running: bool) -> None:
     "Search history" and "Stop" are both labels the button system already
     knows, so `refresh_icon` gives each its own icon.
     """
-    from PyQt6.QtGui import QKeySequence, QShortcut
+    from PySide6.QtGui import QKeySequence, QShortcut
 
     from app.ui.widgets.buttons import refresh_icon
 

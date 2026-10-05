@@ -9,7 +9,7 @@ mini-search palette are all top-level widgets with no parent, so any one of them
 still visible keeps the loop running after the main window has gone - with the
 main window hidden and its stores about to close.
 
-**Measured 2026-09-20, plain PyQt6 6.x offscreen, no application code:** closing
+**Measured 2026-09-20, plain PySide6 6.x offscreen, no application code:** closing
 a main window with a second visible top-level widget left `exec()` running until
 something else called `quit()` (3.0 s, the test's own timer); without one it
 returned in 0.2 s. So this is one reproducible mechanism, and closing every other
@@ -44,7 +44,7 @@ def close_other_windows(main: Any) -> int:
     runs - a pop-out remembers its geometry there. Never raises: a window that
     will not close is logged and left, because closing the main window must go on.
     """
-    from PyQt6.QtWidgets import QApplication, QMainWindow
+    from PySide6.QtWidgets import QApplication, QMainWindow
 
     closed = 0
     for widget in list(QApplication.topLevelWidgets()):

@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QGroupBox, QLabel, QLineEdit,
     QPushButton, QVBoxLayout, QWidget,
 )
@@ -41,53 +41,53 @@ _log = logger.bind(component="ui.settings")
 
 
 class SettingsView(SettingsShelves, QWidget):
-    roots_changed = pyqtSignal(list)
+    roots_changed = Signal(list)
     #: `{normalised root: "live"|"archive"}` - which folders never change.
     #: See `app/index/archives.py`; the saving this buys on a settled corpus is
     #: hours per incremental run.
-    root_modes_changed = pyqtSignal(dict)
+    root_modes_changed = Signal(dict)
     #: `{normalised root}` opted in to cloud content indexing (202626270514
     #: §2b). See `RootsBox.cloud_content_changed` - this only relays it.
-    cloud_content_roots_changed = pyqtSignal(set)
+    cloud_content_roots_changed = Signal(set)
     #: 2026-09-29. "Index this folder first", in order. See
     #: `RootsBox.first_changed` - this only relays it.
-    first_folders_changed = pyqtSignal(list)
+    first_folders_changed = Signal(list)
     #: "Rescan archived folders now" - one full walk, not a change of policy.
-    rescan_archives_requested = pyqtSignal()
+    rescan_archives_requested = Signal()
     #: 2026-10-02. "Index now" on one line of the folder list: that folder.
     #: See `RootsBox.index_requested` - this only relays it.
-    index_folder_requested = pyqtSignal(str)
+    index_folder_requested = Signal(str)
     #: `(preset, groups)` for the Code tab's file-type filter. A view
     #: preference: it changes what Code lists, never what is indexed.
-    code_types_changed = pyqtSignal(str, list)
-    pst_backend_changed = pyqtSignal(str)
+    code_types_changed = Signal(str, list)
+    pst_backend_changed = Signal(str)
     #: (enabled, model, timeout_s) for the Interpret button.
-    ollama_model_changed = pyqtSignal(bool, str, int)
-    convert_pst_requested = pyqtSignal(str, str)   # archive, destination
+    ollama_model_changed = Signal(bool, str, int)
+    convert_pst_requested = Signal(str, str)   # archive, destination
     #: The index-location flow: move it, adopt one already there, or start
     #: empty. A signal rather than a direct call because the shell owns the
     #: stores that would have to be closed before anything moves.
-    move_index_requested = pyqtSignal()
+    move_index_requested = Signal()
     #: The meaning-model flow. Same shape and the same reason: it invalidates
     #: every vector, so it states the cost and confirms rather than applying.
-    rebuild_vectors_requested = pyqtSignal()
-    rerank_toggled = pyqtSignal(bool)
+    rebuild_vectors_requested = Signal()
+    rerank_toggled = Signal(bool)
 
-    cloud_toggled = pyqtSignal(bool)
+    cloud_toggled = Signal(bool)
     #: (minimise_to_tray, close_to_tray)
-    tray_changed = pyqtSignal(bool, bool)
+    tray_changed = Signal(bool, bool)
     #: system | light | dark. Appearance moved here from the indexing
     #: panel, where it was neither an indexing setting nor findable by
     #: anybody looking for one. The name is unchanged, so the window's
     #: handler did not have to move with it.
-    theme_changed = pyqtSignal(str)
+    theme_changed = Signal(str)
     #: `{registry key: value}` from any panel whose controls write `.env`.
-    settings_changed = pyqtSignal(dict)
-    history_cleared = pyqtSignal(int)
-    debug_recording_toggled = pyqtSignal(bool)
+    settings_changed = Signal(dict)
+    history_cleared = Signal(int)
+    debug_recording_toggled = Signal(bool)
     #: Order 0j section 2: the doorway to the Photo Tagger window.
-    open_photo_tagger_requested = pyqtSignal()
-    error = pyqtSignal(object)
+    open_photo_tagger_requested = Signal()
+    error = Signal(object)
 
     def __init__(self, settings: Any, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

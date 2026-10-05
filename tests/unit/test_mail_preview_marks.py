@@ -83,12 +83,12 @@ def test_the_mail_tabs_searched_words_are_its_subject_and_what_was_typed() -> No
 
 # --- painted, and stepped through ---------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtGui import QKeySequence  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtGui import QKeySequence  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.preview_loader import KIND_TEXT, Preview  # noqa: E402
 from app.ui.widgets.preview import PreviewPane  # noqa: E402
@@ -240,13 +240,13 @@ def test_highlighting_never_edits_the_document(qapp) -> None:
 
 def test_the_search_tabs_words_reach_its_pane(qapp) -> None:
     """`attach_preview` reads the words from the list it is attached to."""
-    from PyQt6.QtCore import pyqtSignal
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtCore import Signal
+    from PySide6.QtWidgets import QWidget
 
     from app.ui.widgets.preview import attach_preview
 
     class Results(QWidget):
-        selected = pyqtSignal(object)
+        selected = Signal(object)
         explain_context = staticmethod(lambda: (["trip", "coat"], None))
 
     results = Results()

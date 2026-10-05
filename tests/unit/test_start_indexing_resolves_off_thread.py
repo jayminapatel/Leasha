@@ -27,7 +27,7 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.core.config import load_settings
 from app.index.resolve import Resolved
@@ -72,7 +72,7 @@ class _Engine:
 
 
 def _window(tmp_path):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     root = tmp_path / "window"
     root.mkdir()
@@ -99,7 +99,7 @@ def _pump(app, ms: int = 5_000) -> None:
     asks a worker whether this machine needs its device test before the
     resolve worker is even created, so one wait-then-process round stopped
     before the run existed."""
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     QThreadPool.globalInstance().waitForDone(ms)
     for _ in range(5):

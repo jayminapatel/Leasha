@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QComboBox, QGridLayout, QLabel, QSizePolicy, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QComboBox, QGridLayout, QLabel, QSizePolicy, QWidget
 
 from app.chat.roles import (
     NO_VISION_MODEL_LINE, OLLAMA_UNREACHABLE_LINE, InstalledModels, size_of,

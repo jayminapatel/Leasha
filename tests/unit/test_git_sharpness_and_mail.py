@@ -125,8 +125,8 @@ def test_the_summary_states_the_count_and_says_nothing_when_nothing_was_asked():
 
 def test_the_tree_hides_rather_than_greys(tmp_path):
     """A tree of four with three inert rows is the noise being removed."""
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.git_tree import GitTree
 

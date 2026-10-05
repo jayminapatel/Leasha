@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from typing import Any, Iterable
 
-from PyQt6.QtCore import QEvent, QObject, Qt
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
     QComboBox,

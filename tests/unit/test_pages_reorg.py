@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -50,7 +50,7 @@ REQUIRED_FREE_GB=1
 
 
 def _qt():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 
@@ -232,7 +232,7 @@ def test_status_keeps_its_own_scrolling_schedule_and_tuning_gain_theirs():
     panel) and wrapping it again would be the two-scrollbars fault
     `widgets/scroll.py` itself warns about.
     """
-    from PyQt6.QtWidgets import QScrollArea
+    from PySide6.QtWidgets import QScrollArea
 
     from app.ui.indexing_view import (
         CATEGORY_SCHEDULE, CATEGORY_STATUS, CATEGORY_TUNING, IndexingView,
@@ -258,7 +258,7 @@ SIZES = {
 
 @pytest.fixture(scope="module")
 def indexing_page():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.indexing_view import IndexingView
     from app.ui.theme import stylesheet
@@ -278,7 +278,7 @@ def test_no_indexing_control_is_laid_out_at_zero_height(indexing_page, size_name
     """The same regression class `test_settings_layout.py` guards against on
     Settings, run here at all three sizes §2b's acceptance names: default,
     maximised, and the minimum sensible size."""
-    from PyQt6.QtWidgets import (
+    from PySide6.QtWidgets import (
         QCheckBox, QComboBox, QLineEdit, QPushButton, QSpinBox,
     )
 

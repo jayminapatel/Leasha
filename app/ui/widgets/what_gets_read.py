@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtWidgets import QLabel
+from PySide6.QtWidgets import QLabel
 
 from app.ui.presenter.coverage import EMAIL, FILES, MEDIA, PICTURES
 from app.ui.view_options import weak_slot

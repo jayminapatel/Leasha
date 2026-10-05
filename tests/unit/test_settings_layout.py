@@ -39,7 +39,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 ENV = """\
@@ -77,7 +77,7 @@ def settings_page(tmp_path_factory):
     building and tearing down Qt widget trees repeatedly in one process is a
     property of the harness rather than of the application, and it crashes.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -132,7 +132,7 @@ def test_the_page_is_taller_than_any_window_and_is_therefore_wrapped():
 
 def _readable(widget) -> tuple[int, int]:
     """`(height it has, height its own text needs)`."""
-    from PyQt6.QtGui import QFontMetrics
+    from PySide6.QtGui import QFontMetrics
 
     return widget.height(), QFontMetrics(widget.font()).height()
 
@@ -146,7 +146,7 @@ def test_every_checkbox_on_the_settings_page_can_be_read(settings_page):
     type scale moved for a good reason. What must always hold is that a control
     is at least as tall as the text in it.
     """
-    from PyQt6.QtWidgets import QCheckBox
+    from PySide6.QtWidgets import QCheckBox
 
     _app, view = settings_page
     cut = []
@@ -168,8 +168,8 @@ def test_every_checkbox_is_wide_enough_for_its_own_label(settings_page):
     rather than the layout. The allowance is the indicator plus its gap; the
     exact figure does not matter, only that the label is not being eaten.
     """
-    from PyQt6.QtGui import QFontMetrics
-    from PyQt6.QtWidgets import QCheckBox
+    from PySide6.QtGui import QFontMetrics
+    from PySide6.QtWidgets import QCheckBox
 
     _app, view = settings_page
     #: Indicator plus the gap between it and the text. Generous rather than
@@ -195,7 +195,7 @@ def test_no_control_is_laid_out_at_zero_height(settings_page):
     size hint - applies to anything the sheet styles. Nothing that is meant to
     be on the page should be zero pixels of it.
     """
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QPushButton, QSpinBox
+    from PySide6.QtWidgets import QCheckBox, QComboBox, QLineEdit, QPushButton, QSpinBox
 
     _app, view = settings_page
     missing = []

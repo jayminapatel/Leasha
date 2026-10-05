@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from PyQt6.QtCore import QEvent, QSize, Qt, pyqtSignal
-from PyQt6.QtWidgets import QToolButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, QSize, Qt, Signal
+from PySide6.QtWidgets import QToolButton, QVBoxLayout, QWidget
 
 __all__ = ["AdvancedFold", "TITLE"]
 
@@ -34,7 +34,7 @@ class AdvancedFold(QWidget):
     """A heading that opens and closes the boxes under it."""
 
     #: Opened (True) or closed by a click - never by `set_open` or `reveal`.
-    toggled = pyqtSignal(bool)
+    toggled = Signal(bool)
 
     def __init__(self, boxes: Iterable[QWidget], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

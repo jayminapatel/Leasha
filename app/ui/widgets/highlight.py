@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QRegularExpression
-from PyQt6.QtGui import QColor, QFont, QPalette, QSyntaxHighlighter, QTextCharFormat
+from PySide6.QtCore import QRegularExpression
+from PySide6.QtGui import QColor, QFont, QPalette, QSyntaxHighlighter, QTextCharFormat
 
 from app.ui.grammars import BLOCK_COMMENTS, combined, language_for
 

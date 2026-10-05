@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -100,7 +100,7 @@ class SearchBox(QGroupBox):
     #: does nothing.** These were built with a `values()` method that nothing
     #: called - the same shape as `rerank_toggled` and `cloud_toggled` before
     #: them, and introduced in the commit that fixed those.
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("Search", parent)

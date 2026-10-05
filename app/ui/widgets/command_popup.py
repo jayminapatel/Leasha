@@ -45,9 +45,9 @@ from __future__ import annotations
 import time
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import QEvent, QObject, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import QCompleter, QLineEdit
+from PySide6.QtCore import QEvent, QObject, Qt, QThreadPool, Signal
+from PySide6.QtGui import QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import QCompleter, QLineEdit
 
 from app.search.commands import COMMANDS, matching
 from app.ui.presenter import (
@@ -126,7 +126,7 @@ class CommandPopup(QCompleter):
     doorway, not the grammar.
     """
 
-    chosen = pyqtSignal(str)
+    chosen = Signal(str)
 
     def __init__(self, parent: Optional[Any] = None,
                  only: Optional[Sequence[str]] = None,

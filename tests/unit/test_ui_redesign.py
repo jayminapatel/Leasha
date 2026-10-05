@@ -1,11 +1,11 @@
 r"""UI Redesign (work order 202626160950) - the Qt-free half of §9.
 
-Everything in this file runs without a display and without PyQt6: the
+Everything in this file runs without a display and without PySide6: the
 tokens, the pill's words, the chips' arithmetic, the badge colours, the
 inspector's facts, and two source-shaped guards (§9c) plus the verbatim
 walk (§9d). The Qt half - the rail, the toast, the delegate, the
 responsiveness scenario - lives in `test_ui_redesign_qt.py`, which skips
-itself where PyQt6 is absent.
+itself where PySide6 is absent.
 """
 
 from __future__ import annotations
@@ -237,7 +237,7 @@ def test_nothing_under_app_ui_calls_the_status_bar():
 
 
 def _icon_names() -> tuple:
-    """`ICON_NAMES` read from the source, so this runs without PyQt6."""
+    """`ICON_NAMES` read from the source, so this runs without PySide6."""
     tree = ast.parse((UI / "widgets" / "icons.py").read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(

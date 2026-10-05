@@ -23,8 +23,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox,
     QVBoxLayout, QWidget,
 )
@@ -91,7 +91,7 @@ def model_sentence(model: str, present: bool) -> str:
 class MediaBox(QGroupBox):
     """Five settings and a status readout for video and audio."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None,
                  parent: Optional[QWidget] = None) -> None:

@@ -20,13 +20,13 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
-from PyQt6.QtGui import QWheelEvent  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QTableWidget  # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt  # noqa: E402
+from PySide6.QtGui import QWheelEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication, QTableWidget  # noqa: E402
 
 from app.ui.widgets.file_types import EditFileTypeDialog, FileTypesEditor  # noqa: E402
 from app.ui.widgets.no_scroll import protect_view  # noqa: E402
@@ -50,7 +50,7 @@ def editor(qapp, tmp_path, monkeypatch):
 def _wheel(widget) -> QWheelEvent:
     """A scroll-down wheel event over `widget`.
 
-    `QPointF` for the two positions, not `QPoint`: PyQt6 has no overload taking
+    `QPointF` for the two positions, not `QPoint`: PySide6 has no overload taking
     integer points and the TypeError names only "argument 1", which is a slow
     way to discover a two-character fix.
     """

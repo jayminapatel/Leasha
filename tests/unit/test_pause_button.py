@@ -294,7 +294,7 @@ def test_the_command_lines_pause_file_holds_and_releases_a_run(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _view():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.indexing_view import IndexingView
 
@@ -317,7 +317,7 @@ def test_the_pause_button_is_on_the_status_shelf_beside_stop_and_starts_dead():
 
 
 def test_pressing_pause_holds_the_run_and_pressing_it_again_lets_go(qtbot):
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.ui.indexing_view import PAUSE_LABEL, PAUSED_HEADLINE, RESUME_LABEL
 

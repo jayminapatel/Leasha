@@ -17,7 +17,7 @@ import json
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 
@@ -48,8 +48,8 @@ def _seed_mail_row(store, subject: str, sender: str, text: str) -> int:
 # ---------------------------------------------------------------------------
 
 def test_a_document_matched_twice_shows_a_chevron_and_expands_on_click(gui_mainwindow, qtbot):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QStyleOptionViewItem
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QStyleOptionViewItem
 
     app, window, store, engine = gui_mainwindow
     view = window.search_view
@@ -184,8 +184,8 @@ def test_the_selected_row_survives_the_interim_to_full_swap(gui_mainwindow, qtbo
 
 def test_a_clicked_result_is_still_previewed_after_the_rows_are_replaced_by_a_longer_query(
         gui_mainwindow, qtbot):
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QToolButton
 
     app, window, store, engine = gui_mainwindow
     view = window.search_view

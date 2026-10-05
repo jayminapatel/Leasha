@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.ui.presenter import GitScope  # noqa: E402
 from app.ui.widgets.git_tree import ROLE_SCOPE, GitTree  # noqa: E402

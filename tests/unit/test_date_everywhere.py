@@ -25,12 +25,12 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QThreadPool  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QThreadPool  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.storage.sqlite_store import FileStatus, SqliteStore  # noqa: E402
 
@@ -69,7 +69,7 @@ def _release(widget) -> None:
     Search view was measured the same day and still outlives its last
     reference, so its two tests keep the explicit delete.
     """
-    from PyQt6 import sip
+    from app.ui import qtsip as sip
 
     if not sip.isdeleted(widget):
         sip.delete(widget)
@@ -270,8 +270,8 @@ def test_enter_on_the_mini_search_menu_chooses_the_row_and_keeps_the_box(qapp, e
     r"""Enter on a `/` menu row reaches the box as `returnPressed` *before*
     the row is inserted. In the mini-search that opened the highlighted
     result and closed the box - on the keystroke that chose a filter."""
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtTest import QTest
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
 
     from app.ui.widgets.mini_search import MiniSearch
 

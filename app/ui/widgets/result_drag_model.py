@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QMimeData, QUrl
-from PyQt6.QtGui import QStandardItemModel
+from PySide6.QtCore import QMimeData, QUrl
+from PySide6.QtGui import QStandardItemModel
 
 from app.ui.drag_out import paths_for
 from app.ui.result_delegate import ROLE_PAYLOAD

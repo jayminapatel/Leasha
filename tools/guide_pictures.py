@@ -158,7 +158,7 @@ def grab_menu(app, window, title: str):
 
 
 def grab_popup(app, menu):
-    from PyQt6.QtCore import QPoint, Qt
+    from PySide6.QtCore import QPoint, Qt
 
     menu.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
     menu.popup(QPoint(0, 0))
@@ -173,7 +173,7 @@ def grab_popup(app, menu):
 
 def grab_window(app, window, store, name: str):
     """The three that are neither a page nor a bar menu."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     if name == "more-menu":
         # The "..." at the right of the Search bar.
@@ -234,8 +234,8 @@ def _grab_in_dark(app, window, store, name: str):
 
 
 def take(names: list[str], out: Path) -> list[Path]:
-    from PyQt6.QtCore import Qt, QThreadPool
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import Qt, QThreadPool
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore

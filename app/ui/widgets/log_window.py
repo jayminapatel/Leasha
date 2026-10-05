@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QRect, Qt, pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtCore import QRect, Qt, Signal
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QVBoxLayout, QWidget
 
 __all__ = ["LogWindow", "GEOMETRY_KEY", "ON_TOP_KEY", "geometry_text",
            "geometry_from"]
@@ -81,11 +81,11 @@ class LogWindow(QWidget):
     """
 
     #: The window was closed, so the caller can forget it and let it go.
-    closed = pyqtSignal()
+    closed = Signal()
     #: A geometry or stay-on-top change worth remembering. `{key: value}`.
-    remember = pyqtSignal(dict)
+    remember = Signal(dict)
     #: A log line naming a file was double-clicked. Straight through.
-    file_chosen = pyqtSignal(str)
+    file_chosen = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         # **No parent, deliberately.** A parented `QWidget` with a window flag

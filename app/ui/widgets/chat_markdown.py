@@ -40,14 +40,14 @@ import re
 from dataclasses import dataclass
 from typing import Callable, Iterable, Optional
 
-from PyQt6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import (
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QGuiApplication, QPalette,
     QTextBlockFormat, QTextCharFormat, QTextCursor, QTextDocument,
     QTextFormat, QTextFrame, QTextFrameFormat, QTextOption, QTextTable,
     QWheelEvent,
 )
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QTextBrowser,
     QToolButton, QVBoxLayout, QWidget,
 )
@@ -463,7 +463,7 @@ def _tables(frame: QTextFrame) -> Iterable[QTextTable]:
 class _Prose(QTextBrowser):
     """Markdown, read-only, no frame, as tall as its text and no taller."""
 
-    anchor_hovered = pyqtSignal(str)
+    anchor_hovered = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -696,7 +696,7 @@ class _CodeText(QPlainTextEdit):
 class _CodeBlock(QFrame):
     """A fenced block: language label and Copy on top, the code below."""
 
-    copied = pyqtSignal(str)
+    copied = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -866,10 +866,10 @@ class _Rule(QFrame):
 class AnswerBody(QWidget):
     """The assistant's message: prose and code blocks, updated in place."""
 
-    receipt_activated = pyqtSignal(int)      # the reader-facing number of a clicked marker
-    receipt_hovered = pyqtSignal(int)        # 0 when the pointer leaves
-    link_activated = pyqtSignal(str)         # any other http(s) link
-    code_copied = pyqtSignal(str)            # a code block's text, when Copy is used
+    receipt_activated = Signal(int)      # the reader-facing number of a clicked marker
+    receipt_hovered = Signal(int)        # 0 when the pointer leaves
+    link_activated = Signal(str)         # any other http(s) link
+    code_copied = Signal(str)            # a code block's text, when Copy is used
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -70,7 +70,7 @@ def open_original(target: Any, *, outlook: Optional[Callable[[str, str], None]] 
 
 def open_original_async(target: Any, *, on_error: Any = None, outlook: Any = None) -> None:
     """`open_original` on a worker. **Call from a click handler only.**"""
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.workers import CallableWorker, run
 

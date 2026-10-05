@@ -36,8 +36,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QMenu, QPushButton, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QMenu, QPushButton, QWidget
 
 from app.core.settings_registry import by_key, keys
 

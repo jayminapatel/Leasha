@@ -27,8 +27,8 @@ from __future__ import annotations
 import threading
 from typing import Any, Callable, Iterable, Optional
 
-from PyQt6.QtCore import QCoreApplication, QObject, QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
+from PySide6.QtCore import QCoreApplication, QObject, QThreadPool, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QPushButton, QWidget
 
 from app.core import model_fetch
 from app.ui.widgets.buttons import style_button
@@ -44,7 +44,7 @@ DOWNLOAD_TIP = ("Downloads the model from the internet, now, once. This is the o
 class _Relay(QObject):
     """Carries progress from the worker thread to the window's thread."""
 
-    said = pyqtSignal(str)
+    said = Signal(str)
 
 
 def _size_words(name: str) -> str:
@@ -58,7 +58,7 @@ class DownloadRow(QWidget):
     """[Download] [Stop]  where it has got to."""
 
     #: `(model name, "done" | "stopped")` once a download has ended.
-    finished = pyqtSignal(str, str)
+    finished = Signal(str, str)
 
     def __init__(self, kind: str, *, model_cache: Any = None,
                  client_factory: Optional[Callable[[], Any]] = None,

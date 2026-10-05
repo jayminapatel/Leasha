@@ -97,13 +97,13 @@ def test_a_sink_that_cannot_store_never_takes_logging_down(tmp_path):
 # ---------------------------------------------------------------------------
 
 def _qt():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 
 
 def test_the_pane_shows_the_recent_lines(tmp_path):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.core.logging import logger, setup_logging
     from app.ui.widgets.debug_pane import DebugPane
 
@@ -123,7 +123,7 @@ def test_an_unchanged_log_does_not_redraw(tmp_path):
     A `setPlainText` on every tick drops the selection of anybody mid-copy and
     fights the scrollbar of anybody reading.
     """
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.core.logging import logger, setup_logging
     from app.ui.widgets.debug_pane import DebugPane
 
@@ -143,7 +143,7 @@ def test_an_unchanged_log_does_not_redraw(tmp_path):
 
 def test_the_timer_only_runs_while_the_pane_is_visible(tmp_path):
     """Zero cost on every tab except this one."""
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.widgets.debug_pane import DebugPane
 
     _qt()

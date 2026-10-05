@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QToolButton, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QToolButton, QWidget
 
 from app.ui.chips_logic import Chip, chips_for, without
 
@@ -35,11 +35,11 @@ __all__ = ["ChipRow"]
 class ChipRow(QWidget):
     #: The box's new text after a chip was removed. The view writes it into
     #: the box; the box's own signal does the rest.
-    text_edited = pyqtSignal(str)
+    text_edited = Signal(str)
     #: An *applied* chip was removed: its words go back to being search
     #: terms. The box text is unchanged, so nothing else would re-run the
     #: search - `search_bar.build_toolbar` connects this to `search_now`.
-    declined_changed = pyqtSignal()
+    declined_changed = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

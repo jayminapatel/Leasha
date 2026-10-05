@@ -276,7 +276,7 @@ def test_the_timeline_window_never_touches_a_photograph_it_shows(qtbot, tmp_path
         qtbot.waitUntil(lambda: view.list.block_count() > 0 and not view._loading, timeout=8000)
         view.grab()
         qtbot.waitUntil(lambda: len(view.list._pictures) == 3, timeout=8000)
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
         monkeypatch.undo()
     assert recorder.under(folder) == []

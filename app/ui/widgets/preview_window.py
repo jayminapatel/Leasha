@@ -29,9 +29,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QRect, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QRect, Qt, QThreadPool, Signal
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (
     QCheckBox, QHBoxLayout, QLabel, QPushButton, QScrollArea, QStackedWidget,
     QTextBrowser, QVBoxLayout, QWidget,
 )
@@ -111,14 +111,14 @@ class PreviewWindow(QWidget):
     """One document, pinned, view-only."""
 
     #: `{key: value}` worth remembering — geometry, pin, rotation.
-    remember = pyqtSignal(dict)
+    remember = Signal(dict)
     #: This window closed. The opener drops its reference.
-    closed = pyqtSignal(object)
+    closed = Signal(object)
     #: "Open the real file" / "Show in folder". §2g. 2026-10-04: they carry
     #: the ROW on show, not its path, so the one open route (`pop_out`) can
     #: resolve its drive, its moment and its line as every page does.
-    open_requested = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
+    open_requested = Signal(object)
+    reveal_requested = Signal(object)
 
     def __init__(self, row: Any, *, state: Any = None,
                  body_provider: Any = None, siblings: Any = (),
@@ -718,7 +718,7 @@ class PreviewWindow(QWidget):
         ordinary, none worth taking the window down for.
         """
         try:
-            from PyQt6.QtPrintSupport import QPrintDialog, QPrinter
+            from PySide6.QtPrintSupport import QPrintDialog, QPrinter
 
             printer = QPrinter(QPrinter.PrinterMode.HighResolution)
             dialog = QPrintDialog(printer, self)
@@ -736,13 +736,13 @@ class PreviewWindow(QWidget):
 
         **`QPrinter` is imported here, not borrowed from `_print`.** It was
         imported in the caller and used here, where the name does not exist -
-        a `NameError` the moment anybody printed a picture, which under PyQt6
+        a `NameError` the moment anybody printed a picture, which under PySide6
         is not an error message but a dead process. Found by `ruff --select
         F821`, which had never been run over `app/`; `test_no_undefined_names`
         now runs it on every suite.
         """
-        from PyQt6.QtGui import QPainter
-        from PyQt6.QtPrintSupport import QPrinter
+        from PySide6.QtGui import QPainter
+        from PySide6.QtPrintSupport import QPrinter
 
         pixmap = self.picture.pixmap()
         if pixmap is None or pixmap.isNull():

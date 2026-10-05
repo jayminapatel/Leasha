@@ -174,7 +174,7 @@ def test_the_search_worker_runs_the_applied_query_and_carries_the_chips(store):
     the sentence asks the store - rewrites the query, keeps the `declined` key
     away from the engine (it has no such argument, and must not), and puts
     the applied filters on the response for the chip row."""
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.search.engine import SearchResponse
     from app.search.policy import SEARCH, for_surface
     from app.ui.workers import SearchWorker

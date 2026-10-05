@@ -17,9 +17,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QPoint, Qt                                      # noqa: E402
+from PySide6.QtCore import QPoint, Qt                                      # noqa: E402
 
 from app.ui.presenter.chat import Shelf, speed_note                      # noqa: E402
 from tests.unit.chat_fakes import AGREEMENT, LETTER                      # noqa: E402

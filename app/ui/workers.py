@@ -21,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from PyQt6.QtCore import QObject, QRunnable, pyqtSignal
+from PySide6.QtCore import QObject, QRunnable, Signal
 
 from app.core.errors import AppError, to_app_error
 from app.core.logging import logger
@@ -214,10 +214,10 @@ def _emit(signals: Any, name: str, *args: Any) -> None:
 class WorkerSignals(QObject):
     """Signals are on a QObject because QRunnable is not one."""
 
-    finished = pyqtSignal(object)      # the result, whatever it is
-    failed = pyqtSignal(object)        # an AppError, never a bare exception
-    progress = pyqtSignal(object)      # partial state, for long runs
-    done = pyqtSignal()                # always, success or failure
+    finished = Signal(object)      # the result, whatever it is
+    failed = Signal(object)        # an AppError, never a bare exception
+    progress = Signal(object)      # partial state, for long runs
+    done = Signal()                # always, success or failure
 
 
 @dataclass
@@ -288,7 +288,7 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False, on_error: Any 
     else the window's (`OpenContext`) - a caller's own error route is kept.
     A web address goes to the browser here: it is not a file.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.presenter.opening import Place, SearchInside, is_web, key_of
     from app.ui.tasks import open_target
@@ -301,8 +301,8 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False, on_error: Any 
         return
     context = _CONTEXT
     if is_web(key):
-        from PyQt6.QtCore import QUrl
-        from PyQt6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
 
         QDesktopServices.openUrl(QUrl(key))
         return
@@ -340,8 +340,8 @@ def copy_path_async(row: Any, *, store: Any = None) -> None:
     is not plugged in copies the key, without an error. Anything else is
     copied as it is, at once.
     """
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtGui import QGuiApplication
 
     from app.ui.presenter.opening import key_of
     from app.ui.tasks import resolve_open_path
@@ -677,7 +677,7 @@ def recent_searches_async(store: Any, on_ready: Callable,
     swallowed by the worker, so the box simply has no list - which is what
     this should cost.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.first_contact import FETCH_MULTIPLE, RECENT_LIMIT, rows_for
 
@@ -702,7 +702,7 @@ def saved_searches_async(store: Any, on_ready: Callable) -> None:
     `on_ready` is handed a tuple of `SavedSearch`, most-run first. A failure
     is swallowed, which costs the saved-search list and nothing else.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.search.saved import ordered
 
@@ -721,7 +721,7 @@ def change_saved_search_async(store: Any, action: str, args: tuple, on_done: Cal
     write and the re-read must not race, or the list somebody is looking at
     would still show the search they just deleted.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.search.saved import ordered
 
@@ -745,7 +745,7 @@ def save_search_async(store: Any, name: str, query: str, scope: str,
     the search somebody just saved would be missing from the menu they saved
     it in. That is the kind of bug that gets reported as "it did not save".
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.search.saved import ordered
 
@@ -765,7 +765,7 @@ def filter_offers_async(store: Any, sentence: str, preferences: Any,
     Here for the reason `decorate_results_async` is: it is a store query, and
     every results handler that wants it is a view held short.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.tasks import filter_offer_notices
 
@@ -786,7 +786,7 @@ def decorate_results_async(store: Any, results: Any, on_done: Callable) -> None:
     Here because every view that shows
     results wants it, and the view it came from was at the 250-line limit.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.tasks import decorate_results
 

@@ -346,7 +346,7 @@ def test_the_rerank_switch_is_one_value_everywhere(index, monkeypatch, capsys):
 
 
 def test_the_list_tabs_read_with_the_windows_switches(qapp):
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     from app.ui.widgets.chips import ChipRow
 

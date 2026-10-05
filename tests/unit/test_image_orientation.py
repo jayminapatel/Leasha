@@ -19,10 +19,10 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PyQt6.QtGui import QImage                                  # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtGui import QImage                                  # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.preview_loader import _apply_orientation, decode_image  # noqa: E402
 
@@ -48,7 +48,7 @@ def _four_corner_image() -> QImage:
 
 
 def _rgb(r: int, g: int, b: int):
-    from PyQt6.QtGui import QColor
+    from PySide6.QtGui import QColor
 
     return QColor(r, g, b)
 

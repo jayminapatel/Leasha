@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtWidgets import QGroupBox, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGroupBox, QScrollArea, QVBoxLayout, QWidget
 
 from app.ui.presenter import format_count, group_skips
 from app.ui.widgets.skip_row import SkipRow

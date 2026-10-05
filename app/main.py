@@ -46,7 +46,7 @@ def _fatal(error: AppError) -> int:
         pass
 
     try:
-        from PyQt6.QtWidgets import QApplication, QMessageBox
+        from PySide6.QtWidgets import QApplication, QMessageBox
 
         _app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841 - must outlive the box
         box = QMessageBox()
@@ -89,7 +89,7 @@ def _make_ctrl_c_work(application: object) -> None:
     """
     import signal
 
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     try:
         signal.signal(signal.SIGINT, lambda _sig, _frame: application.quit())
@@ -182,7 +182,7 @@ def _catch_native_crashes(log_dir: "Any") -> None:
 def _log_every_unhandled_exception() -> None:
     r"""Write down the exception PyQt is about to kill the process over.
 
-    **PyQt6 aborts on an exception that escapes a slot.** Not "prints and
+    **PySide6 aborts on an exception that escapes a slot.** Not "prints and
     continues" - since PyQt 5.5 an unhandled Python exception inside a slot
     invoked from C++ calls `qFatal()`, which calls `abort()`. The process is
     gone in the same instant.
@@ -246,7 +246,7 @@ def _log_qt_messages() -> None:
     it is the most valuable line the log can hold.
     """
     try:
-        from PyQt6.QtCore import (QtMsgType, qInstallMessageHandler)
+        from PySide6.QtCore import (QtMsgType, qInstallMessageHandler)
 
         from app.core.logging import logger
 
@@ -315,7 +315,7 @@ def _watch_vector_connect(window: Any, stores: Sequence[Any]) -> None:
     250 ms until every store has either connected or failed. Nothing is shown
     when they all connect, which is every normal run.
     """
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     timer = QTimer(window)
     timer.setInterval(250)
@@ -346,7 +346,7 @@ def _exit_fast(code: int) -> None:
     r"""Exit without interpreter teardown.
 
     §3d: After stores and lock are released, call `os._exit()` to skip the
-    slow teardown of native modules (onnxruntime, lance, PyQt6). This is
+    slow teardown of native modules (onnxruntime, lance, PySide6). This is
     standard practice for Python processes with heavyweight C++ libraries.
 
     **The placement is load-bearing.** This is called *after* the
@@ -496,7 +496,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         run.settings(settings)
 
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
     except ImportError as exc:
         from app.core.errors import make_error
 
@@ -841,7 +841,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
                      round(time.perf_counter() - t0, 3))
         # **After the context exits, stores and lock are released.** §3d: Skip
         # interpreter teardown of heavyweight native modules (onnxruntime, lance,
-        # PyQt6) with os._exit(). This is the standard remedy for slow native
+        # PySide6) with os._exit(). This is the standard remedy for slow native
         # unload on Windows. The placement after store close is load-bearing -
         # it ensures SQLite and LanceDB __exit__ have run.
         _close_summary = close_timer.summary()

@@ -14,13 +14,13 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, Qt, QUrl                # noqa: E402
-from PyQt6.QtGui import (                                                # noqa: E402
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, QUrl                # noqa: E402
+from PySide6.QtGui import (                                                # noqa: E402
     QGuiApplication, QTextCharFormat, QTextListFormat, QTextTable, QWheelEvent,
 )
-from PyQt6.QtWidgets import QApplication, QToolButton                    # noqa: E402
+from PySide6.QtWidgets import QApplication, QToolButton                    # noqa: E402
 
 from app.ui import theme                                                 # noqa: E402
 from app.ui.widgets import chat_markdown as cm                           # noqa: E402
@@ -761,7 +761,7 @@ def test_a_theme_switch_repaints_an_answer_already_on_screen(qtbot, monkeypatch)
 
 def test_the_window_stylesheet_changing_reaches_the_body(qtbot, monkeypatch):
     """The real path: `MainWindow._apply_theme` sets a new sheet on an ancestor."""
-    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
 
     monkeypatch.setattr(theme, "_current", dict(theme.PALETTES["dark"]))
     holder = QWidget()

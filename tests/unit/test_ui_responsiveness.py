@@ -392,7 +392,7 @@ def test_shutdown_stops_every_timer_a_view_owns():
     """
     # `stop_timers` is pure Python, but it lives beside QRunnable and the
     # module imports Qt - so a headless machine skips rather than errors.
-    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtCore", exc_type=ImportError)
     from app.ui.workers import stop_timers
 
     view = _FakeView()
@@ -409,7 +409,7 @@ def test_shutdown_stales_anything_still_in_flight():
     is what the generation counters are for."""
     # `stop_timers` is pure Python, but it lives beside QRunnable and the
     # module imports Qt - so a headless machine skips rather than errors.
-    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtCore", exc_type=ImportError)
     from app.ui.workers import stop_timers
 
     view = _FakeView()
@@ -423,7 +423,7 @@ def test_a_view_naming_its_timers_explicitly_still_works():
     """The argument list is an optimisation, not a promise - both paths stop."""
     # `stop_timers` is pure Python, but it lives beside QRunnable and the
     # module imports Qt - so a headless machine skips rather than errors.
-    pytest.importorskip("PyQt6.QtCore", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtCore", exc_type=ImportError)
     from app.ui.workers import stop_timers
 
     view = _FakeView()

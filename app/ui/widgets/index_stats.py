@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QGridLayout, QGroupBox, QLabel, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QGridLayout, QGroupBox, QLabel, QWidget
 
 from app.ui.presenter import StatRow
 

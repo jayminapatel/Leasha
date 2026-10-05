@@ -21,11 +21,11 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl                    # noqa: E402
-from PyQt6.QtGui import QDropEvent                                       # noqa: E402
-from PyQt6.QtWidgets import (                                            # noqa: E402
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl                    # noqa: E402
+from PySide6.QtGui import QDropEvent                                       # noqa: E402
+from PySide6.QtWidgets import (                                            # noqa: E402
     QAbstractButton, QComboBox, QLabel, QLineEdit, QWidget,
 )
 

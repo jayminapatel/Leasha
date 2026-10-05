@@ -22,11 +22,11 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QPushButton, QVBoxLayout, QWidget  # noqa: E402
+from PySide6.QtWidgets import QPushButton, QVBoxLayout, QWidget  # noqa: E402
 
 from app.ui import theme  # noqa: E402
 
@@ -329,7 +329,7 @@ def test_the_pill_reads_as_a_rail_button_and_still_says_state_and_count(shown, q
     would make it, unfilled until chosen; its state is a word under an icon
     with a coloured dot; the count is in its tooltip and accessible name; a
     mouse click still opens the Indexing page."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.ui.rail_state import FINISHED, RUNNING, pill_text
     from tests.unit.conftest import gui_pump

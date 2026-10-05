@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.ui.widgets.about_dialog import (
     ENTITY,
@@ -74,7 +74,7 @@ def test_close_closes_it(qtbot):
 
 
 def test_opening_the_notices_hands_the_file_to_the_desktop(qtbot, monkeypatch):
-    from PyQt6.QtGui import QDesktopServices
+    from PySide6.QtGui import QDesktopServices
 
     opened = []
     monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url) or True))

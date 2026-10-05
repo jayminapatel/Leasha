@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
 
 from app.ui.widgets.debounce import Debounced
 
@@ -28,7 +28,7 @@ __all__ = ["ConverterBox"]
 class ConverterBox(QGroupBox):
     """How LibreOffice is used for the old Office files Leasha cannot read itself."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[Any] = None) -> None:
         super().__init__("Old Office files", parent)

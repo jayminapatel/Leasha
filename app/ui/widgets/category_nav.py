@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QListWidget, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QListWidget, QVBoxLayout, QWidget
 
 __all__ = ["CategoryNav"]
 
@@ -41,7 +41,7 @@ class CategoryNav(QWidget):
     #: The category name just selected (by a click, never by `show_category`
     #: with `persist=False` — that path is a restore, not a choice, and must
     #: not be indistinguishable from one on the signal a caller persists from).
-    category_changed = pyqtSignal(str)
+    category_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -85,7 +85,7 @@ class CategoryNav(QWidget):
 
     def retint(self, colours: dict) -> None:
         """Re-render the category icons for a palette (called by the window)."""
-        from PyQt6.QtCore import QSize
+        from PySide6.QtCore import QSize
 
         from app.ui.widgets.icons import icon
         self.sidebar.setIconSize(QSize(16, 16))

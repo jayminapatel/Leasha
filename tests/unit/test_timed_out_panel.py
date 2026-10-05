@@ -23,9 +23,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
 
 from app.core.errors import make_error                          # noqa: E402
 from app.index.timed_out_retry import RetryTimedOut             # noqa: E402

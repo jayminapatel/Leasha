@@ -170,7 +170,7 @@ def check_platform() -> Check:
 
 
 PACKAGES = [
-    ("PyQt6.QtCore", "PyQt6"),
+    ("PySide6.QtCore", "PySide6"),
     ("lancedb", "lancedb"),
     ("fastembed", "fastembed"),
     ("pymupdf", "pymupdf"),

@@ -462,7 +462,7 @@ def test_the_presenter_still_does_not_import_qt():
     assert len(files) > 2, "the presenter package has gone missing"
     for path in files:
         text = source(path)
-        assert "PyQt6" not in text, path.name
+        assert "PySide6" not in text, path.name
         assert "from PyQt" not in text, path.name
 
 
@@ -472,10 +472,10 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     or they stop being tested."""
     options = source(UI / "view_options.py")
     top = options.split("# The Qt half")[0]
-    assert "PyQt6" not in top, "Qt reached the decision half of view_options"
+    assert "PySide6" not in top, "Qt reached the decision half of view_options"
 
     models = (UI.parents[0] / "llm" / "models.py").read_text(encoding="utf-8")
-    assert "PyQt6" not in models
+    assert "PySide6" not in models
 
 
 # ---------------------------------------------------------------------------
@@ -789,7 +789,7 @@ def test_progress_reaches_the_screen_through_a_signal():
 # **`UnboundLocalError: cannot access local variable 'QTimer'`, and the window
 # would not open at all.** `MainWindow.__init__` used `QTimer` at line 207; four
 # hundred lines later, still inside the same function, sat a redundant
-# `from PyQt6.QtCore import QTimer`. Python binds names per *function*, not per
+# `from PySide6.QtCore import QTimer`. Python binds names per *function*, not per
 # line, so that import made `QTimer` local for the whole of `__init__` and the
 # earlier use referred to a variable that did not exist yet.
 #

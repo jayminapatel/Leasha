@@ -147,9 +147,9 @@ def test_the_fixed_samples_are_the_same_every_time(tmp_path):
 
 @pytest.fixture(scope="module")
 def qapp():
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     yield QApplication.instance() or QApplication([])
 

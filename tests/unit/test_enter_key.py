@@ -10,11 +10,11 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QEvent, Qt  # noqa: E402
-from PyQt6.QtGui import QKeyEvent  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QListWidget  # noqa: E402
+from PySide6.QtCore import QEvent, Qt  # noqa: E402
+from PySide6.QtGui import QKeyEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication, QListWidget  # noqa: E402
 
 from app.ui import enter_key  # noqa: E402
 
@@ -80,7 +80,7 @@ def test_a_list_that_says_activated_itself_is_not_made_to_say_it_twice():
 def test_a_page_that_hears_enter_through_its_own_filter_still_hears_it():
     """The Code page and Files: `installEventFilter` on the table. A filter on
     the application runs first, and the first version here kept the key."""
-    from PyQt6.QtCore import QObject
+    from PySide6.QtCore import QObject
 
     app = QApplication.instance() or QApplication([])
     heard: list = []
@@ -110,7 +110,7 @@ def test_a_page_that_hears_enter_through_its_own_filter_still_hears_it():
 
 def test_a_page_around_the_list_that_takes_enter_is_enough():
     """Mail: the page's own `keyPressEvent` opens the message."""
-    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+    from PySide6.QtWidgets import QVBoxLayout, QWidget
 
     app = QApplication.instance() or QApplication([])
     heard: list = []

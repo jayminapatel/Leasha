@@ -14,8 +14,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -62,11 +62,11 @@ REPORTS: tuple[tuple[str, str, str], ...] = (
 class ReportsView(QWidget):
     """A list of reports; pick one, read it, export it."""
 
-    error = pyqtSignal(object)
+    error = Signal(object)
     #: A timeline entry was opened / shown in its folder - it carries `path`,
     #: `volume_id` and `relative_path`, everything the shell's own opener reads.
-    opened = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
+    opened = Signal(object)
+    reveal_requested = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

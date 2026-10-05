@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QUrl, pyqtSignal
-from PyQt6.QtGui import QDesktopServices
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
@@ -39,31 +39,31 @@ SPEEDS = (("Fast", "fast"), ("Thoughtful", "thoughtful"))
 
 
 class ChatView(QWidget):
-    question_submitted = pyqtSignal(str)
-    stop_requested = pyqtSignal()
-    recheck_requested = pyqtSignal()
-    speed_changed = pyqtSignal(str)
-    shelf_changed = pyqtSignal()
-    open_requested = pyqtSignal(str)            # a path (a shelf chip)
-    result_opened = pyqtSignal(object)          # a result row (a source, a hit)
-    result_revealed = pyqtSignal(object)
+    question_submitted = Signal(str)
+    stop_requested = Signal()
+    recheck_requested = Signal()
+    speed_changed = Signal(str)
+    shelf_changed = Signal()
+    open_requested = Signal(str)            # a path (a shelf chip)
+    result_opened = Signal(object)          # a result row (a source, a hit)
+    result_revealed = Signal(object)
     #: The Sources pane's right-click menu: the row that was clicked.
-    pin_requested = pyqtSignal(object)
-    reindex_requested = pyqtSignal(object)
-    similar_requested = pyqtSignal(object)
-    error = pyqtSignal(object)
+    pin_requested = Signal(object)
+    reindex_requested = Signal(object)
+    similar_requested = Signal(object)
+    error = Signal(object)
     #: The window is closing: the controller stops any answer still running.
-    closing = pyqtSignal()
+    closing = Signal()
     #: The last answer's Regenerate / Try again, and the last message's Edit.
-    regenerate_requested = pyqtSignal()
-    retry_requested = pyqtSignal()
-    edit_requested = pyqtSignal()
+    regenerate_requested = Signal()
+    retry_requested = Signal()
+    edit_requested = Signal()
     #: The Web chip was switched for this conversation.
-    web_toggled = pyqtSignal(bool)
+    web_toggled = Signal(bool)
     #: The person answered "Search the web for ...?" - `True` is Allow.
-    web_decided = pyqtSignal(bool)
+    web_decided = Signal(bool)
     #: 2026-10-04: the Sources column's preview was shown (True) or hidden.
-    preview_toggled = pyqtSignal(bool)
+    preview_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -83,16 +83,16 @@ def test_the_store_gives_the_panel_its_detail(tmp_path):
 
 
 def test_the_panel_shows_the_detail_it_promises_and_keeps_it_through_a_rebuild():
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtCore import QObject, pyqtSignal
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6")
+    from PySide6.QtCore import QObject, Signal
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.skips_panel import SkipsPanel
 
     app = QApplication.instance() or QApplication([])
 
     class Retry(QObject):
-        asked = pyqtSignal(str)
+        asked = Signal(str)
 
     retry = Retry()
     panel = SkipsPanel(retry.asked)

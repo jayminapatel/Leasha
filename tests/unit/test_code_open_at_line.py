@@ -194,12 +194,12 @@ def test_a_checkout_hit_from_git_carries_its_line() -> None:
 
 # --- the window -----------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QEvent, Qt  # noqa: E402
-from PyQt6.QtGui import QKeyEvent  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import QEvent, Qt  # noqa: E402
+from PySide6.QtGui import QKeyEvent  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.presenter.code import RepoFileRow  # noqa: E402
 from app.ui.view_options import ViewPreferences  # noqa: E402

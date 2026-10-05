@@ -11,9 +11,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import (  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QComboBox, QFormLayout, QLineEdit, QPlainTextEdit, QSpinBox, QWidget,
 )
 
@@ -116,7 +116,7 @@ def test_a_table_rules_its_rows_and_not_its_columns(app):
 
 def test_the_people_window_with_no_piles_keeps_its_words_together(app, tmp_path):
     """With nothing to name, its four lines were spread down an empty window."""
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel
 
     from app.storage.sqlite_store import SqliteStore
     from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
@@ -156,7 +156,7 @@ def test_the_people_window_with_no_piles_keeps_its_words_together(app, tmp_path)
 def _filled_after_an_empty_apply(app, widths):
     """A three-column table the way Files builds it: its preferences applied
     while it is still empty, then its rows, then applied again."""
-    from PyQt6.QtWidgets import QTableWidgetItem
+    from PySide6.QtWidgets import QTableWidgetItem
 
     from app.ui.view_options import ViewPreferences, apply_to_table
     from app.ui.widgets.result_table import ResultTable
@@ -199,7 +199,7 @@ def test_one_saved_width_does_not_leave_the_other_columns_at_their_headings(app)
 
 
 def test_advanced_is_closed_until_asked_for_and_says_when_it_was_clicked(app):
-    from PyQt6.QtWidgets import QGroupBox
+    from PySide6.QtWidgets import QGroupBox
 
     from app.ui.widgets.advanced_fold import TITLE, AdvancedFold
 
@@ -246,7 +246,7 @@ def test_settings_folds_the_expert_groups_and_the_filter_still_finds_them(app, t
         assert not view.search_box.isVisible() and not view.editor_box.isVisible()
         assert view.search_behaviour.isVisible(), "what was not folded is where it was"
         # A group whose only control moved to Indexing is not left as an empty card.
-        from PyQt6.QtWidgets import QGroupBox
+        from PySide6.QtWidgets import QGroupBox
 
         grab_ui._reach(app, window, grab_ui.SURFACES["settings-whats-indexed"])
         empty = [box.title() for box in view.findChildren(QGroupBox)
@@ -270,7 +270,7 @@ def test_settings_folds_the_expert_groups_and_the_filter_still_finds_them(app, t
         assert not view.search_box.isVisible(), "and puts it back as it was"
     finally:
         window.close()
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
 
         QThreadPool.globalInstance().waitForDone(10_000)
         app.processEvents()

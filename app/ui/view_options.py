@@ -391,9 +391,9 @@ def build_menu(
     to the preferences alone: it also has to reset the table's own `FITTED`
     flag, and only the caller can reach the table.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QAction, QActionGroup
-    from PyQt6.QtWidgets import QMenu, QWidgetAction, QSpinBox, QLabel, QWidget, QHBoxLayout
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QAction, QActionGroup
+    from PySide6.QtWidgets import QMenu, QWidgetAction, QSpinBox, QLabel, QWidget, QHBoxLayout
 
     order = [key for key, _heading in columns]
     shown = set(visible_columns(prefs, order, available))
@@ -659,7 +659,7 @@ def button(
     honest as the data changes. `on_change` is called after each change with
     the new preferences, for the view to redraw itself.
     """
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtWidgets import QToolButton
 
     import weakref
 
@@ -798,7 +798,7 @@ def _as_icon(widget: Any) -> None:
     """Make a tab's View button an icon beside Preview's, the same size and
     the same colours. Its text stays "View", which is what a screen reader and
     every test that finds it by name read."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.ui.widgets.icons import icon
 
@@ -833,8 +833,8 @@ def preview_toggle(view: Any, *, checked: Any = None, on_toggle: Any = None) -> 
     and `on_toggle(on)` instead. Paints its own icon, and repaints it when
     it is flipped and when the window changes theme (`retint_toggles`).
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QToolButton
 
     from app.ui.widgets.icons import icon
 
@@ -1112,7 +1112,7 @@ _WATCHERS: dict = {}
 
 def _keep_watcher(timer: Any, look: Any) -> None:
     """Register a watcher, first dropping those whose timer no longer exists."""
-    from PyQt6 import sip
+    from app.ui import qtsip as sip
 
     for key, (other, _look) in list(_WATCHERS.items()):
         try:
@@ -1178,7 +1178,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
 
     import weakref
 
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     #: **Held weakly** - see `_weakly`. `table.leasha_resync_widths` is this
     #: module's closure stored on the table, so a strong reference here made
@@ -1352,7 +1352,7 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
     once. A column with a saved width is set afterwards, so the two never
     fight.
     """
-    from PyQt6.QtWidgets import QHeaderView
+    from PySide6.QtWidgets import QHeaderView
 
     header = table.horizontalHeader()
     if header is None:
@@ -1550,7 +1550,7 @@ def apply_to_table(
 def _apply_to_table(table: Any, prefs: ViewPreferences, order: Sequence[str],
                     shown: Sequence[str]) -> tuple[str, ...]:
     """The body of `apply_to_table`, with the header's signals already off."""
-    from PyQt6.QtGui import QFontMetrics
+    from PySide6.QtGui import QFontMetrics
 
     for index, key in enumerate(order):
         table.setColumnHidden(index, key not in shown)
@@ -1575,7 +1575,7 @@ def _apply_to_table(table: Any, prefs: ViewPreferences, order: Sequence[str],
         # Fixed, not ResizeToContents: the latter measures every row on every
         # repaint, which on five hundred rows is a visible stutter while
         # scrolling and defeats the point of a compact mode.
-        from PyQt6.QtWidgets import QHeaderView
+        from PySide6.QtWidgets import QHeaderView
         header.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
     return shown

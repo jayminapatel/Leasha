@@ -67,8 +67,8 @@ def snapshot_clipboard() -> Optional[Any]:
     `None` if there is no clipboard to read from (no `QGuiApplication` yet),
     which `restore_clipboard` treats as "nothing to put back".
     """
-    from PyQt6.QtCore import QMimeData
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtCore import QMimeData
+    from PySide6.QtGui import QGuiApplication
 
     clipboard = QGuiApplication.clipboard()
     if clipboard is None:
@@ -85,7 +85,7 @@ def restore_clipboard(snapshot: Optional[Any]) -> None:
     if snapshot is None:
         return
     try:
-        from PyQt6.QtGui import QGuiApplication
+        from PySide6.QtGui import QGuiApplication
 
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
@@ -109,7 +109,7 @@ def read_foreground_selection() -> Optional[str]:
     if not available():
         return None
     try:
-        from PyQt6.QtGui import QGuiApplication
+        from PySide6.QtGui import QGuiApplication
 
         clipboard = QGuiApplication.clipboard()
         if clipboard is None:

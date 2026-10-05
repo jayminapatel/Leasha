@@ -55,7 +55,7 @@ def test_each_notice_has_its_own_time() -> None:
 
 
 def test_the_page_shows_the_time_before_each_notice(qtbot) -> None:
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.indexing_view import IndexingView
 
     view = IndexingView()
@@ -75,7 +75,7 @@ def test_the_page_shows_the_time_before_each_notice(qtbot) -> None:
 
 
 def test_the_finished_panel_keeps_the_times(qtbot) -> None:
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.indexing_view import IndexingView
 
     view = IndexingView()

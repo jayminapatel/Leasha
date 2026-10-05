@@ -27,14 +27,14 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 np = pytest.importorskip("numpy")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QRect, Qt  # noqa: E402
-from PyQt6.QtGui import QColor, QImage, QPainter, QStandardItem, QStandardItemModel  # noqa: E402
-from PyQt6.QtWidgets import QStyleOptionViewItem  # noqa: E402
+from PySide6.QtCore import QRect, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QImage, QPainter, QStandardItem, QStandardItemModel  # noqa: E402
+from PySide6.QtWidgets import QStyleOptionViewItem  # noqa: E402
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 
@@ -90,7 +90,7 @@ def _goto(window, title: str) -> None:
 @pytest.fixture(scope="module")
 def relaunch(tmp_path_factory):
     """`(app, launch, store)`: `launch()` builds a window over the one store."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -139,7 +139,7 @@ def test_the_first_run_opens_on_search_with_the_box_ready(relaunch, qtbot):
 
 
 def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     app, launch, store = relaunch
     first = launch()
     _settled(qtbot, first)
@@ -615,7 +615,7 @@ def _set_prefs(window, *, density: str, font_pt: int):
 
 
 def window_app(window):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     return QApplication.instance()
 
 
@@ -658,7 +658,7 @@ def painted_payloads(gui_mainwindow, quokkas):
     than through the function-scoped `qtbot`."""
     import time
 
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     from app.ui.presenter import Terminator
     from app.ui.result_delegate import Skeleton
@@ -720,7 +720,7 @@ def test_paint_stays_inside_size_hint_and_leaves_no_gap(
     drawn below the height `sizeHint` reserved or right of the width it was
     given, and the last thing drawn sits within a half line of the bottom pad -
     a reserved-but-empty line would be a full one."""
-    from PyQt6.QtGui import QFontMetrics
+    from PySide6.QtGui import QFontMetrics
     from app.ui.presenter import Terminator
     from app.ui.result_delegate import Skeleton
     from app.ui.view_options import Metrics
@@ -1106,7 +1106,7 @@ def test_escape_closes_the_find_bar_first_and_the_box_only_on_the_second_press(
 
 def _rail_rects(rail) -> list:
     """Every rail entry that is showing, as (name, rect in column coordinates)."""
-    from PyQt6.QtCore import QRect
+    from PySide6.QtCore import QRect
 
     found = []
     for button in list(rail._buttons.values()) + [rail.pill]:

@@ -41,7 +41,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.buttons import refresh_icon
 from app.ui.widgets.index_controls import build_controls

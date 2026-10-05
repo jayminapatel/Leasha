@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.chat.roles import ModelOption                                   # noqa: E402
 from app.ui.controllers import chat_controller                           # noqa: E402

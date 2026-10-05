@@ -28,11 +28,11 @@ import pytest
 from app.search.query import SCOPES as QUERY_SCOPES
 from app.ui.presenter import code_route
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.code_view import COLUMNS, PREFS_KEY, CodeView  # noqa: E402
 from app.ui.widgets.search_bar import SCOPES  # noqa: E402
@@ -131,7 +131,7 @@ def rows(view) -> list:
 def test_there_is_exactly_one_search_box(view):
     """**The correction.** Two boxes made somebody choose an engine before they
     had a question."""
-    from PyQt6.QtWidgets import QLineEdit
+    from PySide6.QtWidgets import QLineEdit
 
     boxes = [child for child in view.findChildren(QLineEdit)
              if child.isVisibleTo(view)]

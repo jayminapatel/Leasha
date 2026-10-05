@@ -47,7 +47,7 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QApplication, QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton,
     QSizePolicy, QVBoxLayout, QWidget,
 )

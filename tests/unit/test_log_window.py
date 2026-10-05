@@ -26,12 +26,12 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.log_lines import (                                  # noqa: E402
     ERROR, LEVELS, NORMAL, TOKENS, WARN, colour_token, is_actionable,

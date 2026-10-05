@@ -40,8 +40,8 @@ def main(scratch: Path) -> int:
 
     private_locks.install()
 
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QApplication, QWidget
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QWidget
 
     from app.core import run_lock
     from app.core.config import load_settings

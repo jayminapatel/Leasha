@@ -16,8 +16,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool
-from PyQt6.QtWidgets import QLabel, QWidget
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QLabel, QWidget
 
 from app.ui.tasks import repo_health_notes
 from app.ui.workers import CallableWorker, run

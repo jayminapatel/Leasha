@@ -226,7 +226,7 @@ class HotkeyListener:
         """
         try:
             if self._filter is not None:
-                from PyQt6.QtCore import QCoreApplication
+                from PySide6.QtCore import QCoreApplication
 
                 application = QCoreApplication.instance()
                 if application is not None:
@@ -243,7 +243,7 @@ class HotkeyListener:
     def _register(self, found: Hotkey) -> bool:
         import ctypes
 
-        from PyQt6.QtCore import QAbstractNativeEventFilter, QCoreApplication
+        from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication
 
         user32 = ctypes.WinDLL("user32", use_last_error=True)
         if not user32.RegisterHotKey(

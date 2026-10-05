@@ -43,8 +43,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QSpinBox, QVBoxLayout, QWidget,
 )
@@ -112,7 +112,7 @@ def _setting(key: str) -> Optional[Any]:
 
 
 class ChatBox(QGroupBox):
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[QWidget] = None, *,
                  probe: Optional[Callable[[str], InstalledModels]] = None) -> None:

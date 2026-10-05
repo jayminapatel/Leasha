@@ -24,12 +24,12 @@ import tempfile
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtGui import QImage                                  # noqa: E402
-from PyQt6.QtWidgets import (                                   # noqa: E402
+from PySide6.QtGui import QImage                                  # noqa: E402
+from PySide6.QtWidgets import (                                   # noqa: E402
     QApplication, QTextBrowser, QVBoxLayout, QWidget,
 )
 

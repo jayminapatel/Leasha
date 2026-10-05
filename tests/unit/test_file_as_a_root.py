@@ -103,14 +103,14 @@ class TestWhatElseReadsARoot:
             "a file that is not there is treated as the missing folder it may be")
 
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 @pytest.mark.gui
 class TestTheList:
 
     def test_add_file_puts_the_file_on_its_own_line(self, qtbot, monkeypatch, tmp_path):
-        from PyQt6.QtWidgets import QPushButton
+        from PySide6.QtWidgets import QPushButton
 
         from app.ui.widgets import roots_box as module
 

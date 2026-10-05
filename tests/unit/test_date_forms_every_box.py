@@ -41,12 +41,12 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt, QThreadPool  # noqa: E402
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtCore import Qt, QThreadPool  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.storage.sqlite_store import FileStatus, SqliteStore  # noqa: E402
 
@@ -152,7 +152,7 @@ def _release(widget) -> None:
     **2026-09-30: needed for the Search view only** - see the same dated note
     in `test_date_everywhere._release`. Files, Mail and Code are freed at once.
     """
-    from PyQt6 import sip
+    from app.ui import qtsip as sip
 
     if not sip.isdeleted(widget):
         sip.delete(widget)

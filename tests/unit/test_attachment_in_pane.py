@@ -51,8 +51,8 @@ def _xlsx() -> bytes:
 
 
 def _png() -> bytes:
-    from PyQt6.QtCore import QBuffer, QIODevice
-    from PyQt6.QtGui import QColor, QImage
+    from PySide6.QtCore import QBuffer, QIODevice
+    from PySide6.QtGui import QColor, QImage
 
     image = QImage(4, 2, QImage.Format.Format_RGB32)
     image.fill(QColor("red"))
@@ -187,9 +187,9 @@ def test_a_pdf_inside_a_zip_on_disk_previews_as_its_pages(tmp_path):
 
 @pytest.fixture(scope="module")
 def qapp():
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     yield QApplication.instance() or QApplication([])
 

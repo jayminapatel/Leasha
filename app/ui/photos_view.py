@@ -22,8 +22,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter,
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter,
                              QStackedWidget, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import PHOTOS_COMMANDS, facets, narrow, sort_rows, summary
@@ -60,9 +60,9 @@ def _read(store: Any, text: str, reading: dict) -> tuple:
 
 
 class PhotosView(QWidget):
-    open_requested = pyqtSignal(str)
-    reveal_requested = pyqtSignal(str)
-    error = pyqtSignal(object)
+    open_requested = Signal(str)
+    reveal_requested = Signal(str)
+    error = Signal(object)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

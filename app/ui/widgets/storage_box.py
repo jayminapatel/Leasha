@@ -34,8 +34,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
     QLabel,
@@ -53,13 +53,13 @@ __all__ = ["StorageBox"]
 class StorageBox(QGroupBox):
     """Index location, the space it needs, and the model that fills it."""
 
-    move_index_requested = pyqtSignal()
-    rebuild_vectors_requested = pyqtSignal()
+    move_index_requested = Signal()
+    rebuild_vectors_requested = Signal()
     #: `{registry key: value}`. Nothing here emits it today - both remaining
     #: settings persist through their flow - and it is kept because the panel
     #: is connected to the writer, so a control added here is wired the moment
     #: it exists rather than a release later.
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("Index storage", parent)

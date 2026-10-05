@@ -25,9 +25,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QApplication, QComboBox, QLineEdit, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QWidget  # noqa: E402
 
 from app.core import model_fetch  # noqa: E402
 from app.core.errors import AppErrorException  # noqa: E402
@@ -444,7 +444,7 @@ def test_a_fastembed_model_is_found_in_the_hugging_face_layout(tmp_path):
 # -- the buttons for a model sit on one line (owner, 2026-09-29) ------------------------
 
 def _row_of(widget, box) -> int:
-    from PyQt6.QtCore import QPoint
+    from PySide6.QtCore import QPoint
 
     return widget.mapTo(box, QPoint(0, widget.height() // 2)).y()
 

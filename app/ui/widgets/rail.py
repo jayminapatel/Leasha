@@ -32,9 +32,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QPointF, QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QPainter, QPen, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import (
     QButtonGroup, QFrame, QHBoxLayout, QLabel, QSizePolicy,
     QStackedWidget, QToolButton, QVBoxLayout, QWidget,
 )
@@ -91,7 +91,7 @@ class _Pill(QFrame):
     going, because that is the only time it moves.
     """
 
-    activated = pyqtSignal()
+    activated = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -251,7 +251,7 @@ class _Pill(QFrame):
 class Rail(QWidget):
     """A page rail and the stack it drives. See the module docstring."""
 
-    currentChanged = pyqtSignal(int)          # noqa: N815 - QTabWidget's name
+    currentChanged = Signal(int)          # noqa: N815 - QTabWidget's name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

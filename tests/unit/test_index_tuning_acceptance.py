@@ -165,7 +165,7 @@ JARGON = ("onnx", "directml", "intra-op", "intra op", "quantised model",
 
 
 def _controls_of(box) -> list:
-    from PyQt6.QtWidgets import QAbstractButton, QComboBox, QSpinBox
+    from PySide6.QtWidgets import QAbstractButton, QComboBox, QSpinBox
 
     return [child for child in box.findChildren((QComboBox, QSpinBox,
                                                  QAbstractButton))]
@@ -173,7 +173,7 @@ def _controls_of(box) -> list:
 
 @pytest.fixture()
 def screen():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     QApplication.instance() or QApplication([])
     from app.ui.widgets.tuning_box import TuningBox

@@ -42,11 +42,11 @@ from typing import Any, Optional, Sequence
 
 import time
 
-from PyQt6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QItemSelectionModel,
+from PySide6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QItemSelectionModel,
                           QModelIndex, QObject, QPoint, QSize, Qt, QTimer, QVariantAnimation,
-                          pyqtSignal)
-from PyQt6.QtGui import QIcon, QPainter
-from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLabel, QListView,
+                          Signal)
+from PySide6.QtGui import QIcon, QPainter
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLabel, QListView,
                              QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                              QTableView, QVBoxLayout, QWidget)
 
@@ -318,12 +318,12 @@ class PhotoBrowser(QWidget):
     """The grid and the table over one `PhotoModel`, with one selection."""
 
     #: The row the selection now points at (None when nothing is selected).
-    current_changed = pyqtSignal(object)
+    current_changed = Signal(object)
     #: Double-click or Enter: open the full-screen viewer at this row.
-    opened = pyqtSignal(object)
+    opened = Signal(object)
     #: Right-click: `(row, global point)`.
-    menu_requested = pyqtSignal(object, object)
-    selection_changed = pyqtSignal()
+    menu_requested = Signal(object, object)
+    selection_changed = Signal()
 
     def __init__(self, thumbs: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

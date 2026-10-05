@@ -475,8 +475,8 @@ def _run_with_probe(run: Callable[[Callable[[Any], None]], Any],
     Returns `(whatever run returned, probe report)`.
     """
     _ensure_qt_platform()
-    from PyQt6.QtCore import QEventLoop, QObject, QTimer, pyqtSignal
-    from PyQt6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
+    from PySide6.QtCore import QEventLoop, QObject, QTimer, Signal
+    from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
     from app.ui import lag_monitor
 
@@ -493,7 +493,7 @@ def _run_with_probe(run: Callable[[Callable[[Any], None]], Any],
         widget from a worker thread (which Qt forbids).
         """
 
-        progress = pyqtSignal(int, int)
+        progress = Signal(int, int)
 
     window = QWidget()
     window.setWindowTitle("Leasha bench - stand-in window")
@@ -589,7 +589,7 @@ def _stop_beat_timers(application: Any, monitor: Any) -> None:
     `QTimer`s whose `timeout` is connected to this monitor's `beat` - and
     stopped, or its beats would keep landing in a monitor nobody reads.
     """
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     for timer in application.findChildren(QTimer):
         if timer.interval() == int(monitor._beat_s * 1000):  # noqa: SLF001

@@ -390,7 +390,7 @@ def test_no_control_claims_a_key_the_registry_does_not_declare():
 # Item 6: no control is orphaned - every signal a settings panel declares has
 # a receiver.
 #
-# `rerank_toggled` and `cloud_toggled` were both declared with `pyqtSignal`,
+# `rerank_toggled` and `cloud_toggled` were both declared with `Signal`,
 # emitted, and connected to nothing - the exact shape checked here, generically,
 # rather than the two names the review happened to find. `ui:tray_minimise` and
 # `ui:tray_close` were the same failure one layer down: read at startup, written
@@ -417,9 +417,9 @@ SETTINGS_PANEL_MODULES: tuple[str, ...] = tuple(sorted({
 
 
 def _signals_declared_in(path: Path) -> set[str]:
-    """Every `name = pyqtSignal(...)` class attribute in one module.
+    """Every `name = Signal(...)` class attribute in one module.
 
-    Not a grep for `pyqtSignal`: that would count the import line, a comment
+    Not a grep for `Signal`: that would count the import line, a comment
     explaining one, or a docstring quoting one. This looks for the assignment
     shape a declaration actually has.
     """
@@ -432,7 +432,7 @@ def _signals_declared_in(path: Path) -> set[str]:
             continue
         value = node.value
         if not (isinstance(value, ast.Call) and isinstance(value.func, ast.Name)
-                and value.func.id == "pyqtSignal"):
+                and value.func.id == "Signal"):
             continue
         for target in node.targets:
             if isinstance(target, ast.Name):
@@ -495,9 +495,9 @@ def test_the_orphaned_signal_detector_can_actually_fail(tmp_path: Path):
     """Otherwise it passes on a broken detector forever."""
     bait = tmp_path / "bait_panel.py"
     bait.write_text(
-        "from PyQt6.QtCore import pyqtSignal\n"
+        "from PySide6.QtCore import Signal\n"
         "class Bait:\n"
-        "    orphaned_signal = pyqtSignal(bool)\n",
+        "    orphaned_signal = Signal(bool)\n",
         encoding="utf-8",
     )
     assert "orphaned_signal" in _signals_declared_in(bait)

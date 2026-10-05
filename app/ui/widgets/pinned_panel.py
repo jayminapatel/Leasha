@@ -25,9 +25,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QStandardItem
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QStandardItem
+from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QGroupBox, QHBoxLayout, QLabel, QListView,
     QPushButton, QVBoxLayout, QWidget,
 )
@@ -47,11 +47,11 @@ class PinnedPanel(QGroupBox):
     """Documents gathered across several searches, and what to do with them."""
 
     #: `{key: value}` to store — one `index_state` row. §3c: it survives.
-    remember = pyqtSignal(dict)
+    remember = Signal(dict)
     #: Open every one of these paths.
-    open_all = pyqtSignal(list)
+    open_all = Signal(list)
     #: The set changed, so a results list can retick its buttons.
-    changed = pyqtSignal(tuple)
+    changed = Signal(tuple)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Pinned working set", parent)
@@ -173,7 +173,7 @@ class PinnedPanel(QGroupBox):
         contain any separator anybody would otherwise reach for.
         """
         try:
-            from PyQt6.QtWidgets import QApplication
+            from PySide6.QtWidgets import QApplication
 
             clipboard = QApplication.clipboard()
             if clipboard is not None:

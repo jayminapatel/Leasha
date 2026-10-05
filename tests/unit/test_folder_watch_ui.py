@@ -210,7 +210,7 @@ def test_a_process_that_cannot_be_started_says_so_instead_of_raising() -> None:
 # The switch, in the real window
 # ---------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 class StandIn:

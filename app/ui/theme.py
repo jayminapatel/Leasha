@@ -834,8 +834,8 @@ def detect_scheme(app: Optional[object] = None) -> str:
     a theme is not worth failing to start over.
     """
     try:
-        from PyQt6.QtCore import Qt  # noqa: PLC0415
-        from PyQt6.QtGui import QGuiApplication  # noqa: PLC0415
+        from PySide6.QtCore import Qt  # noqa: PLC0415
+        from PySide6.QtGui import QGuiApplication  # noqa: PLC0415
 
         instance = app or QGuiApplication.instance()
         if instance is None:
@@ -941,7 +941,7 @@ def base_point_size() -> float:
     negative into every rule in the sheet.
     """
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         app = QApplication.instance()
         if app is not None:

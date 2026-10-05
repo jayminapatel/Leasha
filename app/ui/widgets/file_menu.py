@@ -30,8 +30,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PyQt6.QtGui import QAction, QGuiApplication
-from PyQt6.QtWidgets import QMenu, QWidget
+from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtWidgets import QMenu, QWidget
 
 __all__ = ["FileActions", "build_menu"]
 

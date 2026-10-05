@@ -9,9 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QMessageBox  # noqa: E402
+from PySide6.QtWidgets import QMessageBox  # noqa: E402
 
 from app.ort import catalogue  # noqa: E402
 from tests.unit.test_ort_models_manage import _place  # noqa: E402

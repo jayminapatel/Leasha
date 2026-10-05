@@ -136,10 +136,10 @@ def test_an_unknown_root_has_no_undo_record(archive) -> None:
 
 # --- 1b and 1c: the window ---------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.code_view import CodeView  # noqa: E402
 from app.ui.widgets import file_menu  # noqa: E402

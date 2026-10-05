@@ -15,10 +15,10 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QMainWindow  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QMainWindow  # noqa: E402
 
 from app.ui.window_state import bring_forward  # noqa: E402
 

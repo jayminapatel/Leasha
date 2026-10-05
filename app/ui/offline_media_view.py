@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtWidgets import (
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
@@ -81,10 +81,10 @@ class OfflineMediaView(LineActions, QWidget):
 
     #: (root folder, name, description) - a folder just chosen, named, ready
     #: for its first Scan.
-    scan_requested = pyqtSignal(str, str, str)
-    rescan_requested = pyqtSignal(int)
-    delete_requested = pyqtSignal(int)
-    error = pyqtSignal(object)
+    scan_requested = Signal(str, str, str)
+    rescan_requested = Signal(int)
+    delete_requested = Signal(int)
+    error = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -26,7 +26,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from app.core.logging import logger
 from app.ui.presenter.watch_words import NO_FOLDERS, OFF, STARTING, watch_status
@@ -52,7 +52,7 @@ class FolderWatchControl(QObject):
 
     #: `(kind, data)` from the child's reading thread, delivered on the
     #: window's thread because this object lives there.
-    _event = pyqtSignal(str, dict)
+    _event = Signal(str, dict)
 
     def __init__(self, window: Any) -> None:
         super().__init__(window)

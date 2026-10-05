@@ -224,9 +224,9 @@ def test_the_snippet_height_matches_what_is_drawn():
     r"""`sizeHint` reserved two lines and `_paint_snippet` draws one, eliding at
     the right edge - so every long-snippet row carried a blank line under it,
     costing about a result per screenful."""
-    from PyQt6.QtGui import QFont, QFontMetrics
+    from PySide6.QtGui import QFont, QFontMetrics
 
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.result_delegate import _snippet_height
 
     font = QFont()

@@ -19,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.chat.roles import ModelOption                                   # noqa: E402
 from app.ui.controllers import chat_controller                           # noqa: E402
@@ -93,7 +93,7 @@ def test_interprets_menu_ticks_settings_choice_rather_than_its_first_model(qtbot
 
 
 def test_a_big_model_is_warned_about_beside_the_list(qtbot):
-    from PyQt6.QtWidgets import QHBoxLayout, QWidget
+    from PySide6.QtWidgets import QHBoxLayout, QWidget
 
     host = QWidget()
     qtbot.addWidget(host)

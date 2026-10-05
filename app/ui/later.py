@@ -12,14 +12,14 @@ answer painted into a results view the window had thrown away.
 **A bound method does not have that problem**, which is the distinction worth knowing
 rather than memorising a rule. `QTimer.singleShot(ms, self._method)` gives Qt a receiver
 - the QObject the method is bound to - and Qt drops the connection when that object
-dies. Measured here on PyQt6 6.11 (`test_later.py` pins it):
+dies. Measured here on PySide6 6.11 (`test_later.py` pins it):
 
     singleShot(5, obj.method)        obj deleted first -> never fires
     singleShot(5, lambda: ...)       obj deleted first -> fires anyway
 
 So a lambda needs an owner given to it explicitly, and that is all `later` is: a
 single-shot `QTimer` **parented to the object that cares**. Destroy the owner and the
-timer is destroyed with it, so the callback cannot run against a corpse. PyQt6 6.11 does
+timer is destroyed with it, so the callback cannot run against a corpse. PySide6 6.11 does
 not expose Qt's own three-argument `singleShot(ms, context, slot)` overload - checked,
 it raises `TypeError` - or this would be a one-line wrapper around that.
 
@@ -32,7 +32,7 @@ Use a bound method where the call takes no arguments; use this where it takes so
 answer. `worker.signals.finished.connect(lambda ...)` has no receiver either, so the
 lambda runs when the worker lands however long that took - and if it touches a Qt object
 whose C++ half has since been deleted, the `RuntimeError` is raised inside a Qt slot
-where nothing catches it. Measured here, same PyQt6 6.11, in `test_worker_signal_owner.py`:
+where nothing catches it. Measured here, same PySide6 6.11, in `test_worker_signal_owner.py`:
 
     signals.finished.connect(lambda: chip.setText(x))   chip deleteLater'd -> RuntimeError
     signals.finished.connect(relay.fire)                relay's owner gone  -> never fires
@@ -62,7 +62,7 @@ def later(owner: Any, msec: int, call: Callable[[], Any]) -> Any:
     QObject (every widget is one); the timer is its child, so Qt's own ownership does
     the cancelling and there is nothing to remember to undo.
     """
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     timer = QTimer(owner)
     timer.setSingleShot(True)
@@ -91,7 +91,7 @@ def when_done(owner: Any, worker: Any, *, finished: Callable | None = None,
     worker per thumbnail does not accumulate a child QObject per thumbnail for as long as
     it lives. Returns the relay, for a caller that wants to cut the connection sooner.
     """
-    from PyQt6.QtCore import QObject
+    from PySide6.QtCore import QObject
 
     class _Relay(QObject):
         """The receiver Qt needs. Its slots are bound methods of a real QObject."""

@@ -523,7 +523,7 @@ def test_the_whole_journey_from_a_slash_to_a_search(store):
     would not match. Both would have passed a file of joints like the one
     above.
     """
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
 
     from app.ui.presenter import value_suggestions
     from app.ui.saved_box import SavedSearches

@@ -324,7 +324,7 @@ def test_a_run_that_asked_not_to_be_low_priority_is_left_at_normal(tmp_path, mon
 
 
 def test_the_index_worker_lowers_its_own_thread_and_tells_the_pipeline(monkeypatch):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui import workers
 
     seen: dict[str, object] = {}
@@ -371,7 +371,7 @@ def _no_real_run_lock(monkeypatch):
 
 
 def _direct():
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     return Qt.ConnectionType.DirectConnection
 
@@ -443,7 +443,7 @@ def test_a_snapshot_can_be_read_while_the_run_writes_to_it():
 
 
 def test_the_index_worker_hands_the_window_a_copy(monkeypatch):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui import workers
 
     live = IndexStats(indexed=1)
@@ -467,7 +467,7 @@ def test_the_index_worker_hands_the_window_a_copy(monkeypatch):
 
 
 def _view():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.indexing_view import IndexingView
 
@@ -476,7 +476,7 @@ def _view():
 
 
 def test_progress_ticks_are_repainted_at_a_limited_rate():
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     view = _view()
     painted: list[int] = []
     view.progressed.connect(lambda *args: painted.append(args[1]))
@@ -489,7 +489,7 @@ def test_progress_ticks_are_repainted_at_a_limited_rate():
 
 
 def test_a_pause_is_never_dropped_by_the_limiter():
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     view = _view()
     painted: list[bool] = []
     view.progressed.connect(lambda *args: painted.append(args[4]))
@@ -501,7 +501,7 @@ def test_a_pause_is_never_dropped_by_the_limiter():
 
 
 def test_progress_paints_again_once_the_interval_has_passed():
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui import indexing_view
 
     view = _view()

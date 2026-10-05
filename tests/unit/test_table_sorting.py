@@ -27,12 +27,12 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
-from PyQt6.QtWidgets import QApplication, QTableWidgetItem      # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtWidgets import QApplication, QTableWidgetItem      # noqa: E402
 
 from app.ui.widgets.result_table import (                       # noqa: E402
     RELEVANCE, ROLE_RANK, ROLE_ROW, ResultTable, align_headers, alignment_for,
@@ -185,8 +185,8 @@ def test_the_cycle_works_when_qt_drives_it_rather_than_the_helper(qapp):
     This project has shipped a mechanism that worked beside an outcome that
     did not - twice - and both times the test asserted the mechanism.
     """
-    from PyQt6.QtCore import QPoint
-    from PyQt6.QtTest import QTest
+    from PySide6.QtCore import QPoint
+    from PySide6.QtTest import QTest
 
     table = _table(ranked=True)
     table.resize(400, 200)
@@ -377,7 +377,7 @@ def test_a_cell_that_asked_for_an_alignment_keeps_it(qapp):
 
 def test_a_plain_table_can_be_corrected_too(qapp):
     """§2b: the tables that are not `ResultTable` get the same treatment."""
-    from PyQt6.QtWidgets import QTableWidget
+    from PySide6.QtWidgets import QTableWidget
 
     plain = QTableWidget(0, 2)
     plain.setHorizontalHeaderLabels(["One", "Two"])
@@ -386,7 +386,7 @@ def test_a_plain_table_can_be_corrected_too(qapp):
 
 
 def test_a_tree_can_be_corrected_too(qapp):
-    from PyQt6.QtWidgets import QTreeWidget
+    from PySide6.QtWidgets import QTreeWidget
 
     tree = QTreeWidget()
     tree.setColumnCount(2)
@@ -498,7 +498,7 @@ def test_qt_sorts_the_moment_sorting_is_switched_on(qapp, monkeypatch):
     """The Qt behaviour the two tests above rest on, pinned so an upgrade that
     changes it is noticed: enabling sorting sorts by the header's indicator,
     and an indicator pointing at no column compares nothing."""
-    from PyQt6.QtWidgets import QTableWidget
+    from PySide6.QtWidgets import QTableWidget
 
     calls = _count_comparisons(monkeypatch)
 
@@ -546,7 +546,7 @@ def test_an_unranked_list_still_sorts_when_a_heading_is_clicked(qapp):
 
 def test_the_mail_tab_opens_newest_first(qapp, tmp_path):
     """End to end: the list the Mail tab shows is the list the index returned."""
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.storage.sqlite_store import SqliteStore
     from app.ui.mail_view import COLUMNS, MailView

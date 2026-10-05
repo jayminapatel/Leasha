@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 from tests.unit.conftest import gui_pump, gui_row_count, gui_select_row  # noqa: E402
 
@@ -165,7 +165,7 @@ def test_slash_popup_opens_and_inserting_a_command_writes_the_operator(gui_mainw
 # ---------------------------------------------------------------------------
 
 def test_pop_out_opens_stays_on_top_and_closes(gui_mainwindow, qtbot):
-    from PyQt6.QtCore import Qt as QtCore
+    from PySide6.QtCore import Qt as QtCore
 
     app, window, store, engine = gui_mainwindow
     view = window.search_view

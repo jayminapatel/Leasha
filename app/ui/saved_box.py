@@ -187,7 +187,7 @@ class SavedSearches:
         if self._store is None or not names:
             return
         try:
-            from PyQt6.QtCore import QThreadPool
+            from PySide6.QtCore import QThreadPool
 
             from app.ui.workers import CallableWorker, run
 

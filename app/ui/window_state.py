@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtGui import QGuiApplication
+from PySide6.QtGui import QGuiApplication
 
 __all__ = ["save_window_state", "restore_window_state", "bring_forward"]
 
@@ -137,7 +137,7 @@ def bring_forward(window: Any) -> None:
     - then raise it and give it focus. `raise_` alone is advisory on Windows;
       `activateWindow` is the half that brings it in front.
     """
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     state = window.windowState()
     if state & Qt.WindowState.WindowMinimized:
@@ -172,7 +172,7 @@ def listen_for_front(on_front: Any) -> Any:
     try:
         import ctypes
 
-        from PyQt6.QtCore import QAbstractNativeEventFilter, QCoreApplication
+        from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication
 
         from app.core.run_lock import front_message_id
 

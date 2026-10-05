@@ -569,7 +569,7 @@ AVAILABLE_3 = ("name", "path", "size")
 
 def _table(app, *, text: str = "value"):
     """A laid-out three-column table with something in every cell."""
-    from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem
+    from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
     table = QTableWidget(3, 3)
     table.setHorizontalHeaderLabels([heading for _key, heading in COLUMNS_3])
@@ -592,7 +592,7 @@ def _drag(table, index: int, width: int) -> None:
     treats a width that changed and then *stopped* changing as the drag. Two
     ticks is exactly that: one to see it move, one to see it settle.
     """
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     table.horizontalHeader().resizeSection(index, width)
     watchers = [child for child in table.children() if isinstance(child, QTimer)]
@@ -604,8 +604,8 @@ def _drag(table, index: int, width: int) -> None:
 def _qt():
     import pytest
 
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
     assert app is not None
@@ -655,7 +655,7 @@ def test_the_menu_calls_the_fit_callback_rather_than_a_plain_change():
     from app.ui.view_options import ViewPreferences, build_menu
 
     app = _qt()
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     parent = QWidget()                       # held: a temporary is collected
     asked: list = []
@@ -779,7 +779,7 @@ def test_columns_are_measured_once_per_table_not_once_per_fill(monkeypatch):
 def _empty_then_filled(app, prefs, text: str):
     """A table applied once while empty - as Files and Mail do in `__init__`,
     before their first query lands - then filled and applied again."""
-    from PyQt6.QtWidgets import QTableWidgetItem
+    from PySide6.QtWidgets import QTableWidgetItem
 
     from app.ui.view_options import apply_to_table, remember_widths
 
@@ -1149,7 +1149,7 @@ def _settle_stretch(table) -> None:
     what every width comparison against the *filled* size needs first,
     offscreen or not.
     """
-    from PyQt6.QtWidgets import QApplication as _QApp
+    from PySide6.QtWidgets import QApplication as _QApp
 
     width, height = table.width(), table.height()
     table.resize(width + 1, height)
@@ -1278,7 +1278,7 @@ import time
 
 sys.path.insert(0, r"$REPO_ROOT")
 
-from PyQt6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 from app.storage.sqlite_store import SqliteStore
 from app.ui.view_options import apply_to_table, button as view_button
 
@@ -1370,7 +1370,7 @@ import time
 
 sys.path.insert(0, r"$REPO_ROOT")
 
-from PyQt6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
+from PySide6.QtWidgets import QApplication, QTableWidget, QTableWidgetItem
 from app.storage.sqlite_store import SqliteStore
 from app.ui.view_options import apply_to_table, button as view_button
 

@@ -22,7 +22,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.index.resolve import Resolved                          # noqa: E402
 

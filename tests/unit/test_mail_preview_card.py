@@ -246,10 +246,10 @@ def test_a_store_that_cannot_answer_costs_the_card_not_the_preview(tmp_path) -> 
 
 # --- drawn --------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -345,7 +345,7 @@ def test_select_all_and_copy_gives_the_block_and_the_message(qapp) -> None:
 
 
 def test_copying_part_of_the_message_copies_only_that_part(qapp) -> None:
-    from PyQt6.QtGui import QTextCursor
+    from PySide6.QtGui import QTextCursor
 
     from app.ui.widgets.preview import PreviewPane
 
@@ -406,7 +406,7 @@ def test_a_mail_row_shows_its_card_before_the_read_lands(qapp) -> None:
 
 def pump(ms: int = 5_000) -> None:
     """Let every queued worker finish and its result be delivered."""
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     app = QApplication.instance()
     QThreadPool.globalInstance().waitForDone(ms)

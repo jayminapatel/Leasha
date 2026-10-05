@@ -37,8 +37,8 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QPixmap
+from PySide6.QtCore import QObject, Qt, QThreadPool, Signal
+from PySide6.QtGui import QPixmap
 
 from app.core.logging import logger
 
@@ -79,7 +79,7 @@ def _fast_jpeg(path: str, edge: int) -> Any:
         opened.draft("RGB", (edge, edge))
         image = ImageOps.exif_transpose(opened.convert("RGB"))
     image.thumbnail((edge, edge))
-    from PyQt6.QtGui import QImage
+    from PySide6.QtGui import QImage
 
     data = image.tobytes("raw", "RGB")
     return QImage(data, image.width, image.height, image.width * 3,
@@ -89,7 +89,7 @@ def _fast_jpeg(path: str, edge: int) -> Any:
 def photo_thumbnail(path: str, size: int, mtime_ns: int, cache_dir: Optional[Path],
                     edge: int = CACHE_EDGE) -> Any:
     """A `QImage` no bigger than `edge`, or None. **Worker thread only.**"""
-    from PyQt6.QtGui import QImage
+    from PySide6.QtGui import QImage
 
     target = Path(cache_dir) / cache_name(path, size, mtime_ns) if cache_dir else None
     if target is not None and target.exists():
@@ -123,7 +123,7 @@ def photo_thumbnail(path: str, size: int, mtime_ns: int, cache_dir: Optional[Pat
 def _thumb_and_tiny(path: str, size: int, mtime_ns: int, cache_dir: Optional[Path]) -> Any:
     """`(thumbnail QImage, tiny JPEG bytes)` - the thumbnail as `photo_thumbnail`
     makes it, and its blurred preview encoded here, off the window's thread."""
-    from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 
     image = photo_thumbnail(path, size, mtime_ns, cache_dir)
     if image is None or image.isNull():
@@ -205,7 +205,7 @@ def _square(pixmap: QPixmap) -> QPixmap:
 class ThumbLoader(QObject):
     """Ask for a photo's thumbnail; `ready(path)` says when it can be had."""
 
-    ready = pyqtSignal(str)
+    ready = Signal(str)
 
     def __init__(self, cache_dir: Optional[Path], parent: Optional[QObject] = None) -> None:
         super().__init__(parent)

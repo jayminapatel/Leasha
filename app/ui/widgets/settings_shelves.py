@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool
-from PyQt6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from app.core import settings_registry as reg
 from app.ui.presenter import history_label_text, pst_status_text, settings_labels

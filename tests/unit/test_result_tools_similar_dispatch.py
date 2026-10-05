@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QApplication
 
 from app.ui.widgets.result_tools import _wire_similar
 
@@ -30,10 +30,10 @@ class _Row:
 
 
 def _fake_view_class():
-    from PyQt6.QtCore import QObject
+    from PySide6.QtCore import QObject
 
     class _Fake(QObject):
-        similar_requested = pyqtSignal(object)
+        similar_requested = Signal(object)
 
         def show_results(self, *args, **kwargs) -> None:
             pass
@@ -70,7 +70,7 @@ def app():
 def _pump(app, seconds: float = 1.0) -> None:
     import time
 
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     QThreadPool.globalInstance().waitForDone(int(seconds * 1000))
     deadline = time.time() + seconds

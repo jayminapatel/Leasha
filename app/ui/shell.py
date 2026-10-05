@@ -22,9 +22,9 @@ from pathlib import Path
 from datetime import datetime
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QAction, QKeySequence
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QWidget,
@@ -129,13 +129,13 @@ class MainWindow(QMainWindow):
     #: download-progress reporting reaches `SearchEngine.status_callback`
     #: from a plain `threading.Thread` (`_DownloadProgressWatcher`) or from
     #: `SearchEngine`'s own retrieval-pool worker thread - never the GUI
-    #: thread. A `pyqtSignal` is what this codebase already uses to marshal
+    #: thread. A `Signal` is what this codebase already uses to marshal
     #: exactly that safely (`app/ui/workers.py`'s `WorkerSignals`, the same
     #: mechanism `IndexWorker`'s `progress` signal relies on): emitting from
     #: any thread onto a receiver that lives on the GUI thread is queued
     #: automatically, where a direct `self.notify(...)` call
     #: from that background thread would be an unguarded cross-thread Qt call.
-    _clip_download_progress = pyqtSignal(str)
+    _clip_download_progress = Signal(str)
 
     def __init__(
         self,
@@ -1338,7 +1338,7 @@ class MainWindow(QMainWindow):
         is phrased two ways. `MenuRole`s file Quit and Preferences under the
         application menu on macOS. Icons per §0.3; tinted in `_apply_theme`.
         """
-        from PyQt6.QtWidgets import QMenuBar
+        from PySide6.QtWidgets import QMenuBar
 
         bar = QMenuBar(self)
         bar.setNativeMenuBar(True)
@@ -1630,7 +1630,7 @@ class MainWindow(QMainWindow):
         operating system, and it is harder to read on a bright screen, not
         easier.
         """
-        from PyQt6.QtGui import QGuiApplication
+        from PySide6.QtGui import QGuiApplication
 
         preference = self._theme_preference
         detected = detect_scheme(QGuiApplication.instance())
@@ -1670,7 +1670,7 @@ class MainWindow(QMainWindow):
         Those late pages now call this alone; the stylesheet is set once, and
         reaches children added later by inheritance.
         """
-        from PyQt6.QtGui import QGuiApplication
+        from PySide6.QtGui import QGuiApplication
 
         preference = self._theme_preference
         detected = detect_scheme(QGuiApplication.instance())
@@ -2326,7 +2326,7 @@ class MainWindow(QMainWindow):
         asking it to redraw is the blunt, reliable fix; it costs one pass over
         the widget tree, once, only on a real restore - not a per-frame cost.
         """
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         super().changeEvent(event)
         if event.type() != QEvent.Type.WindowStateChange:
@@ -2557,7 +2557,7 @@ class MainWindow(QMainWindow):
         # visible pop-out (see `close_windows.py`, the nine-hour incident), and
         # the tray icon on real Windows is one more thing that can count as a
         # window. Posted, not called, so `closeEvent` finishes first.
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         application = QApplication.instance()
         if application is not None:
@@ -2565,7 +2565,7 @@ class MainWindow(QMainWindow):
             # either way), so what else Qt still counts as open is logged: the
             # next lingering close names its holder instead of being guessed at.
             try:
-                from PyQt6.QtGui import QGuiApplication
+                from PySide6.QtGui import QGuiApplication
 
                 still = [f"{type(w).__name__}:{w.objectName() or '-'}"
                          for w in QApplication.topLevelWidgets() if w.isVisible()]
@@ -2586,8 +2586,8 @@ class MainWindow(QMainWindow):
         we would be back to Task Manager. Pumping events while waiting keeps
         the window painting until the threads are actually finished.
         """
-        from PyQt6.QtCore import QDeadlineTimer, QEventLoop
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtCore import QDeadlineTimer, QEventLoop
+        from PySide6.QtWidgets import QApplication
 
         # **Both pools.** An index run lives in the indexing view's own pool,
         # not the global one, so waiting on the global pool alone returned at

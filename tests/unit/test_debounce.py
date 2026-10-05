@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6.QtCore")
+pytest.importorskip("PySide6.QtCore")
 
 from app.ui.widgets.debounce import DEFAULT_DELAY_MS, Debounced   # noqa: E402
 

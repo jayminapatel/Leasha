@@ -32,7 +32,7 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPixmap
 
 from app.core.logging import logger
 
@@ -63,7 +63,7 @@ def square_image(image: Any) -> Any:
 
 def cached_face_crop(path: str, bbox: Any, cache_dir: Optional[Path]) -> Any:
     """A square face `QImage`, from disk when it was made before. **Worker thread only.**"""
-    from PyQt6.QtGui import QImage
+    from PySide6.QtGui import QImage
 
     from app.ui.thumbnail_loader import decode_face_crop
 

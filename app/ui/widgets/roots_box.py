@@ -24,9 +24,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
@@ -61,20 +61,20 @@ CHOICES = (
 class RootsBox(QGroupBox):
     """Folders to index, each marked Live or Archive."""
 
-    roots_changed = pyqtSignal(list)
-    modes_changed = pyqtSignal(dict)
+    roots_changed = Signal(list)
+    modes_changed = Signal(dict)
     #: 202626270514 §2b: `{normalised root}` currently opted in for cloud
     #: content. Only fires the way `modes_changed` does - user action, never
     #: `set_roots`'s own load.
-    cloud_content_changed = pyqtSignal(set)
-    rescan_requested = pyqtSignal()
+    cloud_content_changed = Signal(set)
+    rescan_requested = Signal()
     #: 2026-09-29. The folders marked "Index this folder first", **in order**
     #: - the order they were marked in, which is the order they are read in.
     #: Fires on the person's action only, like the two above.
-    first_changed = pyqtSignal(list)
+    first_changed = Signal(list)
     #: 2026-10-02. "Index now" on one line: the folder, exactly as its row
     #: spells it. The shell starts a run that reads that folder and no other.
-    index_requested = pyqtSignal(str)
+    index_requested = Signal(str)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Folders to index", parent)

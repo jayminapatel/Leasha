@@ -157,9 +157,9 @@ def test_the_document_and_the_table_come_from_the_same_findings():
 # The widget on its own
 # ---------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("PySide6.QtWidgets")
 
-from PyQt6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
 from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 
 from app.ui.widgets.sortable_item import SORT_ROLE  # noqa: E402
@@ -224,7 +224,7 @@ def test_the_copies_inside_a_row_are_made_when_it_is_opened_and_only_once(qtbot)
     """2026-10-02. Every copy of every group used to be given a row when the
     table was built, on the window's thread: 23 ms per thousand copies, and
     1,356 ms of a window that did not answer on the owner's index of mail."""
-    from PyQt6.QtWidgets import QTreeWidgetItem
+    from PySide6.QtWidgets import QTreeWidgetItem
 
     widget = SpaceTables()
     qtbot.addWidget(widget)
@@ -449,7 +449,7 @@ def test_a_second_load_asked_for_while_one_is_running_does_not_rebuild_the_table
     import threading
     import time
 
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     import app.ui.reports_view as reports_view
 
@@ -498,8 +498,8 @@ def test_a_second_load_asked_for_while_one_is_running_does_not_rebuild_the_table
 
 @pytest.mark.gui
 def test_export_still_writes_the_same_document_as_a_pdf(space_window, qtbot, tmp_path, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QFileDialog
 
     import app.ui.reports_view as reports_view
 

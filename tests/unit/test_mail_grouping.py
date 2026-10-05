@@ -279,10 +279,10 @@ def test_an_attachment_whose_message_is_gone_previews_as_before(store) -> None:
 
 # --- the Mail tab, folded -------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -357,7 +357,7 @@ def test_a_capped_folded_list_still_says_how_many_messages(qapp, store, monkeypa
 
 
 def test_the_view_menu_offers_it_on_mail_and_on_search(qapp) -> None:
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     from app.ui.view_options import build_menu
 
@@ -384,7 +384,7 @@ def test_the_view_menu_offers_it_on_mail_and_on_search(qapp) -> None:
 
 
 def test_folding_brings_the_count_column_back_for_somebody_who_chose_their_columns(qapp) -> None:
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     from app.ui.view_options import build_menu
 

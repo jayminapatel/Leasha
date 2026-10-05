@@ -252,7 +252,7 @@ def roots_box(qt_app, monkeypatch):
 
 @pytest.fixture(scope="module")
 def qt_app():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 

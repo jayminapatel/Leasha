@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QVBoxLayout, QWidget,
 )
 
@@ -40,11 +40,11 @@ class WindowBox(QGroupBox):
 
     #: (minimise_to_tray, close_to_tray). Both together, because the window
     #: applies them as a pair and installing the tray icon depends on either.
-    changed = pyqtSignal(bool, bool)
+    changed = Signal(bool, bool)
     #: system | light | dark
-    theme_changed = pyqtSignal(str)
+    theme_changed = Signal(str)
     #: UI Redesign (202626160950 §5c): animate panels, off by default.
-    motion_changed = pyqtSignal(bool)
+    motion_changed = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Window", parent)

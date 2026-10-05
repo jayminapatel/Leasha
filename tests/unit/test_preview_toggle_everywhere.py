@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 

@@ -15,7 +15,7 @@ assert - it is a gap in what they *run*.
 
 The `QTimer` one is worth stating in full because it is a trap rather than a
 typo. `__init__` used `QTimer` at line 207; four hundred lines later, still
-inside the same function, sat a redundant `from PyQt6.QtCore import QTimer`.
+inside the same function, sat a redundant `from PySide6.QtCore import QTimer`.
 Python binds names per **function**, not per line, so that import made `QTimer`
 local for the whole of `__init__` and the earlier use referred to a variable
 that did not exist yet. The import had been harmless for months and became fatal
@@ -38,7 +38,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 ENV = """\
@@ -93,8 +93,8 @@ def _WindowSpy():
 
     Built lazily so importing this module does not import Qt.
     """
-    from PyQt6.QtCore import QEvent, QObject
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtCore import QEvent, QObject
+    from PySide6.QtWidgets import QWidget
 
     class Spy(QObject):
         def __init__(self) -> None:
@@ -123,7 +123,7 @@ def window(tmp_path_factory):
     Module-scoped, so the expensive part happens once and each test below is an
     assertion about the same live window.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -259,7 +259,7 @@ def test_idle_optimize_timer_actually_calls_the_store(window):
     background `QThreadPool` worker it starts to finish, then asserts the
     store's `optimize_query_planner` was the thing that ran.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     app, built = window
 
@@ -313,8 +313,8 @@ def test_window_can_restore_from_saved_state(tmp_path):
     Create a window, save its state, then create a new window and restore
     from that state. The geometries should match.
     """
-    from PyQt6.QtGui import QGuiApplication
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtGui import QGuiApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -387,7 +387,7 @@ def test_close_event_persists_geometry_without_raising(tmp_path):
     override this bug lived in. This one does, by actually calling `.close()`
     on a real window rather than mocking around it.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -449,7 +449,7 @@ def test_close_hides_before_the_staged_teardown_begins(tmp_path):
     "close: hide-first verified (window invisible before drain begins)"
     acceptance line names.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -501,7 +501,7 @@ def test_maximised_window_state_restored(tmp_path):
     When a window is closed while maximised, the saved state includes that
     fact, and restoration puts it back in maximised state.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -541,7 +541,7 @@ def test_minimised_window_opens_normal(tmp_path):
     An app that starts invisible looks broken. Even if somehow a saved state
     says the window was minimised, restoration should show it normally.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -615,7 +615,7 @@ def test_the_front_message_brings_the_window_forward_at_once(window):
     import sys
     from unittest.mock import MagicMock
 
-    from PyQt6.QtCore import QCoreApplication
+    from PySide6.QtCore import QCoreApplication
 
     from app.core.run_lock import front_message_id
     from app.ui.window_state import listen_for_front
@@ -699,7 +699,7 @@ def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_p
     splash.py` is never imported. The whole point of this item is that this
     path does not need one.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -827,7 +827,7 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
     accident, this would be the first thing to go red, because the "not yet
     built" half would stop being true.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -889,7 +889,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
     which is what pushes Offline Media one further place along rather than
     ahead of them.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -945,7 +945,7 @@ def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_
     No `app.processEvents()` at all before calling these - this is exactly
     the "immediately, before the deferred callback has fired" window.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -993,7 +993,7 @@ def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
     proves it tolerates the gap before either is built, not just that
     nothing happens to switch to in that gap.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -1037,7 +1037,7 @@ def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
     exact failure mode `task_6c99824d` already found once for a different
     attribute on this same method.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -1108,7 +1108,7 @@ def _unpumped_window(tmp_path, name, *, states=None):
     `states` are written to `index_state` first, so the restore paths (last
     page, the two switches, the tray boxes) have something to restore.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore
@@ -1318,7 +1318,7 @@ def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(tmp_path)
     and the rail are pushed a palette), the wheel guard, and the "takes effect
     next launch" note on the controls that need one.
     """
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
     from app.core.settings_registry import needs_restart
     from app.ui.widgets.restart_note import RESTART_NOTE
 
@@ -1344,8 +1344,8 @@ def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(tmp_path)
 
         # The wheel guard: every combo/spin box on the two pages was guarded by
         # the second `protect_all` (it sets StrongFocus, which Qt does not).
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
         unguarded = [
             c for page in (built.settings_view, built.indexing_view)
             for c in page.findChildren((QComboBox, QAbstractSpinBox))
@@ -1545,8 +1545,8 @@ def test_a_folder_dropped_in_the_gap_is_indexed_and_shown(tmp_path):
     r"""The same gap for a drop, which carries information that cannot be
     re-derived later: which folder. It also brings the Indexing page forward, as
     a drop outside the gap does."""
-    from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl
-    from PyQt6.QtGui import QDropEvent
+    from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl
+    from PySide6.QtGui import QDropEvent
 
     dropped = tmp_path / "dropped_folder"
     dropped.mkdir()

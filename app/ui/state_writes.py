@@ -56,7 +56,7 @@ def pool() -> Any:
     """The one-thread pool every queued state write runs on."""
     global _POOL
     if _POOL is None:
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
 
         _POOL = QThreadPool()
         # **One**, so writes stay in the order they were made. See the module

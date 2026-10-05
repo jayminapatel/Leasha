@@ -21,8 +21,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QLabel,
@@ -50,7 +50,7 @@ class CodeTypesBox(QGroupBox):
     """A preset, the groups behind it, and a sentence saying what it means."""
 
     #: `(preset, chosen groups)` - the window persists it.
-    changed = pyqtSignal(str, list)
+    changed = Signal(str, list)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Which files count as code", parent)

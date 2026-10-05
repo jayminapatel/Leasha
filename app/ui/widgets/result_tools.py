@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, NamedTuple
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QCheckBox, QHBoxLayout, QSplitter, QStackedWidget, QVBoxLayout, QWidget,
 )
 
@@ -172,7 +172,7 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
     same field `results_view.image_rows`/`thumbnail_grid` already use to
     tell a photo row from a passage row.
     """
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.thumbnail_loader import is_image_result
     from app.ui.workers import CallableWorker, run

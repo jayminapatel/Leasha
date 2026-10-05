@@ -30,13 +30,13 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
-from PyQt6.QtGui import QKeyEvent                                # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtGui import QKeyEvent                                # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.hotkey import (                                     # noqa: E402
     DEFAULT_HOTKEY, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, HotkeyListener,
@@ -614,8 +614,8 @@ def test_clipboard_snapshot_restores_byte_perfect(qapp):
     feature ran must be there afterwards, format for format and byte for
     byte - a search box that leaves somebody's clipboard full of the wrong
     thing is a much worse bug than one that fails to pre-fill."""
-    from PyQt6.QtCore import QByteArray, QMimeData
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtCore import QByteArray, QMimeData
+    from PySide6.QtGui import QGuiApplication
 
     from app.ui.selection import restore_clipboard, snapshot_clipboard
 
@@ -647,7 +647,7 @@ def test_no_selection_leaves_the_clipboard_untouched(qapp, monkeypatch):
     this reads, and it must give back `None` rather than the stale text."""
     import app.ui.selection as selection
 
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtGui import QGuiApplication
 
     monkeypatch.setattr(selection, "available", lambda: True)
     monkeypatch.setattr(selection, "_send_copy", lambda: True)
@@ -665,7 +665,7 @@ def test_a_selection_is_read_and_the_clipboard_is_restored(qapp, monkeypatch):
     and the clipboard is put back exactly as it was found."""
     import app.ui.selection as selection
 
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtGui import QGuiApplication
 
     clipboard = QGuiApplication.clipboard()
     clipboard.setText("what was on the clipboard before")
@@ -686,7 +686,7 @@ def test_a_selection_is_read_and_the_clipboard_is_restored(qapp, monkeypatch):
 def test_off_windows_nothing_is_read_and_nothing_is_touched(qapp, monkeypatch):
     import app.ui.selection as selection
 
-    from PyQt6.QtGui import QGuiApplication
+    from PySide6.QtGui import QGuiApplication
 
     monkeypatch.setattr(selection, "available", lambda: False)
     clipboard = QGuiApplication.clipboard()
@@ -796,8 +796,8 @@ def test_tab_in_the_box_is_caught_by_the_event_filter_not_focus_change(
 ):
     r"""The load-bearing mechanic: Tab pressed while the box has focus must
     reach the chip cycle, not Qt's own focus-next-widget handling."""
-    from PyQt6.QtCore import QEvent
-    from PyQt6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent
+    from PySide6.QtGui import QKeyEvent
 
     box = MiniSearch(mixed_engine)
     box.summon()

@@ -22,8 +22,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QGroupBox,
@@ -53,10 +53,10 @@ __all__ = ["EnvironmentBox"]
 class EnvironmentBox(QGroupBox):
     """Run doctor; switch session recording on and off; open the folder."""
 
-    recording_toggled = pyqtSignal(bool)
+    recording_toggled = Signal(bool)
     #: The person ticked or unticked the leasha:// box - user action only, so
     #: loading the current state never writes to the registry.
-    links_toggled = pyqtSignal(bool)
+    links_toggled = Signal(bool)
 
     def __init__(self, settings: Any, parent: Optional[Any] = None) -> None:
         super().__init__("Environment", parent)

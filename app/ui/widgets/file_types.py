@@ -40,9 +40,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QGuiApplication
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QGuiApplication
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
@@ -215,8 +215,8 @@ class FileTypesEditor(QGroupBox):
     """A row per file type: on/off, what reads it, whether that works, and the fix."""
 
     #: `{extension: enabled}` for everything that differs from the defaults.
-    changes_saved = pyqtSignal(dict)
-    error = pyqtSignal(object)
+    changes_saved = Signal(dict)
+    error = Signal(object)
 
     def __init__(self, settings: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__("File types", parent)
@@ -558,7 +558,7 @@ class FileTypesEditor(QGroupBox):
         the blocking half; this is only the wiring and the reporting.
         """
         try:
-            from PyQt6.QtCore import QThreadPool
+            from PySide6.QtCore import QThreadPool
 
             from app.ui.presenter import install_package
             from app.ui.workers import CallableWorker, run
@@ -764,7 +764,7 @@ class FileTypesEditor(QGroupBox):
 
         Types added here go too - they only ever existed in that file.
         """
-        from PyQt6.QtWidgets import QMessageBox
+        from PySide6.QtWidgets import QMessageBox
 
         added = len(self._added)
         question = (

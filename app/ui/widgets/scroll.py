@@ -27,8 +27,8 @@ instead of papering over it in front of a user.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QScrollArea, QWidget
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QScrollArea, QWidget
 
 __all__ = ["scrollable", "MIN_CONTENT_WIDTH"]
 

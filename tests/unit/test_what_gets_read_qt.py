@@ -6,7 +6,7 @@ create a section on configurable how indexing works in different places"*.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QApplication, QGroupBox, QWidget
+from PySide6.QtWidgets import QApplication, QGroupBox, QWidget
 
 from app.ui.presenter.coverage import ATTACHMENTS, PLACES, ZIPS
 
@@ -109,7 +109,7 @@ def test_the_settings_levers_are_drawn_in_their_places(settings_and_store):
     assert blocks[PICTURES].isAncestorOf(view.people_recognition)
     assert blocks[MEDIA].isAncestorOf(view.media_box)
     assert box._media_note.isHidden()          # no longer "set elsewhere"
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel
 
     moved = box.findChild(QLabel, "mediaMovedNote")
     assert moved is not None and "have moved here" in moved.text()

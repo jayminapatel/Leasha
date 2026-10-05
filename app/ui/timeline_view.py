@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
 
 from app.reports.timeline import PAGE_SIZE, Period, month_of_ns, refresh_overview, timeline_page
 from app.reports.timeline_words import (
@@ -47,9 +47,9 @@ __all__ = ["TimelineView"]
 class TimelineView(QWidget):
     """Year -> month -> everything from then. Read-only, worker-fed."""
 
-    error = pyqtSignal(object)
-    opened = pyqtSignal(object)              # a TimelineEntry - it has `path`, `volume_id`...
-    reveal_requested = pyqtSignal(object)
+    error = Signal(object)
+    opened = Signal(object)              # a TimelineEntry - it has `path`, `volume_id`...
+    reveal_requested = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

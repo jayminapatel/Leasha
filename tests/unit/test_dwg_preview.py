@@ -391,7 +391,7 @@ def test_the_cached_svg_really_draws_through_the_path_the_pop_out_uses(
     in-app pane calls.
     """
     _qapp()
-    from PyQt6.QtGui import QImageReader
+    from PySide6.QtGui import QImageReader
 
     from app.ui.render_page import render
     from app.ui.view_of_file import View
@@ -445,8 +445,8 @@ def _qapp():
     import os
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 

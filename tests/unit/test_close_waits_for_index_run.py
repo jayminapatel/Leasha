@@ -24,9 +24,9 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QRunnable, QThreadPool
+from PySide6.QtCore import QRunnable, QThreadPool
 
 
 class _Sleeper(QRunnable):

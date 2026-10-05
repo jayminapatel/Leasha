@@ -22,9 +22,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 from tests.unit.conftest import gui_pump, gui_row_count, gui_select_row  # noqa: E402
 
@@ -327,7 +327,7 @@ def test_a_sentence_with_a_known_name_applies_that_name_as_a_filter(journeys, qt
     to the box, as it always did. (This scenario used to assert the offer
     alone - order 0c §3b's "chips, not rewrites", reversed by that decision.)
     """
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtWidgets import QToolButton
 
     app, window, *_ = journeys
     view = window.search_view
@@ -412,7 +412,7 @@ def test_clearing_the_box_offers_what_she_searched_for_last(journeys, qtbot):
     assert view.input.text() == ""
 
     def offered() -> bool:
-        from PyQt6.QtWidgets import QToolButton
+        from PySide6.QtWidgets import QToolButton
 
         view.saved.refresh()
         view.home.refresh()

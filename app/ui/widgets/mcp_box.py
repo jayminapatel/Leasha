@@ -17,8 +17,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
     QFormLayout,
@@ -51,12 +51,12 @@ class McpBox(QGroupBox):
     """The AI programs group. Signals out; `show_*` in."""
 
     #: `{registry key: value}` - the port and the autostart switch.
-    changed = pyqtSignal(dict)
-    start_requested = pyqtSignal(int)
-    stop_requested = pyqtSignal()
+    changed = Signal(dict)
+    start_requested = Signal(int)
+    stop_requested = Signal()
     #: `(program key, connect?)`.
-    connect_requested = pyqtSignal(str, bool)
-    refresh_requested = pyqtSignal()
+    connect_requested = Signal(str, bool)
+    refresh_requested = Signal()
 
     def __init__(self, settings: Any, parent: QWidget | None = None) -> None:
         super().__init__("AI programs", parent)

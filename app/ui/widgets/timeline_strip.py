@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QCheckBox, QHBoxLayout, QMenu, QToolButton, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QMenu, QToolButton, QWidget
 
 from app.ui.timeline import bands
 
@@ -40,11 +40,11 @@ class TimelineStrip(QWidget):
     """The band itself: a row of bars, widest where the hits are thickest."""
 
     #: The filter text a clicked bar stands for - `after:… before:…`.
-    filter_chosen = pyqtSignal(str)
+    filter_chosen = Signal(str)
     #: `(after, before)` - a period's bar was right-clicked and "See everything
     #: from this period" chosen. Opens the Life Timeline there (order 0n 4b);
     #: it does not touch the search, which is what a left click is for.
-    browse_requested = pyqtSignal(str, str)
+    browse_requested = Signal(str, str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

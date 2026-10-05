@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("PySide6.QtWidgets")
 
-from PyQt6.QtCore import QTimer                                 # noqa: E402
-from PyQt6.QtWidgets import QTableWidgetItem                    # noqa: E402
+from PySide6.QtCore import QTimer                                 # noqa: E402
+from PySide6.QtWidgets import QTableWidgetItem                    # noqa: E402
 
 from app.ui.view_options import (                               # noqa: E402
     APPLYING, ViewPreferences, apply_to_table, remember_widths,
@@ -243,7 +243,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
     def _pump(seconds: float) -> None:
         import time
 
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         end = time.monotonic() + seconds
         while time.monotonic() < end:
@@ -255,7 +255,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
         import gc
         import weakref
 
-        from PyQt6.QtWidgets import QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
 
         from app.ui import view_options
 
@@ -304,7 +304,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
         import gc
         import weakref
 
-        from PyQt6.QtWidgets import QTableWidget
+        from PySide6.QtWidgets import QTableWidget
 
         was_enabled = gc.isenabled()
         gc.disable()
@@ -327,8 +327,8 @@ class TestALetGoViewTakesItsWatcherWithIt:
 #: segfaulted, and would have taken the whole test run down with it.
 _ORPHANED_WATCHER = '''
 import gc, time
-from PyQt6 import sip
-from PyQt6.QtWidgets import QApplication, QTableWidget
+from app.ui import qtsip as sip
+from PySide6.QtWidgets import QApplication, QTableWidget
 from app.ui import view_options
 
 class Button:

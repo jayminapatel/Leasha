@@ -15,7 +15,7 @@ reason the wheel guard is one call: a setting added next month with
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtWidgets import QWidget
 
 from app.core.settings_registry import needs_restart
 

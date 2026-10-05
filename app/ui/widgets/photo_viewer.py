@@ -16,9 +16,9 @@ from collections import OrderedDict
 from pathlib import PurePath
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool
-from PyQt6.QtGui import QKeyEvent, QPixmap
-from PyQt6.QtWidgets import QDialog, QLabel, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtGui import QKeyEvent, QPixmap
+from PySide6.QtWidgets import QDialog, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from app.ui.presenter.photos import date_text, people_text
 

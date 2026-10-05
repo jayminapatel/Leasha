@@ -22,10 +22,10 @@ import os
 import time
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt, QTimer                      # noqa: E402
+from PySide6.QtCore import Qt, QTimer                      # noqa: E402
 
 from app.reports import timeline_words as words                   # noqa: E402
 from app.reports.timeline import Period                            # noqa: E402
@@ -42,10 +42,10 @@ def double_click(widget, pos) -> None:
     """A real double-click event. `QTest.mouseDClick` delivers nothing to a
     list on the offscreen platform (checked against a plain `QListWidget`), so
     the press is sent the ordinary way and the double-click event is sent by hand."""
-    from PyQt6.QtCore import QEvent, QPointF
-    from PyQt6.QtGui import QMouseEvent
-    from PyQt6.QtTest import QTest
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import QEvent, QPointF
+    from PySide6.QtGui import QMouseEvent
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication
 
     QTest.mouseClick(widget, Qt.MouseButton.LeftButton, pos=pos)
     QApplication.sendEvent(widget, QMouseEvent(
@@ -80,7 +80,7 @@ def june(qtbot, tmp_path):
     view.refresh()
     qtbot.waitUntil(lambda: view._overview is not None, timeout=8000)
     yield view, ids, store
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -241,7 +241,7 @@ def test_the_arrow_keys_move_along_a_band_of_photographs(qtbot, tmp_path):
         qtbot.keyClick(view.list, Qt.Key.Key_Left)
         qtbot.keyClick(view.list, Qt.Key.Key_Return)
         assert [e.name for e in opened] == ["a1.jpg"]
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
 
 
@@ -273,7 +273,7 @@ def test_a_burst_is_one_line_that_can_be_taken_apart_without_losing_the_place(qt
     assert len(entries(view)) == 13
     assert all(not f.folded for r in range(view.list.block_count()) for f in view.list.block_at(r).folds
                if f.head in [big.head, *big.older])
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -290,7 +290,7 @@ def test_turning_grouping_off_shows_every_photograph_separately(qtbot, tmp_path)
     qtbot.waitUntil(lambda: sum(len(view.list.block_at(r).folds)
                                 for r in range(view.list.block_count())) == 7, timeout=8000)
     assert grouped < 7 and store.get_state("ui:timeline_fold", None) == "off"
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -319,7 +319,7 @@ def test_a_real_photograph_gets_its_thumbnail_and_a_missing_one_keeps_its_placeh
         view.grab()                                               # and the missing one paints fine
         qtbot.wait(300)
         assert view.list._pictures.get(str(tmp_path / "gone.jpg")) is None
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
 
 
@@ -338,7 +338,7 @@ def test_reading_and_thumbnailing_never_change_a_users_file(qtbot, tmp_path):
         qtbot.waitUntil(lambda: loaded(view), timeout=8000)
         view.grab()
         qtbot.waitUntil(lambda: str(real) in view.list._pictures, timeout=8000)
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
     assert (real.read_bytes(), real.stat().st_mtime_ns) == before
     assert sorted(p.name for p in tmp_path.iterdir() if p.suffix == ".jpg") == ["keep.jpg"]
@@ -389,7 +389,7 @@ def test_a_month_of_photographs_arrives_a_page_at_a_time_as_the_list_is_scrolled
     assert view.status.text() == "1,000 items - that is everything from this period."
     times = [e.when_ns for e in entries(view)]
     assert times == sorted(times)                                  # oldest first all the way down
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -419,7 +419,7 @@ def test_the_window_keeps_answering_while_a_dense_month_loads_and_scrolls(qtbot,
     gaps = [b - a for a, b in zip(beats, beats[1:])]
     assert gaps, "the heartbeat never ran"
     assert max(gaps) < 0.75, f"the window stalled for {max(gaps) * 1000:.0f} ms while loading"
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -437,7 +437,7 @@ def test_a_page_that_arrives_after_another_month_was_picked_is_dropped(qtbot, tm
         qtbot.wait(300)
         assert [e.name for e in entries(view)] == ["june.txt"]
         assert view.heading.text() == "June 2015"
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
 
 
@@ -447,7 +447,7 @@ def test_a_page_that_arrives_after_another_month_was_picked_is_dropped(qtbot, tm
 
 def test_the_timeline_has_no_search_box_of_its_own(june):
     r"""4d: "a browsing surface, not a search tab: no query box"."""
-    from PyQt6.QtWidgets import QLineEdit
+    from PySide6.QtWidgets import QLineEdit
 
     view, _ids, _store = june
     boxes = view.findChildren(QLineEdit)

@@ -32,9 +32,9 @@ from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import QSize, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QAbstractItemView, QCheckBox, QListView, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
+from PySide6.QtCore import QSize, Qt, QThreadPool, Signal
+from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QListView, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from app.ui.thumbnail_loader import decode_thumbnail, is_image_result
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
@@ -75,7 +75,7 @@ def decode_pool() -> QThreadPool:
     """The grids' own pool, made once and kept by the application - a pool
     owned by a grid would wait for its decodes when the grid is destroyed,
     on the interface thread."""
-    from PyQt6.QtCore import QCoreApplication
+    from PySide6.QtCore import QCoreApplication
 
     if not _POOL:
         pool = QThreadPool(QCoreApplication.instance())
@@ -139,15 +139,15 @@ class ThumbnailGrid(QWidget):
     #: (`PreviewWindow`, work order §3b) uses the second argument for
     #: next/previous, so the grid is the one place that already has the
     #: ordering and does not need to reconstruct it.
-    opened = pyqtSignal(object, list)
+    opened = Signal(object, list)
     #: The menu's "Open": the file itself, as Open does on every other page
     #: (2026-10-04). Double-click and Enter stay the lightbox (`opened`), and
     #: the menu offers that as "View".
-    file_requested = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
-    pin_requested = pyqtSignal(object)
+    file_requested = Signal(object)
+    reveal_requested = Signal(object)
+    pin_requested = Signal(object)
     #: "More like this" from a photo's right-click menu - work order §2d.
-    similar_requested = pyqtSignal(object)
+    similar_requested = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

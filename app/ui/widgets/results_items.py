@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QStandardItem
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QStandardItem
 
 from app.core.file_state import explain
 from app.ui.presenter import (

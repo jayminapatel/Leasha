@@ -18,10 +18,10 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt                                                # noqa: E402
-from PyQt6.QtGui import QGuiApplication                                    # noqa: E402
+from PySide6.QtCore import Qt                                                # noqa: E402
+from PySide6.QtGui import QGuiApplication                                    # noqa: E402
 
 from app.chat.types import ChatTurn, NarrationEvent, SourcesEvent, TokenEvent   # noqa: E402
 from app.ui.chat_sessions import session_from_dict, session_to_dict, new_session   # noqa: E402
@@ -405,7 +405,7 @@ def test_stop_lets_go_of_a_search_that_is_waiting_for_an_answer(chat):
 def test_a_web_source_opens_in_the_browser_and_a_file_opens_the_usual_way(chat, monkeypatch):
     from types import SimpleNamespace
 
-    from PyQt6.QtGui import QDesktopServices
+    from PySide6.QtGui import QDesktopServices
 
     c = chat
     urls = []

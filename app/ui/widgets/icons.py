@@ -29,8 +29,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from PyQt6.QtCore import QByteArray, QRectF, Qt
-from PyQt6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QByteArray, QRectF, Qt
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 
 from app.ui.tray import assets_dir
 
@@ -95,7 +95,7 @@ def _render(data: bytes, size: int) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     try:
-        from PyQt6.QtSvg import QSvgRenderer  # noqa: PLC0415 - optional module
+        from PySide6.QtSvg import QSvgRenderer  # noqa: PLC0415 - optional module
     except ImportError:                               # pragma: no cover - venv
         QSvgRenderer = None                           # type: ignore[assignment]
     if QSvgRenderer is not None:
@@ -106,7 +106,7 @@ def _render(data: bytes, size: int) -> QPixmap:
             renderer.render(painter, QRectF(0, 0, size, size))
             painter.end()
             return pixmap
-    # The SVG image plugin ships with PyQt6; this is the path when QtSvg's
+    # The SVG image plugin ships with PySide6; this is the path when QtSvg's
     # renderer is unavailable rather than a second design.
     loaded = QPixmap()
     if loaded.loadFromData(data, "SVG"):

@@ -95,7 +95,7 @@ class _FakeStore:
 
 class _FakeWindow:
     def __init__(self, qtbot):
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtWidgets import QWidget
 
         self.widget = QWidget()
         qtbot.addWidget(self.widget)
@@ -107,7 +107,7 @@ class _FakeWindow:
 
 def test_a_store_that_fails_to_open_is_shown_once_on_the_window(qtbot, monkeypatch):
     from app import main as app_main
-    from PyQt6.QtCore import QObject
+    from PySide6.QtCore import QObject
 
     window = _FakeWindow(qtbot)
     monkeypatch.setattr(app_main, "log_app_error", lambda *_a, **_k: None)

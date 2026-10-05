@@ -21,11 +21,11 @@ from typing import NamedTuple
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtGui import QImage                                  # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtGui import QImage                                  # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.thumbnail_loader import (                           # noqa: E402
     IMAGE_RESULT_EXTS, decode_thumbnail, is_image_result,
@@ -316,7 +316,7 @@ def test_decodes_queue_on_the_grids_own_pool_and_are_taken_back(qapp, monkeypatc
     and every Open, and a new result set cancelled none of them."""
     import threading
 
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     from app.ui.widgets import thumbnail_grid
 

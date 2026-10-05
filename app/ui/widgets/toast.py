@@ -25,8 +25,8 @@ from __future__ import annotations
 from collections import deque
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QWidget
 
 __all__ = ["Toast", "LEVELS", "DEFAULT_TIMEOUT_MS"]
 
@@ -109,15 +109,15 @@ class Toast(QFrame):
         self.announcer.setText(text)
         self.announcer.setAccessibleDescription(text)
         try:
-            # Moved inside the try, both of them: this PyQt6 build does not
+            # Moved inside the try, both of them: this PySide6 build does not
             # expose QAccessible/QAccessibleEvent at all (checked - neither
             # is in QtCore, QtGui or QtWidgets on 6.11.0), and the eager
             # module-level import used to crash app.ui.shell entirely on
             # import, taking every Qt-dependent test down with it. The
             # live-region label two lines up (setText/setAccessibleDescription)
             # is what actually reaches assistive tech on this build; this stays
-            # only in case a future PyQt6 build restores the symbol.
-            from PyQt6.QtGui import QAccessible, QAccessibleEvent
+            # only in case a future PySide6 build restores the symbol.
+            from PySide6.QtGui import QAccessible, QAccessibleEvent
             QAccessible.updateAccessibility(
                 QAccessibleEvent(self.announcer, QAccessible.Event.Alert))
         except Exception:                        # noqa: BLE001 - a11y is best-effort
@@ -137,7 +137,7 @@ class Toast(QFrame):
 
     def eventFilter(self, obj: Any, event: Any) -> bool:      # noqa: N802
         if obj is self._host and not self.isHidden():
-            from PyQt6.QtCore import QEvent
+            from PySide6.QtCore import QEvent
             if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
                 self._place()
         return False

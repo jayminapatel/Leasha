@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QPoint, QRect, QSize, Qt
-from PyQt6.QtWidgets import QLayout, QLayoutItem, QWidget
+from PySide6.QtCore import QPoint, QRect, QSize, Qt
+from PySide6.QtWidgets import QLayout, QLayoutItem, QWidget
 
 __all__ = ["FlowLayout"]
 

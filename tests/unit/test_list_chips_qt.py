@@ -12,7 +12,7 @@ text that could not be acted on. These pin the shared chip row
 from __future__ import annotations
 
 import pytest
-from PyQt6.QtWidgets import QApplication, QToolButton
+from PySide6.QtWidgets import QApplication, QToolButton
 
 from app.storage.sqlite_store import SqliteStore
 from tests.fixtures import chat_eval as fx

@@ -193,9 +193,9 @@ def test_a_checkbox_is_tall_enough_for_its_own_label():
     Both schemes and both classes, because a rule can easily be added to one
     selector and not its twin.
     """
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtGui import QFontMetrics
-    from PyQt6.QtWidgets import QApplication, QCheckBox, QRadioButton
+    pytest.importorskip("PySide6")
+    from PySide6.QtGui import QFontMetrics
+    from PySide6.QtWidgets import QApplication, QCheckBox, QRadioButton
 
     app = QApplication.instance() or QApplication([])
     # A label with descenders, because those are the pixels that go first.

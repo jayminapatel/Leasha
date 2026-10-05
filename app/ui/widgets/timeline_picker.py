@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QToolButton, QVBoxLayout, QWidget,
 )
@@ -40,10 +40,10 @@ _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 class TimelinePicker(QWidget):
     """Three rows of controls. Emits what was chosen; keeps no results."""
 
-    kind_changed = pyqtSignal(str)
-    fold_changed = pyqtSignal(bool)
-    period_chosen = pyqtSignal(object)         # a `Period`
-    bad_date = pyqtSignal(str)                 # a sentence for the status line
+    kind_changed = Signal(str)
+    fold_changed = Signal(bool)
+    period_chosen = Signal(object)         # a `Period`
+    bad_date = Signal(str)                 # a sentence for the status line
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

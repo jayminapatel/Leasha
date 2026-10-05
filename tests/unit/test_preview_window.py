@@ -24,13 +24,13 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
-from PyQt6.QtGui import QImage                                  # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtGui import QImage                                  # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.view_of_file import rotation_key                    # noqa: E402
 from app.ui.widgets.preview_window import (                     # noqa: E402
@@ -247,8 +247,8 @@ def test_zooming_text_moves_the_font_rather_than_scaling_it(qapp, files):
 
 
 def test_ctrl_wheel_zooms_and_a_plain_wheel_does_not(qapp, files):
-    from PyQt6.QtCore import QPoint, QPointF
-    from PyQt6.QtGui import QWheelEvent
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
 
     _png, txt = files
     window = PreviewWindow(Row(txt), state={})
@@ -458,7 +458,7 @@ def test_with_no_siblings_the_arrow_keys_do_nothing(qapp, files):
     """Every pop-out before this order, and any pinned from somewhere that
     does not know its own result set - the keys must fall through unchanged,
     not raise and not silently "navigate" to nothing."""
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     png, _txt = files
     window = PreviewWindow(Row(png), state={})
@@ -468,7 +468,7 @@ def test_with_no_siblings_the_arrow_keys_do_nothing(qapp, files):
 
 
 def test_the_right_arrow_moves_to_the_next_sibling(qapp, files):
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     png, txt = files
     rows = [Row(png), Row(txt)]
@@ -482,7 +482,7 @@ def test_the_left_arrow_moves_to_the_previous_sibling_and_wraps(qapp, files):
     r"""Wrapping, not stopping - a lightbox that dead-ends at either photo
     makes somebody reach for the mouse, which is what arrow keys exist to
     save."""
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     png, txt = files
     rows = [Row(png), Row(txt)]
@@ -499,7 +499,7 @@ def test_the_title_shows_position_only_when_it_can_navigate(qapp, files):
     rows = [Row(png), Row(txt)]
     together = PreviewWindow(rows[0], state={}, siblings=rows, index=0)
     assert "(1 of 2)" in together.windowTitle()
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     QTest.keyClick(together, Qt.Key.Key_Right)
     assert "(2 of 2)" in together.windowTitle()
@@ -516,7 +516,7 @@ def test_navigating_re_reads_that_sibling_own_remembered_rotation(qapp, files):
     window = PreviewWindow(rows[0], state=state, siblings=rows, index=0)
     assert window._view.turn == 0                 # nothing remembered for png
 
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     QTest.keyClick(window, Qt.Key.Key_Right)
     assert window._view.turn == 90                 # picked up txt's own turn

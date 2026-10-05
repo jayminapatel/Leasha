@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt                                           # noqa: E402
+from PySide6.QtCore import Qt                                           # noqa: E402
 
 from app.ui import view_options                                       # noqa: E402
 

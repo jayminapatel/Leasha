@@ -23,14 +23,14 @@ from pathlib import Path
 import pytest
 
 # exc_type=ImportError: pytest 8 only auto-skips ModuleNotFoundError, but a
-# PyQt6 that is installed yet cannot load (a headless machine missing libEGL)
+# PySide6 that is installed yet cannot load (a headless machine missing libEGL)
 # raises plain ImportError - and that environment cannot run these tests
 # either, so it must skip, not error.
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from app.ui.widgets import file_menu  # noqa: E402
 from app.ui.widgets.file_menu import FileActions, build_menu  # noqa: E402
@@ -297,7 +297,7 @@ def test_the_photo_grids_open_opens_the_file_and_view_opens_the_lightbox(qapp, m
     files, lightbox = [], []
     grid.file_requested.connect(files.append)
     grid.opened.connect(lambda r, siblings: lightbox.append(r))
-    from PyQt6.QtCore import QPoint
+    from PySide6.QtCore import QPoint
 
     grid._on_context_menu(QPoint(1, 1))
     menus[0].open_file()

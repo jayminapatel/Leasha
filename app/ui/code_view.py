@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route,
@@ -65,13 +65,13 @@ CODE_DEBOUNCE_MS = 90
 class CodeView(QWidget):
     """Search the code: indexed files instantly, git history on Enter."""
 
-    error = pyqtSignal(object)
+    error = Signal(object)
     #: A repository to search the *contents* of, handed to the search tab.
-    search_repo_requested = pyqtSignal(str)
-    open_requested = pyqtSignal(str)
-    open_at_requested = pyqtSignal(str, int)     # order 0y §2c: path, line
-    reveal_requested = pyqtSignal(str)
-    indexing_requested = pyqtSignal()
+    search_repo_requested = Signal(str)
+    open_requested = Signal(str)
+    open_at_requested = Signal(str, int)     # order 0y §2c: path, line
+    reveal_requested = Signal(str)
+    indexing_requested = Signal()
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

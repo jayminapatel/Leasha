@@ -15,12 +15,12 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QPoint, Qt                               # noqa: E402
+from PySide6.QtCore import QPoint, Qt                               # noqa: E402
 from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
-from PyQt6.QtWidgets import QMenu                                  # noqa: E402
+from PySide6.QtWidgets import QMenu                                  # noqa: E402
 
 from app.ui.controllers.timeline_controller import NO_DATE         # noqa: E402
 from app.ui.widgets.file_menu import FileActions, build_menu       # noqa: E402
@@ -63,7 +63,7 @@ def test_the_reports_page_lists_the_timeline_and_choosing_it_gives_it_the_pane(q
         assert not view.body.isVisibleTo(view) and not view.space_table.isVisibleTo(view)
         view.list.setCurrentRow(0)                                   # back to a document
         assert not view.timeline.isVisibleTo(view) and view.export.isVisibleTo(view)
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
 
 
@@ -72,7 +72,7 @@ def test_the_reports_page_lists_the_timeline_and_choosing_it_gives_it_the_pane(q
 # ---------------------------------------------------------------------------
 
 def test_the_menu_offers_the_month_only_where_a_caller_can_honour_it(qtbot):
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     parent = QWidget()
     qtbot.addWidget(parent)

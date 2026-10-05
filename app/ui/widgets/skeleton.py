@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QStandardItem
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QStandardItem
 
 from app.ui.result_delegate import ROLE_PAYLOAD, Skeleton
 
@@ -82,12 +82,12 @@ def gone(view: Any) -> bool:
 
     A search answer that arrives after the window (or the page's rows) were torn
     down has nowhere to go, and painting into the wreck raised `RuntimeError:
-    wrapped C/C++ object ... has been deleted` inside a Qt slot. PyQt6 treats an
+    wrapped C/C++ object ... has been deleted` inside a Qt slot. PySide6 treats an
     unhandled exception in a slot as fatal unless a hook is installed, so this is
     asked first and the late answer is dropped (found by
     test_adoption_scenarios.py).
     """
-    from PyQt6 import sip
+    from app.ui import qtsip as sip
 
     try:
         return bool(sip.isdeleted(view) or sip.isdeleted(getattr(view, "_model", view)))

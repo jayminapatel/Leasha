@@ -695,7 +695,7 @@ class SearchEngine:
         to be running on** - a plain `threading.Thread`, per
         `app/index/embedder.py::_DownloadProgressWatcher`, never the pool
         worker and never the GUI thread. `self.status_callback` is what
-        actually reaches the window (a `pyqtSignal.emit`, in
+        actually reaches the window (a `Signal.emit`, in
         `app/ui/shell.py`, chosen specifically because it is safe to call
         cross-thread); this method's own job is only the number-to-words
         step, kept out of `app/ui/shell.py` so that module does not need to

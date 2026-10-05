@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QGroupBox,
     QHBoxLayout,
@@ -71,9 +71,9 @@ class DebugPane(QGroupBox):
     """
 
     #: Somebody clicked a log line that names a file. The window routes it.
-    file_chosen = pyqtSignal(str)
+    file_chosen = Signal(str)
     #: Somebody asked for the log in its own window. Workspace §1c.
-    pop_out = pyqtSignal()
+    pop_out = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None, *,
                  poppable: bool = True) -> None:
@@ -250,7 +250,7 @@ class DebugPane(QGroupBox):
             return
 
     def _copy(self) -> None:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         clipboard = QApplication.clipboard()
         if clipboard is not None:

@@ -110,7 +110,7 @@ def test_context_menu_wires_pin_to_the_row_under_the_cursor(qtbot, monkeypatch):
     view = ResultsView()
     qtbot.addWidget(view)
     view.show_results([result(1, 1)], ["pump"])
-    from PyQt6.QtCore import QItemSelectionModel
+    from PySide6.QtCore import QItemSelectionModel
     index = view._model.index(0, 0)
     view._list.setCurrentIndex(index)
     view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
@@ -151,7 +151,7 @@ def test_context_menu_offers_more_like_this_for_a_text_row(qtbot, monkeypatch):
     view = ResultsView()
     qtbot.addWidget(view)
     view.show_results([result(1, 1)], ["pump"])
-    from PyQt6.QtCore import QItemSelectionModel
+    from PySide6.QtCore import QItemSelectionModel
     index = view._model.index(0, 0)
     view._list.setCurrentIndex(index)
     view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
@@ -182,7 +182,7 @@ def test_context_menu_offers_more_like_this_for_a_text_row(qtbot, monkeypatch):
 def test_the_search_menu_passes_what_the_list_knows_never_a_stat(qtbot, monkeypatch,
                                                                  marks, missing, offline):
     """Finding 1 (2026-10-04): the menu decides Open from the list's own marks."""
-    from PyQt6.QtCore import QItemSelectionModel
+    from PySide6.QtCore import QItemSelectionModel
 
     import app.ui.results_view as results_view_module
 
@@ -213,7 +213,7 @@ def test_context_menu_offers_more_like_this_for_a_photo_row_too(qtbot, monkeypat
     photo = result(1, 1, path=r"D:\Photos\2019\beach.jpg")
     photo.ext = "jpg"
     view.show_results([photo], [])
-    from PyQt6.QtCore import QItemSelectionModel
+    from PySide6.QtCore import QItemSelectionModel
     index = view._model.index(0, 0)
     view._list.setCurrentIndex(index)
     view._list.selectionModel().select(index, QItemSelectionModel.SelectionFlag.Select)
@@ -244,8 +244,8 @@ def test_image_rows_keeps_only_photos_in_order():
 # ---------------------------------------------------------------------------
 
 def test_a_click_on_the_chevron_expands_the_group(qtbot):
-    from PyQt6.QtCore import QEvent, QPointF, Qt
-    from PyQt6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
 
     from app.ui.result_delegate import ROLE_PAYLOAD
 
@@ -255,7 +255,7 @@ def test_a_click_on_the_chevron_expands_the_group(qtbot):
     view.show_results([result(1, 1, rank=0), result(1, 2, rank=1), result(1, 3, rank=2)],
                       ["pump"])
     index = view._model.index(0, 0)
-    from PyQt6.QtWidgets import QStyleOptionViewItem
+    from PySide6.QtWidgets import QStyleOptionViewItem
 
     option = QStyleOptionViewItem()
     view._list.initViewItemOption(option)
@@ -273,8 +273,8 @@ def test_a_click_on_the_chevron_expands_the_group(qtbot):
 def test_a_click_off_the_chevron_does_not_toggle(qtbot):
     """A click on the name or date must fall through to Qt's ordinary
     selection handling, not be swallowed as a toggle."""
-    from PyQt6.QtCore import QEvent, QPointF, Qt
-    from PyQt6.QtGui import QMouseEvent
+    from PySide6.QtCore import QEvent, QPointF, Qt
+    from PySide6.QtGui import QMouseEvent
 
     view = ResultsView()
     qtbot.addWidget(view)

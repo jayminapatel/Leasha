@@ -20,10 +20,10 @@ from typing import Any
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.offline_media_view import COLUMNS, OfflineMediaView  # noqa: E402
 from app.ui.presenter import (                                  # noqa: E402
@@ -320,7 +320,7 @@ def test_rename_suggestion_dialog_yes_accepts_no_rejects(qapp):
     """Qt's own Yes/No roles - proven rather than assumed, since a mapped
     role that silently changed would make `dialog.exec() == Accepted`
     mean the opposite of what the button said."""
-    from PyQt6.QtWidgets import QDialogButtonBox
+    from PySide6.QtWidgets import QDialogButtonBox
 
     dialog = RenameSuggestionDialog("Old NAS")
     yes = dialog.buttons.button(QDialogButtonBox.StandardButton.Yes)

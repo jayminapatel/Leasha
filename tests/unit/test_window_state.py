@@ -19,13 +19,13 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt, QRect  # noqa: E402
-from PyQt6.QtGui import QGuiApplication, QScreen  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QWidget  # noqa: E402
+from PySide6.QtCore import Qt, QRect  # noqa: E402
+from PySide6.QtGui import QGuiApplication, QScreen  # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from unittest.mock import Mock, patch  # noqa: E402
 
 from app.ui.window_state import restore_window_state, save_window_state  # noqa: E402

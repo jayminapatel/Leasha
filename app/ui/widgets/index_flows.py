@@ -33,8 +33,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, QTimer
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, QTimer
+from PySide6.QtWidgets import (
     QButtonGroup,
     QComboBox,
     QDialog,

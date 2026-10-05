@@ -18,9 +18,9 @@ from __future__ import annotations
 from pathlib import Path, PurePath
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
+from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushButton,
                              QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import date_text, people_text, size_text
@@ -95,10 +95,10 @@ def _value(text: str = "") -> QLabel:
 class PhotoInfo(QWidget):
     """Shows one `PhotoRow`. Signals ask the page to act."""
 
-    open_requested = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
-    name_requested = pyqtSignal(object)
-    view_requested = pyqtSignal(object)
+    open_requested = Signal(object)
+    reveal_requested = Signal(object)
+    name_requested = Signal(object)
+    view_requested = Signal(object)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

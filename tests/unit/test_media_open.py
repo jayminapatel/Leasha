@@ -163,7 +163,7 @@ def test_only_a_time_is_a_moment(label, expected):
 # The window: a click on a recording goes to the moment
 # --------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 ENV = """\
 DATA_PATH={d}
@@ -198,7 +198,7 @@ class _Engine:
 
 @pytest.fixture(scope="module")
 def window(tmp_path_factory):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore

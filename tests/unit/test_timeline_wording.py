@@ -23,10 +23,10 @@ import re
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import (                                      # noqa: E402
+from PySide6.QtWidgets import (                                      # noqa: E402
     QAbstractButton, QComboBox, QLineEdit, QMenu, QWidget,
 )
 
@@ -121,7 +121,7 @@ def built(qtbot, tmp_path):
     view.resize(1000, 700)
     view.show()
     yield view
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 

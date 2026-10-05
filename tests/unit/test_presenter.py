@@ -516,7 +516,7 @@ def test_the_presenter_never_imports_qt() -> None:
             elif isinstance(node, ast.ImportFrom) and node.module:
                 imported.add(node.module.split(".")[0])
 
-        assert "PyQt6" not in imported, f"{source.name} imported Qt: {sorted(imported)}"
+        assert "PySide6" not in imported, f"{source.name} imported Qt: {sorted(imported)}"
 
 
 def test_every_qt_view_keeps_its_logic_in_the_presenter() -> None:
@@ -606,10 +606,10 @@ def test_a_worker_is_kept_alive_until_it_reports_itself_done() -> None:
     appears only when the machine is busy, and looks unrelated to anything.
     """
     # The rest of this module is deliberately Qt-free, so it runs everywhere.
-    # This one test reaches into `app.ui.workers`, which imports PyQt6 at the
+    # This one test reaches into `app.ui.workers`, which imports PySide6 at the
     # top - without this it fails rather than skips wherever Qt is absent, and
     # a failure that means "not installed" trains people to ignore failures.
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
 
     from app.ui import workers as workers_module
 

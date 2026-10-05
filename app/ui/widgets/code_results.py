@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.editors import copyable
 from app.ui.view_options import apply_to_table, available_columns, weak_slot
@@ -75,16 +75,16 @@ SORT_KEYS: dict[str, str] = {"size": "size_bytes", "seen": "seen_at", "line": "l
 class CodeResults(QWidget):
     """The table, the preview beside it, and the menu on a row."""
 
-    error = pyqtSignal(object)
-    open_requested = pyqtSignal(str)
+    error = Signal(object)
+    open_requested = Signal(str)
     #: Order 0y §2c: a row that knows its line - the path, and the line.
-    open_at_requested = pyqtSignal(str, int)
-    reveal_requested = pyqtSignal(str)
-    search_repo_requested = pyqtSignal(str)
+    open_at_requested = Signal(str, int)
+    reveal_requested = Signal(str)
+    search_repo_requested = Signal(str)
     #: Order 0y §1c: "Ignore this repository", with the repository's name.
-    ignore_repo_requested = pyqtSignal(str)
+    ignore_repo_requested = Signal(str)
     #: Somebody right-clicked the header. The view owns the View button.
-    view_menu_requested = pyqtSignal(object)
+    view_menu_requested = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -179,7 +179,7 @@ class CodeResults(QWidget):
 
     def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
         """Enter opens the selected row - the same rule `files_view` has."""
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         if watched is self.table and event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

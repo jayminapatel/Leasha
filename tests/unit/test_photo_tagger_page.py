@@ -15,12 +15,12 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QThreadPool                             # noqa: E402
-from PyQt6.QtWidgets import QApplication                         # noqa: E402
+from PySide6.QtCore import QThreadPool                             # noqa: E402
+from PySide6.QtWidgets import QApplication                         # noqa: E402
 
 from app.index import face_clustering as fc                      # noqa: E402
 from app.storage.sqlite_store import SqliteStore                 # noqa: E402
@@ -146,7 +146,7 @@ def test_every_yes_no_button_states_its_effect_in_its_tooltip(qapp, store):
         pile_id=1, pile_name="Daddy")
     chip = _SuggestionChip(suggestion)
 
-    from PyQt6.QtWidgets import QPushButton
+    from PySide6.QtWidgets import QPushButton
 
     yes_no = chip.findChildren(QPushButton)
     assert len(yes_no) == 2
@@ -178,7 +178,7 @@ def test_twenty_suggestions_scroll_and_never_widen_the_window(qapp, store):
 
     chip = page._suggestions_strip.findChildren(_SuggestionChip)[0]
     assert holder.height() >= chip.sizeHint().height(), "no chip cut off - not a sliver"
-    from PyQt6.QtWidgets import QPushButton
+    from PySide6.QtWidgets import QPushButton
 
     for button in page._suggestions_strip.findChildren(QPushButton):
         assert button.width() >= CHIP_BUTTON_MIN, f"{button.text()!r} squeezed to a blob"
