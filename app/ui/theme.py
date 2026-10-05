@@ -729,6 +729,8 @@ QComboBox QAbstractItemView {{
 #resultSnippet b {{ color: {highlight}; font-weight: 700; }}
 #searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: {small}; }}
 #indexHeadline, #graphHeadline {{ font-size: {large}; font-weight: 600; }}
+/* 2026-10-05, the UI review: the People window's title had a name and no rule. */
+#photoTaggerTitle {{ font-size: {large}; font-weight: 600; }}
 #indexTotals {{ color: {text_dim}; font-size: {small}; }}
 #skipHeading {{ font-weight: 600; }}
 #skipFix {{ color: {text_dim}; }}

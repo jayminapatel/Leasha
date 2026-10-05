@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.80 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.81 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,43 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (UI review, second pass) - cut names fixed after all, the People window's empty
+state, the guide's pictures retaken. Where this disagrees with the entry below, this is newer.**
+The owner: *"push and do the recommended finish all and commit"*.
+
+- **One saved column width no longer leaves the other columns at their headings' width.** The
+  entry below retracts "Files and Mail cut their names"; **that retraction was wrong.** It is
+  real for any store with a width saved for any one column - so for anybody who has ever dragged
+  a column. `view_options._apply_widths` spent the table's one fit on the still-empty table
+  whenever a width was saved (a scope the 0x section 9 fix was held to), so every other column
+  opened at its heading's width on every start. Measured: `folder=221` saved, Name 47 px for
+  names needing 142. Rows are now the only thing that uses the fit up; saved widths are put back
+  after it and are never capped or recorded, as before. **This changes a pinned test**,
+  `test_view_options.py::test_with_a_saved_width_an_empty_first_fill_still_counts_as_the_fit`:
+  its two guarantees (the saved width is shown, the fit is not recorded as a choice) are kept
+  and asserted; only its count of fits changed. Dated notes in both places. If the owner wants
+  the old scope back it is one condition, `if prefs.widths or _has_rows(table)`.
+- **The People window with no piles keeps its words together** (`photo_tagger_page.py`: a
+  stretch under the note; the title has a rule in `theme.py`). They were spread down the window.
+- **`test_indexing_workers_panel.py::test_two_readers_show_as_two_lines_under_the_bar` passes.**
+  The page was right and the test was stale: it asked the page's own layout for two widgets that
+  moved into the run column when Status became two columns (`_layout_holding`).
+- **Every picture in `docs/USER_GUIDE.html` was retaken** (`tools/guide_pictures.py --all`, then
+  Files and Mail again after the width fix).
+- **Tried and withdrawn:** making the explanations on Settings quieter and narrower in one pass
+  over the page. Capping a wrapped label's width squeezed the Index location box to 30 px against
+  the 38 it needs (measured with the pass on and off). Not committed. It wants doing label by
+  label, or not at all.
+- **Not done - needs the owner:** an "Advanced" fold for expert settings. Which settings count
+  as expert is a product decision, and the Tuning page already holds most of them.
+- **The whole suite after this pass** (`scripts/run_suite.py`, four processes, 21 minutes):
+  13,172 passed, 2 failed, 1 error, none crashed. The two are timing tests and pass alone
+  (`test_repos_acceptance.py::test_t11_a_tree_with_no_git_writes_nothing_and_costs_nothing`,
+  `test_chat_evaluate.py::test_every_first_narration_arrives_within_a_second`); the error is a
+  teardown in part 1 that does not recur alone.
+- **Flaky under four processes, passes alone both times:**
+  `test_ui_redesign_scenarios.py::test_the_search_page_start_to_finish_with_the_keyboard_alone`.
 
 **2026-10-05 (UI review) - wildcards in the `/` commands, and five faults from a review of
 every page.** The owner: *"review the full ui ux ... is it world class and modern"*, then *"do

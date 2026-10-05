@@ -69,6 +69,18 @@ def _tick(view, stats) -> None:
     view._on_progress(stats)
 
 
+def _layout_holding(widget):
+    """The layout `widget` was added to, however deeply it is nested."""
+    pending = [widget.parentWidget().layout()]
+    while pending:
+        layout = pending.pop()
+        if layout.indexOf(widget) >= 0:
+            return layout
+        pending.extend(child for child in (layout.itemAt(i).layout() for i in range(layout.count()))
+                       if child is not None)
+    raise AssertionError("the widget is in no layout")
+
+
 def test_two_readers_show_as_two_lines_under_the_bar(qtbot) -> None:
     view = _view(qtbot)
     panel = view.workers_panel
@@ -89,7 +101,10 @@ def test_two_readers_show_as_two_lines_under_the_bar(qtbot) -> None:
     assert view.now_line.text() == (
         "Reading Archive2019.pst › Inbox/Projects — message 4,512 of 18,300")
     # Under the detail line, as the layout promises.
-    layout = view.detail.parentWidget().layout()
+    # 2026-10-05: the Status page became two columns that day, so the two sit
+    # in the run column - a layout inside the page's own. This asked the page's
+    # own layout, which holds neither, and compared -1 with 0.
+    layout = _layout_holding(view.detail)
     assert layout.indexOf(panel) == layout.indexOf(view.detail) + 1
 
 

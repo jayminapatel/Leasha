@@ -327,6 +327,11 @@ class PhotoTaggerPage(QWidget):
         layout.addWidget(self._suggestions_holder)
         layout.addWidget(self._list, stretch=1)
         layout.addWidget(self._empty_note)
+        # 2026-10-05, the UI review: with no piles the grid is hidden, and the
+        # room it left was shared out between the title, the two sentences and
+        # the button - four lines scattered down an empty window. This takes
+        # that room instead; while the grid shows, the grid's stretch wins.
+        layout.addStretch(0)
 
         self.reload()
         # The button system (widgets/buttons.py): every action button in

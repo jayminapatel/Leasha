@@ -831,7 +831,17 @@ def test_a_fit_over_no_rows_waits_for_the_rows_when_nothing_is_saved():
 def test_with_a_saved_width_an_empty_first_fill_still_counts_as_the_fit(monkeypatch):
     r"""The other side of the finding-3 change, pinned so it cannot drift: a
     table with **any** saved width is fitted once, on its first apply, rows or
-    not - exactly as before. Only a table nobody has sized waits for rows."""
+    not - exactly as before. Only a table nobody has sized waits for rows.
+
+    **Dated note, 2026-10-05 (the UI review) - this pinned the fault as well
+    as the guard.** "Fitted once, rows or not" meant that with one width saved
+    every other column opened at its heading's width, names cut short, on every
+    start (`test_ui_review_polish.py::
+    test_one_saved_width_does_not_leave_the_other_columns_at_their_headings`).
+    The fit now waits for rows here too. What this test was protecting is kept
+    and still asserted below: the saved width is the one shown, and the fit is
+    never recorded as a width somebody chose. Only the count changed - one fit
+    over the empty table, which does not count, and one over its rows."""
     from app.ui.view_options import ViewPreferences
 
     app = _qt()
@@ -845,7 +855,8 @@ def test_with_a_saved_width_an_empty_first_fill_still_counts_as_the_fit(monkeypa
     monkeypatch.setattr(type(_table(app)), "resizeColumnsToContents", counting, raising=False)
     saved = ViewPreferences(widths=(("path", 240),))
     table, recorded = _empty_then_filled(app, saved, "tiny")
-    assert calls == [0], f"fitted at row counts {calls}; with a saved width only the first apply fits"
+    assert len(calls) == 2 and calls[0] == 0 and calls[1] > 0, (
+        f"fitted at row counts {calls}; once empty (not counted) and once over the rows")
     assert table.columnWidth(1) == 240
     assert recorded == []
 

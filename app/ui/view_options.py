@@ -1451,9 +1451,22 @@ def _apply_widths(table: Any, prefs: ViewPreferences,
         # header's signals blocked, and `apply_to_table` resyncs the watcher's
         # baseline afterwards - so it is never recorded as a width somebody
         # chose. `_cap_columns` below still holds any fitted column to 40%.
+        #
+        # **Dated note, 2026-10-05 (the UI review) - that scope left the fault
+        # in place for anybody who had ever dragged a column.** With one width
+        # saved, the one fit was still spent on the empty table, so every
+        # *other* column opened at its heading's width on every start: measured
+        # on a three-column table with `folder=221` saved, Name 47px for names
+        # needing 142, and seen in the user guide's own picture of Files
+        # ("boiler-..."). The saved widths are put back by the loop below,
+        # after the fit, and named to `_cap_columns` as chosen - so fitting on
+        # the first fill cannot move a width somebody chose; it only gives the
+        # columns nobody sized the width of what is in them. So rows are now
+        # the only thing that uses the fit up
+        # (`test_one_saved_width_does_not_leave_the_other_columns_at_their_headings`).
         if not table.property(FITTED):
             table.resizeColumnsToContents()
-            if prefs.widths or _has_rows(table):
+            if _has_rows(table):
                 table.setProperty(FITTED, True)
 
         saved = dict(prefs.widths)

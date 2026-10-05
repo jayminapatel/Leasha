@@ -112,3 +112,73 @@ def test_a_table_rules_its_rows_and_not_its_columns(app):
     assert "QTableWidget::item {" in theme.stylesheet(theme.Theme.LIGHT)
     table.close()
     table.deleteLater()
+
+
+def test_the_people_window_with_no_piles_keeps_its_words_together(app, tmp_path):
+    """With nothing to name, its four lines were spread down an empty window."""
+    from PyQt6.QtWidgets import QLabel
+
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
+
+    store = SqliteStore(tmp_path / "knowledge.db").connect()
+    window = PhotoTaggerWindow(store, None)
+    window.resize(900, 600)
+    window.show()
+    app.processEvents()
+    try:
+        labels = [label for label in window.findChildren(QLabel)
+                  if label.isVisible() and label.text()]
+        bottoms = [label.mapTo(window, label.rect().bottomLeft()).y() for label in labels]
+        assert len(labels) >= 2                     # the title and the sentence under it
+        assert max(bottoms) < 300, bottoms          # all in the top half
+    finally:
+        window.close()
+        window.deleteLater()
+        app.processEvents()
+        store.close()
+
+
+def _filled_after_an_empty_apply(app, widths):
+    """A three-column table the way Files builds it: its preferences applied
+    while it is still empty, then its rows, then applied again."""
+    from PyQt6.QtWidgets import QTableWidgetItem
+
+    from app.ui.view_options import ViewPreferences, apply_to_table
+    from app.ui.widgets.result_table import ResultTable
+
+    columns = [("name", "Name"), ("size", "Size"), ("folder", "Folder")]
+    order = [key for key, _heading in columns]
+    table = ResultTable([heading for _key, heading in columns])
+    table.resize(900, 400)
+    table.show()
+    app.processEvents()
+    prefs = ViewPreferences(widths=widths)
+    apply_to_table(table, prefs, columns=columns, available=order)
+    table.setRowCount(2)
+    for row, name in enumerate(("boiler-service-notes-2025-final.md", "boiler-quote-dave.txt")):
+        for column, text in enumerate((name, "126 B", "D:/Demo/leasha-guide/documents")):
+            table.setItem(row, column, QTableWidgetItem(text))
+    apply_to_table(table, prefs, columns=columns, available=order)
+    app.processEvents()
+    return table
+
+
+def test_one_saved_width_does_not_leave_the_other_columns_at_their_headings(app):
+    """With a width saved for any one column, the table's one fit was spent
+    while it was still empty, so every other column opened as wide as its
+    heading and names were cut to "boiler-..." - on every start, for anybody
+    who had ever dragged a column. Seen in the user guide's own picture of
+    Files (the demonstration store has `folder=221` saved)."""
+    from app.ui.view_options import _available_width, column_cap
+
+    table = _filled_after_an_empty_apply(app, {"folder": 221})
+    try:
+        content = table.sizeHintForColumn(0)
+        cap = column_cap(_available_width(table))
+        assert content > table.horizontalHeader().sectionSizeHint(0)
+        assert table.columnWidth(0) >= min(content, cap) - 1, (table.columnWidth(0), content, cap)
+        assert table.columnWidth(2) == 221, "the width somebody chose is the one kept"
+    finally:
+        table.close()
+        table.deleteLater()

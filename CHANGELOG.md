@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.64 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.65 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Names shown in full, and a tidier People window (2026-10-05)
+
+- **Files and Mail show names in full even after you have resized a column.** If you had ever
+  dragged one column, the others opened only as wide as their headings, so names were cut to
+  "boiler-...". The width you chose is kept; the rest now fit what is in them.
+- **The People window with nobody to name yet** keeps its few lines together at the top.
+- **The user guide's pictures** show the window as it is now.
 
 ### Wildcards in filters, and a tidier window (2026-10-05)
 
