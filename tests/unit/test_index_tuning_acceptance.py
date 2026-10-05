@@ -16,6 +16,8 @@ not only that the value is read, but that moving it changes the run.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QWidget  # noqa: E402
+
 import ast
 from pathlib import Path
 
@@ -167,8 +169,8 @@ JARGON = ("onnx", "directml", "intra-op", "intra op", "quantised model",
 def _controls_of(box) -> list:
     from PySide6.QtWidgets import QAbstractButton, QComboBox, QSpinBox
 
-    return [child for child in box.findChildren((QComboBox, QSpinBox,
-                                                 QAbstractButton))]
+    return [child for child in [w for w in box.findChildren(QWidget) if isinstance(w, (QComboBox, QSpinBox,
+                                                 QAbstractButton))]]
 
 
 @pytest.fixture()

@@ -18,6 +18,8 @@ checks it says what pressing the control does.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QWidget  # noqa: E402
+
 import os
 import re
 
@@ -138,7 +140,7 @@ def test_every_label_tooltip_and_placeholder_on_the_reports_page_and_timeline_pa
 def test_every_control_on_the_timeline_says_what_pressing_it_does(built):
     r"""Runtime tooltip-effect: not merely present, but a sentence about an effect."""
     timeline = built.timeline
-    controls = timeline.findChildren((QAbstractButton, QComboBox, QLineEdit))
+    controls = [w for w in timeline.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))]
     assert len(controls) >= 18                     # kind, group, year, 13 month buttons, 2 dates, Show
     for control in controls:
         said = control.toolTip() or (control.placeholderText() if isinstance(control, QLineEdit) else "")

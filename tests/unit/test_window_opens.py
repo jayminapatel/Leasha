@@ -1348,7 +1348,7 @@ def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(tmp_path)
         from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
         unguarded = [
             c for page in (built.settings_view, built.indexing_view)
-            for c in page.findChildren((QComboBox, QAbstractSpinBox))
+            for c in [w for w in page.findChildren(QWidget) if isinstance(w, (QComboBox, QAbstractSpinBox))]
             if c.focusPolicy() != Qt.FocusPolicy.StrongFocus
         ]
         assert not unguarded, (

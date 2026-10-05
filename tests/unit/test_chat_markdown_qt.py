@@ -103,7 +103,9 @@ def _fragments(view):
     while block.isValid():
         text = block.text()
         for run in block.textFormats():
-            out.append((text[run.start:run.start + run.length], run.format))
+            # A copy: under PySide6 `run.format` belongs to the list `textFormats()`
+            # made, and is freed with it (2026-10-05, the PySide6 trial).
+            out.append((text[run.start:run.start + run.length], QTextCharFormat(run.format)))
         block = block.next()
     return out
 
@@ -168,7 +170,8 @@ def test_headings_are_bold_and_only_modestly_larger(body):
     while block.isValid():
         level = block.blockFormat().headingLevel()
         if level:
-            fmt = block.textFormats()[0].format
+            runs = block.textFormats()             # kept: `.format` lives in it
+            fmt = QTextCharFormat(runs[0].format)
             assert fmt.fontWeight() >= 600
             sizes[level] = fmt.fontPointSize()
         block = block.next()

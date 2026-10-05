@@ -15,6 +15,8 @@ flow, answers that say where they end.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QWidget  # noqa: E402
+
 import html
 import re
 from types import SimpleNamespace
@@ -777,7 +779,7 @@ def test_every_control_on_the_page_says_what_it_does(chat):
     ask(c, "deposit?")
     answered(c)
     bare = []
-    for control in c.view.findChildren((QAbstractButton, QComboBox, QLineEdit)):
+    for control in [w for w in c.view.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))]:
         if isinstance(control, QLineEdit) and control.parent().metaObject().className() \
                 .startswith("QAbstract"):
             continue                              # a list's own editor, not ours
