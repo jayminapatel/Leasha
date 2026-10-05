@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.76 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.77 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,16 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 - a second launch fronts the open window at once.** The owner: *"when you
+launch the application it stops the existing running copy"*. It never did: every second launch
+assumed the copy was closing and sat out `HANDOVER_WAIT_S` (12 s) behind "Waiting for the
+previous Leasha to finish closing…" before asking it forward. The window now records itself in
+`gui:window` (`run_lock.WINDOW_STATE_KEY`, cleared by `closeEvent`); a launch that finds it live
+fronts it from the launching process (`run_lock.front_window` - Windows gives the foreground to
+the program just started) and exits, and only a closing copy gets the wait. The window's poll
+also takes the front request during its own index run, which it used to skip. Measured on the
+laptop: 2.5 s to exit, was 16.8 s; confirmed by the owner.
 
 **2026-10-05 (morning) - the Indexing page, the reader lines, the Git tree. Read this first;
 where it disagrees with an entry below, this is newer.** The owner, watching a run of `D:\JEFF`:

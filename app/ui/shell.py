@@ -2397,7 +2397,13 @@ class MainWindow(QMainWindow):
         # to hide and there is no event loop left to hand a result back to.
         # Every write queued earlier through `state_writes` is drained in
         # `_drain_workers` below, before the store closes.
-        self._store.set_states({"ui:window_geometry": geometry_b64})
+        # 2026-10-05: `gui:window` cleared in the same write - from here on
+        # this copy is closing, so a launch now waits for it rather than
+        # trying to bring it forward (`run_lock.WINDOW_STATE_KEY`).
+        from app.core.run_lock import WINDOW_STATE_KEY
+
+        self._store.set_states({"ui:window_geometry": geometry_b64,
+                                WINDOW_STATE_KEY: ""})
 
         # §3b: Hide the window first (perceived instant close). User sees the
         # app gone from the screen immediately, then the staged teardown runs

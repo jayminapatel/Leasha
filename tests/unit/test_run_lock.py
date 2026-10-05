@@ -27,6 +27,8 @@ lock, breakable only by hand and only at the worst moment.
 from __future__ import annotations
 
 import json
+import os
+import sys
 import uuid
 
 import pytest
@@ -43,7 +45,10 @@ from app.core.run_lock import (
     clear_stop,
     describe_holder,
     is_indexing,
+    front_window,
+    open_window,
     publish,
+    publish_window,
     request_front,
     request_stop,
     stop_requested,
@@ -463,6 +468,63 @@ def test_a_front_request_never_raises_on_a_store_that_will_not_write():
     request_front(None)
     assert not take_front_request(Hostile())
     assert not take_front_request(None)
+
+
+def test_an_open_window_is_recorded_and_a_closing_one_is_not(store):
+    """2026-10-05, "it stops the running copy and starts a new one": every
+    second launch waited out the closing handover because nothing told an
+    open window from a closing one. The record is that difference."""
+    assert open_window(store) is None, "nothing published yet"
+
+    publish_window(store, 4321, 98765)
+    assert open_window(store) == (4321, 98765)
+
+    store.set_state("gui:window", "")            # what closeEvent writes
+    assert open_window(store) is None, "a closing copy must not be fronted"
+
+    store.set_state("gui:window", "rubbish")
+    assert open_window(store) is None
+    assert open_window(None) is None
+
+
+def test_a_window_record_left_by_a_crash_is_not_believed():
+    """A record is a claim: a handle that is gone, or that belongs to another
+    process, is refused - the launch then waits as it always did."""
+    assert not front_window(os.getpid(), 0), "no such window"
+    if sys.platform == "win32":
+        import ctypes
+
+        desktop = ctypes.windll.user32.GetDesktopWindow()
+        assert desktop, "the desktop window always exists"
+        assert not front_window(os.getpid(), desktop), (
+            "a live handle owned by another process must not be fronted")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the foreground is a Windows thing")
+def test_a_live_window_of_the_recorded_process_is_fronted():
+    """The other half: a handle that is a live window of the recorded process
+    is accepted, so a second launch fronts it instead of waiting twelve
+    seconds. A plain native window, because the suite runs Qt offscreen and
+    a widget there has no real handle."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    user32.CreateWindowExW.restype = wintypes.HWND
+    user32.CreateWindowExW.argtypes = [
+        wintypes.DWORD, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.DWORD,
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+        wintypes.HWND, wintypes.HMENU, wintypes.HINSTANCE, wintypes.LPVOID]
+    user32.DestroyWindow.argtypes = [wintypes.HWND]
+    hwnd = user32.CreateWindowExW(0, "STATIC", "leasha-test", 0,
+                                  0, 0, 10, 10, None, None, None, None)
+    assert hwnd, "could not create a test window"
+    try:
+        assert front_window(os.getpid(), hwnd)
+        assert not front_window(os.getpid() + 1, hwnd), "wrong process"
+    finally:
+        user32.DestroyWindow(hwnd)
+    assert not front_window(os.getpid(), hwnd), "a destroyed window is gone"
 
 
 def test_the_pipeline_polls_the_stop_flag_at_its_checkpoint():

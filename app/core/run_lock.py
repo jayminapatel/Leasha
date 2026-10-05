@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 from types import TracebackType
 from typing import Any, Optional, Type
@@ -52,6 +53,7 @@ __all__ = [
     "RUN_STATE_KEY", "STOP_STATE_KEY", "FRONT_STATE_KEY",
     "publish", "active_run", "request_stop", "stop_requested", "clear_stop",
     "request_front", "take_front_request",
+    "publish_window", "open_window", "front_window", "WINDOW_STATE_KEY",
     "describe_holder", "GUI", "COMMAND_LINE", "FOLDER_WATCH",
 ]
 
@@ -81,6 +83,15 @@ STOP_STATE_KEY = "run:stop_requested"
 #: process that could not get the lock shares nothing else with the one that
 #: did.
 FRONT_STATE_KEY = "gui:front_requested"
+
+#: Which window is open, as `"<pid>:<hwnd>"` - written once it is on screen,
+#: cleared the moment a real close begins. **This is what tells "already open"
+#: from "still closing"**, which the mutex alone cannot: both hold it. Without
+#: it every second launch assumed the second case and sat out
+#: `HANDOVER_WAIT_S` behind "Waiting for the previous Leasha to finish
+#: closing…" before fronting the window that was open all along - reported
+#: 2026-10-05 as "it stops the running copy and starts a new one".
+WINDOW_STATE_KEY = "gui:window"
 
 #: How long taking the run lock keeps asking before it says somebody has it.
 #:
@@ -414,4 +425,76 @@ def take_front_request(store: Any) -> bool:
         store.set_state(FRONT_STATE_KEY, "")
         return True
     except Exception:                    # noqa: BLE001
+        return False
+
+
+def publish_window(store: Any, pid: int, hwnd: int) -> None:
+    """Say which window is open. Never raises - a launch without it waits."""
+    if store is None:
+        return
+    try:
+        store.set_state(WINDOW_STATE_KEY, f"{int(pid)}:{int(hwnd)}")
+    except Exception:                    # noqa: BLE001
+        return
+
+
+def open_window(store: Any) -> Optional[tuple[int, int]]:
+    """`(pid, hwnd)` of the window that said it is open, or None.
+
+    None for nothing written, a cleared record (that copy is closing) or a
+    malformed one. **A record is a claim, not proof**: a crash leaves it
+    behind, so the caller checks the handle still belongs to that process
+    (`front_window`) before believing it.
+    """
+    if store is None:
+        return None
+    try:
+        raw = str(store.get_state(WINDOW_STATE_KEY, "") or "").strip()
+        pid, hwnd = raw.split(":", 1)
+        return int(pid), int(hwnd)
+    except Exception:                    # noqa: BLE001 - empty, malformed or unreadable
+        return None
+
+
+def front_window(pid: int, hwnd: int) -> bool:
+    """Bring another process's window to the front. True if it is alive.
+
+    **Done from the launching process, not left to the window.** Windows
+    lets the process the person just started take the foreground and refuses
+    a background one - so the open window calling `activateWindow` on its own
+    only flashes its taskbar button. `AllowSetForegroundWindow` passes that
+    right on, so the window's own `bring_forward` (which also shows a copy
+    hidden to the tray) succeeds when it takes the front request.
+
+    False - and nothing touched - when the handle is gone or now belongs to
+    another process: a record left by a crash, or a closing copy.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.IsWindow.argtypes = [wintypes.HWND]
+        user32.GetWindowThreadProcessId.argtypes = [
+            wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+        user32.IsIconic.argtypes = [wintypes.HWND]
+        user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+
+        handle = wintypes.HWND(hwnd)
+        if not user32.IsWindow(handle):
+            return False
+        owner = wintypes.DWORD(0)
+        user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
+        if owner.value != int(pid):
+            return False
+        user32.AllowSetForegroundWindow(int(pid))
+        if user32.IsIconic(handle):
+            user32.ShowWindow(handle, 9)     # SW_RESTORE - back to maximised if it was
+        user32.SetForegroundWindow(handle)
+        return True
+    except Exception:                    # noqa: BLE001 - a nicety; the poll still fronts it
         return False

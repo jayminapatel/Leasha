@@ -410,6 +410,11 @@ def test_close_event_persists_geometry_without_raising(tmp_path):
         for _ in range(3):
             app.processEvents()
 
+        # 2026-10-05: an open window says so; a closing one must unsay it, or
+        # a launch during the close tries to front a window that is going.
+        from app.core.run_lock import WINDOW_STATE_KEY, publish_window
+        publish_window(store, 1234, 5678)
+
         # The real override, not a mocked slot - this is the exact path that
         # raised AttributeError in production.
         built.close()
@@ -421,6 +426,8 @@ def test_close_event_persists_geometry_without_raising(tmp_path):
             "AttributeError above it was unhandled"
         assert store.get_state("ui:window_geometry"), \
             "closeEvent must persist window geometry via self._store.set_states"
+        assert not store.get_state(WINDOW_STATE_KEY, ""), \
+            "a real close must clear gui:window, so a launch waits for it"
     finally:
         store.close()
         vectors.close()
@@ -597,6 +604,24 @@ def test_a_second_launch_brings_the_window_forward(window):
     raise_.assert_called_once()
     activate.assert_called_once()
     show.assert_not_called()
+
+
+def test_a_second_launch_is_answered_during_our_own_index_run(window):
+    """2026-10-05: the poll returned early while this window was indexing, so
+    the front request a second launch left was never taken - double-clicking
+    the icon mid-run brought nothing forward. It is taken on its own now."""
+    from unittest.mock import MagicMock, patch
+
+    _app, built = window
+    ctl = built.index_ctl
+    with patch.object(built.indexing_view, "is_running", return_value=True), \
+            patch.object(built.indexing_view, "_worker", MagicMock()), \
+            patch.object(ctl, "_poll_front_request") as front, \
+            patch("app.ui.controllers.index_controller.run") as dispatch:
+        ctl._poll_external_run()
+
+    front.assert_called_once()
+    dispatch.assert_not_called()     # the external-run read itself still skipped
 
 
 def test_an_ordinary_poll_does_not_steal_focus(window):

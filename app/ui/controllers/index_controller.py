@@ -568,7 +568,12 @@ class IndexController(QObject):
         can attribute.
         """
         if self._w.indexing_view.is_running() and self._w.indexing_view._worker is not None:
-            return                       # our own run; the live signal is better
+            # Our own run; the live signal is better. **But a second launch
+            # still has to be answered** (2026-10-05): returning here left its
+            # front request untaken for the whole run, so double-clicking the
+            # icon during indexing never brought the window forward.
+            self._poll_front_request()
+            return
         if self._w._resolving_index:
             # A resolve dispatched by `_start_indexing` has no Pipeline yet,
             # so `is_running()` above cannot see it - the very thing this
@@ -577,11 +582,22 @@ class IndexController(QObject):
             # because we are still resolving our own". Skipping the read
             # entirely is cheap and correct: the next tick, four seconds
             # later, sees the truth once resolution has actually finished.
+            self._poll_front_request()
             return
 
         worker = CallableWorker(_read_external_run, self._w._store,
                                 component="ui.index.watch")
         worker.signals.finished.connect(self._w._show_external_run)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _poll_front_request(self) -> None:
+        """Take a second launch's front request alone, on a worker."""
+        from app.core.run_lock import take_front_request
+
+        worker = CallableWorker(take_front_request, self._w._store,
+                                component="ui.index.front")
+        worker.signals.finished.connect(
+            lambda asked: self._w._front_self() if asked else None)
         run(QThreadPool.globalInstance(), worker)
 
     def _show_external_run(self, payload: dict) -> None:

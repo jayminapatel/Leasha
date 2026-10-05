@@ -18,6 +18,7 @@ Startup order matters and is deliberate:
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 from typing import Any, Optional, Sequence
@@ -359,8 +360,6 @@ def _exit_fast(code: int) -> None:
     Tests: `test_exit_placement_is_safe_` asserts this is unreachable while a
     store is open.
     """
-    import os
-
     os._exit(code)  # noqa: B605 - deliberate use of os._exit
 
 
@@ -404,6 +403,28 @@ def _acquire_gui_lock_responsively(
             _time.sleep(poll_s)
 
 
+def _front_open_window(settings: Any) -> bool:
+    """Is a Leasha window open (not closing)? If so, bring it forward. True if done.
+
+    Fronted from here, the launching process, because Windows gives the
+    foreground to what the person just started and not to a background
+    process - see `run_lock.front_window`. The front request is written as
+    well, so a window hidden to the tray is shown by its own poll.
+    """
+    from app.core.run_lock import front_window, open_window, request_front
+    from app.storage.sqlite_store import SqliteStore
+
+    try:
+        with SqliteStore(settings.fts_db) as store:
+            found = open_window(store)
+            if found is None or not front_window(*found):
+                return False
+            request_front(store)
+            return True
+    except Exception:                            # noqa: BLE001 - fall back to waiting
+        return False
+
+
 def _apply_pending_move(settings: Any) -> Any:
     """Carry out an index move recorded by Settings, if one is waiting.
 
@@ -442,7 +463,7 @@ def _apply_pending_move(settings: Any) -> Any:
 
 def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     from app.core.config import load_settings
-    from app.core.run_lock import GUI_MUTEX_NAME, request_front
+    from app.core.run_lock import GUI_MUTEX_NAME, publish_window, request_front
     from app.core.single_instance import HANDOVER_WAIT_S, SingleInstance
 
     try:
@@ -580,8 +601,6 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     code = 1
     try:
         log.info("startup: acquiring the single-instance lock")
-        status_reporter("Waiting for the previous Leasha to finish closing…")
-        application.processEvents()
         # **Waited for, not asked about once.** Closing Leasha holds this lock
         # for as long as the stores stay open, which is seconds - and the window
         # has already vanished from the screen by then, so relaunching
@@ -598,7 +617,24 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
         # rotation genuinely runs) for the whole wait instead of freezing on
         # whatever was painted last. See `_acquire_gui_lock_responsively`.
         try:
-            _acquire_gui_lock_responsively(gui_lock, HANDOVER_WAIT_S, application)
+            # **Open, or closing? Asked before waiting** (2026-10-05). The
+            # wait is for a copy that is closing; a copy that is simply open
+            # said so in `WINDOW_STATE_KEY` and clears it the moment a real
+            # close begins. Waiting regardless put twelve seconds of "Waiting
+            # for the previous Leasha to finish closing…" in front of every
+            # second double-click - reported as the app restarting itself.
+            try:
+                gui_lock.acquire()
+            except AppErrorException:
+                if _front_open_window(settings):
+                    log.info("startup: Leasha is already open - brought it "
+                             "to the front")
+                    splash.hide_and_close()
+                    return 0
+                # Only now, when there is a closing copy to wait for.
+                status_reporter("Waiting for the previous Leasha to finish closing…")
+                application.processEvents()
+                _acquire_gui_lock_responsively(gui_lock, HANDOVER_WAIT_S, application)
         except AppErrorException:
             # **Not a handover anymore - somebody is already here.**
             # `HANDOVER_WAIT_S` covers a closing copy releasing the lock, which
@@ -697,6 +733,9 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # After `show()`: the window has no native handle until then. Cosmetic
             # and guarded inside - see `set_window_relaunch` for what it fixes.
             set_window_relaunch(int(window.winId()))
+            # So a second launch can tell this window is open, not closing -
+            # see `run_lock.WINDOW_STATE_KEY`. Cleared by `closeEvent`.
+            publish_window(store, os.getpid(), int(window.winId()))
             startup_timer.record_window_visible()
             # **The hand-off, now, over a painted window with nothing else
             # running** (0r 2b, 2026-09-29). It used to wait until after the
