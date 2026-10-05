@@ -1,10 +1,11 @@
 # Work order (One thread): Offline drives on a Mac — a scanned drive is found again when it is plugged in
 
-**Doc version:** 1.0 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.1 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 **Thread:** One thread (Core + Index; no new UI)
-**Status:** DRAFT, written 2026-10-05 at the owner's request ("do the recommended and draft
-the work order"). **Not released. Nobody may start it.**
-**Register:** no queue letter until released. Follows **0k**
+**Status:** RELEASED by the owner 2026-10-05 ("release it so it just needs testing later,
+make sure it is of good quality"), and built the same day. Was DRAFT, written earlier that day
+at the owner's request ("do the recommended and draft the work order").
+**Register:** queue letter **1d**. Follows **0k**
 (`WORKORDER-202626270513-offline-media-one-drives.md`, SHIPPED) and unparks one line of
 **0x** §P (`WORKORDER-overhaul-and-mac-ready.md`): "Offline Media drives on a Mac (volume
 identity and removable-drive detection)". `docs/PARKED-IDEAS.md` §6 still lists that line as
@@ -34,6 +35,12 @@ close the gap.
   returns `None` there, and `identify_source` then returns `None`, which reads as "that is a
   folder, not a drive" - yet the Mac test run got as far as waiting for Rescan. §1a settles
   this before anything is built on it.
+
+> **2026-10-05, on release.** The three decisions below were released as written.
+> The owner's instruction was to build it now so that only testing is left, which changes one
+> thing in this order: §1 said "establish before building". 1a is answered from the code, 1b
+> and 1c were measured on GitHub's Mac against real disk images, and what only a real Mac
+> and a real stick can show is left open in 1b and 4a. Each item's own dated note says which.
 
 ## Owner's decisions (the recommended ones, 2026-10-05 — confirm on release)
 

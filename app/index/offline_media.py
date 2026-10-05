@@ -252,7 +252,11 @@ def connected_volumes(store: Any) -> dict[int, Path]:
     source is online it cannot actually confirm, because "online" is what
     lets `_prune_missing` treat a missing file as really gone.
     """
-    if sys.platform != "win32":
+    # 2026-10-05, order `offline-drives-on-a-mac`: this said "not Windows, so
+    # nothing is connected", which made every source read as unplugged on a
+    # Mac for ever - Rescan was never offered. A Mac answers now; any other
+    # system still has no way to tell, and says nothing is connected.
+    if sys.platform not in ("win32", "darwin"):
         return {}
     from app.core.volumes_win import find_drive_by_guid, probe_unc_reachable
 
@@ -285,7 +289,9 @@ def connected_volumes(store: Any) -> dict[int, Path]:
             # 1b/1c say an unconfirmed answer must read as offline, never as
             # a hang or a credential prompt.
             unc = row.get("identity_key")
-            if unc and probe_unc_reachable(unc):
+            # A share is a Windows address (`\\server\share`). On a Mac it is
+            # not one, and is not asked about: shares there are a later order.
+            if unc and sys.platform == "win32" and probe_unc_reachable(unc):
                 online[volume_id] = Path(unc)
         # kind in (cloud, phone, archived): not yet resolvable - order
         # 202626270514's later sections. Correctly absent from `online`.

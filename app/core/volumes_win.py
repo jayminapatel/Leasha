@@ -76,7 +76,10 @@ def identify_root(root: Path) -> Optional[VolumeIdentity]:
     file dialog, so unreachable here means it was unplugged mid-click.
     """
     if sys.platform != "win32":
-        return None
+        # 2026-10-05, order `offline-drives-on-a-mac`: on a Mac the volume's
+        # UUID stands where the GUID does (`osbridge/volumes.py`). Elsewhere
+        # None, as before.
+        return _identify_macos_root(root)
     text = str(root)
     if not text.endswith("\\"):
         text += "\\"
@@ -111,6 +114,31 @@ def identify_root(root: Path) -> Optional[VolumeIdentity]:
         return None
 
 
+def _identify_macos_root(root: Path) -> Optional[VolumeIdentity]:
+    """A Mac volume's identity in this module's own shape; None off macOS.
+
+    `volume_guid` holds `macos-volume:<UUID>`. The field keeps its name: it is
+    "the identity a rescan matches against", and every caller reads it as that.
+    """
+    if sys.platform != "darwin":
+        return None
+    from app.core.osbridge.volumes import identify_macos_root
+
+    found = identify_macos_root(root)
+    if found is None:
+        return None
+    return VolumeIdentity(volume_guid=found.identity, fs_label=found.label,
+                          fs_name=found.fs_name, volume_serial=None)
+
+
+def _mounted_macos_roots() -> list[Path]:
+    if sys.platform != "darwin":
+        return []
+    from app.core.osbridge.volumes import mounted_macos_roots
+
+    return mounted_macos_roots()
+
+
 def mounted_drive_roots() -> list[Path]:
     """Every drive letter currently mounted, as `Path("E:\\")`.
 
@@ -120,7 +148,8 @@ def mounted_drive_roots() -> list[Path]:
     stats including the ones almost certainly absent.
     """
     if sys.platform != "win32":
-        return []
+        # 2026-10-05: on a Mac, the start-up disk and what is in `/Volumes`.
+        return _mounted_macos_roots()
     try:
         mask = ctypes.windll.kernel32.GetLogicalDrives()
     except OSError:

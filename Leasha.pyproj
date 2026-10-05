@@ -180,6 +180,7 @@
     <Compile Include="app\core\osbridge\programs.py" />
     <Compile Include="app\core\osbridge\startmenu.py" />
     <Compile Include="app\core\osbridge\stdio.py" />
+    <Compile Include="app\core\osbridge\volumes.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\row_facts.py" />
     <Compile Include="app\core\run_lock.py" />
@@ -825,6 +826,7 @@
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_logs_and_skip_detail.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
+    <Compile Include="tests\unit\test_mac_volumes.py" />
     <Compile Include="tests\unit\test_mail_attachment_rule.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />

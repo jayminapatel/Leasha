@@ -36,6 +36,9 @@ The operations, and the module each lives in:
     cloudfs.py    is this file a cloud placeholder (OneDrive / iCloud)?
     dirwatch.py   be told when something changes under a folder (imported
                   where it is used, not from this package's top level)
+    volumes.py    which disk is this, on a Mac: a volume's own identity and
+                  where it is mounted now (imported where it is used; the
+                  Windows twin is `app/core/volumes_win.py`)
 
 **Cheap to import.** Only the standard library and the app's logger are used,
 and anything Windows-only (`ctypes.WinDLL`) is imported inside the function

@@ -219,7 +219,11 @@ def _row_named(view, name: str):
 # 2026-10-05: Rescan needs the source to read as plugged in, and telling that
 # is Windows-only today (`core/volumes_win.py`). On macOS the scan worked and
 # Rescan never became available - a gap in Offline, not in this test.
-@pytest.mark.windows
+# 2026-10-05, later (order `offline-drives-on-a-mac`): the gap is closed, so
+# the `windows` marker is gone and this runs on a Mac too. Only Windows and
+# macOS can tell whether a drive is plugged in; anywhere else it is skipped.
+@pytest.mark.skipif(__import__("sys").platform not in ("win32", "darwin"),
+                    reason="telling whether a drive is plugged in needs Windows or macOS")
 def test_offline_media_scan_rescan_and_delete_pressed_for_real(gui_mainwindow, offline_source, qtbot):
     from PyQt6.QtWidgets import QToolButton
 
