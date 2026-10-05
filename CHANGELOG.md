@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.77 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.78 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Leasha has a Windows installer (2026-10-06)
+
+- **`Leasha-Setup-0.3.4.exe` installs Leasha without Python or a command line.** It asks where to
+  keep the index, can download the search models while it installs, and checks the installation
+  at the end. No administrator rights are needed.
+- It is not signed, so Windows warns before it starts: choose More info, then Run anyway.
+- Uninstalling removes the program and leaves the index where it is.
 
 ### Leasha is built on Qt's own Python library now (2026-10-05)
 

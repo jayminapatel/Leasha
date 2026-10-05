@@ -1,12 +1,27 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 1.0 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.1 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **Thread:** the single merged thread
 
+> **2026-10-06 (00:39) - the Setup.exe is built, and §4.2 steps 4 and 6 and §5 are in it.**
+> `Leasha-Setup-0.3.4.exe`, **325 MB**, SHA256 `A79158951F1F7E8034154423C3B916171E05DB90CEEAD13EEB371F0E8DDE6BDA`; a copy and its `.sha256` are in
+> `D:\Local\GDrive\Leasha\Releases\0.3.4\`. The owner's first build failed in Inno Setup at
+> `installer.iss` line 100 - a wrapped line began with `[`, then with `#13#10`, which Inno reads
+> as a section and a preprocessor command at the start of any line
+> (`tests/unit/test_installer_script.py` now reads the file for both). Added since 23:54:
+> step 4, "Download the search models now" (ticked; `model_fetch.fetch_at_install`, the
+> Settings downloader's own child, skips a model already present, never fails the install);
+> step 6, "Check the installation" on the last page (`doctor.py` in a window that stays open);
+> §5, the LibreOffice tickbox (off; `winget install TheDocumentFoundation.LibreOffice`, never
+> blocks). `doctor.py` said NOT READY in a packaged copy for two reasons that were its own: the
+> venv check (a packaged build has none - it now passes and says so) and `import diskcache`
+> (nothing in `app/` imports it any more; taken off its list). `build.ps1` refuses a build with
+> `_internal\.env` in it. **Still open:** installing it - the owner's - and acceptance A1-A9.
+>
 > **2026-10-05 (23:54) - RELEASED by the owner and §4.1-4.3 built, for the owner's own
 > use.** The owner asked "can you create the windows install now too", the same evening the
 > PySide6 port this order was waiting on (2026-09-27 note) was finished. The 2026-10-04

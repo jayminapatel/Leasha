@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.7 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.8 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 ## Scheme
 
@@ -18,25 +18,24 @@ this is a single-user desktop app with no public API and no external consumers.
 
 ### Planned map
 
-> *Note, 1 October 2026:* Layers 6 and 7 (graph and Office builder) were removed and cancelled, so `0.7.0` will
-> not mean what this map says. Layer 8 (Interpret and Chat) is built and runs on ONNX Runtime inside
-> Leasha by default. *(2026-10-04: it moved to `0.3.4`, a PATCH for the brand fixes and the
-> fixes since 19 September; the schema went 25 -> 30 by migration, no re-index.)* When the minor
-> next moves, this map needs the owner's
-> renumbering. The map below is kept as written.
+The version is **0.3.4**. The minor has not moved since Layer 1, although more than the
+map below expected has been built since: the work went out as PATCH releases (0.3.4 was the
+brand fixes and everything since 19 September; the schema went 25 -> 30 by migration, with no
+re-index). Layers 6 and 7 were cancelled, so `0.7.0` no longer means anything. **Renumbering
+the map when the minor next moves is the owner's decision.**
 
-| Version | Milestone |
-|---|---|
-| `0.1.0` | Environment, installer, doctor, build spec, project skeleton |
-| `0.2.0` | Layer 0 — foundation |
-| `0.3.0` | Layer 1 — storage |
-| `0.4.0` | Layers 2–3 — extraction and the indexing pipeline |
-| `0.5.0` | Layer 4 — search meets the <300ms budget |
-| `0.6.0` | Layer 5 — UI shell |
-| `0.7.0` | Layers 6–7 — graph and Office builder |
-| `0.8.0` | Layer 8 — optional RAG answers |
-| `0.9.0` | Layer 9 — hardening and packaging |
-| `1.0.0` | 24-hour soak passed, force-kill recovery verified, cold start under 5s |
+| Version | Milestone | Where it stands |
+|---|---|---|
+| `0.1.0` | Environment, installer, doctor, build spec, project skeleton | done |
+| `0.2.0` | Layer 0 — foundation | done |
+| `0.3.0` | Layer 1 — storage | done |
+| `0.4.0` | Layers 2–3 — extraction and the indexing pipeline | built, released as 0.3.x |
+| `0.5.0` | Layer 4 — search meets the <300ms budget | built, released as 0.3.x |
+| `0.6.0` | Layer 5 — UI shell | built (on PySide6), released as 0.3.x |
+| `0.7.0` | ~~Layers 6–7 — graph and Office builder~~ | cancelled |
+| `0.8.0` | Layer 8 — Interpret and Chat, on ONNX Runtime inside Leasha | built, released as 0.3.x |
+| `0.9.0` | Layer 9 — hardening and packaging | the Windows installer is built (`packaging/`) |
+| `1.0.0` | 24-hour soak passed, force-kill recovery verified, cold start under 5s | not yet |
 
 ## Single source of truth
 
@@ -87,14 +86,13 @@ Rules:
 
 ## Git conventions
 
-> *Note, 1 October 2026:* in practice since late September, helper threads work in `git worktree`s and one
-> thread merges, and some work is committed straight to `main` on the owner's word (recorded in
-> `HANDOFF.md` §3). GitHub `jayminapatel/Leasha`, branch `main`, is the only master; see `CLAUDE.md`.
-> The current schema version is **33**.
-
-**Branches** — `main` is always in a state where `doctor.py` passes and the test suite is
-green. Work happens on `layer/<n>-<name>` (e.g. `layer/1-storage`) or `fix/<short-name>`,
-and merges to `main` when the layer's acceptance tests pass.
+**Branches** — GitHub `jayminapatel/Leasha`, branch `main`, is the only master (`CLAUDE.md`).
+`main` is always in a state where `doctor.py` passes and the test suite is green. Work is
+committed to `main` on the owner's word, or done in a `git worktree` under `.worktrees/` on
+its own branch (`layer/<n>-<name>`, `fix/<short-name>`, `trial/<name>`) and merged by one
+thread; parallel helpers each get their own worktree, because two threads in one working copy
+collide. A merged branch is deleted, here and on GitHub. The index schema is at version
+**34** (`CURRENT_VERSION` in `app/storage/migrations.py`).
 
 **Commits** — Conventional Commits, so the changelog can be assembled from history:
 
@@ -107,11 +105,9 @@ chore(deps): bump lancedb to 0.37.1
 test(extract): add corrupt-PDF fixture
 ```
 
-> *Note, 1 October 2026:* `graph` and `office` are dead packages; the live ones also include `ort`, `chat`,
-> `reports`, `shell` and `cli`.
-
-Scopes match the package names: `core`, `storage`, `extract`, `index`, `search`, `graph`,
-`office`, `llm`, `ui`, `installer`, `deps`, `spec`.
+Scopes match the package names: `core`, `storage`, `extract`, `index`, `search`, `ort`,
+`llm`, `chat`, `reports`, `shell`, `cli`, `ui`, plus `installer` (`install.ps1`),
+`packaging` (the Windows installer), `deps` and `spec`.
 
 **Tags** — annotated, `v`-prefixed, one per version bump:
 
@@ -133,6 +129,10 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
 7. `CHANGELOG.md` `[Unreleased]` section promoted to the new version with today's date,
    including its `### Docs` subsection.
 8. Commit `chore(release): v<x.y.z>`, then tag.
+9. Build the Windows installer from the tag: `.\packaging\build.ps1 -Release`. It makes
+   `Leasha-Setup-<version>.exe`, checks the built program runs, and copies the installer and
+   its `.sha256` to `Leasha\Releases\<version>\` on Google Drive. Install it once on this
+   machine and let **Check the installation** say READY.
 
 Steps 5 and 6 are enforced by tests rather than trusted to memory. Documentation that has
 quietly gone stale is worse than none: it is confidently wrong, and someone acts on it.

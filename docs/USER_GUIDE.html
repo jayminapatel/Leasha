@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha User Guide</h1>
   <p>Find anything on your computer by describing it in plain English: documents, photos, code and years of email, all searched on this machine and nothing sent anywhere.</p>
-  <div class="meta">For Leasha 0.3.3 · Guide updated 5 October 2026 · Windows 10 and 11</div>
+  <div class="meta">For Leasha 0.3.4 · Guide updated 6 October 2026 · Windows 10 and 11; macOS and Linux from source</div>
 </header>
 
 <h2 id="welcome"><span class="num">1</span>Welcome</h2>
@@ -126,12 +126,19 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 
 <h2 id="getting-started"><span class="num">2</span>Getting started</h2>
 <h3 id="install">Install</h3>
+<p>Leasha is made for Windows. It also runs on a Mac and on Linux from its source code; see the end of this section.</p>
+<h4>Windows</h4>
 <ol class="steps">
-  <li><b>Run the installer.</b> In the Leasha folder, double-click <code>run-install.cmd</code>. It checks the scripts first, installs Python and everything Leasha needs, and keeps the window open so you can read what happened. It asks one question: where to build the index. The suggested place, <code>%LOCALAPPDATA%\Leasha</code>, is private to your Windows account.</li>
-  <li><b>Check it worked.</b> The installer finishes by running the health check. It must say <b>READY</b>. You can run it again at any time from <b>Settings › Storage &amp; maintenance › Run doctor</b>.</li>
-  <li><b>Open Leasha.</b> Use the desktop shortcut, or type <code>.\leasha</code> in the Leasha folder. To run <code>leasha</code> from anywhere, run <code>.\add-to-path.ps1</code> once. It changes your own PATH only, needs no administrator rights, and <code>-Remove</code> undoes it.</li>
+  <li><b>Run the installer.</b> Double-click <code>Leasha-Setup-0.3.4.exe</code>. Windows warns that it protected your PC, because the installer is not signed: choose <b>More info</b>, then <b>Run anyway</b>. No administrator password is needed; Leasha installs for your account only.</li>
+  <li><b>Choose where to keep the index.</b> The one question. The suggested place, <code>%LOCALAPPDATA%\Leasha\Data</code>, is private to your Windows account. The installer warns if the drive is short of space; a large index needs about a third of the size of everything it reads.</li>
+  <li><b>Let it download the search models.</b> Leave <b>Download the search models now</b> ticked: about 200 MB, and the only time Leasha uses the internet. Tick <b>Also read older Office files</b> if you have <code>.doc</code> or <code>.ppt</code> files; it installs LibreOffice for that.</li>
+  <li><b>Check it worked.</b> On the last page, <b>Check the installation</b> opens a window that lists each check. It must end with <b>READY</b>. You can run the same check at any time from <b>Settings › Storage &amp; maintenance › Run doctor</b>.</li>
+  <li><b>Open Leasha</b> from the Start menu, or from the last page of the installer.</li>
 </ol>
-<div class="callout"><b>Why the <code>.\</code>?</b>PowerShell deliberately does not run programs from the folder you are standing in, which protects you from a malicious program dropped there. <code>.\leasha</code> says "this one, here". After <code>add-to-path.ps1</code> you can leave it off.</div>
+<p>Installing a newer version keeps your settings and your index. Uninstalling Leasha (Windows Settings › Apps) removes the program and leaves the index where it is, so nothing has to be read again if you install it later.</p>
+<div class="callout"><b>From the source code instead</b>People working on Leasha itself install it with <code>run-install.cmd</code> in the Leasha folder, then start it with <code>.\leasha</code>. PowerShell does not run programs from the folder you are standing in unless you say <code>.\</code>, which protects you from a program dropped there; <code>.\add-to-path.ps1</code> lets you type <code>leasha</code> from anywhere.</div>
+<h4>Mac and Linux</h4>
+<p>There is no installer for these yet. Leasha runs from its source code with Python 3.12: the README's <b>Install</b> section has the exact commands for each. On a Mac (Apple Silicon, macOS 14 or later) everything works except reading mail from a running Outlook, which is Windows-only; mail files such as <code>.eml</code> and <code>.mbox</code> are read. Linux is for people working on Leasha, and is not supported.</p>
 
 <h3 id="first-run">The first time you open it</h3>
 <p>A splash screen shows while Leasha starts: "Starting Leasha…", "Opening your index…", "Loading the search engine…" and, on the very first start only, "Downloading the meaning model — one time, about 130 MB". Then the Search page opens with the cursor in the box.</p>

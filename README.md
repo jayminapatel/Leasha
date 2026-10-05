@@ -1,8 +1,6 @@
 # Leasha
 
-**Doc version:** 3.3 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 3.4 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -67,6 +65,39 @@ Leasha only ever **reads** your files. It never changes, moves or deletes one.
 
 ## Install
 
+Leasha runs on Windows, and from source on macOS and Linux. Windows is the platform it is
+built and used on every day; on a Mac the whole test suite passes on GitHub's Mac machines,
+but nobody has yet used the window on a real Mac; Linux is for developers and is not
+supported.
+
+| | How | Mail from a running Outlook | Removable drives (Offline) |
+|---|---|---|---|
+| **Windows 10 22H2 / 11** | the installer, or from source | yes | yes, and network shares |
+| **macOS 14+, Apple Silicon** | from source | no - `.eml` and `.mbox` files; `.pst` not yet tried | yes (network shares: no) |
+| **Linux** | from source, unsupported | no - mail files only | no |
+
+### Windows - the installer (most people)
+
+1. Run `Leasha-Setup-<version>.exe`. Builds are kept in the `Leasha\Releases\<version>`
+   folder on Google Drive, each with a `.sha256` file to check it against.
+2. Windows says it protected your PC, because the installer is not signed. Choose
+   **More info**, then **Run anyway**.
+3. No administrator rights are needed: it installs for your account, in
+   `%LOCALAPPDATA%\Programs\Leasha`. (It can install for everyone if you ask it to.)
+4. **Where to keep the index** - the one question. The default is
+   `%LOCALAPPDATA%\Leasha\Data`. It warns if the drive has less than 300 GB free; a large
+   index needs about a third of the size of what it reads.
+5. Leave **Download the search models now** ticked (about 200 MB, the only time Leasha needs
+   the internet). Tick **Also read older Office files** to install LibreOffice through
+   winget, for `.doc`, `.ppt` and similar.
+6. On the last page, **Check the installation** opens a window listing each check; it should
+   end with READY.
+
+Installing a newer version keeps your settings and your index. Uninstalling (Settings >
+Apps) removes the program and leaves the index where it is.
+
+### Windows - from source (developers)
+
 From the folder you cloned or unpacked Leasha into:
 
 ```
@@ -80,11 +111,57 @@ One question: where to build the index. Then:
 
 ```powershell
 venv\Scripts\python.exe doctor.py     # must print READY
+venv\Scripts\python.exe -m app.main   # the window
 ```
 
 The index defaults to `%LOCALAPPDATA%\Leasha`, which is private to your Windows
 account. Any other location is accepted; re-running the installer on a machine that
 already has one leaves it exactly where it is.
+
+To build the installer from source: `.\packaging\build.ps1` (about ten minutes; needs Inno
+Setup 6 - `winget install --id JRSoftware.InnoSetup -e`). `-Release` also copies it, with its
+checksum, to the Releases folder.
+
+### macOS - from source
+
+Needs a Mac with Apple Silicon and macOS 14 or later (onnxruntime publishes nothing for older
+systems), and Python 3.12 (`brew install python@3.12`, or the python.org installer).
+
+```bash
+cd ~/Leasha                                   # wherever you cloned it
+python3.12 -m venv venv
+venv/bin/python -m pip install -r requirements.txt
+mkdir -p ~/"Library/Application Support/Leasha"
+echo "DATA_PATH=$HOME/Library/Application Support/Leasha" > .env
+venv/bin/python -c "from app.core.model_fetch import fetch_at_install as f; f()"   # the models, once
+venv/bin/python doctor.py                     # READY; it says live Outlook mail needs Windows
+venv/bin/python -m app.main                   # the window
+```
+
+`.env` needs only `DATA_PATH`; everything else has a default. `docs/MAC_VERIFICATION.md` is
+the list of what still has to be checked on a real Mac.
+
+### Linux - from source (unsupported)
+
+Checked on Ubuntu 24.04 under WSL, with Python 3.12: the whole test suite runs, with two
+query-plan tests that differ under Ubuntu's older SQLite, and the window opens (through WSLg).
+Searching and indexing in that window have not been tried.
+
+```bash
+sudo apt install python3.12-venv libgl1 libegl1 libxkbcommon0 libfontconfig1 libdbus-1-3 libglib2.0-0
+cd ~/Leasha
+python3.12 -m venv venv
+venv/bin/python -m pip install -r requirements.txt
+mkdir -p ~/.local/share/Leasha
+echo "DATA_PATH=$HOME/.local/share/Leasha" > .env
+venv/bin/python -c "from app.core.model_fetch import fetch_at_install as f; f()"
+venv/bin/python doctor.py
+venv/bin/python -m app.main
+```
+
+Without `sudo`, `python3 -m venv --without-pip venv` and then `get-pip.py` from
+bootstrap.pypa.io makes the same environment. The test suite, headless:
+`QT_QPA_PLATFORM=offscreen venv/bin/python scripts/run_suite.py -j 3`.
 
 **Leasha and shared computers.** Everything Leasha indexes and everything you
 search stays on this computer - nothing is ever sent anywhere. On a computer
@@ -192,11 +269,12 @@ app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat L
 app/index     L3  walker, resumable pipeline, embedder, governor, folder watch
 app/search    L4  BM25 + ANN, RRF fusion, rerank, filters, git search, evaluation
 app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
-app/ui        L5  PyQt6 window
+app/ui        L5  the window (PySide6, Qt 6.11)
 app/shell     L5  `leasha shell`, the terminal search prompt
 app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe
 app/chat      L8b the Chat tab's engine
 app/cli           `python -m app.cli`, the headless entry point
+packaging/        the Windows installer: PyInstaller build, Inno Setup script, build.ps1
 tests/        unit, integration, and fixtures (healthy + deliberately corrupt)
 ```
 

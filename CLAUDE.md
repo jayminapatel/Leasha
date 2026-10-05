@@ -44,6 +44,12 @@ Offer in one line and wait.
 **Never reword a released work-order item, a UI label or an existing description.**
 Corrections go in a dated note above the item, never as an edit to it.
 
+**Documentation says what is true now (owner, 2026-10-06).** README, the user guide, the
+technical reference, troubleshooting, the glossary, the architecture and build specs, the
+developer guides and the checklists are rewritten in place to describe Leasha as it is at
+the moment - no dated notes stacked on top. The rule above still holds for *records* - work
+orders, `ORDER_REGISTER.md`, `CHANGELOG.md`, `HANDOFF.md` entries, reviews - and for UI labels.
+
 **Working version first.** No structural refactor before the feature orders are done.
 Bug fixes and measured performance work are exempt.
 

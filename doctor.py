@@ -140,6 +140,11 @@ def check_python() -> Check:
 
 
 def check_in_venv() -> Check:
+    # 2026-10-05: a packaged build has no venv by design - the installer's own
+    # folder is its environment - so there it passes and says which.
+    if getattr(sys, "frozen", False):
+        return Check("Running inside the project venv", True,
+                     f"packaged build at {Path(sys.executable).parent}")
     in_venv = sys.prefix != getattr(sys, "base_prefix", sys.prefix)
     return Check(
         "Running inside the project venv", in_venv,
@@ -177,7 +182,11 @@ PACKAGES = [
     ("docx", "python-docx"),
     ("openpyxl", "openpyxl"),
     ("pptx", "python-pptx"),
-    ("diskcache", "diskcache"),
+    # 2026-10-05: `diskcache` taken off. Nothing in `app/` imports it any more
+    # (the search cache is in memory - `search/engine.py` says why), so the
+    # packaged build rightly leaves it out and this line made its health check
+    # say NOT READY for a package Leasha does not use. requirements.txt still
+    # installs it; harmless.
     ("pydantic", "pydantic"),
     ("dotenv", "python-dotenv"),
     ("loguru", "loguru"),

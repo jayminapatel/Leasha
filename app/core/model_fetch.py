@@ -58,7 +58,7 @@ from app.core.errors import AppErrorException, make_error
 
 __all__ = [
     "KINDS", "APPROX_MB", "present", "fetch", "target_dir", "child_code",
-    "STOPPED", "DONE",
+    "STOPPED", "DONE", "fetch_at_install",
 ]
 
 KINDS = ("ollama", "embed", "rerank", "speech", "onnx")
@@ -409,3 +409,45 @@ def fetch(kind: str, name: str, *, model_cache: Any = None, client: Any = None,
             "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
             details="MODEL_CACHE is not set, so there is nowhere to put it"))
     return _fetch_in_child(kind, name, folder, say, stop, popen or subprocess.Popen)
+
+
+def fetch_at_install(settings: Any = None, *, say: Callable[[str], None] = print,
+                     fetcher: Optional[Callable[..., str]] = None,
+                     is_present: Optional[Callable[..., bool]] = None) -> int:
+    """The installer's "Download the search models now" step. Returns 0 always.
+
+    2026-10-05, order 202626082213 §4.2 step 4: the search model (`EMBED_MODEL`)
+    and the reranker (`RERANK_MODEL`), each fetched by `fetch` - the same
+    child, the same folder, as the Download button in Settings - and skipped
+    when already there, so an upgrade passes straight through. A person ticked
+    the box in the installer, which is what makes this a download somebody
+    asked for (this module's rule). **A failure is said and never fails the
+    install** (acceptance A3): Settings can download either model later.
+    """
+    fetcher = fetcher or fetch
+    is_present = is_present or present
+    try:
+        if settings is None:
+            from app.core.config import load_settings
+
+            settings = load_settings()
+        wanted = [("embed", settings.embed_model, "the search model"),
+                  ("rerank", settings.rerank_model, "the reranker")]
+        cache = settings.model_cache
+    except Exception as exc:                     # noqa: BLE001 - never fails the install
+        say(f"Could not read Leasha's settings, so no model was downloaded: {exc}")
+        say("Settings > Models can download them later.")
+        return 0
+    for kind, name, words in wanted:
+        if is_present(kind, name, model_cache=cache):
+            say(f"{words.capitalize()} ({name}) is already here.")
+            continue
+        say(f"Downloading {words} ({name})...")
+        try:
+            fetcher(kind, name, model_cache=cache, on_progress=say)
+            say(f"{words.capitalize()} is ready.")
+        except Exception as exc:                 # noqa: BLE001 - never fails the install
+            say(f"{words.capitalize()} did not download: {exc}")
+            say("Leasha still installs. Settings > Models can download it later.")
+    return 0
+

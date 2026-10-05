@@ -744,6 +744,7 @@
     <Compile Include="tests\unit\test_fast_xlsx.py" />
     <Compile Include="tests\unit\test_federated_search.py" />
     <Compile Include="tests\unit\test_feeder_thread.py" />
+    <Compile Include="tests\unit\test_fetch_at_install.py" />
     <Compile Include="tests\unit\test_file_as_a_root.py" />
     <Compile Include="tests\unit\test_file_menu.py" />
     <Compile Include="tests\unit\test_file_state.py" />

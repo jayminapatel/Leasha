@@ -51,8 +51,17 @@ Name: "{autodesktop}\Leasha"; Filename: "{app}\Leasha.exe"; Tasks: desktopicon
 
 [Tasks]
 Name: "desktopicon"; Description: "Put Leasha on the desktop"; Flags: unchecked
+; Section 4.2 step 4: the models, so the first search works offline. Never fails
+; the install (acceptance A3) - Settings can download them later.
+Name: "models"; Description: "Download the search models now (about 200 MB; needs the internet this once)"
+; Section 5: off by default, and never blocks - winget may be absent or refused.
+Name: "libreoffice"; Description: "Also read .doc, .ppt and other older Office files (installs LibreOffice, about 400 MB, through winget)"; Flags: unchecked
 
 [Run]
+Filename: "{app}\leasha-cli.exe"; Parameters: "-c ""from app.core.model_fetch import fetch_at_install as f; raise SystemExit(f())"""; StatusMsg: "Downloading the search models..."; Flags: waituntilterminated; Tasks: models
+Filename: "{cmd}"; Parameters: "/c winget install --id TheDocumentFoundation.LibreOffice -e --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing LibreOffice through winget..."; Flags: waituntilterminated; Tasks: libreoffice
+; Section 4.2 step 6 and acceptance A8: the health check, in a window that stays open.
+Filename: "{cmd}"; Parameters: "/k """"{app}\leasha-cli.exe"" ""{app}\_internal\doctor.py"" --quick"""; Description: "Check the installation (a window lists each check)"; Flags: postinstall skipifsilent
 Filename: "{app}\Leasha.exe"; Description: "Open Leasha now"; Flags: nowait postinstall skipifsilent
 
 [Code]
