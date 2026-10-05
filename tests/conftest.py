@@ -278,6 +278,25 @@ def _qt_application():
     # route. The process is ending anyway.
 
 
+def pytest_collection_modifyitems(config, items):
+    """A test marked `windows` runs on Windows and is skipped anywhere else.
+
+    The marker has been in `pyproject.toml` all along ("requires Windows") and
+    nothing acted on it: such a test ran on macOS and failed for want of
+    PowerShell's scheduled tasks or a drive letter (2026-10-05, the first
+    whole-suite run on a Mac). Skipped, not deselected, so the count says how
+    many there are.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        return
+    skip = pytest.mark.skip(reason="needs Windows (marked `windows`)")
+    for item in items:
+        if "windows" in item.keywords:
+            item.add_marker(skip)
+
+
 @pytest.fixture(autouse=True)
 def _on_mains_power(monkeypatch):
     """Every test runs as if the machine were plugged in.

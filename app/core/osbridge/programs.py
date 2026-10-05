@@ -175,6 +175,11 @@ KNOWN_PLAYERS: tuple[Player, ...] = (
 # Windows: the search
 # ===========================================================================
 
+def _folders_in(text: str) -> list:
+    """`text` as its folders, whichever slash divides them."""
+    return [part for part in str(text).replace("\\", "/").split("/") if part]
+
+
 def find_in_install_folders(
     roots: Iterable[object],
     folders: Sequence[str],
@@ -200,7 +205,11 @@ def find_in_install_folders(
             for sub in subdirs:
                 for name in executables:
                     # `""` means "the folder itself", so it adds no part.
-                    parts = [root, folder] + ([sub] if sub else []) + [name]
+                    # 2026-10-05: split on either slash. The tables write
+                    # `VideoLAN\VLC`; off Windows that was one folder with
+                    # a backslash in its name, so nothing was ever found in it.
+                    parts = ([root] + _folders_in(folder)
+                             + (_folders_in(sub) if sub else []) + [name])
                     try:
                         candidate = Path(*parts)
                         if candidate.is_file():

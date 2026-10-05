@@ -433,8 +433,13 @@ def test_pin_remove_and_add_change_what_the_next_question_searches(chat):
     c.qtbot.mouseClick(c.view.shelf.chips()[0].remove_button, Qt.MouseButton.LeftButton)
     assert [chip.path for chip in c.view.shelf.chips()] == [AGREEMENT.path]
 
-    _drop(c.view.shelf, "C:/notes/extra.txt")                             # drag a result in
-    assert [chip.path for chip in c.view.shelf.chips()] == [AGREEMENT.path, "C:/notes/extra.txt"]
+    # 2026-10-05: a path this system can hold in a file link (a Mac read
+    # "C:/notes/extra.txt" back as "/C:/notes/extra.txt").
+    import os
+
+    extra = "C:/notes/extra.txt" if os.name == "nt" else "/notes/extra.txt"
+    _drop(c.view.shelf, extra)                                            # drag a result in
+    assert [chip.path for chip in c.view.shelf.chips()] == [AGREEMENT.path, extra]
     answered(c)
 
     ask(c, "and when do I get it back?")

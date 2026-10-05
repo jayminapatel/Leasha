@@ -62,6 +62,7 @@ __all__ = [
     "is_windows_shaped",
     "separator_for",
     "join_under",
+    "name_of",
     "case_sensitive",
     "path_key",
     "same_path",
@@ -105,6 +106,32 @@ def separator_for(path: Any) -> str:
     if is_windows() or is_windows_shaped(path):
         return "\\"
     return "/"
+
+
+def name_of(path: Any) -> str:
+    r"""The last part of a path - the file's or folder's own name - however it is written.
+
+    `Path(text).name` answers this only for a path written this system's way.
+    Off Windows, `Path("D:\Docs\report.docx").name` is the whole string: a
+    backslash is an ordinary character there, so the path is one long name.
+    That is what a Mac did with every Windows-shaped path in an index - a
+    report's source was "D:\Docs" where Windows says "Docs", a duplicate was
+    listed by its full path (2026-10-05, the first whole-suite run on macOS,
+    nine tests). An index copied from a Windows machine is full of such paths.
+
+    - **Windows**: exactly `Path(text).name`, as before.
+    - **Anywhere else**: a Windows-shaped path is split on either slash; any
+      other path is `Path(text).name`.
+
+    `""` for a drive on its own (`D:`, `D:\`), as `Path("D:\").name` is on Windows.
+    """
+    text = str(path or "")
+    if is_windows() or not is_windows_shaped(text):
+        return Path(text).name
+    parts = [part for part in re.split(r"[\\/]+", text) if part]
+    if not parts or (len(parts) == 1 and parts[0].endswith(":")):
+        return ""
+    return parts[-1]
 
 
 def join_under(root: Any, relative: str) -> str:

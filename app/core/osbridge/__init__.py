@@ -54,6 +54,7 @@ from app.core.osbridge.launch import (
 from app.core.osbridge.pathnames import (
     case_sensitive,
     join_under,
+    name_of,
     path_key,
     same_path,
     separator_for,

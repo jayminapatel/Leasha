@@ -110,7 +110,9 @@ def catalogue_sources(store: Any, *, roots: Sequence[str] = ()) -> list[SourceSu
         except Exception as exc:                  # noqa: BLE001
             _log.debug("could not count folders under {}: {}", cleaned, exc)
             folders = []
-        name = Path(cleaned).name or cleaned
+        from app.core.osbridge.pathnames import name_of  # 2026-10-05: `name_of`, so a Windows-shaped path reads the same on a Mac
+
+        name = name_of(cleaned) or cleaned
         sources.append(SourceSummary(
             name=name,
             kind="local",

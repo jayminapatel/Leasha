@@ -572,7 +572,9 @@ def _formatted_date(value: Optional[int]) -> str:
 
 
 def _copy_line(copy: DuplicateCopy) -> str:
-    name = Path(copy.path).name or copy.path
+    from app.core.osbridge.pathnames import name_of  # 2026-10-05: `name_of`, so a Windows-shaped path reads the same on a Mac
+
+    name = name_of(copy.path) or copy.path
     if copy.source_kind == "local":
         where = "this computer"
     else:
@@ -624,7 +626,9 @@ def render_space_document(
         lines.append(f"The {min(len(groups), DUPLICATE_GROUPS_SHOWN)} largest:")
         lines.append("")
         for group in groups:
-            example = Path(group.copies[0].path).name if group.copies else "(unknown)"
+            from app.core.osbridge.pathnames import name_of
+
+            example = name_of(group.copies[0].path) if group.copies else "(unknown)"
             lines.append(
                 f"**{example}** - {len(group.copies)} copies, "
                 f"{_size_words(group.size_bytes)} each, "

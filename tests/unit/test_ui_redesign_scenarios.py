@@ -451,6 +451,13 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     assert app.focusWidget() is view.results._list, "Tab never reached the results list"
     before = _rows(view)
     _key(qtbot, app, KEY.Key_Return)
+    # 2026-10-05: waited for. The rows were counted the instant after the key,
+    # which failed on a slow machine (macOS on GitHub, and this laptop under
+    # four test processes) and passed alone.
+    try:
+        qtbot.waitUntil(lambda: _rows(view) > before, timeout=5000)
+    except Exception:                                # noqa: BLE001 - the assert below says it
+        pass
     assert _rows(view) > before, "Enter on a two-match group must show its matches"
     assert opened == []
     _key(qtbot, app, KEY.Key_Return)

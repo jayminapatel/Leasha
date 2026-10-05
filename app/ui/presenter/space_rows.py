@@ -100,7 +100,9 @@ def _where_summary(copies: Sequence[DuplicateCopy]) -> str:
 def _name(copy: Optional[DuplicateCopy]) -> str:
     if copy is None:
         return "(unknown)"
-    return Path(_location(copy)).name or _location(copy)
+    from app.core.osbridge.pathnames import name_of  # 2026-10-05: `name_of`, so a Windows-shaped path reads the same on a Mac
+
+    return name_of(_location(copy)) or _location(copy)
 
 
 def _copy_row(copy: DuplicateCopy, *, size: Optional[int] = None, size_column: int = -1,

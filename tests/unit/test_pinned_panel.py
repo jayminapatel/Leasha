@@ -118,13 +118,19 @@ def test_buttons_disable_when_the_set_is_empty(qapp):
 
 def test_the_list_offers_real_file_urls_not_qts_own_format(qapp):
     """The point of swapping `QListWidget` for `DraggableResultsModel`."""
+    # 2026-10-05: a path this system can hold in a file link. `D:\a.pdf` is
+    # not one on a Mac - Qt reads it there as a file called that in "/".
+    import os
+    from pathlib import Path
+
+    native = r"D:\a.pdf" if os.name == "nt" else "/a.pdf"
     panel = PinnedPanel()
-    panel.pin(row(r"D:\a.pdf"))
+    panel.pin(row(native))
     assert panel.list.dragEnabled()
     model = panel.list.model()
     data = model.mimeData([model.index(0, 0)])
     assert data.hasUrls()
-    assert data.urls()[0].toLocalFile().replace("/", "\\") == r"D:\a.pdf"
+    assert Path(data.urls()[0].toLocalFile()) == Path(native)
 
 
 def test_enabled_checkbox_defaults_on_with_no_store(qapp):

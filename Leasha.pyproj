@@ -843,6 +843,7 @@
     <Compile Include="tests\unit\test_model_devices.py" />
     <Compile Include="tests\unit\test_model_dropdowns.py" />
     <Compile Include="tests\unit\test_model_manager_qt.py" />
+    <Compile Include="tests\unit\test_name_of.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
     <Compile Include="tests\unit\test_nightly.py" />

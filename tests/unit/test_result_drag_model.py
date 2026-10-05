@@ -48,7 +48,11 @@ def test_mime_data_offers_file_urls_for_real_paths(qapp, tmp_path):
 
     data = model.mimeData(indexes)
     assert data.hasUrls()
-    assert data.urls()[0].toLocalFile().replace("/", "\\") == str(target)
+    # 2026-10-05: compared as paths. Turning every "/" into a backslash made
+    # the expected text Windows-only, and a Mac's real path failed it.
+    from pathlib import Path
+
+    assert Path(data.urls()[0].toLocalFile()) == target
 
 
 def test_mime_data_skips_a_mail_row(qapp):

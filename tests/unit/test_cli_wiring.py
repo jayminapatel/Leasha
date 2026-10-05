@@ -540,6 +540,8 @@ def test_offline_media_archive_of_an_unknown_source_is_a_clean_error(tmp_path, c
     assert "no catalogued source" in combined
 
 
+# 2026-10-05: a drive letter is the thing scanned here; a Mac has none.
+@pytest.mark.windows
 def test_offline_media_same_as_of_an_unknown_source_is_a_clean_error(tmp_path, capsys):
     """1a's acceptance half at the CLI: `--same-as` naming a source that does
     not exist must refuse cleanly, never invent one."""

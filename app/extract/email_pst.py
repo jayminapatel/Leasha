@@ -321,7 +321,10 @@ def walk_session(
         # 200 to 2,200 documents every hour, was Force-skipped after 16 h 58
         # min as stuck. `total` stays None: MAPI gives no count worth trusting
         # without a second walk, and the frame's own rule is never to guess.
-        name = Path(store.file_path).name if store.file_path else store.display_name
+        # 2026-10-05: `name_of` - Outlook hands a Windows path whatever reads it.
+        from app.core.osbridge.pathnames import name_of
+
+        name = name_of(store.file_path) if store.file_path else store.display_name
         with progress.enter("pst", name, unit="message",
                             stage=progress.STAGE_OPENING) as frame:
             try:

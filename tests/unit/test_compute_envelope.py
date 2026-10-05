@@ -355,6 +355,9 @@ def _counting(answer):
     return run, calls
 
 
+# 2026-10-05: the disk probe asks about the index folder's drive letter; a
+# temporary folder on a Mac has none, so only the adapter probe ran there.
+@pytest.mark.windows
 def test_the_probes_run_once_per_process_not_once_per_call(
         windows_with_no_earlier_answer, monkeypatch, tmp_path) -> None:
     """2026-09-20. The embedder, OCR, the image model and the reranker each

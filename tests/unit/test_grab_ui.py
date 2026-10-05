@@ -122,6 +122,12 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
     pytest.importorskip("PyQt6")
     if not GOLDEN.is_dir() or not any(GOLDEN.rglob("*.png")):
         pytest.skip("no goldens captured yet (§9i runs on the Windows venv)")
+    import sys as _sys
+
+    if _sys.platform != "win32":
+        # 2026-10-05: the goldens were drawn with Windows' fonts. Another
+        # system draws the same window in its own, and every picture differs.
+        pytest.skip("the goldens are pictures of the window on Windows")
     imagehash = pytest.importorskip("imagehash")
     from PIL import Image
 

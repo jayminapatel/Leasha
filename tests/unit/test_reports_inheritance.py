@@ -27,7 +27,11 @@ from app.storage.sqlite_store import SqliteStore
 
 def _write_local(store, path, *, size_bytes=100, mtime_ns=1_700_000_000_000_000_000,
                  ext="txt"):
-    parent = str(Path(path).parent)
+    # 2026-10-05: these paths are Windows-shaped on every system, so their
+    # folder is worked out the Windows way; `Path` on a Mac gave ".".
+    from pathlib import PureWindowsPath
+
+    parent = str(PureWindowsPath(path).parent)
     file_id = store.upsert_file(
         path, size_bytes=size_bytes, mtime_ns=mtime_ns, ext=ext,
         parent_dir=parent, source_kind="file", status="INDEXED",

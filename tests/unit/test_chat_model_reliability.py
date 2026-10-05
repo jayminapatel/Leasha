@@ -287,8 +287,14 @@ def test_interprets_client_gets_chats_window_from_the_same_settings():
                                chat_context_tokens=6144)
     client = engines.text_model(settings)
     assert client.num_ctx == engines.ollama_context(settings) == 6144
+    # 2026-10-05: the same machine on both sides. `ollama_context` reads this
+    # computer's memory; the right-hand side said 32 GB whatever it was, so
+    # the test passed on the owner's 32 GB laptop and failed on a 7 GB runner.
+    import psutil
+
+    here = SimpleNamespace(ram_mb=int(psutil.virtual_memory().total / 1024 ** 2))
     assert engines.ollama_context(SimpleNamespace()) == ChatSettings.from_settings(
-        SimpleNamespace(), profile=SimpleNamespace(ram_mb=32_000)).context_tokens
+        SimpleNamespace(), profile=here).context_tokens
 
 
 def test_a_picked_ollama_model_for_interpret_carries_the_window_too():
