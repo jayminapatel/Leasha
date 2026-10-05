@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.98 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.99 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,26 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (23:12, from the clock) - after the port: cleaned up and checked three ways.**
+The times on the three entries below (22:15, 22:45, 23:30) were written ahead of the clock
+and are only their order, not when they happened. This entry makes two lines of
+the 23:30 entry below untrue: PyQt6 *has been* removed from the laptop venv, and the trial *has
+been* removed (branch `trial/pyside6` deleted here and on GitHub after it was fully merged;
+worktree, its venv and `.env`, and the scratch demo copy gone).
+
+- **PyQt6's first uninstall stopped half-way** and left 71 compiled modules under
+  `site-packages/PyQt6` with its record renamed `~yqt6-6.11.0.dist-info`, which pip then ignores
+  ("Ignoring invalid distribution ~yqt6"). Both were removed by hand. If pip ever warns about
+  `~something`, that is the sign of the same thing.
+- **Results on `572dba7`:** laptop, whole suite **13,282 passed, 0 failed** (with PyQt6 still
+  installed); after its removal the Qt-heavy files again, 193 passed, 0 failed. GitHub with only
+  PySide6 installed: Windows green, **macOS 13,066 passed, 0 failed** (run 37345260729).
+- **WSL on the laptop:** the owner installed Ubuntu 24.04. A copy of the repository is at
+  `~/Leasha` in it (cloned from a bundle - git in WSL refuses `/mnt/d` without a global
+  `safe.directory` exception, which was not added), with a venv made `--without-pip` plus
+  `get-pip.py` (Ubuntu lacks `python3-venv`; no sudo needed). Linux run results: see the next
+  entry, when there is one.
 
 **2026-10-05 (23:30) - Leasha runs on PySide6 6.11.0.** The owner released order
 `202626270238` after seeing the trial window, and the trial branch was merged into `main`. This
