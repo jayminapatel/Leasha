@@ -122,7 +122,12 @@ def test_the_printed_map_names_every_source_and_where_it_is_kept_and_none_of_wha
     target = tmp_path / "map.pdf"
     _write_the_pdf(document, target)
     text = _pdf_text(target)
-    flat = " ".join(text.split())
+    # NFKC (2026-10-05): Linux's fonts set "fi" as one ligature character, so
+    # the extracted text read "ﬁre safe" and the words were not found. The
+    # page was right; reading it back has to unfold ligatures first.
+    import unicodedata
+
+    flat = " ".join(unicodedata.normalize("NFKC", text).split())
 
     assert "A map of Aunt Meera" in flat
     # every source's name...

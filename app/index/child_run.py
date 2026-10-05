@@ -238,7 +238,9 @@ def child_command(roots: Iterable[Any], *, env_file: Any = None,
     * `first` -> `--first`, once per folder marked "Index this folder first",
       **in order** - the order is the setting (2026-09-29).
     """
-    argv = [python or sys.executable, "-m", "app.cli", "index",
+    from app.core.osbridge.stdio import own_python
+
+    argv = [python or own_python(), "-m", "app.cli", "index",
             "--events", "jsonl", "--run-owner", "window"]
     if env_file:
         argv += ["--env", str(env_file)]

@@ -117,6 +117,12 @@ _CHILD_CODE = {
 }
 
 
+
+def _own_python() -> str:
+    from app.core.osbridge.stdio import own_python
+
+    return own_python()
+
 def _onnx_model(name: str) -> Any:
     from app.ort import hub
 
@@ -325,7 +331,7 @@ def _fetch_in_child(kind: str, name: str, folder: Path,
     said = tempfile.TemporaryFile()
     try:
         child = popen(
-            [sys.executable, "-c", _CHILD_CODE["onnx" if kind == "speech" else kind],
+            [_own_python(), "-c", _CHILD_CODE["onnx" if kind == "speech" else kind],
              *_child_args(kind, name, folder)],
             stdout=subprocess.DEVNULL, stderr=said,
             creationflags=_no_window_flags())

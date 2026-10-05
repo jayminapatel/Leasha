@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.99 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.100 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,27 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (23:20, from the clock) - the whole suite on Linux, on this laptop.** WSL Ubuntu
+24.04, Python 3.12.3, `~/Leasha` at `572dba7`, three processes: **13,181 passed, 5 failed, no
+crash** (8.5 min). The five:
+
+1. `test_places.py` x2 - `reverse_geocoder` is optional (a comment in `requirements.txt`) and
+   was not installed there. **A test fault:** they now skip with that reason. GitHub never saw
+   it because CI deselects `slow`.
+2. `test_reports_fixtures.py` - Linux's fonts set "fi" as one ligature, so the printed map read
+   back "ﬁre safe". **A test fault:** the text is NFKC-normalised before comparing.
+3. `test_query_plans.py` x2 - Ubuntu's Python uses the system SQLite **3.45.1** (Windows' Python
+   ships 3.49.1) and it plans the type-browse query differently: a scan by `idx_files_mtime`
+   instead of the covering `idx_files_ext`. Not changed - Linux is not a target (owner,
+   2026-10-05). It would be a slower browse on such a Linux, not a wrong answer.
+
+Also new in the same commit: `osbridge.stdio.own_python()`. In a packaged build
+`sys.executable` is `Leasha.exe`, so every child started as `<python> -m app.cli ...` (the index
+run, folder watching, the file reader, model downloads, the health check) would have opened a
+second window. They now ask `own_python()`, which is `sys.executable` from source and the console
+program `leasha-cli.exe` beside the window in a packaged build. `tasks.install_package` refuses
+in a packaged build (there is no pip). `tests/unit/test_own_python.py` keeps the rule.
 
 **2026-10-05 (23:12, from the clock) - after the port: cleaned up and checked three ways.**
 The times on the three entries below (22:15, 22:45, 23:30) were written ahead of the clock

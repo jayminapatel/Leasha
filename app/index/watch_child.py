@@ -75,7 +75,9 @@ def watch_command(roots: Iterable[Any], *, env_file: Any = None,
     a change made a moment ago has not reached yet; `--live-only` still leaves
     out the ones marked Archive.
     """
-    argv = [python or sys.executable, "-m", "app.cli"]
+    from app.core.osbridge.stdio import own_python
+
+    argv = [python or own_python(), "-m", "app.cli"]
     if env_file:
         argv += ["--env", str(env_file)]
     argv += ["watch", "--events", "jsonl", "--live-only"]

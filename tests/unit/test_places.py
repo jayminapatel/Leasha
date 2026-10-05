@@ -75,6 +75,10 @@ def test_read_gps_never_raises_on_a_corrupt_file(tmp_path):
 
 @pytest.mark.slow
 def test_a_real_coordinate_resolves_to_a_real_place():
+    # Optional (requirements.txt says "Install to turn a photo's GPS into a place
+    # name"): skipped, and said, where it is not installed (2026-10-05, the
+    # first Linux run on the laptop had it missing and failed instead).
+    pytest.importorskip("reverse_geocoder")
     from app.extract.places import reverse_geocode
 
     place = reverse_geocode(51.5074, -0.1278)
@@ -83,6 +87,10 @@ def test_a_real_coordinate_resolves_to_a_real_place():
 
 @pytest.mark.slow
 def test_reverse_geocode_makes_no_network_call(monkeypatch):
+    # Optional (requirements.txt says "Install to turn a photo's GPS into a place
+    # name"): skipped, and said, where it is not installed (2026-10-05, the
+    # first Linux run on the laptop had it missing and failed instead).
+    pytest.importorskip("reverse_geocoder")
     import socket
 
     def blocked_connect(self, *a, **k):

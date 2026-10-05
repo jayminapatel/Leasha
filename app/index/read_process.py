@@ -221,7 +221,9 @@ class ReaderProcess:
     def __init__(self, *, low_priority: bool = True, python: Optional[str] = None,
                  popen: Callable[..., Any] = subprocess.Popen) -> None:
         self.low_priority = bool(low_priority)
-        self.python = python or sys.executable
+        from app.core.osbridge.stdio import own_python
+
+        self.python = python or own_python()
         self._popen = popen
         self._proc: Any = None
         #: The current child's `_Hello`, or None when there is no child.

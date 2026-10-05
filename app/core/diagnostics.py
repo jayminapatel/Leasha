@@ -35,6 +35,12 @@ RECENT_LOGS_PER_FOLDER = 3
 MAX_LOG_BYTES = 1_000_000
 
 
+
+def _own_python() -> str:
+    from app.core.osbridge.stdio import own_python
+
+    return own_python()
+
 def _guarded(name: str, collect: Callable[[], Any]) -> Any:
     """Run one collector, converting any failure into a recorded value.
 
@@ -144,7 +150,7 @@ def _doctor(project_root: Path) -> Any:
     if not doctor.is_file():
         return {"_absent": f"{doctor} not found"}
     result = subprocess.run(
-        [sys.executable, str(doctor), "--json", "--quick"],
+        [_own_python(), str(doctor), "--json", "--quick"],
         capture_output=True, text=True, timeout=180, check=False,
     )
     try:

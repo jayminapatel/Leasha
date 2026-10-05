@@ -326,7 +326,9 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             key="doctor.py", reason=f"not found at {doctor}",
         ), args.json)
 
-    command = [sys.executable, str(doctor)]
+    from app.core.osbridge.stdio import own_python
+
+    command = [own_python(), str(doctor)]
     if args.json:
         command.append("--json")
     if args.quick:

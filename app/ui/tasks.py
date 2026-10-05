@@ -829,9 +829,11 @@ def doctor_report(timeout_s: int = DOCTOR_TIMEOUT_S) -> dict:
     from app.core.config import project_root
     from app.core.errors import AppErrorException, make_error
 
+    from app.core.osbridge.stdio import own_python
+
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) if sys.platform == "win32" else 0
     finished = subprocess.run(
-        [sys.executable, str(project_root() / "doctor.py"), "--json", "--quick"],
+        [own_python(), str(project_root() / "doctor.py"), "--json", "--quick"],
         capture_output=True, text=True, timeout=timeout_s, check=False,
         creationflags=flags,
     )
@@ -872,6 +874,14 @@ def install_package(package: str, version: str = "", timeout_s: int = 600) -> di
 
     target = f"{package}=={version}" if version else package
     fix = f"venv\\Scripts\\pip install {target}"
+
+    # 2026-10-05: a packaged build has no pip, and its `sys.executable` is
+    # Leasha.exe - which would have opened a second window, not installed
+    # anything. Said plainly instead.
+    if getattr(sys, "frozen", False):
+        return {"ok": False, "package": target,
+                "detail": "this installed copy of Leasha cannot add packages to itself",
+                "fix": "Install the next version of Leasha, or run Leasha from source."}
 
     try:
         finished = subprocess.run(
