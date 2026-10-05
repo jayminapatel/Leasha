@@ -369,6 +369,7 @@
     <Compile Include="app\ui\debug_recorder.py" />
     <Compile Include="app\ui\drag_out.py" />
     <Compile Include="app\ui\editors.py" />
+    <Compile Include="app\ui\enter_key.py" />
     <Compile Include="app\ui\exit_watchdog.py" />
     <Compile Include="app\ui\files_view.py" />
     <Compile Include="app\ui\first_contact.py" />
@@ -721,6 +722,7 @@
     <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
     <Compile Include="tests\unit\test_enrichment_backlog.py" />
+    <Compile Include="tests\unit\test_enter_key.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
     <Compile Include="tests\unit\test_epub_preview.py" />
     <Compile Include="tests\unit\test_era_hints.py" />

@@ -501,6 +501,11 @@ class MainWindow(QMainWindow):
         self.rail.currentChanged.connect(self._remember_page)
         self.rail.show_pill(pill_text(IDLE), None)
         self.setCentralWidget(self.rail)
+        # 2026-10-05: on a Mac, Qt does not open a list's line on Enter (it is
+        # Cmd+O there). `enter_key` makes it; on Windows this does nothing.
+        from app.ui import enter_key
+
+        enter_key.install()
 
         # **Every scroll-sensitive control in the window, in one call.**
         # Qt lets the wheel change a combo box or spin box that does not have
