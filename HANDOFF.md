@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.78 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.79 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,48 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (late) - the Photos tab stays still, every tile the same size.** The owner: *"the
+photos flash folder then the picture etc even when tagging, can the ui be slick world class and
+smooth like i have in google photos"*, *"can all photos be same size in the view too?"*.
+Committed to `main` on the owner's word ("do the recommended finish all and commit").
+
+- **The flash was the naming page rebuilding itself.** Every name, combine, Yes/No or forget
+  called `reload()`, which cleared the pile list, re-added every pile with a Windows folder icon
+  (`SP_DirIcon`) and cut every face again from its full-size photo. Now `_piles_ready` updates in
+  place (a pile still there keeps its item, picture, place and scroll; only changed words are
+  set), a new tile shows `face_crops.blank_tile` (soft grey rounded square), and a rename or
+  combine shows before the store answers (`_show_renamed`, `_show_combined`).
+- **Face crops are made once** (new `app/ui/widgets/face_crops.py`): kept in memory for the
+  session and as square JPEGs in `<data>/thumbs/faces`, keyed on path, box and the photo's
+  mtime. Used by the pile grid, the "Is this ...?" chips and "Manage the faces". The strip now
+  keeps every chip still asked and drops only the answered one, at once.
+- **The photo grid no longer resets** when the library is re-read and the same photos come back
+  in the same order (back from naming, back to the tab) - `PhotoModel.set_rows` swaps the rows
+  and repaints the words. A different list still resets; scroll is kept when nothing is selected.
+- **Same-size tiles:** `photo_thumbs._square` takes the centre square (it used to fit the whole
+  photo on a clear square) and scales every tile to `CACHE_EDGE`, so a panorama is not a small
+  tile among full ones. Details, the info panel and the viewer still show the whole picture.
+- **Smooth, Option B items 1-2:** a thumbnail **fades in** over `FADE_MS` (160 ms;
+  `_FadeDelegate` paints it over the grey tile); the grid scrolls **per pixel** and a wheel notch
+  **glides** `GLIDE_PX` over `GLIDE_MS` (`_Glide`; touchpad and Ctrl/Shift+wheel untouched); the
+  screenful above and below is **asked for ahead** (`_ask_ahead`, nearest last so it is made
+  first). Found on the way: probing the bottom-right corner lands in the margin past the last
+  column at most widths and asked for nothing - it reads the bottom row from its left edge.
+- **Blur-up, Option B item 3, without touching the index:** every thumbnail made also leaves a
+  24-pixel JPEG, all kept in one file, `<data>/thumbs/tiny.pack` (`photo_thumbs.read_tiny_pack`
+  / `write_tiny_pack`, written whole to a `.tmp` and swapped in; every 200 new and in
+  `PhotosView.shutdown`). A tile whose thumbnail is not in memory is painted from it, soft, and
+  the sharp one fades in over it. A photo never thumbnailed still shows grey the first time -
+  previews made at index time would need the index and the indexer, and were not done.
+- **Round faces, Option B item 4 (part):** the people grid and the "Is this ...?" chips show
+  faces in circles (`face_crops.round_pixmap`); "Manage the faces" keeps squares (a selection).
+- Tests: `tests/unit/test_photos_smooth.py` (17). The 10 for the flash and the tile size fail on
+  the code before the fix; the blur-up and round-face tests were not run against the old code
+  (a full-suite run was using the tree). **UNVERIFIED on the real window** - offscreen only;
+  restart Leasha to see it. **Not done, both need a custom grid view (a restructure, deferred
+  under "working version first"):** month headings between rows, and a justified edge-to-edge
+  layout - which would also undo the same-size tiles the owner asked for.
 
 **2026-10-05 - a window hidden to the tray comes back at once too.** Follow-on to the entry
 below: the second launch now also posts `run_lock.FRONT_MESSAGE_NAME` to the window's handle,

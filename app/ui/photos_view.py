@@ -306,3 +306,4 @@ class PhotosView(QWidget):
         from app.ui.workers import stop_timers
 
         stop_timers(self)
+        self.thumbs.save_tiny()                 # the blurred previews made this session

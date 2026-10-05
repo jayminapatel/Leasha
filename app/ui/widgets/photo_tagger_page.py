@@ -23,6 +23,7 @@ crops must never block the interface thread doing it.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
@@ -37,6 +38,8 @@ from PyQt6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
+                                       remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 #: How often the page looks for faces grouped since it last read them, while
@@ -58,6 +61,8 @@ ROLE_FACE_ID = int(Qt.ItemDataRole.UserRole) + 7
 CHIP_WIDTH = 128
 CHIP_BUTTON_MIN = 56
 ROLE_PILE_ID = int(Qt.ItemDataRole.UserRole)
+#: The face a pile's tile shows, or has asked for (`face_crops.face_key`).
+ROLE_FACE_KEY = int(Qt.ItemDataRole.UserRole) + 8
 ROLE_MIME = "application/x-leasha-pile-id"
 
 
@@ -187,12 +192,18 @@ class _SuggestionChip(QWidget):
         # here gets its icon, its kind and its natural width.
         style_all(self)
 
+    @property
+    def face_id(self) -> int:
+        return self._face_id
+
     def set_picture(self, image: Any) -> None:
         if image is None:
             return
-        pixmap = QPixmap.fromImage(image)
+        self.set_pixmap(QPixmap.fromImage(image))
+
+    def set_pixmap(self, pixmap: QPixmap) -> None:
         if not pixmap.isNull():
-            self._picture.setPixmap(pixmap.scaled(
+            self._picture.setPixmap(round_pixmap(pixmap).scaled(
                 72, 72, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation))
 
@@ -211,6 +222,12 @@ class PhotoTaggerPage(QWidget):
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._pile_names: dict[int, str] = {}
+        #: The piles as last read, by id - what an instant rename or combine
+        #: works out its new label from before the store has answered.
+        self._piles: dict[int, Any] = {}
+        #: 2026-10-05: face crops kept beside the photo thumbnails, made once.
+        data = getattr(store, "db_path", None)
+        self._faces_dir = Path(data).parent / "thumbs" / "faces" if data else None
         # 2026-10-04, the owner: "the pictures for naming should be updated
         # periodically if not live". Grouping now happens during a run
         # (`Pipeline._maybe_detect_faces`), so the page looks every
@@ -386,85 +403,155 @@ class PhotoTaggerPage(QWidget):
         run(self._pool, counts_worker)
 
     def _piles_ready(self, piles: Any, generation: int) -> None:
+        r"""Bring the grid up to date **in place**.
+
+        2026-10-05, the owner: "the photos flash folder then the picture etc
+        even when tagging". This used to clear the list and add every pile
+        again with a folder icon, then cut every face out of its photo again.
+        Now a pile still there keeps its tile, its picture and its place on
+        screen; only its words change. A pile gone is taken out, a new one put
+        in, and a face already seen this session shows at once.
+        """
         if generation != self._generation:
             return                               # a later reload won
-        self._list.clear()
         piles = list(piles or [])
+        self._piles = {pile.id: pile for pile in piles}
         self._pile_names = {pile.id: pile.name or "" for pile in piles}
         self._empty_note.setVisible(not piles)
         self._list.setVisible(bool(piles))
 
-        placeholder = self.style().standardIcon(
-            self.style().StandardPixmap.SP_DirIcon)
-        for rank, pile in enumerate(piles, start=1):
-            item = QListWidgetItem(placeholder, _pile_label(pile, rank))
-            item.setData(ROLE_PILE_ID, pile.id)
-            item.setToolTip(
-                "Click to name this person. Drag onto another pile if it "
-                "is the same person." if not pile.name else
-                f"{pile.name}. Right-click for more options.")
-            self._list.addItem(item)
+        wanted = {pile.id for pile in piles}
+        scroll = self._list.verticalScrollBar().value()
+        current = self._list.currentItem()
+        current_id = current.data(ROLE_PILE_ID) if current is not None else None
+        self._list.setUpdatesEnabled(False)
+        try:
+            kept: dict[int, QListWidgetItem] = {}
+            for row in range(self._list.count() - 1, -1, -1):
+                pile_id = self._list.item(row).data(ROLE_PILE_ID)
+                if pile_id in wanted and pile_id not in kept:
+                    kept[pile_id] = self._list.item(row)
+                else:
+                    self._list.takeItem(row)
+            for rank, pile in enumerate(piles, start=1):
+                item = kept.get(pile.id)
+                if item is None:
+                    item = QListWidgetItem(blank_tile(CELL - 20, round_=True), "")
+                    item.setData(ROLE_PILE_ID, pile.id)
+                    self._list.insertItem(rank - 1, item)
+                elif self._list.row(item) != rank - 1:
+                    self._list.insertItem(rank - 1, self._list.takeItem(self._list.row(item)))
+                self._dress(item, pile, rank)
+            if current_id in wanted:
+                self._list.setCurrentItem(self._item_for(current_id))
+        finally:
+            self._list.setUpdatesEnabled(True)
+        self._list.verticalScrollBar().setValue(scroll)
 
-        self._load_crops(piles, generation)
+        self._load_crops(piles)
 
-    def _load_crops(self, piles: Any, generation: int) -> None:
-        from app.ui.thumbnail_loader import decode_face_crop
+    def _dress(self, item: QListWidgetItem, pile: Any, rank: int) -> None:
+        """A pile's words - set only when they changed, so nothing repaints for nothing."""
+        label = _pile_label(pile, rank)
+        if item.text() != label:
+            item.setText(label)
+        tip = ("Click to name this person. Drag onto another pile if it "
+               "is the same person." if not pile.name else
+               f"{pile.name}. Right-click for more options.")
+        if item.toolTip() != tip:
+            item.setToolTip(tip)
+
+    def _item_for(self, pile_id: int) -> Optional[QListWidgetItem]:
+        for row in range(self._list.count()):
+            item = self._list.item(row)
+            if item.data(ROLE_PILE_ID) == pile_id:
+                return item
+        return None
+
+    def _load_crops(self, piles: Any) -> None:
+        r"""Each pile's face: from memory at once when it was seen this session,
+        otherwise on a worker (from disk when it was made before). A tile
+        whose face is unchanged is not touched; one whose face changed keeps
+        its old picture until the new one is ready - never a blank between."""
         from app.ui.workers import CallableWorker, run
 
-        for index, pile in enumerate(piles):
+        for pile in piles:
             if not pile.samples:
                 continue
             sample = pile.samples[0]
+            key = face_key(sample.path, sample.bbox)
+            item = self._item_for(pile.id)
+            if item is None or item.data(ROLE_FACE_KEY) == key:
+                continue                         # showing it, or already asked for it
+            item.setData(ROLE_FACE_KEY, key)
+            pixmap = remembered(key)
+            if pixmap is not None:
+                item.setIcon(QIcon(round_pixmap(pixmap)))
+                continue
             worker = CallableWorker(
-                decode_face_crop, sample.path, sample.bbox,
+                cached_face_crop, sample.path, sample.bbox, self._faces_dir,
                 component="ui.photo_tagger")
             worker.signals.finished.connect(
-                lambda image, i=index, g=generation: self._crop_ready(i, image, g))
-            worker.signals.failed.connect(
-                lambda _error, i=index, g=generation: None)
+                lambda image, p=pile.id, k=key: self._crop_ready(p, k, image))
+            worker.signals.failed.connect(lambda _error: None)
             run(self._pool, worker)
 
-    def _crop_ready(self, index: int, image: Any, generation: int) -> None:
-        if generation != self._generation:
-            return
-        if index < 0 or index >= self._list.count() or image is None:
-            return
-        pixmap = QPixmap.fromImage(image)
-        if pixmap.isNull():
-            return
-        self._list.item(index).setIcon(QIcon(pixmap))
+    def _crop_ready(self, pile_id: int, key: str, image: Any) -> None:
+        """A face is ready - shown on its pile if that pile still wants it,
+        and kept either way for the next time it is asked for."""
+        pixmap = remember(key, image)
+        item = self._item_for(pile_id)
+        if pixmap is not None and item is not None and item.data(ROLE_FACE_KEY) == key:
+            item.setIcon(QIcon(round_pixmap(pixmap)))
 
     # -- suggestions: "Is this Daddy?" (section 2c) --------------------------
 
     def _suggestions_ready(self, suggestions: Any, generation: int) -> None:
+        r"""2026-10-05: a chip still being asked stays as it is, picture and
+        all; only the answered ones go and only the new ones come. It used to
+        tear the whole strip down and cut every face again on each Yes or No."""
         if generation != self._generation:
             return                               # a later reload won
+        suggestions = list(suggestions or [])
+        wanted = {int(s.face_id) for s in suggestions}
+        chips: dict[int, _SuggestionChip] = {}
         while self._suggestions_row.count() > 1:      # keep the trailing stretch
-            item = self._suggestions_row.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
+            widget = self._suggestions_row.takeAt(0).widget()
+            if widget is None:
+                continue
+            face_id = getattr(widget, "face_id", None)
+            if face_id in wanted and face_id not in chips:
+                chips[face_id] = widget
+            else:
+                widget.hide()
                 widget.deleteLater()
 
-        suggestions = list(suggestions or [])
         self._suggestions_holder.setVisible(bool(suggestions))
         if not suggestions:
             return
 
-        from app.ui.thumbnail_loader import decode_face_crop
         from app.ui.workers import CallableWorker, run
 
         for suggestion in suggestions:
+            chip = chips.get(int(suggestion.face_id))
+            if chip is not None:
+                self._suggestions_row.insertWidget(self._suggestions_row.count() - 1, chip)
+                continue
             chip = _SuggestionChip(suggestion, self)
             chip.decided.connect(self._on_suggestion_decided)
             self._suggestions_row.insertWidget(
                 self._suggestions_row.count() - 1, chip)
 
+            key = face_key(suggestion.path, suggestion.bbox)
+            pixmap = remembered(key)
+            if pixmap is not None:
+                chip.set_pixmap(pixmap)
+                continue
             worker = CallableWorker(
-                decode_face_crop, suggestion.path, suggestion.bbox,
+                cached_face_crop, suggestion.path, suggestion.bbox, self._faces_dir,
                 component="ui.photo_tagger.suggestions")
             worker.signals.finished.connect(
-                lambda image, c=chip, g=generation:
-                c.set_picture(image) if g == self._generation else None)
+                lambda image, c=chip, k=key: self._chip_picture(c, k, image))
             worker.signals.failed.connect(lambda _error: None)
             run(self._pool, worker)
 
@@ -478,6 +565,15 @@ class PhotoTaggerPage(QWidget):
         bar = self._suggestions_holder.horizontalScrollBar().sizeHint().height()
         self._suggestions_holder.setFixedHeight(
             tallest + margins.top() + margins.bottom() + bar + 4)
+
+    def _chip_picture(self, chip: _SuggestionChip, key: str, image: Any) -> None:
+        pixmap = remember(key, image)
+        if pixmap is None:
+            return
+        try:
+            chip.set_pixmap(pixmap)
+        except RuntimeError:
+            pass                                 # answered and gone meanwhile
 
     # -- accept all (2026-10-05) ------------------------------------------------
 
@@ -537,6 +633,14 @@ class PhotoTaggerPage(QWidget):
         returns to the unclustered pool."""
         from app.ui.workers import CallableWorker, run
 
+        # Answered: the chip goes now, not when the store has caught up.
+        for chip in self._suggestions_strip.findChildren(_SuggestionChip):
+            if chip.face_id == face_id:
+                self._suggestions_row.removeWidget(chip)
+                chip.hide()
+                chip.deleteLater()
+        if all(c.isHidden() for c in self._suggestions_strip.findChildren(_SuggestionChip)):
+            self._suggestions_holder.setVisible(False)
         worker = CallableWorker(
             self._store.confirm_suggestion, face_id, accept,
             component="ui.photo_tagger")
@@ -583,11 +687,13 @@ class PhotoTaggerPage(QWidget):
                 f"with {name.strip()}? The two groups become one.")
             if answer != QMessageBox.StandardButton.Yes:
                 return
+            self._show_combined(pile_id, int(taken))
             worker = CallableWorker(self._store.combine_piles, pile_id, int(taken),
                                     component="ui.photo_tagger")
             worker.signals.failed.connect(
                 lambda error: _warn_write_failed(self, "Could not combine", error))
         else:
+            self._show_renamed(pile_id, name)
             worker = CallableWorker(self._store.rename_pile, pile_id, name,
                                     component="ui.photo_tagger")
             worker.signals.failed.connect(
@@ -611,6 +717,7 @@ class PhotoTaggerPage(QWidget):
             return
         from app.ui.workers import CallableWorker, run
 
+        self._show_combined(source_id, target_id)
         worker = CallableWorker(
             self._store.combine_piles, source_id, target_id,
             component="ui.photo_tagger")
@@ -618,6 +725,35 @@ class PhotoTaggerPage(QWidget):
         worker.signals.failed.connect(
             lambda error: _warn_write_failed(self, "Could not combine", error))
         run(self._pool, worker)
+
+    # -- showing a change before the store has answered (2026-10-05) -----------
+    #
+    # The owner wanted naming to feel like Google Photos: the label changes as
+    # the name is given, and the reload that follows only confirms it in place.
+    # A write that fails says so (`_warn_write_failed`) and the reload puts the
+    # grid back to what the store holds.
+
+    def _show_renamed(self, pile_id: int, name: str) -> None:
+        pile, item = self._piles.get(pile_id), self._item_for(pile_id)
+        if pile is None or item is None:
+            return
+        pile = replace(pile, name=name.strip() or None)
+        self._piles[pile_id] = pile
+        self._dress(item, pile, self._list.row(item) + 1)
+
+    def _show_combined(self, source_id: int, target_id: int) -> None:
+        source, target = self._piles.get(source_id), self._piles.get(target_id)
+        item = self._item_for(source_id)
+        if item is not None:
+            self._list.takeItem(self._list.row(item))
+        if source is None or target is None:
+            return
+        self._piles.pop(source_id, None)
+        target = replace(target, face_count=target.face_count + source.face_count)
+        self._piles[target_id] = target
+        kept = self._item_for(target_id)
+        if kept is not None:
+            self._dress(kept, target, self._list.row(kept) + 1)
 
     # -- context menu: forget, manage faces ----------------------------------
 
@@ -847,6 +983,9 @@ class _ManageFacesDialog(QDialog):
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
+        # Where the person was in the grid, so a move or a split does not
+        # throw them back to the top.
+        self._scroll = self._list.verticalScrollBar().value()
         self._list.clear()
         self._count.setText("Reading the faces...")
         faces = CallableWorker(self._store.faces_in_pile, self._pile_id,
@@ -860,21 +999,29 @@ class _ManageFacesDialog(QDialog):
 
     def _faces_ready(self, faces: Any) -> None:
         from app.ui.later import when_done
-        from app.ui.thumbnail_loader import decode_face_crop
         from app.ui.workers import CallableWorker, run
 
         faces = list(faces or [])
         self._count.setText(f"{len(faces):,} face(s)")
+        faces_dir = getattr(self.parent(), "_faces_dir", None)
         for face_id, path, bbox in faces:
-            item = QListWidgetItem("")
+            key = face_key(path, bbox)
+            pixmap = remembered(key)
+            item = QListWidgetItem(blank_tile(self.FACE) if pixmap is None else
+                                   self._icon(pixmap), "")
             item.setData(ROLE_FACE_ID, int(face_id))
             item.setToolTip(Path(path).name)
             item.setSizeHint(QSize(self.FACE + 12, self.FACE + 12))
             self._list.addItem(item)
-            crop = CallableWorker(decode_face_crop, path, bbox,
+            if pixmap is not None:
+                continue
+            crop = CallableWorker(cached_face_crop, path, bbox, faces_dir,
                                   component="ui.photo_tagger.manage")
-            when_done(self, crop, finished=lambda image, it=item: self._show(it, image))
+            when_done(self, crop,
+                      finished=lambda image, it=item, k=key: self._show(it, remember(k, image)))
             run(self._pool, crop)
+        self._list.doItemsLayout()
+        self._list.verticalScrollBar().setValue(getattr(self, "_scroll", 0))
 
     def _people_ready(self, piles: Any) -> None:
         self._move_to.clear()
@@ -883,14 +1030,18 @@ class _ManageFacesDialog(QDialog):
                 self._move_to.addItem(pile.name, pile.id)
         self._selection_changed()
 
-    def _show(self, item: QListWidgetItem, image: Any) -> None:
-        if image is None:
+    def _icon(self, pixmap: QPixmap) -> QIcon:
+        return QIcon(pixmap.scaled(
+            self.FACE, self.FACE, Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+
+    def _show(self, item: QListWidgetItem, pixmap: Optional[QPixmap]) -> None:
+        if pixmap is None or pixmap.isNull():
             return
-        pixmap = QPixmap.fromImage(image)
-        if not pixmap.isNull():
-            item.setIcon(QIcon(pixmap.scaled(
-                self.FACE, self.FACE, Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation)))
+        try:
+            item.setIcon(self._icon(pixmap))
+        except RuntimeError:
+            pass                                 # the list was re-read meanwhile
 
     # -- what the selection is ----------------------------------------------------------
 

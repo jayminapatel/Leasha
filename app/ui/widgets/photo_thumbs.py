@@ -19,12 +19,20 @@ far too slow for a library of 15,000 scrolled through. Here:
   five hundred photos and the ones now visible are made next, not after the
   five hundred. Four at a time, on the global pool.
 
+**A blurred preview first** (2026-10-05, Option B item 3). Every thumbnail
+made also leaves a 24-pixel copy, kept for the whole library in one file,
+`<thumbs>/tiny.pack`, read once when the tab opens. A tile whose thumbnail is
+not in memory yet is painted from that copy, soft, and the sharp picture
+fades in over it - a photo library's "blur-up", with no change to the index.
+
 Lives in Leasha's own data folder, never beside the photos (rule 10).
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import struct
 from collections import OrderedDict
 from pathlib import Path
 from typing import Any, Optional
@@ -47,6 +55,12 @@ AT_ONCE = 4
 KEEP = 1500
 #: Requests waiting beyond this are dropped, oldest first - they scrolled past.
 MAX_WAITING = 600
+#: The blurred preview's edge, and the file every one of them is kept in.
+TINY_EDGE = 24
+TINY_PACK = "tiny.pack"
+#: New previews made before the pack is written again.
+TINY_SAVE_EVERY = 200
+_PACK_MAGIC = b"LTP1"
 
 
 def cache_name(path: str, size: int, mtime_ns: int) -> str:
@@ -106,20 +120,86 @@ def photo_thumbnail(path: str, size: int, mtime_ns: int, cache_dir: Optional[Pat
     return image
 
 
-def _square(pixmap: QPixmap) -> QPixmap:
-    """The picture centred on a clear square, so every cell in a grid is the
-    same shape and every name sits on the same line - portrait or landscape."""
-    from PyQt6.QtGui import QColor, QPainter
+def _thumb_and_tiny(path: str, size: int, mtime_ns: int, cache_dir: Optional[Path]) -> Any:
+    """`(thumbnail QImage, tiny JPEG bytes)` - the thumbnail as `photo_thumbnail`
+    makes it, and its blurred preview encoded here, off the window's thread."""
+    from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
 
-    edge = max(pixmap.width(), pixmap.height())
-    if pixmap.width() == pixmap.height():
-        return pixmap
-    canvas = QPixmap(edge, edge)
-    canvas.fill(QColor(0, 0, 0, 0))
-    painter = QPainter(canvas)
-    painter.drawPixmap((edge - pixmap.width()) // 2, (edge - pixmap.height()) // 2, pixmap)
-    painter.end()
-    return canvas
+    image = photo_thumbnail(path, size, mtime_ns, cache_dir)
+    if image is None or image.isNull():
+        return image, b""
+    edge = min(image.width(), image.height())
+    square = image.copy((image.width() - edge) // 2, (image.height() - edge) // 2, edge, edge)
+    tiny = square.scaled(TINY_EDGE, TINY_EDGE, Qt.AspectRatioMode.IgnoreAspectRatio,
+                         Qt.TransformationMode.SmoothTransformation)
+    data = QByteArray()
+    buffer = QBuffer(data)
+    buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+    tiny.save(buffer, "JPG", 70)
+    buffer.close()
+    return image, bytes(data)
+
+
+def read_tiny_pack(path: Path) -> dict[str, bytes]:
+    """Every blurred preview kept, by `cache_name`. Empty when there is no pack
+    or it is damaged - a cache, never a reason to fail. **Worker thread only.**"""
+    out: dict[str, bytes] = {}
+    try:
+        data = Path(path).read_bytes()
+    except OSError:
+        return out
+    if not data.startswith(_PACK_MAGIC):
+        return out
+    at = len(_PACK_MAGIC)
+    while at + 44 <= len(data):
+        name = data[at:at + 40].decode("ascii", "replace")
+        (length,) = struct.unpack("<I", data[at + 40:at + 44])
+        at += 44
+        if at + length > len(data):
+            break                                   # cut short - keep what is whole
+        out[name + ".jpg"] = data[at:at + length]
+        at += length
+    return out
+
+
+def write_tiny_pack(path: Path, tiny: dict[str, bytes]) -> None:
+    """Write the pack whole, to a temporary file then swapped in, so a crash
+    mid-write leaves the last good pack. **Worker thread only.**"""
+    parts = [_PACK_MAGIC]
+    for name, data in tiny.items():
+        stem = name[:-4] if name.endswith(".jpg") else name
+        if len(stem) != 40 or not data:
+            continue
+        parts.append(stem.encode("ascii") + struct.pack("<I", len(data)) + data)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temporary = target.with_suffix(".tmp")
+    temporary.write_bytes(b"".join(parts))
+    os.replace(temporary, target)
+
+
+def _square(pixmap: QPixmap) -> QPixmap:
+    """The centre square of the picture, so every cell in a grid is the same
+    shape and every name sits on the same line - portrait or landscape.
+
+    2026-10-05, the owner: "can all photos be same size in the view too?".
+    This first fitted the whole picture on a clear square, so a landscape
+    photo was a thin strip and a portrait one a narrow column. Now each tile
+    is filled edge to edge, as a photo library's grid is; the whole picture
+    is one double-click away in the viewer, and the Details list and the
+    information panel are unchanged.
+
+    Every square is then brought to `CACHE_EDGE`: a wide panorama's short side
+    is far smaller than that, and a view never enlarges an icon past its own
+    pixels - it showed as a small tile among full ones."""
+    edge = min(pixmap.width(), pixmap.height())
+    if pixmap.width() != pixmap.height():
+        pixmap = pixmap.copy((pixmap.width() - edge) // 2, (pixmap.height() - edge) // 2,
+                             edge, edge)
+    if edge != CACHE_EDGE:
+        pixmap = pixmap.scaled(CACHE_EDGE, CACHE_EDGE, Qt.AspectRatioMode.IgnoreAspectRatio,
+                               Qt.TransformationMode.SmoothTransformation)
+    return pixmap
 
 
 class ThumbLoader(QObject):
@@ -135,6 +215,61 @@ class ThumbLoader(QObject):
         self._running: set[str] = set()
         self._failed: set[str] = set()
         self._pool = QThreadPool.globalInstance()
+        #: Blurred previews: encoded, by `cache_name`; and decoded, as shown.
+        self._tiny: dict[str, bytes] = {}
+        self._tiny_shown: "OrderedDict[str, QPixmap]" = OrderedDict()
+        self._tiny_new = 0
+        self._read_pack()
+
+    # -- the blurred previews ------------------------------------------------------
+
+    def _pack_path(self) -> Optional[Path]:
+        return self._cache_dir / TINY_PACK if self._cache_dir else None
+
+    def _read_pack(self) -> None:
+        from app.ui.later import when_done
+        from app.ui.workers import CallableWorker, run
+
+        pack = self._pack_path()
+        if pack is None:
+            return
+        worker = CallableWorker(read_tiny_pack, pack, component="ui.photo_thumbs")
+        when_done(self, worker, finished=self._pack_read)
+        run(self._pool, worker)
+
+    def _pack_read(self, tiny: Any) -> None:
+        for name, data in dict(tiny or {}).items():
+            self._tiny.setdefault(name, data)        # one made meanwhile is newer
+
+    def tiny(self, path: str, size: int, mtime_ns: int) -> Optional[QPixmap]:
+        """The blurred preview for this photo, or None when none was ever made."""
+        name = cache_name(path, size, mtime_ns)
+        found = self._tiny_shown.get(name)
+        if found is not None:
+            self._tiny_shown.move_to_end(name)
+            return found
+        data = self._tiny.get(name)
+        if not data:
+            return None
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(data, "JPG"):
+            return None
+        self._tiny_shown[name] = pixmap
+        while len(self._tiny_shown) > KEEP:
+            self._tiny_shown.popitem(last=False)
+        return pixmap
+
+    def save_tiny(self) -> None:
+        """Write the pack on a worker - when enough are new, and as the page closes."""
+        from app.ui.workers import CallableWorker, run
+
+        pack = self._pack_path()
+        if pack is None or not self._tiny_new:
+            return
+        self._tiny_new = 0
+        worker = CallableWorker(write_tiny_pack, pack, dict(self._tiny),
+                                component="ui.photo_thumbs")
+        run(self._pool, worker)
 
     def pixmap(self, path: str) -> Optional[QPixmap]:
         found = self._pixmaps.get(path)
@@ -163,14 +298,22 @@ class ThumbLoader(QObject):
         while self._waiting and len(self._running) < AT_ONCE:
             path, (size, mtime) = self._waiting.popitem(last=True)
             self._running.add(path)
-            worker = CallableWorker(photo_thumbnail, path, size, mtime, self._cache_dir,
+            name = cache_name(path, size, mtime)
+            worker = CallableWorker(_thumb_and_tiny, path, size, mtime, self._cache_dir,
                                     component="ui.photo_thumbs")
-            when_done(self, worker, finished=lambda image, p=path: self._made(p, image),
+            when_done(self, worker,
+                      finished=lambda made, p=path, n=name: self._made(p, made, n),
                       failed=lambda _error, p=path: self._made(p, None))
             run(self._pool, worker)
 
-    def _made(self, path: str, image: Any) -> None:
+    def _made(self, path: str, made: Any, name: str = "") -> None:
         self._running.discard(path)
+        image, tiny = made if isinstance(made, tuple) else (made, b"")
+        if tiny and name and name not in self._tiny:
+            self._tiny[name] = tiny
+            self._tiny_new += 1
+            if self._tiny_new >= TINY_SAVE_EVERY:
+                self.save_tiny()
         if image is None or image.isNull():
             self._failed.add(path)
         else:

@@ -468,6 +468,7 @@
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\epub_view.py" />
     <Compile Include="app\ui\widgets\external_run.py" />
+    <Compile Include="app\ui\widgets\face_crops.py" />
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
     <Compile Include="app\ui\widgets\find_bar.py" />
@@ -888,6 +889,7 @@
     <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
     <Compile Include="tests\unit\test_photos_page.py" />
+    <Compile Include="tests\unit\test_photos_smooth.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
     <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />

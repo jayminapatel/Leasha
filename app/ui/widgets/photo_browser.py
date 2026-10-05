@@ -20,6 +20,19 @@ and paints a placeholder until the picture arrives.
 
 While a date-ordered grid scrolls, the month of the first row on screen shows
 at its top-left - the "June 2023" a photo library scrubs by.
+
+**Smooth, the way a photo library is** (2026-10-05, the owner: "can the ui be
+slick world class and smooth like i have in google photos"):
+
+- a picture that arrives **fades in** over `FADE_MS` instead of popping onto
+  its grey tile; one already in memory shows at once, no fade;
+- until it arrives, a tile seen before (in any session) shows its **blurred
+  preview** (`ThumbLoader.tiny`) rather than grey - the "blur-up";
+- the grid scrolls **by the pixel**, and a mouse wheel's notch **glides**
+  over `GLIDE_MS` instead of jumping a row - a touchpad, already smooth,
+  is left alone;
+- the screenful **below** (and above) is asked for while you look at this
+  one, so scrolling on finds most pictures already made.
 """
 
 from __future__ import annotations
@@ -27,10 +40,14 @@ from __future__ import annotations
 from pathlib import PurePath
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import (QAbstractTableModel, QItemSelectionModel, QModelIndex, QPoint, QSize,
-                          Qt, QTimer, pyqtSignal)
-from PyQt6.QtGui import QColor, QIcon, QPixmap
-from PyQt6.QtWidgets import (QAbstractItemView, QHeaderView, QLabel, QListView, QStackedWidget,
+import time
+
+from PyQt6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QItemSelectionModel,
+                          QModelIndex, QObject, QPoint, QSize, Qt, QTimer, QVariantAnimation,
+                          pyqtSignal)
+from PyQt6.QtGui import QIcon, QPainter
+from PyQt6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLabel, QListView,
+                             QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                              QTableView, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import COLUMNS, column_text, date_text, month_heading, people_text
@@ -48,6 +65,14 @@ _EDGE = {key: edge for key, _label, edge in MODES}
 
 ROLE_ROW = int(Qt.ItemDataRole.UserRole) + 1
 
+#: How long a picture takes to fade in once it has arrived.
+FADE_MS = 160
+#: How long one notch of a mouse wheel takes to glide, and how far it goes.
+GLIDE_MS = 180
+GLIDE_PX = 120
+#: Screensful asked for beyond the one shown, below and above.
+AHEAD = 1
+
 
 class PhotoModel(QAbstractTableModel):
     """The pictures shown, as rows; the columns are `presenter.photos.COLUMNS`."""
@@ -61,16 +86,80 @@ class PhotoModel(QAbstractTableModel):
         #: False in the Small grid, where a name under each picture is noise.
         self.names = True
         self._placeholder = self._blank(self._edge)
+        #: path -> when its picture arrived (monotonic seconds), while it fades in.
+        self._arrived: dict[str, float] = {}
+        self._fading = QTimer(self)
+        self._fading.setInterval(16)
+        self._fading.timeout.connect(self._fade_step)
         thumbs.ready.connect(self._thumb_ready)
 
     @staticmethod
     def _blank(edge: int) -> QIcon:
-        pixmap = QPixmap(edge, edge)
-        pixmap.fill(QColor(128, 128, 128, 40))
-        return QIcon(pixmap)
+        from app.ui.widgets.face_crops import blank_tile
+
+        return blank_tile(edge)
+
+    @property
+    def placeholder(self) -> QIcon:
+        return self._placeholder
+
+    def fade_of(self, path: str) -> float:
+        """How far `path`'s picture has faded in: 0 just arrived, 1 done."""
+        began = self._arrived.get(str(path))
+        if began is None:
+            return 1.0
+        done = (time.monotonic() - began) * 1000 / FADE_MS
+        return 1.0 if done >= 1 else max(0.0, done)
+
+    def _fade_step(self) -> None:
+        """Repaint every tile still fading in, then forget the finished ones -
+        after their last repaint, so it lands at full strength."""
+        now = time.monotonic()
+        for path in list(self._arrived):
+            number = self._index.get(path)
+            if number is not None:
+                cell = self.index(number, 0)
+                self.dataChanged.emit(cell, cell, [Qt.ItemDataRole.DecorationRole])
+            if (now - self._arrived[path]) * 1000 >= FADE_MS:
+                del self._arrived[path]
+        if not self._arrived:
+            self._fading.stop()
+
+    def waiting_picture(self, row: Any) -> tuple[Optional[Any], Optional[Any]]:
+        """`(thumbnail, blurred preview)` for a tile - either may be None."""
+        thumbs = self._thumbs
+        sharp = thumbs.pixmap(str(row.path))
+        tiny = getattr(thumbs, "tiny", None)
+        soft = tiny(str(row.path), row.size_bytes, row.mtime_ns) if tiny else None
+        return sharp, soft
+
+    def prefetch(self, first: int, last: int) -> None:
+        """Ask for the thumbnails of rows `first..last` not yet made - the
+        nearest asked for last, so it is made first (the loader is a stack)."""
+        if not self._rows:
+            return
+        first, last = max(0, first), min(len(self._rows) - 1, last)
+        for number in range(last, first - 1, -1):
+            row = self._rows[number]
+            if self._thumbs.pixmap(str(row.path)) is None:
+                self._thumbs.request(str(row.path), row.size_bytes, row.mtime_ns)
 
     def set_rows(self, rows: Sequence[Any]) -> None:
+        r"""2026-10-05, the owner: "the photos flash ... even when tagging".
+        Coming back from naming, or back to the tab, read the library again
+        and reset the whole grid, every tile repainting at once. When the
+        same photos come back in the same order - names or places changed,
+        the pictures did not - the rows are swapped under the view and only
+        their words repaint. Anything else is a new list, and resets."""
+        rows = list(rows)
+        if rows and len(rows) == len(self._rows) and all(
+                str(new.path) == str(old.path) for new, old in zip(rows, self._rows, strict=True)):
+            self._rows = rows
+            self.dataChanged.emit(self.index(0, 0),
+                                  self.index(len(rows) - 1, len(COLUMNS) - 1))
+            return
         self.beginResetModel()
+        self._arrived.clear()
         self._rows = list(rows)
         self._index = {str(row.path): n for n, row in enumerate(self._rows)}
         self.endResetModel()
@@ -151,8 +240,78 @@ class PhotoModel(QAbstractTableModel):
     def _thumb_ready(self, path: str) -> None:
         number = self._index.get(path)
         if number is not None:
+            self._arrived[path] = time.monotonic()
+            if not self._fading.isActive():
+                self._fading.start()
             cell = self.index(number, 0)
             self.dataChanged.emit(cell, cell, [Qt.ItemDataRole.DecorationRole])
+
+
+class _FadeDelegate(QStyledItemDelegate):
+    """Paints a tile as usual, except while its picture is on its way: then the
+    tile is its blurred preview (or grey, never seen before), and a picture
+    still fading in is drawn over that at the strength `PhotoModel.fade_of` gives."""
+
+    def paint(self, painter: Any, option: Any, index: QModelIndex) -> None:
+        model = index.model()
+        row = index.data(ROLE_ROW)
+        if row is None or index.column() != 0:
+            super().paint(painter, option, index)
+            return
+        alpha = model.fade_of(str(row.path))
+        sharp, soft = model.waiting_picture(row)
+        if sharp is not None and alpha >= 1.0:
+            super().paint(painter, option, index)
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        picture = QIcon(opt.icon)
+        opt.icon = model.placeholder
+        widget = opt.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
+        where = style.subElementRect(QStyle.SubElement.SE_ItemViewItemDecoration, opt, widget)
+        painter.save()
+        if soft is not None:
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            painter.drawPixmap(where, soft)
+        if sharp is not None:
+            painter.setOpacity(alpha)
+            picture.paint(painter, where)
+        painter.restore()
+
+
+class _Glide(QObject):
+    """A mouse wheel's notch glides the view instead of jumping it. A touchpad
+    (pixel deltas, already smooth) and Ctrl/Shift + wheel pass straight through."""
+
+    def __init__(self, view: QAbstractItemView) -> None:
+        super().__init__(view)
+        self._bar = view.verticalScrollBar()
+        self._target = self._bar.value()
+        self._animation = QVariantAnimation(self)
+        self._animation.setDuration(GLIDE_MS)
+        self._animation.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._animation.valueChanged.connect(lambda value: self._bar.setValue(int(value)))
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's name
+        if event.type() != QEvent.Type.Wheel:
+            return False
+        if not event.pixelDelta().isNull() or event.modifiers() != Qt.KeyboardModifier.NoModifier:
+            return False
+        notches = event.angleDelta().y() / 120
+        if not notches:
+            return False
+        running = self._animation.state() == QVariantAnimation.State.Running
+        start = self._target if running else self._bar.value()
+        self._target = max(self._bar.minimum(),
+                           min(self._bar.maximum(), int(start - notches * GLIDE_PX)))
+        self._animation.stop()
+        self._animation.setStartValue(self._bar.value())
+        self._animation.setEndValue(self._target)
+        self._animation.start()
+        return True
 
 
 class PhotoBrowser(QWidget):
@@ -184,6 +343,10 @@ class PhotoBrowser(QWidget):
         self.grid.setWordWrap(False)
         self.grid.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.grid.setToolTip("Your pictures - double-click one to see it full size")
+        self.grid.setItemDelegate(_FadeDelegate(self.grid))
+        self.grid.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        self.grid.verticalScrollBar().setSingleStep(24)
+        self._glide = _Glide(self.grid)
 
         self.table = QTableView()
         self.table.setObjectName("photo_table")
@@ -226,6 +389,11 @@ class PhotoBrowser(QWidget):
         self._month_timer.setInterval(1400)
         self._month_timer.timeout.connect(self.month.hide)
         self.grid.verticalScrollBar().valueChanged.connect(self._scrolled)
+        self._ahead = QTimer(self)
+        self._ahead.setSingleShot(True)
+        self._ahead.setInterval(60)
+        self._ahead.timeout.connect(self._ask_ahead)
+        self.grid.verticalScrollBar().valueChanged.connect(lambda _v: self._ahead.start())
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -237,10 +405,15 @@ class PhotoBrowser(QWidget):
     def set_rows(self, rows: Sequence[Any], *, dated: bool = True) -> None:
         """Show `rows`, keeping the current picture selected when it is still there."""
         current = self.current_row()
+        scroll = self.active_view().verticalScrollBar().value()
         self._month_follows = dated
         self.model.set_rows(rows)
         if current is not None:
             self.select_path(str(current.path))
+        elif scroll:
+            # Nothing selected to scroll back to - stay where the person was.
+            self.active_view().doItemsLayout()
+            self.active_view().verticalScrollBar().setValue(scroll)
 
     def set_mode(self, mode: str) -> None:
         if mode not in _EDGE:
@@ -323,6 +496,30 @@ class PhotoBrowser(QWidget):
             if not self.grid.selectionModel().isSelected(index):
                 self.select_path(str(row.path))
             self.menu_requested.emit(row, view.viewport().mapToGlobal(point))
+
+    def _ask_ahead(self) -> None:
+        """The screenful below and the one above, asked for while this one shows."""
+        if self.mode == "details":
+            return
+        viewport = self.grid.viewport().rect()
+        top = self.grid.indexAt(QPoint(8, 8))
+        if not top.isValid():
+            return
+        # The last row read from its left edge: the right of a row is often the
+        # empty margin past its last column, which reads as "no picture".
+        # Stepping up past the gap between two rows, if the probe lands in one.
+        bottom = QModelIndex()
+        for y in range(viewport.height() - 8, max(0, viewport.height() - 8
+                                                   - self.grid.gridSize().height()), -8):
+            bottom = self.grid.indexAt(QPoint(8, y))
+            if bottom.isValid():
+                break
+        columns = max(1, viewport.width() // max(1, self.grid.gridSize().width()))
+        last = (bottom.row() + columns - 1 if bottom.isValid()
+                else self.model.rowCount() - 1)
+        span = max(1, last - top.row() + 1)
+        self.model.prefetch(top.row() - span * AHEAD, top.row() - 1)
+        self.model.prefetch(last + 1, last + span * AHEAD)
 
     def _scrolled(self, _value: int) -> None:
         if not self._month_follows or self.mode == "details":
