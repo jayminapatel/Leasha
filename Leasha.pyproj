@@ -228,6 +228,7 @@
     <Compile Include="app\extract\ooxml_pptx.py" />
     <Compile Include="app\extract\ooxml_xlsx.py" />
     <Compile Include="app\extract\pdf.py" />
+    <Compile Include="app\extract\picture.py" />
     <Compile Include="app\extract\places.py" />
     <Compile Include="app\extract\plaintext.py" />
     <Compile Include="app\extract\ppt.py" />
@@ -882,6 +883,7 @@
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
+    <Compile Include="tests\unit\test_photo_indexing_speed.py" />
     <Compile Include="tests\unit\test_photo_metadata_write.py" />
     <Compile Include="tests\unit\test_photo_tagger.py" />
     <Compile Include="tests\unit\test_photo_tagger_page.py" />

@@ -169,6 +169,10 @@ CHECKPOINT_EVERY = 50
 #: piles is vector arithmetic - milliseconds - against seconds a photo to find them.
 FACE_CLUSTER_EVERY = 25
 
+#: 2026-10-05: photos embedded by CLIP at once. Measured on the owner's JPEGs on
+#: the processor: 0.28 s a photo one at a time, 0.19 s in batches of eight.
+PICTURE_BATCH = 8
+
 #: ...but also checkpoint on *time*, whichever comes first.
 #:
 #: A count alone is wrong whenever files are big or few. A folder of ten
@@ -1279,6 +1283,9 @@ class Pipeline:
         #: CLIP vectors computed but not yet written - see `_flush_pending_images`.
         #: Reset per run in `run()`, same as `_seen_paths` and the feeder queue.
         self._pending_images: list[tuple[int, list[float], str, int]] = []
+        #: 2026-10-05: pictures waiting for CLIP, embedded `PICTURE_BATCH` at a
+        #: time - `(file_id, small upright picture, ext, mtime_ns)`.
+        self._pending_pictures: list[tuple[int, Any, str, int]] = []
         #: Work order 202626270515. A video's per-picture CLIP vectors, waiting for
         #: `_flush_pending_images` to write them after the file's mean. Keyed by
         #: file id: `(seconds, vector)` pairs, extension, mtime.
@@ -1816,6 +1823,7 @@ class Pipeline:
         # Work order 0h: a second run must not inherit the first run's
         # unflushed CLIP vectors, same reasoning as `_feeder_queue` above.
         self._pending_images = []
+        self._pending_pictures = []
         self._pending_frames = {}
         # Order 0z lane C: the held-pictures list is read afresh each run.
         self.__dict__.pop("_held_archive_book", None)
@@ -6197,21 +6205,50 @@ class Pipeline:
         if not reads_by_ocr(path):
             return
 
-        try:
-            with self._clock.stage("clip"):
-                vector = self.image_embedder.embed([str(path)])[0]
-        except Exception as exc:                # noqa: BLE001 - H4: never costs the file
-            self._log.warning(
-                "no CLIP vector for {}: {}. It stays searchable by name, "
-                "folder, type and any OCR text - only image-similarity "
-                "search misses it.", path, exc)
-            code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
-            self._stats_ref.warned_by_code[code] = (
-                self._stats_ref.warned_by_code.get(code, 0) + 1)
-            return
+        # 2026-10-05: the picture the photo's other models share (one decode),
+        # upright, shrunk to what CLIP uses, and embedded with the next few -
+        # measured on the owner's JPEGs, 0.28 s a photo alone, 0.19 s in eights.
+        from app.extract.picture import decoded, small_copy
 
-        self._pending_images.append(
-            (file_id, vector, indexed_ext(path) or "", int(candidate.mtime_ns)))
+        with self._clock.stage("clip"):
+            picture = decoded(path)
+        # A picture Pillow cannot open goes to the model as its path, as every
+        # photo did before: the model decides, and a failure costs only it.
+        picture = small_copy(picture) if picture is not None else str(path)
+        self._pending_pictures.append(
+            (file_id, picture, indexed_ext(path) or "", int(candidate.mtime_ns)))
+        if len(self._pending_pictures) >= PICTURE_BATCH:
+            self._embed_pending_pictures()
+
+    def _clip_failed(self, path: Any, exc: Optional[Exception]) -> None:
+        self._log.warning(
+            "no CLIP vector for {}: {}. It stays searchable by name, "
+            "folder, type and any OCR text - only image-similarity "
+            "search misses it.", path, exc or "it could not be decoded")
+        code = str(getattr(getattr(exc, "error", None), "code", "") or "ERR_CLIP_EMBED")
+        self._stats_ref.warned_by_code[code] = (
+            self._stats_ref.warned_by_code.get(code, 0) + 1)
+
+    def _embed_pending_pictures(self) -> None:
+        """CLIP over the waiting pictures in one call; their vectors join
+        `_pending_images` for the next flush. A batch that fails is tried one
+        picture at a time, so one bad picture costs only itself (H4)."""
+        waiting, self._pending_pictures = self._pending_pictures, []
+        if not waiting or self.image_embedder is None:
+            return
+        with self._clock.stage("clip"):
+            try:
+                vectors = self.image_embedder.embed([item[1] for item in waiting])
+                pairs = list(zip(waiting, vectors))
+            except Exception:                   # noqa: BLE001 - find the one that broke it
+                pairs = []
+                for item in waiting:
+                    try:
+                        pairs.append((item, self.image_embedder.embed([item[1]])[0]))
+                    except Exception as exc:    # noqa: BLE001 - H4: never costs the file
+                        self._clip_failed(item[0], exc)
+        for (file_id, _picture, ext, mtime_ns), vector in pairs:
+            self._pending_images.append((file_id, vector, ext, mtime_ns))
 
     def _maybe_embed_video(
         self, candidate: Candidate, file_id: int, meta: Optional[dict[str, Any]],
@@ -6465,7 +6502,10 @@ class Pipeline:
 
         try:
             with self._clock.stage("phash"):
-                value = self.phash_computer.compute(path)
+                # 2026-10-05: from the shared decode when there is one.
+                from app.extract.picture import decoded
+
+                value = self.phash_computer.compute(decoded(path) or path)
         except Exception as exc:                # noqa: BLE001 - H4: never costs the file
             self._log.warning(
                 "no perceptual hash for {}: {}. It stays searchable and "
@@ -6536,6 +6576,9 @@ class Pipeline:
     def _flush_pending_images(self) -> None:
         r"""Write accumulated CLIP vectors in one batch - the H7 shape.
 
+        *2026-10-05:* pictures still waiting for CLIP (`_pending_pictures`) are
+        embedded first, so a flush still writes every photo read before it.
+
         **Also flushes pending pHashes, first.** Work order 0h §2a's pHashes
         are computed independently of the CLIP vectors (see
         `_maybe_compute_phash`) but need the identical M6 ordering - written
@@ -6571,6 +6614,7 @@ class Pipeline:
             # the consumer's shared transaction is committed rather than held
             # open across it - the same rule `store.batch()` states.
             self._commit_write_group()
+        self._embed_pending_pictures()
         self._flush_pending_phashes()
 
         if self.image_vectors is None or not self._pending_images:

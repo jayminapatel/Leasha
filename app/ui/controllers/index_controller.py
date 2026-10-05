@@ -953,6 +953,7 @@ class IndexController(QObject):
         """
         from app.index.clip_embedder import ClipImageEmbedder
         from app.index.embedder import Embedder
+        from app.index.phash import default_phash_computer
         from app.index.pipeline import Pipeline
         from app.index.run_setup import build_pipeline_config
 
@@ -1041,6 +1042,7 @@ class IndexController(QObject):
                 whole=roots is None,
             ),
             image_embedder=image_embedder, image_vectors=self._w._image_vectors,
+            phash_computer=default_phash_computer(),
         )
         # **The window's run is a writer like any other**, so it names itself
         # on the published record and holds the same lock the CLI takes. The
