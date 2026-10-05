@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.95 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.96 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,37 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (22:15) - a PySide6 trial exists on a branch, and four faults it found are fixed
+on `main`.** The owner asked what moving to PySide6 would take, then to keep going on a trial
+branch. **Nothing about PySide6 is on `main`**; order `202626270238` stays DROPPED until the
+owner says otherwise.
+
+- **The trial:** branch `trial/pyside6` (pushed), worktree `.worktrees/pyside6` with its own
+  venv that borrows this one's packages plus PySide6 6.11.0 (same Qt as PyQt6 6.11.0). Its own
+  `.env` points at a copy of the demo store in a scratch folder, models read from
+  `D:\Leasha\Data\models`. Laptop result, last full run: **13,274 passed, 1 failed**, that one
+  fixed since; the golden-picture comparison passes under PySide6. GitHub's Windows and Mac jobs
+  were started on the branch; their result is in the trial's own notes, not here.
+- **What the port needed beyond the rename** (all on the branch): `print_` for `print`; menus
+  opened through the class so tests can stand in for them; a menu reached through
+  `QAction.menu()` is destroyed when the action's handle goes (PySide6 6.11), so menus are found
+  as the bar's children; `event.position()` for `event.pos()`; `shiboken6` in place of `sip`.
+- **The four faults, fixed here with tests:**
+  1. `sortable_item`: the fall-back called `super().__lt__`. Harmless under PyQt6; under
+     PySide6 it recursed until the process died. Now compares the shown values itself, the same
+     order under either binding.
+  2. `serve/clients._backup`: Windows' clock gave 5 distinct readings in 2,000 calls, so
+     backups made close together shared a stamp, were numbered with the first free number, and
+     reused a name pruning had just freed. Now one past the highest, padded to sort.
+  3. `ChatController.ask` never checked the last availability result, so asking while the
+     helper was missing still called it. The test that said "a no-op" passed only when it
+     looked before the worker started; it now waits.
+  4. `test_file_watch`'s stuck-reader test gave each file 0.3 s; under three processes an
+     ordinary file overran it too. Now 1 s.
+- **Gap found, not fixed:** `docs/THIRD_PARTY_NOTICES.md` does not mention Qt under either
+  binding. It matters before any copy goes to anyone else.
+- The laptop ran the fixes' own test files (215 passed), not the whole suite.
 
 **2026-10-05 (19:45) - Offline drives work on a Mac in tests; a real stick has not been tried.**
 Order `offline-drives-on-a-mac` was released by the owner and built the same day: **1d, 12 / 3**.

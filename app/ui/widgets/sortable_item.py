@@ -37,6 +37,24 @@ def _sortable(value: object) -> object:
     return value if isinstance(value, _ORDERABLE) else None
 
 
+def _shown_lt(mine: object, theirs: object) -> bool:
+    """What Qt's own comparison does with two cells' shown values: numbers as
+    numbers, anything else as its text.
+
+    **Not `super().__lt__`** (2026-10-05, the PySide6 trial). Under PySide6 the
+    base comparison calls the Python override again, which calls the base
+    again, until the stack runs out - the process dies with an access
+    violation the first time a column without sort values is sorted (the
+    Space Report's copies, 4,000 rows). Doing the comparison here gives the
+    same order under either binding.
+    """
+    numbers = (int, float)
+    if isinstance(mine, numbers) and isinstance(theirs, numbers) \
+            and not isinstance(mine, bool) and not isinstance(theirs, bool):
+        return mine < theirs
+    return ("" if mine is None else str(mine)) < ("" if theirs is None else str(theirs))
+
+
 class SortableItem(QTableWidgetItem):
     """A cell that sorts on `SORT_ROLE` when it has one."""
 
@@ -48,7 +66,9 @@ class SortableItem(QTableWidgetItem):
             # A column that stores a sort value for some rows and not others
             # still orders sensibly instead of raising in the middle of a sort
             # somebody just clicked.
-            return super().__lt__(other)
+            shown = Qt.ItemDataRole.DisplayRole
+            return _shown_lt(self.data(shown), other.data(shown)
+                             if isinstance(other, QTableWidgetItem) else None)
         try:
             return bool(mine < theirs)
         except TypeError:
@@ -74,7 +94,9 @@ class SortableTreeItem(QTreeWidgetItem):
         theirs = _sortable(other.data(column, SORT_ROLE)
                            if isinstance(other, QTreeWidgetItem) else None)
         if mine is None or theirs is None:
-            return super().__lt__(other)
+            shown = Qt.ItemDataRole.DisplayRole
+            return _shown_lt(self.data(column, shown), other.data(column, shown)
+                             if isinstance(other, QTreeWidgetItem) else None)
         try:
             return bool(mine < theirs)
         except TypeError:

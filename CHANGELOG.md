@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.74 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.75 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Three small faults found while trying a different Qt library (2026-10-05)
+
+- **Chat no longer tries to answer when its helper is missing.** The box and Send were greyed,
+  but a question could still be passed on and fail.
+- **Connecting an AI program twice in quick succession keeps every backup of its settings.**
+  Two backups made a few milliseconds apart could end up with the same name.
+- A column with nothing to sort by except its text sorts the same way, by safer means.
 
 ### Offline drives on a Mac (2026-10-05)
 

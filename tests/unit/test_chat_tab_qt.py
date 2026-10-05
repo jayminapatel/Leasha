@@ -491,8 +491,13 @@ def test_without_the_helper_the_page_says_so_in_plain_words_and_search_still_wor
     assert not c.view.speed.isEnabled()
     assert not c.view.recheck_button.isHidden()
 
-    # Asking is a no-op rather than an error dialog.
+    # Asking is a no-op rather than an error dialog. Waited for: a worker the
+    # ask started would otherwise reach the engine after this line had looked.
     c.ctl.ask("hello?")
+    from PyQt6.QtCore import QThreadPool
+
+    QThreadPool.globalInstance().waitForDone(5000)
+    c.app.processEvents()
     assert c.fake.calls == []
 
     # Search is entirely unaffected.

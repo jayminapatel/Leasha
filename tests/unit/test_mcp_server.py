@@ -569,3 +569,37 @@ def test_a_key_never_reaches_an_error_message(tmp_path, monkeypatch):
         clients.connect(program, "http://127.0.0.1:8737/mcp", "s3cret-key")
     assert "s3cret-key" not in str(raised.value.error.details)
     assert "Bearer ..." in str(raised.value.error.details)
+
+
+def test_backups_made_in_one_clock_tick_never_reuse_a_name(tmp_path, monkeypatch):
+    """2026-10-05. Windows' clock gave 5 distinct readings in 2,000 calls, so
+    backups made close together share a stamp and were told apart by "-1",
+    "-2". Pruning removed a middle one, and the next backup took its freed
+    name: "two backups shared a name", whenever the machine was fast enough.
+    The clock is held still here, so it fails every time on the old code."""
+    from datetime import datetime as real
+
+    from app.serve import clients
+
+    class Still:
+        @staticmethod
+        def now():
+            return real(2026, 10, 5, 20, 0, 0, 123456)
+
+    monkeypatch.setattr(clients, "datetime", Still)
+    program = _program(tmp_path, "url")
+    program.path().parent.mkdir()
+    program.path().write_text('{"theme": "original"}', encoding="utf-8")
+    # An earlier day's backup is the one kept as the original, so this tick's
+    # own first backup - the one without a number - is pruned like any other.
+    first = program.path().with_name(program.path().name + ".leasha-backup-20260101-000000-000000")
+    first.write_text('{"theme": "original"}', encoding="utf-8")
+    made = []
+    for turn in range(clients.KEEP_BACKUPS + 8):
+        made.append(clients.connect(program, f"http://127.0.0.1:{turn + 1}/mcp", "k"))
+        made.append(clients.disconnect(program))
+    assert len(set(made)) == len(made), "two backups shared a name"
+    kept = sorted(p.name for p in program.path().parent.glob("*.leasha-backup-*"))
+    assert len(kept) == clients.KEEP_BACKUPS + 1
+    assert kept[0] == first.name, "the oldest, the file before Leasha changed it, is kept"
+    assert kept[1:] == [p.name for p in made[-clients.KEEP_BACKUPS:]], "the newest are kept"

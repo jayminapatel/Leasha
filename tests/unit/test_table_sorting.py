@@ -571,3 +571,26 @@ def test_the_mail_tab_opens_newest_first(qapp, tmp_path):
             assert not view.results.horizontalHeader().isSortIndicatorShown()
         finally:
             view.shutdown()
+
+
+def test_a_column_without_sort_values_sorts_by_what_it_shows_without_recursing(qtbot):
+    """2026-10-05, the PySide6 trial: the fall-back called `super().__lt__`,
+    which under PySide6 calls the override again until the process dies.
+    A tree and a table, sorted on a column with no sort values at all."""
+    from PyQt6.QtWidgets import QTableWidget, QTreeWidget
+
+    from app.ui.widgets.sortable_item import SortableItem, SortableTreeItem
+
+    tree = QTreeWidget()
+    qtbot.addWidget(tree)
+    tree.setColumnCount(1)
+    tree.addTopLevelItems([SortableTreeItem([word]) for word in ("pear", "apple", "fig")])
+    tree.sortItems(0, Qt.SortOrder.AscendingOrder)
+    assert [tree.topLevelItem(i).text(0) for i in range(3)] == ["apple", "fig", "pear"]
+
+    table = QTableWidget(3, 1)
+    qtbot.addWidget(table)
+    for row, word in enumerate(("pear", "apple", "fig")):
+        table.setItem(row, 0, SortableItem(word))
+    table.sortItems(0, Qt.SortOrder.AscendingOrder)
+    assert [table.item(i, 0).text() for i in range(3)] == ["apple", "fig", "pear"]
