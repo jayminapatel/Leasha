@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.82 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.83 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,17 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (UI review, close) - the whole suite is clean, and the guide's old paths carry a
+note.** `scripts/run_suite.py` on the Advanced-fold commit plus this one: **13,184 passed, 0
+failed, none crashed**, 21 minutes. One error remains and is not this work's: `test_grab_ui.py::
+test_the_script_produces_a_non_empty_png_per_surface` errors at setup in every four-process run
+(four runs today) and passes alone - `grab_ui` keeps one fixed temporary folder
+(`leasha-grab-snapshot`) and refuses a second grab at the same time, which is what two processes
+are (UNCONFIRMED: read from the tool's own rule, not traced). The three sentences in
+`docs/USER_GUIDE.html` that give a path to a now-folded setting each have a dated note beside
+them, and the Search and Models pictures have one under them; nothing was reworded. Left as it
+is, on this thread's recommendation: quieter, narrower explanations on Settings.
 
 **2026-10-05 (UI review, third pass) - Settings has an "Advanced" fold.** The owner: *"do the
 recommended for the advanced fold and commit"*. Which groups count as expert was left to this
