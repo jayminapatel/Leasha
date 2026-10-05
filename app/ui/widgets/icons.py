@@ -66,6 +66,9 @@ ICON_NAMES = (
     "split", "file-down", "git-branch",
     # 2026-10-03: "Add file…" in the folder list. Lucide, as above.
     "file-plus",
+    # 2026-10-05: "Force skip reader n" on the Indexing page (owner: "the
+    # force skip needs icons too"). Lucide skip-forward, as above.
+    "skip-forward",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

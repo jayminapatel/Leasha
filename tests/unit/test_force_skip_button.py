@@ -127,3 +127,23 @@ def test_no_run_means_force_skip_does_nothing(qtbot) -> None:
     view = _view(qtbot)
     view._worker = None
     assert force_skip_reader(view, "1") is False
+
+
+def test_force_skip_buttons_carry_an_icon_and_sit_in_reader_order(qtbot) -> None:
+    """Owner, 2026-10-05: "the force skip needs icons too". The row also read
+    "1, 3, 4, 2", the order readers first got a file."""
+    from app.ui.widgets.indexing_workers import IndexingWorkers
+
+    panel = IndexingWorkers()
+    qtbot.addWidget(panel)
+    for keys in (["1", "3"], ["1", "3", "4", "2"]):
+        panel._show_skips({k: {"file": f"f{k}.md", "started_at": 1.0} for k in keys})
+    layout = panel._skip_layout
+    shown = [layout.itemAt(i).widget() for i in range(layout.count())
+             if layout.itemAt(i).widget() is not None]
+    assert [b.text() for b in shown] == [
+        "Force skip reader 1", "Force skip reader 2",
+        "Force skip reader 3", "Force skip reader 4"]
+    for button in shown:
+        assert button.property("buttonIcon") == "skip-forward"
+        assert not button.icon().isNull()

@@ -235,6 +235,8 @@ PREFIXES: dict[str, tuple[str, str]] = {
     "Yes — same as": ("check", "primary"),
     # "Remove copies nothing uses (3.4 GB)": it deletes files, so it is danger.
     "Remove copies nothing uses": ("trash-2", "danger"),
+    # "Force skip reader 2": one per busy reader, numbered (2026-10-05).
+    "Force skip reader": ("skip-forward", "secondary"),
 }
 
 

@@ -56,6 +56,7 @@ __all__ = [
     "position_text",
     "since_text",
     "stage_words",
+    "telling_folders",
     "worker_lines",
     "writer_line",
 ]
@@ -78,6 +79,7 @@ STAGE_WORDS: dict[str, str] = {
     "zip": "Reading inside a zip",
     "ocr": "Reading text from pictures (OCR)",
     "chunking": "Splitting text into passages",
+    "handing_over": "Waiting for the index writer",
     "embedding": "Making text searchable by meaning",
     "writing": "Writing to the index",
     "saving_resume": "Saving where to resume from",
@@ -279,6 +281,7 @@ def worker_lines(stats: Any, *, now: Optional[float] = None) -> list[str]:
     if not isinstance(workers, Mapping):
         return []
     clock = time.time() if now is None else float(now)
+    folders = telling_folders(workers)
     lines = []
     for key in sorted(workers, key=lambda k: (_int(k) or 0, str(k))):
         worker = workers[key]
@@ -286,11 +289,64 @@ def worker_lines(stats: Any, *, now: Optional[float] = None) -> list[str]:
             lines.append(f"Reader {key}: waiting for the next file")
             continue
         trail = inner_trail(worker.get("inner") or [], top=str(worker.get("file")))
+        folder = folders.get(str(key), "")
+        if folder:
+            trail += f" ({folder})"
         counts = _frame_counts(worker.get("inner") or [])
+        waiting = (f" · {stage_words('handing_over').lower()}"
+                   if worker.get("stage") == "handing_over" else "")
         started = float(worker.get("started_at") or 0.0)
         took = f" · {since_text(clock - started)}" if started else ""
-        lines.append(f"Reader {key}: {trail}{counts}{took}")
+        lines.append(f"Reader {key}: {trail}{counts}{waiting}{took}")
     return lines
+
+
+def _path_parts(path: str) -> tuple[list[str], str]:
+    """A path's folders (not its file name), and the separator it was written with."""
+    sep = "\\" if "\\" in path else "/"
+    parts = [part for part in path.replace("\\", "/").split("/") if part]
+    return parts[:-1], sep
+
+
+def telling_folders(workers: Mapping[str, Any]) -> dict[str, str]:
+    r"""For busy readers whose files share a name, the folders that tell them apart.
+
+    2026-10-05: D:\JEFF holds nine copies of many files (each kit and
+    template release), and copies made together are read together - so two
+    lines said the same name and looked like one file read twice. Each reader
+    whose file name another busy reader also has gets the shortest run of
+    folders, just below the folders they all share, that no other copy has:
+    ``aso.md (Kit\kit-v0.93)`` beside ``aso.md (JT_Template)``. A name only
+    one reader has gets nothing, and the line reads as it always did.
+    """
+    by_name: dict[str, list[tuple[str, list[str], str]]] = {}
+    for key, worker in workers.items():
+        if not isinstance(worker, Mapping) or not worker.get("file"):
+            continue
+        path = str(worker.get("path") or "")
+        if not path:
+            continue
+        folders, sep = _path_parts(path)
+        by_name.setdefault(str(worker["file"]).lower(), []).append(
+            (str(key), folders, sep))
+    told: dict[str, str] = {}
+    for group in by_name.values():
+        if len(group) < 2:
+            continue
+        lowered = [[f.lower() for f in folders] for _key, folders, _sep in group]
+        shared = 0
+        while (all(len(f) > shared for f in lowered)
+               and len({f[shared] for f in lowered}) == 1):
+            shared += 1
+        for index, (key, folders, sep) in enumerate(group):
+            own = lowered[index]
+            length = 1
+            while shared + length < len(own) and any(
+                    other[shared:shared + length] == own[shared:shared + length]
+                    for n, other in enumerate(lowered) if n != index):
+                length += 1
+            told[key] = sep.join(folders[shared:shared + length])
+    return told
 
 
 def _frame_counts(frames: Iterable[Any]) -> str:

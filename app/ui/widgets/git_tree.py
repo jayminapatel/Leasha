@@ -87,6 +87,9 @@ class GitTree(QTreeWidget):
         #: Repositories whose git has already been read, so expanding twice
         #: does not run four subprocesses.
         self._loaded: set[str] = set()
+        #: What git said about each repository, by root, so a redraw can reopen
+        #: one without reading it again (2026-10-05, see `show_repos`).
+        self._read: dict[str, dict] = {}
         self.itemExpanded.connect(self._expanded)
         self.currentItemChanged.connect(
             lambda item, _previous: self._chosen(item))
@@ -107,8 +110,33 @@ class GitTree(QTreeWidget):
         noise being removed, not a different arrangement of it. The count above
         it says how many were left out, so a shrunken tree is never silent.
         """
+        # 2026-10-05: **a redraw keeps what was opened and chosen, and asks
+        # for no search.** Every search result redraws the tree (`draw_matches`).
+        # This used to clear it, which collapsed every open repository, then
+        # select "All repositories", which told the view to search again - so a
+        # repository that was opened was closed again before anybody saw it
+        # ("the git is not expanding"). What git said about an open repository
+        # is kept in `_read`, so opening it again costs no subprocess.
+        current = self.currentItem()
+        chosen = current.data(0, ROLE_SCOPE) if current is not None else None
+        opened = {item.data(0, ROLE_SCOPE).root
+                  for item in self._repo_items() if item.isExpanded()}
+        self.blockSignals(True)
+        try:
+            self._redraw(repos, matching, opened)
+            # The new item for what was chosen, if it is still there.
+            kept = self._item_for(chosen) if isinstance(chosen, GitScope) else None
+            self.setCurrentItem(kept or self.topLevelItem(0))
+        finally:
+            self.blockSignals(False)
+        # Only a choice that has gone from the tree is a change worth a search.
+        if isinstance(chosen, GitScope) and chosen != GitScope() and kept is None:
+            self.scoped.emit(GitScope(), None)
+
+    def _redraw(self, repos: Any, matching: Any, opened: set[str]) -> None:
+        """Clear and draw the rows; reopen `opened` from what git already said."""
         self.clear()
-        self._loaded.clear()
+        self._loaded.intersection_update(opened)
 
         everything = QTreeWidgetItem(["All repositories"])
         everything.setData(0, ROLE_SCOPE, GitScope())
@@ -131,8 +159,28 @@ class GitTree(QTreeWidget):
             # it, which is the whole feature going undiscovered.
             item.addChild(QTreeWidgetItem(["Reading…"]))
             self.addTopLevelItem(item)
+            if root in opened:
+                # Still being read: it stays open on "Reading…", and
+                # `_read_done` fills it when git answers.
+                if root in self._read:
+                    self._fill(item, self._read[root])
+                item.setExpanded(True)
 
-        self.setCurrentItem(everything)
+    def _repo_items(self) -> list:
+        """The repository rows, top level, without "All repositories"."""
+        items = (self.topLevelItem(i) for i in range(self.topLevelItemCount()))
+        return [item for item in items
+                if getattr(item.data(0, ROLE_SCOPE), "kind", "") == "repo"]
+
+    def _item_for(self, scope: GitScope) -> Any:
+        """The row holding `scope`, at any depth, or None."""
+        stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]
+        while stack:
+            item = stack.pop()
+            if item.data(0, ROLE_SCOPE) == scope:
+                return item
+            stack.extend(item.child(i) for i in range(item.childCount()))
+        return None
 
     def _expanded(self, item: Any) -> None:
         """Load one repository's branches and commits, once, on a worker."""
@@ -142,15 +190,33 @@ class GitTree(QTreeWidget):
         if scope.root in self._loaded:
             return
         self._loaded.add(scope.root)
+        if scope.root in self._read:
+            self._fill(item, self._read[scope.root])
+            return
 
         worker = CallableWorker(_read_repo, scope.root, component="ui.gittree")
         worker.signals.finished.connect(
-            lambda payload, node=item: self._fill(node, payload))
+            lambda payload, root=scope.root: self._read_done(root, payload))
         # A repository that cannot be read keeps its "Reading…" row replaced by
         # a sentence rather than sitting there for ever - see `_fill`.
         worker.signals.failed.connect(
-            lambda _error, node=item: self._fill(node, {}))
+            lambda _error, root=scope.root: self._read_done(root, {}))
         run(QThreadPool.globalInstance(), worker)
+
+    def _read_done(self, root: str, payload: Any) -> None:
+        """Git has answered for `root`: fill the row that holds it *now*.
+
+        Found by its root rather than held from when the read began, because
+        a redraw while git was reading replaces every row - the old one is
+        gone, and filling it would leave the new one on "Reading…" for ever.
+        A read that found nothing is not kept, so opening the repository again
+        asks git again.
+        """
+        if payload:
+            self._read[root] = payload
+        for item in self._repo_items():
+            if item.data(0, ROLE_SCOPE).root == root:
+                self._fill(item, payload)
 
     def _fill(self, item: Any, payload: Any) -> None:
         """Replace the placeholder with what git said. Interface thread."""

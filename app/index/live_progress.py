@@ -66,7 +66,8 @@ from app.extract.progress import (
 __all__ = [
     "STAGE_FINDING", "STAGE_READING", "STAGE_OPENING", "STAGE_FOLDER",
     "STAGE_MESSAGES", "STAGE_ATTACHMENTS", "STAGE_ZIP", "STAGE_OCR",
-    "STAGE_CHUNKING", "STAGE_EMBEDDING", "STAGE_WRITING", "STAGE_SAVING_RESUME",
+    "STAGE_CHUNKING", "STAGE_HANDING_OVER", "STAGE_EMBEDDING", "STAGE_WRITING",
+    "STAGE_SAVING_RESUME",
     "STAGES", "WorkerSlot", "WorkerBoard",
 ]
 
@@ -79,6 +80,11 @@ STAGE_READING = "reading"
 #: The text that came out of a file is being cut into passages. Runs on the
 #: extraction thread, straight after each document is read.
 STAGE_CHUNKING = "chunking"
+#: A reader has finished its document and is waiting to hand it to the writer,
+#: because the writer's queue is full (it is usually embedding a batch). Set by
+#: `pipeline._offer` only while the hand-over actually waits. 2026-10-05: before
+#: this, three readers sat on a small `.md` "for 30 s" and looked stuck.
+STAGE_HANDING_OVER = "handing_over"
 #: A batch of passages is being turned into vectors, "batch n of m". On the
 #: feeder thread; see `IndexStats.embed_batch`.
 STAGE_EMBEDDING = "embedding"
@@ -95,7 +101,8 @@ STAGE_SAVING_RESUME = "saving_resume"
 #: file that is not an archive at all.
 STAGES = (
     STAGE_FINDING, STAGE_READING, STAGE_OPENING, STAGE_FOLDER, STAGE_MESSAGES,
-    STAGE_ATTACHMENTS, STAGE_ZIP, STAGE_OCR, STAGE_CHUNKING, STAGE_EMBEDDING,
+    STAGE_ATTACHMENTS, STAGE_ZIP, STAGE_OCR, STAGE_CHUNKING, STAGE_HANDING_OVER,
+    STAGE_EMBEDDING,
     STAGE_WRITING, STAGE_SAVING_RESUME,
 )
 

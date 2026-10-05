@@ -96,6 +96,7 @@ from app.index import live_progress
 from app.index.live_progress import (
     STAGE_CHUNKING,
     STAGE_EMBEDDING,
+    STAGE_HANDING_OVER,
     STAGE_READING,
     STAGE_SAVING_RESUME,
     STAGE_WRITING,
@@ -3888,12 +3889,28 @@ class Pipeline:
         left, which would hang every worker and turn a clean stop into a hung
         process - the exact failure a pause button must not have.
         """
-        while not self._stop.is_set():
-            try:
-                results.put(item, timeout=0.25)
-                return
-            except queue.Full:
-                continue
+        # 2026-10-05: try without waiting first. Only a hand-over that has to
+        # wait marks this thread's line "handing over", so the page says the
+        # reader is waiting for the writer rather than still reading its file.
+        try:
+            results.put_nowait(item)
+            return
+        except queue.Full:
+            pass
+        slot = getattr(self._worker_slots(), "slot", None)
+        before = slot.stage if slot is not None else None
+        if slot is not None:
+            slot.stage = STAGE_HANDING_OVER
+        try:
+            while not self._stop.is_set():
+                try:
+                    results.put(item, timeout=0.25)
+                    return
+                except queue.Full:
+                    continue
+        finally:
+            if slot is not None and slot.stage == STAGE_HANDING_OVER:
+                slot.stage = before
 
     def _extract_stream(
         self, candidate: Candidate, digest: Optional[str]

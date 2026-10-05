@@ -41,6 +41,7 @@ from PyQt6.QtCore import QTimer, pyqtSignal
 from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.live_progress import heartbeat_line, live_view
+from app.ui.widgets.buttons import style_button
 
 __all__ = ["FORCE_SKIP_LABEL", "HEARTBEAT_REDRAW_MS", "IndexingWorkers"]
 
@@ -183,8 +184,15 @@ class IndexingWorkers(QWidget):
                 button = QPushButton(FORCE_SKIP_LABEL.format(n=key))
                 button.setObjectName(f"indexForceSkip{key}")
                 button.clicked.connect(lambda _c=False, k=key: self._pressed(k))
-                self._skip_layout.insertWidget(self._skip_layout.count() - 1, button)
+                # 2026-10-05 (owner: "the force skip needs icons too"): the
+                # button system's look and its skip-forward icon. Made after
+                # the window styled its buttons, so it asks for them itself.
+                style_button(button)
                 self.skip_buttons[key] = button
+                # In reader order: they were made as readers first got a file,
+                # so the row read "1, 3, 4, 2" on the owner's screen.
+                ordered = sorted(self.skip_buttons, key=lambda k: (len(k), k))
+                self._skip_layout.insertWidget(ordered.index(key), button)
             button.setToolTip(
                 f"Stop reading {busy[key][0]} and skip it. Everything else carries "
                 "on. It is recorded as skipped by you, and read again when it "

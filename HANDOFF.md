@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.75 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.76 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,46 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (morning) - the Indexing page, the reader lines, the Git tree. Read this first;
+where it disagrees with an entry below, this is newer.** The owner, watching a run of `D:\JEFF`:
+*"the threads are reading the same file"*, *"the indexing page ... is squashed"*, *"the right
+side is mainly blank ... all on one screen"*, *"the force skip needs icons too"*, *"on the code
+page the git is not expanding"*. Committed to `main` on the owner's word ("do all the
+recommended").
+
+- **No reader read a file twice.** Checked against the index: 19,273 rows, 19,273 distinct
+  paths. `D:\JEFF` holds nine copies of many files (Kit v0.91-0.94, JT_Template and its
+  release archives), copies made together share a date, and "newest first" queues them side
+  by side - so two lines showed the same name. `presenter.live_progress.telling_folders` now
+  adds the folders that tell same-named copies apart.
+- **"30 s" on a small `.md` was the hand-over, not the read.** `Pipeline._offer` blocks while
+  the consumer's queue is full (the writer embedding a batch); the slot kept saying the file and
+  its clock ran on. New stage `live_progress.STAGE_HANDING_OVER`, set only while the hand-over
+  actually waits and put back after; the reader line says "waiting for the index writer". The
+  file watch (time limits) brackets only `next(stream)`, so this wait never counted against a
+  file - unchanged.
+- **Status shelf: two columns** (`widgets/indexing_layout.py`): under the counts, the run on the
+  left, the index on the right; still unwrapped (`test_pages_reorg` pins that), tab order as
+  before. **The squash's cause** was narrower than the page being too tall: `IndexStats`
+  declared one line per wrapped row, so when Qt was short of height it crushed the panel to
+  that. It now holds `heightForWidth` as its minimum (`_hold_height`). Reproduced off-screen
+  at width 420 before the fix (13 px given, 26 needed). Tests: `test_status_two_columns.py`.
+- **Force skip:** Lucide `skip-forward` added to `assets/icons` and `ICON_NAMES`; buttons styled
+  by `style_button` (via a `PREFIXES` entry, words unchanged) and kept in reader order.
+- **Git tree (Code tab):** `GitTree.show_repos` cleared the tree and selected "All repositories"
+  on every redraw; `draw_matches` redraws on every result, and the selection change re-ran the
+  search - a loop that closed any repository a moment after it was opened. A redraw now keeps
+  open repositories open (refilled from `_read`, no second `git` run), keeps the selection,
+  emits nothing unless the chosen item has gone, and a read that lands after a redraw fills the
+  new row (`_read_done`). Tests: `test_git_tree_redraw.py`.
+- **UNVERIFIED on the real window:** every layout claim above was measured off-screen
+  (`QT_QPA_PLATFORM=offscreen`, Windows fonts). The owner asked mid-session that the machine
+  not be driven, so the new page has not been looked at on the real window; it needs a restart
+  of Leasha to show. **Trap:** to see the Leasha window with computer use, grant both "Leasha"
+  and the base `pythonw.exe` (`C:\Program Files\Python.12`) - the venv launcher re-spawns
+  the base interpreter, which owns the window, and without it the window is masked as a dark
+  rectangle.
 
 **2026-10-01 (evening) - the documentation pass. Read this first; it changes no behaviour except
 one fix.** On the owner's request, committed to `main`:

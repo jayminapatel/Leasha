@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     finished_text, index_summary, part_read_rows, progress_for, progress_text,
@@ -46,6 +46,10 @@ __all__ = [
 
 def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> CategoryNav:
     """Three shelves, one sidebar (§2a; see the view's module docstring for §2b).
+
+    *Note, 5 October 2026:* Status is now two columns under the counts - the
+    run on the left, what the index holds on the right (owner: "the right side
+    is mainly blank"). It is still unwrapped, for the reason below.
 
     **Status keeps its old, unwrapped shape.** `view.skips` already scrolls its
     own contents (`stretch=1`, exactly as before) and was never the reported
@@ -83,9 +87,28 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     view.funnel = StatusFunnel()
     status_layout.addWidget(view.funnel)
     status_layout.addWidget(view.totals)
-    status_layout.addWidget(view.stats_box)
-    status_layout.addWidget(view.bar)
-    status_layout.addWidget(view.detail)
+
+    # 2026-10-05, the owner: *"the right side is mainly blank, and ideally i
+    # would like to see all on one screen"*. Everything stood in one column
+    # with the right half of every line empty, and once the reader lines,
+    # Force skip and the timed-out panel had joined it, the column was taller
+    # than a maximised window and Qt crushed "This index". So, under the
+    # counts that head the page, two columns: **the run** on the left (bar,
+    # readers, the buttons that act on it) and **what the index holds** on
+    # the right (this panel, the run's log, the skipped files). The same
+    # widgets, in the same order within each column.
+    columns = QHBoxLayout()
+    columns.setSpacing(16)
+    run_column = QVBoxLayout()
+    run_column.setSpacing(8)
+    index_column = QVBoxLayout()
+    index_column.setSpacing(8)
+    columns.addLayout(run_column, 3)
+    columns.addLayout(index_column, 2)
+    status_layout.addLayout(columns, 1)
+
+    run_column.addWidget(view.bar)
+    run_column.addWidget(view.detail)
     # 0x §4d: one line per reader, the heartbeat, and the work behind them,
     # under the detail line they add to. Made here rather than in the view,
     # which is at its line guard; `view.workers_panel` is set on the view
@@ -94,40 +117,42 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     # 0z lane B: each busy reader's Force skip button.
     view.workers_panel.forceSkip.connect(
         lambda reader: force_skip_reader(view, reader))
-    status_layout.addWidget(view.workers_panel)
-    status_layout.addWidget(view.notices)
-    # Work order 0w §2b. Made here rather than in the view, which is over its
-    # line guard: `view.run_log` is set on the view exactly as if it had been.
-    view.run_log = RunLog()
-    status_layout.addWidget(view.run_log)
+    run_column.addWidget(view.workers_panel)
+    run_column.addWidget(view.notices)
     # 0x §4a: the button row is a widget of its own now
     # (`widgets/indexing_controls.py`), no longer a bare layout.
-    status_layout.addWidget(controls)
-    # **Tab reaches the log's filter, Copy and the log before the buttons
-    # below them**, the order they appear in. The log is made here, after the
-    # buttons, so Qt's made-first-comes-first default would put it after them
-    # (and after everything else on the page). The log's three are slotted in
-    # just before Start; the row keeps its own left-to-right order.
-    chain = (controls.start_button.previousInFocusChain(), view.run_log.filter,
-             view.run_log.copy_button, view.run_log.view) + _row(controls)
-    for first, second in zip(chain, chain[1:]):
-        QWidget.setTabOrder(first, second)
-    status_layout.addWidget(view.archives)
+    run_column.addWidget(controls)
+    run_column.addWidget(view.archives)
     # Order 0z F3: the files that ran out of time, by type, each with "Retry
     # with a longer time limit". Made here rather than in the view, which is
     # at its line guard; `view.timed_out` is set on the view exactly as if it
     # had been. Hidden until the index holds one.
     view.timed_out = TimedOutPanel()
-    status_layout.addWidget(view.timed_out)
-    status_layout.addWidget(view.skips, stretch=1)
+    run_column.addWidget(view.timed_out)
+    run_column.addStretch(1)
+
+    index_column.addWidget(view.stats_box)
+    # Work order 0w §2b. Made here rather than in the view, which is over its
+    # line guard: `view.run_log` is set on the view exactly as if it had been.
+    view.run_log = RunLog()
+    index_column.addWidget(view.run_log)
+    index_column.addWidget(view.skips, stretch=1)
     # **Spare height goes below everything, not between the lines.** While
     # the skips panel has nothing to show it is hidden, and its stretch goes
-    # with it; Qt then shared the page's spare height out as gaps between
-    # every row, so the log's caption floated a hand's width above its own
-    # box (seen in the 0x §4 grabs, and already so before them). This spacer
-    # has stretch 0, so while the skips panel is showing it takes nothing and
-    # the page looks exactly as it did.
-    status_layout.addStretch(0)
+    # with it; Qt then shared the column's spare height out as gaps between
+    # every row. This spacer has stretch 0, so while the skips panel is
+    # showing it takes nothing.
+    index_column.addStretch(0)
+
+    # **Tab reaches the log's filter, Copy and the log before the buttons**,
+    # as it did when the log stood above them (0x §4e; unchanged by the two
+    # columns). The log is made after the buttons, so Qt's made-first-comes-
+    # first default would put it after them; its three are slotted in just
+    # before Start, and the row keeps its own left-to-right order.
+    chain = (controls.start_button.previousInFocusChain(), view.run_log.filter,
+             view.run_log.copy_button, view.run_log.view) + _row(controls)
+    for first, second in zip(chain, chain[1:]):
+        QWidget.setTabOrder(first, second)
 
     schedule_page = QWidget()
     schedule_layout = QVBoxLayout(schedule_page)

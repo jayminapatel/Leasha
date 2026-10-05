@@ -606,3 +606,88 @@ def test_ocr_marks_the_reader_it_runs_inside_as_ocr_and_puts_it_back() -> None:
     assert seen == [progress.STAGE_OCR]
     # Outside any reader it is a plain call - no frame, nothing to mark.
     ocr.ocr_image("fake-source", engine=lambda _i: ([], 0.0))
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-05: two readers on copies of one file, and a reader waiting to hand
+# over. On the owner's D:\JEFF, readers 2 and 3 both said
+# `aso-overview-install-licensing-and-security.md · 30 s`. They were two of
+# nine copies (Kit v0.91-0.94, JT_Template and its releases), and both had
+# finished reading - they were waiting for the writer, which was embedding.
+# ---------------------------------------------------------------------------
+
+def _plain(path: str, started: float = 1198.0, stage: str = "reading") -> dict:
+    name = path.replace("\\", "/").rsplit("/", 1)[-1]
+    return {"file": name, "path": path, "started_at": started, "stage": stage,
+            "inner": []}
+
+
+def test_readers_on_copies_of_one_name_say_which_folder() -> None:
+    stats = {"workers": {
+        "1": _plain(r"D:\JEFF\Kit\kit-v0.93\skills\refs\aso.md"),
+        "2": _plain(r"D:\JEFF\Kit\kit-v0.94\skills\refs\aso.md"),
+        "3": _plain(r"D:\JEFF\JT_Template\skills\refs\aso.md"),
+        "4": _plain(r"D:\JEFF\Kit\kit-v0.93\skills\refs\other.md"),
+    }}
+    assert worker_lines(stats, now=1200.0) == [
+        r"Reader 1: aso.md (Kit\kit-v0.93) · 2 s",
+        r"Reader 2: aso.md (Kit\kit-v0.94) · 2 s",
+        r"Reader 3: aso.md (JT_Template) · 2 s",
+        "Reader 4: other.md · 2 s",
+    ]
+
+
+def test_a_name_on_one_reader_only_is_shown_as_before() -> None:
+    stats = {"workers": {"1": _plain("D:/Docs/report.docx"),
+                         "2": _plain("D:/Docs/notes.txt")}}
+    assert worker_lines(stats, now=1200.0) == [
+        "Reader 1: report.docx · 2 s", "Reader 2: notes.txt · 2 s"]
+
+
+def test_a_reader_waiting_for_the_writer_says_so() -> None:
+    stats = {"workers": {"1": _plain("D:/Docs/report.docx", started=1170.0,
+                                     stage=live_progress.STAGE_HANDING_OVER)}}
+    assert worker_lines(stats, now=1200.0) == [
+        "Reader 1: report.docx · waiting for the index writer · 30 s"]
+
+
+def test_a_blocked_hand_over_marks_the_slot_and_puts_it_back() -> None:
+    import queue
+
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline._stop = threading.Event()
+    slot = live_progress.WorkerSlot(1)
+    slot.begin(Path("report.docx"))
+    results: queue.Queue = queue.Queue(maxsize=1)
+    results.put("already there")
+    seen: list[str] = []
+
+    def hand_over() -> None:
+        pipeline._worker_slots().slot = slot
+        pipeline._offer(results, "mine")
+
+    thread = threading.Thread(target=hand_over)
+    thread.start()
+    deadline = time.monotonic() + 5
+    while slot.stage != live_progress.STAGE_HANDING_OVER and time.monotonic() < deadline:
+        time.sleep(0.01)
+    seen.append(slot.stage)
+    assert results.get() == "already there"
+    thread.join(5)
+    assert seen == [live_progress.STAGE_HANDING_OVER]
+    assert slot.stage == live_progress.STAGE_READING
+    assert results.get_nowait() == "mine"
+
+
+def test_a_hand_over_that_does_not_wait_leaves_the_stage_alone() -> None:
+    import queue
+
+    pipeline = Pipeline.__new__(Pipeline)
+    pipeline._stop = threading.Event()
+    slot = live_progress.WorkerSlot(1)
+    slot.begin(Path("report.docx"))
+    pipeline._worker_slots().slot = slot
+    results: queue.Queue = queue.Queue(maxsize=1)
+    pipeline._offer(results, "mine")
+    assert slot.stage == live_progress.STAGE_READING
+    assert results.get_nowait() == "mine"

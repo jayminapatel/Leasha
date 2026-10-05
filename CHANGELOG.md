@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.62 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.63 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The Indexing page on one screen, readers that say where and why, the Git tree opens (2026-10-05)
+
+- **The Status page is two columns.** The run - the bar, one line per reader, Force skip and
+  the buttons - is on the left; what the index holds - This index, What the run is doing and
+  the skipped files - is on the right. The right half of the page was empty and the
+  This index panel was drawn with its lines on top of each other; it now keeps the height its
+  wrapped lines need.
+- **Readers on copies of one file say which copy.** Two readers on `report.md` in different
+  folders read `report.md (Kit\kit-v0.93)` and `report.md (JT_Template)`, so they no longer
+  look like one file read twice.
+- **A reader waiting for the index writer says so** - "· waiting for the index writer · 30 s" -
+  instead of looking stuck on a small file while the writer works through a batch.
+- **Force skip buttons have an icon** and sit in reader order, 1 to 4.
+- **The Git tree on the Code tab opens.** Every search result redrew the tree, which closed
+  what you had opened and chose "All repositories" again - which started another search.
+  A redraw now keeps what is open and chosen, and starts no search.
 
 ### Photos, people and pictures read in the right order (2026-10-04 and 05)
 

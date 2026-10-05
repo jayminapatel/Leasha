@@ -22,7 +22,7 @@ is tested without a database. This arranges labels.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Any, Optional, Sequence
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QGridLayout, QGroupBox, QLabel, QWidget
@@ -69,6 +69,30 @@ class IndexStats(QGroupBox):
                 note.setObjectName("statNote")
                 note.setWordWrap(True)
                 self._grid.addWidget(note, index * 2 + 1, 1)
+        self._hold_height()
+
+    def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._hold_height()
+
+    def _hold_height(self) -> None:
+        """Never be shorter than the wrapped lines need at this width.
+
+        2026-10-05, the owner: *"the indexing page does not look right it is
+        squashed"*. A word-wrapped label tells Qt it needs one line, so when the
+        page was short of height Qt shrank this panel to one line per row and
+        drew the rows on top of each other. The height the grid needs at the
+        panel's current width is its real floor, so it becomes the minimum.
+        """
+        if not self._grid.hasHeightForWidth():
+            return
+        margins = self.contentsMargins()
+        width = self.width() - margins.left() - margins.right()
+        if width <= 0:
+            return
+        needed = self._grid.heightForWidth(width) + margins.top() + margins.bottom()
+        if needed > 0 and needed != self.minimumHeight():
+            self.setMinimumHeight(needed)
 
     def _clear(self) -> None:
         """Take every widget out and schedule it for deletion.
