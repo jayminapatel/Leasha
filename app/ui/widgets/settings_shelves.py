@@ -32,6 +32,7 @@ from PyQt6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 
 from app.core import settings_registry as reg
 from app.ui.presenter import history_label_text, pst_status_text, settings_labels
+from app.ui.presenter.settings import pst_outlook_note
 from app.ui.state_writes import save_state
 from app.ui.widgets.advanced_fold import AdvancedFold
 from app.ui.widgets.chat_box import ChatBox
@@ -252,6 +253,37 @@ class SettingsShelves:
         self.pst_status.setWordWrap(True)
         self._pst_direct_available = bool(direct)
         self._refresh_pst_note()
+
+    # -- the reader chosen for Outlook archives (2026-10-05) ---------------------
+
+    def show_pst_backend(self, backend: str) -> None:
+        """Show the reader that was saved, **without saving it again**.
+
+        2026-10-05, the owner, after twenty archives went through Outlook:
+        "it should have read them direct". The choice saved in the index was
+        "Through Outlook" and every run obeyed it - but this drop-down was
+        never set from it, so it opened on its first entry, "Automatic - direct
+        if possible, else Outlook", every time, and the sentence beside it on
+        Indexing, What gets read said the same. The page showed one thing and
+        the run did another.
+        """
+        index = self.pst_backend.findData(str(backend or "auto").strip().lower())
+        if index < 0:
+            return
+        blocked = self.pst_backend.blockSignals(True)
+        try:
+            self.pst_backend.setCurrentIndex(index)
+        finally:
+            self.pst_backend.blockSignals(blocked)
+        self._refresh_pst_note()
+
+    def _refresh_pst_note(self) -> None:
+        """Through Outlook by choice, with direct reading there to be used:
+        say so, where the choice is made."""
+        through_outlook = self.pst_backend.currentData() == "outlook"
+        show = through_outlook and self._pst_direct_available
+        self.pst_note.setText(pst_outlook_note(show))
+        self.pst_note.setVisible(show)
 
     # -- the five categories ----------------------------------------------------
 

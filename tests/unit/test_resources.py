@@ -24,10 +24,27 @@ from app.index.resources import (
     verdict,
 )
 
+# 2026-10-05: `pause_on_battery` is asked for here. It is off unless somebody
+# turns it on now (the owner: "power should never affect leasha indexing"), and
+# the battery tests below are about what happens when somebody has.
 LIMITS = ResourceLimits(
     memory_mb=1000, cpu_percent=80, min_free_gb=5,
     busy_seconds=5.0, quiet_seconds=10.0, poll_seconds=0.0,
+    pause_on_battery=True,
 )
+
+
+def test_power_does_not_affect_indexing_unless_somebody_asks():
+    """The owner, 2026-10-05: "power should never affect leasha indexing"."""
+    from app.core import settings_registry
+    from app.core.config import Settings
+
+    assert ResourceLimits().pause_on_battery is False
+    assert verdict(snap(on_battery=True), ResourceLimits(
+        memory_mb=1000, cpu_percent=80, min_free_gb=5)).running
+    assert Settings.model_fields["index_pause_on_battery"].default is False
+    setting = next(s for s in settings_registry.SETTINGS if s.key == "INDEX_PAUSE_ON_BATTERY")
+    assert setting.default is False
 
 
 def snap(**kwargs) -> Snapshot:

@@ -370,8 +370,10 @@ SETTINGS: tuple[Setting, ...] = (
              "disk first.",
     ),
     Setting(
+        # 2026-10-05, the owner: "power should never affect leasha indexing".
+        # The switch stays for whoever wants it; it starts off.
         key="INDEX_PAUSE_ON_BATTERY", label="Pause on battery", kind="bool",
-        default=True, group="Tuning", surface="indexing.tuning",
+        default=False, group="Tuning", surface="indexing.tuning",
         help="Indexing is the fastest way to flatten a laptop battery. It "
              "resumes on its own when you plug in; nothing is lost by waiting.",
     ),

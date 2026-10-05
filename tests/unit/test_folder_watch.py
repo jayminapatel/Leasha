@@ -625,10 +625,13 @@ def indexer_for(store, root: Path, lock_name: str, tmp_path: Path, **options) ->
     # lock_is_held` failed whenever the tests were run on battery (2026-09-30).
     from app.index.resources import Snapshot
     options.setdefault("probe", lambda: Snapshot())
+    # 2026-10-05: a test about the battery asks for the pause; it is off by default now.
+    limits = options.pop("limits", None)
+    extra = {"limits": limits} if limits is not None else {}
 
     return BatchIndexer(
         store, vectors=None, embedder=options.pop("embedder", never_called),
-        config=lambda roots: PipelineConfig(walk=WalkConfig(roots=list(roots))),
+        config=lambda roots: PipelineConfig(walk=WalkConfig(roots=list(roots)), **extra),
         lock_name=lock_name, lock_dir=tmp_path / "locks", **options)
 
 
@@ -674,8 +677,11 @@ def test_on_battery_the_batch_waits_without_holding_the_lock(store, tmp_path, lo
     root = tmp_path / "root"
     root.mkdir()
     (root / "new.txt").write_text("something to index", encoding="utf-8")
+    from app.index.resources import ResourceLimits
+
     apply = indexer_for(store, root, lock_name, tmp_path,
-                        probe=lambda: Snapshot(on_battery=True))
+                        probe=lambda: Snapshot(on_battery=True),
+                        limits=ResourceLimits(pause_on_battery=True))
 
     with pytest.raises(IndexBusy) as waiting:
         apply(Batch(changes=[Change(root, root / "new.txt", new=True)]))

@@ -34,6 +34,17 @@ def pst_status_text(available: bool) -> str:
     )
 
 
+def pst_outlook_note(show: bool) -> str:
+    """The line under "How to read archives" when Outlook is the chosen route
+    although reading directly is available - or nothing. 2026-10-05: the
+    owner's archives went through Outlook by a choice the page did not show."""
+    if not show:
+        return ""
+    return ("Archives are being read through Outlook because that is what is chosen above. "
+            "Outlook has to be open, and it is slower. Reading them directly is available on "
+            "this computer: choose \"Automatic - direct if possible, else Outlook\" to use it.")
+
+
 def doctor_lines(report: Mapping[str, Any]) -> list[str]:
     """Render a doctor report as plain text for the Settings panel.
 

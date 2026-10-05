@@ -1019,6 +1019,7 @@
     <Compile Include="tests\unit\test_status_two_columns.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
+    <Compile Include="tests\unit\test_suite_ignores_the_battery.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />

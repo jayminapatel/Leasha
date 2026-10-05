@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.70 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.71 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Being on battery no longer pauses indexing (2026-10-05)
+
+- **Indexing carries on when the laptop is unplugged.** "Pause on battery" (Indexing, Tuning)
+  now starts switched off. Turn it on if you would rather a run waited for mains power.
+- **A file Leasha itself failed on is tried again the next time you index**, so a fix reaches
+  it without resetting the index.
 
 ### The archive-reading choice shows what is really chosen (2026-10-05)
 

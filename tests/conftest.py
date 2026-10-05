@@ -279,6 +279,35 @@ def _qt_application():
 
 
 @pytest.fixture(autouse=True)
+def _on_mains_power(monkeypatch):
+    """Every test runs as if the machine were plugged in.
+
+    **A hang, not a failure.** The resource governor pauses an index run "On
+    battery. Indexing resumes on mains power." - which is right for the owner's
+    laptop and wrong for a test that starts a real run: it waits for a charger
+    for ever and is killed by its time limit, with nothing in its output but a
+    stack in `resources.wait_while_throttled`. Found on 2026-10-05, when the
+    laptop was unplugged in the middle of a session: `test_run_setup.py` stalled
+    at its first real run, twice, and the cause was only in the run's own log
+    file under the test's temporary folder.
+
+    A test about the battery rule sets its own reading after this one and
+    wins; the governor's own tests hand it a snapshot and never ask psutil.
+    """
+    try:
+        import psutil
+    except Exception:                            # noqa: BLE001 - no psutil, nothing to pin
+        return
+
+    class _Plugged:
+        percent = 100.0
+        secsleft = -2
+        power_plugged = True
+
+    monkeypatch.setattr(psutil, "sensors_battery", lambda: _Plugged(), raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _no_florence_model_load(request, monkeypatch):
     """No test may download or load the Florence-2 captioning model.
 

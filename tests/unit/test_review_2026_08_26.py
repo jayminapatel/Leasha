@@ -306,6 +306,33 @@ def test_a_skipped_file_that_has_not_changed_is_left_alone(tmp_path):
         store.close()
 
 
+def test_a_file_skipped_by_a_fault_in_leasha_is_read_again_though_it_has_not_changed(tmp_path):
+    r"""2026-10-05. Three of the owner's archives were skipped as
+    `ERR_UNEXPECTED` by a fault in the Outlook reader, the fault was fixed, and
+    they stayed FAILED: an unchanged failure is settled. For every other code
+    that is right - the file is the reason. For this one the program was."""
+    from app.core import file_state
+    from app.index.pipeline import UNCHANGED
+    from app.index.walker import Candidate
+
+    target = tmp_path / "2026.pst"
+    target.write_bytes(b"!BDN an archive that tripped a bug")
+    store, pipeline = _classifier(tmp_path, ocr_mode="text")
+    try:
+        stat = target.stat()
+        _skipped_row(store, target, code="ERR_UNEXPECTED",
+                     mtime=stat.st_mtime_ns, size=stat.st_size)
+        decision = pipeline._classify(Candidate(
+            path=target, size_bytes=stat.st_size, mtime_ns=stat.st_mtime_ns))
+        assert decision is not UNCHANGED, "a fault in Leasha was settled as the file's fault"
+        assert pipeline._settled_skips == {}
+        # Its word in the Status column is still Failed, not Deferred.
+        assert "ERR_UNEXPECTED" not in file_state.DEFERRED_CODES
+        assert file_state.derive("FAILED", "ERR_UNEXPECTED") == file_state.FAILED
+    finally:
+        store.close()
+
+
 def test_a_skipped_file_that_has_changed_is_read_again(tmp_path):
     """Settled means "while nothing has moved". Edit the file and it is work."""
     from app.index.pipeline import UNCHANGED

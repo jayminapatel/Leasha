@@ -142,7 +142,9 @@ class ResourceLimits:
 
     #: Pause when the machine is on battery. On a laptop in a meeting this is
     #: the difference between a flat battery and a delayed index.
-    pause_on_battery: bool = True
+    #: 2026-10-05, the owner: "power should never affect leasha indexing". Off unless
+    #: somebody turns it on; it was on by default.
+    pause_on_battery: bool = False
 
     #: Run below normal priority. The single cheapest and most effective
     #: courtesy available: the scheduler simply prefers whatever the person is

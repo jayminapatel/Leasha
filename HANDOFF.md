@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.88 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.89 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,41 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (14:10) - a fault in Leasha is re-read next run; pause-on-battery is off by
+default; the suite no longer cares about the battery; one guard this thread broke is mended.**
+The owner: *"do the recommended finish all and commit and push"*, then *"power should never
+affect leasha indexing"*.
+
+- **A file skipped as `ERR_UNEXPECTED` is read again on the next run** (`pipeline._is_deferred`).
+  An unchanged failure is settled - "nothing about the file has changed, so nothing about the
+  outcome can" - and that rule stands for every other code. For this one the program was at
+  fault, and it changes without the file moving: the owner's three archives stayed FAILED after
+  the Outlook fix and would have needed a whole reset. Deliberately **not** added to
+  `file_state.DEFERRED_CODES`: that list is also the Status column's word, and this file still
+  reads "Failed". Cost: a file that really trips a bug is read each run until the bug is fixed.
+  `test_review_2026_08_26.py::test_a_file_skipped_by_a_fault_in_leasha_is_read_again_though_it_
+  has_not_changed`.
+- **`INDEX_PAUSE_ON_BATTERY` defaults to off** in the three places it is defined
+  (`config.Settings`, its `.env` parse, `resources.ResourceLimits`) and in the settings registry.
+  The "Pause on battery" switch on Indexing, Tuning is still there, starting off; the owner has
+  not said whether to remove it. The owner's own `.env` already had it `false`, so their runs
+  were never paused by it. Three tests that relied on the old default now ask for the pause
+  explicitly (dated notes); `test_resources.py::test_power_does_not_affect_indexing_unless_
+  somebody_asks` holds the new one. The user guide has a dated note.
+- **Every test runs as if on mains** (`tests/conftest.py::_on_mains_power`). The laptop was
+  unplugged mid-session and every test that starts a real index run waited "On battery. Indexing
+  resumes on mains power." until its time limit - which is what the entry below took for the
+  owner's indexing. **That diagnosis was wrong**: no index run was in progress; the reason was
+  in the test run's own log under its temporary folder.
+- **Mended: `test_presenter.py::test_every_qt_view_keeps_its_logic_in_the_presenter`.** The
+  commit below (`8147127`) took `settings_view.py` past its 250 lines of code, and was pushed
+  without the whole suite. The two methods are in `SettingsShelves` and the sentence in
+  `presenter/settings.pst_outlook_note`; the view is at 234.
+- **The whole suite, laptop on battery, Leasha's window open and idle** (`scripts/run_suite.py`,
+  18 minutes): 13,208 passed, 1 failed, none crashed, no errors - the first run today without
+  the `test_grab_ui` error. The one failure was the guard above, mended after the run and passed
+  with its neighbours (133). The suite was not run a second time.
 
 **2026-10-05 (13:30) - the page said "Automatic" while the run used Outlook: the reader
 drop-down was never set from what was saved. This is why the owner's archives went through

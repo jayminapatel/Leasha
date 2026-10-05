@@ -344,7 +344,9 @@ class Settings(BaseModel):
     #: Pause while system-wide CPU is above this. 0 disables the check.
     index_cpu_percent: int = 80
     #: Pause on battery, resume on mains.
-    index_pause_on_battery: bool = True
+    #: 2026-10-05, the owner: "power should never affect leasha indexing". Off unless
+    #: somebody turns it on; it was on by default.
+    index_pause_on_battery: bool = False
     #: Run below normal CPU and I/O priority.
     index_low_priority: bool = True
 
@@ -780,7 +782,7 @@ def load_settings(
             index_memory_mb=_as_int("INDEX_MEMORY_MB", values.get("INDEX_MEMORY_MB", "4000")),
             index_cpu_percent=_as_int("INDEX_CPU_PERCENT", values.get("INDEX_CPU_PERCENT", "80")),
             index_pause_on_battery=_as_bool(
-                "INDEX_PAUSE_ON_BATTERY", values.get("INDEX_PAUSE_ON_BATTERY", "true")),
+                "INDEX_PAUSE_ON_BATTERY", values.get("INDEX_PAUSE_ON_BATTERY", "false")),
             index_low_priority=_as_bool(
                 "INDEX_LOW_PRIORITY", values.get("INDEX_LOW_PRIORITY", "true")),
             index_schedule=(values.get("INDEX_SCHEDULE") or "manual").strip().lower(),

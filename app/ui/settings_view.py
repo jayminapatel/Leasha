@@ -291,39 +291,6 @@ class SettingsView(SettingsShelves, QWidget):
         self.history_label.setText("Counting…")
         self.pst_status.setText("Checking how Outlook archives can be read…")
 
-    def show_pst_backend(self, backend: str) -> None:
-        """Show the reader that was saved, **without saving it again**.
-
-        2026-10-05, the owner, after twenty archives went through Outlook:
-        "it should have read them direct". The choice saved in the index was
-        "Through Outlook" and every run obeyed it - but this drop-down was
-        never set from it, so it opened on its first entry, "Automatic - direct
-        if possible, else Outlook", every time, and the sentence beside it on
-        Indexing, What gets read said the same. The page showed one thing and
-        the run did another.
-        """
-        index = self.pst_backend.findData(str(backend or "auto").strip().lower())
-        if index < 0:
-            return
-        blocked = self.pst_backend.blockSignals(True)
-        try:
-            self.pst_backend.setCurrentIndex(index)
-        finally:
-            self.pst_backend.blockSignals(blocked)
-        self._refresh_pst_note()
-
-    def _refresh_pst_note(self) -> None:
-        """Through Outlook by choice, with direct reading there to be used:
-        say so, where the choice is made."""
-        through_outlook = self.pst_backend.currentData() == "outlook"
-        show = through_outlook and self._pst_direct_available
-        self.pst_note.setText(
-            "Archives are being read through Outlook because that is what is chosen above. "
-            "Outlook has to be open, and it is slower. Reading them directly is available on "
-            "this computer: choose \"Automatic - direct if possible, else Outlook\" to use it."
-            if show else "")
-        self.pst_note.setVisible(show)
-
     def _convert_pst(self) -> None:
         archive, _filter = QFileDialog.getOpenFileName(
             self, "Choose an Outlook archive", "", "Outlook archives (*.pst)"

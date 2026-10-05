@@ -2745,6 +2745,20 @@ class Pipeline:
         code = str(skip_code or "")
         if code in self.DEFERRED_SKIP_CODES:
             return True
+        # **A fault in Leasha is never a settled answer about the file**
+        # (2026-10-05, on the owner's word). "Nothing about the file has
+        # changed, so nothing about the outcome can" is the rule for every
+        # other failure - but for `ERR_UNEXPECTED` the thing that was wrong is
+        # the program, and it changes without the file moving: three archives
+        # skipped by a busy Outlook stayed FAILED after the fault was fixed,
+        # and only a reset of the whole index would have read them. The next
+        # run reads such a file again. The cost is a file that really does trip
+        # a bug being read each run until the bug is fixed - a handful at
+        # most, and each now logged with its trace (`say_unexpected_skip`).
+        # Not in `DEFERRED_SKIP_CODES`: that list is also the Status column's
+        # "Deferred", and this file's word is still "Failed".
+        if code == "ERR_UNEXPECTED":
+            return True
         return code == "ERR_NO_TEXT_LAYER" and self.config.ocr_mode != "text"
 
     def _ocr_gate(self, candidate: Candidate) -> Optional[AppError]:
