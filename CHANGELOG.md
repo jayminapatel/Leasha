@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.67 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.68 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The log keeps every line, and a skipped file says why on the page (2026-10-05)
+
+- **Leasha's log no longer goes quiet part-way through a busy day.** Once the day's log reached
+  10 MB while indexing was running, most later lines were lost. It now starts a new file at
+  midnight instead, and nothing is lost.
+- **"Report it with the detail below" now has the detail.** When a file is skipped because of a
+  fault in Leasha, the Indexing page lists which file and what went wrong, and you can select the
+  text to copy it.
+- **A false warning is gone.** Indexing mail no longer warns when one message has two attachments
+  with the same name.
 
 ### A file skipped by a fault in Leasha now says which file and why (2026-10-05)
 

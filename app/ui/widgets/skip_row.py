@@ -58,6 +58,15 @@ class SkipRow(QWidget):
             examples.setObjectName("skipExamples")
             layout.addWidget(examples)
 
+        # 2026-10-05: "the detail below" that the unexpected-error sentence
+        # promises. Empty and hidden until `show_details` has something.
+        self._details = QLabel("")
+        self._details.setWordWrap(True)
+        self._details.setObjectName("skipExamples")
+        self._details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._details.setVisible(False)
+        layout.addWidget(self._details)
+
         if group.retryable:
             button = QPushButton("Retry these")
             button.setToolTip(
@@ -70,6 +79,12 @@ class SkipRow(QWidget):
             button.setAccessibleName(f"Retry the files skipped because {group.message}")
             button.clicked.connect(lambda: retry_signal.emit(group.code))
             layout.addWidget(button, alignment=Qt.AlignmentFlag.AlignLeft)
+
+    def show_details(self, lines: Any) -> None:
+        """Which files, and what was recorded for each. Selectable, to copy."""
+        text = "\n".join(str(line) for line in (lines or ()) if str(line).strip())
+        self._details.setText(text)
+        self._details.setVisible(bool(text))
 
     @staticmethod
     def _heading_text(group: Any) -> str:

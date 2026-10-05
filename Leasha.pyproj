@@ -820,6 +820,7 @@
     <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
+    <Compile Include="tests\unit\test_logs_and_skip_detail.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mail_attachment_rule.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />

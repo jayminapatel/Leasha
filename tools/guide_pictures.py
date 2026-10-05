@@ -96,10 +96,23 @@ MENUS: dict[str, str] = {
     "menu-file": "File", "menu-edit": "Edit", "menu-view": "View",
     "menu-go": "Go", "menu-help": "Help",
 }
-grab_ui.SURFACES.setdefault("indexing-what-gets-read",
-                            {"page": "Indexing", "category": "What gets read"})
-grab_ui.SURFACES.setdefault("search-results-dark", {"page": "Search", "state": "results"})
-grab_ui.SURFACES.setdefault("space-report", {"page": "Reports"})
+#: Every surface this tool can reach: `grab_ui`'s, and three of its own.
+#:
+#: **A copy, never `grab_ui.SURFACES` itself** (2026-10-05). The three used to
+#: be added to `grab_ui`'s own dictionary when this module was imported - and
+#: pytest imports every test module of a process before it runs any, so
+#: `test_guide_pictures.py` being collected was enough to add them. `grab_ui.
+#: grab(list(SURFACES))` then took the results picture twice; the second time
+#: the box already held the words, no search started, and the wait for one
+#: timed out: "the full search's results ... never arrived within 30s", in
+#: every whole-suite run and never when `test_grab_ui.py` ran alone. Found
+#: only once that error was made to say what it *had* seen.
+SURFACES: dict[str, dict[str, str]] = {
+    **grab_ui.SURFACES,
+    "indexing-what-gets-read": {"page": "Indexing", "category": "What gets read"},
+    "search-results-dark": {"page": "Search", "state": "results"},
+    "space-report": {"page": "Reports"},
+}
 
 #: Which report each Reports picture shows. Chosen every time: the page keeps
 #: whichever report was last opened, and the first `--all` run photographed
@@ -164,7 +177,7 @@ def grab_window(app, window, store, name: str):
 
     if name == "more-menu":
         # The "..." at the right of the Search bar.
-        grab_ui._reach(app, window, grab_ui.SURFACES["search-home"])
+        grab_ui._reach(app, window, SURFACES["search-home"])
         return grab_popup(app, window.search_view.more_menu)
     if name == "mini-search":
         # Ctrl+Alt+L's box, with "boiler" searched. Not `summon`: that asks
@@ -212,7 +225,7 @@ def _grab_in_dark(app, window, store, name: str):
         # one then times out (seen on the first run): empty it first.
         window.search_view.input.setText("")
         grab_ui._settle(app, window, "the emptied search box")
-        target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
+        target = grab_ui._reach(app, window, SURFACES[name])
         grab_ui._pump(app, 10)
         return target.grab()
     finally:
@@ -257,7 +270,7 @@ def take(names: list[str], out: Path) -> list[Path]:
             elif name.endswith("-dark"):
                 image = _grab_in_dark(app, window, store, name)
             else:
-                target = grab_ui._reach(app, window, grab_ui.SURFACES[name])
+                target = grab_ui._reach(app, window, SURFACES[name])
                 _dress(window, name)
                 grab_ui._pump(app, 10)
                 grab_ui._settle(app, window, f"{name}, dressed")

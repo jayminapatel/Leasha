@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.85 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.86 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,45 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (early afternoon) - four faults behind one line on the Indexing page, and the
+`test_grab_ui` error diagnosed and fixed. Corrects two things said below.** The owner: *"do the
+recommended finish all and commit and push and you test first"*.
+
+- **Corrections to the two entries below.** (1) "The reason lived only in `files.skip_detail`"
+  was wrong: `mark_skipped` stored `error.message`, never the trace, so for `ERR_UNEXPECTED` the
+  reason was kept nowhere at all. (2) The `test_grab_ui` error is no longer "not diagnosed".
+- **The app log is never renamed under another process** (`core/logging.setup_logging`:
+  `rotation` is "00:00", was "10 MB"). The window and its indexing process share `app_<day>.log`;
+  at 10 MB one renamed it, Windows refused, and every later line from that process was lost.
+  Measured with a second handle on the file: 21 of 301 lines kept before, 301 of 301 now. A day's
+  file is as large as the day; retention is unchanged.
+- **A fault in Leasha is recorded with its exception** (`sqlite_store.skip_sentence`: the
+  sentence plus the last line of the trace, for `ERR_UNEXPECTED` only), **and the panel shows it**
+  under the reason that says "the detail below" (`SqliteStore.skip_details`, read on a worker by
+  `IndexController._show_unexpected_detail` when a run ends; `SkipsPanel.show_details`,
+  `SkipRow.show_details`, selectable). With the ERROR line from the entry below, the owner's next
+  run names the three files three ways: on screen, in the index, in the errors log.
+- **"the extractor is not setting virtual_path" is said only when true** (`pipeline.
+  same_named_attachment`). Seventeen a run on the owner's archives were two attachments of one
+  message sharing a name (`image.png` from a signature); they are still given a key each, quietly.
+- **`test_grab_ui` under the whole suite: cause found and fixed.** `tools/guide_pictures.py` added
+  three surfaces to `grab_ui.SURFACES` when it was imported, and pytest imports every test module
+  of a process before running any - so collecting `test_guide_pictures.py` made `grab_ui.grab(
+  list(SURFACES))` take the results picture twice; the second time the box already held the
+  words, no search started, and the wait timed out. Reproduced with those two files alone (72 s),
+  fixed by `guide_pictures.SURFACES` being its own copy, and held by
+  `test_importing_this_tool_leaves_the_grab_tools_own_list_alone`. Three guesses were wrong first
+  (a shared folder, earlier tests' state, processor load); what found it was making the error
+  say what it had seen ("tiers answered [], 5 row(s), box holds 'boiler quote dave'").
+- **Tested before the commit:** the whole suite (`scripts/run_suite.py`, Leasha closed): 13,193
+  passed, 1 failed, 1 error, none crashed. The error was the one above - fixed after that run and
+  then passed with both files together. The failure, `test_later.py::
+  test_it_runs_when_the_owner_is_still_alive`, is a timing test that passes alone (twice today).
+  The suite was **not** run again after the `guide_pictures` change (its two files and
+  `test_later.py`: 19 passed).
+- **Still open:** the three `ERR_UNEXPECTED` skips themselves, until the owner's next run.
+  Tests: `tests/unit/test_logs_and_skip_detail.py` (6).
 
 **2026-10-05 (noon) - "3 x An unexpected error occurred in ui": not diagnosed, and now it cannot
 happen silently. Read this before the owner's next fresh run of `D:\OutlookArchive`.** The owner,

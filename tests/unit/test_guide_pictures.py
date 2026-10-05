@@ -53,7 +53,7 @@ def test_every_caption_names_a_surface_the_grab_tool_can_reach():
     from tools import grab_ui
 
     for name in guide_pictures.CAPTIONS:
-        assert (name in grab_ui.SURFACES or name in guide_pictures.MENUS
+        assert (name in guide_pictures.SURFACES or name in guide_pictures.MENUS
                 or name in guide_pictures.WINDOWS), name
 
 
@@ -110,3 +110,17 @@ def test_a_caption_that_is_not_in_the_guide_is_refused_before_anything_is_writte
     with pytest.raises(SystemExit, match="exactly one picture"):
         guide_pictures.swap({"files": picture}, guide)
     assert guide.read_text(encoding="utf-8") == "<p>no pictures</p>"
+
+
+def test_importing_this_tool_leaves_the_grab_tools_own_list_alone():
+    """It used to add three surfaces to `grab_ui.SURFACES` on import, so
+    collecting this file made `test_grab_ui.py` take the results picture twice
+    and time out waiting for a search that was never started - in every
+    whole-suite run on 2026-10-05, and never alone."""
+    from tools import grab_ui, guide_pictures
+
+    extra = {"indexing-what-gets-read", "search-results-dark", "space-report"}
+    assert not extra & set(grab_ui.SURFACES)
+    assert extra <= set(guide_pictures.SURFACES)
+    assert [name for name, spec in grab_ui.SURFACES.items()
+            if spec.get("state") == "results"] == ["search-results"]

@@ -839,6 +839,24 @@ def _all_words_match(words: str) -> str:
     found = re.findall(r"[^\W_]+", str(words or ""), flags=re.UNICODE)
     return " ".join('"' + word.replace('"', '""') + '"' for word in found)
 
+def skip_sentence(error: Any) -> str:
+    """What `files.skip_detail` holds for a skipped file: the error's sentence.
+
+    **For a fault in Leasha itself, the last line of its trace as well**
+    (2026-10-05). `ERR_UNEXPECTED`'s sentence is the same for every such fault
+    - "An unexpected error occurred in ..." - so the row said a file had been
+    skipped by a bug and nothing about which bug; the panel then asked the
+    owner to "report it with the detail below" and had none to show. The last
+    line of a trace is the exception and its message, which is the detail.
+    """
+    sentence = str(getattr(error, "message", "") or "")
+    if getattr(error, "code", "") != "ERR_UNEXPECTED":
+        return sentence
+    lines = [line.strip() for line in str(getattr(error, "details", "") or "").splitlines()
+             if line.strip()]
+    return f"{sentence} {lines[-1]}" if lines else sentence
+
+
 class SqliteStore:
     """Open, migrate and operate the metadata database.
 
@@ -1950,8 +1968,17 @@ class SqliteStore:
         with self.write() as conn:
             conn.execute(
                 "UPDATE files SET status = ?, skip_code = ?, skip_detail = ? WHERE id = ?",
-                (status, error.code, error.message, file_id),
+                (status, error.code, skip_sentence(error), file_id),
             )
+
+    def skip_details(self, code: str, *, limit: int = 3) -> list[dict[str, str]]:
+        """A few of the files skipped for `code`, each with what was recorded:
+        `{"path", "detail"}`, oldest first. For the skipped panel's "detail
+        below" (2026-10-05) - read on a worker, never on the window's thread."""
+        rows = self.conn.execute(
+            "SELECT path, skip_detail FROM files WHERE skip_code = ? ORDER BY id LIMIT ?",
+            (str(code), max(1, int(limit))))
+        return [{"path": row["path"], "detail": row["skip_detail"] or ""} for row in rows]
 
     #: A trigram index holds no trigram for a shorter term, so it cannot answer
     #: one. Two characters fall back to the scan, which is what they did before.

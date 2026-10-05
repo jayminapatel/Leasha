@@ -4,7 +4,7 @@ Layer: L0
 
 Two sinks:
   console  INFO   what the operator sees while something is running
-  file     DEBUG  logs/app_{time}.log, 10MB rotation, 14 days retained
+  file     DEBUG  logs/app_{time}.log, a new file at midnight, 14 days retained
 
 AppError codes are logged as a structured field (`error_code`), so the
 skipped-files panel in Layer 5 can group thousands of skips by cause without
@@ -143,13 +143,26 @@ def setup_logging(
     console_level: str = "INFO",
     file_level: str = "DEBUG",
     retention: str = "14 days",
-    rotation: str = "10 MB",
+    rotation: str = "00:00",
     force: bool = False,
 ) -> Path:
     """Configure the sinks. Returns the application log file pattern.
 
     Idempotent: calling it twice does not double every line, which matters
     because both the CLI and the UI entry point call it.
+
+    **`rotation` is a time of day, not a size (2026-10-05).** It was "10 MB".
+    The window and its indexing process write the same `app_<day>.log`, and at
+    10 MB whichever got there first tried to rename the file out of the way -
+    which Windows refuses while the other has it open. From then on every line
+    that process logged failed the same way and was lost: on the day it was
+    found the file held 37 lines after 00:48, and the indexing process's
+    stderr was a wall of "Logging error in Loguru Handler ... PermissionError:
+    [WinError 32]". Measured with a second handle on the file: size rotation
+    kept 21 of 301 lines, midnight rotation 301 of 301. At midnight the new
+    file has a new name, so nothing is renamed and nothing can be refused; a
+    day's file is as large as the day was busy, and `retention` still removes
+    old ones.
     """
     global _configured
     if _configured and not force:

@@ -1247,6 +1247,20 @@ def _settle(stats: Any, code: str, *, indexed: bool) -> None:
 
 
 
+def same_named_attachment(key: Any) -> bool:
+    """Is this the key of a mail attachment (`<message>/attachments/<name>`)?
+
+    A second document with such a key is a second attachment of the same name
+    on one message - ordinary, and nothing a reader got wrong.
+    """
+    try:
+        from app.extract.archive import ATTACHMENT_MARKER
+
+        return ATTACHMENT_MARKER in str(key)
+    except Exception:                            # noqa: BLE001 - a wording choice only
+        return False
+
+
 def say_unexpected_skip(log: Any, path: Any, error: Any) -> bool:
     """Write a fault in Leasha's own code to the log, with the file and the trace.
 
@@ -4186,11 +4200,18 @@ class Pipeline:
                 # Made unique rather than dropped: losing mail to a bug in an
                 # extractor is far worse than an ugly key, and the warning
                 # names the file so it can be fixed.
-                self._log.warning(
-                    "{} produced document {} with a duplicate key {!r}; "
-                    "the extractor is not setting virtual_path",
-                    candidate.path.name, index, key,
-                )
+                # 2026-10-05: said only when it is true. Two attachments of
+                # one message with the same name (`image.png` twice, from a
+                # signature) have a key each and it is the same key; that is
+                # mail, not a reader forgetting `virtual_path`, and it was
+                # warned about seventeen times a run on the owner's archives.
+                # Made unique in the same way, without the false alarm.
+                if not same_named_attachment(key):
+                    self._log.warning(
+                        "{} produced document {} with a duplicate key {!r}; "
+                        "the extractor is not setting virtual_path",
+                        candidate.path.name, index, key,
+                    )
                 key = f"{key}#{index}"
             seen_keys.add(key)
 

@@ -44,6 +44,9 @@ class SkipsPanel(QScrollArea):
 
         self._shown: dict[str, int] = {}
         self._widgets: dict[str, Any] = {}
+        #: Code -> the detail lines last given for it, kept so a rebuild of
+        #: the rows does not lose them.
+        self._details: dict[str, list] = {}
 
     def show_skips(self, summary: dict[str, int]) -> None:
         """Update the panel, rebuilding it only when it has to.
@@ -87,9 +90,23 @@ class SkipsPanel(QScrollArea):
         self._retitle(groups)
         for group in groups:
             row = SkipRow(group, self._retry)
+            row.show_details(self._details.get(group.code))
             self._widgets[group.code] = row
             self.rows.addWidget(row)
         self.rows.addStretch(1)
+
+    def show_details(self, code: str, rows: Any) -> None:
+        """The files skipped for `code` and what was recorded for each
+        (`SqliteStore.skip_details`), drawn under that reason. 2026-10-05: the
+        unexpected-error sentence says "the detail below", and there was none."""
+        lines = []
+        for row in rows or ():
+            name = str(row.get("path", "")).replace("\\", "/").rsplit("/", 1)[-1]
+            lines.append(f"{name}: {row.get('detail', '')}".strip())
+        self._details[code] = lines
+        widget = self._widgets.get(code)
+        if widget is not None:
+            widget.show_details(lines)
 
     def _retitle(self, groups) -> None:
         total = sum(group.count for group in groups)

@@ -130,6 +130,7 @@ class IndexController(QObject):
         # on a page whose whole job is to answer that.
         self._w.scheduler.state_changed.connect(self._w.indexing_view.set_next_run)
         self._w.indexing_view.finished.connect(self._schedule_after_run)
+        self._w.indexing_view.finished.connect(self._show_unexpected_detail)
         self._w.scheduler.start()
         self._w.indexing_view.set_next_run(self._w.scheduler.status())
 
@@ -675,6 +676,21 @@ class IndexController(QObject):
             lambda error: _log.debug("idle-moment bench failed quietly: {}", error))
         worker.signals.done.connect(lambda: setattr(self._w, "_idle_bench_running", False))
         run(QThreadPool.globalInstance(), worker)
+
+    def _show_unexpected_detail(self, stats: Any) -> None:
+        """A run that skipped files through a fault in Leasha: read which files
+        and what was recorded, on a worker, and put it under that reason in the
+        skipped panel - "the detail below" its sentence asks for (2026-10-05)."""
+        if not (getattr(stats, "skipped_by_code", None) or {}).get("ERR_UNEXPECTED"):
+            return
+        worker = CallableWorker(self._w._store.skip_details, "ERR_UNEXPECTED",
+                                component="ui.indexing.skips")
+        worker.signals.finished.connect(self._unexpected_detail_read)
+        worker.signals.failed.connect(lambda _error: None)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _unexpected_detail_read(self, rows: Any) -> None:
+        self._w.indexing_view.skips.show_details("ERR_UNEXPECTED", rows)
 
     def _idle_bench_finished(self, result: Any) -> None:
         r"""§5e's own words: "upgrades Defaults to Auto-tune quietly" -
