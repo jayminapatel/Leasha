@@ -1,32 +1,19 @@
 # Reference: which models run where, and moving them to Ollama
 
-**Doc version:** 1.3 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Kept at the owner's request ("keep this as a reference for future") after a
 conversation on 2026-09-29 about moving every model to Ollama. **Reference, not a
 decision and not a work order.** Nothing here is ordered; see
 `docs/ORDER_REGISTER.md` for what is.
 
-> **2026-09-29, later the same day - superseded in part.** The owner chose to run
-> every model inside Leasha on **ONNX Runtime** instead ("all should be onnx by
-> default"), after Smart App Control blocked torch. Florence-2 and Whisper moved
-> to ONNX Runtime; the chat model runs on ONNX Runtime by default with Ollama as
-> a choice (`CHAT_ENGINE`). See `docs/WORKORDER-onnx-everywhere-2026-09-29.md`
-> for what was measured. The note below is kept as written.
->
-> **2026-09-29, owner:** the laptop has **Intel graphics**, which Ollama does
-> not officially accelerate - Ollama vision would run on the CPU (the slow
-> column below). **Florence-2 stays as it is for now** ("forget the Florence
-> at the moment"); nothing here is to be built.
+Every model Leasha runs itself runs on **ONNX Runtime**, in process: the owner chose that on
+2026-09-29 ("all should be onnx by default") after Smart App Control blocked torch. Interpret,
+Describe and Chat can be moved to Ollama with one setting (`CHAT_ENGINE`); nothing else can,
+and nothing in Leasha uses torch or transformers. The laptop has Intel graphics, which Ollama
+does not officially accelerate, so Ollama would run vision models on the processor.
 
-## What runs each model today (checked in the code, 2026-09-29)
-
-> *Note, 1 October 2026:* the table below is out of date in three rows. Speech to text runs Whisper on ONNX
-> Runtime (`app/ort/whisper.py`), not faster-whisper. Florence-2 runs its ONNX export on ONNX
-> Runtime (`app/ort/florence.py`), fp32 by default with an int8 option, with its vision graph on
-> the graphics card where DirectML works; nothing in Leasha uses torch or transformers now.
-> Interpret, Describe and Chat run on ONNX Runtime inside Leasha by default (`CHAT_ENGINE=onnx`),
-> with Ollama as the alternative. Embeddings, rerank, CLIP and OCR are as the table says.
+## What runs each model today
 
 | Job | Model | Runs through | Could it move to Ollama? |
 |---|---|---|---|
@@ -34,11 +21,10 @@ decision and not a work order.** Nothing here is ordered; see
 | Re-ranking results | `RERANK_MODEL` (cross-encoder) | fastembed (ONNX) — `app/search/rerank.py` | **No**: Ollama has no rerank endpoint (as far as known on 2026-09-29) |
 | Pictures by meaning (CLIP) | CLIP | fastembed `ImageEmbedding` — `app/index/clip_embedder.py` | **No**: Ollama gives no image vectors |
 | Text in pictures (OCR) | RapidOCR | ONNX — `app/extract/ocr.py` | **Not sensibly**: a vision model can read text, far slower and can invent it |
-| Speech to text | Whisper | faster-whisper — `app/extract/transcribe.py` | **No**: Ollama does no speech |
-| Photo tags and caption | **Florence-2-base** | **torch + transformers**, CPU, float32 — `app/extract/florence_tagger.py` | **Yes**: Ollama vision models (moondream, llava, qwen2.5vl, minicpm-v) |
-| Interpret, Describe, Chat | various | Ollama already | done |
+| Speech to text | Whisper | ONNX Runtime — `app/ort/whisper.py` (audio decoded by PyAV) | **No**: Ollama does no speech |
+| Photo tags and caption | Florence-2-base | ONNX Runtime — `app/ort/florence.py`; fp32 by default, int8 optional; the vision graph on the graphics card where DirectML works | **Yes**: Ollama vision models (moondream, llava, qwen2.5vl, minicpm-v) |
+| Interpret, Describe, Chat | the chat model chosen in Settings (Qwen2.5-1.5B 4-bit on the owner's laptop) | ONNX Runtime inside Leasha by default (`CHAT_ENGINE=onnx`); Ollama when chosen | already a choice |
 
-Florence-2 is the **only** user of `transformers` (and of torch, about 2 GB).
 
 ## Pros and cons of Ollama
 
@@ -46,7 +32,6 @@ For:
 
 - One place to download and manage models (fits the model drop-downs with Download).
 - Ollama manages the GPU; Leasha needs no CUDA/DirectML set-up of its own.
-- Moving Florence-2 lets torch and transformers leave the install.
 - Changing a vision model becomes a drop-down choice, not code.
 
 Against:

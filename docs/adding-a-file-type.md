@@ -1,6 +1,6 @@
 # Adding a File Type
 
-**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 > **The wizard does most of this for you.** Settings → File types → **Add file type…**
 > asks the question below, then writes the route, the converter block, or the whole
@@ -40,12 +40,10 @@ reader. The dropdown is the live registry, so it cannot offer something that is 
 ".cfm"  = { extractor = "plaintext", max_bytes = 5242880 }
 ```
 
-> *Note, 1 October 2026:* the registry also provides `archive`, `audio`, `video`, `doc`, `ppt`, `xls`, `rtf`,
-> `epub`, `mobi`, `mbox`, `emlx`, `olm`, `iwork`, `publisher` and `raw`. `leasha formats --all` lists
-> them live.
-
-Valid reader names come from the registry: `plaintext`, `pdf`, `docx`, `xlsx`, `pptx`,
-`odf`, `ocr`, `visio`, `project`, `cad`, `eml`, `msg`, `pst`, `cloudstub`. A name nothing
+Valid reader names come from the registry, and `leasha formats --all` lists them live:
+`plaintext`, `pdf`, `docx`, `xlsx`, `pptx`, `odf`, `ocr`, `visio`, `project`, `cad`, `eml`,
+`msg`, `pst`, `cloudstub`, `archive`, `audio`, `video`, `doc`, `ppt`, `xls`, `rtf`, `epub`,
+`mobi`, `mbox`, `emlx`, `olm`, `iwork`, `publisher` and `raw`. A name nothing
 provides is rejected **when the app starts**, naming the offending line — not three hours
 into a run, on one file.
 
@@ -71,12 +69,10 @@ enabled   = true
 `{input}`, `{outdir}` and `{stem}` are substituted. `produces` names the file the command
 is expected to leave in `{outdir}`; `then` is the registered extractor that reads it.
 
-> *Note, 1 October 2026:* the allow-list is now `soffice`, `libreoffice`, `libreoffice-python`, `xstexporter`,
-> `tesseract`, `dwg2dxf`, `ODAFileConverter` and `dwg2SVG`; `pandoc` is **not** on it, and `ffmpeg` and
-> `ffprobe` are left off deliberately. The code is the authority.
-
-**The binary must be on the allow-list** in `app/extract/converter.py` — currently
-`soffice`, `libreoffice`, `pandoc`, `xstexporter`, `tesseract`. Anything else is refused
+**The binary must be on the allow-list** in `app/extract/converter.py` (the code is the
+authority): `soffice`, `libreoffice`, `libreoffice-python`, `xstexporter`, `tesseract`,
+`dwg2dxf`, `ODAFileConverter` and `dwg2SVG`. `pandoc` is not on it, and `ffmpeg` and `ffprobe`
+are left off deliberately. Anything else is refused
 with `ERR_CONVERTER_BLOCKED` *before* it is resolved or executed. Adding one is a
 deliberate commit with a diff and a reviewer; a config file that can name any executable
 is a way to run anything.
