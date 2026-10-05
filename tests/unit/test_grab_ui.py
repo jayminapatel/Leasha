@@ -128,6 +128,17 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
         # 2026-10-05: the goldens were drawn with Windows' fonts. Another
         # system draws the same window in its own, and every picture differs.
         pytest.skip("the goldens are pictures of the window on Windows")
+    import os as _os
+
+    if _os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        # 2026-10-05: red on GitHub's Windows machine for 40+ runs (three
+        # pictures, distances 14, 14 and 16) and green on the laptop the
+        # goldens were taken on. The pictures are of one machine's drawing of
+        # the window - its fonts and scaling are the likely difference, which
+        # is UNCONFIRMED: nobody has looked at GitHub's pictures. A job that is
+        # always red hides the next real failure, so it is checked where the
+        # goldens were made and skipped there. Owner's decision, 2026-10-05.
+        pytest.skip("the goldens are pictures of the window on the owner's laptop")
     imagehash = pytest.importorskip("imagehash")
     from PIL import Image
 
@@ -157,3 +168,14 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
     assert not drifted, ("the look drifted from the goldens - if that was the "
                          "point of the commit, regenerate them and say so in "
                          "the message:\n  " + "\n  ".join(drifted))
+
+
+def test_the_golden_comparison_is_left_to_the_laptop_on_github(monkeypatch, tmp_path):
+    """2026-10-05: skipped on GitHub's machines, and only there."""
+    import sys as _sys
+
+    if _sys.platform != "win32" or not GOLDEN.is_dir() or not any(GOLDEN.rglob("*.png")):
+        pytest.skip("skipped earlier for another reason here")
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    with pytest.raises(pytest.skip.Exception, match="owner's laptop"):
+        test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path)
