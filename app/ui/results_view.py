@@ -357,7 +357,7 @@ class ResultsView(QWidget):
     def eventFilter(self, obj: Any, event: Any) -> bool:      # noqa: N802 - Qt's naming
         """Item 2a: a click on the chevron toggles too, via `ResultDelegate.chevron_hit`."""
         click = obj is self._list.viewport() and event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton
-        file_id = self._delegate.chevron_hit(self._list, event.pos()) if click else None
+        file_id = self._delegate.chevron_hit(self._list, event.position().toPoint()) if click else None
         if file_id is None:
             return super().eventFilter(obj, event)
         self._toggle(file_id)

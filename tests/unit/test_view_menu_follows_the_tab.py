@@ -23,8 +23,11 @@ pytestmark = pytest.mark.gui
 
 
 def _view_menu(window):
-    return next(a.menu() for a in window.menuBar().actions()
-                if a.text().replace("&", "") == "View")
+    # A child of the bar, not `QAction.menu()`: see `tools/guide_pictures.menu_of`.
+    from PySide6.QtWidgets import QMenu
+
+    return next(m for m in window.menuBar().findChildren(QMenu)
+                if m.title().replace("&", "") == "View")
 
 
 def _texts(menu):

@@ -633,7 +633,8 @@ def _canvas(width: int, height: int):
 def _ink(image) -> "np.ndarray":
     """Boolean HxW: which pixels differ from the background."""
     bpl = image.bytesPerLine()
-    raw = np.frombuffer(image.constBits().asarray(image.height() * bpl), dtype=np.uint8)
+    # PySide6 hands back a plain buffer; PyQt6's needed `.asarray(size)`.
+    raw = np.frombuffer(image.constBits(), dtype=np.uint8, count=image.height() * bpl)
     pixels = raw.reshape(image.height(), bpl // 4, 4)[:, :image.width(), :3]
     bg = _bg()
     return (pixels != np.array([bg.blue(), bg.green(), bg.red()], dtype=np.uint8)).any(axis=2)

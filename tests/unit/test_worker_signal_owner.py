@@ -114,7 +114,8 @@ def test_a_bare_lambda_paints_into_a_deleted_child_and_raises(app, escapes):
     assert chip.painted == ["answer"], (
         "the slot did not run at all - if PyQt has started cancelling bare lambdas too, "
         "`when_done` can go and this module's reasoning needs rewriting")
-    assert any("has been deleted" in line for line in escapes), (
+    # PyQt6 says "has been deleted", PySide6 "already deleted": the same crash.
+    assert any("has been deleted" in line or "already deleted" in line for line in escapes), (
         "painting into a deleted widget no longer raises; check what changed before "
         "trusting the rest of this module")
 

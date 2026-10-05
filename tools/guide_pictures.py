@@ -144,10 +144,17 @@ def _dress(window, name: str) -> None:
 
 
 def menu_of(window, title: str):
-    """The menu on the window's bar with this title (its `&` ignored)."""
-    for action in window.menuBar().actions():
-        menu = action.menu()
-        if menu is not None and menu.title().replace("&", "") == title:
+    """The menu on the window's bar with this title (its `&` ignored).
+
+    Found as a child of the bar, **not through `QAction.menu()`** (2026-10-05,
+    the PySide6 trial): under PySide6 6.11 a menu reached that way is
+    destroyed once the action's Python handle goes, which a loop over
+    `actions()` lets happen as soon as it returns.
+    """
+    from PySide6.QtWidgets import QMenu
+
+    for menu in window.menuBar().findChildren(QMenu):
+        if menu.title().replace("&", "") == title:
             return menu
     raise SystemExit(f"the menu bar has no {title!r} menu")
 

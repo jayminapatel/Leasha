@@ -241,7 +241,7 @@ class DebugPane(QGroupBox):
         """
         try:
             QPlainTextEdit.mouseDoubleClickEvent(self.view, event)
-            cursor = self.view.cursorForPosition(event.pos())
+            cursor = self.view.cursorForPosition(event.position().toPoint())
             line = cursor.block().text()
             found = path_in(line) if is_actionable(line) else None
             if found:
