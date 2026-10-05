@@ -19,13 +19,28 @@ from PyQt6.QtWidgets import QApplication, QListWidget  # noqa: E402
 from app.ui import enter_key  # noqa: E402
 
 
-@pytest.fixture()
-def listing():
-    app = QApplication.instance() or QApplication([])
-    widget = QListWidget()
+class MacList(QListWidget):
+    """A list that treats Enter as macOS does: no `activated`, key not taken."""
+
+    def keyPressEvent(self, event):                  # noqa: N802 - Qt's name
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            event.ignore()
+            return
+        super().keyPressEvent(event)
+
+
+def _listing(cls):
+    widget = cls()
     widget.addItems(["boiler-quote.txt", "boiler-notes.md"])
     opened: list = []
     widget.activated.connect(lambda index: opened.append(index.row()))
+    return widget, opened
+
+
+@pytest.fixture()
+def listing():
+    app = QApplication.instance() or QApplication([])
+    widget, opened = _listing(MacList)
     yield app, widget, opened
     widget.deleteLater()
     app.processEvents()
@@ -39,10 +54,99 @@ def test_enter_on_the_current_line_says_activated_once(listing):
     _app, widget, opened = listing
     widget.setCurrentRow(1)
     handled = enter_key.EnterActivates().eventFilter(widget, _press(Qt.Key.Key_Return))
-    assert handled is True, "taken, so the list does not also start editing the line"
+    assert handled is True, "delivered by the filter, so not delivered again"
     assert opened == [1]
     assert enter_key.EnterActivates().eventFilter(widget, _press(Qt.Key.Key_Enter)) is True
     assert opened == [1, 1]
+
+
+def test_a_list_that_says_activated_itself_is_not_made_to_say_it_twice():
+    """What Qt does on Windows, written out so it is the same test everywhere."""
+    app = QApplication.instance() or QApplication([])
+
+    class SaysItItself(QListWidget):
+        def keyPressEvent(self, event):              # noqa: N802 - Qt's name
+            self.activated.emit(self.currentIndex())
+            event.ignore()
+
+    widget, opened = _listing(SaysItItself)
+    widget.setCurrentRow(0)
+    assert enter_key.EnterActivates().eventFilter(widget, _press(Qt.Key.Key_Return)) is True
+    assert opened == [0]
+    widget.deleteLater()
+    app.processEvents()
+
+
+def test_a_page_that_hears_enter_through_its_own_filter_still_hears_it():
+    """The Code page and Files: `installEventFilter` on the table. A filter on
+    the application runs first, and the first version here kept the key."""
+    from PyQt6.QtCore import QObject
+
+    app = QApplication.instance() or QApplication([])
+    heard: list = []
+
+    class Page(QObject):
+        def eventFilter(self, watched, event):       # noqa: N802 - Qt's name
+            if event.type() == QEvent.Type.KeyPress:
+                heard.append(event.key())
+                return True
+            return False
+
+    widget, opened = _listing(MacList)
+    page = Page()
+    widget.installEventFilter(page)
+    widget.setCurrentRow(0)
+    watcher = enter_key.EnterActivates()
+    app.installEventFilter(watcher)
+    try:
+        QApplication.sendEvent(widget, _press(Qt.Key.Key_Return))
+    finally:
+        app.removeEventFilter(watcher)
+    assert heard == [Qt.Key.Key_Return], "once"
+    assert opened == [], "the page opened it; `activated` would open it again"
+    widget.deleteLater()
+    app.processEvents()
+
+
+def test_a_page_around_the_list_that_takes_enter_is_enough():
+    """Mail: the page's own `keyPressEvent` opens the message."""
+    from PyQt6.QtWidgets import QVBoxLayout, QWidget
+
+    app = QApplication.instance() or QApplication([])
+    heard: list = []
+
+    class Page(QWidget):
+        def keyPressEvent(self, event):              # noqa: N802 - Qt's name
+            heard.append(event.key())
+            event.accept()
+
+    page = Page()
+    widget, opened = _listing(MacList)
+    QVBoxLayout(page).addWidget(widget)
+    widget.setCurrentRow(0)
+    assert enter_key.EnterActivates().eventFilter(widget, _press(Qt.Key.Key_Return)) is True
+    assert heard == [Qt.Key.Key_Return] and opened == []
+    page.deleteLater()
+    app.processEvents()
+
+
+def test_a_list_that_reads_its_own_keys_is_left_to_it():
+    """The timeline gives Enter its own meaning in `keyPressEvent` and takes
+    the key. Sending `activated` as well broke its tests on macOS."""
+    app = QApplication.instance() or QApplication([])
+    heard: list = []
+
+    class OwnKeys(QListWidget):
+        def keyPressEvent(self, event):              # noqa: N802 - Qt's name
+            heard.append(event.key())
+
+    widget, opened = _listing(OwnKeys)
+    widget.setCurrentRow(0)
+    enter_key.EnterActivates().eventFilter(widget, _press(Qt.Key.Key_Return))
+    assert heard == [Qt.Key.Key_Return], "it heard the key, once"
+    assert opened == [], "it was not told `activated` behind its back"
+    widget.deleteLater()
+    app.processEvents()
 
 
 def test_other_keys_other_widgets_and_no_line_are_left_alone(listing):

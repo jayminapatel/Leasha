@@ -30,9 +30,25 @@ _installed: Optional["EnterActivates"] = None
 
 
 class EnterActivates(QObject):
-    """Turns Enter on a list's current line into `activated`."""
+    """Says `activated` for Enter on a list's current line, if nothing else did.
+
+    **The key goes to the list first, and this speaks only afterwards**
+    (2026-10-05, the second version). The first version sent `activated` and
+    kept the key, for every list. Four tests failed on macOS: the Code page and
+    Files hear Enter through an event filter of their own, the timeline in its
+    `keyPressEvent`, Mail in the page around its table - and a filter on the
+    application runs before all of them, so the key never arrived. Now the key
+    is delivered as it always was, and `activated` is sent here only if nobody
+    took the key and the list did not send it itself (as it does on Windows).
+    """
+
+    def __init__(self, parent: Any = None) -> None:
+        super().__init__(parent)
+        self._delivering = False
 
     def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's name
+        if self._delivering:
+            return False                         # our own delivery, on its way through
         try:
             if event.type() != QEvent.Type.KeyPress:
                 return False
@@ -48,10 +64,26 @@ class EnterActivates(QObject):
             index = view.currentIndex()
             if not index.isValid():
                 return False
-            view.activated.emit(index)
-            return True
         except Exception:                        # noqa: BLE001 - a key press must never raise
             return False
+        said: list = []
+
+        def heard(_index: Any) -> None:
+            said.append(1)
+
+        try:
+            view.activated.connect(heard)
+            self._delivering = True
+            try:
+                QApplication.sendEvent(view, event)
+            finally:
+                self._delivering = False
+                view.activated.disconnect(heard)
+            if not said and not event.isAccepted():
+                view.activated.emit(index)
+        except Exception:                        # noqa: BLE001 - e.g. the key closed the list
+            pass
+        return True                              # delivered above; not a second time
 
 
 def install(app: Any = None, *, force: bool = False) -> Optional[EnterActivates]:
