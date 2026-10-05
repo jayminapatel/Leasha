@@ -88,7 +88,11 @@ def group_skips(
     for code, count in summary.items():
         if not count:
             continue
-        error = make_error(code, "ui", path="these files", ext="?", folder="?",
+        # 2026-10-05: "indexing", not "ui". The place is part of the sentence
+        # for one code - "An unexpected error occurred in ui." - and the owner
+        # read it, fairly, as a fault in the window. These files were skipped
+        # by the index run; the window only counted them.
+        error = make_error(code, "indexing", path="these files", ext="?", folder="?",
                            **GROUP_WORDS)
         groups.append(SkipGroup(
             code=code,

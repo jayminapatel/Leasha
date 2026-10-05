@@ -1052,6 +1052,7 @@
     <Compile Include="tests\unit\test_ui_review_0x9.py" />
     <Compile Include="tests\unit\test_ui_review_polish.py" />
     <Compile Include="tests\unit\test_ui_stays_responsive.py" />
+    <Compile Include="tests\unit\test_unexpected_skip_is_logged.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
     <Compile Include="tests\unit\test_vector_drop_locked.py" />

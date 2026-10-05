@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.66 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.67 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A file skipped by a fault in Leasha now says which file and why (2026-10-05)
+
+- **"An unexpected error occurred" is no longer silent.** When a file was skipped because of a
+  fault in Leasha itself, the Indexing page said so and asked you to send the log - and the log
+  held nothing about it. The log now names the file and carries the full detail.
+- The same message said the fault was "in ui"; it was in indexing, and now says so.
 
 ### Settings: the expert options are under "Advanced" (2026-10-05)
 

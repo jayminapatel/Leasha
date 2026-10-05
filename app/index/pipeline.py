@@ -1246,6 +1246,37 @@ def _settle(stats: Any, code: str, *, indexed: bool) -> None:
         by_code["ERR_NO_TEXT_LAYER"] = by_code.get("ERR_NO_TEXT_LAYER", 0) + 1
 
 
+
+def say_unexpected_skip(log: Any, path: Any, error: Any) -> bool:
+    """Write a fault in Leasha's own code to the log, with the file and the trace.
+
+    2026-10-05, the owner, looking at the Indexing page: "3 x An unexpected
+    error occurred ... This is a bug - please report it with the detail below
+    and today's file from the logs folder." There was no detail below, and
+    today's file held nothing: an exception nobody expected was turned into a
+    skipped file and recorded in the index, and **not one line was logged** -
+    not the file, not the exception. The owner then reset the index, and the
+    only copy of the reason went with it. Non-negotiable 2: every error states
+    what happened.
+
+    Only `ERR_UNEXPECTED`: every other code is a known reason, said once in
+    the run's own warnings and counted in the panel. Returns whether it wrote.
+    **Never raises** - this is on the path that keeps one bad file from
+    stopping a run.
+    """
+    try:
+        if error is None or getattr(error, "code", "") != "ERR_UNEXPECTED":
+            return False
+        from loguru import logger as _logger
+
+        writer = log if log is not None else _logger.bind(component="index.pipeline")
+        writer.bind(error_code="ERR_UNEXPECTED").error(
+            "{} was skipped because of a fault in Leasha, not in the file: {}\n{}",
+            path, getattr(error, "message", ""), getattr(error, "details", "") or "(no detail)")
+        return True
+    except Exception:                            # noqa: BLE001 - see the docstring
+        return False
+
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
 
@@ -6989,6 +7020,7 @@ class Pipeline:
                 relative_path=candidate.relative_path,
             )
             self.store.mark_skipped(file_id, item.error)
+        say_unexpected_skip(getattr(self, "_log", None), candidate.path, item.error)
 
         # Work order 0h: **"OCR found nothing" is not the same as "OCR
         # failed".** A blank scan and an ordinary, uncaptioned photograph both

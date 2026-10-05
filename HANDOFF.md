@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.84 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.85 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,42 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (noon) - "3 x An unexpected error occurred in ui": not diagnosed, and now it cannot
+happen silently. Read this before the owner's next fresh run of `D:\OutlookArchive`.** The owner,
+on the Indexing page after a run over 20 `.pst` archives and 5 small files: three files skipped
+as `ERR_UNEXPECTED`, "This is a bug - please report it with the detail below and today's file from
+the logs folder". There was no detail and the logs held nothing.
+
+- **Why nothing was logged:** `pipeline._record_skip` wrote the skip to the index and logged no
+  line - not the file, not the exception. The reason lived only in `files.skip_detail`, and the
+  owner reset the index before it was read. **Fixed:** `pipeline.say_unexpected_skip` logs an
+  ERROR with the file and the whole trace for that one code (never raises; other codes are known
+  reasons and are not logged twice). `tests/unit/test_unexpected_skip_is_logged.py` (4).
+- **"in ui" was wrong.** `presenter/indexing.group_skips` built the panel's sentence with the
+  component "ui", so a fault in the index run read as a fault in the window. It says "indexing".
+- **What is known about the three:** the session record has `skipped_by_code: {"ERR_UNEXPECTED":
+  3}` for the 11:45 run (255 s, 25 files seen, 595 indexed) and "Failed 3" was on screen within
+  two minutes. The same folder at 11:41 had none (8 `ERR_OCR_HELD`). The five non-mail files are
+  **not** it: read alone, the `.ps1` and two `.bat` give one document each and the two `.exe`
+  are `ERR_UNSUPPORTED_TYPE` (measured). So it is three of the archives, or something in the
+  pipeline around them. Different between the two runs: the index had just been reset, and this
+  thread's test suite was running four processes beside it (UNCONFIRMED whether either matters).
+  **On the next run, read `logs/errors/errors_<day>.jsonl` for `ERR_UNEXPECTED`: the three traces
+  will be there.**
+- **Found, not fixed - the app log stops being written once it reaches its rotation size while
+  two processes hold it.** `logs/index-process-stderr.log` is full of `--- Logging error in
+  Loguru Handler ---` / `PermissionError: [WinError 32] ... app_2026-10-05.log -> app_2026-10-05.
+  2026-10-05_00-48-57_...log`: the window and its index child both write `logs/app/app_<day>.log`
+  (`core/logging.py`, `rotation=`), and on Windows neither can rename a file the other has open,
+  so every line from the process that tries is lost from then on. Today's file has 37 lines
+  since 00:48. It needs a decision (a file per process, or only the window rotates), so it is
+  left for the owner. Also seen: the same warning seventeen times a run, "`<year>.pst` produced
+  document N with a duplicate key ... `attachments/image.png`; the extractor is not setting
+  virtual_path" - several attachments of one message share a name.
+- The panel's promise of "the detail below" is still not kept on screen for this code.
+- **The logs were moved, not deleted**, at the owner's word ("clear all logs and session logs
+  ... start all fresh"): see `D:\Local\Archive\Leasha-logs-2026-10-05`.
 
 **2026-10-05 (midday) - the `test_grab_ui` setup error: three causes ruled out, the tool now
 says what it saw. Corrects the entry below, whose guess (two grabs colliding) was wrong.** The
