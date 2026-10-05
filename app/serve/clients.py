@@ -255,10 +255,17 @@ def _backup(path: Path) -> Path | None:
         return None
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
     backup = path.with_name(f"{path.name}.leasha-backup-{stamp}")
-    suffix = 1
-    while backup.exists():
-        backup = path.with_name(f"{path.name}.leasha-backup-{stamp}-{suffix}")
-        suffix += 1
+    numbered = list(path.parent.glob(f"{glob.escape(backup.name)}-*"))
+    if backup.exists() or numbered:
+        # 2026-10-05: one past the highest number this stamp has had, and
+        # padded. Windows' clock gave 5 distinct readings in 2,000 calls, so
+        # backups close together share a stamp. "The first free number"
+        # reused a name pruning had just freed, and "-10" sorted before "-2",
+        # so the pruning kept the wrong ones.
+        # The un-numbered one counts as 0, and may itself have been pruned.
+        taken = [found.name.rsplit("-", 1)[-1] for found in numbered]
+        number = max((int(n) for n in taken if n.isdigit()), default=0) + 1
+        backup = path.with_name(f"{backup.name}-{number:04d}")
     shutil.copy2(path, backup)
     _prune_backups(path)
     return backup
