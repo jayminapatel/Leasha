@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.90 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.91 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,38 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (16:30) - Linux and macOS: the window could not open off Windows. Found by the
+first whole-suite runs there, fixed, not yet confirmed on a Mac.** Results for the three runs the
+entry below describes, all on `0ad1fa0`.
+
+- **The fault:** `serve/clients.Program.path()` expanded `~\.claude.json`. Off Windows that
+  backslash is part of a user name, so `expanduser` raised `RuntimeError: Could not determine home
+  directory`; `McpController` read the AI programs' status when the window opened, the failure
+  went to `MainWindow._show_error`, and that is a **modal** box. Every test that builds the window
+  then waited for a click. `--timeout` did not end it.
+- **Linux (cloud, Ubuntu 24.04, Python 3.12.3, as root):** run 1 hung in all four processes for
+  40 minutes; `py-spy` showed each main thread in `QMessageBox.exec()` under the `gui_mainwindow`
+  fixture. With that box stubbed out for the run (nothing in the repository changed): **13,094
+  passed, 31 failed, none crashed**, 8 minutes. The session's own report classifies all 31 and is
+  at https://claude.ai/code/session_01KyaCNbXvajLSccCFMe6sk8 - **this thread could read only the
+  first part of it** (the log it has is cut short), so the list below is partial: file URLs
+  (`'/C:/notes/extra.txt' != 'C:/notes/extra.txt'` in `test_chat_tab_qt`, and in
+  `test_pinned_panel`, `test_result_drag_model`); a `C:\` path taken for a volume in
+  `test_cli_wiring` and `test_gui_scenarios_orders`; `test_reports_inheritance` and
+  `test_space_report_table` (several each); `test_email_pst`, `test_pages_reorg`,
+  `test_query_plans`, `test_close_ends_the_app`. Read the session before acting on any of them.
+- **macOS (GitHub Actions run 37287477563, macos-14, arm64):** 72 tests ran, then nothing for 89
+  minutes, and the job was stopped at its 90-minute limit with no report. The 72nd test is in
+  `tests/integration/test_repos_acceptance.py` and the next files are `test_takeout_acceptance`,
+  `test_about_dialog` and `test_accessible_names` - where the Linux run stopped too. The same
+  cause is the obvious reading and is **UNCONFIRMED**: that log has no stack.
+- **Fixed:** `clients.settings_file_text` turns the separators round off Windows (so
+  `~/.claude.json` is the right file on a Mac), `Program.path()` never raises, and `installed()`
+  is False for a path with an unfilled `%NAME%`. `tests/unit/test_ai_program_paths.py` (7).
+  **Not changed, and worth a decision:** a failed *status read* at start-up opens a modal error
+  box; and a modal box in a test waits for ever, which no time limit caught.
+- **GitHub's Windows job** in the same run: failed on the one golden-picture test again.
 
 **2026-10-05 (15:00) - `test_later.py` waits by the clock; three whole-suite runs asked for on
 one commit (`0ad1fa0`).** The owner: *"run the full tests one in windows ... one in cloud in linux

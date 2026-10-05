@@ -64,11 +64,39 @@ class Program:
     command: str = ""
 
     def path(self) -> Path:
-        return Path(os.path.expandvars(self.file)).expanduser()
+        """Where the file is on this computer. **Never raises.**"""
+        text = settings_file_text(self.file, windows=os.name == "nt")
+        try:
+            return Path(text).expanduser()
+        except (RuntimeError, ValueError, OSError):
+            return Path(text)
 
     def installed(self) -> bool:
         """The program's settings folder exists - it is installed, or has been."""
-        return self.path().parent.is_dir()
+        try:
+            path = self.path()
+            # A `%NAME%` still in it is a Windows folder this computer does
+            # not have, not a folder beside wherever Leasha was started.
+            return "%" not in str(path) and path.parent.is_dir()
+        except OSError:
+            return False
+
+
+def settings_file_text(file: str, *, windows: bool) -> str:
+    r"""`file` with its variables filled in, written the way this system reads paths.
+
+    The four files in `PROGRAMS` are written the Windows way - `~\.claude.json`.
+    Off Windows a backslash is an ordinary character, so `expanduser` read
+    `~\.claude.json` as "the home folder of a user called `\.claude.json`" and
+    raised `RuntimeError: Could not determine home directory`. That reached the
+    window as an error box the moment it opened - and an error box waits for a
+    click, so every test that builds the window stopped there: forty minutes on
+    Linux, and the whole ninety allowed on macOS (2026-10-05, the first
+    whole-suite runs off Windows). Off Windows the separators are turned round,
+    which also makes `~/.claude.json` the right file on a Mac.
+    """
+    text = os.path.expandvars(file)
+    return text if windows else text.replace("\\", "/")
 
 
 PROGRAMS: tuple[Program, ...] = (

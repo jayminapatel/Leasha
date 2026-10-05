@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.71 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.72 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Leasha's window opens on Linux and macOS (2026-10-05)
+
+- **The window no longer stops on an error box when it opens off Windows.** Looking for the AI
+  programs' settings files used a Windows-style path that other systems could not read.
 
 ### Being on battery no longer pauses indexing (2026-10-05)
 
