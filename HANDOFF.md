@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.96 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.97 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,21 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (22:45) - two Describe faults in the photo window, fixed on `main`.** Found by
+GitHub's Mac job on the PySide6 trial branch (1 failure in 13,061; Windows on the same branch
+green), then reproduced on `main` under PyQt6, so neither is about PySide6.
+
+1. Describe and its "is Describe available" check shared one counter. Pressed before the photo
+   had loaded, the load's check took it, found no caption yet and re-enabled the button; the
+   caption, arriving after, was stored but dropped as out of date - offered again, not shown.
+   The check now counts on its own and stands aside while a Describe is out.
+2. Stepping to the next photo (arrow keys) never updated the file Describe saves against: the
+   next photo's caption was stored on the first. `_navigate` now sets it, and drops a Describe
+   still coming for the photo left behind.
+
+Both have tests in `test_preview_window.py` that fail on the old code. The trial branch carries
+the same fix.
 
 **2026-10-05 (22:15) - a PySide6 trial exists on a branch, and four faults it found are fixed
 on `main`.** The owner asked what moving to PySide6 would take, then to keep going on a trial

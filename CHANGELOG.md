@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.75 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.76 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Describe a photo, fixed twice over (2026-10-05)
+
+- **Describe after moving to the next photo describes that photo.** The words were saved
+  against the first photo you opened in the window.
+- **Pressing Describe before a photo has finished loading** no longer leaves the button
+  offering to describe it again, and the words now appear straight away.
 
 ### Three small faults found while trying a different Qt library (2026-10-05)
 
