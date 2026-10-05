@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.83 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.84 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,21 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (midday) - the `test_grab_ui` setup error: three causes ruled out, the tool now
+says what it saw. Corrects the entry below, whose guess (two grabs colliding) was wrong.** The
+error is `GrabNotReadyError: the full search's results for 'boiler quote dave' never arrived
+within 30s`, in every four-process run of the suite and never alone. Measured, not it: (1) two
+grabs sharing a folder - that fixture already has its own; (2) state left by earlier tests - the
+57 files that run before it in the same process, plus it, pass (160 s); (3) processor load - it
+passes beside sixteen busy processes (84 s). **Not diagnosed.** `tools/grab_ui._require` now
+takes `seen=` and the results wait reports which tiers answered, the rows, the status line, the
+busy pool threads and the armed timers, so the next four-process run names the half it is in.
+That run was started and **stopped by this thread** when the owner turned out to be indexing
+`D:\OutlookArchive` in the real window at the same time: the suite at four processes took the
+machine (the resource governor paused the owner's run at "80% CPU used by other programs", and
+the window logged 8.9 s unresponsive at start). **Do not run the suite while the owner is using
+Leasha.**
 
 **2026-10-05 (UI review, close) - the whole suite is clean, and the guide's old paths carry a
 note.** `scripts/run_suite.py` on the Advanced-fold commit plus this one: **13,184 passed, 0

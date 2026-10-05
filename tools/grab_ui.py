@@ -402,7 +402,8 @@ class GrabNotReadyError(RuntimeError):
     """Something a surface needs never arrived, so no picture was taken."""
 
 
-def _require(app: Any, done: Any, what: str, seconds: float = WAIT_SECONDS) -> None:
+def _require(app: Any, done: Any, what: str, seconds: float = WAIT_SECONDS,
+             seen: Any = None) -> None:
     """`_wait`, but a timeout is an error naming `what` - never a picture.
 
     **A grab of a page that has not finished drawing is not a grab of that
@@ -411,8 +412,18 @@ def _require(app: Any, done: Any, what: str, seconds: float = WAIT_SECONDS) -> N
     and the golden comparison then reported a drifted look that was really a
     race."""
     if not _wait(app, done, seconds):
+        # 2026-10-05: `seen` says what *had* arrived. This error came up in
+        # every four-process run of the suite that day and in none alone, and
+        # "never arrived" could not tell a search that was never asked for from
+        # one still running or one that answered with nothing.
+        detail = ""
+        if seen is not None:
+            try:
+                detail = f" Seen instead: {seen()}."
+            except Exception as error:               # noqa: BLE001 - a diagnostic
+                detail = f" (What was seen could not be read: {error}.)"
         raise GrabNotReadyError(f"{what} never arrived within {seconds:.0f}s, so the "
-                           "surface was not grabbed (a slow machine, or a real hang)")
+                           "surface was not grabbed (a slow machine, or a real hang)." + detail)
 
 
 def _pending_timers(window: Any) -> list:
@@ -474,8 +485,18 @@ def _show_results(app: Any, window: Any) -> None:
     view.searched.connect(lambda shape: tiers.append(shape.get("tier", "")))
     view.input.setText("boiler quote dave")
     model = view.results._model
+    def seen() -> str:
+        from PyQt6.QtCore import QThreadPool
+
+        pool = QThreadPool.globalInstance()
+        return (f"tiers answered {tiers}, {model.rowCount()} row(s), box holds "
+                f"{view.input.text()!r}, status {view.status.text()!r}, "
+                f"{pool.activeThreadCount()} of {pool.maxThreadCount()} pool thread(s) busy, "
+                f"{len(_pending_timers(window))} debounce timer(s) armed, "
+                f"page {window.rail.tabText(window.rail.currentIndex())!r}")
+
     _require(app, lambda: "full" in tiers and model.rowCount() > 0,
-             "the full search's results for 'boiler quote dave'")
+             "the full search's results for 'boiler quote dave'", seen=seen)
     # A message's sender, subject and kind arrive from a worker a beat after its
     # row; until they do it is drawn without its badge. Wait for that too, or the
     # picture depends on which got there first.
