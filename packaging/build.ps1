@@ -44,6 +44,12 @@ $Cli = Join-Path $Dist "Leasha\leasha-cli.exe"
 & $Cli -c "import app.core.version as v, PySide6.QtCore as q; print('leasha', v.version(), 'qt', q.qVersion())"
 if ($LASTEXITCODE -ne 0) { throw "The built leasha-cli.exe did not run (exit $LASTEXITCODE)." }
 
+# A settings file left in the build by a test would be installed, and the
+# installer would then keep it rather than write the one the user chose.
+if (Test-Path -LiteralPath (Join-Path $Dist "Leasha\_internal\.env")) {
+    throw "build\dist\Leasha\_internal\.env exists (left by a test?). Delete it and run this again."
+}
+
 Write-Host "3/4 Inno Setup..." -ForegroundColor Cyan
 $Iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",

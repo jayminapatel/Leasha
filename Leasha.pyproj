@@ -812,6 +812,7 @@
     <Compile Include="tests\unit\test_indexing_that_works.py" />
     <Compile Include="tests\unit\test_indexing_workers_panel.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
+    <Compile Include="tests\unit\test_installer_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_interrupted_runs.py" />
     <Compile Include="tests\unit\test_junk_images.py" />

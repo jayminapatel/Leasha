@@ -88,16 +88,19 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
   FreeMB, TotalMB: Cardinal;
-  Drive: String;
+  Drive, Message: String;
 begin
   Result := True;
   if CurPageID = DataPage.ID then begin
     Drive := ExtractFileDrive(DataPage.Values[0]);
     if GetSpaceOnDisk(Drive, True, FreeMB, TotalMB) then
-      if FreeMB div 1024 < RequiredFreeGB then
-        Result := MsgBox(Format('%s has %d GB free. A large index needs about %d GB.' + #13#10#13#10 +
-          'Leasha will still work, and stops before the drive is full. Use this folder anyway?',
-          [Drive, FreeMB div 1024, RequiredFreeGB]), mbConfirmation, MB_YESNO) = IDYES;
+      if FreeMB div 1024 < RequiredFreeGB then begin
+        { No line in this file may start with "[" (a new section) or "#" (a
+          preprocessor command), however it is indented. }
+        Message := Format('%s has %d GB free. A large index needs about %d GB.', [Drive, FreeMB div 1024, RequiredFreeGB]);
+        Message := Message + #13#10#13#10 + 'Leasha will still work, and stops before the drive is full. Use this folder anyway?';
+        Result := MsgBox(Message, mbConfirmation, MB_YESNO) = IDYES;
+      end;
   end;
 end;
 
