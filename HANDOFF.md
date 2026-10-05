@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.77 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.78 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,15 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 - a window hidden to the tray comes back at once too.** Follow-on to the entry
+below: the second launch now also posts `run_lock.FRONT_MESSAGE_NAME` to the window's handle,
+and `window_state.listen_for_front` (an application native-event filter, installed in `main.py`)
+fronts it on arrival - hidden or not. The four-second `FRONT_STATE_KEY` poll is only the
+fallback when the post fails. **Trap:** overriding `MainWindow.nativeEvent` for this crashed the
+window during construction (access violation in `restoreGeometry`); use a filter, like
+`ui/hotkey.py`. Measured on the laptop, three tray trials: visible 6-11 ms after the second
+launch fronted it (was up to 4 s).
 
 **2026-10-05 - a second launch fronts the open window at once.** The owner: *"when you
 launch the application it stops the existing running copy"*. It never did: every second launch

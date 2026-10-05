@@ -408,8 +408,9 @@ def _front_open_window(settings: Any) -> bool:
 
     Fronted from here, the launching process, because Windows gives the
     foreground to what the person just started and not to a background
-    process - see `run_lock.front_window`. The front request is written as
-    well, so a window hidden to the tray is shown by its own poll.
+    process - see `run_lock.front_window`, which also tells the window
+    directly so one hidden to the tray comes back at once. The polled front
+    request is only the fallback when that message cannot be posted.
     """
     from app.core.run_lock import front_window, open_window, request_front
     from app.storage.sqlite_store import SqliteStore
@@ -417,9 +418,11 @@ def _front_open_window(settings: Any) -> bool:
     try:
         with SqliteStore(settings.fts_db) as store:
             found = open_window(store)
-            if found is None or not front_window(*found):
+            told = None if found is None else front_window(*found)
+            if told is None:
                 return False
-            request_front(store)
+            if not told:            # alive, but the message did not post
+                request_front(store)
             return True
     except Exception:                            # noqa: BLE001 - fall back to waiting
         return False
@@ -736,6 +739,10 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # So a second launch can tell this window is open, not closing -
             # see `run_lock.WINDOW_STATE_KEY`. Cleared by `closeEvent`.
             publish_window(store, os.getpid(), int(window.winId()))
+            # ...and told directly, so a window hidden to the tray comes back
+            # at once rather than on the next four-second poll.
+            from app.ui.window_state import listen_for_front
+            window._front_listener = listen_for_front(window._front_self)
             startup_timer.record_window_visible()
             # **The hand-off, now, over a painted window with nothing else
             # running** (0r 2b, 2026-09-29). It used to wait until after the

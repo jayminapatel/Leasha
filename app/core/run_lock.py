@@ -54,6 +54,7 @@ __all__ = [
     "publish", "active_run", "request_stop", "stop_requested", "clear_stop",
     "request_front", "take_front_request",
     "publish_window", "open_window", "front_window", "WINDOW_STATE_KEY",
+    "FRONT_MESSAGE_NAME", "front_message_id",
     "describe_holder", "GUI", "COMMAND_LINE", "FOLDER_WATCH",
 ]
 
@@ -456,21 +457,49 @@ def open_window(store: Any) -> Optional[tuple[int, int]]:
         return None
 
 
-def front_window(pid: int, hwnd: int) -> bool:
-    """Bring another process's window to the front. True if it is alive.
+#: The message a second launch posts to the open window: "come forward".
+#: Registered by name, so both processes get the same number without sharing
+#: anything else. `MainWindow.nativeEvent` answers it.
+FRONT_MESSAGE_NAME = "Leasha.KnowledgeGraph.V2.FrontWindow"
+
+
+def front_message_id() -> int:
+    """This session's number for `FRONT_MESSAGE_NAME`; 0 off Windows or on failure."""
+    if sys.platform != "win32":
+        return 0
+    try:
+        import ctypes
+
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.RegisterWindowMessageW.argtypes = [ctypes.c_wchar_p]
+        user32.RegisterWindowMessageW.restype = ctypes.c_uint
+        return int(user32.RegisterWindowMessageW(FRONT_MESSAGE_NAME))
+    except Exception:                    # noqa: BLE001
+        return 0
+
+
+def front_window(pid: int, hwnd: int) -> Optional[bool]:
+    """Bring another process's window to the front.
+
+    None - and nothing touched - when the handle is gone or now belongs to
+    another process: a record left by a crash, or a closing copy. Otherwise
+    True when the window was told directly (`FRONT_MESSAGE_NAME`), False when
+    it is alive but the message could not be posted, so the caller falls
+    back to the polled `request_front`.
 
     **Done from the launching process, not left to the window.** Windows
     lets the process the person just started take the foreground and refuses
     a background one - so the open window calling `activateWindow` on its own
     only flashes its taskbar button. `AllowSetForegroundWindow` passes that
-    right on, so the window's own `bring_forward` (which also shows a copy
-    hidden to the tray) succeeds when it takes the front request.
+    right on, so the window's own `bring_forward` succeeds.
 
-    False - and nothing touched - when the handle is gone or now belongs to
-    another process: a record left by a crash, or a closing copy.
+    **Told, not polled** (2026-10-05): a window hidden to the tray has no
+    on-screen window to raise from here, and the poll that shows it runs
+    every four seconds. The posted message reaches it at once, hidden or not,
+    and its handler shows it exactly as the tray icon does.
     """
     if sys.platform != "win32":
-        return False
+        return None
     try:
         import ctypes
         from ctypes import wintypes
@@ -483,18 +512,23 @@ def front_window(pid: int, hwnd: int) -> bool:
         user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
         user32.SetForegroundWindow.argtypes = [wintypes.HWND]
         user32.AllowSetForegroundWindow.argtypes = [wintypes.DWORD]
+        user32.PostMessageW.argtypes = [
+            wintypes.HWND, ctypes.c_uint, wintypes.WPARAM, wintypes.LPARAM]
 
         handle = wintypes.HWND(hwnd)
         if not user32.IsWindow(handle):
-            return False
+            return None
         owner = wintypes.DWORD(0)
         user32.GetWindowThreadProcessId(handle, ctypes.byref(owner))
         if owner.value != int(pid):
-            return False
+            return None
         user32.AllowSetForegroundWindow(int(pid))
+        message = front_message_id()
+        if message and user32.PostMessageW(handle, message, 0, 0):
+            return True
         if user32.IsIconic(handle):
             user32.ShowWindow(handle, 9)     # SW_RESTORE - back to maximised if it was
         user32.SetForegroundWindow(handle)
-        return True
-    except Exception:                    # noqa: BLE001 - a nicety; the poll still fronts it
         return False
+    except Exception:                    # noqa: BLE001 - a nicety; the poll still fronts it
+        return None

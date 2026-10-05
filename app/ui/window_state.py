@@ -147,3 +147,54 @@ def bring_forward(window: Any) -> None:
         window.show()
     window.raise_()
     window.activateWindow()
+
+
+def listen_for_front(on_front: Any) -> Any:
+    r"""Call `on_front` the moment a second launch says "come forward".
+
+    2026-10-05: a window hidden to the tray waited for the four-second poll of
+    `run_lock.FRONT_STATE_KEY`. The second launch now posts
+    `run_lock.FRONT_MESSAGE_NAME` to this window's handle - which a hidden
+    window still has - and this filter hears it at once.
+
+    **An application filter, not a `nativeEvent` override.** Overriding
+    `MainWindow.nativeEvent` crashed the window while it was being built
+    (an access violation inside `restoreGeometry`, 2026-10-05); the hotkey's
+    filter (`ui/hotkey.py`) is the pattern this codebase has proven.
+
+    Returns the filter, which the caller keeps alive; None off Windows or
+    when it cannot be installed. Never raises.
+    """
+    import sys
+
+    if sys.platform != "win32":
+        return None
+    try:
+        import ctypes
+
+        from PyQt6.QtCore import QAbstractNativeEventFilter, QCoreApplication
+
+        from app.core.run_lock import front_message_id
+
+        wanted = front_message_id()
+        application = QCoreApplication.instance()
+        if not wanted or application is None:
+            return None
+        offset = ctypes.sizeof(ctypes.c_void_p)   # MSG: HWND, then UINT message
+
+        class _Filter(QAbstractNativeEventFilter):
+            def nativeEventFilter(self, _kind, message):   # noqa: N802 - Qt's name
+                try:
+                    code = ctypes.c_uint.from_address(int(message) + offset).value
+                    if code == wanted:
+                        on_front()
+                        return True, 0
+                except Exception:                # noqa: BLE001 - never break the pump
+                    pass
+                return False, 0
+
+        found = _Filter()
+        application.installNativeEventFilter(found)
+        return found
+    except Exception:                            # noqa: BLE001
+        return None

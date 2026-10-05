@@ -45,6 +45,7 @@ from app.core.run_lock import (
     clear_stop,
     describe_holder,
     is_indexing,
+    front_message_id,
     front_window,
     open_window,
     publish,
@@ -520,8 +521,16 @@ def test_a_live_window_of_the_recorded_process_is_fronted():
                                   0, 0, 10, 10, None, None, None, None)
     assert hwnd, "could not create a test window"
     try:
-        assert front_window(os.getpid(), hwnd)
-        assert not front_window(os.getpid() + 1, hwnd), "wrong process"
+        assert front_window(os.getpid(), hwnd) is True, "the message did not post"
+        # 2026-10-05: told directly, so a window hidden to the tray comes
+        # back at once - the message must be waiting in its queue.
+        msg = (ctypes.c_byte * 64)()
+        user32.PeekMessageW.argtypes = [
+            ctypes.c_void_p, wintypes.HWND, ctypes.c_uint, ctypes.c_uint,
+            ctypes.c_uint]
+        wanted = front_message_id()
+        assert wanted and user32.PeekMessageW(msg, hwnd, wanted, wanted, 1),             "the front message never reached the window"
+        assert front_window(os.getpid() + 1, hwnd) is None, "wrong process"
     finally:
         user32.DestroyWindow(hwnd)
     assert not front_window(os.getpid(), hwnd), "a destroyed window is gone"

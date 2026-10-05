@@ -606,6 +606,40 @@ def test_a_second_launch_brings_the_window_forward(window):
     show.assert_not_called()
 
 
+def test_the_front_message_brings_the_window_forward_at_once(window):
+    """2026-10-05: a window hidden to the tray waited for the four-second poll.
+    The second launch now posts `FRONT_MESSAGE_NAME` to its handle and the
+    filter from `listen_for_front` answers it - checked with a real MSG,
+    since the suite runs Qt offscreen and no native message arrives here."""
+    import ctypes
+    import sys
+    from unittest.mock import MagicMock
+
+    from PyQt6.QtCore import QCoreApplication
+
+    from app.core.run_lock import front_message_id
+    from app.ui.window_state import listen_for_front
+
+    if sys.platform != "win32":
+        pytest.skip("a Windows message")
+    front = MagicMock()
+    found = listen_for_front(front)
+    assert found is not None
+    try:
+        msg = (ctypes.c_uint64 * 6)()
+        ctypes.c_uint.from_address(ctypes.addressof(msg) + 8).value = front_message_id()
+        assert found.nativeEventFilter(b"windows_generic_MSG",
+                                       ctypes.addressof(msg)) == (True, 0)
+        front.assert_called_once()
+
+        ctypes.c_uint.from_address(ctypes.addressof(msg) + 8).value = 0x0200
+        assert found.nativeEventFilter(b"windows_generic_MSG",
+                                       ctypes.addressof(msg)) == (False, 0)
+        front.assert_called_once()      # a mouse move is not a front request
+    finally:
+        QCoreApplication.instance().removeNativeEventFilter(found)
+
+
 def test_a_second_launch_is_answered_during_our_own_index_run(window):
     """2026-10-05: the poll returned early while this window was indexing, so
     the front request a second launch left was never taken - double-clicking
