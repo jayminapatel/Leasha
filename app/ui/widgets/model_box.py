@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -63,11 +63,11 @@ class ModelBox(QGroupBox):
     #: (enabled, model, timeout_s). One signal for all three, because they are
     #: one decision: a model without a budget that fits it looks broken rather
     #: than slow, and either without the switch does nothing at all.
-    changed = pyqtSignal(bool, str, int)
+    changed = Signal(bool, str, int)
     #: The address, when it has been edited and focus has left the box.
     #: Separate from `changed` because it persists to `.env` rather than to
     #: window state, and because a half-typed URL must not be saved.
-    url_changed = pyqtSignal(str)
+    url_changed = Signal(str)
 
     def __init__(self, client_factory: Any, parent: Optional[QWidget] = None) -> None:
         # **The word people look for is "Ollama".** Reported: *"i dont seem to

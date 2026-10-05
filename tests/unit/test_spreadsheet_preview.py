@@ -186,9 +186,9 @@ def test_the_widget_draws_one_tab_per_sheet():
     import os
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.spreadsheet_view import SpreadsheetView
 
@@ -213,8 +213,8 @@ def test_rebuilding_the_widget_replaces_rather_than_accumulates():
     import os
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.spreadsheet_view import SpreadsheetView
 

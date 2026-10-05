@@ -3,7 +3,7 @@
 Layer: L5
 
 Written after the pane crashed the application on launch. `QPdfView()` needs a
-parent in PyQt6; the missing argument raised inside `MainWindow.__init__`, so an
+parent in PySide6; the missing argument raised inside `MainWindow.__init__`, so an
 **optional preview that is off by default** turned into a program that would not
 start at all.
 
@@ -23,11 +23,11 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication, QListWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QListWidget  # noqa: E402
 
 from app.ui.widgets.preview import PreviewPane, attach_preview  # noqa: E402
 
@@ -53,7 +53,7 @@ def test_construction_survives_a_pdf_view_that_will_not_build(qapp, monkeypatch)
     real_import = builtins.__import__
 
     def no_pdf(name, *args, **kwargs):
-        if name.startswith("PyQt6.QtPdf"):
+        if name.startswith("PySide6.QtPdf"):
             raise RuntimeError("simulated: this Qt build has no PDF module")
         return real_import(name, *args, **kwargs)
 

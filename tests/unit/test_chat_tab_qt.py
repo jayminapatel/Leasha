@@ -15,17 +15,19 @@ flow, answers that say where they end.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QWidget  # noqa: E402
+
 import html
 import re
 from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QMimeData, QPointF, Qt, QUrl                    # noqa: E402
-from PyQt6.QtGui import QDropEvent                                       # noqa: E402
-from PyQt6.QtWidgets import (                                            # noqa: E402
+from PySide6.QtCore import QMimeData, QPointF, Qt, QUrl                    # noqa: E402
+from PySide6.QtGui import QDropEvent                                       # noqa: E402
+from PySide6.QtWidgets import (                                            # noqa: E402
     QAbstractButton, QComboBox, QLabel, QLineEdit, QWidget,
 )
 
@@ -494,7 +496,7 @@ def test_without_the_helper_the_page_says_so_in_plain_words_and_search_still_wor
     # Asking is a no-op rather than an error dialog. Waited for: a worker the
     # ask started would otherwise reach the engine after this line had looked.
     c.ctl.ask("hello?")
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     QThreadPool.globalInstance().waitForDone(5000)
     c.app.processEvents()
@@ -782,7 +784,7 @@ def test_every_control_on_the_page_says_what_it_does(chat):
     ask(c, "deposit?")
     answered(c)
     bare = []
-    for control in c.view.findChildren((QAbstractButton, QComboBox, QLineEdit)):
+    for control in [w for w in c.view.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))]:
         if isinstance(control, QLineEdit) and control.parent().metaObject().className() \
                 .startswith("QAbstract"):
             continue                              # a list's own editor, not ours

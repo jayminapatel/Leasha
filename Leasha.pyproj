@@ -417,6 +417,7 @@
     <Compile Include="app\ui\presenter\tray_words.py" />
     <Compile Include="app\ui\presenter\watch_words.py" />
     <Compile Include="app\ui\preview_loader.py" />
+    <Compile Include="app\ui\qtsip.py" />
     <Compile Include="app\ui\rail_state.py" />
     <Compile Include="app\ui\render_page.py" />
     <Compile Include="app\ui\report_pdf.py" />
@@ -869,6 +870,7 @@
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_one_fact_one_function.py" />
+    <Compile Include="tests\unit\test_one_qt_binding.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_attachment.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />

@@ -1,12 +1,14 @@
 # Work order (One thread): indexing that works
 
-**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (`app/core/measured.py` + `app/index/index_bench.py` +
 `app/core/envelope.py` + `app/index/embedder.py` + `config/extractors.toml` +
 the close path in `app/ui/shell.py` and `app/main.py`)
 **Status:** RELEASED by the owner 2026-09-19, raised from a live fault: the
 Indexing tab said *"55 days"* for a 114,614-file corpus. Most of it is built in
 the same session it was written; what is still open is named in §1 and §9.
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **The fault, as observed.** A run started 2026-09-18 20:33 reported about 55
 days remaining, indexed at about 1.4 files a minute, and could not be closed:

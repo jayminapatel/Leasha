@@ -59,8 +59,8 @@ from __future__ import annotations
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QTimer
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QTimer
+from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.shimmer_bar import ShimmerBar
 

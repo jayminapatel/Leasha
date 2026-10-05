@@ -1,12 +1,14 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.10 · **Updated:** 2026-09-19 · **Applies to:** app v0.3.3
+**Doc version:** 1.11 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** SHIPPED — all 17 items ticked; closed 2026-09-07 by the pytest-qt sweep across all seven adoptions. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its
 prerequisite has landed (noted per item); 0m (test automation) remains last
 and its scenario convention applies here (each item's acceptance line gets
 its pytest-qt scenario in this order).
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 Source: the owner had five AI assistants describe world-class desktop
 search; consolidation (2026-08-28, in the design notes) found the consensus

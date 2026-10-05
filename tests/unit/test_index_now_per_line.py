@@ -143,9 +143,9 @@ class TestARescanAsksForAMissingSerial:
 # The widgets
 # ---------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import QPushButton  # noqa: E402
+from PySide6.QtWidgets import QPushButton  # noqa: E402
 
 
 def _box(qtbot, roots):
@@ -256,7 +256,7 @@ class TestIndexNowOnAFolderLine:
         the round Rescan button. The theme paints every plain `QWidget` the
         window colour, and the cell `put_on_row` makes is one, over a white
         row. The cell must show the row through it."""
-        from PyQt6.QtCore import QPoint
+        from PySide6.QtCore import QPoint
 
         from app.ui import theme
 
@@ -415,7 +415,7 @@ class TestTheOfflineList:
         assert _line_button(view.tree, 0, 6).isEnabled()
 
     def test_the_hardware_id_can_be_copied(self, qtbot):
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         view = _offline(qtbot)
         assert view.copy_hardware_id(1) is True

@@ -24,9 +24,9 @@ from typing import Any, Optional
 
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QRect, QRectF, QSize, Qt
-from PyQt6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
-from PyQt6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
+from PySide6.QtCore import QRect, QRectF, QSize, Qt
+from PySide6.QtGui import QBrush, QColor, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from app.ui.kind_badge import badge_token, badge_word
 from app.ui.presenter import (
@@ -89,20 +89,20 @@ def _icon_for(kind: str) -> Any:
     if kind not in _ICON_CACHE:
         try:
             if _ICON_PROVIDER is None:
-                from PyQt6.QtWidgets import QFileIconProvider
+                from PySide6.QtWidgets import QFileIconProvider
                 _ICON_PROVIDER = QFileIconProvider()
-            from PyQt6.QtCore import QFileInfo
+            from PySide6.QtCore import QFileInfo
             # A message has no real file extension; "eml" is the nearest
             # real one and the shell knows it, so mail gets an actual
             # envelope-style icon rather than the generic-file fallback.
             suffix = "eml" if kind == "email" else (kind or "")
             icon = _ICON_PROVIDER.icon(QFileInfo(f"x.{suffix}" if suffix else "x"))
             if icon is None or icon.isNull():
-                from PyQt6.QtWidgets import QFileIconProvider as _P
+                from PySide6.QtWidgets import QFileIconProvider as _P
                 icon = _ICON_PROVIDER.icon(_P.IconType.File)
             _ICON_CACHE[kind] = icon
         except Exception:                        # noqa: BLE001 - never blocks a paint
-            from PyQt6.QtGui import QIcon
+            from PySide6.QtGui import QIcon
             _ICON_CACHE[kind] = QIcon()
     return _ICON_CACHE[kind]
 
@@ -445,7 +445,7 @@ class ResultDelegate(QStyledItemDelegate):
 # ---------------------------------------------------------------------------
 
 def _rounded(rect: QRectF, radius: float) -> Any:
-    from PyQt6.QtGui import QPainterPath
+    from PySide6.QtGui import QPainterPath
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
     return path
@@ -503,7 +503,7 @@ def _snippet_font(base: QFont, kind: str) -> QFont:
     """
     if not is_code_kind(kind):
         return base
-    from PyQt6.QtGui import QFontDatabase
+    from PySide6.QtGui import QFontDatabase
     mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
     if base.pointSize() > 0:
         mono.setPointSize(base.pointSize())

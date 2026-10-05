@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.index import pipeline as pipeline_module  # noqa: E402
 from app.index.pipeline import IndexStats  # noqa: E402

@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     # still needs the name resolvable somewhere for a type checker (and for
     # test_no_undefined_names_anywhere_in_app) without paying for a real
     # import here.
-    from PyQt6.QtGui import QFont
+    from PySide6.QtGui import QFont
 
 __all__ = [
     "SplashScreen", "StatusReporter", "get_splash_status_text",
@@ -170,8 +170,8 @@ def fitted_font(text: str, width: int, height: int, points: float) -> "QFont":
     for a 417px box at the normal text size, and all five were over at 13pt.
     The case lines are approved copy and are not reworded; they fit instead.
     """
-    from PyQt6.QtCore import QRect, Qt           # noqa: PLC0415 - startup speed
-    from PyQt6.QtGui import QFontMetrics          # noqa: PLC0415
+    from PySide6.QtCore import QRect, Qt           # noqa: PLC0415 - startup speed
+    from PySide6.QtGui import QFontMetrics          # noqa: PLC0415
 
     size = points
     while True:
@@ -194,8 +194,8 @@ def _splash_font(points_at_default: float) -> "QFont":
     scale with "Make text bigger" exactly as `theme.SCALE` does. Imported
     lazily, like every Qt symbol in this module, so the splash stays fast.
     """
-    from PyQt6.QtGui import QFont            # noqa: PLC0415 - startup speed
-    from PyQt6.QtWidgets import QApplication  # noqa: PLC0415
+    from PySide6.QtGui import QFont            # noqa: PLC0415 - startup speed
+    from PySide6.QtWidgets import QApplication  # noqa: PLC0415
 
     from app.ui.theme import DEFAULT_POINT_SIZE, base_point_size
 
@@ -233,12 +233,12 @@ class SplashScreen:
 
     def __init__(self, parent: Any = None) -> None:
         """Create the splash. Does not show it — caller calls .show()."""
-        from PyQt6.QtCore import Qt, QTimer
-        from PyQt6.QtWidgets import QWidget
+        from PySide6.QtCore import Qt, QTimer
+        from PySide6.QtWidgets import QWidget
 
         self.widget = QWidget(parent)
         self.widget.setWindowTitle("Leasha")
-        # PyQt6's setAttribute/setWindowFlags are strictly typed against the
+        # PySide6's setAttribute/setWindowFlags are strictly typed against the
         # Qt enums - the raw ints these used to be (matching the enum's own
         # numeric value) raise `TypeError: unexpected type 'int'` at
         # construction, crashing every startup before the window ever shows.
@@ -330,7 +330,7 @@ class SplashScreen:
 
     def _wait_out_minimum_hold(self) -> None:
         """Pump events until `_minimum_hold_time`, capped defensively."""
-        from PyQt6.QtCore import QCoreApplication
+        from PySide6.QtCore import QCoreApplication
 
         application = QCoreApplication.instance()
         deadline = min(self._minimum_hold_time, time.time() + _MAX_HOLD_WAIT_S)
@@ -341,7 +341,7 @@ class SplashScreen:
 
     def _fade_out(self) -> None:
         """Ramp `windowOpacity` from 1.0 to 0.0, pumping events as it goes."""
-        from PyQt6.QtCore import QCoreApplication
+        from PySide6.QtCore import QCoreApplication
 
         application = QCoreApplication.instance()
         start = time.time()
@@ -374,8 +374,8 @@ class SplashScreen:
 
     def _setup_geometry(self) -> None:
         """Position and size the splash, DPI-aware."""
-        from PyQt6.QtCore import QSize
-        from PyQt6.QtGui import QScreen
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QScreen
 
         screen = self.widget.screen() or QScreen(None)
         dpi = screen.logicalDotsPerInch()
@@ -402,7 +402,7 @@ class SplashScreen:
 
     def _load_or_create_white_wordmark(self) -> Optional[Any]:
         """Load the logo, creating a white-wordmark variant if needed."""
-        from PyQt6.QtGui import QImage, QPixmap
+        from PySide6.QtGui import QImage, QPixmap
 
         # Try to load the original logo
         try:
@@ -455,8 +455,8 @@ class SplashScreen:
 
     def _paint(self, event: Any) -> None:
         """Paint the splash screen (replaces QWidget.paintEvent)."""
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QColor, QPainter, QFont
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor, QPainter, QFont
 
         painter = QPainter(self.widget)
         try:
@@ -573,8 +573,8 @@ class SplashScreen:
         box: tuple[int, int, int, int, float],
     ) -> None:
         """Paint a case line with its icon, wrapped and fitted to `box`."""
-        from PyQt6.QtCore import Qt
-        from PyQt6.QtGui import QColor
+        from PySide6.QtCore import Qt
+        from PySide6.QtGui import QColor
 
         x, y, width, height, points = box
         h_icon = self.widget.height() // 24
@@ -602,14 +602,14 @@ class SplashScreen:
         Icons are simple line drawings in the three brand colours.
         This is a placeholder implementation with basic shapes.
         """
-        from PyQt6.QtCore import QLineF, QRectF, Qt
-        from PyQt6.QtGui import QColor, QPen
+        from PySide6.QtCore import QLineF, QRectF, Qt
+        from PySide6.QtGui import QColor, QPen
 
         # Every shape below is built from `size / n` - true division, so a
         # Python float even when `size` itself is an int. QPainter's int
         # overloads (drawRect(x, y, w, h): int, int, int, int) and its float
         # overloads (drawRect(r: QRectF)) both exist, but there is no overload
-        # taking four bare floats - PyQt6 raises `TypeError: arguments did not
+        # taking four bare floats - PySide6 raises `TypeError: arguments did not
         # match any overloaded call` at the first icon painted. QRectF/QLineF
         # accept floats directly, so building those instead of passing floats
         # positionally is the fix, not rounding to int (which would visibly
@@ -651,7 +651,7 @@ class SplashScreen:
 
     def _paint_progress_bar(self, painter: Any, y: float) -> None:
         """Paint a thin progress bar for model downloads."""
-        from PyQt6.QtGui import QColor
+        from PySide6.QtGui import QColor
 
         w = self.widget.width()
         bar_width = w // 2

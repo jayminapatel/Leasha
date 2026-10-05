@@ -26,8 +26,8 @@ from __future__ import annotations
 import time
 from typing import Any, Mapping, Optional
 
-from PyQt6.QtCore import QThreadPool
-from PyQt6.QtWidgets import QLabel
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QLabel
 
 from app.core.file_state import FUNNEL_ORDER, explain, funnel_line
 from app.ui.tasks import funnel_and_pictures

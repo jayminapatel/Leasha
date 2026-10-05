@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QEvent, QObject, Qt
-from PyQt6.QtWidgets import QAbstractItemView, QApplication
+from PySide6.QtCore import QEvent, QObject, Qt
+from PySide6.QtWidgets import QAbstractItemView, QApplication
 
 from app.core.osbridge._platform import is_macos
 

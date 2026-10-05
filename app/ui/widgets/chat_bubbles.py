@@ -27,9 +27,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QSize, Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QGuiApplication
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextBrowser,
     QVBoxLayout, QWidget,
 )
@@ -115,7 +115,7 @@ class _PlainText(QTextBrowser):
 class UserBubble(QFrame):
     """What the person said."""
 
-    edit_requested = pyqtSignal()
+    edit_requested = Signal()
 
     def __init__(self, text: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -145,18 +145,18 @@ class UserBubble(QFrame):
 class AnswerBubble(QFrame):
     """The reply: a progress line, the prose, maybe a results list, an ending."""
 
-    receipt_activated = pyqtSignal(int)     # the number the reader sees
-    receipt_hovered = pyqtSignal(int)       # 0 when the pointer leaves
-    result_opened = pyqtSignal(object)
-    result_revealed = pyqtSignal(object)
+    receipt_activated = Signal(int)     # the number the reader sees
+    receipt_hovered = Signal(int)       # 0 when the pointer leaves
+    result_opened = Signal(object)
+    result_revealed = Signal(object)
     #: 2026-10-04: a result row picked with one click, for the preview.
-    result_selected = pyqtSignal(object)
-    regenerate_requested = pyqtSignal()
-    retry_requested = pyqtSignal()
+    result_selected = Signal(object)
+    regenerate_requested = Signal()
+    retry_requested = Signal()
     #: A link in the prose that is not a source number (a web page).
-    link_activated = pyqtSignal(str)
+    link_activated = Signal(str)
     #: The person's answer to "Search the web for ...?" (`True` = Allow).
-    web_decided = pyqtSignal(bool)
+    web_decided = Signal(bool)
 
     def __init__(self, numbering: Optional[Numbering] = None,
                  parent: Optional[QWidget] = None) -> None:

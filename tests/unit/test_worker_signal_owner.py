@@ -39,10 +39,10 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QObject, QThreadPool, QTimer                    # noqa: E402
-from PyQt6.QtWidgets import QApplication, QLabel, QWidget                # noqa: E402
+from PySide6.QtCore import QObject, QThreadPool, QTimer                    # noqa: E402
+from PySide6.QtWidgets import QApplication, QLabel, QWidget                # noqa: E402
 
 from app.ui.later import when_done                                       # noqa: E402
 from app.ui.workers import CallableWorker, run                           # noqa: E402
@@ -114,7 +114,8 @@ def test_a_bare_lambda_paints_into_a_deleted_child_and_raises(app, escapes):
     assert chip.painted == ["answer"], (
         "the slot did not run at all - if PyQt has started cancelling bare lambdas too, "
         "`when_done` can go and this module's reasoning needs rewriting")
-    assert any("has been deleted" in line for line in escapes), (
+    # PyQt6 says "has been deleted", PySide6 "already deleted": the same crash.
+    assert any("has been deleted" in line or "already deleted" in line for line in escapes), (
         "painting into a deleted widget no longer raises; check what changed before "
         "trusting the rest of this module")
 
@@ -268,8 +269,8 @@ def test_the_long_lived_receivers_really_are_long_lived():
 
 def _sweep(app, before: dict) -> None:
     """What `no_leaked_widgets` does, so a test can check it rather than describe it."""
-    from PyQt6.QtCore import QEvent
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import QEvent
+    from PySide6.QtWidgets import QApplication
 
     for widget in list(QApplication.topLevelWidgets()):
         if id(widget) in before:
@@ -289,7 +290,7 @@ def test_processevents_alone_does_not_free_anything(app):
     looking exactly as though it did, and a fixture built on it is a no-op nobody
     notices. This is why `no_leaked_widgets` calls `sendPostedEvents` explicitly.
     """
-    from PyQt6 import sip
+    from app.ui import qtsip as sip
 
     widget = QWidget()
     widget.show()
@@ -302,15 +303,15 @@ def test_processevents_alone_does_not_free_anything(app):
         "processEvents now delivers DeferredDelete; if that is really true, "
         "`no_leaked_widgets` can drop its sendPostedEvents call")
 
-    from PyQt6.QtCore import QEvent
+    from PySide6.QtCore import QEvent
     app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     assert sip.isdeleted(widget), "sendPostedEvents did not deliver the deferred delete"
 
 
 def test_the_opt_in_teardown_deletes_what_the_test_built(app):
     """`no_leaked_widgets` is only worth having if it really frees the C++ objects."""
-    from PyQt6 import sip
-    from PyQt6.QtWidgets import QApplication
+    from app.ui import qtsip as sip
+    from PySide6.QtWidgets import QApplication
 
     # The widgets themselves, not only their ids - see `no_leaked_widgets`.
     before = {id(w): w for w in QApplication.topLevelWidgets()}
@@ -331,8 +332,8 @@ def test_the_teardown_keeps_widgets_it_did_not_create(app):
     A widget that already existed when the fixture took its snapshot must survive, or
     adopting it in a module with `gui_mainwindow` would delete the window mid-module.
     """
-    from PyQt6 import sip
-    from PyQt6.QtWidgets import QApplication
+    from app.ui import qtsip as sip
+    from PySide6.QtWidgets import QApplication
 
     # Everything alive before this test, so the clean-up at the end removes
     # only what the test built.
@@ -359,7 +360,7 @@ def test_the_teardown_keeps_widgets_it_did_not_create(app):
 
 def test_the_fixture_itself_runs_and_cleans_up(no_leaked_widgets):
     """The fixture is requested here so its teardown really executes at least once."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     widget = QWidget()
     widget.show()

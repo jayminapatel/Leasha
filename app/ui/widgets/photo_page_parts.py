@@ -16,7 +16,7 @@ from __future__ import annotations
 import datetime as _dt
 from typing import Any, Callable, Optional
 
-from PyQt6.QtWidgets import QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import QMenu, QToolButton, QWidget
 
 from app.ui.presenter.photos import SORTS
 from app.ui.widgets.photo_browser import MODES

@@ -160,7 +160,7 @@ def test_the_check_can_actually_fail(tmp_path: Path):
     """A guard that cannot fail is a guard nobody should trust."""
     sample = tmp_path / "sample.py"
     sample.write_text(
-        "from PyQt6.QtWidgets import QCheckBox, QLineEdit\n"
+        "from PySide6.QtWidgets import QCheckBox, QLineEdit\n"
         "class W:\n"
         "    def __init__(self):\n"
         "        self.bare = QLineEdit()\n"

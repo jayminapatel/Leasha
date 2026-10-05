@@ -287,8 +287,8 @@ def test_cli_index_says_it_is_carrying_on(capsys, planted, corpus, monkeypatch) 
 @pytest.mark.gui
 def test_the_indexing_page_shows_it_and_takes_it_down_when_a_run_starts(
         qtbot, tmp_path, locks, monkeypatch) -> None:
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QLabel
 
     from app.ui.indexing_view import IndexingView
     from app.ui.widgets.indexing_layout import repaint_totals

@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, Qt, QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (QAbstractItemView, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
+from PySide6.QtCore import QObject, Qt, QThreadPool, Signal
+from PySide6.QtWidgets import (QAbstractItemView, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                              QLineEdit, QMessageBox, QPushButton, QTableWidget,
                              QTableWidgetItem, QVBoxLayout)
 
@@ -40,7 +40,7 @@ INTRO = ("The models Leasha runs itself. Recommended ones were checked on a real
 
 
 class _Relay(QObject):
-    said = pyqtSignal(str)
+    said = Signal(str)
 
 
 def _cell(text: str, data: Any = None) -> QTableWidgetItem:
@@ -53,7 +53,7 @@ def _cell(text: str, data: Any = None) -> QTableWidgetItem:
 
 class ModelManagerBox(QGroupBox):
     #: Emitted after anything changed on disk or in the choices.
-    models_changed = pyqtSignal()
+    models_changed = Signal()
 
     def __init__(self, settings: Any = None, parent: Any = None) -> None:
         super().__init__("Models on this computer", parent)

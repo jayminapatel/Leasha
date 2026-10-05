@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.core.config import load_settings
 from app.storage.sqlite_store import SqliteStore
@@ -66,7 +66,7 @@ class _Engine:
 
 
 def _window(tmp_path):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     root = tmp_path / "window"
     root.mkdir()

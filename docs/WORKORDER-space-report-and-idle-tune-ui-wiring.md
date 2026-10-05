@@ -1,10 +1,12 @@
 # Work order (UI): wire the Space Report and the idle-tune scheduler into the redesigned shell
 
-**Doc version:** 1.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** UI
 **Status correction, 2026-09-20:** SHIPPED - 7 of 7 items ticked 2026-09-16 (the register has said
 so since). The line below is the original release text, kept as written.
 **Status:** RELEASED by the owner 2026-09-16.
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 ## Context
 

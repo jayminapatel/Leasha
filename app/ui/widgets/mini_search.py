@@ -30,8 +30,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QEvent, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, QPushButton,
     QVBoxLayout, QWidget,
 )
@@ -119,11 +119,11 @@ class MiniSearch(QFrame):
     """A frameless, stay-on-top search box. Summoned, used, gone."""
 
     #: A result was chosen. The window opens it.
-    chosen = pyqtSignal(object)
+    chosen = Signal(object)
     #: Somebody asked for the whole application instead. The window comes up
     #: with this query in the box - the way out of a box that is too small
     #: for the question being asked.
-    expanded = pyqtSignal(str)
+    expanded = Signal(str)
 
     def __init__(self, engine: Any, parent: Optional[QWidget] = None, *,
                  preferences: Any = None) -> None:
@@ -228,7 +228,7 @@ class MiniSearch(QFrame):
         which is what makes it safe to always show even when it is wrong.
         """
         try:
-            from PyQt6.QtGui import QGuiApplication
+            from PySide6.QtGui import QGuiApplication
 
             screen = (QGuiApplication.screenAt(self.cursor().pos())
                       or QGuiApplication.primaryScreen())

@@ -156,10 +156,10 @@ def test_the_real_launcher_is_not_reached_by_importing_anything() -> None:
 
 # --- the pane ---------------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -321,7 +321,7 @@ def test_the_mail_lists_menu_offers_open_and_show_in_folder_the_archive(
                         lambda path, select=True: shown.append((path, select)))
     view = _mail_view(store, FakeOutlook())
     try:
-        from PyQt6.QtCore import QPoint
+        from PySide6.QtCore import QPoint
 
         monkeypatch.setattr(view, "selected_row", lambda: view._rows[0])
         view._on_context_menu(QPoint(5, 5))

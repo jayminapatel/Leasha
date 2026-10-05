@@ -185,8 +185,8 @@ def test_the_chevron_has_its_own_click_target_on_multi_match_groups():
     """Item 2a: "the chevron is a real click target" - `subtitle_rect` is
     what a click handler hit-tests against, and it must exist only where the
     chevron is actually painted."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import ResultDelegate
 
@@ -209,8 +209,8 @@ def test_chevron_hit_finds_the_file_id_under_a_click_on_the_subtitle_line():
     calls on every click - a hit on the subtitle line returns the group's
     `file_id`; a miss (or a single-match group, with no chevron at all)
     returns `None` so the click falls through to ordinary handling."""
-    from PyQt6.QtCore import QPoint, QRect
-    from PyQt6.QtGui import QFont
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
 
@@ -255,7 +255,7 @@ def test_chevron_hit_finds_the_file_id_under_a_click_on_the_subtitle_line():
 
 
 def test_chevron_hit_ignores_an_invalid_index():
-    from PyQt6.QtCore import QPoint
+    from PySide6.QtCore import QPoint
 
     from app.ui.result_delegate import ResultDelegate
 
@@ -326,9 +326,9 @@ def test_the_delegate_paints_the_volume_note_into_the_subtitle():
     """A real paint pass, not just the presenter's text decision - proves
     `ResultDelegate.volumes` (set by `results_view.show_results`) actually
     reaches `group_subtitle` rather than the wiring silently doing nothing."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont, QPainter, QPixmap
-    from PyQt6.QtWidgets import QStyle
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont, QPainter, QPixmap
+    from PySide6.QtWidgets import QStyle
 
     from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 
@@ -410,9 +410,9 @@ def test_no_badge_for_an_ordinary_local_file():
 def test_the_delegate_paints_the_online_only_badge_from_the_placeholders_set():
     """A real paint pass, mirroring the existing offline-volume badge test -
     proves `ResultDelegate.placeholders` actually reaches the subtitle."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont, QPainter, QPixmap
-    from PyQt6.QtWidgets import QStyle
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont, QPainter, QPixmap
+    from PySide6.QtWidgets import QStyle
 
     from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD, ResultDelegate
 
@@ -565,7 +565,7 @@ def test_normal_density_allows_two_snippet_lines():
 
 
 def test_a_long_snippet_wraps_to_two_ranges_at_two_lines():
-    from PyQt6.QtGui import QFont, QFontMetrics
+    from PySide6.QtGui import QFont, QFontMetrics
 
     from app.ui.result_delegate import _wrap_ranges
 
@@ -581,7 +581,7 @@ def test_a_long_snippet_wraps_to_two_ranges_at_two_lines():
 
 
 def test_a_short_snippet_does_not_manufacture_a_second_line():
-    from PyQt6.QtGui import QFont, QFontMetrics
+    from PySide6.QtGui import QFont, QFontMetrics
 
     from app.ui.result_delegate import _wrap_ranges
 
@@ -595,7 +595,7 @@ def test_a_short_snippet_does_not_manufacture_a_second_line():
 
 
 def test_snippet_height_matches_the_number_of_wrapped_lines():
-    from PyQt6.QtGui import QFont, QFontMetrics
+    from PySide6.QtGui import QFont, QFontMetrics
 
     from app.ui.result_delegate import _snippet_height
 
@@ -615,8 +615,8 @@ def test_sizehint_and_paint_still_agree_at_two_lines():
 
     class Option:
         def __init__(self, width):
-            from PyQt6.QtCore import QRect
-            from PyQt6.QtGui import QFont
+            from PySide6.QtCore import QRect
+            from PySide6.QtGui import QFont
             self.rect = QRect(0, 0, width, 999)
             self.font = QFont()
 
@@ -651,8 +651,8 @@ def test_sizehint_stays_one_line_tall_at_compact_density():
 
     class Option:
         def __init__(self, width):
-            from PyQt6.QtCore import QRect
-            from PyQt6.QtGui import QFont
+            from PySide6.QtCore import QRect
+            from PySide6.QtGui import QFont
             self.rect = QRect(0, 0, width, 999)
             self.font = QFont()
 
@@ -746,7 +746,7 @@ def test_prose_and_data_formats_are_not_code():
 
 
 def test_a_code_row_gets_a_monospace_font():
-    from PyQt6.QtGui import QFont
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import _snippet_font
 
@@ -759,7 +759,7 @@ def test_a_code_row_gets_a_monospace_font():
 
 
 def test_a_prose_row_keeps_the_ordinary_font():
-    from PyQt6.QtGui import QFont
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import _snippet_font
 
@@ -775,8 +775,8 @@ def test_a_group_with_emphasis_paints_without_raising():
     """A real paint pass, not just the presenter's text decision - this is
     the one place a bad character range in `folder_emphasis` would show up
     as a crash rather than a wrong pixel."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont, QPixmap, QPainter
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont, QPixmap, QPainter
 
     from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
     from app.ui.presenter import ResultGroup
@@ -785,7 +785,7 @@ def test_a_group_with_emphasis_paints_without_raising():
                        kind="pdf", when="12 Mar 2019", path=r"D:\a\invoice.pdf",
                        rows=[row()], folder_emphasis=(4, 11))
 
-    from PyQt6.QtWidgets import QStyle
+    from PySide6.QtWidgets import QStyle
 
     class Option:
         def __init__(self):
@@ -814,9 +814,9 @@ def test_a_group_with_emphasis_paints_without_raising():
 # ---------------------------------------------------------------------------
 
 def test_hover_paints_a_different_background_from_the_ordinary_row():
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont, QImage, QPainter
-    from PyQt6.QtWidgets import QStyle
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont, QImage, QPainter
+    from PySide6.QtWidgets import QStyle
 
     from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
 
@@ -886,9 +886,9 @@ def test_the_terminator_row_is_not_selectable():
 
 
 def test_a_terminator_paints_without_raising():
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont, QPixmap, QPainter
-    from PyQt6.QtWidgets import QStyle
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont, QPixmap, QPainter
+    from PySide6.QtWidgets import QStyle
 
     from app.ui.presenter import Terminator
     from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD
@@ -923,7 +923,7 @@ def test_the_delegate_scales_with_the_system_font(scale):
     the application's "Make text bigger" support does - through the font
     the view hands it, never a fixed pixel count of its own. 125/150/200%
     must all still measure and paint in agreement, not merely at 100%."""
-    from PyQt6.QtGui import QFont
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import ResultDelegate
 
@@ -943,8 +943,8 @@ def test_the_delegate_scales_with_the_system_font(scale):
 
 
 def test_sizehint_grows_with_a_scaled_font_rather_than_clipping():
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont
 
     from app.ui.result_delegate import ResultDelegate, ROLE_PAYLOAD, ROLE_EXPANDED
 
@@ -975,7 +975,7 @@ def test_the_highlight_is_signalled_by_weight_and_by_colour():
     a bold run and a plain run must differ in *both* font and pen."""
     from typing import Any
 
-    from PyQt6.QtGui import QColor, QFont, QPen
+    from PySide6.QtGui import QColor, QFont, QPen
 
     from app.ui.result_delegate import _draw_run
 
@@ -1084,8 +1084,8 @@ def test_the_binary_search_wraps_exactly_as_the_scan_did():
 
 
 def test_the_binary_search_wraps_exactly_as_the_scan_did_with_a_real_font():
-    from PyQt6.QtGui import QFont, QFontMetrics
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtGui import QFont, QFontMetrics
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.result_delegate import _wrap_ranges
 

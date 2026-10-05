@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, QLabel,
                              QPushButton, QVBoxLayout)
 
 from app.core.model_devices import MODELS
@@ -53,7 +53,7 @@ def result_text(entry: Optional[dict]) -> str:
 class DeviceBox(QGroupBox):
     """The Devices group. `changed` carries the `.env` values, as its siblings do."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[Any] = None) -> None:
         super().__init__("Devices", parent)

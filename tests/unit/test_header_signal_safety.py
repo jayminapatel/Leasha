@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets")
+pytest.importorskip("PySide6.QtWidgets")
 
-from PyQt6.QtCore import QTimer                                 # noqa: E402
-from PyQt6.QtWidgets import QTableWidgetItem                    # noqa: E402
+from PySide6.QtCore import QTimer                                 # noqa: E402
+from PySide6.QtWidgets import QTableWidgetItem                    # noqa: E402
 
 from app.ui.view_options import (                               # noqa: E402
     APPLYING, ViewPreferences, apply_to_table, remember_widths,
@@ -243,7 +243,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
     def _pump(seconds: float) -> None:
         import time
 
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         end = time.monotonic() + seconds
         while time.monotonic() < end:
@@ -255,7 +255,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
         import gc
         import weakref
 
-        from PyQt6.QtWidgets import QVBoxLayout, QWidget
+        from PySide6.QtWidgets import QVBoxLayout, QWidget
 
         from app.ui import view_options
 
@@ -304,7 +304,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
         import gc
         import weakref
 
-        from PyQt6.QtWidgets import QTableWidget
+        from PySide6.QtWidgets import QTableWidget
 
         was_enabled = gc.isenabled()
         gc.disable()
@@ -327,8 +327,8 @@ class TestALetGoViewTakesItsWatcherWithIt:
 #: segfaulted, and would have taken the whole test run down with it.
 _ORPHANED_WATCHER = '''
 import gc, time
-from PyQt6 import sip
-from PyQt6.QtWidgets import QApplication, QTableWidget
+from app.ui import qtsip as sip
+from PySide6.QtWidgets import QApplication, QTableWidget
 from app.ui import view_options
 
 class Button:
@@ -367,6 +367,17 @@ def test_a_watcher_whose_python_side_was_collected_does_not_crash_on_its_next_ti
     import subprocess
     import sys
 
+    # 2026-10-05, the PySide6 trial: this needs a table that lives on in C++
+    # after Python has let go of it, made with sip's `transferto`. PySide6 has
+    # no such call, and a parented widget's Python side is held by its parent,
+    # so the cycle this guards against does not seem to arise there in this
+    # form (UNCONFIRMED). Skipped and said, rather than passing on a no-op.
+    from app.ui import qtsip
+
+    try:
+        qtsip.transferto(None, None)
+    except NotImplementedError as why:
+        pytest.skip(f"needs sip's ownership transfer: {why}")
     root = Path(__file__).resolve().parents[2]
     script = tmp_path / "orphaned_watcher.py"
     script.write_text(_ORPHANED_WATCHER, encoding="utf-8")

@@ -149,7 +149,7 @@ def test_the_presenter_imports_no_qt() -> None:
 
 
 def _widget(qtbot):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.widgets.run_log import RunLog
 
     widget = RunLog()
@@ -165,7 +165,7 @@ def _lines(widget) -> list[str]:
 
 
 def test_it_is_hidden_until_there_is_something_to_say(qtbot) -> None:
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui.widgets.run_log import RunLog
 
     widget = RunLog()
@@ -294,7 +294,7 @@ def test_a_broken_log_never_raises(qtbot) -> None:
 
 
 def _page(qtbot, monkeypatch):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from app.ui import indexing_view
     from app.ui.indexing_view import IndexingView
 

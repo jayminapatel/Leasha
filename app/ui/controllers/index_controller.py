@@ -30,8 +30,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QObject, QThreadPool
-from PyQt6.QtWidgets import QMessageBox
+from PySide6.QtCore import QObject, QThreadPool
+from PySide6.QtWidgets import QMessageBox
 
 from app.core.logging import logger
 from app.core.run_lock import GUI

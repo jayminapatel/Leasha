@@ -63,9 +63,9 @@ from __future__ import annotations
 
 from typing import Iterable, Optional
 
-from PyQt6.QtCore import QSize, Qt
-from PyQt6.QtGui import QIcon, QPainter, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QSize, Qt
+from PySide6.QtGui import QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
     QApplication, QDialogButtonBox, QHBoxLayout, QPushButton, QSizePolicy, QWidget,
 )
 

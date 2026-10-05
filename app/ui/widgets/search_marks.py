@@ -27,9 +27,9 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import QObject, Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QKeySequence, QShortcut, QTextCursor
-from PyQt6.QtWidgets import QTextEdit
+from PySide6.QtCore import QObject, Qt, Signal
+from PySide6.QtGui import QColor, QKeySequence, QShortcut, QTextCursor
+from PySide6.QtWidgets import QTextEdit
 
 from app.ui.presenter.snippets import term_spans
 
@@ -40,7 +40,7 @@ class SearchMarks(QObject):
     """Paints the searched words in `view` and steps between them."""
 
     #: What `position()` says has changed - new words, or a step.
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, host: Any, view: Any, find_bar: Any = None) -> None:
         super().__init__(host)

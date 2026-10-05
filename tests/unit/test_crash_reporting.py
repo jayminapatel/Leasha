@@ -173,7 +173,7 @@ class TestAHandledWindowsExceptionIsNotACrash:
 
 
 class TestAnExceptionIsWrittenDownBeforePyQtAborts:
-    r"""PyQt6 calls `qFatal()` when an exception escapes a slot.
+    r"""PySide6 calls `qFatal()` when an exception escapes a slot.
 
     The process is gone in that instant. The traceback goes to
     `sys.excepthook`, whose default writes to stderr - None under
@@ -245,8 +245,8 @@ class TestQtsOwnMessagesReachTheLog:
         app_main._log_qt_messages()                  # must not raise
 
     def test_a_qt_warning_is_logged(self, monkeypatch) -> None:
-        pytest.importorskip("PyQt6.QtCore")
-        from PyQt6.QtCore import QtMsgType, qInstallMessageHandler
+        pytest.importorskip("PySide6.QtCore")
+        from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
         seen: list = []
 

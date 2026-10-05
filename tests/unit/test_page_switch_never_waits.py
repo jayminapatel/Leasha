@@ -25,7 +25,7 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 pytestmark = [pytest.mark.qt, pytest.mark.gui]
 

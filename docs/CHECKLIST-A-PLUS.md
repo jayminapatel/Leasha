@@ -1,6 +1,8 @@
 # The A+ checklist — what stands between here and world-class, and when each item can be done
 
-**Doc version:** 1.1 · **Updated:** 2026-09-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 The target state, from the 2026-08-27 prospective review: **nothing claimed
 that isn't proven, nothing pending that matters, nothing broken that's known.**

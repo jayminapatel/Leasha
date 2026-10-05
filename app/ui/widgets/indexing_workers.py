@@ -37,8 +37,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QTimer, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import QTimer, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.live_progress import heartbeat_line, live_view
 from app.ui.widgets.buttons import style_button
@@ -64,7 +64,7 @@ class IndexingWorkers(QWidget):
     the reader's number as a string ("2").
     """
 
-    forceSkip = pyqtSignal(str)
+    forceSkip = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

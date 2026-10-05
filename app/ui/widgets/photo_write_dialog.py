@@ -20,8 +20,8 @@ import threading
 from pathlib import Path
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer
-from PyQt6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
+from PySide6.QtCore import Qt, QThreadPool, QTimer
+from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
                              QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
                              QVBoxLayout, QWidget)
 

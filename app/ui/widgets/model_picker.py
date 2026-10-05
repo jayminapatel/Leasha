@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QAction, QActionGroup
-from PyQt6.QtWidgets import QComboBox, QLabel, QMenu, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QAction, QActionGroup
+from PySide6.QtWidgets import QComboBox, QLabel, QMenu, QWidget
 
 __all__ = ["ModelPicker", "ModelMenu", "SETTINGS_CHOICE"]
 
@@ -50,7 +50,7 @@ class ModelPicker(QComboBox):
     `warning` (2026-10-04, code review) is a line the view puts beside it: what a
     model bigger than `roles.AFFORDABLE_MAX_B` costs, while one is picked."""
 
-    chosen = pyqtSignal(str)
+    chosen = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -113,7 +113,7 @@ class ModelMenu(QMenu):
 
     `follow(action)` keeps it shown only while that action (Interpret) is."""
 
-    chosen = pyqtSignal(str)
+    chosen = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(MENU_TITLE, parent)

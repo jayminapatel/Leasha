@@ -28,7 +28,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 import os                                                       # noqa: E402
 
@@ -111,7 +111,7 @@ def no_models_listed_or_loaded_unasked():
 @pytest.fixture(scope="module")
 def gui_mainwindow(tmp_path_factory):
     """`(app, window, store, engine)` - see the module docstring."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.search.engine import SearchEngine
@@ -184,7 +184,7 @@ def windows_left_open_stop_watching_the_run_lock():
     started against a closed store is one more thing this ends.
     """
     yield
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     if QApplication.instance() is None:
         return
@@ -238,7 +238,7 @@ def no_leaked_widgets():
         def test_something(no_leaked_widgets):
             ...
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
     # **The widgets, kept alive, not just their ids.** A widget Qt owns but
@@ -265,7 +265,7 @@ def no_leaked_widgets():
     # The obvious `deleteLater(); processEvents()` teardown therefore frees nothing at
     # all while looking exactly as though it does; `test_worker_signal_owner.py` pins
     # this, because it is the shape anyone writing this fixture reaches for first.
-    from PyQt6.QtCore import QEvent
+    from PySide6.QtCore import QEvent
 
     app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
     app.processEvents()

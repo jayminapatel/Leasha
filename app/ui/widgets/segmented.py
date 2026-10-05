@@ -17,14 +17,14 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QToolButton, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QToolButton, QWidget
 
 __all__ = ["SegmentedControl"]
 
 
 class SegmentedControl(QFrame):
-    currentIndexChanged = pyqtSignal(int)          # noqa: N815 - QComboBox's name
+    currentIndexChanged = Signal(int)          # noqa: N815 - QComboBox's name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

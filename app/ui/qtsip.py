@@ -1,0 +1,33 @@
+"""The four things Leasha asked of PyQt's `sip`, asked of PySide's `shiboken6`.
+
+Layer: L5
+
+Trial port only (branch `trial/pyside6`).
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+import shiboken6
+
+__all__ = ["isdeleted", "delete", "unwrapinstance", "transferto"]
+
+
+def isdeleted(obj: Any) -> bool:
+    return not shiboken6.isValid(obj)
+
+
+def delete(obj: Any) -> None:
+    shiboken6.delete(obj)
+
+
+def unwrapinstance(obj: Any) -> int:
+    return int(shiboken6.getCppPointer(obj)[0])
+
+
+def transferto(obj: Any, owner: Any) -> None:
+    """PyQt's "C++ owns this now, whatever Python does". **PySide6 has no
+    such call**, so this refuses rather than quietly doing nothing: a no-op
+    let the one test that uses it pass without setting up what it tests."""
+    raise NotImplementedError("PySide6 cannot hand a wrapper's ownership to C++")

@@ -22,12 +22,12 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import QThreadPool, Qt                           # noqa: E402
+from PySide6.QtCore import QThreadPool, Qt                           # noqa: E402
 from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
-from PyQt6.QtWidgets import QFileDialog                             # noqa: E402
+from PySide6.QtWidgets import QFileDialog                             # noqa: E402
 
 from tests.unit.conftest import gui_pump                            # noqa: E402
 from tests.unit.timeline_env import add_file, add_mail, noon        # noqa: E402

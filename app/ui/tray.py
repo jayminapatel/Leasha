@@ -160,7 +160,7 @@ def tray_icon_path() -> Optional[Path]:
 
 def install_window_icon(application: Any) -> bool:
     """Set the taskbar and window icon. True if a file was found."""
-    from PyQt6.QtGui import QIcon
+    from PySide6.QtGui import QIcon
 
     path = icon_path()
     if path is None:
@@ -196,7 +196,7 @@ class TrayPresence:
         does nothing is worse than a switch that is not offered.
         """
         try:
-            from PyQt6.QtWidgets import QSystemTrayIcon
+            from PySide6.QtWidgets import QSystemTrayIcon
 
             return bool(QSystemTrayIcon.isSystemTrayAvailable())
         except Exception:                        # noqa: BLE001 - a probe
@@ -210,8 +210,8 @@ class TrayPresence:
         if path is None or not self.available():
             return False
 
-        from PyQt6.QtGui import QIcon
-        from PyQt6.QtWidgets import QMenu, QSystemTrayIcon
+        from PySide6.QtGui import QIcon
+        from PySide6.QtWidgets import QMenu, QSystemTrayIcon
 
         self._tray = QSystemTrayIcon(QIcon(str(path)), self._window)
         menu = QMenu()
@@ -237,7 +237,7 @@ class TrayPresence:
     # -- behaviour ------------------------------------------------------------
 
     def _on_activated(self, reason: Any) -> None:
-        from PyQt6.QtWidgets import QSystemTrayIcon
+        from PySide6.QtWidgets import QSystemTrayIcon
 
         # Both, because which one people expect differs by platform and habit,
         # and neither is destructive.
@@ -295,7 +295,7 @@ class TrayPresence:
         """
         if self._tray is None:
             return
-        from PyQt6.QtWidgets import QSystemTrayIcon
+        from PySide6.QtWidgets import QSystemTrayIcon
 
         self._tray.showMessage(
             "Leasha is still running",

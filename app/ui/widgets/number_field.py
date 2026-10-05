@@ -46,8 +46,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QEvent, QObject, QSize, Qt, QTime
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTime
+from PySide6.QtWidgets import (
     QAbstractSpinBox, QDateTimeEdit, QDoubleSpinBox, QLineEdit, QSpinBox, QToolButton,
     QWidget,
 )

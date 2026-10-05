@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent
-from PyQt6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QKeyEvent
+from PySide6.QtWidgets import QLabel, QSplitter, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import is_web_receipt, passage_html, receipt_to_result
 from app.ui.result_delegate import ROLE_PAYLOAD
@@ -44,10 +44,10 @@ NOTHING_YET = "Passages from your files appear here as the answer uses them."
 
 
 class SourcesPane(QWidget):
-    opened = pyqtSignal(object)            # a ResultRow
-    revealed = pyqtSignal(object)
+    opened = Signal(object)            # a ResultRow
+    revealed = Signal(object)
     #: An `AppError` from the preview (a file that would not render).
-    error = pyqtSignal(object)
+    error = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

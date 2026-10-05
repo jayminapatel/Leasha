@@ -30,8 +30,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PyQt6.QtGui import QAction, QGuiApplication
-from PyQt6.QtWidgets import QMenu, QWidget
+from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtWidgets import QMenu, QWidget
 
 __all__ = ["FileActions", "build_menu"]
 
@@ -234,7 +234,7 @@ def show_for(widget: Any, point: Any, path: str, actions: FileActions) -> None:
     is what `viewport_point` below is for.
     """
     menu = build_menu(widget, path, actions)
-    menu.exec(widget.mapToGlobal(point))
+    type(menu).exec(menu, widget.mapToGlobal(point))
 
 
 def viewport_point(view: Any, point: Any) -> Any:

@@ -24,9 +24,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt                                          # noqa: E402
+from PySide6.QtCore import Qt                                          # noqa: E402
 
 from tests.unit.conftest import gui_pump                             # noqa: E402
 
@@ -85,7 +85,7 @@ def test_slash_type_then_a_space_offers_the_types_the_index_actually_holds(gui_m
 # ---------------------------------------------------------------------------
 
 def test_a_file_on_an_unplugged_drive_says_which_drive_it_is_on(gui_mainwindow, qtbot):
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtWidgets import QToolButton
 
     from app.ui.presenter import offline_volume_note
     from app.ui.result_delegate import ROLE_PAYLOAD
@@ -151,8 +151,8 @@ def _answer_next_dialog(qtbot, *, type_name: str = "", accept: bool = True) -> N
     """Arrange for the next modal dialog to be answered the way a person would:
     type a name if asked, then press its OK/Scan (or Cancel) button. Polls, so
     the dialog is answered whenever `exec()` has put it on screen."""
-    from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLineEdit
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QDialog, QDialogButtonBox, QLineEdit
 
     def poll() -> None:
         dialog = QApplication.activeModalWidget()
@@ -203,7 +203,7 @@ def offline_source(gui_mainwindow, tmp_path, monkeypatch):
         Embedder, "from_settings",
         classmethod(lambda cls, settings, **kw: Embedder(
             dim=384, encoder=lambda texts: [l2_normalise([1.0] + [0.0] * 383) for _ in texts])))
-    monkeypatch.setattr("PyQt6.QtWidgets.QFileDialog.getExistingDirectory",
+    monkeypatch.setattr("PySide6.QtWidgets.QFileDialog.getExistingDirectory",
                         staticmethod(lambda *_a, **_k: str(folder)))
     return folder
 
@@ -225,7 +225,7 @@ def _row_named(view, name: str):
 @pytest.mark.skipif(__import__("sys").platform not in ("win32", "darwin"),
                     reason="telling whether a drive is plugged in needs Windows or macOS")
 def test_offline_media_scan_rescan_and_delete_pressed_for_real(gui_mainwindow, offline_source, qtbot):
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtWidgets import QToolButton
 
     app, window, store, _engine = gui_mainwindow
     view = window.offline_media_view

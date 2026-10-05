@@ -4,7 +4,7 @@ Folded into the UI Redesign (`202626160950` §9k / §9l) on 2026-09-16.
 
 Two Qt-free checks run anywhere: the surface list matches the pages the
 window declares, and every golden on disk has a surface. The grab itself and
-the golden comparison need PyQt6 and are skipped without it - run them on
+the golden comparison need PySide6 and are skipped without it - run them on
 the Windows venv:
 
     venv\Scripts\python.exe -m pytest tests/unit/test_grab_ui.py -v
@@ -69,7 +69,7 @@ def test_every_golden_on_disk_names_a_surface():
 
 @pytest.fixture(scope="module")
 def grabbed(tmp_path_factory):
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     from tools import grab_ui
 
     out = tmp_path_factory.mktemp("grabs")
@@ -119,7 +119,7 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
     used to compare `grabs/<name>.png` with `GOLDEN/<name>.png`, a path that
     does not exist (the goldens live under `<theme>-<size>/<theme>/`), so every
     file was skipped and the test could not fail."""
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     if not GOLDEN.is_dir() or not any(GOLDEN.rglob("*.png")):
         pytest.skip("no goldens captured yet (§9i runs on the Windows venv)")
     import sys as _sys

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtWidgets import QHBoxLayout, QPushButton
+from PySide6.QtWidgets import QHBoxLayout, QPushButton
 
 from app.ui.widgets.buttons import ROW_SPACING, style_button
 

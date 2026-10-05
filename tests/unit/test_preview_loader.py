@@ -446,7 +446,7 @@ def test_the_pane_never_loads_a_pdf_from_its_path_when_it_has_the_bytes(
     import os
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     QApplication.instance() or QApplication([])
     from app.ui.widgets.preview import PreviewPane

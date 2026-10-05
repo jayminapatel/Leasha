@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.97 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.98 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,28 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (23:30) - Leasha runs on PySide6 6.11.0.** The owner released order
+`202626270238` after seeing the trial window, and the trial branch was merged into `main`. This
+supersedes the 22:15 entry below ("nothing about PySide6 is on `main`").
+
+- **The binding:** `requirements.txt` names `PySide6==6.11.0` (Essentials and Addons). The Qt is
+  the same 6.11; the golden pictures pass. `LICENSE` stays MIT; `docs/THIRD_PARTY_NOTICES.md`
+  now has a Qt for Python section (LGPL-3.0), which it never had for PyQt6 either.
+- **The laptop venv has both PyQt6 and PySide6.** Nothing imports PyQt6 any more, and
+  `tests/unit/test_one_qt_binding.py` fails if anything does. PyQt6 can be removed with
+  `venv\Scripts\python.exe -m pip uninstall PyQt6 PyQt6-Qt6 PyQt6_sip` while Leasha is closed.
+  `pyproject.toml` names `qt_api = "pyside6"` for pytest-qt.
+- **Traps, new:** under PySide6 6.11 a menu reached through `QAction.menu()` is destroyed when the
+  action's Python handle goes - find menus as the bar's children. A Python `__lt__` override must
+  not call `super().__lt__` (it recurses). `sip` is `app/ui/qtsip.py` (shiboken6); its
+  `transferto` refuses, because PySide6 has no ownership transfer.
+- **Suite:** **13,282 passed, 0 failed**, no process crashed (131 skipped; 3 processes, 19 min) (laptop, after the merge). GitHub, on the trial branch with only PySide6
+  installed: Windows green, macOS 13,060 / 1 (that one fixed in `e67afe4`).
+- **Open, the owner's:** the order's hand checks - close mid-search, close mid-index, the smoke
+  test with an image and a PDF preview.
+- **The trial is finished:** branch `trial/pyside6` and worktree `.worktrees/pyside6` (with its
+  own venv, `.env` and a scratch copy of the demo store) can be removed.
 
 **2026-10-05 (22:45) - two Describe faults in the photo window, fixed on `main`.** Found by
 GitHub's Mac job on the PySide6 trial branch (1 failure in 13,061; Windows on the same branch

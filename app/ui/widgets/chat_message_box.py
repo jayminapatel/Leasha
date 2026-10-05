@@ -25,9 +25,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtGui import QKeyEvent, QTextCursor
-from PyQt6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QWidget
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtGui import QKeyEvent, QTextCursor
+from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QWidget
 
 from app.ui.presenter.chat import PLACEHOLDER, WEB_LABEL, WEB_OFF_TIP, WEB_ON_TIP
 
@@ -37,10 +37,10 @@ MAX_LINES = 5
 
 
 class _Edit(QPlainTextEdit):
-    submitted = pyqtSignal()
-    open_source = pyqtSignal()
-    walk = pyqtSignal(int)
-    escaped = pyqtSignal()
+    submitted = Signal()
+    open_source = Signal()
+    walk = Signal(int)
+    escaped = Signal()
 
     def event(self, event: QEvent) -> bool:
         """Claim Esc from the window's own Esc shortcut (which clears Search)."""
@@ -76,13 +76,13 @@ class _Edit(QPlainTextEdit):
 class MessageBox(QWidget):
     """The text box with Send and Stop beside it."""
 
-    submitted = pyqtSignal(str)
-    stop_requested = pyqtSignal()
-    walk_requested = pyqtSignal(int)
-    open_source_requested = pyqtSignal()
-    escaped = pyqtSignal()
+    submitted = Signal(str)
+    stop_requested = Signal()
+    walk_requested = Signal(int)
+    open_source_requested = Signal()
+    escaped = Signal()
     #: The Web chip was switched (`True` = on for this conversation).
-    web_toggled = pyqtSignal(bool)
+    web_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

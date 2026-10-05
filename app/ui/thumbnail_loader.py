@@ -96,7 +96,7 @@ THUMBNAIL_EDGE = 220
 
 def _scaled_to_edge(image: Any, edge: int) -> Any:
     """Longest side no bigger than `edge`, aspect kept. Never upscales."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     width, height = image.width(), image.height()
     if width <= 0 or height <= 0:
@@ -162,7 +162,7 @@ def decode_face_crop(
     the face was detected) is a placeholder tile, never a crash.
     """
     try:
-        from PyQt6.QtCore import QRect
+        from PySide6.QtCore import QRect
 
         from app.ui.preview_loader import decode_image
 

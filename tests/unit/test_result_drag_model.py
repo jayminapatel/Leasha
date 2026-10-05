@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 import os                                                   # noqa: E402
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")        # noqa: E402
 
-from PyQt6.QtGui import QStandardItem                        # noqa: E402
-from PyQt6.QtWidgets import QApplication                     # noqa: E402
+from PySide6.QtGui import QStandardItem                        # noqa: E402
+from PySide6.QtWidgets import QApplication                     # noqa: E402
 
 from app.ui.result_delegate import ROLE_PAYLOAD               # noqa: E402
 from app.ui.widgets.result_drag_model import DraggableResultsModel  # noqa: E402

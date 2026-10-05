@@ -18,12 +18,12 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 def _pump(ms: int = 3_000) -> None:
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance()
     QThreadPool.globalInstance().waitForDone(ms)
@@ -366,7 +366,7 @@ def test_plain_files_that_look_numbered_are_not_messages():
 
 
 def test_a_web_address_goes_to_the_browser_not_to_a_worker(launched, monkeypatch):
-    from PyQt6.QtGui import QDesktopServices
+    from PySide6.QtGui import QDesktopServices
 
     from app.ui import workers
 

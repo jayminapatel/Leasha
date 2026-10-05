@@ -10,7 +10,7 @@ On 2026-08-27 the new exception hook caught this, in `logs/crash/crash.log`:
     NameError: name 'QThreadPool' is not defined
 
 `QThreadPool` was used but never imported, so **`notify_finished` had never
-once worked** - and it runs every time an index run ends. Under PyQt6 an
+once worked** - and it runs every time an index run ends. Under PySide6 an
 exception escaping a slot calls `qFatal()`, so this was not a logged warning:
 it was the window vanishing. A second one, `QPrinter` in
 `preview_window._print_picture`, would have done the same to anybody printing
@@ -58,7 +58,7 @@ def test_no_undefined_names_anywhere_in_app(ruff_available) -> None:
     del ruff_available
     result = _ruff("--select", "F821", "--quiet", "app/")
     assert result.returncode == 0, (
-        "a name is used that does not exist. Under PyQt6 this is not an error "
+        "a name is used that does not exist. Under PySide6 this is not an error "
         "message, it is the process dying:\n\n" + (result.stdout or result.stderr))
 
 

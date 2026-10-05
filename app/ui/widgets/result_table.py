@@ -33,8 +33,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QTableWidget, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QAbstractItemView, QTableWidget, QWidget
 
 __all__ = [
     "ResultTable", "ROLE_ROW", "ROLE_RANK", "RELEVANCE", "ALIGNMENTS",
@@ -110,7 +110,7 @@ class ResultTable(QTableWidget):
 
     #: The row under the cursor changed. The preview pane listens; nothing else
     #: does, and this widget does not know the preview exists.
-    selected = pyqtSignal(object)
+    selected = Signal(object)
 
     def __init__(self, headings: Sequence[str], *, sortable: bool = True,
                  alternating: bool = False, ranked: bool = False,

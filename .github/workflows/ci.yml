@@ -1,7 +1,7 @@
 name: CI
 
 # Order 0m section 5c - the contributor gate for the open-source future.
-# windows-latest because PyQt6, pywin32 and Outlook COM are Windows-bound -
+# windows-latest because PySide6 (PyQt6 until 2026-10-05), pywin32 and Outlook COM are Windows-bound -
 # this project has no meaningful Linux CI, and pretending otherwise would
 # just mean 17-22 tests silently skipped on every run (see the `leasha`
 # skill's own section 6 on the Linux-sandbox baseline).

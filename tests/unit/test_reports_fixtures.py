@@ -97,7 +97,7 @@ def _write_the_pdf(document: str, target) -> None:
         env["QT_QPA_FONTDIR"] = str(fonts)
     source = Path(target).with_suffix(".md")
     source.write_text(document, encoding="utf-8")
-    script = ("import sys; from pathlib import Path; from PyQt6.QtWidgets import QApplication;"
+    script = ("import sys; from pathlib import Path; from PySide6.QtWidgets import QApplication;"
               "app = QApplication([]); from app.ui.reports_view import _write_pdf;"
               "_write_pdf(Path(sys.argv[1]).read_text(encoding='utf-8'), sys.argv[2])")
     done = subprocess.run([sys.executable, "-c", script, str(source), str(target)], env=env,

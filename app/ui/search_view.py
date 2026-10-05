@@ -20,8 +20,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from PyQt6.QtCore import QEvent, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtCore import QEvent, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import QWidget
 
 from app.ui.presenter import (
     IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, federated_summary, notice_register_for,
@@ -48,22 +48,22 @@ __all__ = ["SearchView"]
 class SearchView(QWidget):
     """Search bar, filter chips, and the results beneath them."""
 
-    result_opened = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
-    reindex_requested = pyqtSignal(object)
+    result_opened = Signal(object)
+    reveal_requested = Signal(object)
+    reindex_requested = Signal(object)
     #: A new text size or spacing for the results pane, for the window to save.
-    view_preferences_changed = pyqtSignal(object)
-    error = pyqtSignal(object)
+    view_preferences_changed = Signal(object)
+    error = Signal(object)
 
     #: One search, described by shape only - never the text of the query. The
     #: debug recorder listens to this; see `debug_recorder.py` for why a session
     #: file that contained somebody's actual searches would be a file nobody
     #: would ever send.
-    searched = pyqtSignal(dict)
+    searched = Signal(dict)
 
     #: Emitted after an interpretation, with the `Translation`. The window uses
     #: it for the status bar and the debug recorder.
-    interpreted = pyqtSignal(object)
+    interpreted = Signal(object)
 
     def __init__(self, engine: Any, translator: Any = None, parent: QWidget | None = None) -> None:
         super().__init__(parent)

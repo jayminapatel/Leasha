@@ -58,9 +58,9 @@ def test_the_line_reads_as_a_sentence():
 
 
 def test_the_funnel_shows_both_lines(store):
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.status_funnel import StatusFunnel
 

@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PyQt6.QtWidgets import QTabWidget, QTableView
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtWidgets import QTabWidget, QTableView
 
 from app.extract.cells import cached_letter
 

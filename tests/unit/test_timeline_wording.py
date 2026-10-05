@@ -18,15 +18,17 @@ checks it says what pressing the control does.
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QWidget  # noqa: E402
+
 import os
 import re
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import (                                      # noqa: E402
+from PySide6.QtWidgets import (                                      # noqa: E402
     QAbstractButton, QComboBox, QLineEdit, QMenu, QWidget,
 )
 
@@ -121,7 +123,7 @@ def built(qtbot, tmp_path):
     view.resize(1000, 700)
     view.show()
     yield view
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -138,7 +140,7 @@ def test_every_label_tooltip_and_placeholder_on_the_reports_page_and_timeline_pa
 def test_every_control_on_the_timeline_says_what_pressing_it_does(built):
     r"""Runtime tooltip-effect: not merely present, but a sentence about an effect."""
     timeline = built.timeline
-    controls = timeline.findChildren((QAbstractButton, QComboBox, QLineEdit))
+    controls = [w for w in timeline.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))]
     assert len(controls) >= 18                     # kind, group, year, 13 month buttons, 2 dates, Show
     for control in controls:
         said = control.toolTip() or (control.placeholderText() if isinstance(control, QLineEdit) else "")

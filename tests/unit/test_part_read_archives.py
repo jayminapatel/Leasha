@@ -152,8 +152,8 @@ def test_a_run_stopped_inside_an_archive_is_shown_until_one_finishes_it(
 
 @pytest.mark.gui
 def test_the_indexing_page_shows_both_rows_apart(qtbot, tmp_path) -> None:
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QLabel
 
     from app.ui.indexing_view import IndexingView
 

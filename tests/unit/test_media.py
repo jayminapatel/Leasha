@@ -851,8 +851,8 @@ def test_settings_are_clamped_and_a_bad_model_falls_back():
 
 
 def test_a_media_box_holds_all_five_and_says_what_is_missing(monkeypatch):
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtWidgets import QApplication, QWidget
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QWidget
 
     from app.ui.widgets.media_box import MediaBox, model_sentence, tools_sentence
 
@@ -889,8 +889,8 @@ def test_a_media_box_holds_all_five_and_says_what_is_missing(monkeypatch):
 
 
 def test_opening_the_box_writes_nothing():
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtWidgets import QApplication
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
 
     from app.ui.widgets.media_box import MediaBox
 

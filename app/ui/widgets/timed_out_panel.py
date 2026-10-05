@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QGroupBox, QHBoxLayout, QLabel, QPushButton, QSpinBox, QVBoxLayout, QWidget,
 )
 
@@ -48,7 +48,7 @@ class TimedOutPanel(QGroupBox):
 
     #: `(ext, factor)`: the type as `files.ext` holds it (`""` for files with
     #: no extension) and how many times the usual limit to give.
-    retryRequested = pyqtSignal(str, float)
+    retryRequested = Signal(str, float)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(PANEL_TITLE, parent)

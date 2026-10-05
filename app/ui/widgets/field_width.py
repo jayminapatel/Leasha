@@ -16,7 +16,7 @@ Text boxes are left alone - a folder path or a model name really is long.
 
 from __future__ import annotations
 
-from PyQt6.QtWidgets import QAbstractSpinBox, QComboBox, QSizePolicy, QWidget
+from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QSizePolicy, QWidget
 
 __all__ = ["fit_fields", "COMBO_MIN_PX", "NUMBER_MIN_PX"]
 

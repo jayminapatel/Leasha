@@ -28,9 +28,9 @@ import time
 from collections import OrderedDict
 from typing import Any, Optional
 
-from PyQt6.QtCore import QEvent, QRect, QSize, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
+from PySide6.QtWidgets import (
     QAbstractItemView, QListView, QStyle, QStyledItemDelegate, QToolTip,
 )
 
@@ -255,11 +255,11 @@ class TimelineList(QListView):
     """A virtualised list of `Block`s that asks for more when it runs out."""
 
     #: A row or a photograph was opened (Enter, double-click). Carries the entry.
-    opened = pyqtSignal(object)
+    opened = Signal(object)
     #: The bottom is near: the view should ask its worker for the next page.
-    near_end = pyqtSignal()
+    near_end = Signal()
     #: One photograph or row was right-clicked; carries `(fold, global point)`.
-    menu_requested = pyqtSignal(object, object)
+    menu_requested = Signal(object, object)
 
     def __init__(self, parent: Any = None) -> None:
         super().__init__(parent)

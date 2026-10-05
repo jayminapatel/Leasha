@@ -19,8 +19,8 @@ import time
 from pathlib import Path
 
 import pytest
-from PyQt6.QtCore import QThreadPool
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QApplication
 
 from app.core.errors import make_error
 from app.core.file_state import explain
@@ -238,7 +238,7 @@ def test_search_words_come_from_one_read_on_the_decorating_worker(store) -> None
 
 
 def test_the_search_list_paints_and_explains_the_word(qtbot) -> None:
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.search.engine import SearchResult
     from app.ui.results_view import ResultsView

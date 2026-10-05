@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QMimeData, Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QMimeData, Qt, Signal
+from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -86,7 +86,7 @@ class MailCardView(QFrame):
 
     #: 4c: a message in the conversation list was clicked. Carries the Mail
     #: list's own row for it; the pane previews that row in place.
-    message_chosen = pyqtSignal(object)
+    message_chosen = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

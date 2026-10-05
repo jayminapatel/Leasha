@@ -25,8 +25,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
     QHeaderView,
@@ -120,12 +120,12 @@ def _header_data(store: Any) -> tuple:
 class FilesView(QWidget):
     """A filename browser: type, get files, double-click to open."""
 
-    error = pyqtSignal(object)
+    error = Signal(object)
 
     #: A path to search the *contents* of. The bridge between the two lists:
     #: found it by name, now find what is in it. Without it the filename
     #: browser is a dead end - you can see the file and do nothing with it.
-    search_inside_requested = pyqtSignal(str)
+    search_inside_requested = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -371,7 +371,7 @@ class FilesView(QWidget):
         A table that can only be acted on with a mouse fails the keyboard-only
         requirement, and this one could not even be opened without one.
         """
-        from PyQt6.QtCore import QEvent
+        from PySide6.QtCore import QEvent
 
         if watched is self.results and event.type() == QEvent.Type.KeyPress:
             if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):

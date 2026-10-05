@@ -23,8 +23,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout,
 )
 
@@ -64,7 +64,7 @@ def _elsewhere(text: str) -> QLabel:
 class LongRunBox(QGroupBox):
     """Which pass to run, and how often to re-check an archive."""
 
-    changed = pyqtSignal()
+    changed = Signal()
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         # **Renamed rather than rebuilt.** §4c-3 asks for a Coverage group and

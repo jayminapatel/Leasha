@@ -1,6 +1,8 @@
 # Work order: scope change - local search you can describe in plain English
 
-**Doc version:** 2.3 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.2
+**Doc version:** 2.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.2
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **Supersedes version 1.0 of this document**, which made prose chat the headline feature. That
 was an inference, and it was wrong. The owner has since been explicit:

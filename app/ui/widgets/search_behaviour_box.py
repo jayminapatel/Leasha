@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QLineEdit,
     QCheckBox,
     QComboBox,
@@ -82,7 +82,7 @@ class SearchBehaviourBox(QGroupBox):
     """The six switches, the effect grid, and the reset."""
 
     #: `{registry key: value}` - the shape `_settings_changed` writes.
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None,
                  parent: Optional[QWidget] = None) -> None:

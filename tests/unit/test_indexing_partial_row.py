@@ -60,8 +60,8 @@ def test_the_summary_payload_carries_the_last_runs_warnings(tmp_path) -> None:
 @pytest.mark.gui
 def test_the_indexing_tab_shows_a_partly_read_archive(qtbot, tmp_path) -> None:
     """The scenario: open the tab over an index whose last run met a short archive."""
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QLabel
 
     from app.ui.indexing_view import IndexingView
 

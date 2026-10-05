@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import QGroupBox, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter import archive_summary
 
@@ -30,7 +30,7 @@ __all__ = ["ArchivedRoots"]
 class ArchivedRoots(QGroupBox):
     """One line per skipped folder, and a button to walk them all now."""
 
-    rescan_requested = pyqtSignal()
+    rescan_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Archived folders", parent)

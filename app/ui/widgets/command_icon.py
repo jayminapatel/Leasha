@@ -29,8 +29,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QRectF, Qt
-from PyQt6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QRectF, Qt
+from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 
 __all__ = ["icon_for", "clear_cache", "ICON_PX"]
 
@@ -108,8 +108,8 @@ def text_colour(widget: Optional[Any]) -> QColor:
     carry its own palette, and asked at paint time rather than at startup
     because the theme changes while the window is open.
     """
-    from PyQt6.QtGui import QPalette
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtGui import QPalette
+    from PySide6.QtWidgets import QApplication
 
     try:
         palette = widget.palette() if widget is not None else QApplication.palette()

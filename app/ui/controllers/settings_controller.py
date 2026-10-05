@@ -36,8 +36,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThreadPool
-from PyQt6.QtWidgets import QDialog
+from PySide6.QtCore import QObject, QThreadPool
+from PySide6.QtWidgets import QDialog
 
 from app.core.errors import to_app_error
 from app.core.logging import logger

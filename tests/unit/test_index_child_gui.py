@@ -26,9 +26,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt                                     # noqa: E402
+from PySide6.QtCore import Qt                                     # noqa: E402
 
 from app.index import child_run                                 # noqa: E402
 from tests.unit.test_index_freshness import write_aged          # noqa: E402
@@ -131,7 +131,7 @@ def test_a_child_that_dies_is_explained_on_the_page(child_mode, qtbot, monkeypat
     view.error.connect(errors.append)
     # The window also puts the error in a message box (`_show_error`), which
     # would wait for a click; its words are recorded instead of shown.
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtWidgets import QMessageBox
 
     boxes: list = []
     monkeypatch.setattr(QMessageBox, "exec", lambda box: boxes.append(

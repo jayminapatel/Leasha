@@ -128,9 +128,9 @@ def test_the_stamp_changes_when_faces_are_grouped(store):
 
 @pytest.fixture(scope="module")
 def qapp():
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     yield QApplication.instance() or QApplication([])
 
@@ -172,8 +172,8 @@ def test_naming_a_second_group_after_a_named_person_combines_them(store):
 
 
 def test_the_page_asks_before_combining_and_no_leaves_both(qapp, store, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QMessageBox
 
     from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
 
@@ -263,8 +263,8 @@ def test_accept_all_files_every_suggestion_for_one_person_or_everyone(store):
 
 
 def test_the_page_asks_with_the_numbers_before_accepting_all(qapp, store, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QMessageBox
 
     from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
 

@@ -36,7 +36,7 @@ import threading
 import time
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 
 from app.chat.types import ChatTurn, WebAskEvent
 from app.core.logging import logger
@@ -93,7 +93,7 @@ STOP_GRACE_MS = 4000
 class _Bridge(QObject):
     """Carries `(question token, event)` from the worker thread to this one."""
 
-    event = pyqtSignal(object)
+    event = Signal(object)
 
 
 class _Ask:

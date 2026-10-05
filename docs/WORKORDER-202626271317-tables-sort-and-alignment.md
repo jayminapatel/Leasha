@@ -1,12 +1,14 @@
 # Work order (One thread): every table sorts, every header sits over its column
 
-**Doc version:** 1.1 · **Updated:** 2026-08-27 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI widgets — `result_table.py` centred, views follow)
 **Status:** SHIPPED — all 17 items ticked; found already complete on 2026-09-07; only the status was ever outstanding. Kept here as record. Originally RELEASED by the owner 2026-08-28. Small and **gap-schedulable**
 (privacy-defaults pattern). Owner's report, verbatim intent: *Mail sorts on
 header click; this should be global on all lists no matter where — and
 headers are centre-aligned while their columns are not; headers must align
 the same way as their column.*
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 ## 1. Sorting everywhere
 

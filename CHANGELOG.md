@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.76 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.77 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Leasha is built on Qt's own Python library now (2026-10-05)
+
+- **Nothing you see changes.** The window is drawn by the same Qt as before, and looks the same.
+- What changes is the licence of what Leasha is built on: Qt for Python (PySide6) is LGPL, so
+  Leasha can stay MIT if a copy is ever given to someone else. The library it used before
+  would have made any such copy GPL.
 
 ### Describe a photo, fixed twice over (2026-10-05)
 

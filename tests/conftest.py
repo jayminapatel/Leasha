@@ -262,7 +262,7 @@ def _qt_application():
     headless checks are the majority.
     """
     try:
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
     except Exception:                            # noqa: BLE001 - no Qt, no fixture
         yield None
         return

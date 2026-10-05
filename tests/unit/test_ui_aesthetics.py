@@ -14,7 +14,7 @@ import sys
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from app.ui import theme  # noqa: E402
@@ -22,7 +22,7 @@ from app.ui import theme  # noqa: E402
 
 @pytest.fixture(scope="module")
 def qapp():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 
@@ -105,8 +105,8 @@ def test_the_results_list_lays_its_rows_out_again_when_it_is_resized(qapp) -> No
     """The picture: with the preview and inspector open the list was 207px wide and
     its rows still 269, so the date and path were clipped and a horizontal
     scrollbar appeared. `Fixed` (the default) never lays out again."""
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QListView
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QListView
 
     from app.ui.results_view import ResultsView
 
@@ -121,7 +121,7 @@ def test_offline_media_text_keeps_its_own_height(qapp) -> None:
     """The picture: with no drive catalogued the intro, buttons, empty-state line
     and help text sat a screen apart, because the labels were the only things that
     could take the spare height."""
-    from PyQt6.QtWidgets import QSizePolicy
+    from PySide6.QtWidgets import QSizePolicy
 
     from app.ui.offline_media_view import OfflineMediaView
 
@@ -153,7 +153,7 @@ _READ_BACK = r'''
 import os, sys, json
 os.environ["QT_QPA_PLATFORM"] = "windows"
 sys.path.insert(0, os.getcwd())
-from PyQt6.QtWidgets import QApplication, QWidget
+from PySide6.QtWidgets import QApplication, QWidget
 app = QApplication([])
 window = QWidget()
 window.show()

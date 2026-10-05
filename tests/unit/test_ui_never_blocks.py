@@ -455,6 +455,10 @@ def test_no_store_call_outside_a_worker(path):
 # The presenter stays Qt-free
 # ---------------------------------------------------------------------------
 
+#: Every Python Qt binding, so a guard written against one cannot pass on another.
+QT_BINDINGS = ("PySide6", "PyQt6", "PyQt5", "PySide2")
+
+
 def test_the_presenter_still_does_not_import_qt():
     """The whole reason the logic is testable. One import here and half of this
     file's guarantees become unverifiable."""
@@ -462,8 +466,9 @@ def test_the_presenter_still_does_not_import_qt():
     assert len(files) > 2, "the presenter package has gone missing"
     for path in files:
         text = source(path)
-        assert "PyQt6" not in text, path.name
-        assert "from PyQt" not in text, path.name
+        # Both bindings (order 202626270238 §2a, 2026-10-05).
+        for binding in QT_BINDINGS:
+            assert binding not in text, (path.name, binding)
 
 
 def test_the_model_and_view_option_rules_are_qt_free_too():
@@ -472,10 +477,10 @@ def test_the_model_and_view_option_rules_are_qt_free_too():
     or they stop being tested."""
     options = source(UI / "view_options.py")
     top = options.split("# The Qt half")[0]
-    assert "PyQt6" not in top, "Qt reached the decision half of view_options"
+    assert not any(b in top for b in QT_BINDINGS), "Qt reached the decision half of view_options"
 
     models = (UI.parents[0] / "llm" / "models.py").read_text(encoding="utf-8")
-    assert "PyQt6" not in models
+    assert not any(b in models for b in QT_BINDINGS)
 
 
 # ---------------------------------------------------------------------------
@@ -789,7 +794,7 @@ def test_progress_reaches_the_screen_through_a_signal():
 # **`UnboundLocalError: cannot access local variable 'QTimer'`, and the window
 # would not open at all.** `MainWindow.__init__` used `QTimer` at line 207; four
 # hundred lines later, still inside the same function, sat a redundant
-# `from PyQt6.QtCore import QTimer`. Python binds names per *function*, not per
+# `from PySide6.QtCore import QTimer`. Python binds names per *function*, not per
 # line, so that import made `QTimer` local for the whole of `__init__` and the
 # earlier use referred to a variable that did not exist yet.
 #

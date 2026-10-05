@@ -37,10 +37,10 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QWidget  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from app.index import pipeline as pipeline_module  # noqa: E402
 from app.index.activity import ActivityLog  # noqa: E402
@@ -208,7 +208,10 @@ def test_the_window_still_wires_start_to_the_moved_button(gui_mainwindow) -> Non
     _app, window, _store, _engine = gui_mainwindow
     page = window.indexing_view
     assert page.start_button is page.controls.start_button
-    assert page.start_button.receivers(page.start_button.clicked) >= 1
+    # PySide6 counts connections by the signal's signature, not its object.
+    from PySide6.QtCore import SIGNAL
+
+    assert page.start_button.receivers(SIGNAL("clicked(bool)")) >= 1
 
 
 # ---------------------------------------------------------------------------

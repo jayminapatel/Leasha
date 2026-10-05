@@ -219,7 +219,7 @@ def _environment() -> dict[str, Any]:
     except Exception:                            # noqa: BLE001
         pass
     try:
-        from PyQt6.QtCore import QT_VERSION_STR
+        from PySide6.QtCore import QT_VERSION_STR
 
         info["qt"] = QT_VERSION_STR
     except Exception:                            # noqa: BLE001

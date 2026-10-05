@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PyQt6.QtCore import QObject, QThreadPool
+from PySide6.QtCore import QObject, QThreadPool
 
 from app.core.logging import logger
 from app.ui.state_writes import save_state

@@ -18,8 +18,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtGui import QAction
-from PyQt6.QtWidgets import QWidget
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.segmented import SegmentedControl
 
@@ -49,7 +49,7 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     placeholder and nobody read them when they were there; `/` does fit, and it
     is the convention every chat tool has already taught people.
     """
-    from PyQt6.QtWidgets import QLineEdit
+    from PySide6.QtWidgets import QLineEdit
 
     from app.ui.widgets.command_popup import attach_to
 
@@ -251,8 +251,8 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
 
     Returns the notice bar, which the view needs to write degradations into.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
 
     from app.ui.widgets.chips import ChipRow
     from app.ui.widgets.notice_bar import NoticeBar
@@ -374,8 +374,8 @@ def _mirror_switches(view: Any, row: Any, body: Any) -> dict:
     (dragging out, drawings). The mirror's tooltip is the checkbox's own text
     followed by its own tooltip, so nothing anybody learned is lost.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QToolButton
 
     switches = getattr(body, "switches", None)
     boxes = getattr(switches, "boxes", {}) if switches is not None else {}
@@ -485,8 +485,8 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
     toolbar - so it is this pane's setting rather than an application-wide zoom.
     No columns: a result is not a table.
     """
-    from PyQt6.QtGui import QKeySequence, QShortcut
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtGui import QKeySequence, QShortcut
+    from PySide6.QtWidgets import QLabel
 
     from app.ui.view_options import button as view_button
 
@@ -527,8 +527,8 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
 
 def _build_more(view: Any, interpret: QAction, rerank: QAction) -> tuple:
     """A QToolButton opening the menu that holds the less-used controls."""
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtWidgets import QMenu, QToolButton
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QMenu, QToolButton
 
     from app.ui.widgets.model_picker import ModelMenu
 

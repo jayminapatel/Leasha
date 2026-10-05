@@ -165,8 +165,8 @@ def test_code_narrows_by_name_and_path_rather_than_merely_offering_them() -> Non
 
 def test_the_popup_shows_only_what_it_was_restricted_to() -> None:
     """The restriction is applied to matches, not merely stored."""
-    pytest.importorskip("PyQt6")
-    from PyQt6.QtWidgets import QApplication, QLineEdit
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QLineEdit
 
     from app.ui.widgets.command_popup import CommandPopup
 

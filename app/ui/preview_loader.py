@@ -1356,8 +1356,8 @@ def _apply_orientation(image: Any, orientation: int) -> Any:
     if orientation not in range(2, 9):
         return image
 
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QTransform
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QTransform
 
     transform = QTransform()
     if orientation == 2:                 # mirrored horizontally
@@ -1397,7 +1397,7 @@ def decode_image(path: str):
         # PIL instead of the usual `QImage(path)` one-liner.
         return _decode_heif(path)
 
-    from PyQt6.QtGui import QImage
+    from PySide6.QtGui import QImage
 
     try:
         image = QImage(str(path))
@@ -1419,8 +1419,8 @@ def decode_image_data(data: bytes):
     the EXIF orientation `decode_image` reads from the file. None for
     anything that will not decode.
     """
-    from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
-    from PyQt6.QtGui import QImageReader
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+    from PySide6.QtGui import QImageReader
 
     try:
         buffer = QBuffer()
@@ -1459,7 +1459,7 @@ def _decode_heif(path: str):
 
     try:
         from PIL import Image
-        from PyQt6.QtGui import QImage
+        from PySide6.QtGui import QImage
 
         with Image.open(str(path)) as opened:
             frame = opened.convert("RGBA")

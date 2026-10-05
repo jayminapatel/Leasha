@@ -31,8 +31,8 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from app.ui.presenter import notice_line
 
@@ -42,9 +42,9 @@ __all__ = ["NoticeBar"]
 class NoticeBar(QWidget):
     """Zero or more notices, or nothing at all when the search was healthy."""
 
-    dismissed = pyqtSignal()
+    dismissed = Signal()
     #: A link inside a notice was clicked, with its `href`.
-    chosen = pyqtSignal(str)
+    chosen = Signal(str)
 
     def __init__(self, parent: Any | None = None) -> None:
         super().__init__(parent)

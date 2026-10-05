@@ -23,9 +23,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor, QTextCursor, QTextDocument
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QTextCursor, QTextDocument
+from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget,
 )
 
@@ -68,10 +68,10 @@ class FindBar(QWidget):
     """A find box, next/previous, and a count. Hidden until Ctrl+F."""
 
     #: Somebody pressed Escape or Close. The host hides it and takes focus back.
-    dismissed = pyqtSignal()
+    dismissed = Signal()
     #: Shown or hidden, including by an ancestor - `attach_find` keeps its
     #: Escape shortcut enabled exactly while this is True.
-    visibilityChanged = pyqtSignal(bool)                     # noqa: N815
+    visibilityChanged = Signal(bool)                     # noqa: N815
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -85,7 +85,7 @@ class FindBar(QWidget):
         self.box.setAccessibleName("Find in this document")
         # 2026-10-04: the clear button Qt puts in the box is a control like any
         # other; give it words for a screen reader and the tooltip sweep.
-        from PyQt6.QtWidgets import QToolButton
+        from PySide6.QtWidgets import QToolButton
 
         for clear in self.box.findChildren(QToolButton):
             clear.setAccessibleName("Clear the find box")
@@ -174,7 +174,7 @@ class FindBar(QWidget):
         if self._view is None:
             return
         try:
-            from PyQt6.QtWidgets import QTextEdit
+            from PySide6.QtWidgets import QTextEdit
 
             selections = []
             if needle:
@@ -267,7 +267,7 @@ def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
     next one empties the box. A window of its own (the pop-out) keeps this
     shortcut: it has no other Escape to collide with.
     """
-    from PyQt6.QtGui import QShortcut, QKeySequence
+    from PySide6.QtGui import QShortcut, QKeySequence
 
     bar = FindBar(host)
     bar.attach(view)

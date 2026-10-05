@@ -15,8 +15,8 @@ sort exactly as they did before.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QTableWidgetItem, QTreeWidgetItem
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QTableWidgetItem, QTreeWidgetItem
 
 __all__ = ["SORT_ROLE", "SortableItem", "SortableTreeItem"]
 

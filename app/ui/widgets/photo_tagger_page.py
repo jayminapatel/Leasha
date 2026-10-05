@@ -27,9 +27,9 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any, Optional
 
-from PyQt6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QDrag, QIcon, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QMimeData, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QDrag, QIcon, QPixmap
+from PySide6.QtWidgets import (
     QAbstractItemView, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
     QGridLayout,
     QHBoxLayout, QInputDialog, QLabel, QListView, QListWidget, QListWidgetItem,
@@ -94,7 +94,7 @@ class _PileList(QListWidget):
     rearranging the grid.
     """
 
-    combine_requested = pyqtSignal(int, int)          # source_pile_id, target_pile_id
+    combine_requested = Signal(int, int)          # source_pile_id, target_pile_id
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -152,7 +152,7 @@ class _SuggestionChip(QWidget):
     the "explicit... never a silent auto-rename" promise this module's own
     docstring makes, given a face."""
 
-    decided = pyqtSignal(int, bool)          # face_id, accept
+    decided = Signal(int, bool)          # face_id, accept
 
     def __init__(self, suggestion: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -214,7 +214,7 @@ class PhotoTaggerPage(QWidget):
     #: A photo was opened from the "manage faces" dialog - the page has no
     #: own preview; the opener (wherever this widget is placed) decides what
     #: "open" means, the same delegation `ThumbnailGrid.opened` already uses.
-    opened = pyqtSignal(str)
+    opened = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -773,7 +773,7 @@ class PhotoTaggerPage(QWidget):
         rename_action = menu.addAction("Name this person…")
         manage_action = menu.addAction("Manage the faces in this pile…")
         forget_action = menu.addAction("Forget this person…")
-        chosen = menu.exec(self._list.mapToGlobal(point))
+        chosen = type(menu).exec(menu, self._list.mapToGlobal(point))
 
         if chosen is rename_action:
             self._rename(pile_id, item.text())

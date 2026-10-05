@@ -13,9 +13,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtGui import QColor  # noqa: E402
+from PySide6.QtGui import QColor  # noqa: E402
 
 from app.ui.widgets.shimmer_bar import ShimmerBar, fill_colours, text_on  # noqa: E402
 

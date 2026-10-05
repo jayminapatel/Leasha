@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     finished_text, index_summary, part_read_rows, progress_for, progress_text,

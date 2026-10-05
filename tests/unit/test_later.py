@@ -22,10 +22,10 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6 import sip                                                    # noqa: E402
-from PyQt6.QtCore import QCoreApplication, QObject, QTimer               # noqa: E402
+from app.ui import qtsip as sip                                                    # noqa: E402
+from PySide6.QtCore import QCoreApplication, QObject, QTimer               # noqa: E402
 
 from app.ui.later import later                                           # noqa: E402
 

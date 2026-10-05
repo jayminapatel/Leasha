@@ -47,7 +47,7 @@ def _module_root(name: str) -> str:
 def _is_allowed(module_name: str) -> bool:
     """True unless `module_name` names a disallowed first-party subsystem.
 
-    Anything that is not rooted at `app` (stdlib, PyQt6, third-party) is out
+    Anything that is not rooted at `app` (stdlib, PySide6, third-party) is out
     of scope for this check - it exists to keep the *heavy first-party*
     subsystems (index/search/storage/the whole UI shell) off the path to
     splash-show, not to police every import in the file.

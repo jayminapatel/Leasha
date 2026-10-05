@@ -19,11 +19,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from app.ui.widgets.index_flows import (  # noqa: E402
     ADOPT,
@@ -48,7 +48,7 @@ def settled(dialog):
     as it opens - so a test waits for both answers before reading it."""
     import time
 
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
 
     app = QApplication.instance()
     deadline = time.monotonic() + 5

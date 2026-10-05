@@ -9,8 +9,8 @@ widget because `reports_view.py` is at the line guard.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QSize
-from PyQt6.QtWidgets import QListWidget, QListWidgetItem
+from PySide6.QtCore import QSize
+from PySide6.QtWidgets import QListWidget, QListWidgetItem
 
 from app.ui.widgets.timeline_host import REPORT_KEY
 

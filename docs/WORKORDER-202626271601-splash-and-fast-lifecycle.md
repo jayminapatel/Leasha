@@ -1,11 +1,13 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.5 · **Updated:** 2026-09-29 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled
 (see §0). **Gap-schedulable** (privacy-defaults pattern); §1 is independent
 of §2/§3 and may land first.
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **The problem, measured on the owner's machine:** launching shows a Windows
 busy cursor and *nothing else* while the app waits on the single-instance

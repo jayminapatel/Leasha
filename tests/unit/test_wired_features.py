@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 
@@ -255,7 +255,7 @@ def _tick(qtbot, checkbox) -> None:
     failed-write test below "passed" through the same dead click, because
     nothing happening looks exactly like a write that did not stick.
     """
-    from PyQt6.QtWidgets import QStyle, QStyleOptionButton
+    from PySide6.QtWidgets import QStyle, QStyleOptionButton
 
     option = QStyleOptionButton()
     checkbox.initStyleOption(option)
@@ -302,7 +302,7 @@ def test_a_failed_write_is_not_left_looking_done(gui_mainwindow, qtbot, monkeypa
 def test_the_support_bundle_button_writes_the_zip(gui_mainwindow, qtbot, monkeypatch, tmp_path):
     import zipfile
 
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtWidgets import QFileDialog
 
     app, window, store, engine = gui_mainwindow
     box = window.settings_view.environment
@@ -318,7 +318,7 @@ def test_the_support_bundle_button_writes_the_zip(gui_mainwindow, qtbot, monkeyp
 
 
 def test_cancelling_the_bundle_dialog_does_nothing(gui_mainwindow, qtbot, monkeypatch):
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtWidgets import QFileDialog
 
     box = gui_mainwindow[1].settings_view.environment
     monkeypatch.setattr(QFileDialog, "getSaveFileName", staticmethod(lambda *a, **k: ("", "")))
@@ -375,7 +375,7 @@ def test_a_real_checkout_is_not_warned_about(gui_mainwindow, qtbot):
 def test_settings_that_need_a_restart_say_so_on_the_control(gui_mainwindow):
     from app.core.settings_registry import needs_restart
     from app.ui.widgets.restart_note import RESTART_NOTE, mark_restart_needed
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     app, window, store, engine = gui_mainwindow
     marked = mark_restart_needed(window)
@@ -393,7 +393,7 @@ def _saved_names(store):
 
 
 def test_saving_a_search_from_the_edit_menu(gui_mainwindow, qtbot, monkeypatch):
-    from PyQt6.QtWidgets import QInputDialog
+    from PySide6.QtWidgets import QInputDialog
 
     app, window, store, engine = gui_mainwindow
     view = window.search_view
@@ -409,7 +409,7 @@ def test_saving_a_search_from_the_edit_menu(gui_mainwindow, qtbot, monkeypatch):
 
 
 def test_an_empty_box_is_not_saved(gui_mainwindow, qtbot, monkeypatch):
-    from PyQt6.QtWidgets import QMessageBox
+    from PySide6.QtWidgets import QMessageBox
 
     app, window, store, engine = gui_mainwindow
     window.search_view.input.clear()
@@ -421,7 +421,7 @@ def test_an_empty_box_is_not_saved(gui_mainwindow, qtbot, monkeypatch):
 
 
 def test_renaming_running_and_deleting_a_saved_search(gui_mainwindow, qtbot, monkeypatch):
-    from PyQt6.QtWidgets import QInputDialog
+    from PySide6.QtWidgets import QInputDialog
 
     from app.ui.widgets.saved_dialogs import SavedSearchesDialog
 

@@ -178,15 +178,15 @@ def test_git_show_is_only_ever_run_by_the_loader() -> None:
                 if name in ("commit_preview", "show_commit"):
                     callers.append(path.name)
     assert sorted(set(callers)) == ["preview_loader.py"], callers
-    assert "PyQt6" not in inspect.getsource(module)
+    assert "PySide6" not in inspect.getsource(module)
 
 
 # --- in the pane ---------------------------------------------------------------------------
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")

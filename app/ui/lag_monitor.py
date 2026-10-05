@@ -229,7 +229,7 @@ def install(application: Any) -> LagMonitor:
     The timer is parented to the application, so it lives as long as the loop
     does - a timer nobody holds stops firing at once.
     """
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     monitor = LagMonitor()
     timer = QTimer(application)

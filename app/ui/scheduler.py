@@ -24,7 +24,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Callable, Optional
 
-from PyQt6.QtCore import QObject, QThreadPool, QTimer, pyqtSignal
+from PySide6.QtCore import QObject, QThreadPool, QTimer, Signal
 
 from app.core.logging import logger
 from app.index.schedule import SchedulePolicy, describe, is_due
@@ -41,8 +41,8 @@ TICK_MS = 60_000
 class IndexScheduler(QObject):
     """Emits `due` when a scheduled index run should start."""
 
-    due = pyqtSignal()
-    state_changed = pyqtSignal(str)          # a sentence for the status bar
+    due = Signal()
+    state_changed = Signal(str)          # a sentence for the status bar
 
     def __init__(
         self,

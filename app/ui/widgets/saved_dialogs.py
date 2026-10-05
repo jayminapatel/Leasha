@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QDialog, QHBoxLayout, QInputDialog, QLabel, QListWidget, QListWidgetItem,
     QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
@@ -60,7 +60,7 @@ class SavedSearchesDialog(QDialog):
     """The list of saved searches, with run, rename and delete."""
 
     #: `saved:name` for the search to run now - the window decides how.
-    run_requested = pyqtSignal(str)
+    run_requested = Signal(str)
 
     def __init__(self, saved: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

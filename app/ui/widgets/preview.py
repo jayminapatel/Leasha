@@ -32,9 +32,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtGui import QFontDatabase, QPixmap
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtGui import QFontDatabase, QPixmap
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
@@ -134,7 +134,7 @@ def _theme_palette(widget: QWidget) -> Any:
     numbers and keywords all but vanished (seen in the dark golden). The same
     trap `ResultDelegate.paint` documents; the same cure, the sheet's tokens.
     """
-    from PyQt6.QtGui import QColor, QPalette
+    from PySide6.QtGui import QColor, QPalette
 
     from app.ui.theme import theme_colours
 
@@ -149,16 +149,16 @@ class PreviewPane(QWidget):
     """Shows the selected result. Draws only; the reading happens elsewhere."""
 
     #: The person asked to open the file properly, from the pane.
-    open_requested = pyqtSignal(object)
+    open_requested = Signal(object)
     #: §5b: "Show in folder" from the pane - the same request the results'
     #: context menu makes, routed the same way by `attach_preview`.
-    reveal_requested = pyqtSignal(object)
+    reveal_requested = Signal(object)
     #: Workspace §2: pin this document in a window of its own. Carries the
     #: pane's `body_provider` with it, because a mail row has no file on disk
     #: and the provider is the only thing that can read the message - §2h's
     #: "no special casing beyond the synthetic-path load that already exists".
-    pop_out_requested = pyqtSignal(object, object)
-    error = pyqtSignal(object)
+    pop_out_requested = Signal(object, object)
+    error = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -202,7 +202,7 @@ class PreviewPane(QWidget):
         # UI Redesign (202626160950 §5a): the facts header. Filled from
         # `inspector.preview_facts`, Qt-free; rows it has no value for are
         # simply not drawn. Lives between the subtitle and the content.
-        from PyQt6.QtWidgets import QGridLayout
+        from PySide6.QtWidgets import QGridLayout
 
         self.facts = QWidget()
         self.facts.setObjectName("inspectorFacts")
@@ -389,15 +389,15 @@ class PreviewPane(QWidget):
         **Every failure is caught, not only `ImportError`.** This ran during
         `MainWindow.__init__`, so anything raised here took down the whole
         application before a window appeared - and it did: `QPdfView()` needs a
-        parent in PyQt6, and the missing argument turned an optional preview
+        parent in PySide6, and the missing argument turned an optional preview
         that is off by default into a program that would not start. An optional
         component must never be able to do that, whatever goes wrong inside it.
         """
         #: An attachment's PDF bytes, kept alive while the document reads them.
         self._pdf_buffer = None
         try:
-            from PyQt6.QtPdf import QPdfDocument
-            from PyQt6.QtPdfWidgets import QPdfView
+            from PySide6.QtPdf import QPdfDocument
+            from PySide6.QtPdfWidgets import QPdfView
 
             view = QPdfView(self)
             self._pdf_document = QPdfDocument(self)
@@ -437,7 +437,7 @@ class PreviewPane(QWidget):
     def _animate(self, wanted: bool) -> bool:
         """§5c: slide the splitter over 160ms. Returns False when there is no
         splitter to animate, so the caller falls back to a plain toggle."""
-        from PyQt6.QtCore import QEasingCurve, QVariantAnimation
+        from PySide6.QtCore import QEasingCurve, QVariantAnimation
 
         split = self.parentWidget()
         if not isinstance(split, QSplitter) or split.indexOf(self) < 0:
@@ -821,7 +821,7 @@ class PreviewPane(QWidget):
             if data is not None:
                 # An attachment's bytes, read on the worker (2026-10-04). The
                 # buffer is kept: the document reads its pages from it.
-                from PyQt6.QtCore import QBuffer, QByteArray, QIODevice
+                from PySide6.QtCore import QBuffer, QByteArray, QIODevice
 
                 buffer = QBuffer()
                 buffer.setData(QByteArray(bytes(data)))
@@ -837,7 +837,7 @@ class PreviewPane(QWidget):
             if page > 0:
                 navigator = self._pdf.pageNavigator()
                 if navigator is not None:
-                    from PyQt6.QtCore import QPointF
+                    from PySide6.QtCore import QPointF
 
                     # The matching page first: opening a 400-page report at
                     # page one, when the hit is on page 312, is a preview of

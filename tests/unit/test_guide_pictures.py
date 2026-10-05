@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from tools import guide_pictures  # noqa: E402
 

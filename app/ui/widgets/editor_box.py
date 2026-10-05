@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QVBoxLayout, QWidget,
 )
 
@@ -32,7 +32,7 @@ __all__ = ["EditorBox"]
 class EditorBox(QGroupBox):
     """The editor choice and its escape hatch."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None,
                  parent: Optional[QWidget] = None) -> None:

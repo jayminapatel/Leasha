@@ -17,11 +17,11 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 
@@ -142,7 +142,7 @@ class _Theme:
 def _most_contrasting(image, rect, ground) -> float:
     """The strongest contrast any pixel inside `rect` has against `ground` -
     for a thin icon, that is the icon's own stroke."""
-    from PyQt6.QtGui import QColor
+    from PySide6.QtGui import QColor
     best = 1.0
     for x in range(rect.left(), rect.right() + 1):
         for y in range(rect.top(), rect.bottom() + 1):
@@ -169,8 +169,8 @@ def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, q
 
     Now it is clicked with the mouse, grabbed, and its stroke must reach 3 to 1
     against the highlight (WCAG's floor for a meaningful graphic) in both themes."""
-    from PyQt6.QtCore import QPoint, QRect
-    from PyQt6.QtGui import QColor
+    from PySide6.QtCore import QPoint, QRect
+    from PySide6.QtGui import QColor
     from app.ui import theme
 
     app, window, *_ = gui_mainwindow
@@ -193,7 +193,7 @@ def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, q
 def _show_preview_with_a_result(app, window, qtbot) -> object:
     """Type a real search with the keyboard, walk into the results, and have
     the preview showing with its "Open" button ready. Returns the pane."""
-    from PyQt6.QtCore import Qt as _Qt
+    from PySide6.QtCore import Qt as _Qt
 
     window.rail.setCurrentIndex(window.rail.indexOf(window.search_view))
     view = window.search_view
@@ -221,8 +221,8 @@ def test_the_open_button_label_is_readable_on_its_own_fill(gui_mainwindow, qtbot
 
     Now a search is typed, a result chosen from the keyboard, the preview's
     button grabbed, and its label must reach 4.5 to 1 against the fill."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QColor
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QColor
     from app.ui import theme
 
     app, window, *_ = gui_mainwindow
@@ -250,7 +250,7 @@ def test_quiet_text_still_reaches_wcag_aa(gui_mainwindow, qtbot, scheme):
     Now the Files page is opened with the mouse, a search typed into its box,
     and the line under the box - painted in that colour - is grabbed. Its text
     must reach 4.5 to 1 against the window, in both themes."""
-    from PyQt6.QtGui import QColor
+    from PySide6.QtGui import QColor
     from app.ui import theme
 
     app, window, *_ = gui_mainwindow
@@ -318,9 +318,9 @@ def test_the_suggested_searches_and_filter_chips_are_round_not_square(gui_mainwi
     Now Escape empties the box (the home page, suggestions showing), and a
     typed `/type pdf` makes a chip; the top-left corner pixel of each must be
     the page behind it, not the pill's own fill."""
-    from PyQt6.QtCore import QPoint
-    from PyQt6.QtGui import QColor, QImage, QPainter, QRegion
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtCore import QPoint
+    from PySide6.QtGui import QColor, QImage, QPainter, QRegion
+    from PySide6.QtWidgets import QWidget
     from app.ui import theme
 
     app, window, *_ = gui_mainwindow
@@ -409,7 +409,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     its longest year, every month button as wide as its word, and no two
     controls overlap. A month is then chosen with the mouse, as a person
     would."""
-    from PyQt6.QtCore import QRect
+    from PySide6.QtCore import QRect
     from app.ui.widgets.timeline_host import REPORT_KEY
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, *size)
@@ -453,7 +453,7 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
         gui_pump(app, 4)
         assert enabled.isChecked()
     finally:
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
         names.setCurrentRow(0)
         window.rail.setCurrentIndex(0)
@@ -481,7 +481,7 @@ def test_the_fast_or_thoughtful_box_stays_the_size_of_its_words(gui_mainwindow, 
         # Opening Chat asks, on a worker, whether Ollama is there; on this
         # machine it is not, and that answer must land before this test says
         # "ready", or it lands after and hides the box's new state again.
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(10_000)
         gui_pump(app, 10)
         chat.show_available(True)
@@ -555,8 +555,8 @@ def test_the_suggested_searches_are_shown_whole_at_any_width(gui_mainwindow, qtb
     Now Escape empties the box, and every suggestion is at least as wide as
     its own words, none overlaps another or runs off the page, and a click
     on one still searches for it."""
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtCore import QRect
+    from PySide6.QtWidgets import QWidget
 
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, *size)
@@ -604,7 +604,7 @@ def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
     is read back from its new role). Then Settings is opened with Ctrl+, and
     Storage & maintenance clicked: the card's caption and log box are inset
     from its edge like every other card's contents."""
-    from PyQt6.QtGui import QColor
+    from PySide6.QtGui import QColor
     from app.ui.widgets.timeline_host import REPORT_KEY
 
     app, window, *_ = gui_mainwindow

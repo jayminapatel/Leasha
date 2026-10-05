@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import QEvent, QObject, Qt
+from PySide6.QtCore import QEvent, QObject, Qt
 
 from app.ui.timeline_view import TimelineView
 

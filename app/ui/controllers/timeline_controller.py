@@ -29,7 +29,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PyQt6.QtCore import QObject, QThreadPool
+from PySide6.QtCore import QObject, QThreadPool
 
 from app.reports.timeline import date_of_file
 from app.ui.widgets.timeline_host import show_timeline

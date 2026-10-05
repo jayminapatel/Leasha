@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 
 @pytest.fixture()
 def window(tmp_path):
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QApplication
 
     from tools import grab_ui
 
@@ -58,7 +58,7 @@ def test_a_saved_choice_of_outlook_is_what_the_drop_down_shows(window):
     assert view.pst_backend.currentData() == "outlook"
     assert view.pst_backend.currentText() == "Through Outlook (MAPI)"
     # And the sentence on Indexing, What gets read follows it.
-    from PyQt6.QtWidgets import QLabel
+    from PySide6.QtWidgets import QLabel
 
     said = " ".join(label.text() for label in shown.indexing_view.findChildren(QLabel))
     assert "Outlook archives are read through Outlook." in said

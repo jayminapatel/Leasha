@@ -23,10 +23,10 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PyQt6.QtCore import pyqtSignal                             # noqa: E402
-from PyQt6.QtWidgets import QWidget                             # noqa: E402
+from PySide6.QtCore import Signal                             # noqa: E402
+from PySide6.QtWidgets import QWidget                             # noqa: E402
 
 from app.ui.presenter.rows import MailRow, file_of_row          # noqa: E402
 from tests.unit.test_mail_preview_card import (                 # noqa: E402,F401
@@ -272,8 +272,8 @@ def test_a_pinned_message_from_an_archive_offers_no_folder(_qt_application, tmp_
 # --- a list with a route of its own keeps it (the Search tab) ----------------
 
 class _List(QWidget):
-    selected = pyqtSignal(object)
-    reveal_requested = pyqtSignal(object)
+    selected = Signal(object)
+    reveal_requested = Signal(object)
 
 
 def test_a_list_with_its_own_route_is_still_asked_for_an_ordinary_file(

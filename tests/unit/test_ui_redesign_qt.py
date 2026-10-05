@@ -1,8 +1,8 @@
 r"""UI Redesign (work order 202626160950) - the Qt half of §9.
 
-Needs PyQt6 and pytest-qt (offscreen): §9b the rail, §9e the chip widget,
+Needs PySide6 and pytest-qt (offscreen): §9b the rail, §9e the chip widget,
 §9f toasts, §9g the delegate, §9h keyboard-only, §9m responsiveness under
-indexing. Skips itself where PyQt6 is absent - the Linux sandbox this order
+indexing. Skips itself where PySide6 is absent - the Linux sandbox this order
 was built in - and is run on the Windows venv before an item is ticked:
 
     venv\Scripts\python.exe -m pytest tests/unit/test_ui_redesign_qt.py -v
@@ -19,7 +19,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tests.unit.test_window_opens import ENV, _Engine  # noqa: E402
@@ -27,7 +27,7 @@ from tests.unit.test_window_opens import ENV, _Engine  # noqa: E402
 
 @pytest.fixture(scope="module")
 def window(tmp_path_factory):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -59,7 +59,7 @@ def _pump(app, n: int = 5) -> None:
 # ---------------------------------------------------------------------------
 
 def test_the_central_widget_is_the_rail_and_there_is_no_status_bar(window):
-    from PyQt6.QtWidgets import QStatusBar, QTabWidget
+    from PySide6.QtWidgets import QStatusBar, QTabWidget
 
     from app.ui.widgets.rail import Rail
     from app.ui.widgets.space_table import SpaceTables
@@ -133,8 +133,8 @@ def test_the_pill_paints_from_plain_data(window):
 
 
 def test_keyboard_moves_the_rail(window):
-    from PyQt6.QtCore import QEvent, Qt
-    from PyQt6.QtGui import QKeyEvent
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
     app, built, _ = window
     rail = built.rail
     rail.setCurrentIndex(0)
@@ -165,7 +165,7 @@ def test_the_last_page_is_remembered_under_ui_page(window):
 
 
 def test_the_menu_bar_exists_with_the_shortcuts_it_shows(window):
-    from PyQt6.QtWidgets import QMenuBar
+    from PySide6.QtWidgets import QMenuBar
     app, built, _ = window
     bar = built.findChild(QMenuBar)
     assert bar is not None
@@ -212,7 +212,7 @@ def test_typing_a_filter_shows_a_chip_and_removing_it_edits_the_box(window):
     view.input.setText("boiler /type pdf")
     _pump(app)
     assert view.chips.labels() == ["type: pdf"]
-    from PyQt6.QtWidgets import QToolButton
+    from PySide6.QtWidgets import QToolButton
     chip = view.chips.findChild(QToolButton, "chip")
     dispatched = []
     original = view._dispatch
@@ -228,7 +228,7 @@ def test_typing_a_filter_shows_a_chip_and_removing_it_edits_the_box(window):
 
 
 def test_interpret_and_rerank_live_in_the_more_menu_with_their_labels(window):
-    from PyQt6.QtGui import QAction
+    from PySide6.QtGui import QAction
     app, built, _ = window
     view = built.search_view
     texts = [a.text() for a in view.more_menu.actions() if isinstance(a, QAction) and a.text()]
@@ -274,9 +274,9 @@ def test_a_notify_shows_a_toast_queues_a_second_and_announces(window):
 # ---------------------------------------------------------------------------
 
 def _option(width: int):
-    from PyQt6.QtCore import QRect
-    from PyQt6.QtGui import QFont
-    from PyQt6.QtWidgets import QStyleOptionViewItem
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QStyleOptionViewItem
     option = QStyleOptionViewItem()
     option.rect = QRect(0, 0, width, 200)
     option.font = QFont()
@@ -284,7 +284,7 @@ def _option(width: int):
 
 
 def test_skeleton_rows_are_as_tall_as_a_real_group_row(window):
-    from PyQt6.QtGui import QStandardItem, QStandardItemModel
+    from PySide6.QtGui import QStandardItem, QStandardItemModel
     from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate, Skeleton
     app, built, _ = window
     delegate = ResultDelegate()
@@ -295,7 +295,7 @@ def test_skeleton_rows_are_as_tall_as_a_real_group_row(window):
     hint = delegate.sizeHint(_option(600), model.index(0, 0))
     assert hint.height() > 30
     # Painting a skeleton must not raise.
-    from PyQt6.QtGui import QPainter, QPixmap
+    from PySide6.QtGui import QPainter, QPixmap
     pixmap = QPixmap(600, hint.height())
     painter = QPainter(pixmap)
     delegate.paint(painter, _option(600), model.index(0, 0))
@@ -317,7 +317,7 @@ def test_badge_colours_come_from_the_palette(window):
 def test_the_window_stays_instant_while_progress_floods_in(window):
     """A stand-in for a busy indexer: 200 progress ticks in a burst. A rail
     switch, a keystroke and a toast must each land within one loop turn."""
-    from PyQt6.QtCore import QElapsedTimer
+    from PySide6.QtCore import QElapsedTimer
     app, built, _ = window
     # Toasts queue, one at a time. The window is shared by this module, and an
     # earlier test's "Indexing: Only when you ask." was still showing, so this

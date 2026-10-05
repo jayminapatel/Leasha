@@ -20,8 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Optional, Sequence
 
-from PyQt6.QtCore import QEvent, Qt, pyqtSignal
-from PyQt6.QtWidgets import QAbstractItemView, QLabel, QListView, QVBoxLayout, QWidget
+from PySide6.QtCore import QEvent, Qt, Signal
+from PySide6.QtWidgets import QAbstractItemView, QLabel, QListView, QVBoxLayout, QWidget
 
 from app.ui.presenter import (
     KIND_LABELS, ResultGroup, ResultRow, group_results, results_terminator,
@@ -40,24 +40,24 @@ __all__ = ["ResultsView", "KIND_LABELS"]
 class ResultsView(QWidget):
     """A painted list of search results, grouped by document."""
 
-    opened = pyqtSignal(object)          # ResultRow
-    reveal_requested = pyqtSignal(object)
-    reindex_requested = pyqtSignal(object)
+    opened = Signal(object)          # ResultRow
+    reveal_requested = Signal(object)
+    reindex_requested = Signal(object)
     #: The row under the cursor changed. The preview pane listens; nothing else
     #: does, and nothing here knows the preview exists.
-    selected = pyqtSignal(object)
+    selected = Signal(object)
     #: "Pin" chosen from the right-click menu - workspace §3c.
-    pin_requested = pyqtSignal(object)
+    pin_requested = Signal(object)
     #: "More like this" chosen from the right-click menu - work order 0h §2d.
-    similar_requested = pyqtSignal(object)
+    similar_requested = Signal(object)
     #: "See everything from this month" chosen from the right-click menu -
     #: order 0n section 4b. The shell opens the Life Timeline at the month.
-    period_requested = pyqtSignal(object)
+    period_requested = Signal(object)
     #: The rows on screen changed - a new search or a federated append. The
     #: timeline strip listens; nothing here knows it exists either. The
     #: thumbnail grid (work order 0h §3a) listens too, and filters it down to
     #: the photos on its own.
-    rows_changed = pyqtSignal(list)
+    rows_changed = Signal(list)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -357,7 +357,7 @@ class ResultsView(QWidget):
     def eventFilter(self, obj: Any, event: Any) -> bool:      # noqa: N802 - Qt's naming
         """Item 2a: a click on the chevron toggles too, via `ResultDelegate.chevron_hit`."""
         click = obj is self._list.viewport() and event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton
-        file_id = self._delegate.chevron_hit(self._list, event.pos()) if click else None
+        file_id = self._delegate.chevron_hit(self._list, event.position().toPoint()) if click else None
         if file_id is None:
             return super().eventFilter(obj, event)
         self._toggle(file_id)

@@ -21,9 +21,9 @@ from pathlib import Path
 import pytest
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.ui.render_page import _image, render                   # noqa: E402
 from app.ui.view_of_file import View                            # noqa: E402

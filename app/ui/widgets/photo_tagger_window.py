@@ -22,8 +22,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
 
@@ -35,7 +35,7 @@ class PhotoTaggerWindow(QWidget):
 
     #: A photo was chosen inside the page - the main window decides what
     #: "open" means, exactly as it does for the thumbnail grid.
-    opened = pyqtSignal(str)
+    opened = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         # `Qt.Window` on a child: its own frame and taskbar entry, but closed

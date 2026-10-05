@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.5 · **Updated:** 2026-09-20 · **Applies to:** app v0.3.3
+**Doc version:** 1.6 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with
@@ -14,6 +14,8 @@ PyQt6: Qt-free code and tests are run here; every Qt-dependent test, the
 PNG captures and the timing figures are run on the Windows venv and the
 result recorded before the item is ticked. An item this session cannot
 verify is left unticked with the exact command that closes it.
+
+> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **Reference:** `docs/mockups/leasha-ui-mockup.html` — two frames
 (opening state on macOS, results with the inspector on Windows), a theme

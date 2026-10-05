@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
-from PyQt6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, QWidget
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.ui.presenter.photos import KINDS, box_has
 
@@ -47,8 +47,8 @@ SHOWN = 12
 class PhotoSidebar(QTreeWidget):
     """Narrowing lists. `toggled(switch, value)`; `action(name)` for the rest."""
 
-    toggled = pyqtSignal(str, object)
-    action = pyqtSignal(str)
+    toggled = Signal(str, object)
+    action = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -62,7 +62,7 @@ class PhotoSidebar(QTreeWidget):
         self.setToolTip("Click a person, a year or a place to narrow the photos to it; "
                         "click again to take it away")
         self.setMinimumWidth(190)
-        from PyQt6.QtWidgets import QHeaderView
+        from PySide6.QtWidgets import QHeaderView
 
         self.header().setStretchLastSection(False)
         self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)

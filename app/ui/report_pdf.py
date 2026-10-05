@@ -23,9 +23,9 @@ def write_pdf(document: str, path: str) -> None:
     thread died with COM error 0x80040155 (a hard process crash, not an
     exception) in a process that already held a MainWindow.
     """
-    from PyQt6.QtGui import QPdfWriter, QTextDocument
+    from PySide6.QtGui import QPdfWriter, QTextDocument
 
     doc = QTextDocument()
     doc.setMarkdown(document)
     writer = QPdfWriter(path)
-    doc.print(writer)
+    doc.print_(writer)

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from app.ui.widgets.about_dialog import (
     ENTITY,
@@ -74,7 +74,7 @@ def test_close_closes_it(qtbot):
 
 
 def test_opening_the_notices_hands_the_file_to_the_desktop(qtbot, monkeypatch):
-    from PyQt6.QtGui import QDesktopServices
+    from PySide6.QtGui import QDesktopServices
 
     opened = []
     monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: opened.append(url) or True))
@@ -96,7 +96,11 @@ def test_a_copy_without_the_notices_file_says_so_rather_than_nothing(qtbot, monk
 
 def test_the_help_menu_offers_it(gui_mainwindow):
     _app, window, _store, _engine = gui_mainwindow
-    help_menu = next(m for m in window.menuBar().findChildren(type(window.menuBar().actions()[0].menu()))
+    from PySide6.QtWidgets import QMenu
+
+    # `QMenu` by name: asking the first action for its menu's type destroyed
+    # the File menu under PySide6 (see `tools/guide_pictures.menu_of`).
+    help_menu = next(m for m in window.menuBar().findChildren(QMenu)
                      if m.title().replace("&", "") == "Help")
     texts = [a.text().replace("&", "") for a in help_menu.actions()]
     assert "About Leasha" in texts

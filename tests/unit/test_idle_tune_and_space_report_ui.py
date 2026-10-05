@@ -6,7 +6,7 @@ reference tests on branch `integrate-main` (worktree `crash-recovery-ac8615`)
 to the redesigned shell, where the "what happened afterwards" sentence is a
 toast rather than a status-bar message.
 
-Needs PyQt6; skips itself without it. On the Windows venv:
+Needs PySide6; skips itself without it. On the Windows venv:
 
     venv\Scripts\python.exe -m pytest tests/unit/test_idle_tune_and_space_report_ui.py -v
 """
@@ -17,7 +17,7 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tests.unit.test_ui_redesign_qt import window  # noqa: E402,F401 - the shared window
@@ -71,8 +71,8 @@ def test_opening_the_space_report_shows_it_and_export_is_offered(window):
 
 
 def test_export_writes_a_pdf_off_the_ui_thread(window, tmp_path, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QFileDialog
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QFileDialog
     app, built, store = window
     view = built.reports_view
     view._loaded(("", None, "# The Space Report\n\nA line."))
@@ -109,7 +109,7 @@ def test_rule_1_never_while_an_index_run_is_in_progress(window, monkeypatch):
 
 
 def test_rule_2_never_on_confirmed_battery_but_unknown_does_not_block(window, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     import app.index.autotune as autotune_module
     app, built, _ = window
     asked = []
@@ -129,7 +129,7 @@ def test_rule_2_never_on_confirmed_battery_but_unknown_does_not_block(window, mo
 
 def test_rule_3_an_empty_reason_does_nothing_and_rule_4_runs_off_thread(window, monkeypatch):
     import threading
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     import app.index.autotune as autotune_module
     import app.index.index_bench as index_bench_module
     app, built, _ = window
@@ -168,7 +168,7 @@ def test_rule_3_an_empty_reason_does_nothing_and_rule_4_runs_off_thread(window, 
 
 
 def test_rules_5_and_6_remember_then_upgrade_defaults_to_auto_quietly(window, monkeypatch):
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     import app.index.autotune as autotune_module
     import app.index.index_bench as index_bench_module
     from app.index.index_bench import IndexBench

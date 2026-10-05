@@ -38,8 +38,8 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from PyQt6.QtCore import QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import QLabel, QWidget
+from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtWidgets import QLabel, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import read_index_summary
@@ -88,25 +88,25 @@ class IndexingView(QWidget):
 
     #: Asked for, not performed here. The view has no business deleting an
     #: index; the window owns the stores and does it, after confirming.
-    reset_requested = pyqtSignal()
+    reset_requested = Signal()
 
-    finished = pyqtSignal(object)        # IndexStats
-    error = pyqtSignal(object)
+    finished = Signal(object)        # IndexStats
+    error = Signal(object)
     #: UI Redesign (202626160950 §2d/§2g): the rail's pill paints from this -
     #: (state, indexed, value, total, paused, stopped_early, error) as plain
     #: data, emitted on the UI thread from the same slots that paint this page.
-    progressed = pyqtSignal(str, int, int, int, bool, bool, str)
+    progressed = Signal(str, int, int, int, bool, bool, str)
     #: The document count the totals worker came back with, for the pill.
-    totals_shown = pyqtSignal(int)
-    retry_requested = pyqtSignal(str)    # an error code to retry
+    totals_shown = Signal(int)
+    retry_requested = Signal(str)    # an error code to retry
     #: "Rescan these folders now" on the archived-folders panel. One full walk,
     #: not a change of policy - the modes stay as they are.
-    rescan_archives_requested = pyqtSignal()
+    rescan_archives_requested = Signal()
     #: Count the corpus before indexing it, so the bar has a real denominator.
-    scan_requested = pyqtSignal()
+    scan_requested = Signal()
     #: Stop a run belonging to **another process**. The window owns the store,
     #: so it writes the flag; this view only knows that it was asked for.
-    stop_requested_externally = pyqtSignal()
+    stop_requested_externally = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

@@ -396,7 +396,7 @@ def test_switched_off_every_picture_is_read_as_before(monkeypatch) -> None:
 
 
 def test_the_setting_is_registered_read_and_has_a_control(temp_env) -> None:
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     from app.core.config import SETTING_KEYS, load_settings
     from app.core.settings_registry import by_key
@@ -420,7 +420,7 @@ def test_the_setting_is_registered_read_and_has_a_control(temp_env) -> None:
 
 def test_the_switch_says_it_has_no_effect_while_mail_pictures_are_not_read(temp_env) -> None:
     """1 October 2026: a switch that changes nothing must not look as if it does."""
-    from PyQt6.QtWidgets import QLabel, QWidget
+    from PySide6.QtWidgets import QLabel, QWidget
 
     from app.core.settings_registry import by_key
     from app.ui.widgets.long_run_box import LongRunBox

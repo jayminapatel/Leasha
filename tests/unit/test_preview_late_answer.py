@@ -16,15 +16,15 @@ import pytest
 
 @pytest.fixture(scope="module")
 def qapp():
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     yield QApplication.instance() or QApplication([])
 
 
 def test_a_late_preview_after_the_pane_is_gone_is_dropped(qapp, monkeypatch):
-    from PyQt6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtCore import QCoreApplication, QEvent
 
     from app.ui.widgets import preview as module
 

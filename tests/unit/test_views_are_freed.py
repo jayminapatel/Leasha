@@ -33,11 +33,11 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
-from PyQt6 import sip                                           # noqa: E402
-from PyQt6.QtCore import QPoint, QThreadPool, QTimer            # noqa: E402
-from PyQt6.QtWidgets import QApplication                        # noqa: E402
+from app.ui import qtsip as sip                                           # noqa: E402
+from PySide6.QtCore import QPoint, QThreadPool, QTimer            # noqa: E402
+from PySide6.QtWidgets import QApplication                        # noqa: E402
 
 from app.storage.sqlite_store import SqliteStore                # noqa: E402
 from app.ui import view_options                                 # noqa: E402

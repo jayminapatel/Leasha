@@ -24,9 +24,9 @@ from pathlib import Path
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtWidgets import (  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
     QAbstractSpinBox, QApplication, QSpinBox, QTimeEdit, QWidget,
 )
 
@@ -152,7 +152,7 @@ def test_fit_all_reaches_every_field_under_a_widget(qapp):
 def test_the_wheel_rule_is_untouched(qapp):
     """`no_scroll` still decides the wheel; losing the arrows changes nothing
     about when a field may be scrolled."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.ui.widgets.no_scroll import protect
 
@@ -188,7 +188,7 @@ def test_no_number_field_in_the_window_has_arrows_or_lacks_the_button(gui_mainwi
 
 
 def test_every_dialog_and_menu_with_a_number_field_is_covered(qapp):
-    from PyQt6.QtWidgets import QMenu
+    from PySide6.QtWidgets import QMenu
 
     from app.ui.view_options import ViewPreferences, build_menu
     from app.ui.widgets.add_file_type import AddFileTypeWizard

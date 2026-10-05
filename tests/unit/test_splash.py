@@ -44,7 +44,7 @@ class TestSplashScreen:
         other startup step), a stays-on-top splash blocks every application
         the user opens next, not just Leasha's own window.
         """
-        from PyQt6.QtCore import Qt
+        from PySide6.QtCore import Qt
 
         from app.ui.splash import SplashScreen
 
@@ -293,7 +293,7 @@ class TestWhiteWordmarkDerivation:
     def test_white_wordmark_differs_only_in_navy_pixels(self) -> None:
         """Recoloring preserves non-navy pixels."""
         # This test checks the logic of the recolor function
-        from PyQt6.QtGui import QImage, QColor
+        from PySide6.QtGui import QImage, QColor
 
         # Create a test image with navy and other colors
         img = QImage(10, 10, QImage.Format.Format_ARGB32)
@@ -393,8 +393,8 @@ def test_no_splash_line_runs_off_the_splash(qapp, system_points) -> None:
     size, and all five were over at 13pt. Each line now wraps, then shrinks,
     to fit - at the normal size and with the system font made bigger.
     """
-    from PyQt6.QtCore import QRect, Qt
-    from PyQt6.QtGui import QFontMetrics
+    from PySide6.QtCore import QRect, Qt
+    from PySide6.QtGui import QFontMetrics
 
     from app.ui import splash as s
 

@@ -45,9 +45,9 @@ import math
 import time
 from typing import Optional
 
-from PyQt6.QtCore import QRectF, Qt, QTimer
-from PyQt6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
-from PyQt6.QtWidgets import QProgressBar, QWidget
+from PySide6.QtCore import QRectF, Qt, QTimer
+from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
+from PySide6.QtWidgets import QProgressBar, QWidget
 
 __all__ = ["ShimmerBar", "FRAME_MS", "SWEEP_S", "BUSY_S", "fill_colours", "text_on"]
 

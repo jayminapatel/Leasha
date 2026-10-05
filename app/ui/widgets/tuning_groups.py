@@ -27,8 +27,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -109,7 +109,7 @@ class AutoSpin(QSpinBox):
 class ComputeBox(QGroupBox):
     """Which processor, how many readers, how many threads, how big a batch."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[Any] = None
                  ) -> None:
@@ -319,7 +319,7 @@ class ComputeBox(QGroupBox):
 class ResourcesBox(QGroupBox):
     """What indexing may take from the machine before it gets out of the way."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[Any] = None
                  ) -> None:
@@ -492,7 +492,7 @@ class ResourcesBox(QGroupBox):
 class StrategyBox(QGroupBox):
     """The three choices whose right answer depends on the corpus, not the box."""
 
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
 
     def __init__(self, settings: Any = None, parent: Optional[Any] = None
                  ) -> None:

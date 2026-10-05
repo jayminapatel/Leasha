@@ -131,7 +131,7 @@ def test_an_empty_catalogue_says_so_rather_than_printing_an_empty_map(tmp_path):
 def test_a_timeline_of_photographs_with_no_camera_dates_says_so(qtbot, tmp_path):
     from app.ui.timeline_view import TimelineView
 
-    pytest.importorskip("PyQt6")
+    pytest.importorskip("PySide6")
     store = SqliteStore(tmp_path / "t.db").connect()
     for i in range(3):
         add_file(store, rf"D:\Photos\p{i}.jpg", mtime=noon(2019, 1, 1 + i))
@@ -144,7 +144,7 @@ def test_a_timeline_of_photographs_with_no_camera_dates_says_so(qtbot, tmp_path)
     assert not view.notes.isHidden()
     assert "None of your 3 photos has a date from the camera yet" in view.notes.text()
     assert "often the day they were copied" in view.notes.text()
-    from PyQt6.QtCore import QThreadPool
+    from PySide6.QtCore import QThreadPool
     QThreadPool.globalInstance().waitForDone(5000)
     store.close()
 
@@ -160,5 +160,5 @@ def test_an_empty_timeline_says_there_is_nothing_yet(qtbot, tmp_path):
         qtbot.wait(300)
         assert view.summary.text().startswith("There is nothing on the timeline yet")
         assert view.notes.isHidden() and view.picker.year_box.count() == 0
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)

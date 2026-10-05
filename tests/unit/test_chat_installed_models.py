@@ -119,8 +119,8 @@ def test_no_sentence_is_better_than_a_made_up_number():
 
 # --------------------------------------------------------------------------- the grid
 
-pytest.importorskip("PyQt6")
-from PyQt6.QtWidgets import QComboBox, QLabel, QWidget                          # noqa: E402
+pytest.importorskip("PySide6")
+from PySide6.QtWidgets import QComboBox, QLabel, QWidget                          # noqa: E402
 
 from app.ui.widgets.chat_box import ChatBox                                      # noqa: E402
 from app.ui.widgets.chat_roles import AUTOMATIC, ModelCombo                      # noqa: E402

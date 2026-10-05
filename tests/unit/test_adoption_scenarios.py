@@ -41,13 +41,13 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtCore import Qt                                      # noqa: E402
-from PyQt6.QtGui import QGuiApplication                          # noqa: E402
-from PyQt6.QtWidgets import QMenu                                # noqa: E402
+from PySide6.QtCore import Qt                                      # noqa: E402
+from PySide6.QtGui import QGuiApplication                          # noqa: E402
+from PySide6.QtWidgets import QMenu                                # noqa: E402
 
 from app.search.engine import SearchResult                       # noqa: E402
 from app.ui.presenter import (                                   # noqa: E402

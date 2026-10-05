@@ -183,9 +183,9 @@ def test_only_narrows_every_tab_the_same_way(store):
 
 @pytest.fixture(scope="module")
 def qapp():
-    pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+    pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     yield QApplication.instance() or QApplication([])
 
@@ -207,7 +207,7 @@ def test_a_thumbnail_is_made_once_kept_on_disk_and_read_back(qapp, tmp_path):
     assert again is not None and again.width() == first.width()
     assert photo_thumbs.cache_name("a", 1, 2) != photo_thumbs.cache_name("a", 1, 3), \
         "a changed photo gets a new thumbnail"
-    from PyQt6.QtGui import QPixmap
+    from PySide6.QtGui import QPixmap
 
     square = photo_thumbs._square(QPixmap.fromImage(first))
     assert square.width() == square.height()
@@ -273,7 +273,7 @@ def test_the_tab_shows_narrows_switches_view_and_opens_naming(qapp, qtbot, store
     view.show_photos()
     assert view.centre.currentWidget() is view.browser
 
-    from PyQt6.QtWidgets import QMenu
+    from PySide6.QtWidgets import QMenu
 
     menu = QMenu()
     view.view_button.menu_for(menu)

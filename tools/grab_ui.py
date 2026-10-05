@@ -309,7 +309,7 @@ def build_window(root: Path, *, theme: str = "system", size: str = "1100x760",
     made without it, so they keep matching; use `--show` when the question is
     what a page looks like on a screen.
     """
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.config import load_settings
     from app.storage.sqlite_store import SqliteStore
@@ -381,7 +381,7 @@ def _wait(app: Any, done: Any, seconds: float = 8.0) -> bool:
     """Run the event loop until `done()` or the time is up."""
     import time
 
-    from PyQt6.QtTest import QTest
+    from PySide6.QtTest import QTest
 
     end = time.monotonic() + seconds
     while time.monotonic() < end:
@@ -431,7 +431,7 @@ def _pending_timers(window: Any) -> list:
     search box's two tiers, the preview's), each one a piece of work that has
     not started yet. Repeating timers (watchers, pollers) never finish and are
     not counted."""
-    from PyQt6.QtCore import QTimer
+    from PySide6.QtCore import QTimer
 
     return [t for t in window.findChildren(QTimer) if t.isSingleShot() and t.isActive()]
 
@@ -445,8 +445,8 @@ def _settle(app: Any, window: Any, what: str, seconds: float = WAIT_SECONDS) -> 
     then its counts). So "quiet" is checked repeatedly, not once."""
     import time
 
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtTest import QTest
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtTest import QTest
 
     pool = QThreadPool.globalInstance()
     end = time.monotonic() + seconds
@@ -468,7 +468,7 @@ def _settle(app: Any, window: Any, what: str, seconds: float = WAIT_SECONDS) -> 
 def _show_results(app: Any, window: Any) -> None:
     """Type a query, wait for the rows, select the first and open the inspector -
     the state §9i calls "results with the inspector"."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     from app.ui.view_options import ViewPreferences
 
@@ -486,7 +486,7 @@ def _show_results(app: Any, window: Any) -> None:
     view.input.setText("boiler quote dave")
     model = view.results._model
     def seen() -> str:
-        from PyQt6.QtCore import QThreadPool
+        from PySide6.QtCore import QThreadPool
 
         pool = QThreadPool.globalInstance()
         return (f"tiers answered {tiers}, {model.rowCount()} row(s), box holds "
@@ -585,7 +585,7 @@ def grab(names: Iterable[str], out: Path, *, theme: str = "system",
             # when the last surface is grabbed. Closing the store while a
             # worker thread still holds it open is what left `knowledge.db`
             # locked and `TemporaryDirectory` unable to delete it on Windows.
-            from PyQt6.QtCore import QThreadPool
+            from PySide6.QtCore import QThreadPool
             QThreadPool.globalInstance().waitForDone(10_000)
             for _ in range(5):
                 app.processEvents()

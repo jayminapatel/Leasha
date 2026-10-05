@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6", reason="the tuning screen is Qt")
+pytest.importorskip("PySide6", reason="the tuning screen is Qt")
 
 from app.core.compute_profile import ComputeProfile, GpuAdapter   # noqa: E402
 from app.ui.widgets.tuning_box import TuningBox                   # noqa: E402
@@ -71,7 +71,7 @@ class Stored:
 
 @pytest.fixture()
 def box(qtbot=None):
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     QApplication.instance() or QApplication([])
     return TuningBox(Stored())
@@ -236,7 +236,7 @@ def test_oversubscription_warns_inline_and_never_blocks(box) -> None:
 def test_the_free_space_floors_cannot_exceed_the_drive() -> None:
     """A floor larger than the disk stops every run on a machine that is
     working perfectly well."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     QApplication.instance() or QApplication([])
     resources = ResourcesBox(Stored())
@@ -252,7 +252,7 @@ def test_every_ceiling_says_what_happens_when_it_is_reached() -> None:
     """The `indexing_settings.py` rule, inherited: a ceiling that pauses must
     say "pauses", or somebody sets it far too high out of fear of losing a run
     and it protects nothing."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     QApplication.instance() or QApplication([])
     resources = ResourcesBox(Stored())
@@ -269,7 +269,7 @@ def test_the_compute_group_emits_registry_keys() -> None:
     """The window turns them into `.env` lines by upper-casing the field name,
     so a key that is not the registry's is a setting that silently goes
     nowhere - which is exactly the U6 failure the coverage tests exist for."""
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     from app.core.settings_registry import keys
 

@@ -23,13 +23,13 @@ import os
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PIL import Image                                             # noqa: E402
-from PyQt6.QtCore import QThreadPool                              # noqa: E402
-from PyQt6.QtWidgets import QApplication                          # noqa: E402
+from PySide6.QtCore import QThreadPool                              # noqa: E402
+from PySide6.QtWidgets import QApplication                          # noqa: E402
 
 from app.index import face_clustering as fc                       # noqa: E402
 from app.storage.sqlite_store import SqliteStore                  # noqa: E402
@@ -253,7 +253,7 @@ def test_the_same_photos_read_again_do_not_reset_the_grid(qapp, tmp_path):
 
 
 def test_every_tile_is_the_same_square_filled_edge_to_edge(qapp):
-    from PyQt6.QtGui import QColor, QPixmap
+    from PySide6.QtGui import QColor, QPixmap
 
     from app.ui.widgets.photo_thumbs import CACHE_EDGE, _square
 
@@ -276,10 +276,10 @@ class _Thumbs:
     """A `ThumbLoader` stand-in: records what was asked for, in order."""
 
     def __init__(self):
-        from PyQt6.QtCore import QObject, pyqtSignal
+        from PySide6.QtCore import QObject, Signal
 
         class _Signals(QObject):
-            ready = pyqtSignal(str)
+            ready = Signal(str)
 
         self._signals = _Signals()
         self.ready = self._signals.ready
@@ -318,7 +318,7 @@ def test_a_picture_fades_in_rather_than_popping(qapp, monkeypatch):
 
 
 def test_a_half_faded_tile_paints(qapp, tmp_path):
-    from PyQt6.QtGui import QColor, QPixmap
+    from PySide6.QtGui import QColor, QPixmap
 
     from app.ui.widgets.photo_browser import PhotoBrowser
 
@@ -337,9 +337,9 @@ def test_a_half_faded_tile_paints(qapp, tmp_path):
 
 
 def test_a_wheel_notch_glides_the_grid(qapp):
-    from PyQt6.QtCore import QPoint, QPointF, Qt
-    from PyQt6.QtGui import QWheelEvent
-    from PyQt6.QtTest import QTest
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtTest import QTest
 
     from app.ui.widgets import photo_browser
 
@@ -428,7 +428,7 @@ def test_a_damaged_pack_is_an_empty_one(tmp_path):
 
 
 def test_a_waiting_tile_shows_its_blurred_preview_not_grey(qapp):
-    from PyQt6.QtGui import QColor, QPixmap
+    from PySide6.QtGui import QColor, QPixmap
 
     from app.ui.widgets.photo_browser import PhotoBrowser
 

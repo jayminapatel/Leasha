@@ -24,8 +24,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Signal
+from PySide6.QtWidgets import (
     QComboBox,
     QGroupBox,
     QLabel,
@@ -49,12 +49,12 @@ class TuningBox(QGroupBox):
     """The Index Tuning screen."""
 
     #: `{registry key: value}`, the shape `_settings_changed` writes.
-    changed = pyqtSignal(dict)
+    changed = Signal(dict)
     #: Coverage still emits `Settings`-field-named values, because the pipeline
     #: consumes that shape. Kept separate rather than merged so neither writer
     #: has to know about the other's naming.
-    coverage_changed = pyqtSignal(dict)
-    benchmark_requested = pyqtSignal()
+    coverage_changed = Signal(dict)
+    benchmark_requested = Signal()
 
     def __init__(self, settings: Any = None, parent: Optional[QWidget] = None
                  ) -> None:

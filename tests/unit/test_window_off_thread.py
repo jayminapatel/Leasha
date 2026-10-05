@@ -16,13 +16,13 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 
 def _pump() -> None:
-    from PyQt6.QtCore import QThreadPool
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtWidgets import QApplication
 
     app = QApplication.instance() or QApplication([])
     for _ in range(5):
@@ -42,7 +42,7 @@ def test_dropped_paths_become_folders_on_a_worker(tmp_path):
 
 
 def test_a_drop_on_the_window_is_sorted_out_off_its_thread(tmp_path, monkeypatch):
-    from PyQt6.QtCore import QMimeData, QUrl
+    from PySide6.QtCore import QMimeData, QUrl
 
     from app.ui import shell, tasks
 

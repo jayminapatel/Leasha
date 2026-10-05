@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QAbstractItemView, QHBoxLayout, QListWidget, QListWidgetItem, QMessageBox,
     QPushButton, QVBoxLayout, QWidget,
 )
@@ -23,10 +23,10 @@ ID_ROLE = int(Qt.ItemDataRole.UserRole)
 
 
 class SessionList(QWidget):
-    selected = pyqtSignal(str)
-    new_requested = pyqtSignal()
-    renamed = pyqtSignal(str, str)
-    deleted = pyqtSignal(str)
+    selected = Signal(str)
+    new_requested = Signal()
+    renamed = Signal(str, str)
+    deleted = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

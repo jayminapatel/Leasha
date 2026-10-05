@@ -25,10 +25,10 @@ import time
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
-from PyQt6.QtCore import QPoint, QRect  # noqa: E402
-from PyQt6.QtWidgets import QLabel  # noqa: E402
+from PySide6.QtCore import QPoint, QRect  # noqa: E402
+from PySide6.QtWidgets import QLabel  # noqa: E402
 
 from app.index import pipeline as pipeline_module  # noqa: E402
 from app.index.pipeline import IndexStats  # noqa: E402

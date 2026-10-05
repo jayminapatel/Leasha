@@ -34,11 +34,11 @@ import pytest
 
 from app.ui.view_options import ViewPreferences, parse_prefs, prefs_to_state
 
-pytest.importorskip("PyQt6.QtWidgets", exc_type=ImportError)
+pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt6.QtWidgets import (  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
     QApplication, QTableWidget, QTableWidgetItem,
 )
 
@@ -248,7 +248,7 @@ def test_a_malformed_width_is_a_default_not_an_exception():
 def test_the_menu_offers_a_way_back_to_fitted(qapp):
     """A column dragged to nothing stays at nothing across restarts, and the
     handle to pull it back is one pixel wide."""
-    from PyQt6.QtWidgets import QWidget
+    from PySide6.QtWidgets import QWidget
 
     from app.ui.view_options import build_menu
 

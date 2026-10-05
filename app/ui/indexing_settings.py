@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import QTime, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import QTime, Signal
+from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
@@ -38,9 +38,9 @@ __all__ = ["IndexingSettings"]
 class IndexingSettings(QGroupBox):
     """The schedule: whether a run happens without being asked, and when."""
 
-    schedule_changed = pyqtSignal(object)      # a SchedulePolicy
+    schedule_changed = Signal(object)      # a SchedulePolicy
     #: Work order 0z F1: "Index files as soon as they are saved" was switched.
-    watch_toggled = pyqtSignal(bool)
+    watch_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("When to index", parent)

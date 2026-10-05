@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QScrollArea, QToolButton, QWidget,
 )
 
@@ -61,8 +61,8 @@ class ShelfBar(QWidget):
     """A single scrolling row of chips, and a drop target for results."""
 
     #: The person changed what is in scope (pin, remove, add by drag).
-    changed = pyqtSignal()
-    open_requested = pyqtSignal(str)
+    changed = Signal()
+    open_requested = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

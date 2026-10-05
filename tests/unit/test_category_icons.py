@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 from tests.unit.conftest import gui_pump  # noqa: E402
 
@@ -21,7 +21,7 @@ pytestmark = pytest.mark.gui
 
 
 def _qt():
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     return QApplication.instance() or QApplication([])
 
@@ -50,7 +50,7 @@ def test_every_report_has_an_icon_once_the_page_is_tinted():
 
 
 def test_the_window_tints_the_report_list_with_the_rest(gui_mainwindow):
-    from PyQt6.QtGui import QIcon
+    from PySide6.QtGui import QIcon
 
     app, window, _store, _engine = gui_mainwindow
     rows = [window.reports_view.list.item(i) for i in range(window.reports_view.list.count())]

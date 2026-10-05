@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, QTimer, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
+from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -107,12 +107,12 @@ def _first_cell(item: Any, row: Any) -> None:
 class MailView(QWidget):
     """A filterable, sortable table of every indexed message."""
 
-    error = pyqtSignal(object)
+    error = Signal(object)
     #: Search the *contents* of one message. The bridge to the search tab, for
     #: the question this tab deliberately cannot answer.
-    search_inside_requested = pyqtSignal(str)
-    period_requested = pyqtSignal(int)       # file_id - "see everything from this month"
-    opened = pyqtSignal(int)                 # file_id
+    search_inside_requested = Signal(str)
+    period_requested = Signal(int)       # file_id - "see everything from this month"
+    opened = Signal(int)                 # file_id
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)

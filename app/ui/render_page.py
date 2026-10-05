@@ -119,7 +119,7 @@ def _pdf_page(path: Any, view: Any) -> Optional[Any]:
     """
     import pymupdf
 
-    from PyQt6.QtGui import QImage
+    from PySide6.QtGui import QImage
 
     zoom = 1.0 if view.is_fit else float(view.zoom)
     with pymupdf.open(str(path)) as document:
@@ -155,8 +155,8 @@ def _shape(image: Any, view: Any, fit_to: Any, *,
     every image rendered at 100% whatever the zoom said, which is a control
     that visibly does nothing.
     """
-    from PyQt6.QtCore import Qt
-    from PyQt6.QtGui import QTransform
+    from PySide6.QtCore import Qt
+    from PySide6.QtGui import QTransform
 
     if view.turn:
         image = image.transformed(QTransform().rotate(view.turn),
@@ -182,7 +182,7 @@ def _shape(image: Any, view: Any, fit_to: Any, *,
 
 def _capped(image: Any) -> Any:
     """Never wider or taller than `MAX_EDGE`. Silent, on purpose."""
-    from PyQt6.QtCore import Qt
+    from PySide6.QtCore import Qt
 
     if image.width() <= MAX_EDGE and image.height() <= MAX_EDGE:
         return image

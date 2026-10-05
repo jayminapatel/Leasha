@@ -15,9 +15,9 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from PyQt6 import sip
-from PyQt6.QtCore import QThreadPool
-from PyQt6.QtWidgets import QApplication
+from app.ui import qtsip as sip
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QApplication
 
 
 def test_a_closed_environment_box_ignores_its_late_logs_answer(qtbot, tmp_path, monkeypatch):

@@ -51,7 +51,7 @@ class FakeWindow:
     # fake answers the calls a real window answers there. A hidden window
     # that is shown still counts as "shown" - the assertions are unchanged.
     def windowState(self):       # noqa: N802
-        from PyQt6.QtCore import Qt
+        from PySide6.QtCore import Qt
 
         return Qt.WindowState.WindowNoState
 

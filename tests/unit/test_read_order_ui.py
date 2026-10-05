@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-pytest.importorskip("PyQt6")
+pytest.importorskip("PySide6")
 
 pytestmark = pytest.mark.gui
 

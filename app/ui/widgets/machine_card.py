@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PyQt6.QtCore import Qt, QThreadPool, pyqtSignal
-from PyQt6.QtWidgets import (
+from PySide6.QtCore import Qt, QThreadPool, Signal
+from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -38,10 +38,10 @@ class MachineCard(QGroupBox):
 
     #: A freshly detected profile. The screen re-resolves its controls against
     #: it; the card does not decide what that means.
-    profile_detected = pyqtSignal(object)
+    profile_detected = Signal(object)
     #: Asked for, not performed. Benchmarking wants the settings and the model
     #: cache, which the window owns and this widget deliberately does not.
-    benchmark_requested = pyqtSignal()
+    benchmark_requested = Signal()
 
     def __init__(self, profile: Any = None,
                  parent: Optional[QWidget] = None) -> None:

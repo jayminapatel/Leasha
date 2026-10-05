@@ -1,6 +1,6 @@
 # Third-party notices
 
-**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
 
 Leasha is MIT. This file lists what it depends on for **video and audio** (work order
 `202626270515`), each package's licence, and where that was read. It is not yet a full list of
@@ -11,6 +11,23 @@ packages are here first because one of them raises a question the others do not.
 the installer) fetches from PyPI or Hugging Face. The obligations below start only if the
 virtual environment, or a model, is ever *shipped* with the application - which Layer 9 has not
 decided.
+
+## The window: Qt for Python (PySide6)
+
+Added 2026-10-05 with the move from PyQt6 (order `202626270238`). Before that date this file
+did not mention Qt at all, under either binding.
+
+| Package | Version | Licence | Where verified |
+|---|---|---|---|
+| `PySide6` (and its parts `PySide6_Essentials`, `PySide6_Addons`) | 6.11.0 | **LGPL-3.0-only** OR GPL-2.0-only OR GPL-3.0-only | `importlib.metadata`, `License-Expression`, 2026-10-05 |
+| `shiboken6` | 6.11.0 | **LGPL-3.0-only** OR GPL-2.0-only OR GPL-3.0-only | the same, 2026-10-05 |
+| The Qt 6.11 libraries inside those wheels | 6.11.0 | LGPL-3.0 (Qt's open-source licence, as offered with the wheels) | the wheels' licence expression above; Qt's own notices ship inside the wheels |
+
+Leasha uses them under the **LGPL-3.0**, which allows Leasha itself to stay MIT. What the
+LGPL asks when a copy is handed to anyone else - keep the Qt libraries replaceable, ship
+their licence text, offer their source - is a Layer 9 (distribution) job, like everything
+else in this file; a one-folder installer that ships the unmodified wheels' files meets the
+first. Under PyQt6, which is GPL-3.0 only, a distributed build would have had to be GPL.
 
 ## Video and audio
 
