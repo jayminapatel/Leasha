@@ -121,19 +121,15 @@ begin
   if (CurStep = ssPostInstall) and not FileExists(EnvFile()) then begin
     Data := DataPage.Values[0];
     ForceDirectories(Data);
-    SetArrayLength(Lines, 12);
+    { Only where things live. Every other setting keeps Leasha's own default
+      (app/core/config.py), so a later version's better default is not
+      overridden by a value this installer wrote once. }
+    SetArrayLength(Lines, 5);
     Lines[0] := '# Written by the Leasha installer. Settings change it; edit by hand only if you must.';
     Lines[1] := 'DATA_PATH=' + Data;
     Lines[2] := 'PROJECT_PATH=' + ExpandConstant('{app}\_internal');
     Lines[3] := 'LOG_PATH=' + Data + '\logs';
-    Lines[4] := 'EMBED_MODEL=BAAI/bge-small-en-v1.5';
-    Lines[5] := 'EMBED_DIM=384';
-    Lines[6] := 'RERANK_ENABLED=true';
-    Lines[7] := 'OLLAMA_URL=http://127.0.0.1:11434';
-    Lines[8] := 'OLLAMA_MODEL=mistral';
-    Lines[9] := 'MIN_FREE_GB=5';
-    Lines[10] := 'REQUIRED_FREE_GB=' + IntToStr(RequiredFreeGB);
-    Lines[11] := '';
+    Lines[4] := '';
     SaveStringsToUTF8File(EnvFile(), Lines, False);
   end;
 end;

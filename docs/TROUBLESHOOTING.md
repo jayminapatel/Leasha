@@ -1,23 +1,24 @@
 # Troubleshooting
 
-**Doc version:** 1.9 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.10 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
 
 ## The one command
 
-> *Note, 1 October 2026:* `cd D:\SearchProject` below, and elsewhere in this file, means the
-> folder Leasha is installed in. On the owner's laptop that is now
-> `D:\Local\GitHub\SearchProject`. The window has the same command: Settings › Storage &
-> maintenance › **Save a support bundle…**
-
-When anything goes wrong:
+When anything goes wrong, in the window: Settings › Storage & maintenance › **Save a support
+bundle…**. Or from a terminal:
 
 ```powershell
-cd D:\SearchProject
+cd D:\Local\GitHub\SearchProject
 venv\Scripts\python.exe -m app.cli diagnose
 ```
+
+`D:\Local\GitHub\SearchProject` here, and elsewhere in this file, is the folder Leasha runs
+from source in on the owner's laptop; use your own. A copy put in by the installer has no
+`venv`: in its install folder, `.\leasha-cli.exe diagnose` does the same (`leasha-cli.exe`
+runs any `app.cli` command).
 
 It writes a zip to `logs\diagnostics\`. Open `summary.txt` inside it first: it lists anything
 already known to be wrong. Send the whole zip when asking for help - it contains the
@@ -41,7 +42,7 @@ running when you type `ls`. The `.\` says "yes, I mean this one, here".
 To stop needing it:
 
 ```powershell
-cd D:\SearchProject
+cd D:\Local\GitHub\SearchProject
 .\add-to-path.ps1
 ```
 
@@ -95,13 +96,13 @@ venv\Scripts\python.exe -m app.cli commands
 The model can only emit those filters. It cannot invent one - anything it makes up is
 rejected and your original words are searched instead.
 
-> *Note, 1 October 2026:* Interpret, Chat and Describe now run inside Leasha by default
-> (`CHAT_ENGINE=onnx`); Ollama matters only when Settings › Models & AI says they run on Ollama.
-> If Interpret does nothing, the likelier cause is that no chat model has been downloaded yet
-> (Settings › Models & AI › **Download**). Interpret is given up to 45 seconds.
+Interpret, Chat and Describe run inside Leasha by default (`CHAT_ENGINE=onnx`). If nothing
+happens when you press Interpret, the likely cause is that no chat model has been downloaded
+yet: Settings › Models & AI › **Download**. Interpret is given up to 45 seconds. Plain Enter
+always works and never uses the model.
 
-If nothing happens when you press Interpret, Ollama is not running. Plain Enter always works
-and never uses it:
+Ollama matters only when Settings › Models & AI says they run on Ollama; then Interpret doing
+nothing means Ollama is not running:
 
 ```powershell
 venv\Scripts\python.exe -m app.cli ollama
@@ -201,7 +202,7 @@ venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ### `No module named app`
 
 You are running the wrong Python, or from the wrong folder. Both of these must be true: you
-are in `D:\SearchProject`, and you are using `venv\Scripts\python.exe` rather than a plain
+are in the Leasha folder (`D:\Local\GitHub\SearchProject` on the owner's laptop), and you are using `venv\Scripts\python.exe` rather than a plain
 `python`.
 
 ### The installer produces no output at all
@@ -266,24 +267,24 @@ venv\Scripts\python.exe doctor.py            # environment verification
 venv\Scripts\python.exe doctor.py --quick    # same, skipping model loading
 ```
 
-> *Note, 1 October 2026:* with the default `CHAT_ENGINE=onnx`, Ollama being down affects nothing.
-
 `doctor.py` distinguishes **FAIL** (required - the app will not work) from **WARN**
 (optional - a feature is unavailable but core search is fine). Ollama and Outlook are
-optional. Search never calls the LLM, so Ollama being down affects AI answers only.
+optional. Search never calls the LLM. With the default `CHAT_ENGINE=onnx`, Ollama being down
+affects nothing; set to `ollama`, it affects AI answers only.
 
 ## If you need to start the index over
 
 The index is entirely rebuildable - nothing in it is original data.
 
-> *Note, 1 October 2026:* the easier way is Indexing › **Reset index…** in the window. In the
-> commands below, `D:\KnowledgeGraphData` stands for your `DATA_PATH`: `%LOCALAPPDATA%\Leasha`
-> by default, `D:\Leasha\Data` on the owner's machine. `leasha stats` prints it.
+The easy way is Indexing › **Reset index…** in the window. From a terminal, with
+`<DATA_PATH>` standing for your index folder (`%LOCALAPPDATA%\Leasha` for a copy run from
+source, `%LOCALAPPDATA%\Leasha\Data` by default for an installed one, `D:\Leasha\Data` on the
+owner's machine; `leasha stats` prints it):
 
 ```powershell
 # stop the app first, then:
-Remove-Item -Recurse -Force D:\KnowledgeGraphData\vectors
-Remove-Item -Force D:\KnowledgeGraphData\fts\knowledge.db*
+Remove-Item -Recurse -Force <DATA_PATH>\vectors
+Remove-Item -Force <DATA_PATH>\fts\knowledge.db*
 venv\Scripts\python.exe -m app.cli init
 ```
 
@@ -346,3 +347,6 @@ Logs also live in `logs\runs\` (one file per command or window session) and `log
 | Open on a file from an email or inside a zip says it could not take it out | The archive or zip has moved or changed since it was indexed, or the message was indexed through Outlook. Use **Open in Outlook** (for mail) or **Show in folder** (for a zip), or index it again with Index now on its line. The copy Leasha opens is read-only and lives in its own cache folder; it is removed when Leasha closes |
 | `*.pst` (or `*.pdf`) on the Files page finds everything but the files of that type | Fixed after 0.3.4: a star, a dot and an extension is read as the type. On 0.3.4 and earlier type `/type pst` instead |
 | Which version is this? | Help > About Leasha, or `leasha --version` |
+| Windows says it protected your PC when the installer is opened | The installer is not signed yet. **More info**, then **Run anyway** |
+| Where is the settings file of an installed copy? | `<install folder>\_internal\.env`. The installer writes it only if there is none, so installing again keeps your settings |
+| "this installed copy of Leasha cannot add packages to itself" | A copy put in by the installer cannot install a missing reader. Install the next version of Leasha, or run Leasha from source |

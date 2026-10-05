@@ -109,17 +109,16 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v0.3.3 · schema v30 · Reference updated 4 October 2026 · Checked against <code>main</code> at 31edaea; the notes dated 2 October 2026 against fc65713 and the commit after it</div>
-  <p class="meta"><i>Note, 5 October 2026:</i> Leasha moved from PyQt6 to PySide6 6.11.0 (Qt's own binding, LGPL-3.0; order 202626270238). The Qt underneath is the same 6.11. Where this reference says PyQt6, read PySide6; the text below is left as written.</p>
+  <div class="meta">App v0.3.4 · schema v34 · Reference updated 6 October 2026 · Checked against <code>main</code> at c9bebbf</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
-<p>Leasha is a Windows desktop application that searches about 100 GB of local files and Outlook mail from a plain-English description. It is single-user and fully offline. Keyword search (SQLite FTS5, BM25) and meaning-based search (LanceDB vectors from a local ONNX embedding model) run together and are fused with reciprocal rank fusion. There are no services, no ports and no accounts.</p>
+<p>Leasha is a Windows desktop application that searches about 100 GB of local files and Outlook mail from a plain-English description. It is single-user and fully offline. Keyword search (SQLite FTS5, BM25) and meaning-based search (LanceDB vectors from a local ONNX embedding model) run together and are fused with reciprocal rank fusion. There are no services and no accounts; the only port is the optional, keyed <a href="#mcp">MCP server</a> on 127.0.0.1 for local AI programs, off until it is started.</p>
 <div class="cards">
-  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span> Runtime</h4><p>Python 3.12, PyQt6 6.11, onnxruntime 1.24.4 (DirectML on Windows when a graphics adapter is present).</p></div>
+  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="16" height="16" x="4" y="4" rx="2"/><rect width="6" height="6" x="9" y="9" rx="1"/><path d="M15 2v2"/><path d="M15 20v2"/><path d="M2 15h2"/><path d="M2 9h2"/><path d="M20 15h2"/><path d="M20 9h2"/><path d="M9 2v2"/><path d="M9 20v2"/></svg></span> Runtime</h4><p>Python 3.12, PySide6 6.11.0 (Qt's own binding, LGPL-3.0), onnxruntime 1.24.4 (DirectML on Windows when a graphics adapter is present).</p></div>
   <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5V19A9 3 0 0 0 21 19V5"/><path d="M3 12A9 3 0 0 0 21 12"/></svg></span> Stores</h4><p>SQLite in WAL mode with FTS5 is the authority. LanceDB holds vectors and is always rebuildable from SQLite.</p></div>
   <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 18V5"/><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4"/><path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5"/><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77"/><path d="M18 18a4 4 0 0 0 2-7.464"/><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517"/><path d="M6 18a4 4 0 0 1-2-7.464"/><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77"/></svg></span> Models</h4><p>Embedding <code>BAAI/bge-small-en-v1.5</code> (384-d, FastEmbed); rerank <code>Xenova/ms-marco-MiniLM-L-6-v2</code>; CLIP ViT-B-32; RapidOCR; Florence-2, Whisper and a Qwen 2.5 chat model on ONNX Runtime.</p></div>
-  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> Size</h4><p>About 900 tracked Python files; 431 unit-test modules; 11,764 tests passed on the last full run (30 September 2026).</p></div>
+  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> Size</h4><p>About 1,000 tracked Python files; 493 unit-test modules; 13,282 tests passed, none failed, on the laptop's last full run (5 October 2026, at 572dba7).</p></div>
 </div>
 <h3 id="non-negotiables">The twelve non-negotiables</h3>
 <p>From <code>docs/PROJECT_INSTRUCTIONS.md</code>. They are design constraints, not preferences.</p>
@@ -139,19 +138,21 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 </ol>
 
 <h2 id="repo"><span class="num">2</span>Repository layout</h2>
-<pre><code>app/core      L0  settings and registry, AppError, logging, locks, run logs, osbridge (all Windows-only calls)
-app/storage   L1  SQLite/FTS5 store, migrations (schema v30), LanceDB vector stores
+<pre><code>app/core      L0  settings and registry, AppError, logging, locks, run logs, osbridge (all platform-specific calls)
+app/storage   L1  SQLite/FTS5 store, migrations (schema v34), LanceDB vector stores
 app/extract   L2  readers for every format, chunker, OCR ladder, mail (PST, mbox, eml, msg), zip, media
 app/ort       L2  Leasha's own ONNX Runtime models: Florence-2, Whisper, chat LLM; model catalogue
 app/index     L3  walker, pipeline, embedder, governor, child processes, folder watch, offline media
 app/search    L4  query grammar, BM25 + ANN, RRF fusion, rerank, spelling, git search, evaluation
 app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
-app/ui        L5  PyQt6 window, views, widgets, Qt-free presenter, workers, controllers
+app/ui        L5  PySide6 window, views, widgets, Qt-free presenter, workers, controllers
 app/shell     L5  `leasha shell`: prompt_toolkit REPL over the same presenter
 app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe; Ollama client
 app/chat      L8b Chat engine: router, planner, verify, sessions, optional web lookup (Qt-free)
-app/cli       --  `python -m app.cli`, the headless entry point (32 subcommands)
+app/serve     --  the index for other AI programs: the MCP server and each program's entry
+app/cli       --  `python -m app.cli`, the headless entry point (35 subcommands)
 app/main.py   --  the window entry point
+packaging/    the Windows installer: leasha.spec (PyInstaller), leasha_entry.py, installer.iss, build.ps1
 tests/        unit, integration, fixtures (healthy and deliberately corrupt), golden screenshots
 tools/        developer tools: grab_ui, nightly, extract_speed, measurement scripts
 scripts/      parse-check.ps1, regen_vs_project.py, run_suite.py, stage.py, pst_field_test.py
@@ -182,6 +183,22 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
   <li><b>Chat is Qt-free</b> and never imports <code>app.ui</code> (<code>test_chat_layering.py</code>).</li>
 </ul>
 <p><b>Contracts between layers:</b> settings through <code>app/core/settings_registry.py</code> (the backend declares, the UI consumes); results through <code>SearchResult</code> and <code>SearchResponse</code> in <code>app/search/engine.py</code>; errors through <code>AppError</code> (the UI never parses message text); progress as Qt signals carrying plain data.</p>
+<h3 id="routes">One route per job</h3>
+<table><tr><th>Job</th><th>Where it lives</th></tr>
+<tr><td>Index runs</td><td><code>app/index/run_setup.py</code></td></tr>
+<tr><td>Search</td><td><code>app/search/run.py</code>, <code>app/search/marks.py</code></td></tr>
+<tr><td>Open</td><td><code>app/ui/presenter/opening.py</code></td></tr>
+<tr><td>Row facts</td><td><code>app/core/row_facts.py</code>, <code>app/ui/presenter/facts.py</code></td></tr>
+<tr><td>Chat model choice</td><td><code>widgets/model_picker.py</code>, <code>controllers/interpret_controller.py</code></td></tr></table>
+<h3 id="window">The window</h3>
+<ul>
+  <li><b>Qt binding.</b> PySide6 6.11.0 over Qt 6.11. Signals are <code>Signal</code>; PySide6's counterpart of PyQt's <code>sip</code> is <code>shiboken6</code>, reached through <code>app/ui/qtsip.py</code>.</li>
+  <li><b>Preview toggle.</b> One control, <code>view_options.preview_toggle</code>: the Search bar's mirror switch builds it, and Files, Mail and Code add it through <code>view_button.add_to(layout)</code> (a method, because those views are at their line limit). It flips the View button's preference and follows it through <code>watchers</code>; Chat has no preferences, so its toggle shows or hides the Sources column's pane and the choice is kept in <code>ui:chat_preview</code>. Pinned, Timeline and Grid stay Search's; the panels do not exist elsewhere.</li>
+  <li><b>Controls on a row.</b> A widget set on a row of a tree or table (<code>buttons.put_on_row</code>, the Cloud content box, the file-types boxes) sits in a plain <code>QWidget</code> named <code>rowCell</code>, which the theme makes transparent so no grey block shows over a white row; <code>test_index_now_per_line.py</code> reads the pixels.</li>
+  <li><b>Category icons.</b> The Reports list is <code>widgets/report_list.py</code> (<code>REPORT_ICONS</code>, <code>retint</code>), tinted by the window with the category lists. <code>CategoryNav.ICONS</code> has every Indexing and Settings category, and <code>test_category_icons.py</code> fails on one without.</li>
+  <li><b>The brand.</b> The window follows the Leasha brand kit (<code>jeff-doc-leasha</code>, <code>brand.json</code>). Kind badges use the brand's text-safe tints (<code>0866BD</code>, <code>A35200</code>, <code>6B7600</code>, chrome <code>6C6685</code>) in both themes, the word white (<code>result_delegate.BADGE_INK</code>); the splash keeps the full colours, where they are stripes with no word on them. Every pair is measured in <code>test_brand_colours.py</code>, which also pins the light accent to the brand's indigo <code>15084B</code> and the splash's stripes to the brand's exact values. The dark theme keeps its grey grounds and the window uses the system font, by decision; the brand's Aptos is for documents.</li>
+  <li><b>About and icons.</b> <code>widgets/about_dialog.py</code> is Help › About Leasha (the lockup by ground, <code>build_info()</code>, the entity, <code>docs/THIRD_PARTY_NOTICES.md</code>). <code>assets/leasha.ico</code> and the tray icon are built from the kit's <code>leasha-symbol-512.png</code>; <code>leasha-logo.svg</code> is the kit's outlined vector. An <code>.ico</code> must lead with its largest picture, because <code>QPixmap(path)</code> loads the first.</li>
+</ul>
 
 <h2 id="processes"><span class="num">4</span>Processes and threads</h2>
 <div class="diagram">
@@ -204,7 +221,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 </div>
 <table class="wrap"><tr><th>Unit</th><th>Detail</th></tr>
 <tr><td>Single-instance locks</td><td>Windows named mutexes through ctypes (POSIX fallback). <code>Local.KnowledgeGraph.V2.SingleInstance</code> allows one window; <code>Local.KnowledgeGraph.V2.IndexRun</code> allows one writer, taken by <code>app.cli index</code>, <code>reembed</code>, <code>watch</code> batches and the window's own run. The mutex is the authority; the record in <code>index_state</code> only describes it. A new window waits up to 12 s for a closing one (<code>app/core/run_lock.py</code>).</td></tr>
-<tr><td>Separate indexer</td><td><code>app/index/child_run.py</code>. The window starts <code>python -m app.cli index --events jsonl</code>; one JSON event per line on stdout (<code>run_events.py</code>); stdin carries pause, resume and stop, and a closed stdin means stop. Read by a blocking readline on the page's <code>IndexWorker</code> thread. The child runs below normal priority.</td></tr>
+<tr><td>Separate indexer</td><td><code>app/index/child_run.py</code>. The window starts <code>-m app.cli index --events jsonl</code> through <code>app.core.osbridge.stdio.own_python()</code>: <code>sys.executable</code> from source, <code>leasha-cli.exe</code> in a packaged build (where <code>sys.executable</code> is <code>Leasha.exe</code>, which only opens the window). Reader processes are started the same way. One JSON event per line on stdout (<code>run_events.py</code>); stdin carries pause, resume and stop, and a closed stdin means stop. Read by a blocking readline on the page's <code>IndexWorker</code> thread. The child runs below normal priority.</td></tr>
 <tr><td>Reader processes</td><td><code>app/index/read_process.py</code>. Only pure-parsing readers (<code>PROCESS_READERS</code>) go out of process; OCR, picture models, LibreOffice, Outlook, media and zip stay in. A crash becomes <code>ERR_READER_PROCESS_ENDED</code> for that file and a fresh child. A file's clock starts when its reader is ready (<code>START_LIMIT_S</code>, <code>ERR_READER_PROCESS_START</code>).</td></tr>
 <tr><td>Folder watch</td><td><code>app/index/folder_watch.py</code>: <code>NativeSource</code> (ReadDirectoryChangesW via <code>osbridge/dirwatch.py</code>) or <code>PollingSource</code>; <code>ChangeBuffer</code> debounces; <code>BatchIndexer</code> reuses the pipeline's per-file path ("There is no second indexer"). An overflow rescans that folder. Batches wait while the run lock is held. PST/OST and Archive roots are excluded.</td></tr>
 <tr><td>Pipeline threads</td><td>A bounded priority queue fed by the walker; N extraction workers (default <code>max(1, min(4, cores // 2))</code>); one consumer writing SQLite; one feeder thread embedding and writing LanceDB. Indexer threads lower their own priority to <code>THREAD_PRIORITY_LOWEST</code>.</td></tr>
@@ -214,16 +231,16 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="data"><span class="num">5</span>Data: where it lives and what it holds</h2>
 <h3 id="paths">Paths and <code>.env</code></h3>
-<p><code>.env</code> is written by the installer and by the window; never committed. Only <code>DATA_PATH</code>, <code>PROJECT_PATH</code> and <code>LOG_PATH</code> are pinned. Every other location derives from <code>DATA_PATH</code> and is deliberately left unset, so moving the index cannot strand part of it. <code>settings_registry.LOCATION_KEYS</code> stops "Restore defaults" removing the three pinned keys.</p>
+<p><code>.env</code> sits in the project folder (<code>project_root()</code>; in a packaged build that is the <code>_internal</code> folder of the install), is written by the installer and by the window, and is never committed. Only <code>DATA_PATH</code>, <code>PROJECT_PATH</code> and <code>LOG_PATH</code> are pinned. Every other location derives from <code>DATA_PATH</code> and is deliberately left unset, so moving the index cannot strand part of it. <code>settings_registry.LOCATION_KEYS</code> stops "Restore defaults" removing the three pinned keys.</p>
 <table><tr><th>Key</th><th>Default</th></tr>
-<tr><td><code>DATA_PATH</code></td><td>required; the installer suggests <code>%LOCALAPPDATA%\Leasha</code></td></tr>
+<tr><td><code>DATA_PATH</code></td><td>required; the Windows installer suggests <code>%LOCALAPPDATA%\Leasha\Data</code>, <code>install.ps1</code> <code>%LOCALAPPDATA%\Leasha</code></td></tr>
 <tr><td><code>VECTOR_PATH</code></td><td><code>DATA_PATH\vectors</code></td></tr>
 <tr><td><code>FTS_DB</code></td><td><code>DATA_PATH\fts\knowledge.db</code></td></tr>
 <tr><td><code>CACHE_PATH</code></td><td><code>DATA_PATH\cache</code> (LibreOffice profile, preview renders)</td></tr>
 <tr><td><code>MODEL_CACHE</code></td><td><code>DATA_PATH\models</code></td></tr>
 <tr><td><code>STATE_PATH</code></td><td><code>DATA_PATH\state</code> (model catalogue copies, <code>model_choices.json</code>)</td></tr>
-<tr><td><code>PROJECT_PATH</code></td><td>the install folder</td></tr>
-<tr><td><code>LOG_PATH</code></td><td><code>PROJECT_PATH\logs</code></td></tr></table>
+<tr><td><code>PROJECT_PATH</code></td><td>the install folder (its <code>_internal</code> folder in a packaged build)</td></tr>
+<tr><td><code>LOG_PATH</code></td><td><code>PROJECT_PATH\logs</code>; the Windows installer writes <code>DATA_PATH\logs</code></td></tr></table>
 <p>The index is never inside the project folder and holds no original data; deleting it is always safe.</p>
 <h3 id="logs">Logs</h3>
 <table><tr><th>Folder under <code>LOG_PATH</code></th><th>Contents</th></tr>
@@ -233,28 +250,27 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>sessions\</code></td><td>recordings made with <code>--debug</code> or "Record what I do"</td></tr>
 <tr><td><code>install\</code>, <code>crash\</code>, <code>diagnostics\</code></td><td>installer transcripts, crash reports, support bundles</td></tr></table>
 <h3 id="sqlite">SQLite (<code>FTS_DB</code>)</h3>
-<p>WAL, <code>synchronous=NORMAL</code>, foreign keys on. <b>Schema version 30</b> (<code>app/storage/migrations.py</code>, <code>CURRENT_VERSION</code>). <code>schema.sql</code> seeds version 4 on purpose so every fresh database runs migrations 5 to 30. A database with a higher version than the app understands is refused with an <code>AppError</code>, never opened.</p>
+<p>WAL, <code>synchronous=NORMAL</code>, foreign keys on. <b>Schema version 34</b> (<code>app/storage/migrations.py</code>, <code>CURRENT_VERSION</code>). <code>schema.sql</code> seeds version 4 on purpose so every fresh database runs migrations 5 to 34. A database with a higher version than the app understands is refused with an <code>AppError</code>, never opened.</p>
 <div class="tablewrap"><table class="wrap">
 <tr><th>Table</th><th>Holds</th></tr>
-<tr><td><code>files</code></td><td>One row per file, message, attachment or archive member: path, parent_dir, ext, size, mtime_ns, content_hash (blake2b), <code>status</code> (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY, PARTIAL), skip_code and detail, source_kind, repo_id, volume_id + relative_path, phash, taken_at_ns, place.</td></tr>
-<tr><td></td><td><i>Note, 2 October 2026:</i> for a <code>.pst</code> the <code>content_hash</code> column holds the archive's header marker (<code>pst-header:…</code>, <code>email_pst.archive_marker</code>), not a hash of its bytes: 564 bytes are read and the numbers that move when mail does are kept.</td></tr>
+<tr><td><code>files</code></td><td>One row per file, message, attachment or archive member: path, parent_dir, ext, size, mtime_ns, content_hash (blake2b; for a <code>.pst</code> the archive's header marker <code>pst-header:…</code> from <code>email_pst.archive_marker</code>, not a hash of its bytes: 564 bytes are read and the numbers that move when mail does are kept), <code>status</code> (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY, PARTIAL), skip_code and detail, source_kind, repo_id, volume_id + relative_path, phash, taken_at_ns, place. An attachment's or archive member's row carries its own <code>ext</code> and size, never its archive's.</td></tr>
 <tr><td><code>chunks</code></td><td>Passages: file_id, ordinal, text, offsets, page, <code>embedded</code> flag, identifier symbols, label.</td></tr>
 <tr><td><code>chunks_fts</code></td><td>FTS5 over chunks (text, symbols), <code>porter unicode61</code>. <code>chunks_vocab</code> feeds wildcard expansion.</td></tr>
 <tr><td><code>files_fts</code></td><td>FTS5 trigram over (name, folder): the Files page. Mail attachment names since v30.</td></tr>
-<tr><td><code>messages</code>, <code>messages_fts</code></td><td>Mail headers: store_path, entry_id, conversation, subject, sender, recipients (JSON), sent_at, has_attach, casefolded copies; trigram FTS over subject, sender and recipients.</td></tr>
+<tr><td><code>messages</code>, <code>messages_fts</code></td><td>Mail headers: store_path, entry_id, conversation, subject, sender, recipients (JSON), sent_at, has_attach, casefolded copies, folder_path and folder_index (where the message sits in its archive, since v32); trigram FTS over subject, sender and recipients.</td></tr>
 <tr><td><code>repos</code></td><td>Code repositories found under indexed folders.</td></tr>
-<tr><td><code>volumes</code></td><td>Offline Media sources: identity key, volume GUID, hardware serial, label, name, description, status. Never a drive letter.</td></tr>
+<tr><td><code>volumes</code></td><td>Offline Media sources: identity key (on macOS <code>macos-volume:&lt;UUID&gt;</code>), volume GUID, hardware serial, label, name, description, status. Never a drive letter or mount point.</td></tr>
 <tr><td><code>index_state</code></td><td>Key/value state: run cursor, per-archive resume keys, the run-lock record, UI state (<code>ui:*</code>).</td></tr>
 <tr><td><code>index_generation</code></td><td>Bumped on every write, so cached answers cannot go stale.</td></tr>
 <tr><td><code>searches</code>, <code>search_hits</code></td><td>Local usage log for ranking; never fails a search.</td></tr>
 <tr><td><code>saved_searches</code></td><td>Named searches.</td></tr>
 <tr><td><code>file_tags</code></td><td>Photo tags.</td></tr>
-<tr><td><code>piles</code>, <code>faces</code>, <code>face_scans</code></td><td>People recognition (off by default).</td></tr>
+<tr><td><code>piles</code>, <code>faces</code>, <code>face_scans</code>, <code>face_declines</code></td><td>People recognition (off by default); <code>face_declines</code> remembers who a face has been told it is not.</td></tr>
 <tr><td><code>chat_sessions</code></td><td>Chat conversations and their shelves.</td></tr>
 <tr><td><code>image_hashes</code></td><td>Seen-before book for signature logos and icons.</td></tr>
 <tr><td><code>entities</code>, <code>entity_mentions</code>, <code>entity_edges</code></td><td>Deprecated knowledge-graph tables, kept empty since v0.3.2.</td></tr></table></div>
-<details><summary>Migration history, v2 to v30</summary>
-<p class="small">2 usage logging · 3 knowledge graph · 4 filename index · 5 missing indexes · 6 repositories · 7 identifier tokens · 8 mail header index · 9 forget dragged column widths · 10 name_only status · 11 wildcard vocabulary · 12 quoted_removed · 13 repair indexes · 14 folded mail columns · 15 saved searches · 16 chunk label · 17 image phash · 18 photo taken_at · 19 offline media volumes · 20 file tags · 21 taken_at_is_hint · 22 places · 23 people · 24 content_hash index · 25 partial status · 26 chat sessions · 27 mail sent date into taken_at_ns · 28 chunk index follows its columns · 29 image hashes · 30 attachment names into files_fts.</p></details>
+<details><summary>Migration history, v2 to v34</summary>
+<p class="small">2 usage logging · 3 knowledge graph · 4 filename index · 5 missing indexes · 6 repositories · 7 identifier tokens · 8 mail header index · 9 forget dragged column widths · 10 name_only status · 11 wildcard vocabulary · 12 quoted_removed · 13 repair indexes · 14 folded mail columns · 15 saved searches · 16 chunk label · 17 image phash · 18 photo taken_at · 19 offline media volumes · 20 file tags · 21 taken_at_is_hint · 22 places · 23 people · 24 content_hash index · 25 partial status · 26 chat sessions · 27 mail sent date into taken_at_ns · 28 chunk index follows its columns · 29 image hashes · 30 attachment names into files_fts · 31 attachment type and size · 32 message position in its archive · 33 Outlook attachment sizes and the skip index · 34 face declines.</p></details>
 <div class="callout"><b>FTS planner statistics</b>The <code>ANALYZE</code> that migrations 5, 6, 13 and 19 run on a new, empty database leaves <code>sqlite_stat1</code> saying the FTS5 shadow tables hold 2 rows, which made writes slow down linearly as the index grew. <code>SqliteStore._forget_fts_statistics</code> deletes those rows on open and after optimise, and new passages' and messages' index rows are written once per batch (<code>SqliteStore.defer_fts</code>, on by default).</div>
 <h3 id="lancedb">LanceDB (<code>VECTOR_PATH</code>)</h3>
 <table><tr><th>Table</th><th>Holds</th></tr>
@@ -281,9 +297,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 </svg>
 </div>
 <ol>
-  <li><b>Walk</b> (<code>walker.py</code>). Change detection is two-tier: <code>mtime_ns</code> and size from <code>stat()</code>, then the blake2b hash only if those moved. Exclusions prune during the walk. Cloud placeholders are recognised from the same stat. Archive roots are walked once and re-walked only on their interval, a rescan, an incomplete pass, or a changed top-level mtime. With <code>INDEX_ORDER=newest</code> everything is found first, then "read first" folders, then the rest newest first.</li>
-  <li><i>Note, 2 October 2026.</i> A <code>.pst</code> is never hashed, so date and size were its whole change test - and Outlook moves the date of every archive it mounts. <code>Pipeline._classify</code> now asks the reader for a change marker (<code>extract.base.change_marker</code>) and lets it overrule the date in both directions; an interrupted archive's folder cursor is kept when the marker still matches. No marker (an archive Outlook holds open, a row written before this) and the date and size decide as before.</li>
-  <li><i>Note, 3 October 2026.</i> A root may be one file. <code>walker.walk</code> walks it as a listing of its own folder that names only it, so every rule applies as inside a folder; <code>scan</code> counts it as one file; <code>archives.files_under</code> says a file is under itself; <code>folder_watch.live_roots</code> leaves it out. The Space Report's rows are shaped on the worker (<code>presenter.space_rows.shape</code>) and the widget draws from them.</li>
+  <li><b>Walk</b> (<code>walker.py</code>). Change detection is two-tier: <code>mtime_ns</code> and size from <code>stat()</code>, then the blake2b hash only if those moved. A <code>.pst</code> is never hashed, and Outlook moves the date of every archive it mounts, so <code>Pipeline._classify</code> asks the reader for a change marker (<code>extract.base.change_marker</code>) and lets it overrule the date in both directions; an interrupted archive's folder cursor is kept while the marker still matches. With no marker (an archive Outlook holds open, a row written before markers existed) the date and size decide. Exclusions prune during the walk. A root may be one file: <code>walker.walk</code> walks it as a listing of its own folder that names only it, so every rule applies as inside a folder; <code>scan</code> counts it as one file; <code>archives.files_under</code> says a file is under itself; <code>folder_watch.live_roots</code> leaves it out. Cloud placeholders are recognised from the same stat. Archive roots are walked once and re-walked only on their interval, a rescan, an incomplete pass, or a changed top-level mtime. With <code>INDEX_ORDER=newest</code> everything is found first, then "read first" folders, then the rest newest first.</li>
   <li><b>Queue and govern.</b> Bounded queues give back-pressure; the governor pauses with a reason sentence.</li>
   <li><b>Extract</b> (<code>app/extract/base.py</code> <code>REGISTRY</code>, loaded lazily). Each reader is a library first; external converters only where no library exists (<code>config/extractors.toml</code>).</li>
   <li><b>Chunk</b> (<code>chunker.py</code>): about 512 tokens with 64 overlap, preferring paragraph then sentence boundaries.</li>
@@ -311,6 +325,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
   <li><b>PST/OST</b> (<code>email_pst.py</code>, <code>pst_libpff.py</code>): <code>choose_backend()</code> picks Outlook MAPI over COM or libpff. <code>.ost</code> always goes through Outlook. The setting is "How to read archives" (automatic, direct, Outlook). An archive Outlook has attached is locked, not damaged.</li>
   <li><b>mbox and Takeout</b> (<code>email_mbox.py</code>): lazy iteration, per-message resume; a Takeout zip goes through the archive reader and the mbox reader.</li>
   <li><b><code>MAIL_ATTACHMENTS</code></b> (<code>mail_attachments.py</code>): <code>names</code>, <code>documents</code> (default), <code>pictures</code>, <code>everything</code>. Under <code>documents</code>, Word, Excel, PowerPoint, PDF, text, CSV and HTML are read for contents; a zip gives its name and its members' names; everything else, pictures included, is name only and never OCR'd. Inline pictures get no row. Attachment rows are keyed <code>&lt;message&gt;/attachments/&lt;name&gt;</code>.</li>
+  <li><b>An attachment's own type and size.</b> <code>pipeline._row_type_and_size</code> gives an attachment's row its own <code>ext</code> and <code>size_bytes</code> (<code>meta['attachment_name']</code>, <code>meta['attachment_size']</code> from <code>email_pst._attachment_documents</code>); a zip member's <code>member_size</code> (set by <code>archive._read_one</code>) is preferred over an attachment's. Schemas 31 and 33 repaired rows written before: type from the key, size blanked until the archive is read again.</li>
+  <li><b>Open from a copy</b> (<code>ui/attachment_open.py</code>). An attachment or a zip member opens from a read-only copy in <code>&lt;CACHE_PATH&gt;\opened</code>, swept per session and cleared on close. Mail bytes come from <code>extract/pst_attachment.read_attachment</code> (libpff, found by <code>messages.folder_path</code> / <code>folder_index</code>, the message number checked, a search as fallback); zip bytes from <code>member_of</code>, nested, reading a zip on disk by path. The route is <code>presenter/opening.plan_for</code> and <code>tasks.open_target</code> through <code>workers.open_row_async</code>; the worker body that writes the copy is <code>tasks.save_attachment_copy</code>. Error: <code>ERR_ATTACHMENT_OPEN</code>. The preview draws an attachment's or zip member's PDF, picture or <code>.xlsx</code> grid from memory (<code>preview_loader.in_memory_preview</code>, <code>attachment_open.bytes_of</code>, <code>read_attachment(search=False, max_bytes=)</code>).</li>
 </ul>
 <h3 id="images">Images, OCR, photos and speech</h3>
 <ul>
@@ -348,7 +364,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 </div>
 <ol>
   <li><b>One reading for every tab</b> (<code>app/ui/tasks.py::read_box</code>): <code>commands.expand_slashes</code> turns <code>/type pdf</code> into <code>type:pdf</code>; <code>translate_rules</code> recognises names, dates and kinds as chips (a name becomes <code>from:</code> only if that sender exists, a noun becomes <code>type:</code> only if the extension exists); then <code>parse_query</code>. Chips never rewrite the typed text.</li>
-  <li><b>Parse</b> (<code>query.py</code>): phrases, <code>-exclusions</code>, <code>prefix*</code>, OR/AND/NOT, relative dates; <code>to_fts_match()</code> cannot produce a malformed FTS expression. Limits: 4,096 characters, 64 terms; scopes all, mail, documents, code. Kind words such as <code>type:excel</code> expand through <code>_EXT_GROUPS</code>, which a test keeps identical to the <code>/type</code> menu.</li>
+  <li><b>Parse</b> (<code>query.py</code>): phrases, <code>-exclusions</code>, <code>prefix*</code>, OR/AND/NOT, relative dates; <code>to_fts_match()</code> cannot produce a malformed FTS expression. Limits: 4,096 characters, 64 terms; scopes all, mail, documents, code. Kind words such as <code>type:excel</code> expand through <code>_EXT_GROUPS</code>, which a test keeps identical to the <code>/type</code> menu. <code>*.ext</code> is read as a type filter (<code>_STAR_EXT</code>).</li>
   <li><b>Two tiers.</b> <code>interim()</code>: BM25 only, 20 rows, after 150 ms of stillness, never cached or logged. <code>search()</code>: the full tier after 400 ms or Enter.</li>
   <li><b>Full tier</b>: wildcard expansion through <code>chunks_vocab</code>; pasted error messages become phrase searches; spelling correction for words the index has never seen; keyword, vector and CLIP retrievers in parallel; RRF fusion; optional cross-encoder rerank (never fails a search); recency blend (weight 0.03, half-life 180 days); relax-on-empty (labelled); version folding by perceptual and content hash; notices.</li>
   <li><b>Interpret</b> (<code>translate.py</code>, L8a): an optional local model rewrites a sentence into operators, shown and editable, before the search. Time limit 45 s. Retrieval itself never calls a model.</li>
@@ -369,20 +385,13 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="chat"><span class="num">8</span>Chat and the local models</h2>
 <ul>
-  <li><b>Router</b> (<code>app/chat/router.py</code>): rules first, a small model only when the rules cannot decide. Classes: LOOKUP, AGGREGATE (an SQL count), SYNTHESIS, FIND (the answer is the result list), ABSENCE, FOLLOWUP, CHAT (social turns only). A general question still searches first.</li>
-  <li><i>Note, 4 October 2026.</i> A sentence that names a value written in a document - <code>VALUE_NOUNS</code> and phrases such as "passport number", "sort code", "expiry date" - is LOOKUP whatever verb it opens with ("find the passport number"), read and quoted rather than listed. "Find my passport" names a document and stays FIND.</li>
-  <li><i>Note, 4 October 2026.</i> The Preview icon toggle is one control, <code>view_options.preview_toggle</code>: the Search bar's mirror switch builds it, and Files, Mail and Code add it through <code>view_button.add_to(layout)</code> (a method, because those views are at their line limit). It flips the View button's preference and follows it through <code>watchers</code>; Chat has no preferences, so its toggle shows or hides the Sources column's pane and the choice is kept in <code>ui:chat_preview</code>. Pinned, Timeline and Grid stay Search's - the panels do not exist elsewhere.</li>
-  <li><i>Note, 4 October 2026.</i> A widget set on a row of a tree or table (<code>buttons.put_on_row</code>, the Cloud content box, the file-types boxes) sits in a plain <code>QWidget</code>, which the theme paints the window colour - a grey block round the control over a white row. Those cells are named <code>rowCell</code> and the theme makes them transparent; <code>test_index_now_per_line.py</code> reads the pixels. The guide's pictures are retaken with <code>tools/guide_pictures.py</code> (the real window through the Windows platform against <code>D:\Demo\leasha-guide</code>), which also puts them into the guide by caption. The Reports list is <code>widgets/report_list.py</code> (<code>REPORT_ICONS</code>, <code>retint</code>), tinted by the window with the category lists; <code>CategoryNav.ICONS</code> has every Indexing and Settings category, and <code>test_category_icons.py</code> fails on one without.</li>
-  <li><i>Note, 4 October 2026 - the brand.</i> The window was assessed against <code>jeff-doc-leasha</code> (<code>brand.json</code>, 1 October rulings). Kind badges: the brand's text-safe tints (<code>0866BD</code>, <code>A35200</code>, <code>6B7600</code>, chrome <code>6C6685</code>) in both themes, the word white (<code>result_delegate.BADGE_INK</code>); the splash keeps the full colours, where they are stripes with no word on them. Every pair is measured in <code>test_brand_colours.py</code>, which also pins the light accent to the brand's indigo <code>15084B</code> and the splash's stripes to the brand's exact values. <code>widgets/about_dialog.py</code> is Help › About Leasha (the lockup by ground, <code>build_info()</code>, the entity, <code>docs/THIRD_PARTY_NOTICES.md</code>). <code>assets/leasha.ico</code> and the tray icon are built from the kit's <code>leasha-symbol-512.png</code>; <code>leasha-logo.svg</code> is the kit's outlined vector. Decided and not changed: the dark theme's grey grounds, and the system font in the window (the brand's Aptos is for documents - a sentence the brand guidelines should carry).</li>
-  <li><i>Note, 4 October 2026 - pictures and version.</i> <code>tools/guide_pictures.py</code> takes 25 of the guide's 29 pictures: the pages, the search results in both themes (the real keyword engine over the demonstration store, the theme switched through <code>_theme_changed</code> and put back), the timeline, the Space Report (<code>REPORT_SHOWN</code>) and the five menus (<code>grab_menu</code>). An <code>.ico</code> must lead with its largest picture - <code>QPixmap(path)</code> loads the first. <code>app.cli --version</code> prints <code>Leasha &lt;VERSION&gt;</code>.</li>
-  <li><i>Note, 4 October 2026 - attachments.</i> <code>pipeline._row_type_and_size</code> gives an attachment's row its own <code>ext</code> and <code>size_bytes</code> (<code>meta['attachment_name']</code>, <code>meta['attachment_size']</code> from <code>email_pst._attachment_documents</code>); schema 31 repairs rows already written (type from the key, size blanked). <code>query._STAR_EXT</code> reads <code>*.ext</code> as a type filter.</li>
-  <li><i>Note, 4 October 2026 - Open from a copy.</i> <code>ui/attachment_open.py</code>: an attachment key or a zip member opens from a read-only copy in <code>&lt;CACHE_PATH&gt;\opened</code> (swept per session, cleared on close). Mail bytes come from <code>extract/pst_attachment.read_attachment</code> (libpff, found by <code>messages.folder_path</code> / <code>folder_index</code>, schema 32, number checked, search as fallback); zip bytes by <code>member_of</code>, nested. <code>archive._read_one</code> sets <code>member_size</code>; <code>pipeline._row_type_and_size</code> prefers a member over an attachment. Error: <code>ERR_ATTACHMENT_OPEN</code>. The worker body is <code>tasks.save_attachment_copy</code>; the worker, <code>workers.open_attachment_async</code>. <i>Later the same day:</i> <code>preview_loader.in_memory_preview</code> draws an attachment's or zip member's PDF, picture or <code>.xlsx</code> grid from memory (<code>attachment_open.bytes_of</code>, <code>read_attachment(search=False, max_bytes=)</code>); <code>member_of</code> reads a zip on disk by path. <i>Corrected the same night:</i> the route is now <code>presenter/opening.plan_for</code> + <code>tasks.open_target</code> via <code>workers.open_row_async</code>; <code>open_attachment_async</code> no longer exists.</li>
-  <li><i>Note, 4 October 2026 - one route per job.</i> Index runs: <code>app/index/run_setup.py</code>. Search: <code>app/search/run.py</code>, <code>app/search/marks.py</code>. Open: <code>app/ui/presenter/opening.py</code>. Row facts: <code>app/core/row_facts.py</code>, <code>app/ui/presenter/facts.py</code>. Chat model choice: <code>widgets/model_picker.py</code>, <code>controllers/interpret_controller.py</code>.</li>
-  <li><i>Note, 4 October 2026 - the index over MCP.</i> <code>app/serve/mcp.py</code>: four read-only tools (<code>search</code>, <code>find_files</code>, <code>read_text</code>, <code>index_status</code>) over streamable HTTP on <code>127.0.0.1:MCP_PORT/mcp</code>, keyed (<code>Authorization: Bearer</code>, store state <code>mcp:key</code>), run by <code>McpHost</code> from <code>controllers/mcp_controller.py</code> with the window's models. <code>app/serve/clients.py</code> writes each program's entry (backup first; Claude Code through <code>claude mcp</code>). <code>app.cli mcp</code> is the stdio bridge for command-only programs. Settings <code>MCP_PORT</code>, <code>MCP_AUTOSTART</code>; errors <code>ERR_MCP_START</code>, <code>ERR_MCP_CONFIG</code>.</li>
+  <li><b>Router</b> (<code>app/chat/router.py</code>): rules first, a small model only when the rules cannot decide. Classes: LOOKUP, AGGREGATE (an SQL count), SYNTHESIS, FIND (the answer is the result list), ABSENCE, FOLLOWUP, CHAT (social turns only). A general question still searches first. A sentence that names a value written in a document (<code>VALUE_NOUNS</code>, and phrases such as "passport number", "sort code", "expiry date") is LOOKUP whatever verb it opens with ("find the passport number"), read and quoted rather than listed; "find my passport" names a document and stays FIND.</li>
   <li><b>Engine</b> (<code>engine.py</code>): route, plan, search (at most 3 rounds), assess, answer. The answer streams; <code>reconcile.py</code> and <code>verify.py</code> drop unsupported claims (strictness 70 by default). Quotes must be verbatim; numbers, dates and names are checked exactly. With no model, counts, finds and absence questions still work.</li>
   <li><b>Engine choice</b> (<code>app/llm/engines.py</code>): <code>CHAT_ENGINE=onnx</code> (default; <code>app/ort/llm.py::OnnxLLM</code>, one per process) or <code>ollama</code>. The same choice covers Chat, Interpret and Describe.</li>
   <li><b>Web</b> (<code>web.py</code>): <code>CHAT_WEB_ENABLED</code> is off by default. Local retrieval runs first; only a sanitised keyword query of ten words or fewer leaves the machine; SSRF guard, three redirects, 1 MB cap; ask-first and show-query on.</li>
 </ul>
+<h3 id="mcp">The index for other AI programs (MCP)</h3>
+<p><code>app/serve/mcp.py</code> offers four read-only tools (<code>search</code>, <code>find_files</code>, <code>read_text</code>, <code>index_status</code>) over streamable HTTP on <code>127.0.0.1:MCP_PORT/mcp</code>. Every request carries Leasha's key (<code>Authorization: Bearer</code>; the key is store state <code>mcp:key</code>). <code>McpHost</code> runs it, started from <code>controllers/mcp_controller.py</code> with the window's models; the person starts, stops and connects it in Settings › Models &amp; AI › AI programs. <code>app/serve/clients.py</code> writes each AI program's entry (a backup first; Claude Code through <code>claude mcp</code>). <code>app.cli mcp</code> is the stdio bridge for programs that can only start a command. Settings <code>MCP_PORT</code> (8737) and <code>MCP_AUTOSTART</code> (off); errors <code>ERR_MCP_START</code>, <code>ERR_MCP_CONFIG</code>.</p>
 <h3 id="catalogue">Model catalogue</h3>
 <p><code>app/ort/catalogue.json</code> (list <code>2026-09-30.3</code>) pins each model's revision and sha256. Downloads happen only from Settings buttons; <code>hub.resolve</code> never fetches during indexing. Choices are saved to <code>STATE_PATH\model_choices.json</code>. A further 220 Hugging Face entries (<code>catalogue_hf.json</code>) are listed as "Not checked on a real machine".</p>
 <table><tr><th>Model</th><th>Job</th><th>Approx. size</th></tr>
@@ -394,23 +403,25 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="reports"><span class="num">9</span>Reports, timeline and offline media</h2>
 <ul>
-  <li><code>app/reports</code> never writes to a user file or to the stores. <code>inheritance.py</code> (Digital Inheritance), <code>space.py</code> (duplicates and only-copy warnings by <code>content_hash</code>, per volume), <code>timeline.py</code> (dates by precedence: camera taken-at, folder-year hint, mail sent date, file mtime).</li>
-  <li><b>Offline Media</b>: <code>volumes</code> rows keyed by volume GUID (hardware serial advisory). Files are stored as <code>(volume_id, relative_path)</code> with a synthetic letter-free path; the mount point is resolved fresh on every call. "Offline" outranks every other state.</li>
+  <li><code>app/reports</code> never writes to a user file or to the stores. <code>inheritance.py</code> (Digital Inheritance), <code>space.py</code> (duplicates and only-copy warnings by <code>content_hash</code>, per volume; its rows are shaped on the worker by <code>presenter.space_rows.shape</code> and the widget draws from them), <code>timeline.py</code> (dates by precedence: camera taken-at, folder-year hint, mail sent date, file mtime).</li>
+  <li><b>Offline Media</b>: <code>volumes</code> rows keyed by volume GUID on Windows (hardware serial advisory) and by the mounted volume's UUID on macOS (<code>macos-volume:&lt;UUID&gt;</code>, <code>app/core/osbridge/volumes.py</code>; <code>app/core/volumes_win.py</code> hands its identify and mount functions to it there). Network shares are Windows-only. Files are stored as <code>(volume_id, relative_path)</code> with a synthetic letter-free path; the mount point is resolved fresh on every call. "Offline" outranks every other state.</li>
 </ul>
 
 <h2 id="errors"><span class="num">10</span>The error contract</h2>
-<p><code>AppError</code> (pydantic): <code>code, component, message, details, suggestion, action_type, action_payload, context</code>. <code>ActionType</code>: <code>AUTO_FIX · USER_RETRY · RUN_COMMAND · SKIP_CONTINUE · NONE</code>. Only <code>SKIP_CONTINUE</code> never halts a batch. <code>guard()</code> wraps worker boundaries. The registry in <code>app/core/errors.py</code> holds 59 codes and is append-only.</p>
+<p><code>AppError</code> (pydantic): <code>code, component, message, details, suggestion, action_type, action_payload, context</code>. <code>ActionType</code>: <code>AUTO_FIX · USER_RETRY · RUN_COMMAND · SKIP_CONTINUE · NONE</code>. Only <code>SKIP_CONTINUE</code> never halts a batch. <code>guard()</code> wraps worker boundaries. The registry in <code>app/core/errors.py</code> holds 68 codes and is append-only.</p>
 <div class="tablewrap"><table class="wrap">
 <tr><th>Area</th><th>Codes (all prefixed <code>ERR_</code>)</th></tr>
 <tr><td>Models</td><td>MODEL_LOAD, MODEL_DOWNLOAD, LOCAL_MODEL_MISSING, LOCAL_MODEL_FAILED, LOCAL_MODEL_TIMEOUT, OLLAMA_DOWN, OLLAMA_TIMEOUT</td></tr>
 <tr><td>File content (skip and continue)</td><td>FILE_CORRUPT, MOSTLY_PICTURES, FILE_TRUNCATED, FILE_LOCKED, FILE_TOO_LARGE, NO_TEXT_LAYER, UNSUPPORTED_TYPE, FILE_MISSING, FILE_TIMEOUT; ENCODING (auto-fix)</td></tr>
 <tr><td>Cloud</td><td>CLOUD_STUB, CLOUD_ONLY</td></tr>
-<tr><td>Converters and OCR</td><td>CONVERTER_MISSING, CONVERTER_FAILED, CONVERTER_BLOCKED, OCR_UNAVAILABLE, OCR_HELD, OCR_FAILED, OCR_LOW_CONFIDENCE</td></tr>
+<tr><td>Converters and OCR</td><td>CONVERTER_MISSING, CONVERTER_FAILED, CONVERTER_BLOCKED, OCR_UNAVAILABLE, OCR_HELD, OCR_FAILED, OCR_LOW_CONFIDENCE, PICTURE_TEXT_LATER, PAGE_TEXT_LATER</td></tr>
+<tr><td>Photos</td><td>PHASH, PHASH_STORE, CLIP_STORE</td></tr>
 <tr><td>Media and speech</td><td>MEDIA_TOOLS_MISSING, MEDIA_PROBE_FAILED, MEDIA_HELD, MEDIA_BACKLOG, MEDIA_INTERRUPTED, TRANSCRIBE_UNAVAILABLE, TRANSCRIBE_MODEL_MISSING, TRANSCRIBE_FAILED</td></tr>
 <tr><td>Archives</td><td>ARCHIVE_TOO_LARGE, ARCHIVE_TOO_DEEP, ARCHIVE_ENCRYPTED, ARCHIVE_UNREADABLE</td></tr>
-<tr><td>Mail</td><td>OUTLOOK_MISSING, OUTLOOK_BUSY, OUTLOOK_OPEN, PST_PARTIAL, MAIL_ATTACHMENTS_NOT_DOWNLOADED, MAIL_PARTIAL</td></tr>
+<tr><td>Mail</td><td>OUTLOOK_MISSING, OUTLOOK_BUSY, OUTLOOK_OPEN, PST_PARTIAL, MAIL_ATTACHMENTS_NOT_DOWNLOADED, MAIL_PARTIAL, ATTACHMENT_OPEN</td></tr>
 <tr><td>Index and run</td><td>DISK_SPACE, DB_LOCKED, DB_BUSY, INDEX_RUNNING, INDEX_PROCESS_ENDED, READER_PROCESS_ENDED, READER_PROCESS_START, SOURCE_NOT_A_DRIVE, WATCH_FOLDER, WATCH_UPDATE, SHUTTING_DOWN</td></tr>
-<tr><td>Config and other</td><td>CONFIG_INVALID, CONFIG_MISSING, NOT_IMPLEMENTED, UNEXPECTED</td></tr></table></div>
+<tr><td>Config and other</td><td>CONFIG_INVALID, CONFIG_MISSING, MIGRATION_FAILED, NOT_IMPLEMENTED, UNEXPECTED</td></tr>
+<tr><td>AI programs (MCP)</td><td>MCP_START, MCP_CONFIG</td></tr></table></div>
 
 <h2 id="settings"><span class="num">11</span>Settings registry</h2>
 <p>Every tunable is a <code>Setting(key, label, kind, default, group, surface, help, minimum, maximum, unit, choices, restart, destructive, flow)</code> in <code>app/core/settings_registry.py</code>. The window draws its controls from it, the Settings filter searches it, and <code>test_every_plain_setting_has_a_control</code> fails if a setting has no control. "R" marks a restart.</p>
@@ -456,7 +467,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>VIDEO_INDEXING_ENABLED</code>, <code>AUDIO_TRANSCRIPTION_ENABLED</code> (R)</td><td>false</td><td></td></tr>
 <tr><td><code>TRANSCRIBE_MODEL</code> (R)</td><td>base</td><td>tiny to large-v3</td></tr>
 <tr><td><code>VIDEO_KEYFRAME_INTERVAL_S</code> / <code>VIDEO_KEYFRAME_CAP</code> (R)</td><td>60 / 200</td><td></td></tr>
-<tr><td><code>EMBED_MODEL</code> / <code>EMBED_DIM</code> (R)</td><td>BAAI/bge-small-en-v1.5 / 384</td><td>changing it re-embeds everything</td></tr></table></details>
+<tr><td><code>EMBED_MODEL</code> / <code>EMBED_DIM</code> (R)</td><td>BAAI/bge-small-en-v1.5 / 384</td><td>changing it re-embeds everything</td></tr>
+<tr><td><code>MCP_PORT</code> / <code>MCP_AUTOSTART</code></td><td>8737 / false</td><td>the <a href="#mcp">MCP server</a> for AI programs</td></tr></table></details>
 <details><summary>Storage</summary><table class="wrap"><tr><th>Key</th><th>Default</th><th>Notes</th></tr>
 <tr><td><code>DATA_PATH</code> (R)</td><td></td><td>move, use existing, or start new</td></tr>
 <tr><td><code>CLOUD_CONTENT_CAP_MB</code></td><td>1024</td><td>shared per run</td></tr></table></details>
@@ -466,8 +478,9 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <h3 id="launchers">Launchers</h3>
 <ul>
   <li><b><code>leasha.cmd</code></b> works from its own folder. With no arguments, or <code>--debug</code>, it opens the window (<code>pythonw -m app.main</code>, detached). Anything else runs <code>python -m app.cli …</code> and keeps its exit code, so <code>leasha stats</code> is <code>python -m app.cli stats</code>. Without a venv it says "Leasha is not installed yet. Run run-install.cmd first."</li>
+  <li><b>A packaged build</b> has two programs in its install folder: <code>Leasha.exe</code> opens the window (no console); <code>leasha-cli.exe</code> is the console program, which runs <code>-m module</code>, <code>-c code</code> and script paths the way <code>python.exe</code> does, and takes plain <code>app.cli</code> commands (<code>leasha-cli stats</code>).</li>
   <li><b><code>app/main.py</code></b>: <code>--debug</code> records the session to <code>logs\sessions\</code>; other arguments go to Qt.</li>
-  <li><b>Global options</b> on every command, before or after it: <code>--env ENV</code> (an alternative <code>.env</code>) and <code>--json</code> (machine-readable output). Every run writes <code>logs\runs\run-&lt;stamp&gt;-&lt;command&gt;.log</code> and prints its path only on failure.</li>
+  <li><b>Global options</b> on every command, before or after it: <code>--env ENV</code> (an alternative <code>.env</code>) and <code>--json</code> (machine-readable output). <code>--version</code> prints <code>Leasha &lt;VERSION&gt;</code>. Every run writes <code>logs\runs\run-&lt;stamp&gt;-&lt;command&gt;.log</code> and prints its path only on failure.</li>
 </ul>
 <table><tr><th>Exit code</th><th>Meaning</th></tr>
 <tr><td>0</td><td>success</td></tr>
@@ -483,6 +496,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>gitsearch</code></td><td>search a repository: its files, its branches, its whole history</td><td>Code page</td></tr>
 <tr><td><code>repos</code></td><td>list the code repositories found under the indexed folders</td><td>Code page, Ignore this repository</td></tr>
 <tr><td><code>timeline</code></td><td>browse everything from a stretch of time - photos, files and mail together, oldest first</td><td>Life Timeline</td></tr>
+<tr><td><code>photos</code></td><td>the photo library, narrowed as the Photos tab narrows it; and writing names into photos</td><td>Photos page</td></tr>
 <tr><td><code>report</code></td><td>a read-only report over the existing index - the catalogue, not a search</td><td>Reports (PDF export is window-only)</td></tr>
 <tr><td><code>index</code></td><td>build or update the index</td><td>Indexing › Start indexing</td></tr>
 <tr><td><code>scan</code></td><td>count the corpus without indexing it - run this before a long index</td><td>Scan first</td></tr>
@@ -506,6 +520,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>rerank-bench</code></td><td>time reranking per model</td><td>—</td></tr>
 <tr><td><code>ollama</code></td><td>check the Ollama connection</td><td>Settings › Ollama › Test</td></tr>
 <tr><td><code>open</code></td><td>act on a leasha:// link, or register the scheme</td><td>Let leasha:// links open Leasha</td></tr>
+<tr><td><code>mcp</code></td><td>bridge an AI program to Leasha's running AI access (MCP over stdin/stdout)</td><td>the server it reaches: Settings › Models &amp; AI › AI programs</td></tr>
+<tr><td><code>shortcut</code></td><td>add or remove Leasha in the Start menu</td><td>—</td></tr>
 <tr><td><code>completions</code></td><td>tab completion for PowerShell</td><td>—</td></tr>
 <tr><td><code>lock</code></td><td>hold the single-instance lock (diagnostic)</td><td>—</td></tr></table></div>
 
@@ -560,12 +576,11 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>--force</code></td><td>index every file found, ignoring change detection</td></tr>
 <tr><td><code>--skip-ocr</code> / <code>--only-ocr</code></td><td>first pass without images (queued, not failed) / the image pass alone</td></tr>
 <tr><td><code>--recheck-archives</code>, <code>--all-roots</code></td><td>walk archive folders in full / ignore Live and Archive for this run</td></tr>
-<tr><td></td><td><i>Note, 2 October 2026:</i> "Index now" on one line of Settings › Folders to index is <code>leasha index --no-prune --recheck-archives -- FOLDER</code>: that folder only, read in full, nothing removed from the others.</td></tr>
 <tr><td><code>--retry-skipped</code></td><td>re-read earlier skips (after installing a converter, say); far cheaper than <code>--force</code></td></tr>
 <tr><td><code>--retry-timed-out [TYPE]</code>, <code>--time-limit-factor N</code></td><td>re-read timed-out files only, with N× the usual limit (default 4, 1 to 100)</td></tr>
 <tr><td><code>--pause-file PATH</code></td><td>hold the run while this file exists</td></tr>
 <tr><td><code>--events jsonl</code></td><td>machine-readable progress for the window: progress, heartbeat and finished events on stdout; pause, resume and stop on stdin</td></tr></table>
-<p>Takes the index run lock; writes SQLite, vectors and image vectors. Exits 1 if the run stopped early ("Everything indexed so far is saved").</p>
+<p>Takes the index run lock; writes SQLite, vectors and image vectors. Exits 1 if the run stopped early ("Everything indexed so far is saved"). "Index now" on one line of Settings › Folders to index is <code>leasha index --no-prune --recheck-archives -- FOLDER</code>: that folder only, read in full, nothing removed from the others.</p>
 <h4>scan</h4>
 <pre><code>leasha scan [roots ...] [--all] [--sample-pdfs N] [--sample-archives N] [--no-sample]
             [--mb-per-minute RATE] [--quiet]</code></pre>
@@ -591,8 +606,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <pre><code>leasha offline-media [--scan PATH --name NAME [--description TEXT] [--same-as NAME_OR_ID]
                       [--sequential-medium]] [--rescan NAME_OR_ID] [--delete NAME_OR_ID [--yes]]
                       [--archive NAME_OR_ID --location TEXT]</code></pre>
-<p>With no option it lists sources. <code>--delete</code> shows the count and needs <code>--yes</code>. <code>--archive</code> turns a source into a name and a free-text location (for a tape in a safe, say).</p>
-<p><i>Note, 2 October 2026.</i> The list has a <code>HARDWARE ID</code> column: the disk's serial number (<code>volumes.hardware_serial</code>), or <code>-</code> where none is stored. <code>--rescan</code> asks Windows for it again when a drive has none. The Offline page shows the same value and has a Rescan button on every line.</p>
+<p>With no option it lists sources, with a <code>HARDWARE ID</code> column: the disk's serial number (<code>volumes.hardware_serial</code>), or <code>-</code> where none is stored. <code>--rescan</code> asks Windows for it again when a drive has none. The Offline page shows the same value and has a Rescan button on every line. <code>--delete</code> shows the count and needs <code>--yes</code>. <code>--archive</code> turns a source into a name and a free-text location (for a tape in a safe, say).</p>
 </div>
 
 <h3 id="cli-maint">Maintenance and diagnostics</h3>
@@ -620,6 +634,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <p><code>open register | unregister | show | leasha://…</code> manages the per-user link scheme or hands a link to the window. <code>completions [install] [--path $PROFILE] [--remove]</code> adds PowerShell tab completion. <code>lock [--hold 2.0]</code> holds the single-instance lock, for tests.</p>
 </div>
 
+<h3 id="installer">Windows installer</h3>
+<p><code>packaging\build.ps1</code> builds it in one command (<code>-Release</code> also copies it to the Google Drive Releases folder). <code>packaging\leasha.spec</code> is a one-folder PyInstaller 6.22.3 build with two programs, <code>Leasha.exe</code> and <code>leasha-cli.exe</code> (see <a href="#launchers">Launchers</a>), entered through <code>packaging\leasha_entry.py</code>. <code>packaging\installer.iss</code> (Inno Setup 6) installs per user by default, with no administrator needed; asks where the index goes (default <code>%LOCALAPPDATA%\Leasha\Data</code>); writes <code>&lt;install&gt;\_internal\.env</code> only when none exists; offers two tasks, downloading the search models and installing LibreOffice through winget; and offers to run <code>doctor.py --quick</code> at the end. Uninstalling leaves the index.</p>
 <h3 id="install">Install scripts</h3>
 <table class="wrap"><tr><th><code>install.ps1</code> parameter</th><th>Default</th><th>Purpose</th></tr>
 <tr><td><code>-DataPath</code></td><td>asked</td><td>where the index is built; an existing <code>DATA_PATH</code> is kept</td></tr>
@@ -631,10 +647,11 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <p>Steps: locate files → winget → validate the index location → Python 3.12 → Git → folders and venv → write <code>.env</code> → check no Leasha holds the venv → Python packages → embedding model (about 130 MB) → optional components (rerank model, <code>onnxruntime-directml</code> installed last, Ollama) → <code>doctor.py</code> → optional tab completion, <code>leasha://</code>, the nightly task (daily 02:00) → summary. The transcript goes to <code>logs\install\</code>. <code>run-install.cmd</code> parse-checks the scripts first (<code>scripts\parse-check.ps1</code>), passes every argument through, and keeps the window open. <code>add-to-path.ps1 [-Remove]</code> edits the user PATH only.</p>
 <h3 id="doctor"><code>doctor.py</code></h3>
 <p>Standard library only, so it runs before <code>pip install</code>. <code>--json</code> emits <code>{ready, required_failures, optional_failures, machine, checks}</code>; <code>--quick</code> skips model loading. Exit 0 is READY, 1 NOT READY. Each line is <code>[PASS]</code>, <code>[WARN]</code> (optional) or <code>[FAIL]</code> with a <code>FIX:</code> line.</p>
-<p class="small">Checks: Python ≥ 3.12 · inside the project venv · Windows · <code>.env</code> with DATA_PATH · imports (PyQt6, lancedb, fastembed, pymupdf, docx, openpyxl, pptx, pydantic, loguru …) · pywin32* · document converters* · file types ready* · SQLite FTS5 · WAL · onnxruntime integrity · machine profile · GPU provider matches this machine* · index location · writable index folders · free disk · LanceDB write and search · embedding model loads · rerank model* · ONNX models* · Git* · resources* · direct .pst reading (libpff)* · Outlook MAPI* · Ollama* · nightly loop*. (* optional)</p>
+<p class="small">Checks: Python ≥ 3.12 · inside the project venv · Windows · <code>.env</code> with DATA_PATH · imports (PySide6, lancedb, fastembed, pymupdf, docx, openpyxl, pptx, pydantic, loguru …) · pywin32* · document converters* · file types ready* · SQLite FTS5 · WAL · onnxruntime integrity · machine profile · GPU provider matches this machine* · index location · writable index folders · free disk · LanceDB write and search · embedding model loads · rerank model* · ONNX models* · Git* · resources* · direct .pst reading (libpff)* · Outlook MAPI* · Ollama* · nightly loop*. (* optional)</p>
 <h3 id="tools">Developer tools</h3>
 <table class="wrap"><tr><th>Script</th><th>Does</th></tr>
 <tr><td><code>tools\grab_ui.py</code></td><td>Renders the real window against a temporary store and saves every page to PNG (<code>--surface</code>, <code>--size</code>, <code>--theme</code>, <code>--show</code>, <code>--list</code>). The golden screenshots in <code>tests/golden/</code> come from it.</td></tr>
+<tr><td><code>tools\guide_pictures.py</code></td><td>Retakes the user guide's pictures from the real window through the Windows platform, against the demonstration store in <code>D:\Demo\leasha-guide</code>, and puts each into <code>docs/USER_GUIDE.html</code> by its caption (<code>CAPTIONS</code>). It covers every captioned picture in the guide: the pages, the search results in both themes (the real keyword engine over the demonstration store, the theme switched through <code>_theme_changed</code> and put back), the timeline, the Space Report (<code>REPORT_SHOWN</code>), the five bar menus (<code>grab_menu</code>) and three windows of their own (<code>WINDOWS</code>).</td></tr>
 <tr><td><code>tools\nightly.py</code></td><td>The nightly loop: build fixture corpora, timed index, probe, <code>evaluate --builtin</code>, kill-and-resume check, one line in <code>logs\nightly.log</code>.</td></tr>
 <tr><td><code>tools\extract_speed.py</code></td><td>Times each reader and regenerates <code>docs/EXTRACTION_SPEED.md</code>.</td></tr>
 <tr><td><code>tools\reader_recall.py</code></td><td>Compares an in-process reader with a converter's output.</td></tr>
@@ -645,7 +662,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="testing"><span class="num">13</span>Testing</h2>
 <ul>
-  <li><code>tests/unit/</code> (431 modules), <code>tests/integration/</code> (layer acceptance, folder watch, repositories, Takeout), <code>tests/fixtures/</code> (healthy and corrupt files of every type, corpus generators), <code>tests/golden/ui-redesign/</code> (screenshots compared by perceptual hash).</li>
+  <li><code>tests/unit/</code> (493 modules), <code>tests/integration/</code> (layer acceptance, folder watch, repositories, Takeout), <code>tests/fixtures/</code> (healthy and corrupt files of every type, corpus generators), <code>tests/golden/ui-redesign/</code> (screenshots compared by perceptual hash).</li>
   <li>Defaults (<code>pyproject.toml</code>): <code>-q --strict-markers --basetemp=.pytest_tmp -m "not jvm and not e2e"</code>; deprecation warnings from <code>app.*</code> are errors. Never run two suites at once in one copy (they share <code>.pytest_tmp</code>).</li>
   <li>Qt tests run offscreen with pytest-qt; <code>widget.grab()</code> renders to PNG for visual checks; pywinauto drives a real desktop only for what offscreen cannot do.</li>
   <li>The cyclic garbage collector is paused while each test runs (<code>tests/conftest.py</code>), because a window collected inside its own paint event crashed the process.</li>
@@ -665,8 +682,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="release"><span class="num">14</span>Versions, documents and releases</h2>
 <ul>
-  <li><b><code>VERSION</code></b> (0.3.3) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
-  <li><b>Schema version</b> is its own integer (30), stepped one migration at a time.</li>
+  <li><b><code>VERSION</code></b> (0.3.4) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
+  <li><b>Schema version</b> is its own integer (34), stepped one migration at a time.</li>
   <li><b>Every <code>.md</code></b> opens with an H1 and the line <code>**Doc version:** X.Y · **Updated:** YYYY-MM-DD · **Applies to:** app vX.Y.Z</code>; <code>test_docs_versioned.py</code> fails the suite otherwise, with no exemption list. <code>HANDOFF.md</code> and <code>docs/PROJECT_INSTRUCTIONS.md</code> must state the current version (<code>test_handoff_current.py</code>).</li>
   <li><b>Where things live</b>: code and documents on GitHub <code>jayminapatel/Leasha</code>, branch <code>main</code>; release builds outside the repository under <code>Leasha\Releases\&lt;version&gt;\</code> on Google Drive; the owner's index never in git.</li>
   <li><b>Release checklist</b> (<code>docs/VERSIONING.md</code>): acceptance tests pass, doctor READY, budget re-measured, VERSION bumped, document headers bumped, HANDOFF updated, CHANGELOG promoted, then <code>chore(release): vX.Y.Z</code> and a tag.</li>
@@ -686,14 +703,14 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <h2 id="known"><span class="num">15</span>Known gaps found while writing this</h2>
 <ul>
   <li><code>app/index/pipeline_bench.py</code> lazily imports <code>app.ui.lag_monitor</code>, against the downward-only rule (a benchmark module, not the indexing path).</li>
-  <li><code>diskcache</code> is pinned in <code>requirements.txt</code> but nothing imports it, and the search engine's in-memory result cache is never given a cache, so it is off.</li>
+  <li><code>diskcache</code> is pinned in <code>requirements.txt</code> but nothing imports it; the search engine's result cache is an in-memory LRU (<code>_LruCache</code>, 50 entries, keyed on the index generation), on by default.</li>
   <li><code>.env.example</code> still shows <code>D:\KnowledgeGraphData</code>, <code>RERANK_MODEL=BAAI/bge-reranker-base</code> and <code>REQUIRED_FREE_GB=150</code>; the registry defaults are <code>Xenova/ms-marco-MiniLM-L-6-v2</code> and 300. <code>install.ps1</code> defaults <code>-RequiredFreeGB</code> to 150 and still offers to pull <code>mistral</code>, while <code>OLLAMA_MODEL</code> defaults to <code>qwen2.5:1.5b</code>.</li>
   <li>The help text of <code>leasha ollama</code> says only the Interpret button uses Ollama; since <code>CHAT_ENGINE</code> exists, Chat and Describe can too.</li>
   <li>The docstrings of <code>florence_tagger.py</code> and <code>transcribe.py</code> still describe the torch and faster-whisper paths that moved to <code>app/ort</code> on 29 September.</li>
   <li>Fixed while writing: the Search home suggestion "photos from the Lake District" typed <code>/type image</code>, which was not a kind and matched nothing. <code>image</code>, <code>photo</code> and <code>picture</code> (and plurals) are now kinds (commit <code>31edaea</code>).</li>
 </ul>
 
-<footer>Leasha Technical Reference · for app v0.3.3, schema v30 · 1 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
+<footer>Leasha Technical Reference · for app v0.3.4, schema v34 · 6 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
 
 </main>
 </div>

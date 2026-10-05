@@ -1,8 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.14 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 2.15 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -42,7 +40,7 @@ D:\SearchProject\
 ├── logs\
 └── app\
     ├── __init__.py
-    ├── main.py                   # PyQt6 entry point
+    ├── main.py                   # PySide6 entry point
     ├── cli.py                    # headless entry point (index / search / stats)
     ├── core\
     │   ├── config.py             # .env -> typed pydantic Settings
@@ -725,21 +723,38 @@ not answer this" is a correct response. When the context fills, drop history, ne
 
 ## Layer 9 — Hardening and packaging
 
-> **2026-10-04 (owner) - the five [FINALISE] decisions below are taken.** They were decided 2026-09-20 on the owner's delegation and are recorded in the order's dated note, HANDOFF.md and `docs/ORDER_REGISTER.md` §5: PyInstaller one-folder; per-user by default, per-machine as an option; the installer asks where the index goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against `REQUIRED_FREE_GB`); no update check inside the app, updates through `winget upgrade` only; Windows 11 and Windows 10 22H2 supported, Windows 11 only tested. Signing: unsigned for the first release. **What still holds Layer 9 is one open decision: the licence a distributed PyQt6 build carries** (`ORDER_REGISTER.md` §5, 2026-09-27). The status paragraph below is left as written.
+**Status: the Windows installer is built** (order `202626082213`, released by the owner
+2026-10-05), for the owner's own use; no copy goes to anyone else for now.
+`docs/WORKORDER-202626082213-install-and-distribution.md` carries the detail and the
+acceptance checks. The decisions it carries out: PyInstaller, one folder; per-user by default
+with no administrator rights, per-machine as an option; the installer asks where the index
+goes (default `%LOCALAPPDATA%\Leasha\Data`, checked against `REQUIRED_FREE_GB`); no update
+check inside the app; Windows 11 and Windows 10 22H2 supported (`MinVersion=10.0.19045`),
+Windows 11 the only one tested; unsigned. The Qt binding is PySide6 (LGPL-3.0), so a
+distributed build can keep Leasha's MIT licence.
 
-> **2026-10-04, later (owner) - the build licence is decided: no distribution for now. Leasha is built and run for the owner only, and no copy, packaged or not, goes to anyone else. A build kept for the owner's own use carries no GPL obligation, so the licence question no longer holds Layer 9. It reopens before the first copy is handed to anyone else, and the choice then is GPL-3.0 for distributed builds or a commercial PyQt6 licence.** No packaging decision is open now.
+What is in `packaging/`:
 
-**Status: not started, and deliberately not startable yet.**
-`docs/WORKORDER-202626082213-install-and-distribution.md` carries the detail. Three decisions
-are taken there — unsigned, distributed through winget, models downloaded at install time —
-and **five are marked [FINALISE]**: freeze with PyInstaller or ship `uv` plus an embedded
-Python; per-user or per-machine; where the index defaults to on a machine whose C: drive is
-not 150GB; whether the app checks for its own updates; and the minimum Windows version.
+- `leasha.spec` - the PyInstaller build (PyInstaller 6.22.3, pinned in
+  `packaging/requirements-build.txt`). One folder with two programs: `Leasha.exe`, the window,
+  and `leasha-cli.exe`, a console program that runs `-m`, `-c` and scripts as `python.exe`
+  would, and any other arguments as an `app.cli` command. The folder mirrors the repository
+  under `_internal`, so in a packaged build `project_root()` is `_internal`. The window starts
+  its own children through `app.core.osbridge.stdio.own_python()`, which names
+  `leasha-cli.exe` there.
+- `leasha_entry.py` - the one entry point both programs are built from.
+- `installer.iss` - the Inno Setup 6 script. It asks where the index goes and writes
+  `<install folder>\_internal\.env` only if there is none. Optional: download the search
+  models, install LibreOffice through winget, a desktop icon. At the end it offers the health
+  check (`doctor.py --quick`) and opening Leasha. Uninstalling removes the program and never
+  the index.
+- `build.ps1` - PyInstaller, a quick check that `leasha-cli.exe` runs, Inno Setup, and the
+  installer's SHA256. `-Release` also copies `Leasha-Setup-<version>.exe` to the Releases
+  folder on Google Drive.
 
-None can be answered from the code, and each changes what gets built, which is why that order
-says not to start its §4 until they are settled. Some of what follows is already done — the
-crash handler writes to `logs\crash.log` via `faulthandler`, and graceful shutdown exists and
-now times itself — so treat the list below as the scope and the work order as the plan.
+Some of the hardening below is also done — the crash handler writes to `logs\crash.log` via
+`faulthandler`, and graceful shutdown exists and times itself — so treat the list below as the
+scope and the work order as the plan.
 
 **Build**
 
@@ -747,8 +762,7 @@ now times itself — so treat the list below as the scope and the work order as 
 - Graceful shutdown: flush the writer, commit the cursor, close both stores.
 - Backup/restore of the index folder; "rebuild vectors from SQLite" recovery command.
 - First-run wizard: pick index roots, estimate time from the Layer 3 baseline, start.
-- Optional PyInstaller build; if it fights the ONNX runtime or Qt plugins, ship the
-  venv + a shortcut instead. Do not let packaging block a working app.
+- PyInstaller one-folder build and an installer - built, in `packaging/`.
 
 **Acceptance**
 

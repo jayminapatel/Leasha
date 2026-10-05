@@ -1,8 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.7 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 2.8 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -12,30 +10,12 @@
 > The filename is kept for now so existing links and the installer do not break. It is a
 > Layer 9 job to rename it once nothing points at it.
 
-> *Note, 1 October 2026:* corrections to what follows, kept here rather than edited in place.
-> 1. **Models.** Photo tags (Florence-2), speech (Whisper) and the chat model (Qwen 2.5 by default)
->    run on ONNX Runtime inside Leasha (`app/ort`). Ollama is optional, for Chat, Interpret and
->    Describe only when `CHAT_ENGINE=ollama`; its default model is `qwen2.5:1.5b`, though
->    `install.ps1` still offers to pull `mistral`. There is no entity extraction.
-> 2. **Diagram and requirements.** The "Search UI / Graph" and "Office doc builder" boxes, and the
->    ticked requirements for Office documents and a knowledge graph, describe removed work.
-> 3. **Processes.** Indexing may run in a child process, readers in child processes, and folder
->    watching in another (all off by default); still no services and no ports.
-> 4. **Platform.** The code is Mac-ready since order 0x (`docs/MAC_VERIFICATION.md`); Windows
->    remains the only platform checked.
-> 5. **Paths.** `cd D:\SearchProject` means the install folder (`D:\Local\GitHub\SearchProject`
->    on the owner's laptop).
-> 6. **Since the 2026-09-27 addendum:** schema v30, folder watching, the Indexing "What gets read"
->    page, `MAIL_ATTACHMENTS`, and the Chat tab. `docs/TECHNICAL_REFERENCE.html` describes the
->    architecture as it stands; where it and this document disagree on an authority question, this
->    document wins and should be corrected.
-
 **Project Type:** Windows desktop app, embedded single-process architecture
-**Target OS:** Windows 10/11 only, single user
-**Tech Stack:** PyQt6 + SQLite/FTS5 + LanceDB + FastEmbed (ONNX) + PyMuPDF — Ollama optional
+**Target OS:** Windows 11 and Windows 10 22H2, single user. The code also runs on macOS (`docs/MAC_VERIFICATION.md`), so far checked only on GitHub's Mac runners; Linux is not a supported target
+**Tech Stack:** PySide6 (Qt 6.11) + SQLite/FTS5 + LanceDB + FastEmbed and ONNX Runtime + PyMuPDF — Ollama optional
 **Data Scale:** 100GB
 **Search Target:** <300ms warm search, <3s first search after launch (model load)
-**Status:** 🟡 Installer + doctor written and corrected — run `install.ps1`, then build from `BUILD_SPEC_V2.md`
+**Status:** app v0.3.4. Run from source with `install.ps1`, or install a packaged copy with the Windows installer built from `packaging\` (`BUILD_SPEC_V2.md`, Layer 9)
 
 **Files in this folder:**
 
@@ -46,6 +26,7 @@
 | `scripts\parse-check.ps1` | Real PowerShell parse + encoding audit; logs to `logs\parse-check.log`. |
 | `requirements.txt` | Pinned dependencies, all verified to ship Windows wheels. |
 | `doctor.py` | Environment verification with a fix for every failure. |
+| `packaging\` | The Windows installer: PyInstaller build and Inno Setup script (`BUILD_SPEC_V2.md`, Layer 9). |
 | `BUILD_SPEC_V2.md` | Layer-by-layer build plan (L0–L9) with acceptance tests. |
 | `LOCAL_KNOWLEDGE_GRAPH_V2.md` | This document — architecture and contracts. |
 
@@ -53,7 +34,7 @@
 
 ## WHAT CHANGED FROM V1 AND WHY
 
-V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAPI, PyQt6). For a single-user desktop app that is five points of failure before one search runs. V2 is **one process + one optional helper (Ollama)**.
+V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAPI, PyQt6). For a single-user desktop app that is five points of failure before one search runs. V2 is **one process + one optional helper (Ollama)**. Indexing, the readers and folder watching can each be moved into child processes of that one application (all off by default); there are still no services and no ports.
 
 | V1 | V2 | Why |
 |---|---|---|
@@ -72,10 +53,10 @@ V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAP
 
 ```
 +-------------------------------------------------------------+
-|                     PyQt6 Desktop Shell                     |
+|                    PySide6 Desktop Shell                    |
 |  +---------------------+        +------------------------+  |
-|  | Search UI / Graph   | <----> | Controller (signals)   |  |
-|  | Office doc builder  |        | QThread worker pool    |  |
+|  | Search, Chat tabs   | <----> | Controller (signals)   |  |
+|  | Indexing, Settings  |        | QThread worker pool    |  |
 |  +---------------------+        +-----------+------------+  |
 |                                             |               |
 |  +------------------------------------------v------------+  |
@@ -86,17 +67,19 @@ V1 required six cooperating processes (PostgreSQL, Redis, Qdrant, Ollama, FastAP
 |  |  * Parsing: PyMuPDF, python-docx, openpyxl,           |  |
 |  |             python-pptx, win32com (PST via Outlook)   |  |
 |  |  * Embeddings: FastEmbed ONNX (bge-small-en-v1.5)     |  |
-|  |  * Rerank: FastEmbed TextCrossEncoder (optional)       |  |
+|  |  * Rerank: FastEmbed TextCrossEncoder (optional)      |  |
+|  |  * Local models: ONNX Runtime (chat, photo tags,      |  |
+|  |    speech) - app/ort                                  |  |
 |  +-------------------------------------------------------+  |
 |                                                             |
-|  Optional external: Ollama (RAG answers, entity extraction) |
+|  Optional external: Ollama (Chat, Interpret, Describe)      |
 |  — app degrades gracefully if absent                        |
 +-------------------------------------------------------------+
 ```
 
 **Search pipeline:** FTS5 BM25 + LanceDB ANN in parallel → reciprocal rank fusion → (optional) cross-encoder rerank of top 30 → results. No LLM in the search hot path.
 
-### 2026-09-27 additions (order 0x) - read this if you are new here
+### Around the picture (order 0x and after) - read this if you are new here
 
 Three things were added around the picture above. None of them changes the one-process,
 no-services rule for what the person uses: the window and search are still one process with no
@@ -140,12 +123,22 @@ Also worth knowing: every SQLite connection is now a `_GuardedConnection` that c
 flight, so closing the store never closes a connection another thread is still reading from (that
 was a native crash).
 
+Built since: folder watching (`app.cli watch`, a child process started from the Indexing page,
+off by default); the Indexing page *What gets read*, with `MAIL_ATTACHMENTS` deciding what is read
+from an email attachment; the Chat tab (`app/chat`); and local models on ONNX Runtime
+(`app/ort`). The schema is at `CURRENT_VERSION = 34`. `docs/TECHNICAL_REFERENCE.html` describes
+the architecture as it stands; where it and this document disagree on an authority question, this
+document wins and should be corrected.
+
 ---
 
 # ⚡ QUICK START — INSTALLATION (Windows only)
 
 Because the stack is embedded, installation is: **Python → project → pip install → (optional) Ollama.**
 No services, no ports, no database passwords.
+
+This is installation from source. A packaged copy installs with `Leasha-Setup-<version>.exe`
+instead, which needs no Python; `BUILD_SPEC_V2.md` Layer 9 describes it.
 
 The installer asks exactly ONE question — *where to build the index* (usually a different
 drive from the app). Everything else runs unattended and `doctor.py` runs automatically at the end.
@@ -155,9 +148,11 @@ drive from the app). Everything else runs unattended and `doctor.py` runs automa
 Use the wrapper - it is the reliable entry point:
 
 ```
-cd D:\SearchProject
+cd D:\Local\GitHub\SearchProject
 run-install.cmd
 ```
+
+`D:\Local\GitHub\SearchProject` is the owner's clone; use the folder yours is in.
 
 `run-install.cmd` bypasses the execution policy for one process (so a Restricted or
 AllSigned machine policy cannot block it), parse-checks the scripts with the real
@@ -247,7 +242,7 @@ Design rules the script follows (and the app must follow too):
 `doctor.py` runs automatically at the end of the installer. To re-check at any time:
 
 ```powershell
-cd D:\SearchProject
+cd D:\Local\GitHub\SearchProject
 venv\Scripts\python.exe doctor.py
 venv\Scripts\python.exe doctor.py --quick    # skip model loading
 venv\Scripts\python.exe doctor.py --json     # machine-readable, for the Settings panel
@@ -270,7 +265,12 @@ Models downloaded by the installer (all cached under `<DataPath>\models` — off
 |---|---|---|---|
 | BAAI/bge-small-en-v1.5 | ~130MB | Embeddings (in-process ONNX, 384-dim) | Yes |
 | BAAI/bge-reranker-base | ~1.1GB | Result reranking (Settings toggle) | Optional |
-| mistral (via Ollama) | ~4.1GB | AI answers / entity extraction | Optional |
+| mistral (via Ollama) | ~4.1GB | Chat, Interpret and Describe, only when `CHAT_ENGINE=ollama`; Leasha's own default Ollama model is `qwen2.5:1.5b` | Optional |
+
+By default Chat, Interpret and Describe do not use Ollama: the chat model (Qwen 2.5 1.5B),
+photo tags (Florence-2) and speech (Whisper) run on ONNX Runtime inside Leasha (`app/ort`,
+`CHAT_ENGINE=onnx`). The chat model is downloaded from Settings › Models & AI. There is no
+entity extraction.
 
 FastEmbed caches models via the `FASTEMBED_CACHE_PATH` environment variable **and** the
 `cache_dir=` constructor argument. The installer and `doctor.py` set both, so the cache
@@ -289,19 +289,18 @@ The V1/V2 draft pins were badly stale; several were more than a year behind and 
 
 | Package | Draft pin | Verified pin |
 |---|---|---|
-| PyQt6 | 6.7.1 | **6.11.0** |
+| PySide6 | PyQt6 6.7.1 | **6.11.0** |
 | lancedb | 0.15.0 | **0.37.1** |
 | fastembed | 0.4.2 | **0.8.0** |
 | pymupdf | 1.24.10 | **1.28.2** |
 | python-docx | 1.1.2 | **1.2.0** |
 | pywin32 | 306 | **312** |
-| networkx | 3.3 | **3.6.1** |
 | pydantic | 2.9.2 | **2.13.4** |
 | python-dotenv | 1.0.1 | **1.2.3** |
 | loguru | 0.7.2 | **0.7.3** |
 | tqdm | 4.66.5 | **4.70.0** |
 | requests | 2.32.3 | **2.34.2** |
-| openpyxl, python-pptx, diskcache, pyvis | — | unchanged (already current) |
+| openpyxl, python-pptx, diskcache | — | unchanged (already current) |
 
 Verified by round-trip, not just by version number: `lancedb==0.37.1` was tested with a
 384-dim table create → `search().limit(1).to_list()`, and `fastembed==0.8.0` was confirmed
@@ -488,8 +487,8 @@ Indexing must be: background QThread pool, resumable (cursor persisted), increme
 - [x] Fully local & private — embeddings in-process; **no cloud, no network required after first model download**
 - [x] PST email search via Outlook MAPI (thread grouping, filters)
 - [x] Drag-drop instant indexing
-- [x] Create/edit Office documents (DOCX, XLSX, PPTX) from results
-- [x] Knowledge graph with entity extraction (via optional Ollama; degrade to co-occurrence graph without it)
+- [ ] ~~Create/edit Office documents (DOCX, XLSX, PPTX) from results~~ — cancelled (Layer 7)
+- [ ] ~~Knowledge graph with entity extraction (via optional Ollama; degrade to co-occurrence graph without it)~~ — removed (Layer 6)
 - [x] Configurable index roots, file-type filters, exclusions
 - [x] Click-to-open file/folder from results; missing-file detection
 - [x] Keyboard shortcuts; dark mode; CSV/JSON export
@@ -500,7 +499,7 @@ Indexing must be: background QThread pool, resumable (cursor persisted), increme
 
 ## NEXT STEPS
 
-1. `cd D:\SearchProject` and run `.\install.ps1`
+1. `cd D:\Local\GitHub\SearchProject` (or wherever your clone is) and run `.\install.ps1`
 2. Run `venv\Scripts\python.exe doctor.py` until it prints **READY**
 3. Read `BUILD_SPEC_V2.md` — it defines Layers 0–9 with acceptance tests
 4. Open a new chat, paste **both** this document and `BUILD_SPEC_V2.md`

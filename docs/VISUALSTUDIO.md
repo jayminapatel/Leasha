@@ -1,8 +1,6 @@
 # Working on Leasha in Visual Studio
 
-**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 1.3 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 `docs/VSCODE.md` covers VS Code. This covers full Visual Studio, which needs a solution and a
 project file where VS Code needs neither.
@@ -25,7 +23,7 @@ The project points at the venv already, relatively:
 If Visual Studio reports the environment as missing, the venv has not been created yet. Run
 `install.ps1` (or `run-install.cmd`) first, then reload the solution. **Do not point the project
 at a global Python installation** - the pins in `requirements.txt` are the tested set, and a
-system interpreter will have different versions of PyQt6 and onnxruntime.
+system interpreter will have different versions of PySide6 and onnxruntime.
 
 ## Running and debugging
 
@@ -45,7 +43,7 @@ or set Project → Properties → Debug → Script Arguments for a one-off.
 ## Tests
 
 The project declares pytest, so Test Explorer finds the suite under `tests\`. The settings that
-matter - `--basetemp=.pytest_tmp` and the `jvm` marker exclusion - live in `pyproject.toml` and
+matter - `--basetemp=.pytest_tmp` and the `jvm` and `e2e` marker exclusions - live in `pyproject.toml` and
 apply either way.
 
 Running the whole suite from the terminal is usually faster:
@@ -56,12 +54,8 @@ venv\Scripts\python.exe -m pytest tests -q
 
 ## `Leasha.pyproj` is generated - do not hand-edit it
 
-> *Note, 1 October 2026:* the project now lists about 900 Python files, not 228; the reasoning below holds more
-> strongly. `python scripts/regen_vs_project.py` regenerates it, and `tests/unit/test_vs_project.py`
-> fails when it is stale.
-
 **Visual Studio shows only the files the project lists.** VS Code shows the folder; Visual
-Studio shows the manifest. With 228 Python files that manifest goes stale the first time
+Studio shows the manifest. With about a thousand Python files that manifest goes stale the first time
 somebody adds a module - and a stale one is worse than none, because the new file is absent
 from Solution Explorer while every test that imports it passes. Somebody concludes the file
 does not exist.
@@ -75,7 +69,7 @@ venv\Scripts\python.exe scripts\regen_vs_project.py
 Re-run that after adding or removing files, and before committing if Visual Studio has rewritten
 the file itself (it does this when you add a file through the IDE). A test asserts the committed
 project matches what the script produces, so a drift is caught in the suite rather than
-discovered by the next person to open the solution.
+discovered by the next person to open the solution (`tests/unit/test_vs_project.py`).
 
 **The project GUID must stay stable.** `Leasha.sln` references the project by GUID; change it
 and the solution no longer contains a project.

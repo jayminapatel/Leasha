@@ -32,3 +32,12 @@ def test_only_preprocessor_directives_start_with_a_hash():
 def test_the_build_script_refuses_a_build_with_a_settings_file_in_it():
     text = (SCRIPT.parent / "build.ps1").read_text(encoding="utf-8-sig")
     assert '_internal\.env' in text and "throw" in text.split('_internal\.env', 1)[1][:200]
+
+
+def test_the_settings_it_writes_are_only_where_things_live():
+    """2026-10-06: it wrote OLLAMA_MODEL=mistral and RERANK_ENABLED=true, copied
+    from install.ps1, overriding Leasha's own defaults (qwen2.5:1.5b, off)."""
+    text = SCRIPT.read_text(encoding="utf-8")
+    written = [line.split(":= '", 1)[1].split("=")[0] for line in text.splitlines()
+               if "Lines[" in line and ":= '" in line and "=" in line.split(":= '", 1)[1]]
+    assert sorted(written) == ["DATA_PATH", "LOG_PATH", "PROJECT_PATH"], written

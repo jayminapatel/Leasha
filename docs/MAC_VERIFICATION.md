@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.10 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.11 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -158,19 +158,21 @@ it, or write what happened underneath with the date. Anything marked
 - [ ] **11.2** The Indexing pill shows its icon, a coloured dot and "Up to date"; hovering shows the
       file count; clicking it opens the Indexing page.
 
-## 5. Parked for a later order (hardware-specific; see order 0x §P)
+## 5. Hardware-specific (see order 0x §P)
 
-Not expected to work yet. Note what you see, so each can be ordered from a fact.
+5.1, 5.2 and 5.4 are not expected to work yet. Note what you see, so each can be ordered from a
+fact.
 
 - [ ] **5.1** `venv/bin/python -c "import onnxruntime as o; print(o.get_available_providers())"`.
       Does the list include `CoreMLExecutionProvider`?
-> *Note, 1 October 2026:* Index Tuning is on the Indexing page now (Indexing › Tuning).
 
-- [ ] **5.2** Settings → Index Tuning: what hardware does it report (cores, GPU, disk)?
-> *Note, 5 October 2026:* 5.3 is no longer parked. Order `offline-drives-on-a-mac` built it;
-> it has run against disk images on GitHub's Mac and **never against a real stick**. The steps
-> are 5.3a to 5.3g below. Use at least one stick formatted exFAT or FAT32 (what most sticks
-> are) and, if there is one, a Mac-formatted disk.
+- [ ] **5.2** Indexing › Tuning: what hardware does it report (cores, GPU, disk)?
+
+5.3 is built (order `offline-drives-on-a-mac`): a drive is known on a Mac by its volume UUID,
+stored as `macos-volume:<UUID>`. It has run against disk images on GitHub's Mac and **never
+against a real stick**; the steps are 5.3a to 5.3g. Use at least one stick formatted exFAT or
+FAT32 (what most sticks are) and, if there is one, a Mac-formatted disk. Network shares are not
+followed on a Mac.
 
 - [ ] **5.3** Plug in a USB drive: does Offline Media see it?
 - [ ] **5.3a** Offline › Scan, choose the stick itself in the dialog (`/Volumes/<name>`), give
@@ -192,7 +194,7 @@ Not expected to work yet. Note what you see, so each can be ordered from a fact.
 - [ ] **5.4** The global hotkey and "search the selected text": expected to say they are
       Windows features.
 
-## 12. Added 1 October 2026 - what was built after order 0x
+## 12. What was built after order 0x
 
 - [ ] **12.1** Indexing › Schedule › "Index files as soon as they are saved": save, rename and
       delete a file in an indexed folder. On macOS the watcher compares (`PollingSource`), not

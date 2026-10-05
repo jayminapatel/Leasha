@@ -1,8 +1,6 @@
 # Glossary
 
-**Doc version:** 1.6 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 1.7 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -18,42 +16,33 @@ document is stale.
 
 Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 counts.
 
-> *Note, 1 October 2026:* the schema is now at `CURRENT_VERSION = 30`, not 16. **L8b is built:**
-> the Chat tab (`app/chat`). L8a and L8b run on ONNX Runtime inside Leasha by default
-> (`app/ort`, `app/llm/engines.py`, `CHAT_ENGINE=onnx`), with Ollama as the alternative.
-> Packages added since this table: `app/ort` (L2, local models), `app/reports` (L4, read-only
-> reports), `app/shell` (terminal prompt), `app/chat` (L8b).
-
 | Term | Means | Notes |
 |---|---|---|
 | L0 | Foundation — config, `AppError`, logging, single-instance, CLI | `app/core` |
-| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 16` |
-| L2 | Extraction — PDF, Office, plaintext, Outlook/PST, chunking | `app/extract` |
+| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 34` (`app/storage/migrations.py`) |
+| L2 | Extraction — PDF, Office, plaintext, Outlook/PST, chunking | `app/extract`; local models in `app/ort` |
 | L3 | Indexing pipeline — walker, workers, resumable cursor | `app/index` |
-| L4 | Search — BM25 + ANN, RRF fusion, rerank, filters | `app/search` |
-| L5 | UI shell | `app/ui`. PyQt6 |
+| L4 | Search — BM25 + ANN, RRF fusion, rerank, filters | `app/search`; read-only reports in `app/reports` |
+| L5 | UI shell | `app/ui`. PySide6 6.11 (Qt's own binding); signals are `Signal`, and `shiboken6` stands where PyQt had `sip`, through `app/ui/qtsip.py`. The terminal prompt is `app/shell` |
 | L6 | ~~Knowledge graph~~ | **Removed.** The name survives in `LOCAL_KNOWLEDGE_GRAPH_V2.md` and in a session title; there is no knowledge graph |
 | L7 | ~~Office document builder~~ | **Cancelled.** Never requested, never started |
-| L8a | Natural-language query translation | `app/llm` + `app/search/translate*.py` |
-| L8b | Prose answers over results | **Deferred** until L8a has been used in anger |
-| L9 | Hardening and packaging | **Not started.** Gated by the five `[FINALISE]` decisions in `ORDER_REGISTER.md` §5 |
+| L8a | Natural-language query translation | `app/llm` + `app/search/translate*.py`. Runs on ONNX Runtime inside Leasha by default (`CHAT_ENGINE=onnx`, `app/llm/engines.py`), Ollama as the alternative |
+| L8b | Prose answers over results | **Built:** the Chat tab, `app/chat`. Same engine choice as L8a |
+| L9 | Hardening and packaging | **Built** for the owner's own use: the Windows installer in `packaging/` (order `202626082213`). Not distributed to anyone else |
 | L10 | ~~Adaptive tuning~~ | **Cancelled.** Speculative |
 
 ---
 
 ## 2. Work orders
 
-> *Note, 1 October 2026:* the queue now runs past `0z` to `1a`, `1b` and `1c`, and there is no
-> `0o` either. `ORDER_REGISTER.md` §2 is the authority.
-
 | Term | Means | Notes |
 |---|---|---|
 | Work order | A `docs/WORKORDER-*.md` file. The formal instruction channel from owner to build thread | Never created unprompted |
 | Order ref | The 12-digit stamp in the filename, e.g. `202626270326` | Not a date you can parse — treat it as an opaque identifier |
-| Queue letter | `0a`, `0b` … `0s`. The sequence position | Defined in `ORDER_REGISTER.md` §2. Letters skip: there is no `0m` in the released queue |
+| Queue letter | `0a`, `0b` … `0z`, then `1a`, `1b` …. The sequence position | Defined in `ORDER_REGISTER.md` §2. Letters skip: there is no `0m` or `0o` in the released queue |
 | `**Status:**` | Header line: DRAFT / RELEASED / ACTIVE / SHIPPED / HELD / PARKED / SUPERSEDED | Vocabulary in `ORDER_REGISTER.md` §1 |
 | Gap-schedulable | Small and self-contained; may be slotted into any gap without disturbing the queue | — |
-| `[FINALISE]` | A decision inside a DRAFT order that cannot be answered from the code | Five of them gate L9 |
+| `[FINALISE]` | A decision inside a DRAFT order that cannot be answered from the code | Five of them held L9; all are decided |
 | `[TUNE]` | A threshold deliberately left to be measured later | — |
 | Tangent guard | The rule that an idea not in the order being executed belongs to another order or to the owner | In each order's header |
 
@@ -72,9 +61,6 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 
 ## 4. Search
 
-> *Note, 1 October 2026:* **Notices are drawn by the window now**, in a line above the results
-> (`app/ui/widgets/notice_bar.py`); the open defect in the table below is closed.
-
 | Term | Means | Notes |
 |---|---|---|
 | RRF | Reciprocal Rank Fusion — combines keyword and vector result lists by rank, never by score | `app/search/fusion.py`. `RRF_K = 60` |
@@ -83,7 +69,7 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 | ANN | Approximate nearest neighbour, over LanceDB | — |
 | Relaxation | Loosening a query that returned nothing, **visibly** | `app/search/relax.py`. Silent relaxation is a defect |
 | Folding | Collapsing near-duplicate results into one row with a count | `app/search/folding.py`. Version folding for documents; burst folding for photos |
-| Notices | Structured warnings attached to a `SearchResponse` — degraded lane, capped expansion, relaxed query | **Open defect: the CLI prints these; the window does not draw them** |
+| Notices | Structured warnings attached to a `SearchResponse` — degraded lane, capped expansion, relaxed query | The CLI prints them; the window draws them in a line above the results (`app/ui/widgets/notice_bar.py`) |
 | Translation | Turning a sentence into filter syntax, once, before the search, always shown and editable | Never in the retrieval path |
 | Catalogue | The set of `/` commands offered as you type | `app/search/commands.py` |
 | Stem | FTS5 stores Porter stems, not words — `invoic`, not `invoice` | Why suffix wildcards are approximate: `*voice` also reaches `invoicing` |
@@ -92,15 +78,13 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 
 Verified against `app/search/commands.py`.
 
-`type` · `from` · `to` · `subject` · `has` · `after` · `before` · `path` · `repo` ·
-`name` · `sort` · `size` · `saved`
+`type` · `from` · `to` · `subject` · `has` · `status` · `after` · `before` · `date` ·
+`between` · `path` · `repo` · `on` · `name` · `sort` · `size` · `shows` · `place` ·
+`who` · `only` · `saved`
 
-Planned by released orders, not yet built: `on` (offline volume name), `who` (person),
-`shows` (image tag), `place`, `changed`.
-
-> *Note, 1 October 2026:* also built now: `status` (indexing state, on every tab), `date` and
-> `between` (a date range), and `on`, `who`, `shows` and `place`. Only `changed` is still
-> absent. `type` also takes `image`, `photo` and `picture` since 1 October 2026.
+`status` is the indexing state, on every tab; `date` and `between` take a date range;
+`on` is an offline volume name, `who` a person, `shows` an image tag. `type` also takes
+`image`, `photo` and `picture`. Planned by a released order, not yet built: `changed`.
 
 ---
 
@@ -123,9 +107,7 @@ Planned by released orders, not yet built: `on` (offline volume name), `who` (pe
 
 ## 6. Errors
 
-> *Note, 1 October 2026:* 59 codes are registered now.
-
-`app/core/errors.py` is the authority. 35 codes registered.
+`app/core/errors.py` is the authority. 68 codes registered.
 
 | Term | Means |
 |---|---|
@@ -147,8 +129,8 @@ and `202626270514`.
 |---|---|---|
 | Offline Media | Anything catalogued and then disconnected. Searchable while unreachable | Renamed from "removable drives" once it generalised |
 | Source | One catalogued thing — a drive, a share, a cloud mount, a phone, an archived box | User-named: "Photos 2009" |
-| Kind 1 | Removable drives | Identity: volume GUID plus hardware serial |
-| Kind 2 | Network locations | Identity: normalised UNC path. **Credentials never touched** |
+| Kind 1 | Removable drives | Identity: volume GUID plus hardware serial on Windows; on macOS the volume UUID, stored as `macos-volume:<UUID>` (`app/core/osbridge/volumes.py`) |
+| Kind 2 | Network locations | Identity: normalised UNC path. **Credentials never touched**. Windows only |
 | Kind 3 | Cloud sources | Through the vendor's own desktop mount only. No OAuth, no network code |
 | Kind 4 | Phones | MTP object protocol, not the walker |
 | Kind 5 | Manual / archived source | Catalogue then detach: "on tape B-0042, archived Mar 2024" |

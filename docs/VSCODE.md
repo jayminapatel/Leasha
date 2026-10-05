@@ -1,14 +1,11 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.1 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.2 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 ## Opening it
 
-> *Note, 1 October 2026:* on the owner's laptop the folder is now `D:\Local\GitHub\SearchProject`, a clone of
-> GitHub `main` (moved out of Google Drive on 30 September 2026). Read `D:\SearchProject` below as
-> wherever your clone is.
-
-Either open the folder `D:\SearchProject`, or double-click **`Leasha.code-workspace`**.
+Either open the folder of your clone of GitHub `main` (`D:\Local\GitHub\SearchProject` on the
+owner's laptop), or double-click **`Leasha.code-workspace`**.
 
 The folder on disk is still `SearchProject`; the workspace presents it as **Leasha**, which is
 the application's name. Renaming the folder would mean rebuilding the venv - `pip.exe`,
@@ -23,7 +20,7 @@ On first open VS Code will offer the recommended extensions from
 | Extension | Why |
 |---|---|
 | **Python** + **Pylance** | Language support, and the Test Explorer |
-| **debugpy** | Breakpoints in the CLI and, later, the Qt app |
+| **debugpy** | Breakpoints in the CLI and the Qt app |
 | **Ruff** | Fast linting, configured in `pyproject.toml` |
 | **PowerShell** | Editing and debugging `install.ps1` |
 | **SQLite Viewer** | Opening `knowledge.db` and browsing the index directly |
@@ -55,6 +52,7 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 |---|---|
 | Install / repair environment | Runs `run-install.cmd`. Safe to re-run; completed steps are skipped |
 | Preflight (no downloads) | Cheap local checks only, nothing installed |
+| Diagnose (bundle for troubleshooting) | Builds a support bundle (`app.cli diagnose`) into `logs\diagnostics\` |
 | Doctor / Doctor (quick) | Environment verification; `--quick` skips model loading |
 | Run all tests | The whole suite |
 | Run acceptance tests for the current layer | Just `tests/integration` |
@@ -65,13 +63,10 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 `Ctrl+Shift+B` is not bound; **`Run all tests` is the default test task**, so
 `Ctrl+Shift+P` -> **Tasks: Run Test Task** runs the suite.
 
-> *Note, 1 October 2026:* Layers 3, 4 and 5 landed long ago; the `index`, `search` and desktop configurations
-> work, whatever their names in `.vscode/launch.json` still say. There is also `CLI: stats (json)`,
-> and a **Diagnose** task that builds a support bundle.
-
-**Debugging** (`F5`, then pick a configuration): `CLI: stats`, `CLI: doctor`, `doctor.py`,
-`Debug the current test file`, and placeholders for `index`, `search` and the desktop shell
-that will start working as Layers 3, 4 and 5 land.
+**Debugging** (`F5`, then pick a configuration): `CLI: stats`, `CLI: stats (json)`,
+`CLI: doctor`, `CLI: index (Layer 3)`, `CLI: search (Layer 4)`, `App: desktop shell (Layer 5)`,
+`doctor.py` and `Debug the current test file`. The layer in a name is the layer that built it;
+all of them work.
 
 Every configuration sets `justMyCode: false`, so you can step into pydantic, lancedb or
 fastembed when something misbehaves in a dependency rather than in our code.
@@ -105,9 +100,8 @@ non-ASCII bytes and no BOM, before the script is ever run.
 - `tests/unit` runs in milliseconds; `tests/integration` holds the layer acceptance tests
 - `logs/` holds both app logs and installer transcripts; it is gitignored
 - `.env` is machine-specific and gitignored. `.env.example` is the shared template
-- The index itself lives at `DATA_PATH` (`D:\KnowledgeGraphData`), never inside the project
-  (*note, 1 October 2026:* `%LOCALAPPDATA%\Leasha` by default, `D:\Leasha\Data` on the owner's
-  machine; `leasha stats` prints it)
+- The index itself lives at `DATA_PATH`, never inside the project: `%LOCALAPPDATA%\Leasha` by
+  default, `D:\Leasha\Data` on the owner's machine; `leasha stats` prints it
 
 `venv/`, `logs/` and `__pycache__` are excluded from search and from the file watcher, so
 `Ctrl+Shift+F` searches your code rather than a thousand site-packages files.

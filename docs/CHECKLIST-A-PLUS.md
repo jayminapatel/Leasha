@@ -1,8 +1,6 @@
 # The A+ checklist — what stands between here and world-class, and when each item can be done
 
-**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
-
-> *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
+**Doc version:** 1.3 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 The target state, from the 2026-08-27 prospective review: **nothing claimed
 that isn't proven, nothing pending that matters, nothing broken that's known.**
@@ -14,13 +12,10 @@ instructs the thread until the owner promotes an item.
 
 ## 1. Now — during development, no future plan required
 
-- [ ] **Decide the licence gate** (decision, ~an evening of reading + one
-  choice). PyQt6 = GPLv3 = distributing the app ever means the code is GPL
-  forever. PySide6 (LGPL, near-identical API) keeps every future open —
-  free, commercial, or both. Since the future is unplanned, PySide6 is the
-  option-preserving choice, and its cost grows with every Qt line written.
-  If chosen, the migration is a good candidate for the post-working-version
-  restructure pass — but the *decision* is now.
+- [x] **Decide the licence gate — DECIDED.** Leasha runs on PySide6 6.11.0,
+  Qt's own binding (LGPL-3.0, near-identical API to PyQt6). A distributed
+  build can therefore keep the MIT licence `LICENSE` carries, and every
+  future — free, commercial, or both — stays open.
 - [x] **Decide the household-privacy gate — DECIDED 2026-08-27.** Per-account
   `%LOCALAPPDATA%\Leasha` default (choosable at install), roots start empty
   with own-profile suggestions, honest-paragraph stance on shared logins,
@@ -34,17 +29,14 @@ instructs the thread until the owner promotes an item.
 - [ ] **The first real scale pass** (HANDOFF items 1–3): the 200K-message
   PST, the ~50GB run, Outlook COM once, the full suite on Windows. Worth
   doing once *now* to find the unknowns early, and again after index tuning
-  to measure the improvement — two data points instead of one.
-  *Note (owner, 2026-08-27): Outlook COM has run in testing — the only code
-  path no test could exercise now has. Remaining: the same at scale, plus
-  the PST and 50GB passes.*
-  *2026-09-27 note: the decision below is reversed. The owner dropped PySide6 and Leasha
-  stays on PyQt6; the licence of a distributed build is now its own open decision (see
-  `ORDER_REGISTER.md` §5).*
-- [ ] **Decide PySide6 — DECIDED 2026-08-27**: PySide6 chosen to keep every
-  licensing future open. Draft order:
-  `WORKORDER-202626270238-pyside6-migration.md` (NOT for execution;
-  scheduled first in the restructure window). Gate closed as a decision.
+  to measure the improvement — two data points instead of one. Outlook COM
+  has run in testing; what remains is the same at scale, plus the PST and
+  50GB passes.
+- [x] **Move to PySide6 — built** under
+  `WORKORDER-202626270238-pyside6-migration.md`: `PySide6==6.11.0` in
+  `requirements.txt`, `Signal` for `pyqtSignal`, and `shiboken6` for PyQt's
+  `sip` through `app/ui/qtsip.py`. The order's remaining hand checks on
+  Windows are tracked in `ORDER_REGISTER.md`.
 - [ ] **Start the claims-dating habit** (rule, zero code): from today, any
   comment stating a measurement carries its date; any comment stating an
   invariant names the test enforcing it. Old comments get dated as they are
@@ -67,20 +59,21 @@ instructs the thread until the owner promotes an item.
   floors, the way the chunker floor already works.
 - [ ] **Declare the feature freeze**: from here to publication, fixes and
   measurements only. The owner's own "working version first" rule, applied
-  through to the end. (The parked restructures — cli/presenter/shell splits,
-  and PySide6 if chosen — happen inside this window, when the tree is calm.)
+  through to the end. (The parked restructures — cli/presenter/shell splits
+  — happen inside this window, when the tree is calm.)
 
 ## 3. At publication — parked until the future is planned
 
 - [ ] **Code signing certificate** — unsigned installers meet SmartScreen
   warnings no friend's parent should click through. Decide signed-vs-not
   when distribution is real; buying early gains nothing.
-- [ ] **The install order's five [FINALISE] questions**
-  (`WORKORDER-202626082213-install-and-distribution.md` §7): freeze vs uv,
-  per-user vs per-machine, default index location, self-update policy,
-  minimum Windows version.
-- [ ] **Auto-update position** — an updater, or a stated no-update policy.
-  Either is fine; silence is not.
+- [x] **The install order's five [FINALISE] questions — DECIDED**
+  (`WORKORDER-202626082213-install-and-distribution.md`): PyInstaller one
+  folder; per-user by default, per-machine as an option; the index defaults
+  to `%LOCALAPPDATA%\Leasha\Data`, chosen at install; no update check inside
+  the app; Windows 11 and Windows 10 22H2. The installer is built
+  (`packaging/`), for the owner's own use.
+- [x] **Auto-update position — DECIDED:** no update check inside the app.
 - [ ] **Open-source paperwork**: licence headers matching the gate decision;
   fixtures/docs audit for anything personal (paths, machine names, real
   senders); CONTRIBUTING.md explaining the work-order and load-bearing-test
