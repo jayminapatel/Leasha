@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.73 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.74 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,6 +17,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Offline drives on a Mac (2026-10-05)
+
+- **On a Mac, a drive you have scanned is recognised when you plug it back in**, whichever
+  port it is in and even if another drive has the same name, and Rescan is offered for it.
+  Before, a Mac could not scan a drive at all.
+- A drive scanned on Windows is a separate source on a Mac: scan it once there.
+- Tried against disk images of the four common formats, not yet with a real USB stick.
+- Network shares on the Offline page are still Windows-only.
+
 ### Leasha's tests pass on a Mac (2026-10-05)
 
 - **On a Mac, Enter opens the line you are on**, in search results, photos and every other list.
@@ -25,6 +34,7 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   was shown in place of the name in the space and inheritance reports.
 - The whole test suite now passes on macOS (13,026 tests on GitHub's Mac). Leasha has not yet
   been used by a person on a Mac.
+- *Note, 2026-10-05, later: built the same day - see "Offline drives on a Mac" above.*
 - Not yet on a Mac: "Rescan" in Offline.
 
 ### Leasha's window opens on Linux and macOS (2026-10-05)

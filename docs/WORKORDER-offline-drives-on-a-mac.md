@@ -1,6 +1,6 @@
 # Work order (One thread): Offline drives on a Mac — a scanned drive is found again when it is plugged in
 
-**Doc version:** 1.1 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 **Thread:** One thread (Core + Index; no new UI)
 **Status:** RELEASED by the owner 2026-10-05 ("release it so it just needs testing later,
 make sure it is of good quality"), and built the same day. Was DRAFT, written earlier that day
@@ -54,16 +54,36 @@ close the gap.
 
 ## 1. Establish before building (measure, do not assume)
 
-- [ ] **1a** On a Mac, record what Scan does today with a real drive root chosen: what row,
+> **2026-10-05 - 1a answered from the code, not from a Mac.** The scenario test replaced
+> `identify_source` and `find_drive_by_guid` with stand-ins, which is why it reached Rescan.
+> Without them `identify_root` returned `None` off Windows, so a real Scan on a Mac was
+> **refused** ("that is a folder, not a drive") and stored nothing. There were no Mac-made
+> rows to migrate.
+
+- [x] **1a** On a Mac, record what Scan does today with a real drive root chosen: what row,
   if any, lands in `volumes`, and with what `identity_key`. Written into this order as a
   dated note before §2 starts.
+> **2026-10-05 - 1b measured on disk images, and left open for real sticks.** On GitHub's Mac
+> (run 37312880250, commit `817ce6e`, `macos-14`) `hdiutil` made one image each of APFS, Mac OS Extended, exFAT and FAT32; each was
+> mounted, unmounted and mounted again three times. **All four kept one identity throughout**,
+> the system call and `diskutil` both answered for all four and agreed, and two exFAT images
+> with the same name were told apart when mounted in either order
+> (`tests/unit/test_mac_volumes.py`). So FAT and exFAT are no longer UNCONFIRMED for images.
+> **Not done:** a real stick, NTFS, and a second Mac. The box stays open for those
+> (`docs/MAC_VERIFICATION.md` 5.3a-5.3g).
+
 - [ ] **1b** On a real Mac with real media, record the volume UUID macOS reports for one
   stick of each kind - **FAT32, exFAT, APFS, Mac OS Extended, NTFS (read-only on a Mac)** -
   unplugged and replugged three times each, and once on a second Mac. **Whether FAT and
   exFAT sticks have a stable UUID is UNCONFIRMED**, and most USB sticks are one of those.
   If one kind has none, this order says so in a dated note and that kind is refused with a
   plain sentence rather than identified by something that changes.
-- [ ] **1c** Time the two ways of asking - `diskutil info -plist <mount point>` (a
+> **2026-10-05 - 1c measured** (run 37312880250, commit `817ce6e`, `macos-14`, the start-up disk, mean of five): the system call
+> **0.100 ms**, `diskutil info -plist` **71.0 ms**. The key is `VolumeUUID`, confirmed by the
+> two routes agreeing. The system call is used; `diskutil` is asked only when it has nothing.
+> One runner, one disk: representative of the ratio, not of a slow USB stick.
+
+- [x] **1c** Time the two ways of asking - `diskutil info -plist <mount point>` (a
   subprocess; the key is believed to be `VolumeUUID`, **UNCONFIRMED**) and the system call
   behind it (`getattrlist` with `ATTR_VOL_UUID`, through `ctypes`). `connected_volumes`
   sits under `resolve_file_path`, the path every Open and preview takes; 0k kept
@@ -71,44 +91,67 @@ close the gap.
 
 ## 2. Identity and finding it again
 
-- [ ] **2a** A Mac counterpart to the three functions, inside `app/core/osbridge/` so the
+> **2026-10-05 - 2a-2f built.** `app/core/osbridge/volumes.py`. **2b was built differently
+> from its wording:** the one door is the three functions that already existed in
+> `volumes_win.py`, which hand the question to `osbridge` when asked on a Mac. The ten places
+> that import them, and every test that replaces them, are untouched; routing the callers
+> through a new name would have changed all of those for no gain. 2d is a prefix,
+> `macos-volume:<UUID>`, on the stored identity: no column, no migration. 2e's sentence is in
+> `docs/TROUBLESHOOTING.md`. On a Mac a share is not asked about at all (decision 2).
+
+- [x] **2a** A Mac counterpart to the three functions, inside `app/core/osbridge/` so the
   guard test covers it: identify a mounted root (volume UUID, label, file system), list the
   mounted removable roots (the entries of `/Volumes`, the start-up disk left out), and find
   the mount point for a stored UUID. Never raises; an unmounted root is `None`, as on
   Windows.
-- [ ] **2b** One door for both systems. `offline_media.py` (index and CLI) asks the
+- [x] **2b** One door for both systems. `offline_media.py` (index and CLI) asks the
   `osbridge` layer, which picks Windows or Mac. `volumes_win.py` keeps its name and its
   Windows calls; nothing in it is reworded.
-- [ ] **2c** `connected_volumes` and `refresh_volume_statuses` lose the "not Windows, so
+- [x] **2c** `connected_volumes` and `refresh_volume_statuses` lose the "not Windows, so
   nothing" early return and answer for `kind="drive"` on a Mac. `network`, `cloud`,
   `phone` and `archived` answer exactly as today.
-- [ ] **2d** The stored identity says which system made it (a prefix on `identity_key`, or
+- [x] **2d** The stored identity says which system made it (a prefix on `identity_key`, or
   a column - whichever needs no migration of the owner's existing rows). A Windows GUID is
   never compared with a Mac UUID.
-- [ ] **2e** Locked or encrypted drives: on a Mac a locked drive is not mounted, so it
+- [x] **2e** Locked or encrypted drives: on a Mac a locked drive is not mounted, so it
   reads as unplugged. The BitLocker probe is never run off Windows. Said in one sentence in
   the troubleshooting document; no new status word.
-- [ ] **2f** The advisory hardware serial (`hardware_serial_for_root`, 0k's "this looks
+- [x] **2f** The advisory hardware serial (`hardware_serial_for_root`, 0k's "this looks
   like <name> reformatted") stays Windows-only and returns `None` on a Mac. Recorded as a
   known difference.
 
 ## 3. Tests
 
-- [ ] **3a** Pure-Python tests of the Mac module against recorded `diskutil` output and a
+> **2026-10-05 - 3a-3d pass.** `tests/unit/test_mac_volumes.py`: 15 tests that run anywhere
+> and 6 that run only on macOS against real images. 3a answers `diskutil` with a dictionary
+> rather than a recorded file. 3b is said the Mac way (`/Volumes/Photos` and
+> `/Volumes/Photos 1` changing places), once with stand-ins and once with two real images;
+> 0k's own "a run elsewhere does not prune" test already ran on every system and still
+> passes. 3c: the `windows` marker is off the scenario and it is skipped only where neither
+> system's check exists. 3d: GitHub's Windows job is green on the same commit and the guard
+> test needed no new allow-list entry. Whole suite on macOS: **13,051 passed, 0 failed**
+> (run 37312880250, commit `817ce6e`, `macos-14`). The laptop ran the nine affected files (502 passed), not the whole suite.
+
+- [x] **3a** Pure-Python tests of the Mac module against recorded `diskutil` output and a
   fake `/Volumes` folder, runnable on Windows: identify, list, find again, unmounted,
   unreadable, a name with spaces and non-ASCII letters.
-- [ ] **3b** 0k's own acceptance lines, run on the Mac job with the identity stubbed at the
+- [x] **3b** 0k's own acceptance lines, run on the Mac job with the identity stubbed at the
   `osbridge` door: "catalogue at one mount point, remount at another, it is ONE row", "two
   different drives at the same mount point never collide", "a run elsewhere does not prune
   an offline drive's rows".
-- [ ] **3c** The `windows` marker comes off
+- [x] **3c** The `windows` marker comes off
   `test_offline_media_scan_rescan_and_delete_pressed_for_real` and it passes on GitHub's
   Mac job: Scan, unplug (stubbed), Rescan unavailable, plug in, **Rescan available and
   pressed**, Delete.
-- [ ] **3d** The whole suite on Windows is unchanged in count and result, and
+- [x] **3d** The whole suite on Windows is unchanged in count and result, and
   `test_no_windows_only_call_outside_osbridge` passes without a new allow-list entry.
 
 ## 4. Proven on a real Mac (GitHub's runner has no USB drive)
+
+> **2026-10-05 - §4 is what is left, and it is the owner's.** 5.3 in the checklist is now
+> seven steps, 5.3a to 5.3g. 4b is half done: the changelog and handoff are written; the
+> user guide is not touched until 4a has been done, so it does not promise a Mac user
+> something nobody has tried.
 
 - [ ] **4a** `docs/MAC_VERIFICATION.md` 5.3 ("Plug in a USB drive: does Offline Media see
   it?") is carried out on a real Mac with a real stick, by the owner or with the owner:

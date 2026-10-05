@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.8 · **Updated:** 2026-10-04 · **Applies to:** app v0.3.4
+**Doc version:** 1.9 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -336,6 +336,9 @@ Logs also live in `logs\runs\` (one file per command or window session) and `log
 | One folder or archive needs reading again, not all of them | Settings > What's indexed: the play button on that line ("Index now"). On the Offline page, the Rescan button on the drive's line |
 | "files type pst" (or "type pdf", "pdf files") finds nothing | From 2026-10-02 these words are read as a file type. If it still finds nothing, the index holds none: `leasha stats` says how many files are indexed. After a reset the index is empty until a run finishes |
 | Chat lists files when you asked for a number, a date or an address | Fixed on 2026-10-04: a question that names a value is read and quoted. If the answer is "not found", the value is not in what has been indexed |
+| On a Mac, a drive on the Offline page shows as unplugged although it is plugged in | Three causes. It is encrypted and has not been unlocked: unlock it in Finder, then leave the Offline page and come back to it (the list is read again each time the page is opened). It was scanned on Windows: a Mac knows the same drive by a different identity, so scan it once on the Mac and it is a source of its own there. It is a network share: shares are not followed on a Mac yet |
+| On a Mac, choosing a drive to scan says it is a folder, not a drive | Choose the drive itself (its line under Locations in Finder, which is `/Volumes/<name>`), not a folder inside it. A few kinds of disk give a Mac no identity to remember them by; those cannot be scanned |
+| On a Mac, Hardware ID always says "Not available" | The drive's hardware serial is read on Windows only. Nothing depends on it; a drive is recognised by its own identity |
 | The Offline list says "Not available" under Hardware ID | The drive's own serial has not been read yet. Rescan the drive while it is plugged in; a network share shows its address instead, because it has no hardware |
 | Files from inside emails show as PST with the archive's size | Fixed after 0.3.4: an attachment has its own type and size. Rows indexed before get their type when the index next opens; their size is blank until the archive is read again - Settings > What's indexed > **Rescan archived folders now**, or re-index |
 | An AI program says Leasha's AI access is stopped, or cannot connect | Leasha must be open with AI access started: Settings > Models & AI > AI programs > **Start**. If the port was changed, press **Connect** again for that program and restart it. A program connected by address also needs the key, which Connect and **Copy address and key** include |

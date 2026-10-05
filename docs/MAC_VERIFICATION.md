@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.9 · **Updated:** 2026-10-01 · **Applies to:** app v0.3.3
+**Doc version:** 1.10 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -167,7 +167,28 @@ Not expected to work yet. Note what you see, so each can be ordered from a fact.
 > *Note, 1 October 2026:* Index Tuning is on the Indexing page now (Indexing › Tuning).
 
 - [ ] **5.2** Settings → Index Tuning: what hardware does it report (cores, GPU, disk)?
+> *Note, 5 October 2026:* 5.3 is no longer parked. Order `offline-drives-on-a-mac` built it;
+> it has run against disk images on GitHub's Mac and **never against a real stick**. The steps
+> are 5.3a to 5.3g below. Use at least one stick formatted exFAT or FAT32 (what most sticks
+> are) and, if there is one, a Mac-formatted disk.
+
 - [ ] **5.3** Plug in a USB drive: does Offline Media see it?
+- [ ] **5.3a** Offline › Scan, choose the stick itself in the dialog (`/Volumes/<name>`), give
+      it a name. It is scanned and appears in the list as plugged in. Note the stick's format.
+- [ ] **5.3b** Choose a *folder* on the stick instead. It is refused in plain words as a
+      folder, not a drive.
+- [ ] **5.3c** Eject the stick, go to another page and back to Offline. The source reads as not plugged in, Rescan is
+      not offered, and a search still finds its files.
+- [ ] **5.3d** Plug it into a different port, leave the page and come back: plugged in, Rescan offered. Add a file
+      to the stick first; Rescan finds it.
+- [ ] **5.3e** Open a search result that is on the stick, and preview one. Both work, and
+      neither is slow (this path asks "where is the drive now" every time).
+- [ ] **5.3f** Plug in a second stick with the **same name** as the first. Each is still its
+      own source; neither is taken for the other.
+- [ ] **5.3g** `venv/bin/python -c "from pathlib import Path; from app.core.volumes_win import
+      identify_root, mounted_drive_roots; print([(str(r), identify_root(r)) for r in
+      mounted_drive_roots()])"` with the stick in. Paste the output: it shows the identity
+      each mounted disk was given and the file system psutil reports for it.
 - [ ] **5.4** The global hotkey and "search the selected text": expected to say they are
       Windows features.
 

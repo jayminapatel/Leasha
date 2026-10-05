@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.94 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.95 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,28 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (19:45) - Offline drives work on a Mac in tests; a real stick has not been tried.**
+Order `offline-drives-on-a-mac` was released by the owner and built the same day: **1d, 12 / 3**.
+This supersedes the 19:00 entry below ("DRAFT ... nothing built") and closes the "Known gap" in
+the 18:15 entry for tests.
+
+- **What it does:** on a Mac a scanned drive is remembered as `macos-volume:<UUID>` and found
+  again wherever it mounts, so Rescan is offered when it is plugged in.
+  `app/core/osbridge/volumes.py` asks `getattrlist` (0.100 ms) and falls back to `diskutil`
+  (71 ms). `volumes_win.identify_root` and `mounted_drive_roots` hand over to it on macOS, so
+  **the module named `volumes_win` now answers on a Mac too**; no caller changed.
+- **Proven:** run 37312880250, commit `817ce6e`, `macos-14`: Windows job green, macOS **13,051 passed, 0 failed**. Real APFS, Mac OS
+  Extended, exFAT and FAT32 disk images each kept one identity through three unplug-and-replug
+  rounds; two same-named images were told apart in either order.
+- **Not proven, and the only work left:** a real USB stick on a real Mac -
+  `docs/MAC_VERIFICATION.md` 5.3a-5.3g. NTFS sticks and a second Mac are untested. The user
+  guide says nothing about Macs until that is done.
+- **Deliberate limits:** a drive scanned on Windows is a different source on a Mac; network
+  shares are not followed on a Mac; the hardware serial is Windows-only.
+- **GitHub's Windows job is green again** (first time in 40+ runs) now that the golden-picture
+  comparison is left to the laptop.
+- The laptop has not run the whole suite on this commit, only the nine affected files.
 
 **2026-10-05 (19:00) - a DRAFT order for Offline drives on a Mac.**
 `docs/WORKORDER-offline-drives-on-a-mac.md`, 0 / 15, registered in `docs/ORDER_REGISTER.md` §3.
