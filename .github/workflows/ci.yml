@@ -115,8 +115,15 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: |
           set +e
-          venv/bin/python -m pytest tests -q -m "not jvm and not e2e and not slow" \
-            -p no:cacheprovider --timeout=600 --junitxml=macos-junit.xml
+          # 2026-10-05: named tests and a time limit that can end a hang. The run
+          # of that day printed 72 dots and then nothing for 89 minutes: `-q` named
+          # no test, and the default limit (a signal) cannot interrupt a window
+          # waiting inside Qt for a click. `-v` says where it is; the thread method
+          # writes every thread's stack and ends the run, so a hang costs ten
+          # minutes of this runner, not ninety.
+          venv/bin/python -m pytest tests -v -rfE -m "not jvm and not e2e and not slow" \
+            -p no:cacheprovider --timeout=600 --timeout-method=thread \
+            --junitxml=macos-junit.xml
           echo "exit=$?" >> "$GITHUB_OUTPUT"
           exit 0
 
