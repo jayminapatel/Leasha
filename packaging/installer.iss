@@ -81,7 +81,7 @@ begin
   DataPage := CreateInputDirPage(wpSelectDir,
     'Where to keep the index',
     'Leasha keeps what it learns about your files in one folder.',
-    'The index can grow large - about a third of the size of everything it reads. ' +
+    'The index can grow large - about half the size of everything it reads. ' +
     'Pick a drive with room to spare. Nothing in your own files is changed.',
     False, 'Leasha');
   DataPage.Add('Index folder:');

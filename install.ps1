@@ -40,7 +40,7 @@ param(
     [switch]$Preflight,
 
     # Minimum free GB required on the index drive.
-    [int]$RequiredFreeGB = 150
+    [int]$RequiredFreeGB = 300
 )
 
 $ErrorActionPreference = "Stop"

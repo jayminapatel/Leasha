@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 3.4 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 3.5 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -86,7 +86,7 @@ supported.
    `%LOCALAPPDATA%\Programs\Leasha`. (It can install for everyone if you ask it to.)
 4. **Where to keep the index** - the one question. The default is
    `%LOCALAPPDATA%\Leasha\Data`. It warns if the drive has less than 300 GB free; a large
-   index needs about a third of the size of what it reads.
+   index is about half the size of what it reads.
 5. Leave **Download the search models now** ticked (about 200 MB, the only time Leasha needs
    the internet). Tick **Also read older Office files** to install LibreOffice through
    winget, for `.doc`, `.ppt` and similar.
@@ -305,7 +305,7 @@ are in `docs/PROJECT_INSTRUCTIONS.md`.
 | Warm search (p95) | <300ms |
 | First search after launch | <3s |
 | RAM | 8GB minimum, 16GB comfortable |
-| Free disk on the index drive | 150GB for a 100GB corpus |
+| Free disk on the index drive | 300GB (Leasha warns before a run below it; the index is about half the size of what it reads) |
 | Services to manage | 0 (1 optional) |
 
 Measured, not assumed — the per-stage budget is in `BUILD_SPEC_V2.md`.

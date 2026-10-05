@@ -46,7 +46,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 ENV_FILE = PROJECT_ROOT / ".env"
 
 MIN_PYTHON = (3, 12)
-DEFAULT_REQUIRED_FREE_GB = 150
+DEFAULT_REQUIRED_FREE_GB = 300
 
 
 # ---------------------------------------------------------------------------

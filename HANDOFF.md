@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.104 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 7.105 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,15 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-06 (01:09, from the clock) - free space is 300 GB everywhere (the owner).** Settles the
+"open" item in the entry below. `install.ps1 -RequiredFreeGB`, `doctor.py`'s fallback, Leasha's
+default, the Windows installer and every document now say 300 GB. `.env.example` is now minimal
+(only `DATA_PATH` set, the rest commented) so copying it pins nothing stale. The index-size
+estimate is "about half of what it reads" (`LOCAL_KNOWLEDGE_GRAPH_V2.md`); tonight's "about a
+third" in the README, user guide and installer was mine and wrong. Left as worded: the Tuning
+tooltip ("A 100GB corpus needs roughly 150GB ..."), interface text under the never-reword rule.
+Installer recompiled; Releases copy SHA256 `C7998CA4DD569B819AD43D4BDDACC464E636CC9CF0B23D318654146850483485`.
 
 **2026-10-06 (01:01, from the clock) - documentation says what is true now; two installers fixed.**
 The owner's rule (`CLAUDE.md`, Standing rules): documentation is rewritten in place to describe

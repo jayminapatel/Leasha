@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.9 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 2.10 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -176,7 +176,7 @@ run launched from `C:\Windows\system32` created the project there and then could
 | `-OnError Continue` | Unattended: log the failure and carry on. |
 | `-OnError Abort` | Unattended: stop at the first failure. |
 | `-SkipOptional` | Skip the rerank model, Ollama and mistral. |
-| `-RequiredFreeGB 150` | Free-space threshold on the index drive. |
+| `-RequiredFreeGB 300` | Free-space threshold on the index drive. |
 | `-Preflight` | Run only the cheap checks and stop. Nothing is installed or downloaded. |
 
 Zero-touch example:
@@ -328,10 +328,9 @@ blocking readiness. Only hard requirements gate the app.
 it still runs and gives useful output *before* `pip install` has succeeded — which is
 exactly when you most need it.
 
-One inconsistency in the draft is resolved here: the installer demanded 150GB free while
-`doctor.py` checked for 250GB, and it checked the **current directory** rather than the
-index drive. Both now check the drive holding `DATA_PATH` against the same
-`150GB` threshold (overridable via `-RequiredFreeGB`).
+Free space is checked on the drive holding `DATA_PATH` - never the current directory - against
+one figure, **300GB** (`REQUIRED_FREE_GB`): Leasha's default, `install.ps1 -RequiredFreeGB`,
+`doctor.py` and the Windows installer all use it, and Settings can change it.
 
 ---
 
@@ -474,7 +473,7 @@ indexer at it.
 | Rerank | Mistral 7B (impossible <2s on CPU) | Cross-encoder top-30, ~100–300ms, **optional toggle** | bge-reranker-base ONNX |
 | Initial index, 100GB | "30–50h GPU / 80–150h CPU" | **Days on CPU — set expectations in UI**; prioritised folders first, background, resumable | bge-small ~384-dim helps; PyMuPDF removes the parse bottleneck |
 | RAM | 16–32GB | **8GB min, 16GB comfortable** | No Postgres/Redis/Qdrant resident |
-| Disk | 200GB free | **150GB free on the index drive**, excluding the corpus itself | vectors + FTS + cache + models ≈ 50% of corpus size. The installer and `doctor.py` now use this same figure, measured on the `DATA_PATH` drive. |
+| Disk | 200GB free | **300GB free on the index drive** (the threshold Leasha, `install.ps1`, `doctor.py` and the Windows installer all check), excluding the corpus itself | vectors + FTS + cache + models ≈ 50% of corpus size; the threshold leaves room above that |
 | Services to manage | 5 | **0** (1 optional: Ollama) | |
 
 Indexing must be: background QThread pool, resumable (cursor persisted), incremental (mtime+hash), prioritisable (user picks "index this folder first").
