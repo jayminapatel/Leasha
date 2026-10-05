@@ -287,6 +287,10 @@ QHeaderView::section {{
 }}
 QHeaderView::section:hover {{ color: {text_dim}; background: {surface_alt}; }}
 QTableWidget {{ selection-background-color: {accent_soft}; }}
+/* 2026-10-05, the UI review: a table's rows are ruled, its columns are not.
+   `ResultTable` and the model lists turn Qt's grid off; this is the one
+   hairline under each row that replaces it, as the lists and trees have. */
+QTableWidget::item {{ border-bottom: 1px solid {divider}; }}
 
 QPushButton {{
     background: {surface_alt}; border: 1px solid {border};
@@ -557,6 +561,39 @@ QMenuBar::item:selected {{ background: {surface_hover}; color: {text}; }}
    quietly pin the height again. */
 QCheckBox, QRadioButton {{ color: {text}; }}
 QCheckBox:disabled, QRadioButton:disabled {{ color: {text_faint}; }}
+/* **A tick box is a box, ticked or not** (2026-10-05, the UI review). The
+   platform style drew an empty one as a box and a ticked one as a bare tick
+   with no box round it, so a column of ticked settings read as a list of
+   facts rather than as switches. One shape now: the box, filled with the
+   accent when on. The same in a list or a tree that carries ticks.
+   Only the indicator is styled - see the note above about why the check box
+   itself takes no geometry - and the height test still holds. */
+QCheckBox::indicator, QGroupBox::indicator, QListView::indicator, QTreeView::indicator,
+QTableView::indicator {{
+    /* 16 and its border is 18, the platform's own size: a narrower box makes
+       the whole check box narrower, and `test_settings_layout` holds the room. */
+    width: 16px; height: 16px; border: 1px solid {border_strong};
+    border-radius: 4px; background: {surface};
+}}
+QCheckBox::indicator:hover, QGroupBox::indicator:hover, QListView::indicator:hover,
+QTreeView::indicator:hover, QTableView::indicator:hover {{ border-color: {focus_ring}; }}
+QCheckBox::indicator:checked, QGroupBox::indicator:checked, QListView::indicator:checked,
+QTreeView::indicator:checked, QTableView::indicator:checked {{
+    background: {accent}; border-color: {accent}; image: url({tick});
+}}
+QCheckBox::indicator:indeterminate, QListView::indicator:indeterminate,
+QTreeView::indicator:indeterminate {{
+    background: {accent_soft}; border-color: {accent};
+}}
+QCheckBox::indicator:disabled, QGroupBox::indicator:disabled, QListView::indicator:disabled,
+QTreeView::indicator:disabled, QTableView::indicator:disabled {{
+    border-color: {border}; background: {surface_alt};
+}}
+QCheckBox::indicator:checked:disabled, QGroupBox::indicator:checked:disabled,
+QListView::indicator:checked:disabled, QTreeView::indicator:checked:disabled,
+QTableView::indicator:checked:disabled {{
+    background: {border_strong}; border-color: {border_strong};
+}}
 
 QSplitter::handle {{ background: {divider}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
@@ -912,6 +949,26 @@ def font_sizes(base: Optional[float] = None) -> dict:
             for name, factor in SCALE.items()}
 
 
+def _tick_file(colours: dict[str, str]) -> str:
+    """The tick drawn inside a ticked box, as a path a stylesheet can load.
+
+    Two files, one per colour the tick is drawn in (`accent_on`: white on the
+    light theme's indigo, near-black on the dark theme's lavender). A
+    stylesheet cannot tint a picture, so the colour is in the file.
+    """
+    from pathlib import Path
+
+    name = "tick-light.svg" if colours.get("accent_on", "").lower() == "#ffffff" else "tick-dark.svg"
+    folder = Path(__file__).resolve().parents[2] / "assets"
+    try:
+        from app.ui.tray import assets_dir
+
+        folder = assets_dir()
+    except Exception:                       # noqa: BLE001 - no Qt, or no tray: the source tree
+        pass
+    return (folder / "ui" / name).as_posix()
+
+
 def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
                base_pt: Optional[float] = None) -> str:
     """The full Qt stylesheet for a preference.
@@ -926,4 +983,5 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS, **BUTTON)
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS, **BUTTON,
+                            tick=_tick_file(colours))

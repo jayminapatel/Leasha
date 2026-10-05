@@ -128,6 +128,9 @@ class ResultTable(QTableWidget):
         if ranked:
             self.setColumnHidden(self._rank_column, True)
         self.verticalHeader().hide()
+        # 2026-10-05, the UI review: rows are ruled by the theme, columns are
+        # not - the grid made Files and Mail read as a spreadsheet.
+        self.setShowGrid(False)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
 

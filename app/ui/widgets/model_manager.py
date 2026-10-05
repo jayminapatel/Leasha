@@ -152,6 +152,7 @@ class ModelManagerBox(QGroupBox):
         table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         table.verticalHeader().setVisible(False)
+        table.setShowGrid(False)             # 2026-10-05: as `ResultTable`
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         table.setMinimumHeight(160)
 

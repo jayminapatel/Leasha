@@ -38,7 +38,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from app.core.row_facts import MAIL_SOURCE_KINDS, archived_message_sql
-from app.storage.like import ESCAPE, contains
+from app.storage.like import ESCAPE, contains, glob, has_wildcard
 
 __all__ = ["file_filter_sql", "epoch_ns", "MAIL_KINDS", "merge_by_date",
            "sent_at_ns", "SENT_AT_LIMIT_S"]
@@ -232,15 +232,68 @@ def merge_by_date(branch_a: list, branch_b: list, *, limit: int,
     return combined[: max(0, int(limit))]
 
 
+
+def _same(column: str, value: str) -> tuple[str, str]:
+    """`column` is `value` - or matches it, when it carries a `*` or a `?`.
+
+    2026-10-05, wildcards in the `/` commands. The fields compared whole
+    (`/repo`, `/on`, `/shows`, `/place`, `/who`) keep their exact, indexed
+    comparison for a plain value, and only a value somebody typed a wildcard
+    into pays for a `LIKE`.
+    """
+    if has_wildcard(value):
+        return f"{column} LIKE ?{ESCAPE}", glob(value)
+    return f"{column} = ? COLLATE NOCASE", value
+
+
+#: A file's own name: its path with the folder taken off. `parent_dir` is
+#: stored, so no assumption is made about which slash this platform uses.
+_BASENAME = "REPLACE(f.path, f.parent_dir, '')"
+
+
+def _name_clause(value: str, *, negated: bool = False) -> tuple[str, str]:
+    r"""`/name` as SQL: any part of the name, or the whole name as a glob.
+
+    `/name invoice` has always meant "contains". With a wildcard the value is
+    the shape of the whole name, as it is at a command prompt, so `/name inv*`
+    can say "starts with" - which "contains" never could. What `_BASENAME`
+    leaves still has the slash that joined it to its folder, so the glob is
+    compared with that trimmed off; only a wildcard pays for the trim.
+    """
+    word = "NOT LIKE" if negated else "LIKE"
+    if has_wildcard(value):
+        return f"LTRIM({_BASENAME}, '/\') {word} ?{ESCAPE}", glob(value)
+    return f"{_BASENAME} {word} ?{ESCAPE}", contains(value)
+
+
+def _ext_clause(exts: Any, *, negated: bool = False) -> tuple[str, list]:
+    """`/type` as SQL: the plain extensions in one `IN`, each wildcard a `LIKE`.
+
+    `/type xls*` is `xls`, `xlsx` and `xlsm`. `f.ext` is never NULL, so the
+    negated form needs no guard.
+    """
+    wanted = [ext.lstrip(".").lower() for ext in exts]
+    plain = [ext for ext in wanted if not has_wildcard(ext)]
+    wild = [ext for ext in wanted if has_wildcard(ext)]
+    parts: list[str] = []
+    if plain:
+        parts.append(f"f.ext IN ({', '.join('?' for _ in plain)})")
+    parts.extend(f"f.ext LIKE ?{ESCAPE}" for _ in wild)
+    clause = parts[0] if len(parts) == 1 and not wild else "(" + " OR ".join(parts) + ")"
+    if negated:
+        clause = f"f.ext NOT IN ({', '.join('?' for _ in plain)})" if not wild else f"NOT {clause}"
+    return clause, [*plain, *(glob(ext) for ext in wild)]
+
+
 def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     """Build the WHERE fragment for a ParsedQuery's operators."""
     clauses: list[str] = []
     params: list[Any] = []
 
     if parsed.ext:
-        placeholders = ", ".join("?" for _ in parsed.ext)
-        clauses.append(f"f.ext IN ({placeholders})")
-        params.extend(ext.lstrip(".").lower() for ext in parsed.ext)
+        clause, values = _ext_clause(parsed.ext)
+        clauses.append(clause)
+        params.extend(values)
 
     if parsed.after is not None and parsed.before is not None:
         # A range: both edges in each branch, so each is one bounded index
@@ -297,11 +350,11 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # cannot. One clause, one subquery, `IN`.
     if parsed.repos:
         conditions = " OR ".join(
-            "name = ? COLLATE NOCASE OR root_path LIKE ?" + ESCAPE for _ in parsed.repos
+            _same("name", repo)[0] + " OR root_path LIKE ?" + ESCAPE for repo in parsed.repos
         )
         clauses.append(f"f.repo_id IN (SELECT id FROM repos WHERE {conditions})")
         for repo in parsed.repos:
-            params.extend((repo, contains(repo)))
+            params.extend((_same("name", repo)[1], contains(repo)))
 
     # Work order 0i section 1c. `file_tags` (schema v19) is Florence-2's tag
     # vocabulary. ORed within the tuple, the same convention `parsed.repos`
@@ -311,16 +364,16 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # question. Unlike `repo_id` there is no single column to `IN (...)`
     # against, so this is a subquery over the join table instead.
     if parsed.shows:
-        conditions = " OR ".join("tag = ? COLLATE NOCASE" for _ in parsed.shows)
+        conditions = " OR ".join(_same("tag", value)[0] for value in parsed.shows)
         clauses.append(f"f.id IN (SELECT file_id FROM file_tags WHERE {conditions})")
-        params.extend(parsed.shows)
+        params.extend(_same("tag", value)[1] for value in parsed.shows)
 
     # Work order 0i section 4a. A plain column (f.place), unlike shows:
     # which needs a subquery over the join table - see _v22_places.
     if getattr(parsed, "place", ()):
-        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.place)
+        conditions = " OR ".join(_same("f.place", value)[0] for value in parsed.place)
         clauses.append(f"({conditions})")
-        params.extend(parsed.place)
+        params.extend(_same("f.place", value)[1] for value in parsed.place)
 
     # Work order 0j section 3a. Same subquery shape as `shows` just above -
     # a file can show several named people, so this is `IN (...)` over a
@@ -329,11 +382,11 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # exactly the guardrail that identity only ever comes from a name a
     # person typed.
     if getattr(parsed, "who", ()):
-        conditions = " OR ".join("p.name = ? COLLATE NOCASE" for _ in parsed.who)
+        conditions = " OR ".join(_same("p.name", value)[0] for value in parsed.who)
         clauses.append(
             "f.id IN (SELECT fc.file_id FROM faces fc "
             f"JOIN piles p ON p.id = fc.pile_id WHERE {conditions})")
-        params.extend(parsed.who)
+        params.extend(_same("p.name", value)[1] for value in parsed.who)
 
     # 2026-10-05, the Photos tab's `/only` - what a picture has. Every other
     # tab honours it too (`test_every_tab_offers_every_switch`); a document
@@ -355,8 +408,9 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         #
         # `parent_dir` is stored, so removing it from `path` leaves the name,
         # without any assumption about which slash this platform uses.
-        clauses.append("REPLACE(f.path, f.parent_dir, '') LIKE ?" + ESCAPE)
-        params.append(contains(name))
+        clause, pattern = _name_clause(name)
+        clauses.append(clause)
+        params.append(pattern)
 
     # `/on` - order 202626270513 §3c. Simpler than `repo:`'s two-way match:
     # a catalogued volume has only a name - drive letters are never stored,
@@ -364,9 +418,9 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # the same reason `repo:` is: a file lives on exactly one volume, so
     # `on:a on:b` under the usual AND would match nothing, ever.
     if getattr(parsed, "volumes", ()):
-        conditions = " OR ".join("name = ? COLLATE NOCASE" for _ in parsed.volumes)
+        conditions = " OR ".join(_same("name", value)[0] for value in parsed.volumes)
         clauses.append(f"f.volume_id IN (SELECT id FROM volumes WHERE {conditions})")
-        params.extend(parsed.volumes)
+        params.extend(_same("name", value)[1] for value in parsed.volumes)
 
     # --- the negated halves -------------------------------------------------
     #
@@ -380,46 +434,47 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
     # `NOT LIKE` is NULL-safe here because none of these columns is nullable
     # except `repo_id`, which is handled by its own `IS NULL` below.
     if getattr(parsed, "not_ext", ()):
-        placeholders = ", ".join("?" for _ in parsed.not_ext)
-        clauses.append(f"f.ext NOT IN ({placeholders})")
-        params.extend(ext.lstrip(".").lower() for ext in parsed.not_ext)
+        clause, values = _ext_clause(parsed.not_ext, negated=True)
+        clauses.append(clause)
+        params.extend(values)
 
     for folder in getattr(parsed, "not_paths", ()):
         clauses.append("f.path NOT LIKE ?" + ESCAPE)
         params.append(contains(folder))
 
     for name in getattr(parsed, "not_names", ()):
-        clauses.append("REPLACE(f.path, f.parent_dir, '') NOT LIKE ?" + ESCAPE)
-        params.append(contains(name))
+        clause, pattern = _name_clause(name, negated=True)
+        clauses.append(clause)
+        params.append(pattern)
 
     if getattr(parsed, "not_place", ()):
-        conditions = " OR ".join("f.place = ? COLLATE NOCASE" for _ in parsed.not_place)
+        conditions = " OR ".join(_same("f.place", value)[0] for value in parsed.not_place)
         clauses.append(f"(f.place IS NULL OR NOT ({conditions}))")
-        params.extend(parsed.not_place)
+        params.extend(_same("f.place", value)[1] for value in parsed.not_place)
 
     if getattr(parsed, "not_shows", ()):
-        conditions = " OR ".join("tag = ? COLLATE NOCASE" for _ in parsed.not_shows)
+        conditions = " OR ".join(_same("tag", value)[0] for value in parsed.not_shows)
         clauses.append(
             f"f.id NOT IN (SELECT file_id FROM file_tags WHERE {conditions})")
-        params.extend(parsed.not_shows)
+        params.extend(_same("tag", value)[1] for value in parsed.not_shows)
 
     if getattr(parsed, "not_who", ()):
-        conditions = " OR ".join("p.name = ? COLLATE NOCASE" for _ in parsed.not_who)
+        conditions = " OR ".join(_same("p.name", value)[0] for value in parsed.not_who)
         clauses.append(
             "f.id NOT IN (SELECT fc.file_id FROM faces fc "
             f"JOIN piles p ON p.id = fc.pile_id WHERE {conditions})")
-        params.extend(parsed.not_who)
+        params.extend(_same("p.name", value)[1] for value in parsed.not_who)
 
     if getattr(parsed, "not_volumes", ()):
         # `OR f.volume_id IS NULL` for the same reason `not_repos` needs it:
         # nearly every file is on no catalogued volume at all, and
         # `volume_id NOT IN (...)` is NULL - not true - for every one of
         # them, which would exclude the whole rest of the corpus.
-        conditions = " OR ".join("name = ? COLLATE NOCASE" for _ in parsed.not_volumes)
+        conditions = " OR ".join(_same("name", value)[0] for value in parsed.not_volumes)
         clauses.append(
             f"(f.volume_id IS NULL OR f.volume_id NOT IN "
             f"(SELECT id FROM volumes WHERE {conditions}))")
-        params.extend(parsed.not_volumes)
+        params.extend(_same("name", value)[1] for value in parsed.not_volumes)
 
     if getattr(parsed, "not_repos", ()):
         # **`OR f.repo_id IS NULL` is the whole difference.** Most files belong
@@ -428,13 +483,13 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
         # would also exclude the entire rest of the corpus, which is a far
         # bigger wrong answer than the one being fixed.
         conditions = " OR ".join(
-            "name = ? COLLATE NOCASE OR root_path LIKE ?" + ESCAPE for _ in parsed.not_repos
+            _same("name", repo)[0] + " OR root_path LIKE ?" + ESCAPE for repo in parsed.not_repos
         )
         clauses.append(
             f"(f.repo_id IS NULL OR f.repo_id NOT IN "
             f"(SELECT id FROM repos WHERE {conditions}))")
         for repo in parsed.not_repos:
-            params.extend((repo, contains(repo)))
+            params.extend((_same("name", repo)[1], contains(repo)))
 
     for comparison, size in parsed.sizes:
         # The comparison came from `_parse_size`, which only ever returns one of

@@ -94,8 +94,13 @@ class SearchMarks(QObject):
     def repaint(self) -> None:
         """Put the highlights on the view's overlay. **Never raises.**"""
         try:
-            colour = QColor(self._view.palette().color(
-                self._view.palette().ColorRole.Highlight))
+            # 2026-10-05, the UI review: the same mark the results list
+            # paints (`mark` and `mark_text`). This was the system's selection
+            # blue, so one search showed its words in two colours.
+            from app.ui.theme import theme_colours
+
+            colours = theme_colours()
+            colour, ink = QColor(colours["mark"]), QColor(colours["mark_text"])
             selections = []
             for start, end in self._spans:
                 mark = QTextEdit.ExtraSelection()
@@ -104,6 +109,7 @@ class SearchMarks(QObject):
                 cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
                 mark.cursor = cursor
                 mark.format.setBackground(colour)
+                mark.format.setForeground(ink)
                 selections.append(mark)
             self._view.setExtraSelections(selections)
         except Exception:                        # noqa: BLE001 - decoration

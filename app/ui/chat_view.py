@@ -102,16 +102,20 @@ class ChatView(QWidget):
         self.speed_note.setAccessibleName("What Fast and Thoughtful do")
         self.speed_note.setVisible(False)
 
+        # 2026-10-05: the notice has a line of its own. It shared the line
+        # below with the model and speed boxes, which took the room first, so
+        # it was squeezed to a column a few words wide and ten lines tall.
+        notice_row = QHBoxLayout()
+        notice_row.addWidget(self.notice, stretch=1)
+        notice_row.addWidget(self.recheck_button, alignment=Qt.AlignmentFlag.AlignTop)
         head = QHBoxLayout()
-        head.addWidget(self.notice, stretch=1)
         # Spare room goes to empty space, never to the Fast/Thoughtful box.
         # While the notice shows it takes the room (its stretch wins); once
         # chat is ready the notice hides, and without this the box stretched
         # across the whole pane - one word, "Fast", in a bar as wide as the
         # conversation, looking like a title rather than a choice (grabbed
         # 2026-09-27, order 0x section 9).
-        head.addStretch(0)
-        head.addWidget(self.recheck_button)
+        head.addStretch(1)
         # 2026-10-04: the same Preview toggle every other tab carries.
         self.toggles = {"inspector": preview_toggle(self, checked=True, on_toggle=self.show_preview)}
         head.addWidget(self.toggles["inspector"])
@@ -125,6 +129,7 @@ class ChatView(QWidget):
         # 10 a side: the three panes of the splitter met with a hairline between
         # them, so the footer line, the question box and "Send" all touched it.
         column.setContentsMargins(10, 0, 10, 0)
+        column.addLayout(notice_row)
         column.addLayout(head)
         column.addWidget(self.speed_note)
         column.addWidget(self.bubbles, stretch=1)

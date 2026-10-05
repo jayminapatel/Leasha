@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.63 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.64 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Wildcards in filters, and a tidier window (2026-10-05)
+
+- **You can use `*` and `?` inside a filter.** `/name inv*` finds every file whose name starts
+  with "inv"; `/name *.xls` every name ending that way; `/type xls*` finds xls, xlsx and xlsm;
+  `/from dav*`, `/subject`, `/to` and `/path` take them too. `*` is any letters, `?` is any one.
+  Until now a star in a filter was looked for as a star, and found nothing.
+- **Chat says why it is not ready on one clear line.** The note was squeezed into a narrow
+  column beside the buttons.
+- **A ticked box looks like a box.** Ticked settings were drawn as a bare tick, so they read as
+  a list rather than as switches.
+- **Settings and Indexing: a drop-down is as wide as its words.** "30 days" no longer sits in
+  a box as wide as the window.
+- **The words you searched for are marked the same way in the preview as in the results.**
+- **Files and Mail have lines between rows only**, not a grid.
 
 ### The Indexing page on one screen, readers that say where and why, the Git tree opens (2026-10-05)
 

@@ -437,7 +437,10 @@ def _norm_ext(value: str) -> tuple[str, ...]:
         return _EXT_GROUPS[v]
     # type:pdf,docx
     parts = [p.strip().lstrip(".") for p in v.split(",")]
-    return tuple(p for p in parts if p.isalnum())
+    # 2026-10-05: a `*` or `?` among the letters is a wildcard (`/type xls*`),
+    # matched by `storage.filters`. It used to fail `isalnum` and the whole
+    # filter was dropped without a word.
+    return tuple(p for p in parts if p.replace("*", "").replace("?", "").isalnum())
 
 
 def _end_of(year: int, month: Optional[int] = None) -> date:

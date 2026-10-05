@@ -5,6 +5,7 @@ Layer: L5. Part of the presenter package; imports no Qt.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -151,6 +152,29 @@ def repo_tree_summary(matching: Optional[set], total: int) -> str:
     return f"{count} of {total} repositories match"
 
 
+def _glob(pattern: str) -> "re.Pattern[str]":
+    """`pattern` with `*` as any run and `?` as any one character."""
+    return re.compile(".*".join(
+        ".".join(re.escape(piece) for piece in part.split("?"))
+        for part in pattern.split("*")), re.DOTALL)
+
+
+def _found(text: str, haystack: str) -> bool:
+    """Is `text` in `haystack`? A `*` or `?` in it is a wildcard (2026-10-05),
+    as in the `/` commands on every other tab; nothing typed finds everything."""
+    if not text:
+        return True
+    if "*" in text or "?" in text:
+        return _glob(text).search(haystack) is not None
+    return text in haystack
+
+
+def _one_of(value: str, wanted: Sequence[str]) -> bool:
+    """Is `value` one of `wanted`, each of which may carry a wildcard?"""
+    return any(_glob(item).fullmatch(value) is not None if ("*" in item or "?" in item)
+               else item == value for item in wanted)
+
+
 @dataclass(frozen=True, slots=True)
 class RepoFilter:
     """What the Code tab's box asked for, once the grammar has read it."""
@@ -175,15 +199,15 @@ class RepoFilter:
         to expand. `type:` narrows the children instead, and the summary says
         so - see `matches_file`.
         """
-        if self.names and name.lower() not in self.names:
+        if self.names and not _one_of(name.lower(), self.names):
             return False
-        return not self.text or self.text in haystack
+        return _found(self.text, haystack)
 
     def matches_file(self, ext: str, haystack: str) -> bool:
         """A file row under a repository that has already passed `matches`."""
-        if self.exts and (ext or "").lower().lstrip(".") not in self.exts:
+        if self.exts and not _one_of((ext or "").lower().lstrip("."), self.exts):
             return False
-        return not self.text or self.text in haystack
+        return _found(self.text, haystack)
 
 
 def repo_visibility(
@@ -210,13 +234,13 @@ def repo_visibility(
       by typing "leasha", being shown only the files with "leasha" in the name
       is a second filter nobody asked for.
     """
-    if chosen.names and repo_name.lower() not in chosen.names:
+    if chosen.names and not _one_of(repo_name.lower(), chosen.names):
         return False, [False] * len(files)
 
-    matched_name = not chosen.text or chosen.text in repo_haystack
+    matched_name = _found(chosen.text, repo_haystack)
     if matched_name:
         # Only `type:` narrows the children now; the text has done its work.
-        flags = [not chosen.exts or (ext or "").lower().lstrip(".") in chosen.exts
+        flags = [not chosen.exts or _one_of((ext or "").lower().lstrip("."), chosen.exts)
                  for ext, _haystack in files]
         return True, flags
 

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.79 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.80 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,57 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (UI review) - wildcards in the `/` commands, and five faults from a review of
+every page.** The owner: *"review the full ui ux ... is it world class and modern"*, then *"do
+the recommended fix all and commit ... also / commands should take wild cards"*. Every page was
+grabbed from the real window with `tools/guide_pictures.py --no-swap` before and after.
+
+- **`*` and `?` work inside a filter's value, on every tab.** They did not: `/name inv*` looked
+  for a literal star and found nothing, while the same star in the words of a search worked.
+  `storage/like.contains` now turns them into `LIKE`'s `%` and `_` (a typed `%` or `_` stays
+  literal), so `/from dav*`, `/to`, `/subject`, `/path proj*/leeds` take them and still mean
+  "contains". **`/name` with a wildcard is the whole name**, as at a command prompt
+  (`/name inv*` starts with, `/name *.xls` ends with; `like.glob`, `filters._name_clause`);
+  without one it is still "contains". `/type xls*` works (`query._norm_ext` used to drop it
+  silently; `filters._ext_clause`), and so do `/repo`, `/on`, `/shows`, `/place`, `/who`
+  (`filters._same`) and the negated forms. The Mail tab's header match goes to the scan for a
+  wildcard (`_header_match`: a trigram phrase cannot hold one); the Code tree's own filter
+  takes them too (`presenter/repos._found`, `_one_of`). Bracket classes (`[a-z]`) are **not**
+  taken, on purpose: square brackets are common in real file names. `app.cli commands` says so.
+- **Chat's "not ready" notice has a line of its own** (`chat_view.py`). It shared a line with
+  the model and speed boxes and was squeezed to a column a few words wide and ten lines tall.
+- **A ticked box is a box.** The platform style drew a ticked check box as a bare tick with no
+  box, so ticked settings read as a list. `theme.py` styles the indicator (check boxes, and the
+  ticks in lists and trees): the box, filled with the accent when on. The tick is a file per
+  colour, `assets/ui/tick-light.svg` and `tick-dark.svg` - a stylesheet cannot tint a picture.
+- **Drop-downs and number fields on Settings and Indexing are as wide as what they hold**
+  (new `widgets/field_width.fit_fields`, one pass in `shell.py` beside `protect_all`). "30 days"
+  was in a box as wide as the page. Text boxes still take the row.
+- **The preview marks searched words as the results list does** (`search_marks.py`: the theme's
+  `mark` and `mark_text`; it was the system's selection blue).
+- **Tables rule their rows, not their columns** (`ResultTable`, the model lists: `setShowGrid
+  (False)` and one hairline per row from the theme).
+- **Retracted from the review:** "Files and Mail cut their names and leave half the page empty".
+  That was the demonstration store (`D:\Demo\leasha-guide`), which has a saved width for the last
+  column of both (`ui:files:widths folder=221`, `ui:mail:widths status=112`); on a fresh store
+  the columns fit and the last one fills. The column-width code was **not** touched.
+- **Not done, and why:** the Photo Tagger's empty state (its file, `photo_tagger_page.py`, has
+  another session's uncommitted work in it); the long explanatory paragraphs on Settings; an
+  "Advanced" fold for the expert settings (a product decision); the user guide's pictures were
+  not retaken (they still show the old check boxes and field widths).
+- Tests: `tests/unit/test_filter_wildcards.py` (33), `tests/unit/test_ui_review_polish.py` (7).
+  **Seen on the real window only through the grab tool** - restart Leasha to see it.
+- **The whole suite** (`scripts/run_suite.py`, four processes, 18 minutes): 13,157 passed, 5
+  failed, 1 error, none crashed. Two were this work and are fixed (the tick box is 16 px so a
+  check box keeps its room; `Leasha.pyproj` regenerated). Three passed when rerun alone
+  (`test_later`, the keyboard scenario, a `test_grab_ui` error). **One fails on the commit
+  before this work too, and is not fixed:** `test_indexing_workers_panel.py::
+  test_two_readers_show_as_two_lines_under_the_bar` - it expects the readers panel directly under
+  `detail` in one layout, and the Status page was made two columns on 2026-10-05. Whoever owns
+  that page should decide whether the page or the test is right. **Trap:** the suite in one
+  process (`pytest tests`) died twice at 45%, in `test_ocr.py`, with exit 139 and no traceback;
+  use `scripts/run_suite.py`. `regen_vs_project.py` lists tracked files only - `git add` first.
 
 **2026-10-05 (late) - the Photos tab stays still, every tile the same size.** The owner: *"the
 photos flash folder then the picture etc even when tagging, can the ui be slick world class and

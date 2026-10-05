@@ -412,6 +412,8 @@ EXTRAS: tuple[tuple[str, str, str], ...] = (
     ("A AND B", "Both. This is the default, so rarely needed", "pump AND valve"),
     ("NOT word", "Same as -word", "NOT draft"),
     ("word*", "Starts with", "install*"),
+    # 2026-10-05: the same two characters inside a filter's value.
+    ("/name inv*", "In a filter: * is any letters, ? is any one", "/name inv*.pdf  /type xls*  /from dav*"),
 )
 
 #: **Spellings** that carry their meaning in their own name and take no

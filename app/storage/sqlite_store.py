@@ -33,7 +33,7 @@ from typing import (
     Any, Iterable, Iterator, NamedTuple, Optional, Sequence, Type,
 )
 
-from app.storage.like import like_escape
+from app.storage.like import contains as like_contains, has_wildcard, like_escape
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.identifiers import symbol_tokens
@@ -1974,6 +1974,9 @@ class SqliteStore:
         text = (value or "").strip()
         if len(text) < self.TRIGRAM_MIN_CHARS or not self._has_message_index():
             return None
+        if has_wildcard(text):
+            # A phrase cannot say "any characters here"; the scan can.
+            return None
         phrase = '"' + text.replace('"', '""') + '"'
         return f"{column} : {phrase}"
 
@@ -2269,9 +2272,10 @@ class SqliteStore:
         # `_` typed by a person are escaped, so searching for a literal
         # underscore in an address finds it instead of matching any character.
         def contains(column: str, value: str) -> None:
-            escaped = value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            # 2026-10-05: through the shared pattern, so a `*` or `?` typed
+            # into `/from` or `/subject` is a wildcard here as everywhere.
             clauses.append(f"{column} LIKE ? ESCAPE '\\'")
-            params.append(f"%{escaped}%")
+            params.append(like_contains(value, fold=False))
 
         # **The index, when it can answer; the scan, when it cannot.**
         #
@@ -5410,10 +5414,8 @@ class SqliteStore:
         params: list[Any] = []
 
         def contains(column: str, value: str) -> None:
-            escaped = (value.replace("\\", "\\\\")
-                       .replace("%", "\\%").replace("_", "\\_"))
             clauses.append(f"{column} LIKE ? ESCAPE '\\'")
-            params.append(f"%{escaped}%")
+            params.append(like_contains(value, fold=False))
 
         if text.strip():
             contains("f.path", text.strip())

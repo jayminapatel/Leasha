@@ -891,6 +891,12 @@ class MainWindow(QMainWindow):
             # Once, for the controls that did not exist when `__init__` ran it.
             guarded = protect_all(self)
             _log.debug("wheel-guarded {} controls (second pass, Indexing + Settings)", guarded)
+            # 2026-10-05, the UI review: drop-downs and number fields on these
+            # two pages are as wide as what they hold, not as wide as the page.
+            from app.ui.widgets.field_width import fit_fields
+
+            for page in (self.indexing_view, self.settings_view):
+                fit_fields(page)
             fit_number_fields(self)
             # **After the pages are in the window**: `mark_restart_needed` finds
             # controls by `findChild` on the window, and a page that has not been
