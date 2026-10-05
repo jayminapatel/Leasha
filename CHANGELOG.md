@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.69 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.70 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The archive-reading choice shows what is really chosen (2026-10-05)
+
+- **"How to read archives" now shows your saved choice.** It always opened on "Automatic", even
+  when "Through Outlook" had been chosen earlier and was what every run used. If you chose
+  Outlook at some point, it will now say so.
+- **A note appears when archives go through Outlook although reading them directly is
+  available**, with how to switch.
 
 ### Mail archives are no longer skipped because Outlook was busy for a moment (2026-10-05)
 

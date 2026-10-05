@@ -784,6 +784,10 @@ class MainWindow(QMainWindow):
             self.settings_view.index_folder_requested.connect(self._index_folder_now)
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())
+            # 2026-10-05: the drop-down shows what was saved. Before the
+            # connection below, so showing it is not taken for a new choice.
+            self.settings_view.show_pst_backend(
+                self._read_state("ui:pst_backend", "auto") or "auto")
             self.settings_view.pst_backend_changed.connect(self._save_pst_backend)
             self.settings_view.ollama_model_changed.connect(self._ollama_model_changed)
             self.settings_view.models.load(

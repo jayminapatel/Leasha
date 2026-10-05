@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.87 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.88 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,36 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (13:30) - the page said "Automatic" while the run used Outlook: the reader
+drop-down was never set from what was saved. This is why the owner's archives went through
+Outlook unnoticed. Newer than the entry below, which found the saved value but not this.**
+
+- **The fault:** `settings_view.pst_backend` (Indexing, What gets read, "How to read archives")
+  was built with three entries and left on the first, "Automatic - direct if possible, else
+  Outlook", on every start. `ui:pst_backend` was applied to the reader (`shell.py`, then
+  `run_setup.apply_saved_pst_backend` in every run) but never to the drop-down, and
+  `what_gets_read.gather_levers` read the drop-down (`currentData() or pst_backend` - the first
+  half is never empty), so the sentence beside it said "read straight from the file when
+  possible" too. With "outlook" saved, the page showed one thing and every run did another.
+- **Fixed:** `SettingsView.show_pst_backend` sets the drop-down from the saved value with its
+  signals blocked (showing is not choosing; nothing is written back), called in `shell.py` just
+  before `pst_backend_changed` is connected. A new line under it, `pst_note`, appears only when
+  Outlook is chosen **and** direct reading is available, and says so and how to change it.
+  `tests/unit/test_pst_backend_is_shown.py` (3); the first fails without the `shell.py` line
+  (`assert 'auto' == 'outlook'`, run and seen).
+- **The owner's setting is still "outlook" and was not changed by this thread.** After a
+  restart the drop-down will show "Through Outlook (MAPI)" with the new note under it.
+- **Tested with the owner indexing, so only in part:** two groups, 182 passed; the three new
+  tests; the mail-archive files (143, earlier). **`test_run_setup.py` could not be finished:**
+  its tests that start a real index run stalled in `resources.wait_while_throttled` - the
+  resource governor pauses a test's run while the machine is busy with the owner's - and timed
+  out; its first 23 tests passed. `test_grab_ui.py` and the whole suite were not run. **Run
+  `scripts/run_suite.py` when the owner is not indexing.** That a test's index run obeys the
+  real machine's load is a weakness in those tests, not looked into.
+- **Left for the owner to decide:** a file `FAILED` with `ERR_UNEXPECTED` is settled - a later
+  run does not read it again, even after the fault is fixed. Re-reading such files on the next
+  run would be the kinder rule, at the cost of re-reading a truly bad file every run.
 
 **2026-10-05 (12:50) - the three "unexpected error" skips: diagnosed from the owner's fresh
 run, and fixed. The archives are being read through Outlook because a saved setting says so.**

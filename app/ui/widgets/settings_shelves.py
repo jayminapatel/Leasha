@@ -250,6 +250,8 @@ class SettingsShelves:
         self.history_label.setText(history_label_text(int(searches)))
         self.pst_status.setText(pst_status_text(bool(direct)))
         self.pst_status.setWordWrap(True)
+        self._pst_direct_available = bool(direct)
+        self._refresh_pst_note()
 
     # -- the five categories ----------------------------------------------------
 
