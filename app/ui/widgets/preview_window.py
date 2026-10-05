@@ -173,6 +173,12 @@ class PreviewWindow(QWidget):
         self._chat_engine = chat_engine or _DESCRIBE["chat_engine"]
         self._describe_file_id = getattr(row, "file_id", None)
         self._describe_generation = 0
+        # 2026-10-05: the availability check counts on its own, and stands
+        # aside while a Describe is out. Sharing one counter, a check started
+        # by a load that landed after Describe was pressed made the caption
+        # look out of date: it was stored, dropped, and the button came back.
+        self._describe_check = 0
+        self._describing = False
 
         self._view = View(turn=read_turn(state, self._path),
                           page=int(getattr(row, "page", 0) or 0))
@@ -559,8 +565,8 @@ class PreviewWindow(QWidget):
 
         if self._store is None or self._describe_file_id is None:
             return
-        self._describe_generation += 1
-        generation = self._describe_generation
+        self._describe_check += 1
+        generation = self._describe_check
         worker = CallableWorker(
             _describe_status, self._store, self._describe_file_id,
             self._ollama_url, self._ollama_vision_model, self._chat_engine,
@@ -573,8 +579,10 @@ class PreviewWindow(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _describe_status_ready(self, status: "_DescribeStatus", generation: int) -> None:
-        if generation != self._describe_generation:
+        if generation != self._describe_check:
             return                               # a later check won
+        if self._describing:
+            return                               # the answer on its way decides the button
         if status.already_described:
             self.describe_button.setEnabled(False)
             self.describe_button.setToolTip(
@@ -592,6 +600,7 @@ class PreviewWindow(QWidget):
             return
         self.describe_button.setEnabled(False)
         self.describe_button.setToolTip("Asking the AI model to describe this photo...")
+        self._describing = True
         self._describe_generation += 1
         generation = self._describe_generation
         worker = CallableWorker(
@@ -607,6 +616,7 @@ class PreviewWindow(QWidget):
     def _describe_done(self, caption: Optional[str], generation: int) -> None:
         if generation != self._describe_generation:
             return
+        self._describing = False
         if caption is None:
             self._describe_failed(generation)
             return
@@ -621,6 +631,7 @@ class PreviewWindow(QWidget):
     def _describe_failed(self, generation: int) -> None:
         if generation != self._describe_generation:
             return
+        self._describing = False
         self.describe_button.setEnabled(True)
         self.describe_button.setToolTip(
             "That did not work - the photo may be unreadable, or Ollama "
@@ -802,6 +813,12 @@ class PreviewWindow(QWidget):
         self._row = row
         self._path = key_of(row)
         self._display_path = self._path
+        # 2026-10-05: Describe saves against this photo now, and an answer
+        # still coming for the one left behind is dropped. It was set once,
+        # in `__init__`, so the next photo's caption went on the first.
+        self._describe_file_id = getattr(row, "file_id", None)
+        self._describe_generation += 1
+        self._describing = False
         self._offer_folder()
         self._view = View(turn=read_turn(self._state, self._path),
                           page=int(getattr(row, "page", 0) or 0))

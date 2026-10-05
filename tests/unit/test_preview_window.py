@@ -609,3 +609,68 @@ def test_describe_click_caches_the_caption_and_disables_the_button(qapp, files, 
             tries=200)
     assert not window.describe_button.isEnabled()
     assert "Already described" in window.describe_button.toolTip()
+
+
+def _quiet(qapp, rounds: int = 150) -> None:
+    """Every worker finished and every answer delivered, twice over."""
+    from PySide6.QtCore import QThreadPool
+
+    for _ in range(rounds):
+        QThreadPool.globalInstance().waitForDone(20)
+        qapp.processEvents()
+
+
+def _slow_describe(monkeypatch):
+    from app.extract import vision_caption
+
+    def answer(path, client, **_kw):
+        time.sleep(0.4)                  # long enough for the photo's own load to land
+        return vision_caption.VisionCaptionResult(
+            caption="A dog on a beach.", model=client.model, elapsed_s=0.4)
+
+    monkeypatch.setattr(vision_caption, "available", lambda client: True)
+    monkeypatch.setattr(vision_caption, "describe_image", answer)
+
+
+def test_describe_pressed_before_the_photo_has_loaded_is_still_the_answer(
+        qapp, files, monkeypatch):
+    """2026-10-05, found by GitHub's Mac. Describe and the "is Describe
+    available" check shared one counter. Pressed before the photo had loaded,
+    the load's check took the counter, found no caption yet and turned the
+    button back on; the caption, arriving after, was dropped as out of date -
+    stored, but the button offered to describe again and the words were not
+    shown."""
+    _slow_describe(monkeypatch)
+    png, _txt = files
+    row = Row(png)
+    row.file_id = 44
+    store = _FakeStoreForDescribe()
+    window = PreviewWindow(row, state={}, store=store, ollama_url="http://127.0.0.1:1",
+                           ollama_vision_model="llava", chat_engine="ollama")
+    window._describe()                   # before the load has landed
+    _quiet(qapp)
+    assert store.added == [(44, "A dog on a beach.")]
+    assert not window.describe_button.isEnabled(), "described: not offered again"
+    window.close()
+
+
+def test_describe_after_stepping_to_the_next_photo_describes_that_photo(
+        qapp, files, monkeypatch):
+    """2026-10-05. Stepping with the arrow keys changed the photo but not the
+    file Describe saves against, which was set once when the window opened:
+    the next photo's caption was stored on the first."""
+    _slow_describe(monkeypatch)
+    png, _txt = files
+    first, second = Row(png), Row(png)
+    first.file_id, second.file_id = 44, 45
+    store = _FakeStoreForDescribe()
+    window = PreviewWindow(first, state={}, store=store, siblings=[first, second], index=0,
+                           ollama_url="http://127.0.0.1:1", ollama_vision_model="llava",
+                           chat_engine="ollama")
+    _quiet(qapp, 30)
+    window._navigate(1)
+    _quiet(qapp, 30)
+    window._describe()
+    _quiet(qapp)
+    assert store.added == [(45, "A dog on a beach.")]
+    window.close()
