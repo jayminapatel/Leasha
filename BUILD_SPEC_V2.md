@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.15 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 2.16 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -710,9 +710,11 @@ distinguish "search is bad" from "search is fine at topics and blind to constrai
 | topic only | 88% | 88% |
 | with a constraint | 50% | **92%** |
 
-## Layer 8b — Prose answers · DEFERRED
+## Layer 8b — Prose answers · BUILT as the Chat tab
 
-Not to be built until 8a has been used in anger and the owner asks for it. If it is:
+Built on the owner's instruction on 2026-09-19 as the Chat tab (`app/chat`, order
+`202626270611`) and made a conversation the next day; it runs on ONNX Runtime inside Leasha by
+default, with Ollama as a choice. It was built to this:
 
 One search, then answer — not multi-step retrieval. Reuse `SearchEngine`; do not write a
 second retrieval path. **Every claim carries a citation that opens the source passage**; an

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.103 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 7.104 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,23 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-06 (01:01, from the clock) - documentation says what is true now; two installers fixed.**
+The owner's rule (`CLAUDE.md`, Standing rules): documentation is rewritten in place to describe
+Leasha today; dated notes stay only in records. Every dated note in the README, user guide,
+technical reference, glossary, troubleshooting, both specs, the developer guides, the Mac and
+A+ checklists, `AGENTS.md`, the file-type guide and the model reference was folded in and
+checked against the code. The README and user guide now give install steps for Windows (the
+installer, or from source), macOS and Linux.
+
+- **Both installers overrode Leasha's defaults.** `installer.iss` wrote `OLLAMA_MODEL=mistral`
+  and `RERANK_ENABLED=true`; it now writes only `DATA_PATH`, `PROJECT_PATH` and `LOG_PATH`
+  (`test_installer_script.py`). `install.ps1` wrote `OLLAMA_MODEL=mistral` and pulled mistral
+  (4.1 GB); it now writes no model and pulls `qwen2.5:1.5b`, the default since 2026-09-30
+  (`MUST_NOT_PIN` in `test_launcher.py`). The installer was recompiled; the Releases copy is
+  SHA256 `DC76F184142E347A741D094612E294908F95C1E02BB8647974F7F11CFE4B6EA4`.
+- **Open, the owner's:** the free-space figure. `install.ps1` asks for 150 GB and writes
+  `REQUIRED_FREE_GB=150`; Leasha's default and the Windows installer use 300 GB.
 
 **2026-10-06 (00:39, from the clock) - the installer exists.** `build\installer\Leasha-Setup-0.3.4.exe`
 (325 MB, SHA256 `A79158951F1F7E8034154423C3B916171E05DB90CEEAD13EEB371F0E8DDE6BDA`), copied with its `.sha256` to the Releases folder on Google Drive

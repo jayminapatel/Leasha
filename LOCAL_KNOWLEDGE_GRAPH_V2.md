@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.8 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 2.9 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -497,13 +497,11 @@ Indexing must be: background QThread pool, resumable (cursor persisted), increme
 
 ---
 
-## NEXT STEPS
+## Where to start
 
-1. `cd D:\Local\GitHub\SearchProject` (or wherever your clone is) and run `.\install.ps1`
-2. Run `venv\Scripts\python.exe doctor.py` until it prints **READY**
-3. Read `BUILD_SPEC_V2.md` — it defines Layers 0–9 with acceptance tests
-4. Open a new chat, paste **both** this document and `BUILD_SPEC_V2.md`
-5. Say: **"Environment verified by doctor.py. Start Layer 0."**
-
-The layer-by-layer plan has been regenerated against the V2 embedded architecture and
-lives in `BUILD_SPEC_V2.md`. The V1 layers assumed FastAPI/Postgres/Qdrant and are void.
+1. Install it: the README's **Install** section (Windows installer, or from source on Windows,
+   macOS or Linux), then `doctor.py` until it prints **READY**.
+2. Read, in this order: `HANDOFF.md` (where things are), `docs/PROJECT_INSTRUCTIONS.md` (how
+   to work), `docs/ORDER_REGISTER.md` (what is next) - the order `CLAUDE.md` gives.
+3. `BUILD_SPEC_V2.md` defines each layer and its acceptance tests; this document is the
+   architecture they sit in.

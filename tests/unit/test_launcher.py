@@ -136,7 +136,9 @@ def test_the_launcher_says_what_to_do_when_nothing_is_installed():
 #: that lives as a default in `app/core/config.py`, and a value in `.env`
 #: always wins - so pinning one here freezes it for every existing install and
 #: makes the code default unreachable.
-MUST_NOT_PIN = ("RERANK_MODEL", "RERANK_TOP_N", "AND_TERM_LIMIT", "EMBED_BATCH")
+# OLLAMA_MODEL added 2026-10-06: install.ps1 wrote "mistral" after the default became
+# "qwen2.5:1.5b" (2026-09-30), the same trap as RERANK_MODEL below.
+MUST_NOT_PIN = ("RERANK_MODEL", "RERANK_TOP_N", "AND_TERM_LIMIT", "EMBED_BATCH", "OLLAMA_MODEL")
 
 
 def _generated_env_block() -> str:

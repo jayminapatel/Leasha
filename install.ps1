@@ -32,7 +32,7 @@ param(
     [ValidateSet("Ask", "Continue", "Abort")]
     [string]$OnError = "Ask",
 
-    # Skip the optional components (rerank model, Ollama, mistral).
+    # Skip the optional components (rerank model, Ollama, its chat model).
     [switch]$SkipOptional,
 
     # Run only the cheap checks (paths, disk, winget, required files) and stop.
@@ -527,7 +527,6 @@ RERANK_ENABLED=true
 #   RERANK_MODEL=BAAI/bge-reranker-base    slower, no better on what was tested
 
 OLLAMA_URL=http://127.0.0.1:11434
-OLLAMA_MODEL=mistral
 
 MIN_FREE_GB=5
 REQUIRED_FREE_GB=$RequiredFreeGB
@@ -704,8 +703,8 @@ Invoke-Step -Name "Install Ollama" -Optional `
         Update-SessionPath
     }
 
-Invoke-Step -Name "Download LLM model: mistral (~4.1GB)" -Optional `
-    -Fix "The previous run stalled at 'pulling manifest', which almost always means the Ollama background service was not up yet. Start it (run 'ollama serve' in another window, or launch the Ollama tray app) and then run: ollama pull mistral" `
+Invoke-Step -Name "Download LLM model: qwen2.5:1.5b (~1GB)" -Optional `
+    -Fix "The previous run stalled at 'pulling manifest', which almost always means the Ollama background service was not up yet. Start it (run 'ollama serve' in another window, or launch the Ollama tray app) and then run: ollama pull qwen2.5:1.5b" `
     -Action {
         if (-not (Test-CommandExists "ollama")) { throw "Ollama is not installed - nothing to pull" }
 
@@ -729,8 +728,11 @@ Invoke-Step -Name "Download LLM model: mistral (~4.1GB)" -Optional `
             throw "Ollama is installed but nothing is listening on 127.0.0.1:11434 after 60s"
         }
 
-        ollama pull mistral
-        if ($LASTEXITCODE -ne 0) { throw "ollama pull mistral exited with code $LASTEXITCODE" }
+        # 2026-10-06: the model Leasha's default names (config.py, `ollama_model`,
+        # the tested one since 2026-09-30). It pulled mistral, and wrote
+        # OLLAMA_MODEL=mistral into .env, which overrode that default.
+        ollama pull qwen2.5:1.5b
+        if ($LASTEXITCODE -ne 0) { throw "ollama pull qwen2.5:1.5b exited with code $LASTEXITCODE" }
     }
 
 # ---------------------------------------------------------------------------

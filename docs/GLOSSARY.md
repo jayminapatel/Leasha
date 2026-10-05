@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.7 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.8 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -101,7 +101,7 @@ Verified against `app/search/commands.py`.
 | Chunk | A unit of text sent to the embedder | SQLite `chunks` is the authority; LanceDB is derived and rebuildable |
 | Segment | A labelled span within a document — a spreadsheet cell, an email header, an AI-written tag | AI-written segments are always marked as such |
 | Held pass | Work deferred to a later run rather than done now | The shape the enrichment backlog takes |
-| Enrichment backlog | The single idle-drain queue for unembedded chunks, pending OCR, undescribed images and, later, video | Currently three ad-hoc mechanisms; unifying them is in order `202626270511` |
+| Enrichment backlog | The work left after a file is indexed, done when the machine is idle | One drain loop, `Pipeline._run_enrichment_drains` (order `202626270511`): it drains unembedded chunks, and video and audio through `app/index/media_backlog.py` (order `202626270515`). Files waiting for OCR are re-queued by the walker instead; untagged images are declared (`KIND_UNTAGGED_IMAGE`) but not drained yet |
 
 ---
 
