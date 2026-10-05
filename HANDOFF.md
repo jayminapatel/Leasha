@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.93 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.94 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,11 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (19:00) - a DRAFT order for Offline drives on a Mac.**
+`docs/WORKORDER-offline-drives-on-a-mac.md`, 0 / 15, registered in `docs/ORDER_REGISTER.md` §3.
+Written at the owner's request; **not released, nothing built.** It closes the "Known gap" in
+the 18:15 entry below once released and built.
 
 **2026-10-05 (18:45) - the golden-picture comparison is skipped on GitHub and kept on the
 laptop.** `test_grab_ui.py::test_fresh_grabs_match_the_goldens_within_tolerance` skips when

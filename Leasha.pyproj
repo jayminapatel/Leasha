@@ -1281,6 +1281,7 @@
     <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
     <Content Include="docs\WORKORDER-model-manager-2026-09-30.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
+    <Content Include="docs\WORKORDER-offline-drives-on-a-mac.md" />
     <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />

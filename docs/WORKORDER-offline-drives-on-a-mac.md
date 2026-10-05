@@ -1,0 +1,130 @@
+# Work order (One thread): Offline drives on a Mac — a scanned drive is found again when it is plugged in
+
+**Doc version:** 1.0 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Thread:** One thread (Core + Index; no new UI)
+**Status:** DRAFT, written 2026-10-05 at the owner's request ("do the recommended and draft
+the work order"). **Not released. Nobody may start it.**
+**Register:** no queue letter until released. Follows **0k**
+(`WORKORDER-202626270513-offline-media-one-drives.md`, SHIPPED) and unparks one line of
+**0x** §P (`WORKORDER-overhaul-and-mac-ready.md`): "Offline Media drives on a Mac (volume
+identity and removable-drive detection)". `docs/PARKED-IDEAS.md` §6 still lists that line as
+parked; it stays so until the owner releases this order.
+
+## Where this came from
+
+2026-10-05: the whole suite passed on GitHub's Mac for the first time (13,026 passed, run
+37307485258). One test had to be marked `windows` to get there:
+`test_gui_scenarios_orders.py::test_offline_media_scan_rescan_and_delete_pressed_for_real`.
+On the Mac the scan worked and **Rescan never became available**. The owner asked how to
+close the gap.
+
+## What is true today (read from the code, 2026-10-05, commit `d501ea7`)
+
+- A scanned drive is remembered by Windows' volume GUID, never by its letter (0k §1).
+  "Rescan" is offered when a plugged-in drive with that identity is found.
+- That lookup is three functions in `app/core/volumes_win.py`: `identify_root`,
+  `mounted_drive_roots`, `find_drive_by_guid`. Each returns nothing when
+  `sys.platform != "win32"`.
+- `app/index/offline_media.py::connected_volumes` returns `{}` off Windows before it asks
+  anything, so every source reads as unplugged on a Mac, always.
+- `volumes_win.py` is on the allow-list of the load-bearing
+  `test_osbridge_guard.py::test_no_windows_only_call_outside_osbridge`. It is imported
+  directly from `app/index/offline_media.py` and `app/cli/offline_media.py` (ten places).
+- **Not established:** what identity, if any, a scan on a Mac stores today. `identify_root`
+  returns `None` there, and `identify_source` then returns `None`, which reads as "that is a
+  folder, not a drive" - yet the Mac test run got as far as waiting for Rescan. §1a settles
+  this before anything is built on it.
+
+## Owner's decisions (the recommended ones, 2026-10-05 — confirm on release)
+
+1. **A drive scanned on Windows is a new source on a Mac, and the other way round.** The two
+   systems give one drive two identities. Matching across systems by the format serial is
+   left out of this order.
+2. **Drives only.** Network shares on a Mac (`smb://` mounts under `/Volumes`) are a second
+   step and not in this order; a share stays "not connected" on a Mac, as today.
+3. **The owner's model from 0k stands unchanged:** fully manual; Scan, Rescan, Delete and
+   nothing else; no arrival prompts; a mount point is never stored.
+
+## 1. Establish before building (measure, do not assume)
+
+- [ ] **1a** On a Mac, record what Scan does today with a real drive root chosen: what row,
+  if any, lands in `volumes`, and with what `identity_key`. Written into this order as a
+  dated note before §2 starts.
+- [ ] **1b** On a real Mac with real media, record the volume UUID macOS reports for one
+  stick of each kind - **FAT32, exFAT, APFS, Mac OS Extended, NTFS (read-only on a Mac)** -
+  unplugged and replugged three times each, and once on a second Mac. **Whether FAT and
+  exFAT sticks have a stable UUID is UNCONFIRMED**, and most USB sticks are one of those.
+  If one kind has none, this order says so in a dated note and that kind is refused with a
+  plain sentence rather than identified by something that changes.
+- [ ] **1c** Time the two ways of asking - `diskutil info -plist <mount point>` (a
+  subprocess; the key is believed to be `VolumeUUID`, **UNCONFIRMED**) and the system call
+  behind it (`getattrlist` with `ATTR_VOL_UUID`, through `ctypes`). `connected_volumes`
+  sits under `resolve_file_path`, the path every Open and preview takes; 0k kept
+  subprocesses out of it for that reason. The number decides which is used where.
+
+## 2. Identity and finding it again
+
+- [ ] **2a** A Mac counterpart to the three functions, inside `app/core/osbridge/` so the
+  guard test covers it: identify a mounted root (volume UUID, label, file system), list the
+  mounted removable roots (the entries of `/Volumes`, the start-up disk left out), and find
+  the mount point for a stored UUID. Never raises; an unmounted root is `None`, as on
+  Windows.
+- [ ] **2b** One door for both systems. `offline_media.py` (index and CLI) asks the
+  `osbridge` layer, which picks Windows or Mac. `volumes_win.py` keeps its name and its
+  Windows calls; nothing in it is reworded.
+- [ ] **2c** `connected_volumes` and `refresh_volume_statuses` lose the "not Windows, so
+  nothing" early return and answer for `kind="drive"` on a Mac. `network`, `cloud`,
+  `phone` and `archived` answer exactly as today.
+- [ ] **2d** The stored identity says which system made it (a prefix on `identity_key`, or
+  a column - whichever needs no migration of the owner's existing rows). A Windows GUID is
+  never compared with a Mac UUID.
+- [ ] **2e** Locked or encrypted drives: on a Mac a locked drive is not mounted, so it
+  reads as unplugged. The BitLocker probe is never run off Windows. Said in one sentence in
+  the troubleshooting document; no new status word.
+- [ ] **2f** The advisory hardware serial (`hardware_serial_for_root`, 0k's "this looks
+  like <name> reformatted") stays Windows-only and returns `None` on a Mac. Recorded as a
+  known difference.
+
+## 3. Tests
+
+- [ ] **3a** Pure-Python tests of the Mac module against recorded `diskutil` output and a
+  fake `/Volumes` folder, runnable on Windows: identify, list, find again, unmounted,
+  unreadable, a name with spaces and non-ASCII letters.
+- [ ] **3b** 0k's own acceptance lines, run on the Mac job with the identity stubbed at the
+  `osbridge` door: "catalogue at one mount point, remount at another, it is ONE row", "two
+  different drives at the same mount point never collide", "a run elsewhere does not prune
+  an offline drive's rows".
+- [ ] **3c** The `windows` marker comes off
+  `test_offline_media_scan_rescan_and_delete_pressed_for_real` and it passes on GitHub's
+  Mac job: Scan, unplug (stubbed), Rescan unavailable, plug in, **Rescan available and
+  pressed**, Delete.
+- [ ] **3d** The whole suite on Windows is unchanged in count and result, and
+  `test_no_windows_only_call_outside_osbridge` passes without a new allow-list entry.
+
+## 4. Proven on a real Mac (GitHub's runner has no USB drive)
+
+- [ ] **4a** `docs/MAC_VERIFICATION.md` 5.3 ("Plug in a USB drive: does Offline Media see
+  it?") is carried out on a real Mac with a real stick, by the owner or with the owner:
+  Scan, eject, the source reads as unplugged, plug into a different port, Rescan is offered
+  and works, a search result from the drive opens. Until then every claim in this order is
+  marked *UNVERIFIED on a real Mac*.
+- [ ] **4b** `CHANGELOG.md`, `HANDOFF.md` and the user guide say what a Mac user can now do,
+  and the "Not yet on a Mac: Rescan in Offline" line in the changelog gets a dated note
+  above it rather than an edit.
+
+## Not in this order
+
+- Network shares, cloud folders and phones on a Mac.
+- Recognising on a Mac a drive that was scanned on Windows (decision 1).
+- Any change to what Scan, Rescan or Delete do, or to their wording.
+- The other lines of 0x §P (CoreML, the hardware probe, the hotkey, packaging, live
+  mailboxes).
+
+## Acceptance
+
+1. On a Mac, a drive scanned once is offered for Rescan every time it is plugged in,
+   whichever port, and never when it is not.
+2. On a Mac, files on an unplugged scanned drive stay in search results and are never
+   pruned.
+3. On Windows nothing changes: same rows, same identities, same suite result.
+4. Nothing outside `app/core/osbridge/` learns which system it is running on to do this.
