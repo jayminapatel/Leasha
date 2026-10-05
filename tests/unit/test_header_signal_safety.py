@@ -367,6 +367,17 @@ def test_a_watcher_whose_python_side_was_collected_does_not_crash_on_its_next_ti
     import subprocess
     import sys
 
+    # 2026-10-05, the PySide6 trial: this needs a table that lives on in C++
+    # after Python has let go of it, made with sip's `transferto`. PySide6 has
+    # no such call, and a parented widget's Python side is held by its parent,
+    # so the cycle this guards against does not seem to arise there in this
+    # form (UNCONFIRMED). Skipped and said, rather than passing on a no-op.
+    from app.ui import qtsip
+
+    try:
+        qtsip.transferto(None, None)
+    except NotImplementedError as why:
+        pytest.skip(f"needs sip's ownership transfer: {why}")
     root = Path(__file__).resolve().parents[2]
     script = tmp_path / "orphaned_watcher.py"
     script.write_text(_ORPHANED_WATCHER, encoding="utf-8")

@@ -250,7 +250,10 @@ def test_a_reader_stuck_in_native_code_is_left_behind_and_replaced(
         return iter(())
 
     _patch_extract(monkeypatch, "a-stuck.txt", stuck_in_native)
-    pipeline = _pipeline(root, tmp_path / "index.db", file_limit=0.3)
+    # 1 s, not 0.3 (2026-10-05): under three test processes an ordinary file
+    # overran 0.3 s too, twice, and was counted as a second timeout. The stuck
+    # file waits for ever either way.
+    pipeline = _pipeline(root, tmp_path / "index.db", file_limit=1.0)
     try:
         stats, _took = _run(pipeline)
 

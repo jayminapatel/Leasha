@@ -27,4 +27,7 @@ def unwrapinstance(obj: Any) -> int:
 
 
 def transferto(obj: Any, owner: Any) -> None:
-    """PySide has no direct twin; nothing is done. One test relies on it."""
+    """PyQt's "C++ owns this now, whatever Python does". **PySide6 has no
+    such call**, so this refuses rather than quietly doing nothing: a no-op
+    let the one test that uses it pass without setting up what it tests."""
+    raise NotImplementedError("PySide6 cannot hand a wrapper's ownership to C++")
