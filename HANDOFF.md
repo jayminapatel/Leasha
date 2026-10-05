@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.81 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.82 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,33 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (UI review, third pass) - Settings has an "Advanced" fold.** The owner: *"do the
+recommended for the advanced fold and commit"*. Which groups count as expert was left to this
+thread; it is one set in code and one line to change.
+
+- **Six groups sit under a closed "Advanced" heading at the foot of their own category**
+  (new `widgets/advanced_fold.py`; `settings_shelves.ADVANCED_BOXES`): Which files count as code
+  and File types (What's indexed), Search - the reranking box - and Opening code results
+  (Search), Ollama and AI programs (Models & AI). The same boxes with the same words; nothing
+  reworded, nothing removed. Not folded, on purpose: Models on this computer (the Chat notice
+  sends people there to press Download), Chat, People and photo descriptions, Videos and
+  recordings, and everything on Appearance and Storage & maintenance.
+- **One click opens all three, and it is remembered** (`ui:settings_advanced`, read off the UI
+  thread beside the last category). **The filter box looks under Advanced** whatever the heading
+  says and puts it back when cleared (`AdvancedFold.reveal`) - non-negotiable 11 holds.
+- **Found on the way: an empty "Behaviour" card on What's indexed.** Its one tick box is moved
+  to Indexing, What gets read after the page is built. `SettingsShelves.hide_emptied_boxes`,
+  called by the window once both pages exist, hides any group left with nothing in it.
+- The guide has a dated note under the What's indexed picture, and its three Settings pictures
+  were retaken. Tests: three more in `tests/unit/test_ui_review_polish.py`.
+- **To change what is folded:** edit `ADVANCED_BOXES`. To undo the fold: empty it.
+- **The whole suite after the fold** (`scripts/run_suite.py`): 13,182 passed, 2 failed, 1 error,
+  none crashed. One failure was this thread's own new People-window test measuring the page
+  before its piles had loaded - it waits now. The other,
+  `test_file_watch.py::test_a_reader_stuck_in_native_code_is_left_behind_and_replaced`, is a
+  timing test in code this work did not touch. Both files, `test_grab_ui.py` and the document
+  tests then passed together (338 passed).
 
 **2026-10-05 (UI review, second pass) - cut names fixed after all, the People window's empty
 state, the guide's pictures retaken. Where this disagrees with the entry below, this is newer.**

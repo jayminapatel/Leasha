@@ -729,6 +729,15 @@ QComboBox QAbstractItemView {{
 #resultSnippet b {{ color: {highlight}; font-weight: 700; }}
 #searchStatus, #resultsSummary, #indexDetail {{ color: {text_faint}; font-size: {small}; }}
 #indexHeadline, #graphHeadline {{ font-size: {large}; font-weight: 600; }}
+/* The "Advanced" heading on Settings (`widgets/advanced_fold.py`): a quiet
+   line of text with a chevron, not a button competing with the settings. */
+#advancedToggle {{
+    border: 1px solid transparent; background: transparent;
+    color: {text_dim}; font-weight: 600; padding: 6px 8px;
+}}
+#advancedToggle:hover {{ background: {surface_hover}; color: {text}; }}
+#advancedToggle:checked {{ background: transparent; color: {text}; }}
+#advancedToggle:focus {{ border-color: {focus_ring}; }}
 /* 2026-10-05, the UI review: the People window's title had a name and no rule. */
 #photoTaggerTitle {{ font-size: {large}; font-weight: 600; }}
 #indexTotals {{ color: {text_dim}; font-size: {small}; }}

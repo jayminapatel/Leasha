@@ -33,6 +33,7 @@ from PyQt6.QtWidgets import QFormLayout, QGroupBox, QLabel, QVBoxLayout, QWidget
 from app.core import settings_registry as reg
 from app.ui.presenter import history_label_text, pst_status_text, settings_labels
 from app.ui.state_writes import save_state
+from app.ui.widgets.advanced_fold import AdvancedFold
 from app.ui.widgets.chat_box import ChatBox
 from app.ui.widgets.code_types_box import CodeTypesBox
 from app.ui.widgets.debug_pane import DebugPane
@@ -70,6 +71,23 @@ CATEGORY_STORAGE = "Storage & maintenance"
 #: every other remembered UI choice in this window already uses (`ui:theme`,
 #: `ui:pst_backend`, `ui:window_geometry`, ...).
 CATEGORY_STATE_KEY = "ui:settings_category"
+
+#: Whether the "Advanced" sections are open: "open", or anything else for
+#: closed. One answer for every category - somebody who wants the expert
+#: settings wants them wherever they look.
+ADVANCED_STATE_KEY = "ui:settings_advanced"
+
+#: The boxes that sit under "Advanced" (`widgets/advanced_fold.py`), by the
+#: name each has on the view. 2026-10-05, the UI review: the ones most people
+#: never change. Everything not named here is drawn exactly where it was.
+ADVANCED_BOXES = frozenset({
+    "code_types",        # Which files count as code
+    "file_types",        # File types
+    "search_box",        # Search (reranking)
+    "editor_box",        # Opening code results
+    "models",            # Ollama - AI query interpretation (optional)
+    "mcp_box",           # AI programs
+})
 
 
 class SettingsShelves:
@@ -254,12 +272,24 @@ class SettingsShelves:
                                self.chat_box, self.media_box, self.mcp_box)),
             (CATEGORY_APPEARANCE, (self.window_box,)),
         )
+        # 2026-10-05: the boxes named in `ADVANCED_BOXES` go under a closed
+        # "Advanced" heading at the foot of their own category. The same
+        # boxes, the same words; only where they sit changed.
+        advanced = {id(getattr(self, attr)) for attr in ADVANCED_BOXES}
+        self._folds: list[AdvancedFold] = []
         for name, boxes in shelves:
             page = QWidget()
             page_layout = QVBoxLayout(page)
             page_layout.setContentsMargins(0, 0, 0, 0)
             for widget in boxes:
-                page_layout.addWidget(widget)
+                if id(widget) not in advanced:
+                    page_layout.addWidget(widget)
+            folded = [widget for widget in boxes if id(widget) in advanced]
+            if folded:
+                fold = AdvancedFold(folded)
+                fold.toggled.connect(self._advanced_toggled)
+                page_layout.addWidget(fold)
+                self._folds.append(fold)
             page_layout.addStretch(1)
             self._nav.add_category(name, page)
 
@@ -271,6 +301,35 @@ class SettingsShelves:
         storage_layout.addWidget(self.environment, stretch=1)
         storage_layout.addWidget(self.restore_defaults)
         self._nav.add_category(CATEGORY_STORAGE, storage)
+
+    def hide_emptied_boxes(self) -> int:
+        """Hide any group left with nothing in it. Returns how many.
+
+        2026-10-05, the UI review: "Behaviour" held one tick box, which
+        `widgets/what_gets_read.py` moves to Indexing after this page is
+        built - leaving a titled, empty card on What's indexed. Called by the
+        window once both pages exist; a box that still has anything in it is
+        never touched.
+        """
+        hidden = 0
+        for box in self.findChildren(QGroupBox):
+            if not box.findChildren(QWidget):
+                box.setVisible(False)
+                hidden += 1
+        return hidden
+
+    def _advanced_toggled(self, on: bool) -> None:
+        """A click on any "Advanced" heading opens or closes them all, and is
+        remembered - queued on the state writer, like the category."""
+        for fold in self._folds:
+            fold.set_open(on)
+        save_state(self._store, ADVANCED_STATE_KEY, "open" if on else "",
+                   component="ui.settings")
+
+    def _apply_advanced(self, value: Any) -> None:
+        """UI thread, no I/O - the worker already read it."""
+        for fold in self._folds:
+            fold.set_open(str(value or "") == "open")
 
     def _category_selected(self, name: str) -> None:
         """A click, not a restore - see `CategoryNav.show_category`'s
@@ -302,6 +361,13 @@ class SettingsShelves:
         worker.signals.finished.connect(self._apply_last_category)
         worker.signals.failed.connect(lambda _e: None)
         run(QThreadPool.globalInstance(), worker)
+        # 2026-10-05: and whether "Advanced" was left open, the same way.
+        advanced = CallableWorker(
+            self._store.get_state, ADVANCED_STATE_KEY, "",
+            component="ui.settings.advanced")
+        advanced.signals.finished.connect(self._apply_advanced)
+        advanced.signals.failed.connect(lambda _e: None)
+        run(QThreadPool.globalInstance(), advanced)
 
     def _apply_last_category(self, name: Any) -> None:
         """UI thread, no I/O - the worker already read it."""
@@ -322,6 +388,10 @@ class SettingsShelves:
         form label, so the row leaves no gap shaped like a missing answer.
         """
         needle = text.strip().lower()
+        # 2026-10-05: a search looks under "Advanced" too - a setting folded
+        # away must never be a setting that cannot be found.
+        for fold in getattr(self, "_folds", ()):
+            fold.reveal(bool(needle))
         if not needle:
             self._nav.set_sidebar_enabled(True)
             self._reveal_all_controls()

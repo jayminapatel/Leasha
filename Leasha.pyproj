@@ -443,6 +443,7 @@
     <Compile Include="app\ui\widgets\__init__.py" />
     <Compile Include="app\ui\widgets\about_dialog.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
+    <Compile Include="app\ui\widgets\advanced_fold.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />

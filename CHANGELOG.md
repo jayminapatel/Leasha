@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.65 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.66 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Settings: the expert options are under "Advanced" (2026-10-05)
+
+- **Settings is shorter.** Six groups most people never change - which files count as code, file
+  types, reranking, opening code results, Ollama and AI programs - now sit under **Advanced** at
+  the foot of their category. Click it once and they open everywhere, and stay open next time.
+- **The filter box still finds them**, open or closed.
+- An empty "Behaviour" box on What's indexed is gone; its one setting had moved to Indexing.
 
 ### Names shown in full, and a tidier People window (2026-10-05)
 

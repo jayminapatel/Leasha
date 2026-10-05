@@ -127,6 +127,20 @@ def test_the_people_window_with_no_piles_keeps_its_words_together(app, tmp_path)
     window.show()
     app.processEvents()
     try:
+        # The piles are read on a worker; "none" has arrived once the grid is
+        # hidden. Measuring before that measured the page still loading, with
+        # the empty grid holding the room (seen once in a whole-suite run).
+        import time
+
+        from app.ui.widgets.photo_tagger_page import PhotoTaggerPage
+
+        page = window.findChild(PhotoTaggerPage)
+        end = time.monotonic() + 10
+        while page._list.isVisible() and time.monotonic() < end:
+            app.processEvents()
+            time.sleep(0.02)
+        assert not page._list.isVisible(), "the piles never arrived"
+        app.processEvents()
         labels = [label for label in window.findChildren(QLabel)
                   if label.isVisible() and label.text()]
         bottoms = [label.mapTo(window, label.rect().bottomLeft()).y() for label in labels]
@@ -182,3 +196,83 @@ def test_one_saved_width_does_not_leave_the_other_columns_at_their_headings(app)
     finally:
         table.close()
         table.deleteLater()
+
+
+def test_advanced_is_closed_until_asked_for_and_says_when_it_was_clicked(app):
+    from PyQt6.QtWidgets import QGroupBox
+
+    from app.ui.widgets.advanced_fold import TITLE, AdvancedFold
+
+    page = QWidget()
+    box = QGroupBox("File types", page)
+    fold = AdvancedFold([box], page)
+    clicks = []
+    fold.toggled.connect(clicks.append)
+    page.show()
+    app.processEvents()
+    try:
+        assert fold.header.text() == TITLE
+        assert not fold.is_open and not box.isVisible(), "closed to begin with"
+        fold.header.click()
+        assert fold.is_open and box.isVisible() and clicks == [True]
+        fold.set_open(False)
+        assert not box.isVisible() and clicks == [True], "restoring is not a click"
+        # The filter looks inside whatever the heading says, and puts it back.
+        fold.reveal(True)
+        assert box.isVisible() and not fold.header.isVisible()
+        fold.reveal(False)
+        assert not box.isVisible() and fold.header.isVisible()
+    finally:
+        page.close()
+        page.deleteLater()
+
+
+def test_settings_folds_the_expert_groups_and_the_filter_still_finds_them(app, tmp_path):
+    """Six groups most people never change sit under "Advanced", closed. Each
+    is still the same box, in its own category, and typing in the filter shows
+    a folded setting exactly as it shows any other."""
+    from tools import grab_ui
+
+    from app.ui.widgets.settings_shelves import ADVANCED_BOXES
+
+    _app, window, closers = grab_ui.build_window(tmp_path, theme="light", show=True)
+    try:
+        view = window.settings_view
+        grab_ui._reach(app, window, grab_ui.SURFACES["settings-search"])
+        assert len(view._folds) == 3, "What's indexed, Search, Models & AI"
+        for attr in ADVANCED_BOXES:
+            box = getattr(view, attr)
+            assert any(fold.body.isAncestorOf(box) for fold in view._folds), attr
+        assert not view.search_box.isVisible() and not view.editor_box.isVisible()
+        assert view.search_behaviour.isVisible(), "what was not folded is where it was"
+        # A group whose only control moved to Indexing is not left as an empty card.
+        from PyQt6.QtWidgets import QGroupBox
+
+        grab_ui._reach(app, window, grab_ui.SURFACES["settings-whats-indexed"])
+        empty = [box.title() for box in view.findChildren(QGroupBox)
+                 if box.isVisible() and not box.findChildren(QWidget)]
+        assert not empty, empty
+        grab_ui._reach(app, window, grab_ui.SURFACES["settings-search"])
+
+        view._folds[0].header.click()
+        app.processEvents()
+        assert all(fold.is_open for fold in view._folds), "one click opens them all"
+        assert view.search_box.isVisible()
+        view._folds[0].header.click()
+        app.processEvents()
+        assert not view.search_box.isVisible()
+
+        view.filter_box.setText("rerank")
+        app.processEvents()
+        assert view.search_box.isVisible(), "the filter looks under Advanced"
+        view.filter_box.setText("")
+        app.processEvents()
+        assert not view.search_box.isVisible(), "and puts it back as it was"
+    finally:
+        window.close()
+        from PyQt6.QtCore import QThreadPool
+
+        QThreadPool.globalInstance().waitForDone(10_000)
+        app.processEvents()
+        for close in closers:
+            close()

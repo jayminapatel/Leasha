@@ -897,6 +897,8 @@ class MainWindow(QMainWindow):
 
             for page in (self.indexing_view, self.settings_view):
                 fit_fields(page)
+            # A group whose only control moved to Indexing is not drawn empty.
+            self.settings_view.hide_emptied_boxes()
             fit_number_fields(self)
             # **After the pages are in the window**: `mark_restart_needed` finds
             # controls by `findChild` on the window, and a page that has not been
