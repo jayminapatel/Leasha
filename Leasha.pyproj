@@ -756,6 +756,7 @@
     <Compile Include="tests\unit\test_generation_bump.py" />
     <Compile Include="tests\unit\test_git_sharpness_and_mail.py" />
     <Compile Include="tests\unit\test_git_streaming.py" />
+    <Compile Include="tests\unit\test_git_tree_redraw.py" />
     <Compile Include="tests\unit\test_git_view.py" />
     <Compile Include="tests\unit\test_gitquery.py" />
     <Compile Include="tests\unit\test_gitsearch.py" />
@@ -1003,6 +1004,7 @@
     <Compile Include="tests\unit\test_startmenu.py" />
     <Compile Include="tests\unit\test_startup_import_order.py" />
     <Compile Include="tests\unit\test_status_column.py" />
+    <Compile Include="tests\unit\test_status_two_columns.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
@@ -1170,6 +1172,7 @@
     <Content Include="assets\icons\search.svg" />
     <Content Include="assets\icons\send.svg" />
     <Content Include="assets\icons\settings.svg" />
+    <Content Include="assets\icons\skip-forward.svg" />
     <Content Include="assets\icons\sliders-horizontal.svg" />
     <Content Include="assets\icons\sparkles.svg" />
     <Content Include="assets\icons\split.svg" />
