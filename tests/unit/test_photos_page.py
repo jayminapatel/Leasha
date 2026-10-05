@@ -321,3 +321,46 @@ def test_writing_names_from_the_tab_uses_sidecars_by_default(qapp, store, tmp_pa
     assert paths[0].read_bytes() == before, "the photo itself is not touched"
     assert b"Jason" in read_xmp(paths[0])
     dialog.deleteLater()
+
+
+# --- a date from the file's own name (2026-10-05) ---------------------------------------
+
+@pytest.mark.parametrize("name, expected", [
+    ("2022-08-11_16-22-38_825.heic", dt.datetime(2022, 8, 11, 16, 22, 38)),
+    ("IMG-20130607-WA0010_00114_00170_445.jpg", dt.datetime(2013, 6, 7)),
+    ("IMG_20190302_141500.jpg", dt.datetime(2019, 3, 2, 14, 15)),
+    ("PXL_20230101_123456789.jpg", dt.datetime(2023, 1, 1, 12, 34, 56)),
+    ("Screenshot_2023-01-05-12-30-45.png", dt.datetime(2023, 1, 5, 12, 30, 45)),
+    ("28bce5df41d32d63427017e9e75aedf1_3.jpeg", None),   # a hash, not a date
+    ("scan_0007.jpg", None),
+    ("20190230.jpg", None),                                # no 30 February
+    ("2099-01-01.jpg", None),                              # not yet
+])
+def test_the_date_in_a_photos_own_name(name, expected):
+    """The owner: "dates are in the meta data of the file". Checked on their
+    library: these had none in it (Windows shows no Date taken either), but
+    4,682 of 6,132 had the whole date in their name."""
+    from app.extract.era_hints import guess_moment
+
+    assert guess_moment(Path(name)) == expected
+
+
+def test_a_photo_with_no_metadata_date_takes_its_names_date_before_its_folders(tmp_path):
+    from types import SimpleNamespace
+
+    from app.index.pipeline import Pipeline
+    from app.index.walker import Candidate
+
+    folder = tmp_path / "2022"
+    folder.mkdir()
+    photo = folder / "2022-08-11_16-22-38_825.png"
+    from PIL import Image
+
+    Image.new("RGB", (4, 4)).save(photo)                     # no EXIF at all
+    built = Pipeline.__new__(Pipeline)
+    built._log = SimpleNamespace(debug=lambda *a, **k: None)
+    ns, hint = built._photo_taken_at(Candidate(path=photo, size_bytes=1, mtime_ns=1))
+    assert hint and dt.datetime.fromtimestamp(ns / 1e9) == dt.datetime(2022, 8, 11, 16, 22, 38)
+    shown = _row(1, when=dt.datetime(2022, 8, 11, 16, 22, 38), hint=True)
+    assert pp.date_text(shown) == "about 11 Aug 2022, 16:22"
+    assert pp.date_text(_row(2, when=dt.datetime(2013, 6, 7), hint=True)) == "about 7 Jun 2013"

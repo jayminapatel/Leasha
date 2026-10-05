@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.73 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.74 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2388,6 +2388,15 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - dates from the file name.* The owner: "dates are in the meta data of the
+  file". Checked on their index (read-only): 6,132 pictures held only a folder-year guess. Of a
+  random 200, 58 had a date taken Leasha can read since d6b444c (HEIC EXIF), kept stale because an
+  unchanged photo is not read again; the owner will reindex rather than have a repair pass. The rest
+  had none - Windows shows no Date taken either (e.g. `2022-08-11_16-22-38_825.heic`, WhatsApp's
+  `IMG-20130607-WA0010.jpg`) - but 4,682 carry the whole date in their name. `era_hints.
+  guess_moment` reads it (`2022-08-11_16-22-38`, `IMG_20190302_141500`, `IMG-…-WA`, `PXL_…`,
+  `Screenshot_…`; never a hash, an impossible or a future date), between EXIF and the folder year in
+  `Pipeline._photo_taken_at`. Still a hint; shown "about 11 Aug 2022, 16:22".
 - *2026-10-05 note - the overnight full suite, and what it found.* On fdb779c: 13,027 passed, 11
   failed, no process crashed, 27 minutes over three processes. Rerun alone, nine passed (budgets and
   races under three processes plus the owner's own index run: a 495 ms "cold suggest" against 300,

@@ -6343,8 +6343,13 @@ class Pipeline:
             return None, False
 
         try:
-            from app.extract.era_hints import guess_year, year_to_epoch_ns
+            from app.extract.era_hints import guess_moment, guess_year, year_to_epoch_ns
 
+            # 2026-10-05: the date in the file's own name first - a day, often
+            # to the second - and only then the folder's year.
+            named = guess_moment(candidate.path)
+            if named is not None:
+                return int(named.timestamp() * 1_000_000_000), True
             year = guess_year(candidate.path)
             if year is None:
                 return None, False

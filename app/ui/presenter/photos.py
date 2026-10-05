@@ -299,7 +299,13 @@ def date_text(row: Any) -> str:
         # A guess from a folder name ("2022", "Summer 2019") knows a year, or
         # a month - never the hour it would otherwise print.
         utc = _dt.datetime.fromtimestamp(row.taken_at_ns / 1e9, _dt.timezone.utc)
-        return f"about {utc.year}" if (utc.month, utc.day) == (1, 1) else f"about {utc:%b %Y}"
+        if (utc.month, utc.day, utc.hour, utc.minute) == (1, 1, 0, 0):
+            return f"about {utc.year}"                   # a folder's year
+        # 2026-10-05: a date from the file's own name (`era_hints.guess_moment`)
+        # - a day, often with its time.
+        if (moment.hour, moment.minute, moment.second) == (0, 0, 0):
+            return f"about {moment.day} {moment:%b %Y}"
+        return f"about {text}"
     return text
 
 

@@ -80,6 +80,46 @@ def guess_year(path: Path) -> Optional[int]:
     return None
 
 
+#: A whole date in a file name - `2022-08-11_16-22-38`, `IMG_20190302_141500`,
+#: `IMG-20130607-WA0010`, `PXL_20230101_123456789`, `Screenshot_2023-01-05-12-30-45`
+#: - with the time when there is one. Not touching a letter or digit on either
+#: side, so a hash like `2aed2e02ff6a` or a counter like `120190302` is not read
+#: as a date.
+_NAME_MOMENT = re.compile(
+    r"(?<![0-9A-Za-z])(?P<y>19[7-9]\d|20[0-4]\d)[-_.]?(?P<m>0[1-9]|1[0-2])[-_.]?"
+    r"(?P<d>0[1-9]|[12]\d|3[01])"
+    r"(?:[ T_.-]{1,2}(?P<H>[01]\d|2[0-3])[-_.:h]?(?P<M>[0-5]\d)[-_.:m]?(?P<S>[0-5]\d)\d{0,3})?"
+    r"(?![0-9])")
+
+
+def guess_moment(path: Path) -> Optional[datetime.datetime]:
+    r"""The date - and time, when there is one - a photo's own file name gives.
+
+    2026-10-05, the owner: "dates are in the meta data of the file". Checked on
+    their library: of 6,132 photos holding only a folder-year guess, 4,682 carry
+    the whole date in their name (phones and WhatsApp write it there; WhatsApp
+    strips it from the metadata), and Windows shows no Date taken for them
+    either. A day, often to the second, beats "about 2022".
+
+    Local time, naive, as `exif.read_datetime` returns it. Still a hint - a
+    name can be changed - but a precise one. None when the name has no valid
+    date, or one in the future. Never raises.
+    """
+    try:
+        found = _NAME_MOMENT.search(Path(path).stem)
+        if found is None:
+            return None
+        parts = {k: int(v) for k, v in found.groupdict().items() if v is not None}
+        moment = datetime.datetime(parts["y"], parts["m"], parts["d"],
+                                   parts.get("H", 0), parts.get("M", 0), parts.get("S", 0))
+        if moment > datetime.datetime.now() + datetime.timedelta(days=1):
+            return None
+        return moment
+    except Exception as exc:                        # noqa: BLE001 - a hint, not the job
+        log.debug("no date in the name of {}: {}: {}", path, type(exc).__name__, exc)
+        return None
+
+
 def year_to_epoch_ns(year: int) -> int:
     """1 January of `year`, 00:00:00 UTC, in epoch nanoseconds.
 
