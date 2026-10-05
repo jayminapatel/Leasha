@@ -45,7 +45,7 @@ from app.core.logging import logger
 
 _log = logger.bind(component="index.phash")
 
-__all__ = ["PhashComputer", "PHASH_HASH_SIZE"]
+__all__ = ["PhashComputer", "PHASH_HASH_SIZE", "default_phash_computer"]
 
 #: `imagehash.phash`'s own default: an 8x8 DCT, i.e. a 64-bit fingerprint
 #: (16 hex characters once stringified). Not second-guessed here without a
@@ -134,5 +134,22 @@ class PhashComputer:
         from PIL import Image
         import imagehash
 
+        if hasattr(path, "convert"):                # 2026-10-05: a decoded picture
+            return str(imagehash.phash(path, hash_size=self.hash_size))
         with Image.open(path) as img:
             return str(imagehash.phash(img, hash_size=self.hash_size))
+
+
+def default_phash_computer() -> "Optional[PhashComputer]":
+    """The computer an index run uses, or None when `imagehash` is missing.
+
+    2026-10-05: `Pipeline` took a `phash_computer` and nothing ever passed one,
+    so no photo had a fingerprint (0 of the owner's 15,011) and duplicate
+    detection never had anything to compare. The fingerprint comes from the
+    decode the photo's other models share (`extract.picture`)."""
+    try:
+        import imagehash  # noqa: F401
+    except Exception:                               # noqa: BLE001 - optional
+        return None
+    return PhashComputer()
+

@@ -153,6 +153,13 @@ def _read_bgr(path: Path, cv2: Any, np: Any) -> Optional[Any]:
     at again. When `imdecode` gives up, Pillow (with `pillow-heif`) reads it
     and the channels are reversed to BGR, the order the model expects.
     """
+    # 2026-10-05: the decode the photo's other models share (`extract.picture`),
+    # upright as `IMREAD_COLOR` made it - one decode per photo, not three.
+    from app.extract.picture import decoded
+
+    shared = decoded(path)
+    if shared is not None:
+        return np.ascontiguousarray(np.asarray(shared)[:, :, ::-1])
     image = cv2.imdecode(np.fromfile(str(path), dtype=np.uint8), cv2.IMREAD_COLOR)
     if image is not None:
         return image

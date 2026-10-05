@@ -378,6 +378,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
     from app.core.run_lock import GUI
     from app.index.clip_embedder import ClipImageEmbedder
     from app.index.embedder import Embedder
+    from app.index.phash import default_phash_computer
     from app.index.pipeline import Pipeline
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore, VectorStore
@@ -650,6 +651,7 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         pipeline = build(
             store, vectors, embedder, config,
             image_embedder=image_embedder, image_vectors=image_vectors,
+            phash_computer=default_phash_computer(),
         )
         pipeline.run_owner = owner
         if events is not None:

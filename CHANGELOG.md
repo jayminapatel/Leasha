@@ -52,6 +52,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   into the photos themselves, so Windows Photos, Lightroom or Apple Photos see them - as a small
   file beside each photo by default, or inside JPEGs and PNGs after a copy of each is kept. It
   runs only when you press it.
+- **Photos are described about a third faster**, with exactly the same descriptions: each picture is
+  now looked at once instead of twice. Faces, picture search and duplicate detection share one reading
+  of each photo, picture search works on eight photos at a time, and sideways phone photos are seen
+  the right way up. Press **Test this machine** under Indexing > Tuning to use the graphics card too -
+  on the laptop this was measured on, that halves the time again.
 - **The tray icon says what indexing is doing.** Right-click the icon by the clock: "Indexing – 1,240
   of 15,010" while a run goes, "Up to date – 152,340 files · last run 03:10" when it has finished, or
   "Stopped part-way – click to carry on". It used to say "N indexed" - only the files the last run had

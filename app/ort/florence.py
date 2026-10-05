@@ -161,11 +161,22 @@ class OnnxFlorence:
     def _embed(self, ids: list[int]) -> np.ndarray:
         return self.embed.session.run(None, {"input_ids": np.array([ids], dtype=np.int64)})[0]
 
-    def run_task(self, pixels: np.ndarray, task: str, *, max_new_tokens: int = 128) -> str:
-        """The raw decoded answer (special tokens kept) for one task on one image."""
+    def encode_image(self, pixels: np.ndarray) -> np.ndarray:
+        """The vision tower's features for one image - the costly part of a task.
+
+        2026-10-05, measured on the owner's photos on the processor: 6.2-8.3 s of
+        each 10-12 s task. `caption_and_tags` ran it twice for the same picture;
+        it now runs once and both tasks read the result."""
+        return self.vision.session.run(None, {"pixel_values": pixels})[0]
+
+    def run_task(self, pixels: np.ndarray, task: str, *, max_new_tokens: int = 128,
+                 image: Optional[np.ndarray] = None) -> str:
+        """The raw decoded answer (special tokens kept) for one task on one image.
+        `image` - `encode_image`'s result - is used rather than encoding again."""
         prompt = self.config.prompts.get(task, task)
         prompt_ids = self.tokenizer.encode(prompt).ids
-        image = self.vision.session.run(None, {"pixel_values": pixels})[0]
+        if image is None:
+            image = self.encode_image(pixels)
         joined = np.concatenate([image, self._embed(prompt_ids)], axis=1)
         mask = np.ones(joined.shape[:2], dtype=np.int64)
         encoded = self.encoder.session.run(None, {"inputs_embeds": joined,
@@ -189,9 +200,11 @@ class OnnxFlorence:
         """`<DETAILED_CAPTION>` and `<OD>`, the two calls the torch path made."""
         pixels = pixel_values(image)
         with self.lock:
+            image = self.encode_image(pixels)            # once, for both tasks
             caption = clean_text(self.run_task(pixels, "<DETAILED_CAPTION>",
-                                               max_new_tokens=max_new_tokens))
-            tags = od_labels(self.run_task(pixels, "<OD>", max_new_tokens=max_new_tokens))
+                                               max_new_tokens=max_new_tokens, image=image))
+            tags = od_labels(self.run_task(pixels, "<OD>", max_new_tokens=max_new_tokens,
+                                           image=image))
         return caption, tags
 
     def describe(self, image: Any, *, max_new_tokens: int = 256) -> str:

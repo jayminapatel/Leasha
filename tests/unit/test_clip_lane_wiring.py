@@ -334,6 +334,13 @@ class _MeanColourVision:
 
         out = []
         for path in paths:
+            # 2026-10-05: the pipeline hands a decoded picture (one decode per
+            # photo, `extract.picture`), as the real `ClipImageEmbedder` takes.
+            if hasattr(path, "convert"):
+                small = path.convert("RGB").resize((1, 1))
+                red, green, blue = small.getpixel((0, 0))
+                out.append(_colour_vector(red, green, blue))
+                continue
             with Image.open(str(path)) as frame:
                 small = frame.convert("RGB").resize((1, 1))
                 red, green, blue = small.getpixel((0, 0))

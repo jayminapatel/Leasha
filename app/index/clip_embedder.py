@@ -230,7 +230,10 @@ class ClipImageEmbedder:
             self._problems.append(wanted.why)
 
         backends.record_provider("image model", self.choice)
-        self._encoder = lambda paths: model.embed([str(p) for p in paths])
+        # 2026-10-05: a decoded picture passes through as it is (`fastembed`
+        # takes one) - the pipeline's batches are upright pictures, not paths.
+        self._encoder = lambda paths: model.embed(
+            [p if hasattr(p, "convert") else str(p) for p in paths])
         return self._encoder
 
     def _resolved_profile(self) -> object:

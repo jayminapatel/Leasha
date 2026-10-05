@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.78 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.79 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -2447,6 +2447,29 @@ the last bullet); the rest is the commit after it.
   (`startmenu.py` moved to `app/core/osbridge/`).
 - **Said on the page**: a word left out gets `engine.NOTICE_LEFT_OUT` ("Left out as too common
   to narrow the search: pump. Put it in quotes to require it."), from `keyword.left_out`.
+- *2026-10-05 note - photo indexing, each piece of work once.* The owner asked whether indexing was
+  optimised. Measured on their photos (processor, ~71% background load): reading ~1.1 s a HEIC and
+  0.8 s a JPEG; descriptions 8 s a photo idle (device test), so ~33 h for 15,010 on the processor -
+  the dominant cost. Four changes, on "go with all recommended":
+  - `OnnxFlorence.caption_and_tags` encodes the picture once (`encode_image`) for both tasks; it ran
+    the vision tower twice (6.2-8.3 s of each 10-12 s task). Same caption and tags on 3 photos,
+    18.1/17.4/27.3 s -> 11.7/12.9/17.9 s (-35%).
+  - `app/extract/picture.decoded`: one upright decode per photo shared by faces (`_read_bgr`), CLIP and
+    pHash (2-entry LRU keyed by path, size, mtime). CLIP now sees photos upright - `fastembed` opened
+    paths without EXIF rotation, so portrait phone photos were embedded on their side.
+  - CLIP in batches of `PICTURE_BATCH` (8) - `_pending_pictures`, embedded at the top of every
+    `_flush_pending_images`, so M6 ordering holds; a failing batch is retried one at a time. A picture
+    Pillow cannot open still goes to the model as its path, as before.
+  - pHash switched on: `Pipeline` took a `phash_computer` and no run passed one (0 of 15,011 photos had
+    a fingerprint). `phash.default_phash_computer()` at both run sites; 0.04 s a photo from the shared
+    decode. Duplicate counting (bursts) can now be measured after the reindex - not yet used to skip work.
+  Like for like on 24 of the owner's photos (graphics card, no descriptions in either): run 214.4 s ->
+  190.1 s; 9 faces and 10 texts read in both. The single biggest lever is still the owner's: "Run
+  models on" is Processor, so nothing uses the graphics card until Test this machine is pressed
+  (device test on this laptop: faces 0.13 -> 0.05 s, OCR 2.9 -> 1.9 s, descriptions 8 -> 4 s).
+  Done in a worktree (`.worktrees/perf`, excluded locally) because another session was editing the
+  main folder; its `pipeline.py` change was restored exactly after one of this session's edits landed
+  there by mistake (three-way merge, 23+/6- lines, verified).
 - *2026-10-05 note - the tray's status line.* The owner: right-click on the tray icon "says indexed
   but the count does not seem right". It was "Indexing: N indexed", N being the files the *last run*
   newly read (a handful when little changed; the images pass's when that ran last), set only when a
