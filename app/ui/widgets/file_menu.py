@@ -234,7 +234,7 @@ def show_for(widget: Any, point: Any, path: str, actions: FileActions) -> None:
     is what `viewport_point` below is for.
     """
     menu = build_menu(widget, path, actions)
-    menu.exec(widget.mapToGlobal(point))
+    type(menu).exec(menu, widget.mapToGlobal(point))
 
 
 def viewport_point(view: Any, point: Any) -> Any:

@@ -78,7 +78,7 @@ class TimelineStrip(QWidget):
         action.setToolTip("Open your timeline on this period - photos, files and mail from "
                           "then, not only the results of this search.")
         action.triggered.connect(lambda: self.browse_requested.emit(band.after, band.before))
-        menu.exec(button.mapToGlobal(point))
+        type(menu).exec(menu, button.mapToGlobal(point))
 
     def _redraw(self, found: tuple) -> None:
         while self._layout.count():

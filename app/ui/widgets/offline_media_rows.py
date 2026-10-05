@@ -121,7 +121,7 @@ class LineActions:
             return
         menu = row_menu(self, row, busy=self._busy, on_rescan=self._rescan_row,
                         on_copy=self.copy_hardware_id)
-        menu.exec(self.tree.viewport().mapToGlobal(point))
+        type(menu).exec(menu, self.tree.viewport().mapToGlobal(point))
 
     def copy_hardware_id(self, volume_id: int) -> bool:
         """Put a source's disk serial on the clipboard. False if it has none."""

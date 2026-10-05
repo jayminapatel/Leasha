@@ -254,7 +254,7 @@ class PhotosView(QWidget):
             name=(lambda: self.show_naming()) if row.faces else None,
             write=lambda: self.write_names(selected_only=True),
             same_day=(lambda: self.input.setText(day)) if day else None)
-        menu.exec(point)
+        type(menu).exec(menu, point)
 
     # -- naming, and writing names into photos ---------------------------------------
 

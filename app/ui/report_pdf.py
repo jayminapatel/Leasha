@@ -28,4 +28,4 @@ def write_pdf(document: str, path: str) -> None:
     doc = QTextDocument()
     doc.setMarkdown(document)
     writer = QPdfWriter(path)
-    doc.print(writer)
+    doc.print_(writer)

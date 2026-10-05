@@ -722,7 +722,7 @@ def button(
 
     def show(at: Any = None) -> None:
         menu = menu_for(widget)
-        menu.exec(at or widget.mapToGlobal(widget.rect().bottomLeft()))
+        type(menu).exec(menu, at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
     def toggle_preview() -> None:
         """Flip the preview pane, saving and redrawing as a menu click would.

@@ -727,7 +727,7 @@ class PreviewWindow(QWidget):
             if self._is_picture():
                 self._print_picture(printer)
             else:
-                self.text.document().print(printer)
+                self.text.document().print_(printer)
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.warning("could not print {}: {}", self._path, exc)
 

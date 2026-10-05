@@ -121,7 +121,7 @@ def _show_menu(widget: QWidget, point: Any, key: str, on_reset: Any) -> None:
     action.setToolTip(
         "Removes the line from .env so the application's own default applies "
         "again - including a better one that arrives in a future version.")
-    chosen = menu.exec(widget.mapToGlobal(point))
+    chosen = type(menu).exec(menu, widget.mapToGlobal(point))
     if chosen is action:
         # **`None` removes. The default *value* would re-pin it**, which looks
         # identical on screen and is the bug rather than the fix.

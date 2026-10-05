@@ -731,7 +731,7 @@ class FileTypesEditor(QGroupBox):
             disabled.setEnabled(False)
 
         if not menu.isEmpty():
-            menu.exec(self.table.viewport().mapToGlobal(point))
+            type(menu).exec(menu, self.table.viewport().mapToGlobal(point))
 
     def remove_type(self, extension: str) -> None:
         """Drop a user-added route. Built-ins are not offered, because removing

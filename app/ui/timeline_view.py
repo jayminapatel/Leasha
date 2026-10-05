@@ -198,7 +198,7 @@ class TimelineView(QWidget):
             show = menu.addAction(f"Show all {len(fold.older) + 1} separately")
             show.setToolTip("Take this group apart so every photo or copy has its own line.")
             show.triggered.connect(lambda: self.unfold(fold))
-        menu.exec(where)
+        type(menu).exec(menu, where)
 
     def unfold(self, fold: Any) -> None:
         """Replace one group with its members, oldest first, keeping the scroll position."""

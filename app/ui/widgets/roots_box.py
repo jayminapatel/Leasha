@@ -467,7 +467,7 @@ class RootsBox(QGroupBox):
         now.triggered.connect(
             lambda _checked=False: self.index_requested.emit(item.text(0)))
         menu.addAction(now)
-        menu.exec(self.tree.viewport().mapToGlobal(point))
+        type(menu).exec(menu, self.tree.viewport().mapToGlobal(point))
 
     def _sync_first(self) -> None:
         """Each marked row shows its place in the order; the rest show none."""

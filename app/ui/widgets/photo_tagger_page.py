@@ -773,7 +773,7 @@ class PhotoTaggerPage(QWidget):
         rename_action = menu.addAction("Name this person…")
         manage_action = menu.addAction("Manage the faces in this pile…")
         forget_action = menu.addAction("Forget this person…")
-        chosen = menu.exec(self._list.mapToGlobal(point))
+        chosen = type(menu).exec(menu, self._list.mapToGlobal(point))
 
         if chosen is rename_action:
             self._rename(pile_id, item.text())
