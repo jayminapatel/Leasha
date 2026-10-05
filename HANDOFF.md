@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.91 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 7.92 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,46 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-05 (18:15) - macOS: the whole suite passes on GitHub's Mac. 13,026 passed, none
+failed** (218 skipped, 131 deselected, 1 xfailed, 13 min 18 s; run 37307485258, job `test-macos`,
+`macos-14`, commit `b3a6dbc`). This supersedes "not yet confirmed on a Mac" in the entry below.
+It is a test run on a headless runner; **nobody has yet used the window on a real Mac.**
+
+- **The five runs:** 37287477563 hung for 90 minutes (the modal box in the entry below);
+  37299017679 gave 12,987 passed / 21 failed; 37301638190 13,008 / 1; 37304044053 13,018 / 4
+  (my own first Enter fix, see below); 37307485258 13,026 / 0. Commits `0aaa782`, `53d761b`,
+  `ecde534`, `b3a6dbc`.
+- **What the 21 were, and what changed in the application:**
+  1. `Path(r"D:\Docs\a.bin").name` is the whole string off Windows. New
+     `osbridge.pathnames.name_of`, used in `reports/space.py`, `reports/inheritance.py`,
+     `ui/presenter/space_rows.py` and `extract/email_pst.py`. An index copied from a Windows
+     machine is full of such paths.
+  2. `osbridge/programs.find_in_install_folders` treated `VideoLAN\VLC` as one folder off
+     Windows (`_folders_in`).
+  3. **Enter did nothing in any list on a Mac.** Qt sends `activated` for Enter on Windows and
+     not on macOS (there it starts an edit). `app/ui/enter_key.py` is an application-wide filter,
+     installed only on macOS by `shell.py`. **It delivers the key to the list first** and sends
+     `activated` only if nobody accepted the key and the list did not send it itself. The first
+     version kept the key and broke the Code page, Files, the timeline and Mail, which hear
+     Enter through their own filter or `keyPressEvent`; do not go back to that.
+- **What changed only in tests:** `tests/conftest.py` now skips a test marked `windows` off
+  Windows (the marker existed and nothing acted on it); three tests gained the marker; six
+  wrote Windows paths through this system's path type or compared with a made-up 32 GB; the
+  golden-picture test is skipped off Windows (the goldens are pictures of Windows' fonts); the
+  keyboard scenario waits for its rows.
+- **Known gap, not fixed:** Offline's "Rescan" never becomes available on macOS, because telling
+  whether a source is plugged in is Windows-only (`core/volumes_win.py`). Its test is marked
+  `windows`. A product decision for the owner.
+- **The macOS job runs only by hand or weekly** (`workflow_dispatch` / schedule), is
+  `continue-on-error`, and a push to `main` cancels a run in progress. Mac minutes bill at about
+  ten times Linux.
+- **GitHub's Windows job is still red on one test**, as it has been for 40+ runs:
+  `test_grab_ui.py::test_fresh_grabs_match_the_goldens_within_tolerance`. It passes on the
+  laptop. Not touched; the owner has not decided what to do with it.
+- **Linux: the 31 failures in the entry below stand.** The owner, 2026-10-05: "Linux not
+  important but fix all mac ones". Some will have gone with the Mac fixes; **not re-run, so
+  UNCONFIRMED.**
 
 **2026-10-05 (16:30) - Linux and macOS: the window could not open off Windows. Found by the
 first whole-suite runs there, fixed, not yet confirmed on a Mac.** Results for the three runs the

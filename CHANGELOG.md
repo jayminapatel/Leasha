@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.72 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.73 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Leasha's tests pass on a Mac (2026-10-05)
+
+- **On a Mac, Enter opens the line you are on**, in search results, photos and every other list.
+  It did nothing there before; on Windows nothing changes.
+- **A file's name is shown correctly on a Mac when the index came from Windows.** The whole path
+  was shown in place of the name in the space and inheritance reports.
+- The whole test suite now passes on macOS (13,026 tests on GitHub's Mac). Leasha has not yet
+  been used by a person on a Mac.
+- Not yet on a Mac: "Rescan" in Offline.
 
 ### Leasha's window opens on Linux and macOS (2026-10-05)
 
