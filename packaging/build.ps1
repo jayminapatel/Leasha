@@ -27,6 +27,23 @@ $Out = Join-Path $Root "build\installer"
 
 Write-Host "Leasha $Version" -ForegroundColor Cyan
 
+# One build at a time. A second build clears build\dist while the first is still
+# packaging it, and neither finishes (2026-10-07: a 0.3.4 and a 0.3.5 build
+# overlapped). The processes that started this one carry "build.ps1" in their own
+# command lines too, so this process and its parents are left out.
+$Mine = @{}
+$Walk = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+while ($Walk -and -not $Mine.ContainsKey([int]$Walk.ProcessId)) {
+    $Mine[[int]$Walk.ProcessId] = $true
+    $Walk = Get-CimInstance Win32_Process -Filter "ProcessId=$($Walk.ParentProcessId)"
+}
+$Others = @(Get-CimInstance Win32_Process -Filter "Name='powershell.exe' OR Name='pwsh.exe'" |
+    Where-Object { -not $Mine.ContainsKey([int]$_.ProcessId) -and $_.CommandLine -match 'build\.ps1' })
+if ($Others.Count -gt 0) {
+    throw ("Another build is already running (process " + (($Others | ForEach-Object { $_.ProcessId }) -join ", ") +
+           "). Let it finish, or close its window, then run this again.")
+}
+
 & $Python -c "import PyInstaller" 2>$null
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing PyInstaller (packagingequirements-build.txt)..." -ForegroundColor Cyan

@@ -17,6 +17,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### The installer build runs one at a time (2026-10-07)
+
+- **`packaginguild.ps1` refuses to start while another build is running**, and names it.
+  Two builds at once each cleared the folder the other was packaging, and neither finished.
+
 ## [0.3.5] - 2026-10-07
 
 ### Removing a folder removes what was read from it (2026-10-07)
