@@ -66,6 +66,7 @@ from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.number_field import fit_all as fit_number_fields
+from app.ui.qtsip import open_menu
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
@@ -731,7 +732,7 @@ class FileTypesEditor(QGroupBox):
             disabled.setEnabled(False)
 
         if not menu.isEmpty():
-            type(menu).exec(menu, self.table.viewport().mapToGlobal(point))
+            open_menu(menu, self.table.viewport().mapToGlobal(point))
 
     def remove_type(self, extension: str) -> None:
         """Drop a user-added route. Built-ins are not offered, because removing

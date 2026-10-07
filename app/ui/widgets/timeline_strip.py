@@ -29,6 +29,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QMenu, QToolButton, QWidget
 
 from app.ui.timeline import bands
+from app.ui.qtsip import open_menu
 
 __all__ = ["TimelineStrip", "STRIP_ENABLED_KEY"]
 
@@ -78,7 +79,7 @@ class TimelineStrip(QWidget):
         action.setToolTip("Open your timeline on this period - photos, files and mail from "
                           "then, not only the results of this search.")
         action.triggered.connect(lambda: self.browse_requested.emit(band.after, band.before))
-        type(menu).exec(menu, button.mapToGlobal(point))
+        open_menu(menu, button.mapToGlobal(point))
 
     def _redraw(self, found: tuple) -> None:
         while self._layout.count():

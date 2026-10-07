@@ -41,6 +41,7 @@ from app.ui.widgets.buttons import style_all
 from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
                                        remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
+from app.ui.qtsip import open_menu
 
 #: How often the page looks for faces grouped since it last read them, while
 #: it is on screen. 2026-10-04.
@@ -771,16 +772,66 @@ class PhotoTaggerPage(QWidget):
 
         menu = QMenu(self)
         rename_action = menu.addAction("Name this person…")
+        # 2026-10-07, the owner: "combine for sure". Dragging one group onto
+        # another already did this; the menu is where it is looked for.
+        combine_action = menu.addAction("Combine with another person…")
         manage_action = menu.addAction("Manage the faces in this pile…")
         forget_action = menu.addAction("Forget this person…")
-        chosen = type(menu).exec(menu, self._list.mapToGlobal(point))
+        chosen = open_menu(menu, self._list.mapToGlobal(point))
 
         if chosen is rename_action:
             self._rename(pile_id, item.text())
+        elif chosen is combine_action:
+            self._combine_with(pile_id, name)
         elif chosen is manage_action:
             self._manage_faces(pile_id)
         elif chosen is forget_action:
             self._forget(pile_id, name)
+
+    def _combine_with(self, pile_id: int, name: str) -> None:
+        """Pick the group these faces belong with, confirm, combine. 2026-10-07.
+
+        Named people first, by name - that is who somebody is looking for -
+        then the groups still unnamed, in the order the page shows them."""
+        others: list[tuple[str, int]] = []
+        for row in range(self._list.count()):
+            other = self._list.item(row)
+            other_id = int(other.data(ROLE_PILE_ID))
+            if other_id != pile_id:
+                others.append((other.text(), other_id))
+        if not others:
+            QMessageBox.information(
+                self, "Combine with another person",
+                "There is no other group to combine this one with yet.")
+            return
+        unnamed = lambda label: label.startswith("Person ")       # noqa: E731
+        others.sort(key=lambda entry: (unnamed(entry[0]),
+                                       "" if unnamed(entry[0]) else entry[0].casefold()))
+        labels = [label for label, _id in others]
+        picked, ok = QInputDialog.getItem(
+            self, "Combine with another person",
+            f"The faces in {name} are the same person as:", labels, 0, False)
+        if not ok or picked not in labels:
+            return
+        target_label, target_id = others[labels.index(picked)]
+        target_name = target_label.split(" — ", 1)[0]
+        answer = QMessageBox.question(
+            self, "Combine these two?",
+            f"Put the faces in {name} with {target_name}? The two groups become "
+            f"one, called {target_name}. This cannot be undone from here.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        from app.ui.workers import CallableWorker, run
+
+        self._show_combined(pile_id, target_id)
+        worker = CallableWorker(self._store.combine_piles, pile_id, target_id,
+                                component="ui.photo_tagger")
+        worker.signals.finished.connect(lambda _r: self.reload())
+        worker.signals.failed.connect(
+            lambda error: _warn_write_failed(self, "Could not combine", error))
+        run(self._pool, worker)
 
     def _forget(self, pile_id: int, name: str) -> None:
         r"""Section 2e. Guardrails: "Forget this person" deletes the name

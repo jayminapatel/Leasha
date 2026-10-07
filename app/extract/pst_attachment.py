@@ -28,7 +28,7 @@ from typing import Any
 from app.core.errors import AppErrorException, make_error
 from app.core.row_facts import ZIP_FAMILY_EXTS, ext_alternation
 
-__all__ = ["member_of", "read_attachment"]
+__all__ = ["member_of", "read_attachment", "attachment_bytes", "archive_unavailable"]
 
 
 def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
@@ -165,3 +165,40 @@ def _error(path: Path, name: str, why: str) -> AppErrorException:
     return AppErrorException(make_error(
         "ERR_ATTACHMENT_OPEN", "extract.pst_attachment", path=str(path), name=name,
         details=why))
+
+
+#: What `read_attachment` says when the archive itself would not open - held
+#: by Outlook, on a drive that is not there. The one failure worth trying again.
+_NOT_OPENED = "the archive could not be opened"
+
+
+def archive_unavailable(exc: BaseException) -> bool:
+    """Whether a failed read was the archive not opening, not the attachment
+    being gone. No I/O. The first is retried on a later run; the second is an
+    answer."""
+    error = getattr(exc, "error", None)
+    text = " ".join(str(part) for part in (exc, getattr(error, "details", ""),
+                                            getattr(error, "detail", "")))
+    return _NOT_OPENED in text
+
+
+def attachment_bytes(message: dict, rest: str, *, max_bytes: int | None = None) -> bytes:
+    """The bytes an attachment key names, given its message's `messages` row.
+
+    2026-10-07. `rest` is what follows `/attachments/` in the key: the
+    attachment's name, and after a `/` the file inside it when it is an
+    archive. Never the slow search - this is asked for a thousand pictures in
+    a row. Raises `AppErrorException` (`ERR_ATTACHMENT_OPEN`) as
+    `read_attachment` does."""
+    name, _, inner = str(rest).partition("/")
+    archive = message.get("store_path") or ""
+    data = read_attachment(
+        archive, str(message.get("entry_id") or ""), name,
+        folder_path=message.get("folder_path"), folder_index=message.get("folder_index"),
+        search=False, max_bytes=max_bytes)
+    if not inner:
+        return data
+    member = member_of(data, inner, max_bytes=max_bytes)
+    if member is None:
+        raise _error(Path(archive), inner, f"'{name}' no longer holds that file")
+    return member

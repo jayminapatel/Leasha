@@ -40,6 +40,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMenu, QPushButton, QWidget
 
 from app.core.settings_registry import by_key, keys
+from app.ui.qtsip import open_menu
 
 __all__ = ["attach_resets", "restore_button", "pinned_in", "RESET_LABEL"]
 
@@ -121,7 +122,7 @@ def _show_menu(widget: QWidget, point: Any, key: str, on_reset: Any) -> None:
     action.setToolTip(
         "Removes the line from .env so the application's own default applies "
         "again - including a better one that arrives in a future version.")
-    chosen = type(menu).exec(menu, widget.mapToGlobal(point))
+    chosen = open_menu(menu, widget.mapToGlobal(point))
     if chosen is action:
         # **`None` removes. The default *value* would re-pin it**, which looks
         # identical on screen and is the bug rather than the fix.

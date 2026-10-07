@@ -177,10 +177,33 @@ def _read_bgr(path: Path, cv2: Any, np: Any) -> Optional[Any]:
     return np.ascontiguousarray(rgb[:, :, ::-1])
 
 
-def detect_faces(path: Path) -> list[FaceDetection]:
+def _bytes_bgr(data: bytes, np: Any) -> Optional[Any]:
+    """A picture held in memory as OpenCV's BGR array, upright, or `None`.
+
+    2026-10-07: a picture that arrived attached to a message has no file -
+    its key is `pst://.../attachments/name.jpg` - so `_read_bgr` was handed a
+    place that does not exist and all 1,188 of the owner's came back "no
+    faces" and were marked as scanned. Pillow reads the bytes; the channels
+    are reversed to BGR, as `_read_bgr` does for the same reason."""
+    import io
+
+    from PIL import Image, ImageOps
+
+    from app.extract.heif import register_heif
+
+    register_heif()
+    with Image.open(io.BytesIO(data)) as opened:
+        rgb = np.asarray(ImageOps.exif_transpose(opened).convert("RGB"))
+    return np.ascontiguousarray(rgb[:, :, ::-1])
+
+
+def detect_faces(path: Path, *, data: Optional[bytes] = None) -> list[FaceDetection]:
     """Every face `insightface` finds in one image. Never raises - one
     unreadable or face-free photo costs an empty list, not a crashed
-    worker, the same contract `florence_tagger.tag_image` already gives."""
+    worker, the same contract `florence_tagger.tag_image` already gives.
+
+    `data` (2026-10-07) is the picture's own bytes, for one with no file to
+    open; `path` is then only its name, for the log."""
     app = _load()
     if app is None:
         return []
@@ -193,7 +216,7 @@ def detect_faces(path: Path) -> list[FaceDetection]:
         # is what its models were trained expecting) rather than PIL -
         # matched here rather than converting, so channel order is never a
         # silent quality bug nothing would notice on a face-shaped image.
-        image = _read_bgr(path, cv2, np)
+        image = _bytes_bgr(data, np) if data is not None else _read_bgr(path, cv2, np)
         if image is None:
             return []
         faces = app.get(image)

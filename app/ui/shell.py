@@ -174,6 +174,11 @@ class MainWindow(QMainWindow):
         #: in every case but the first beat after launch.
         self._queued_index_requests: list = []
         self._store = store
+        # 2026-10-07: a picture that arrived in mail has no file to decode; the
+        # thumbnail decoder reads its bytes through the store's message row.
+        from app.ui import thumbnail_loader
+
+        thumbnail_loader.use_store(store)
         self._vectors = vectors
         self._engine = engine
         #: Work order 0h §1c's follow-up: the same `ImageVectorStore` the
@@ -399,6 +404,7 @@ class MainWindow(QMainWindow):
         self.files_view = FilesView(store)
         self.files_view.error.connect(self._show_error)
         self.files_view.search_inside_requested.connect(self._search_inside)
+        self.files_view.index_file_requested.connect(self._index_file_now)
 
         # Order 202626270513 Â§2. Read-only refresh is the view's own - see
         # `OfflineMediaView.refresh` - but Scan/Rescan/Delete run a real
@@ -1113,6 +1119,9 @@ class MainWindow(QMainWindow):
     def _index_folder_now(self, folder: str) -> None:
         self.index_ctl._index_folder_now(folder)
 
+    def _index_file_now(self, path: str) -> None:
+        self.index_ctl._index_file_now(path)
+
     def _poll_external_run(self) -> None:
         self.index_ctl._poll_external_run()
 
@@ -1419,17 +1428,42 @@ class MainWindow(QMainWindow):
         menu and the tab's icon can never offer different things; a tab with
         no View options (Indexing, Settings, Chat) shows Preview pane alone.
         """
-        for action in getattr(self, "_view_menu_extra", ()):
-            menu.removeAction(action)
-        self._view_menu_extra = []
+        # 2026-10-07: nine times in two days an item added on the last opening
+        # had already been deleted by Qt, `removeAction` raised on it, and -
+        # because that happened before the list below was emptied - every later
+        # opening raised on the same item until restart. What deletes it first
+        # is not known, so this says what it can and carries on: a deleted
+        # action has already left the menu, there is nothing to remove.
+        from app.ui import qtsip
+
         old = getattr(self, "_view_menu_built", None)
-        if old is not None:
+        tab_now = type(self._current_view()).__name__
+        extra, self._view_menu_extra = list(getattr(self, "_view_menu_extra", ())), []
+        gone = [index for index, action in enumerate(extra) if qtsip.isdeleted(action)]
+        if gone:
+            _log.warning(
+                "View menu: {} of {} item(s) added last time were already deleted "
+                "(positions {}; built for {}, opening on {}; the built menu was {}; "
+                "the View menu itself is {})",
+                len(gone), len(extra), gone, getattr(self, "_view_menu_tab", "?"), tab_now,
+                "none" if old is None else "deleted" if qtsip.isdeleted(old) else "alive",
+                "deleted" if qtsip.isdeleted(menu) else "alive")
+        for action in extra:
+            if not qtsip.isdeleted(action):
+                menu.removeAction(action)
+        if old is not None and not qtsip.isdeleted(old):
             old.deleteLater()
         self._view_menu_built = None
+        self._view_menu_tab = tab_now
         maker = getattr(getattr(self._current_view(), "view_button", None), "menu_for", None)
         if maker is None:
             return
         built = maker(menu)
+        if built is None:
+            # Once in the same two days: the tab's own menu came back as nothing.
+            _log.warning("View menu: {} gave no menu of its own (its View button: {})",
+                         tab_now, getattr(self._current_view(), "view_button", None))
+            return
         self._view_menu_built = built
         self._view_menu_extra = [menu.addSeparator()]
         # A tab's own menu may offer Preview pane too; the window's item above,

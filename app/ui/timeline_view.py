@@ -40,6 +40,7 @@ from app.ui.widgets.file_menu import FileActions, build_menu
 from app.ui.widgets.timeline_list import TimelineList
 from app.ui.widgets.timeline_picker import TimelinePicker
 from app.ui.workers import CallableWorker, run
+from app.ui.qtsip import open_menu
 
 __all__ = ["TimelineView"]
 
@@ -198,7 +199,7 @@ class TimelineView(QWidget):
             show = menu.addAction(f"Show all {len(fold.older) + 1} separately")
             show.setToolTip("Take this group apart so every photo or copy has its own line.")
             show.triggered.connect(lambda: self.unfold(fold))
-        type(menu).exec(menu, where)
+        open_menu(menu, where)
 
     def unfold(self, fold: Any) -> None:
         """Replace one group with its members, oldest first, keeping the scroll position."""

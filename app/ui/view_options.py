@@ -731,8 +731,10 @@ def button(
         )
 
     def show(at: Any = None) -> None:
+        from app.ui.qtsip import open_menu      # lazily: this module imports no Qt at load
+
         menu = menu_for(widget)
-        type(menu).exec(menu, at or widget.mapToGlobal(widget.rect().bottomLeft()))
+        open_menu(menu, at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
     def toggle_preview() -> None:
         """Flip the preview pane, saving and redrawing as a menu click would.

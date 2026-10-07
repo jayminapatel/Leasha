@@ -27,13 +27,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox,
-    QHBoxLayout,
-    QHeaderView,
-    QLabel,
-    QLineEdit,
-    QVBoxLayout,
-    QWidget,
+    QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QVBoxLayout, QWidget,
 )
 
 from app.core.logging import logger
@@ -126,6 +120,9 @@ class FilesView(QWidget):
     #: found it by name, now find what is in it. Without it the filename
     #: browser is a dead end - you can see the file and do nothing with it.
     search_inside_requested = Signal(str)
+
+    #: 2026-10-07: a file to read again now ("Index this file now" on its menu).
+    index_file_requested = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -432,4 +429,5 @@ class FilesView(QWidget):
             open_file=self._open_selected, reveal=self._reveal_selected,
             row=self.results.current_row(),     # its Offline mark; its real path to copy
             search_inside=lambda: self.search_inside_requested.emit(path),
+            index_file=lambda: self.index_file_requested.emit(path),
         ))

@@ -35,7 +35,7 @@ from typing import Any, Optional
 from app.core.logging import logger
 
 __all__ = ["IMAGE_RESULT_EXTS", "is_image_result", "decode_thumbnail",
-           "decode_face_crop", "THUMBNAIL_EDGE"]
+           "decode_face_crop", "THUMBNAIL_EDGE", "use_store", "picture_bytes"]
 
 _log = logger.bind(component="ui.thumbnail")
 
@@ -109,6 +109,72 @@ def _scaled_to_edge(image: Any, edge: int) -> Any:
     return image.scaledToHeight(edge, Qt.TransformationMode.SmoothTransformation)
 
 
+# ---------------------------------------------------------------------------
+# A picture that has no file: a mail attachment, a zip member (2026-10-07)
+# ---------------------------------------------------------------------------
+#
+# The owner: "the pictures from mail in there dont show on list or the preview
+# either". A picture that arrived attached to a message is indexed under a
+# key, not a place on disk - `pst://2017/2429924/attachments/Manish.jpg` - and
+# every decode here handed that key to `QImage(path)`, which answered with
+# nothing: a blank tile, a blank preview and a blank face, 1,188 times over.
+# Its bytes can be read (`attachment_open.bytes_of`, what the Search preview
+# does); that needs the message's row, and so the store.
+
+#: The largest attachment read into memory for a picture. The preview pane's
+#: own ceiling is for documents; a photo larger than this is not a thumbnail.
+PICTURE_BYTES_LIMIT = 64 * 1024 * 1024
+
+_store_ref: Any = None
+
+
+def use_store(store: Any) -> None:
+    """Tell this module which store names a message's archive. UI thread, once.
+
+    Held weakly: a decoder must not be what keeps a closed index open."""
+    import weakref
+
+    global _store_ref
+    try:
+        _store_ref = weakref.ref(store) if store is not None else None
+    except TypeError:                             # a test's plain stand-in
+        _store_ref = (lambda: store)
+
+
+def picture_bytes(path: str) -> Optional[bytes]:
+    """The bytes of a picture that is an attachment or a zip member, else None.
+    **Worker thread only.** None too when they cannot be read - no store yet,
+    the archive held open by Outlook, the message gone - and the reason is
+    logged, because "blank" with no word anywhere is how this went unseen."""
+    from app.ui.attachment_open import bytes_of, opens_from_a_copy
+
+    if not opens_from_a_copy(path):
+        return None
+    store = _store_ref() if _store_ref is not None else None
+    try:
+        message = None
+        if store is not None:
+            from app.ui.preview_loader import _attachment_parent
+
+            parent = _attachment_parent(store, path)
+            message = parent[0] if parent else None
+        return bytes_of(path, message, search=False, max_bytes=PICTURE_BYTES_LIMIT)
+    except Exception as exc:                      # noqa: BLE001 - a blank tile, said why
+        _log.debug("could not read the picture {}: {}", path, exc)
+        return None
+
+
+def _decoded(path: str) -> Optional[Any]:
+    """`decode_image` for a file; for a picture with no file, its bytes decoded."""
+    from app.ui.attachment_open import opens_from_a_copy
+    from app.ui.preview_loader import decode_image, decode_image_data
+
+    if opens_from_a_copy(path):
+        data = picture_bytes(path)
+        return decode_image_data(data) if data else None
+    return decode_image(path)
+
+
 def decode_thumbnail(path: str, *, edge: int = THUMBNAIL_EDGE) -> Optional[Any]:
     """A small, upright `QImage` for one photo, or `None`. **Worker thread only.**
 
@@ -128,9 +194,7 @@ def decode_thumbnail(path: str, *, edge: int = THUMBNAIL_EDGE) -> Optional[Any]:
     the one place that owns this now.
     """
     try:
-        from app.ui.preview_loader import decode_image
-
-        image = decode_image(path)
+        image = _decoded(path)
         if image is None or image.isNull():
             return None
 
@@ -164,9 +228,7 @@ def decode_face_crop(
     try:
         from PySide6.QtCore import QRect
 
-        from app.ui.preview_loader import decode_image
-
-        image = decode_image(path)
+        image = _decoded(path)
         if image is None or image.isNull():
             return None
 

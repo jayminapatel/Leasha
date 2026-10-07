@@ -35,7 +35,7 @@ import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Optional
+from typing import Any, Iterable, Iterator, Mapping, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.logging import logger
@@ -150,6 +150,10 @@ class _Report:
 
     def __init__(self, frame: Optional[progress.Frame] = None) -> None:
         self.read = 0
+        #: 2026-10-07: messages passed over because their read stamp was the
+        #: one kept from the last whole read (`read_stamp`). Counted in `read`
+        #: too - they are in the index - and said once, at the archive's end.
+        self.unchanged = 0
         self.messages = 0
         self.folders = 0
         #: Attachments that could not be opened or extracted. **Not** the
@@ -227,6 +231,34 @@ def _identifier(item: Any) -> Optional[int]:
         return int(item.get_identifier())
     except Exception:                            # noqa: BLE001
         return None
+
+
+#: In front of every read stamp, so a stamp made by a different rule is never
+#: taken for one made by this one. Change it and every message is read once more.
+READ_STAMP_VERSION = "s1"
+
+#: Where a read stamp rides on a message's `Document.meta`.
+READ_STAMP_META_KEY = "read_stamp"
+
+
+def read_stamp(message: Any) -> Optional[str]:
+    """What moves when a message changes, read without reading the message:
+    its modification time and how many attachments it has. None when the
+    archive will not say - and then the message is simply read.
+
+    2026-10-07; see `migrations._v35_message_read_stamp` for the measurement.
+    A `.pst` gives every message a modification time (all 1,838 in the
+    owner's `2008.pst` had one), and Outlook moves it for anything it does to
+    the message itself - a flag, a category, an edit - but not for mounting
+    the archive the message is in."""
+    try:
+        modified = int(message.get_modification_time_as_integer() or 0)
+        attachments = int(message.get_number_of_attachments() or 0)
+    except Exception:                            # noqa: BLE001 - then it is read
+        return None
+    if modified <= 0:
+        return None
+    return f"{READ_STAMP_VERSION}:{modified}:{attachments}"
 
 
 def _walk_folders(
@@ -346,8 +378,17 @@ def read_archive(
     resume_from: int = 0,
     seen_attachments: Iterable[str] = (),
     read_before: int = 0,
+    known_stamps: Optional[Mapping[str, str]] = None,
 ) -> Iterator[Document]:
     """Every message in a `.pst`, as Documents. No Outlook involved.
+
+    **`known_stamps` (2026-10-07): messages not read again.** `{identifier:
+    read_stamp}` for the messages this archive already has in the index, from
+    its last read to the end. A message whose stamp is the same is passed over
+    without reading its body or its attachments - which is where the time
+    went: an archive Outlook had only mounted was read again in full. **The
+    first message reached is always read**, so an archive with nothing new
+    still hands the pipeline a document and is never taken for an empty one.
 
     Deliberately mirrors `email_pst.walk_session`'s output so both backends are
     interchangeable: same `Document` shape, same `meta` keys, same conversation
@@ -383,7 +424,8 @@ def read_archive(
                         stage=progress.STAGE_OPENING) as frame:
         yield from _read_archive(
             path, frame, skip_folders=skip_folders, resume_from=resume_from,
-            seen_attachments=seen_attachments, read_before=read_before)
+            seen_attachments=seen_attachments, read_before=read_before,
+            known_stamps=known_stamps)
 
 
 def _read_archive(
@@ -394,6 +436,7 @@ def _read_archive(
     resume_from: int,
     seen_attachments: Iterable[str],
     read_before: int,
+    known_stamps: Optional[Mapping[str, str]] = None,
 ) -> Iterator[Document]:
     """The body of `read_archive`, inside its progress frame. See there."""
     from app.extract.email_pst import DEFAULT_SKIP_FOLDERS
@@ -449,7 +492,8 @@ def _read_archive(
         yield from with_closing_warning(
             _messages(root, path, store_name, skip, report, seen_hashes,
                       resume_from=max(0, int(resume_from or 0)),
-                      frame=frame, policy=policy, scratch=scratch), closing)
+                      frame=frame, policy=policy, scratch=scratch,
+                      known_stamps=known_stamps), closing)
         finished = True
     finally:
         # However the read ended - finished, failed or abandoned - the pipeline
@@ -468,6 +512,9 @@ def _read_archive(
         # this reader had already counted - one too many, for a Force skip
         # pressed in those few milliseconds.
         policy.counts = dict(frame.counts)
+        if report.unchanged:
+            _log.info("{}: {:,} message(s) had not changed since they were last "
+                      "read and were not read again", path.name, report.unchanged)
         scratch.close()
         try:
             archive.close()
@@ -502,6 +549,7 @@ def _messages(
     frame: Optional[progress.Frame] = None,
     policy: Optional[reading.Reading] = None,
     scratch: Optional["_Scratch"] = None,
+    known_stamps: Optional[Mapping[str, str]] = None,
 ) -> Iterator[Document]:
     """Every readable message, recording the ones that are not.
 
@@ -539,6 +587,10 @@ def _messages(
         scratch = _Scratch()
     images_only = policy.images == reading.IMAGES_ONLY
     seen_messages: set[int] = set()
+    # 2026-10-07: see `read_archive`. Never on the pictures pass, which reads
+    # no message anyway and is there for the attachments the text pass held.
+    known = dict(known_stamps or {}) if not images_only else {}
+    handed_on = False
     for ordinal, (folder_path, folder) in enumerate(_walk_folders(root, report=report)):
         if ordinal < resume_from:
             continue
@@ -586,6 +638,17 @@ def _messages(
                     report.status(progress.STATUS_DUPLICATE)
                     continue
                 repeats_in_a_row = 0
+                stamp = read_stamp(message) if not images_only else None
+                if (handed_on and stamp is not None and identifier is not None
+                        and known.get(str(identifier)) == stamp):
+                    # In the index already, exactly as it is here: neither its
+                    # body nor its attachments are read. `frame.n` has moved,
+                    # so a time limit watching it sees the archive advancing.
+                    bad_in_a_row = 0
+                    seen_messages.add(identifier)
+                    report.read += 1
+                    report.unchanged += 1
+                    continue
                 attachments = _attachments(message, report)
                 if images_only:
                     document = None
@@ -612,6 +675,9 @@ def _messages(
                 report.read += 1
                 report.status(progress.STATUS_INDEXED)
                 _mark_folder(document, report, ordinal, read_before)
+                if stamp is not None:
+                    document.meta[READ_STAMP_META_KEY] = stamp
+                handed_on = True
                 yield document
             # **After the message, not instead of it.** One bad attachment
             # must never cost the message itself - `_to_document` already

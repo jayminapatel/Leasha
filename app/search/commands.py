@@ -362,10 +362,10 @@ COMMANDS: tuple[Command, ...] = (
         # `presenter.photos` and by `storage.filters` for every other tab.
         summary="Only pictures that have this",
         example="/only unnamed",
-        value_hint="named, unnamed, no-faces, described, undescribed, text, screenshots",
+        value_hint="named, unnamed, no-faces, described, undescribed, text, screenshots, mail",
         icon="◐",
         values=("named", "unnamed", "no-faces", "described", "undescribed", "text",
-                "screenshots"),
+                "screenshots", "mail"),
     ),
 )
 

@@ -56,7 +56,13 @@ def gather(store: Any, file_id: int, path: str) -> dict:
         from app.extract.heif import register_heif
 
         register_heif()
-        with Image.open(path) as opened:
+        # 2026-10-07: a picture from mail has no file - its bytes, when it has any.
+        import io
+
+        from app.ui.thumbnail_loader import picture_bytes
+
+        data = picture_bytes(path)
+        with Image.open(io.BytesIO(data) if data else path) as opened:
             out["pixels"] = f"{opened.width:,} × {opened.height:,}"
         tags = read_all_metadata(Path(path))
         for key, label in CAMERA_TAGS:

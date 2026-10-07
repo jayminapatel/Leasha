@@ -1422,7 +1422,7 @@ class SqliteStore:
 
         with self._write_lock:
             conn = self.conn
-            conn.execute("BEGIN IMMEDIATE")
+            self._begin_write(conn)
             try:
                 yield conn
             except BaseException:
@@ -1430,6 +1430,34 @@ class SqliteStore:
                 raise
             else:
                 conn.execute("COMMIT")
+
+    def _begin_write(self, conn: sqlite3.Connection) -> None:
+        """`BEGIN IMMEDIATE`, asked twice before giving up - and giving up says so.
+
+        2026-10-07. Naming a face in the window while an index run was sorting
+        faces failed with a bare `database is locked`, reported as "an
+        unexpected error ... this is a bug". The run is another process making
+        one small write after another; SQLite's wait for the write lock is a
+        poll, not a queue, so the window can lose every poll for the whole of
+        `busy_timeout` (UNCONFIRMED that this is what happened - it is what the
+        log is consistent with: face-sorting writes throughout the 30 s the
+        rename waited). A second wait costs nothing when the lock is free, and
+        a lock that outlasts both is `ERR_DB_BUSY`, which says what to do."""
+        for attempt in (1, 2):
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                return
+            except sqlite3.OperationalError as exc:
+                text = str(exc).lower()
+                if "locked" not in text and "busy" not in text:
+                    raise
+                if attempt == 2:
+                    raise self._busy_error(
+                        f"Another process kept the write lock on {self.db_path} for "
+                        f"{2 * self._timeout:g} s ({exc}).") from exc
+                _log.warning(
+                    "the index's write lock was held for {:g} s by another process "
+                    "- waiting once more ({})", self._timeout, exc)
 
     @contextmanager
     def batch(self) -> Iterator[sqlite3.Connection]:
@@ -3979,6 +4007,23 @@ class SqliteStore:
                 (file_id, int(time.time())),
             )
 
+    def forget_face_scans_of_mail_pictures(self) -> int:
+        """Un-mark every mail attachment recorded as face-scanned with no face
+        found, so the next run looks at it. Returns how many. 2026-10-07.
+
+        Until that day the scan could not open a picture that arrived in mail
+        (its key is not a place on disk), found nothing in what it could not
+        read, and marked it as looked at - 1,188 of the owner's. A mark beside
+        a face that *was* found is real and is kept."""
+        from app.core.row_facts import attachment_sql
+
+        with self.write() as conn:
+            cursor = conn.execute(
+                "DELETE FROM face_scans WHERE file_id IN ("
+                f"SELECT f.id FROM files f WHERE {attachment_sql('f')} "
+                "AND NOT EXISTS (SELECT 1 FROM faces WHERE faces.file_id = f.id))")
+            return int(cursor.rowcount or 0)
+
     @staticmethod
     def _face_from_row(row: sqlite3.Row) -> FaceRecord:
         return FaceRecord(
@@ -4768,6 +4813,30 @@ class SqliteStore:
                 # What `messages_ai` would have been handed for this row.
                 state.messages[file_id] = (
                     bound["subject"], bound["sender"], bound["recipients"])
+
+    def known_read_stamps(self, store_path: str) -> dict[str, str]:
+        """`{entry_id: read_stamp}` for the indexed messages of one archive
+        that were read to the end before. Schema 35; see its migration."""
+        rows = self.conn.execute(
+            "SELECT m.entry_id, m.read_stamp FROM messages m "
+            "JOIN files f ON f.id = m.file_id "
+            "WHERE m.store_path = ? AND m.read_stamp IS NOT NULL "
+            "AND m.entry_id IS NOT NULL AND f.status = 'INDEXED'",
+            (str(store_path),)).fetchall()
+        return {str(row["entry_id"]): str(row["read_stamp"]) for row in rows}
+
+    def set_read_stamps(self, stamps: Iterable[tuple[str, str]]) -> int:
+        """Keep `(message key, stamp)` pairs, in one transaction. Returns how
+        many. Written when an archive has been read to its end, never before:
+        a stamp says "this message and its attachments are in the index"."""
+        pairs = [(str(stamp), str(key)) for key, stamp in stamps if key and stamp]
+        if not pairs:
+            return 0
+        with self.write() as conn:
+            conn.executemany(
+                "UPDATE messages SET read_stamp = ? "
+                "WHERE file_id = (SELECT id FROM files WHERE path = ?)", pairs)
+        return len(pairs)
 
     def get_message(self, file_id: int) -> Optional[dict[str, Any]]:
         row = self.conn.execute("SELECT * FROM messages WHERE file_id = ?", (file_id,)).fetchone()

@@ -843,6 +843,13 @@ def extract(
         extract_kwargs["resume_from"] = resume_from
         if resume_extra:
             extract_kwargs["resume_extra"] = resume_extra
+    elif (resume_extra and getattr(extractor, "supports_resume", False)
+            and getattr(extractor, "takes_extra_from_the_top", False)):
+        # 2026-10-07: an archive read from the top still has something to be
+        # told - which of its messages are in the index already. Only for an
+        # extractor that says it takes it; `MboxExtractor` is still never
+        # handed one.
+        extract_kwargs["resume_extra"] = resume_extra
 
     produced = False
     for document in extractor.extract(path, **extract_kwargs):

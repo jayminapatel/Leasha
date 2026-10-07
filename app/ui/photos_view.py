@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpl
                              QStackedWidget, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import PHOTOS_COMMANDS, facets, narrow, sort_rows, summary
-from app.ui.presenter.photos import toggle_in_box
+from app.ui.presenter.photos import in_scope, toggle_in_box
 from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.photo_browser import PhotoBrowser
@@ -35,6 +35,7 @@ from app.ui.widgets.photo_info import PhotoInfo
 from app.ui.widgets.photo_page_parts import STATE_KEYS, ViewButton, photo_menu, same_day_box
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
+from app.ui.qtsip import open_menu
 
 __all__ = ["PhotosView"]
 
@@ -174,10 +175,10 @@ class PhotosView(QWidget):
         self._show(applied)
 
     def _show(self, applied: Any = ()) -> None:
-        shown = narrow(self._all, self._parsed, self._words) if self._parsed else self._all
+        shown = narrow(self._all, self._parsed, self._words)
         order = getattr(self._parsed, "sort", "") or self.sort_key
         self.browser.set_rows(sort_rows(shown, order), dated=order in ("newest", "oldest"))
-        show_page(self, applied, summary(len(shown), len(self._all),
+        show_page(self, applied, summary(len(shown), in_scope(self._all, self._parsed),
                                          len(self.browser.selected_rows())))
 
     # -- the choices -----------------------------------------------------------------
@@ -254,7 +255,7 @@ class PhotosView(QWidget):
             name=(lambda: self.show_naming()) if row.faces else None,
             write=lambda: self.write_names(selected_only=True),
             same_day=(lambda: self.input.setText(day)) if day else None)
-        type(menu).exec(menu, point)
+        open_menu(menu, point)
 
     # -- naming, and writing names into photos ---------------------------------------
 

@@ -194,7 +194,13 @@ CREATE TABLE IF NOT EXISTS messages (
     -- through Outlook or indexed before 32. Lets "Open" on an attachment go
     -- straight to it - see `app/extract/pst_attachment.py`.
     folder_path  TEXT,
-    folder_index INTEGER
+    folder_index INTEGER,
+    -- What the direct reader saw on the message the last time its archive was
+    -- read to the end (schema 35): its modification time and how many
+    -- attachments it has. A message whose stamp is unchanged is not read again
+    -- - see `pst_libpff.read_stamp`. NULL: never read to the end, or read
+    -- through Outlook.
+    read_stamp   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_messages_conv   ON messages(conversation);

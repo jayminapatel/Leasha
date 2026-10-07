@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.105 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 7.106 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,49 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-07 - every popup menu was dead under PySide6; mail archives; pictures from mail (the
+owner's list, one commit).** **Written and committed without the suite being run, and with no
+new tests, at the owner's instruction ("dont test as i may ask for more things"). Run the suite
+in the Windows venv before trusting any of it; the tests are owed.** What changed, and where:
+
+1. *Menus.* `type(menu).exec(menu, point)` - the migration's own idiom, so a test could stand
+   in - is refused by PySide6 6.11 (`exec` has static overloads): 128 `TypeError`s in one day's
+   error log, and no right-click menu or View button anywhere. All ten sites call
+   `qtsip.open_menu`, which calls a stand-in as before and the real menu on the instance.
+   Reproduced and checked under PySide6 6.11 offscreen, outside the suite.
+2. *The window's View menu* (`shell._fill_view_menu`) raised on an already-deleted `QAction`
+   before clearing its list, so it failed on every later opening. It now skips and logs it.
+   **What deletes the action first is still not known** - the new log line is there to say.
+3. *Schema 35: `messages.read_stamp`.* The direct reader passes over a message whose
+   modification time and attachment count are the ones kept from the archive's last read to the
+   end (`pst_libpff.read_stamp`, `Pipeline._known_read_stamps`). Stamps are written only when
+   the archive's marker is (`_keep_read_stamps`). The first message reached is always read, so
+   an archive with nothing new is never taken for an empty one. Off for `--force` and
+   `--retry-skipped`. Measured on the owner's `2007.pst` through a VM mount: 345 messages, 3.9 s
+   in full, 0.7 s with stamps. **UNCONFIRMED: that Outlook leaves a message's modification time
+   alone when it only mounts the archive.** `_classify` now logs which header numbers moved
+   (`email_pst.marker_difference`), which will also show whether the header marker is too easily
+   moved.
+4. *Pictures from mail.* Their key is not a place on disk, and every decoder was handed it as
+   one. The window reads their bytes (`thumbnail_loader.use_store`, `picture_bytes`); the face
+   scan, tagging, describing and reading text do too (`Pipeline._mail_picture_bytes`,
+   `_picture_file`). 1,188 of the owner's had been marked face-scanned unopened; a one-off
+   repair un-marks them (`index_state` `repair:mail_face_scans`). **Not repaired: pictures from
+   mail already noted as untaggable or as having no text - those marks stand.** A picture whose
+   archive will not open is left unmarked for the next run. Photos leaves them out unless
+   `only:mail` is in the box (`presenter.photos.MAIL_KIND`).
+5. *People page:* "Combine with another person…" on the menu. *Files:* "Index this file now" -
+   a one-file run with `--force`, tied to that file (`IndexController._forced`).
+6. *`SqliteStore._begin_write`* asks for the write lock twice and then raises `ERR_DB_BUSY`; a
+   rename in the window had failed with a bare `database is locked` while a run sorted faces.
+7. *`lag_monitor`* describes a stall again at 2, 5 and 10 s with every thread's frames. The
+   14.6 s start-up stall on 7 October coincided with the chat model loading (14.8 s) on another
+   thread; the one early sample had caught the Mail list filling, which was not the cause.
+8. *Found, not changed:* the owner's PST backend is set to `libpff`, so the Outlook fallback
+   for an archive Outlook holds never fires (it is `auto` only, by design). Thirteen of twenty
+   archives were skipped as locked on the first long run for that reason. The owner has been
+   asked to set it to Auto in Settings.
 
 **2026-10-06 (01:09, from the clock) - free space is 300 GB everywhere (the owner).** Settles the
 "open" item in the entry below. `install.ps1 -RequiredFreeGB`, `doctor.py`'s fallback, Leasha's

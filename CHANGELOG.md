@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.78 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 4.79 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,34 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Menus open again, mail archives are read once, and pictures from mail are sorted out (2026-10-07)
+
+- **Right-click menus and the View button work again.** Since the move to Qt's own Python
+  library, right-clicking a file, a photo or a face did nothing, and neither did the View
+  button on Files and Mail. All of them open now.
+- **The View menu at the top of the window no longer gets stuck.** If one of its items had
+  gone, every later opening failed until Leasha was restarted.
+- **A mail archive that Outlook has only opened is not read all over again.** Leasha now
+  remembers each message as it last saw it and passes over the ones that have not changed,
+  without reading their attachments. The first run after this update still reads a changed
+  archive in full once; after that it takes seconds where it took most of an hour.
+- **Pictures from mail stay out of Photos unless you ask for them.** Tick "Pictures from
+  mail" in the side list, or type `only:mail`, to see them. When shown, they now have
+  thumbnails and a preview; before, they were blank.
+- **Faces in pictures from mail are found.** Leasha had marked every such picture as looked
+  at without being able to open it. The next run looks at them properly, and describes and
+  reads the text in them too. Close Outlook first, or the pictures in an archive it holds
+  wait for the run after.
+- **"Combine with another person…"** is on the right-click menu of a face group on the People
+  page. Pick who they are the same as, confirm, and the two groups become one.
+- **"Index this file now"** is on a file's right-click menu in Files. It reads that one file
+  again, whatever the index already says about it, and nothing else.
+- **Naming a face while an index run is going** waits for its turn. If it still cannot get
+  in, it says the index is busy and to try again, not that something unexpected happened.
+- For the log: when an archive is read again, the log says which numbers in its header
+  moved; and a window that stops responding for more than two seconds records what every
+  part of Leasha was doing, not only the window.
 
 ### Leasha has a Windows installer (2026-10-06)
 

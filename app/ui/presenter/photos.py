@@ -30,6 +30,7 @@ __all__ = [
     "narrow", "facets", "sort_rows", "SORTS", "KINDS", "COLUMNS", "PHOTOS_COMMANDS",
     "month_heading", "date_text", "size_text", "people_text", "column_text",
     "summary", "year_of", "toggle_in_box", "box_has", "words_of_row", "only_matches",
+    "from_mail", "in_scope",
 ]
 
 #: The switches the Photos box offers when "/" is typed - the shared ones a
@@ -48,6 +49,9 @@ KINDS: tuple[tuple[str, str], ...] = (
     ("undescribed", "Not yet described"),
     ("text", "Has text"),
     ("screenshots", "Screenshots and scans"),
+    # 2026-10-07, the owner: "can the pictures from mail not be in the pictures
+    # tab" - they are left out unless this is ticked (see `narrow`).
+    ("mail", "Pictures from mail"),
 )
 
 #: `(key, label)` - the sort menu; `sort:` in the box wins over it.
@@ -93,8 +97,31 @@ def year_of(row: Any) -> Optional[int]:
     return moment.year if moment else None
 
 
+def from_mail(row: Any) -> bool:
+    """Whether a picture arrived attached to a message, rather than being a
+    photo on disk. A rule about its key - no I/O."""
+    from app.core.row_facts import attachment_of
+
+    return bool(attachment_of(getattr(row, "path", ""))[0])
+
+
+def in_scope(rows: Sequence[Any], parsed: Any) -> int:
+    """How many of `rows` the page is choosing from: the photos on disk, or -
+    with `only:mail` in the box - the pictures from mail. The "of N" in the
+    line under the photos, so it never counts what the page is not showing."""
+    wants_mail = MAIL_KIND in tuple(getattr(parsed, "only", ()) or ())
+    return sum(1 for row in rows if from_mail(row) == wants_mail)
+
+
+#: The `only:` value that brings pictures from mail in. Without it they are
+#: left out of the page altogether: most are logos, signatures and scans.
+MAIL_KIND = "mail"
+
+
 def only_matches(row: Any, value: str) -> bool:
     """Whether `row` has what `only:<value>` asks for."""
+    if value == MAIL_KIND:
+        return from_mail(row)
     if value == "named":
         return bool(row.people)
     if value == "unnamed":
@@ -168,9 +195,13 @@ def narrow(rows: Sequence[Any], parsed: Any, words: str = "") -> list[Any]:
     sizes = g("sizes")
     after, before = getattr(parsed, "after", None), getattr(parsed, "before", None)
     terms = [w for w in str(words or "").casefold().split() if w]
+    wants_mail = MAIL_KIND in only
 
     out = []
     for row in rows:
+        # 2026-10-07: pictures from mail are off unless asked for by name.
+        if not wants_mail and from_mail(row):
+            continue
         people = row.people
         if who and not any(_starts(people, w) for w in who):
             continue
@@ -220,6 +251,11 @@ def facets(rows: Iterable[Any]) -> dict[str, Counter]:
     found: dict[str, Counter] = {k: Counter() for k in
                                  ("people", "years", "places", "kinds", "types")}
     for row in rows:
+        # 2026-10-07: a picture from mail is counted on its own line and
+        # nowhere else - the other numbers are of what the page shows.
+        if from_mail(row):
+            found["kinds"][MAIL_KIND] += 1
+            continue
         for person in row.people:
             found["people"][person] += 1
         year = year_of(row)

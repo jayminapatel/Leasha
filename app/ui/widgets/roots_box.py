@@ -46,6 +46,7 @@ from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
 from app.ui.widgets.buttons import icon_button, put_on_row, style_button
 from app.ui.widgets.result_table import align_headers
+from app.ui.qtsip import open_menu
 
 __all__ = ["RootsBox"]
 
@@ -467,7 +468,7 @@ class RootsBox(QGroupBox):
         now.triggered.connect(
             lambda _checked=False: self.index_requested.emit(item.text(0)))
         menu.addAction(now)
-        type(menu).exec(menu, self.tree.viewport().mapToGlobal(point))
+        open_menu(menu, self.tree.viewport().mapToGlobal(point))
 
     def _sync_first(self) -> None:
         """Each marked row shows its place in the order; the rest show none."""

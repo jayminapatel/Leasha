@@ -72,6 +72,9 @@ ONLY_SQL: dict[str, str] = {
              "AND EXISTS (SELECT 1 FROM face_scans os WHERE os.file_id = f.id)))"),
     "screenshots": ("(f.skip_code = 'ERR_PAGE_TEXT_LATER' OR lower(f.path) LIKE '%screenshot%' "
                     "OR lower(f.path) LIKE '%screen shot%' OR lower(f.path) LIKE '%snip%')"),
+    # 2026-10-07: a picture that arrived attached to a message - the same rule
+    # as `row_facts.attachment_sql`, written out because this is a constant.
+    "mail": "instr(f.path, '/attachments/') > 1",
 }
 
 def _date_clause(op: str) -> str:

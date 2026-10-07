@@ -26,6 +26,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
 
 from app.ui.widgets.buttons import icon_button, put_on_row
+from app.ui.qtsip import open_menu
 
 __all__ = [
     "EXTRA_COLUMNS", "LineActions", "copy_hardware_id", "rescan_button",
@@ -121,7 +122,7 @@ class LineActions:
             return
         menu = row_menu(self, row, busy=self._busy, on_rescan=self._rescan_row,
                         on_copy=self.copy_hardware_id)
-        type(menu).exec(menu, self.tree.viewport().mapToGlobal(point))
+        open_menu(menu, self.tree.viewport().mapToGlobal(point))
 
     def copy_hardware_id(self, volume_id: int) -> bool:
         """Put a source's disk serial on the clipboard. False if it has none."""

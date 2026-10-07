@@ -32,6 +32,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import QMenu, QWidget
+from app.ui.qtsip import open_menu
 
 __all__ = ["FileActions", "build_menu"]
 
@@ -51,6 +52,7 @@ class FileActions:
         reveal: Optional[Callable[[], None]] = None,
         search_inside: Optional[Callable[[], None]] = None,
         reindex: Optional[Callable[[], None]] = None,
+        index_file: Optional[Callable[[], None]] = None,
         pin: Optional[Callable[[], None]] = None,
         similar: Optional[Callable[[], None]] = None,
         explain: Optional[Callable[[], None]] = None,
@@ -76,6 +78,11 @@ class FileActions:
         self.reveal = reveal
         self.search_inside = search_inside
         self.reindex = reindex
+        #: 2026-10-07, the owner: "in the files list i want a option to index
+        #: the selected file". Read this one file again, now, whatever the
+        #: index already says about it. Offered only for a file that is itself
+        #: on disk - an attachment or a zip member is read with what holds it.
+        self.index_file = index_file
         #: Workspace §3c: gather this result into the pinned panel. Offered
         #: whatever the file's own state - even a missing one is worth
         #: keeping track of, which "Open" and "Show in folder" are not.
@@ -144,6 +151,16 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
         action.triggered.connect(lambda: actions.search_inside())
         menu.addAction(action)
 
+    if actions.index_file is not None and _is_a_file_on_disk(path, actions.row):
+        action = QAction("Index this file now", parent)
+        action.setToolTip(
+            "Reads this one file again and brings the index up to date with it, "
+            "whatever the index already says. Nothing else is read. A mail "
+            "archive is read in full, which can take a long time.")
+        action.setEnabled(exists)
+        action.triggered.connect(lambda: actions.index_file())
+        menu.addAction(action)
+
     if actions.pin is not None:
         action = QAction("Pin", parent)
         action.triggered.connect(lambda: actions.pin())
@@ -210,6 +227,17 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     return menu
 
 
+def _is_a_file_on_disk(path: str, row: Any) -> bool:
+    """Whether `path` is a file a run can be pointed at: not an attachment, not
+    a zip member, not a message, not on a catalogued drive. No I/O."""
+    from app.ui.attachment_open import opens_from_a_copy
+
+    text = str(path or "")
+    if not text or "://" in text or opens_from_a_copy(text):
+        return False
+    return getattr(row, "volume_id", None) is None
+
+
 def _copy_path(path: str, row: Any) -> None:
     """The real path: resolved for a file on a catalogued drive (2026-10-04)."""
     if row is not None and getattr(row, "volume_id", None) is not None:
@@ -234,7 +262,7 @@ def show_for(widget: Any, point: Any, path: str, actions: FileActions) -> None:
     is what `viewport_point` below is for.
     """
     menu = build_menu(widget, path, actions)
-    type(menu).exec(menu, widget.mapToGlobal(point))
+    open_menu(menu, widget.mapToGlobal(point))
 
 
 def viewport_point(view: Any, point: Any) -> Any:

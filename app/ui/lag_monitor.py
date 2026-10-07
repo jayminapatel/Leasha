@@ -60,6 +60,10 @@ DUMP_INTERVAL_S = 5.0
 #: The "it was unresponsive for N ms" line, at most this often.
 NOTE_INTERVAL_S = 1.0
 
+#: 2026-10-07: a stall still going is described again as it passes each of
+#: these, with every thread's frames - see `_describe_again`.
+LONG_STALL_S = (2.0, 5.0, 10.0)
+
 #: Beats kept for the percentile. Twelve thousand is ten minutes at 50 ms.
 _KEEP = 12_000
 
@@ -156,10 +160,12 @@ class LagMonitor:
         if overdue < self._stall_s:
             return None
         if self._reported_for == self._last_beat:
-            return None                       # this stall has been described
+            # this stall has been described - once, unless it is a long one
+            return self._describe_again(overdue)
         if now - self._last_dump < DUMP_INTERVAL_S:
             return None
         self._reported_for = self._last_beat
+        self._reported_overdue = overdue
         self._last_dump = now
         report = self._describe(overdue)
         log.warning("{}", report)
@@ -176,6 +182,35 @@ class LagMonitor:
             names.get(ident, str(ident)) for ident in frames if ident != self._ui_id))
         return (f"the window has not responded for {overdue * 1000:.0f} ms - "
                 f"it is executing:\n{where}\nother threads: {others}")
+
+    def _describe_again(self, overdue: float) -> Optional[str]:
+        """A stall still going as it passes 2, 5 and 10 seconds: every thread.
+
+        2026-10-07. A 14.6 s stall at start-up was described once, at 294 ms,
+        while the window happened to be filling the Mail list - and was read as
+        "the Mail list froze the window". The chat model was loading on another
+        thread for the same 14.8 s. One early sample cannot tell those apart;
+        what each thread is running a few seconds in can. The window's own
+        frames, then the other threads' - whichever of them holds the
+        interpreter is the one the window is waiting for."""
+        step = next((s for s in LONG_STALL_S
+                     if getattr(self, "_reported_overdue", 0.0) < s <= overdue), None)
+        if step is None:
+            return None
+        self._reported_overdue = overdue
+        frames = sys._current_frames()                          # noqa: SLF001
+        names = {t.ident: t.name for t in threading.enumerate()}
+        parts = [f"the window has still not responded after {overdue * 1000:.0f} ms - "
+                 "every thread, the window's first:"]
+        for ident in sorted(frames, key=lambda i: i != self._ui_id):
+            if ident == threading.get_ident():
+                continue                                        # this watcher
+            title = "the window" if ident == self._ui_id else names.get(ident, str(ident))
+            parts.append(f"-- {title}\n"
+                         + "".join(traceback.format_stack(frames[ident])[-6:]).rstrip())
+        report = "\n".join(parts)
+        log.warning("{}", report)
+        return report
 
     def _watch(self) -> None:
         while not self._stop.wait(self._beat_s):

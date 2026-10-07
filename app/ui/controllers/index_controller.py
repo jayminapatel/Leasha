@@ -553,6 +553,32 @@ class IndexController(QObject):
         self._w._show(getattr(self._w, "indexing_view", None))
         self._w._start_indexing(roots=[folder], recheck_archives=True)
 
+    def _index_file_now(self, path: str) -> None:
+        r"""2026-10-07: "Index this file now" on a file's own menu.
+
+        The owner: "in the files list i want a option to index the selected
+        file". The same folder-scoped run as `_index_folder_now` - a root may
+        be one file (`walker.walk`, 2026-10-03) - with one thing of its own:
+        **the file is read whatever the index says about it** (`--force`), or a
+        file the index calls unchanged would be found, counted and left alone,
+        which is the opposite of what was asked. The force is tied to this
+        file and no other run (`_forced`): were it a plain flag, a refused
+        start would leave it set for the next whole run, and every file on the
+        machine would be read again.
+        """
+        path = str(path or "").strip()
+        if not path:
+            return
+        self._force_roots = (path,)
+        self._w._show(getattr(self._w, "indexing_view", None))
+        self._w._start_indexing(roots=[path], recheck_archives=True)
+
+    def _forced(self, roots: Optional[list[str]]) -> bool:
+        """Whether the run being built is the one "Index this file now" asked
+        for. Asked once per run built, and forgets either way."""
+        wanted, self._force_roots = getattr(self, "_force_roots", ()), ()
+        return bool(wanted) and tuple(str(r) for r in (roots or ())) == tuple(wanted)
+
     # -- a run belonging to another process ---------------------------------
 
     def _poll_external_run(self) -> None:
@@ -1052,6 +1078,7 @@ class IndexController(QObject):
                 # settled corpus. `recheck_archives` is the "Rescan archived
                 # folders now" button, which walks them all in full this once.
                 recheck_archives=recheck_archives,
+                force=self._forced(roots),       # 2026-10-07: "Index this file now"
                 ocr_mode=self._run_pass(retry, whole=self._pass_whole),
                 # The whole index's clean-up for Start only (`prune` above is
                 # off for any other run of this window's).
@@ -1114,7 +1141,9 @@ class IndexController(QObject):
             prune=roots is None, recheck_archives=recheck_archives,
             workers=int(getattr(tuned, "workers", 0) or 0),
             cloud_content_keys=cloud, first=self._first_folders(),
-            extra=[*child_arguments(retry), *self._pass_flags(retry)])
+            extra=[*child_arguments(retry), *self._pass_flags(retry),
+                   # 2026-10-07: "Index this file now" reads it whatever the row says.
+                   *(["--force"] if self._forced(roots) else [])])
         env = dict(os.environ)
         env.update(settings_environment(settings))
         log_path = getattr(settings, "log_path", None)

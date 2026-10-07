@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 34
+CURRENT_VERSION = 35
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1672,6 +1672,25 @@ def _v34_face_declines(conn: sqlite3.Connection) -> None:
     """)
 
 
+def _v35_message_read_stamp(conn: sqlite3.Connection) -> None:
+    r"""What the reader saw on each message when its archive was last read whole.
+
+    **2026-10-07, the owner: "is there a smart way of knowing that only the
+    timestamp on pst has changed but no content has changed so it is fast".**
+    An archive whose header says it changed (`email_pst.archive_marker`) was
+    read again message by message, and every attachment of every message was
+    extracted again before its text was compared and found the same: 27,922
+    unchanged messages in about forty minutes on the owner's archives. Asking
+    each message for its modification time and attachment count instead took
+    3.6 s for the 1,838 messages of `2008.pst` (measured through a VM mount,
+    warm). The stamp is kept here; rows already indexed keep NULL and are read
+    once more, which is when they get one.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "read_stamp" not in columns:
+        conn.execute("ALTER TABLE messages ADD COLUMN read_stamp TEXT")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1706,6 +1725,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     32: _v32_message_position,
     33: _v33_outlook_attachment_sizes_and_skip_index,
     34: _v34_face_declines,
+    35: _v35_message_read_stamp,
 }
 
 #: Released migrations that open and close transactions of their own -
