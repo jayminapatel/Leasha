@@ -1,6 +1,6 @@
 # The A+ checklist — what stands between here and world-class, and when each item can be done
 
-**Doc version:** 1.3 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.4 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 The target state, from the 2026-08-27 prospective review: **nothing claimed
 that isn't proven, nothing pending that matters, nothing broken that's known.**

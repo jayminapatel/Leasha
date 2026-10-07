@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.8 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.9 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 ## Scheme
 
@@ -18,10 +18,11 @@ this is a single-user desktop app with no public API and no external consumers.
 
 ### Planned map
 
-The version is **0.3.4**. The minor has not moved since Layer 1, although more than the
+The version is **0.3.5**. The minor has not moved since Layer 1, although more than the
 map below expected has been built since: the work went out as PATCH releases (0.3.4 was the
-brand fixes and everything since 19 September; the schema went 25 -> 30 by migration, with no
-re-index). Layers 6 and 7 were cancelled, so `0.7.0` no longer means anything. **Renumbering
+brand fixes and everything since 19 September; 0.3.5 is the move to PySide6, the Windows
+installer, folder removal that removes its data, and Mail archives; the schema went 25 -> 35
+by migration, with no re-index). Layers 6 and 7 were cancelled, so `0.7.0` no longer means anything. **Renumbering
 the map when the minor next moves is the owner's decision.**
 
 | Version | Milestone | Where it stands |

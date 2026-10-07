@@ -1,6 +1,6 @@
 # Third-party notices
 
-**Doc version:** 1.3 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.4 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Leasha is MIT. This file lists the software it is built on whose licence asks something of a
 copy that is handed to someone else: Qt for Python, which draws the window, and what Leasha

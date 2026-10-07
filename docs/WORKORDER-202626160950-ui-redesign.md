@@ -1,6 +1,6 @@
 # Work order (One thread): UI Redesign — one shell for Windows and macOS
 
-**Doc version:** 1.6 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (UI shell, theme, delegate, preview chrome — no engine,
 no storage, no schema, no label text)
 **Status: RELEASED by the owner 2026-09-16, same day it was drafted**, with

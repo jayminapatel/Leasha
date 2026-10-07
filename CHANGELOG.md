@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.80 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
+**Doc version:** 4.81 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [0.3.5] - 2026-10-07
 
 ### Removing a folder removes what was read from it (2026-10-07)
 
@@ -405,6 +407,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - `docs/TROUBLESHOOTING.md` 1.5: a table of this week's problems and what they mean.
   `docs/GLOSSARY.md` 1.3: ten terms added. `README.md` 3.2: the picture tool and the About
   box. `HANDOFF.md` 7.47.
+- For 0.3.5: the user guide, README and technical reference give install steps for Windows
+  (installer or from source), macOS and Linux, and say what is true now; the guide and the
+  reference describe removing a folder and Mail archives. Every document changed since 0.3.4
+  says it applies to 0.3.5.
 
 ## [0.3.4] - 2026-10-04
 

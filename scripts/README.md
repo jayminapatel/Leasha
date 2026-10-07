@@ -1,6 +1,6 @@
 # scripts
 
-**Doc version:** 1.1 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.2 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Helper scripts that are not part of the application. Run them from the project folder with
 the venv's Python (`venv\Scripts\python.exe` on Windows, `venv/bin/python` elsewhere).

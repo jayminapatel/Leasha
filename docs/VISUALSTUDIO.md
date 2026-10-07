@@ -1,6 +1,6 @@
 # Working on Leasha in Visual Studio
 
-**Doc version:** 1.3 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.4 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 `docs/VSCODE.md` covers VS Code. This covers full Visual Studio, which needs a solution and a
 project file where VS Code needs neither.

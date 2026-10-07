@@ -1,6 +1,6 @@
 # Adding a File Type
 
-**Doc version:** 1.2 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.3 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 > **The wizard does most of this for you.** Settings → File types → **Add file type…**
 > asks the question below, then writes the route, the converter block, or the whole

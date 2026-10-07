@@ -1,6 +1,6 @@
 # Reference: which models run where, and moving them to Ollama
 
-**Doc version:** 1.4 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.5 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Kept at the owner's request ("keep this as a reference for future") after a
 conversation on 2026-09-29 about moving every model to Ollama. **Reference, not a

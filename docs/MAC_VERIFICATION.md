@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.11 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.12 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that

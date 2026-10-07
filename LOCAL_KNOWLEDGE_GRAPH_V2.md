@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.10 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 2.11 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -15,7 +15,7 @@
 **Tech Stack:** PySide6 (Qt 6.11) + SQLite/FTS5 + LanceDB + FastEmbed and ONNX Runtime + PyMuPDF — Ollama optional
 **Data Scale:** 100GB
 **Search Target:** <300ms warm search, <3s first search after launch (model load)
-**Status:** app v0.3.4. Run from source with `install.ps1`, or install a packaged copy with the Windows installer built from `packaging\` (`BUILD_SPEC_V2.md`, Layer 9)
+**Status:** app v0.3.5. Run from source with `install.ps1`, or install a packaged copy with the Windows installer built from `packaging\` (`BUILD_SPEC_V2.md`, Layer 9)
 
 **Files in this folder:**
 

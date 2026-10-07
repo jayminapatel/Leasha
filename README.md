@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 3.5 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 3.6 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -263,7 +263,7 @@ See `docs/TROUBLESHOOTING.md`.
 
 ```
 app/core      L0  config, settings registry, AppError, logging, locks, osbridge
-app/storage   L1  SQLite/FTS5 + LanceDB (schema v30)
+app/storage   L1  SQLite/FTS5 + LanceDB (schema v35)
 app/extract   L2  PDF, Office, plaintext, PST/EML/mbox, zip, OCR, media + chunking
 app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat LLM
 app/index     L3  walker, resumable pipeline, embedder, governor, folder watch

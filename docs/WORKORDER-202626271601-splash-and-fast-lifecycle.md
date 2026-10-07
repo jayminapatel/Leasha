@@ -1,6 +1,6 @@
 # Work order (One thread): the splash, and a life that starts fast and ends fast
 
-**Doc version:** 1.6 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.7 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (main.py startup path + shell.py close path + one new
 splash module + installer prefetch)
 **Status:** RELEASED by the owner 2026-08-28 — a done deal, design settled

@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v0.3.4 · schema v34 · Reference updated 6 October 2026 · Checked against <code>main</code> at c9bebbf</div>
+  <div class="meta">App v0.3.5 · schema v35 · Reference updated 7 October 2026 · Checked against <code>main</code> at 613998c</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -139,7 +139,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 
 <h2 id="repo"><span class="num">2</span>Repository layout</h2>
 <pre><code>app/core      L0  settings and registry, AppError, logging, locks, run logs, osbridge (all platform-specific calls)
-app/storage   L1  SQLite/FTS5 store, migrations (schema v34), LanceDB vector stores
+app/storage   L1  SQLite/FTS5 store, migrations (schema v35), LanceDB vector stores
 app/extract   L2  readers for every format, chunker, OCR ladder, mail (PST, mbox, eml, msg), zip, media
 app/ort       L2  Leasha's own ONNX Runtime models: Florence-2, Whisper, chat LLM; model catalogue
 app/index     L3  walker, pipeline, embedder, governor, child processes, folder watch, offline media
@@ -271,8 +271,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>chat_sessions</code></td><td>Chat conversations and their shelves.</td></tr>
 <tr><td><code>image_hashes</code></td><td>Seen-before book for signature logos and icons.</td></tr>
 <tr><td><code>entities</code>, <code>entity_mentions</code>, <code>entity_edges</code></td><td>Deprecated knowledge-graph tables, kept empty since v0.3.2.</td></tr></table></div>
-<details><summary>Migration history, v2 to v34</summary>
-<p class="small">2 usage logging · 3 knowledge graph · 4 filename index · 5 missing indexes · 6 repositories · 7 identifier tokens · 8 mail header index · 9 forget dragged column widths · 10 name_only status · 11 wildcard vocabulary · 12 quoted_removed · 13 repair indexes · 14 folded mail columns · 15 saved searches · 16 chunk label · 17 image phash · 18 photo taken_at · 19 offline media volumes · 20 file tags · 21 taken_at_is_hint · 22 places · 23 people · 24 content_hash index · 25 partial status · 26 chat sessions · 27 mail sent date into taken_at_ns · 28 chunk index follows its columns · 29 image hashes · 30 attachment names into files_fts · 31 attachment type and size · 32 message position in its archive · 33 Outlook attachment sizes and the skip index · 34 face declines.</p></details>
+<details><summary>Migration history, v2 to v35</summary>
+<p class="small">2 usage logging · 3 knowledge graph · 4 filename index · 5 missing indexes · 6 repositories · 7 identifier tokens · 8 mail header index · 9 forget dragged column widths · 10 name_only status · 11 wildcard vocabulary · 12 quoted_removed · 13 repair indexes · 14 folded mail columns · 15 saved searches · 16 chunk label · 17 image phash · 18 photo taken_at · 19 offline media volumes · 20 file tags · 21 taken_at_is_hint · 22 places · 23 people · 24 content_hash index · 25 partial status · 26 chat sessions · 27 mail sent date into taken_at_ns · 28 chunk index follows its columns · 29 image hashes · 30 attachment names into files_fts · 31 attachment type and size · 32 message position in its archive · 33 Outlook attachment sizes and the skip index · 34 face declines · 35 message read stamps (what the direct reader saw on each message, so an unchanged one is not read again).</p></details>
 <div class="callout"><b>FTS planner statistics</b>The <code>ANALYZE</code> that migrations 5, 6, 13 and 19 run on a new, empty database leaves <code>sqlite_stat1</code> saying the FTS5 shadow tables hold 2 rows, which made writes slow down linearly as the index grew. <code>SqliteStore._forget_fts_statistics</code> deletes those rows on open and after optimise, and new passages' and messages' index rows are written once per batch (<code>SqliteStore.defer_fts</code>, on by default).</div>
 <h3 id="lancedb">LanceDB (<code>VECTOR_PATH</code>)</h3>
 <table><tr><th>Table</th><th>Holds</th></tr>
@@ -684,7 +684,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 
 <h2 id="release"><span class="num">14</span>Versions, documents and releases</h2>
 <ul>
-  <li><b><code>VERSION</code></b> (0.3.4) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
+  <li><b><code>VERSION</code></b> (0.3.5) is the only place the version lives; <code>app.core.version.build_info()</code> adds <code>git describe</code>. MAJOR: an index change that cannot be migrated. MINOR: a build-spec layer complete. PATCH: fixes and tuning.</li>
   <li><b>Schema version</b> is its own integer (34), stepped one migration at a time.</li>
   <li><b>Every <code>.md</code></b> opens with an H1 and the line <code>**Doc version:** X.Y · **Updated:** YYYY-MM-DD · **Applies to:** app vX.Y.Z</code>; <code>test_docs_versioned.py</code> fails the suite otherwise, with no exemption list. <code>HANDOFF.md</code> and <code>docs/PROJECT_INSTRUCTIONS.md</code> must state the current version (<code>test_handoff_current.py</code>).</li>
   <li><b>Where things live</b>: code and documents on GitHub <code>jayminapatel/Leasha</code>, branch <code>main</code>; release builds outside the repository under <code>Leasha\Releases\&lt;version&gt;\</code> on Google Drive; the owner's index never in git.</li>
@@ -711,7 +711,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
   <li>Fixed while writing: the Search home suggestion "photos from the Lake District" typed <code>/type image</code>, which was not a kind and matched nothing. <code>image</code>, <code>photo</code> and <code>picture</code> (and plurals) are now kinds (commit <code>31edaea</code>).</li>
 </ul>
 
-<footer>Leasha Technical Reference · for app v0.3.4, schema v34 · 6 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
+<footer>Leasha Technical Reference · for app v0.3.5, schema v35 · 7 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
 
 </main>
 </div>

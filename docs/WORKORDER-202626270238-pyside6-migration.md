@@ -1,6 +1,6 @@
 # Work order (One thread): migrate PyQt6 → PySide6 — DRAFT
 
-**Doc version:** 1.0 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.1 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (UI + tests + packaging)
 
 > **2026-10-05 - RELEASED by the owner, and built the same day.** The owner asked what moving

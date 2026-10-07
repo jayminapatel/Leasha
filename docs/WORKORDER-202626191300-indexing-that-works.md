@@ -1,6 +1,6 @@
 # Work order (One thread): indexing that works
 
-**Doc version:** 1.4 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.5 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (`app/core/measured.py` + `app/index/index_bench.py` +
 `app/core/envelope.py` + `app/index/embedder.py` + `config/extractors.toml` +
 the close path in `app/ui/shell.py` and `app/main.py`)

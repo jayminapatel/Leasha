@@ -1,6 +1,6 @@
 # Work order (One thread): every table sorts, every header sits over its column
 
-**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.3 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (UI widgets — `result_table.py` centred, views follow)
 **Status:** SHIPPED — all 17 items ticked; found already complete on 2026-09-07; only the status was ever outstanding. Kept here as record. Originally RELEASED by the owner 2026-08-28. Small and **gap-schedulable**
 (privacy-defaults pattern). Owner's report, verbatim intent: *Mail sorts on

@@ -1,6 +1,6 @@
 # Work order (One thread): the seven adoptions — best ideas from the five-AI review
 
-**Doc version:** 1.11 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.3
+**Doc version:** 1.12 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (Search/UI polish; one storage touch for saved searches)
 **Status:** SHIPPED — all 17 items ticked; closed 2026-09-07 by the pytest-qt sweep across all seven adoptions. Kept here as record. Originally RELEASED by the owner 2026-08-28. **Gap-schedulable** (the
 privacy-defaults pattern): items are independent — do each when its

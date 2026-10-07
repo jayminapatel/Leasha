@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.107 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
+**Doc version:** 7.108 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,11 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-07 - release 0.3.5.** `VERSION` 0.3.5, tagged `v0.3.5`, installer built with
+`packaging\build.ps1 -Release` into `Leasha\Releases\0.3.5\`. Step 3 of the release
+checklist, the performance budget, was **not** re-measured: an index run over the owner's full
+corpus was going at the time, so any number would have measured the contention.
 
 **2026-10-07, later - removing a folder removes its data; Mail archives; the suite run over
 everything.** The full suite was run in the Windows venv over the working tree - this entry's

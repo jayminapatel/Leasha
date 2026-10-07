@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.16 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 2.17 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer

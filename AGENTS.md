@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.2 · **Updated:** 2026-10-06 · **Applies to:** app v0.3.4
+**Doc version:** 1.3 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.

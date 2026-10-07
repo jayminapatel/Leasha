@@ -1,6 +1,6 @@
 # Work order (One thread): Offline drives on a Mac — a scanned drive is found again when it is plugged in
 
-**Doc version:** 1.2 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.3 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Thread:** One thread (Core + Index; no new UI)
 **Status:** RELEASED by the owner 2026-10-05 ("release it so it just needs testing later,
 make sure it is of good quality"), and built the same day. Was DRAFT, written earlier that day

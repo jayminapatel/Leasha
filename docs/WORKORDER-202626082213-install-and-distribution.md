@@ -1,6 +1,6 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 1.1 · **Updated:** 2026-10-05 · **Applies to:** app v0.3.4
+**Doc version:** 1.2 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
