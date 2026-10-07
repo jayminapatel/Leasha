@@ -55,6 +55,7 @@ import os
 import queue
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional
@@ -3376,6 +3377,11 @@ class Pipeline:
                     changed = False
                 elif not changed and known != marker:
                     changed = True
+                # 2026-10-07: say which header numbers moved, once per archive
+                # per run - so "Outlook only mounted it" and "the marker is
+                # too easily moved" can be told apart afterwards.
+                if known != marker:
+                    self._note_marker_moved(candidate, record, known, marker)
             digest = marker
 
         if self.config.force:
@@ -4148,8 +4154,20 @@ class Pipeline:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
                 resume_key = _archive_resume_key(candidate.path)
-                resume_from, resume_extra = self._load_archive_cursor(
-                    candidate, resume_key)
+                # 2026-10-07: a forced run starts at the top. The owner's
+                # "reindex" button on an archive ("Read again") is a forced
+                # run, and must read the whole archive again - carrying on at
+                # a folder an earlier stopped run reached would leave every
+                # folder before it unread. The cursor is still written as the
+                # run goes, so a forced run that is itself stopped carries on.
+                if not self.config.force:
+                    resume_from, resume_extra = self._load_archive_cursor(
+                        candidate, resume_key)
+            # 2026-10-07: the messages of this archive that are in the index
+            # as they stand, for the reader to pass over (`_known_read_stamps`).
+            known = self._known_read_stamps(candidate)
+            if known:
+                resume_extra = {**(resume_extra or {}), "stamps": known}
         elif digest is not None:
             extractor = extractor_for(candidate.path)
             if extractor is not None and getattr(extractor, "supports_resume", False):
@@ -4579,6 +4597,7 @@ class Pipeline:
                 # that wrote it, and a warning on every unchanged message would
                 # repeat on every incremental pass.
                 self._note_warnings(item, log=False)
+                self._note_read_stamp(item)
                 if self._note_resume_progress(item):
                     self._persist_at_folder_boundary(pending_vectors)
                 continue
@@ -5176,7 +5195,10 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._stop.is_set():
                         break
-                    result = describe_image(Path(path), client)
+                    with self._picture_file(path) as real:
+                        if real is None:
+                            continue             # its archive would not open: next run
+                        result = describe_image(real, client)
                     if result is not None:
                         self.store.add_caption_chunk(file_id, result.caption)
                         described += 1
@@ -5209,7 +5231,20 @@ class Pipeline:
             return
 
         scanned = 0
+        left_for_later = 0
         try:
+            # 2026-10-07, once per index: every picture from mail had been
+            # marked as scanned without being opened (see
+            # `forget_face_scans_of_mail_pictures`). Flagged done in
+            # `index_state` so a picture that genuinely has no face in it is
+            # not looked at again on every run after this one.
+            if self.store.get_state(self.FACE_SCAN_REPAIR_KEY) is None:
+                forgotten = self.store.forget_face_scans_of_mail_pictures()
+                self.store.set_state(self.FACE_SCAN_REPAIR_KEY, str(forgotten))
+                if forgotten:
+                    self._log.info(
+                        "{:,} picture(s) from mail were marked as face-scanned "
+                        "without ever being opened - looking at them now", forgotten)
             for batch in self.store.iter_photos_without_face_scan(
                     OcrExtractor.extensions, batch_size=8):
                 if self._stop.is_set():
@@ -5226,7 +5261,25 @@ class Pipeline:
                     if self._stop.is_set():
                         break
                     try:
-                        detections = detect_faces(Path(path))
+                        # A picture from mail has no file: its bytes, read
+                        # from the archive (2026-10-07). An archive that would
+                        # not open is not an answer about the picture, so the
+                        # picture stays unmarked and is tried on the next run.
+                        data = self._mail_picture_bytes(path)
+                    except Exception as exc:      # noqa: BLE001 - H4: one photo, not the run
+                        from app.extract.pst_attachment import archive_unavailable
+
+                        if archive_unavailable(exc):
+                            left_for_later += 1
+                            self._log.debug("face backfill left {} for a later run: {}",
+                                            path, exc)
+                            continue
+                        self._log.debug("face backfill could not read {}: {}", path, exc)
+                        self.store.mark_face_scanned(file_id)
+                        scanned += 1
+                        continue
+                    try:
+                        detections = detect_faces(Path(path), data=data)
                     except Exception as exc:      # noqa: BLE001 - H4: one photo, not the run
                         self._log.debug("face backfill skipped {}: {}", path, exc)
                         continue
@@ -5240,11 +5293,153 @@ class Pipeline:
                 "could not finish the face-detection backfill: {}. "
                 "Indexing continues.", exc)
 
+        if left_for_later:
+            self._log.warning(
+                "{:,} picture(s) from mail were not looked at for faces because "
+                "their archive would not open - usually Outlook has it. Close "
+                "Outlook and run again; nothing is lost.", left_for_later)
         stats.enrichment_counts[self.KIND_FACE_BACKFILL] = scanned
         if scanned:
             self._log.info(
                 "face-scanned {} photo(s) indexed before Recognise people "
                 "was switched on", scanned)
+
+    # -- messages not read again (2026-10-07) ----------------------------------
+    #
+    # The owner: "is there a smart way of knowing that only the timestamp on
+    # pst has changed but no content has changed so it is fast". The archive's
+    # header answers that for the whole file (`_classify`); when the header has
+    # moved - and Outlook moves it for housekeeping of its own - each message
+    # answers for itself with a read stamp (`pst_libpff.read_stamp`). The
+    # reader is told the stamps the index holds and passes over a message
+    # whose stamp is the same. Stamps are kept only when the archive has been
+    # read to its end (`_write_marker`), so a stamp always means "this message
+    # and its attachments are in the index" and never "were being read".
+
+    def _known_read_stamps(self, candidate: Candidate) -> dict[str, str]:
+        """`{identifier: stamp}` to hand the reader, or `{}` to read everything:
+        `--force` and `--retry-skipped` both mean "read it whatever you know".
+        Never raises - without the stamps the archive is read as it always was."""
+        key = str(candidate.path)
+        self.__dict__.setdefault("_pending_read_stamps", {}).pop(key, None)
+        if self.config.force or self.config.retry_skipped:
+            return {}
+        try:
+            return self.store.known_read_stamps(key)
+        except Exception as exc:                    # noqa: BLE001 - H4: a saving, not the read
+            self._log.debug("no read stamps for {}: {}", candidate.path.name, exc)
+            return {}
+
+    def _note_read_stamp(self, item: _Extracted) -> None:
+        """Remember a message's stamp until its archive has been read to the end."""
+        stamp = item.meta.get("read_stamp") if item.meta else None
+        if not stamp or not item.key:
+            return
+        pending = self.__dict__.setdefault("_pending_read_stamps", {})
+        pending.setdefault(str(item.candidate.path), {})[item.key] = str(stamp)
+
+    def _keep_read_stamps(self, candidate: Candidate) -> None:
+        """The archive is read to its end and marked: its stamps are now true."""
+        stamps = self.__dict__.setdefault("_pending_read_stamps", {}).pop(
+            str(candidate.path), None)
+        if not stamps:
+            return
+        try:
+            kept = self.store.set_read_stamps(stamps.items())
+            self._log.debug("kept {:,} read stamp(s) for {}", kept, candidate.path.name)
+        except Exception as exc:                    # noqa: BLE001 - H4: the next read is only slower
+            self._log.warning(
+                "could not keep the read stamps for {}: {}. Nothing is lost - its "
+                "messages are read again next time.", candidate.path.name, exc)
+
+    def _note_marker_moved(self, candidate: Candidate, record: Any,
+                           known: str, marker: str) -> None:
+        """One log line for an archive whose header marker differs from the
+        one kept at its last read. Never raises - it is a note, not the check."""
+        try:
+            seen = self.__dict__.setdefault("_markers_noted", set())
+            key = str(candidate.path)
+            if key in seen:
+                return
+            seen.add(key)
+            from app.extract.email_pst import marker_difference
+
+            self._log.info(
+                "{} will be read again: its header moved since the last read - {}. "
+                "Size {:,} -> {:,} bytes; date {}.",
+                candidate.path.name, marker_difference(known, marker),
+                int(record.size_bytes or 0), int(candidate.size_bytes or 0),
+                "moved" if record.mtime_ns != candidate.mtime_ns else "the same")
+        except Exception:                           # noqa: BLE001 - see the docstring
+            pass
+
+    #: `index_state` key: the one-off repair of mail pictures marked as
+    #: face-scanned without being opened has run (its value: how many).
+    FACE_SCAN_REPAIR_KEY = "repair:mail_face_scans"
+
+    #: The largest attachment read into memory to look for faces in.
+    MAIL_PICTURE_BYTES_LIMIT = 64 * 1024 * 1024
+
+    @contextmanager
+    def _picture_file(self, path: str) -> Iterator[Optional[Path]]:
+        """A file the picture models can open, for the length of the block.
+
+        2026-10-07. Describing, tagging and reading text all take a file, and
+        a picture that arrived in mail has none - they were handed its key
+        (`pst://.../attachments/name.jpg`) and marked it as having nothing to
+        say. For such a picture its bytes are written to a scratch file, which
+        is removed when the block ends; for a photo on disk this is the photo.
+
+        **Yields `None` when the picture's archive would not open** (Outlook
+        has it): the caller leaves the picture unmarked and the next run tries
+        again. Any other failure yields the key as a path, which fails in the
+        model as it always did and is settled as it always was."""
+        from app.core.row_facts import attachment_of
+
+        if not attachment_of(path)[0]:
+            yield Path(path)
+            return
+        try:
+            data = self._mail_picture_bytes(path)
+        except Exception as exc:                    # noqa: BLE001 - H4: one picture, not the run
+            from app.extract.pst_attachment import archive_unavailable
+
+            if archive_unavailable(exc):
+                self._log.debug("left {} for a later run: {}", path, exc)
+                yield None
+            else:
+                self._log.debug("could not read the picture {}: {}", path, exc)
+                yield Path(path)
+            return
+        import tempfile
+
+        suffix = Path(str(path).rsplit("/", 1)[-1]).suffix or ".img"
+        handle, name = tempfile.mkstemp(prefix="leasha_mail_picture_", suffix=suffix)
+        try:
+            with os.fdopen(handle, "wb") as out:
+                out.write(data or b"")
+            yield Path(name)
+        finally:
+            try:
+                os.unlink(name)
+            except OSError:                          # a scratch file; the temp folder is swept
+                pass
+
+    def _mail_picture_bytes(self, path: str) -> Optional[bytes]:
+        """The bytes of a picture that arrived attached to a message; `None`
+        for a picture that is a file on disk. Raises what the read raises."""
+        from app.core.row_facts import attachment_of
+
+        parent, rest = attachment_of(path)
+        if not parent:
+            return None
+        from app.extract.pst_attachment import attachment_bytes
+
+        record = self.store.get_file(parent)
+        message = self.store.get_message(record.id) if record is not None else None
+        if not message:
+            raise LookupError(f"the message {parent} is not in the index")
+        return attachment_bytes(message, rest, max_bytes=self.MAIL_PICTURE_BYTES_LIMIT)
 
     def _drain_face_cluster(self, stats: IndexStats) -> None:
         r"""Give every unclustered face a verdict: assign, suggest, or a
@@ -5358,7 +5553,10 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._interrupted:
                         break
-                    result = florence_tagger.tag_image(Path(path))
+                    with self._picture_file(path) as real:
+                        if real is None:
+                            continue             # its archive would not open: next run
+                        result = florence_tagger.tag_image(real)
                     if result is None or not (result.caption or result.tags):
                         self.store.note_photo_untaggable(file_id)
                         continue
@@ -5427,7 +5625,10 @@ class Pipeline:
                 for file_id, path in batch:
                     if self._interrupted:
                         return
-                    result = florence_tagger.tag_image(Path(path)) if tagging else None
+                    with self._picture_file(path) as real:
+                        if real is None:
+                            continue             # its archive would not open: next run
+                        result = florence_tagger.tag_image(real) if tagging else None
                     if result is not None and (result.caption or result.tags):
                         body = result.caption
                         if result.tags:
@@ -5454,7 +5655,10 @@ class Pipeline:
                     for file_id, path in batch:
                         if self._interrupted:
                             return
-                        text = ocr_image(Path(path))
+                        with self._picture_file(path) as real:
+                            if real is None:
+                                continue         # its archive would not open: next run
+                            text = ocr_image(real)
                         if not text.empty and not text.engine_missing:
                             self.store.add_caption_chunk(
                                 file_id, text.text, label="Text read from the image")
@@ -5551,6 +5755,7 @@ class Pipeline:
                 relative_path=candidate.relative_path,
             )
             self.store.mark_indexed(file_id)
+        self._keep_read_stamps(candidate)
         # Work order 202626270509, item 1b. The file is done - a resume
         # cursor for it is not merely unneeded, it is a hazard: kept around
         # it would wrongly make a fresh re-index of the same unchanged bytes
@@ -6177,6 +6382,7 @@ class Pipeline:
         # still outside any `store.batch()`, just later.
 
         self._note_warnings(item)
+        self._note_read_stamp(item)
 
         # Deliberately does NOT embed. Embedding one document at a time means a
         # batch of three chunks per email, and ONNX throughput collapses at that
@@ -7445,6 +7651,17 @@ class Pipeline:
             inside = prefixes(doomed_paths)
             gone.extend(file_id for file_id, path in rows
                         if path.startswith(inside))
+            # 2026-10-07: **and the mail read out of it.** A message is not
+            # stored under its archive's path - it is `pst://<mailbox>/<entry>`,
+            # `source_kind="pst_message"`, tied to the archive only by
+            # `messages.store_path` - so the prefixes above never reached one,
+            # and a deleted `.pst` left every message and attachment it had
+            # held searchable. Found the way removing a folder finds them.
+            from app.index.forget_folder import file_ids_from_folders
+
+            already = set(gone)
+            gone.extend(file_id for file_id in file_ids_from_folders(
+                self.store, doomed_paths) if file_id not in already)
         return gone
 
     #: Rows per delete. One `IN (...)` list of a million ids is a query nobody

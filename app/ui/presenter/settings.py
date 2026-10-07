@@ -176,6 +176,63 @@ def nothing_indexed_yet(roots: Sequence[str]) -> str:
             "Choose a folder below and Leasha will index it.")
 
 
+def remove_folders_confirmation(folders: Sequence[str], count: int) -> tuple[str, str]:
+    """What Remove asks before it takes folders off the list. `(title, body)`.
+
+    2026-10-07, the owner: "ask confirmation at removal that the index data
+    will be removed too". The list is what is in the index, so taking a folder
+    off it takes what was read from it out of the index - and the question says
+    how much, and that the files themselves stay where they are.
+    """
+    names = [str(folder) for folder in folders]
+    which = names[0] if len(names) == 1 else f"{len(names)} folders"
+    title = f"Remove {which}?"
+    listed = "".join(f"\n    {name}" for name in names) if len(names) > 1 else ""
+    items = "item" if count == 1 else "items"
+    body = (
+        f"This takes {which} off the list and removes {count:,} {items} read "
+        f"from it out of Leasha's index - files, and any mail read from mail "
+        f"archives in it.{listed}\n\n"
+        "Your files are not touched. Add the folder again to index it afresh.")
+    return title, body
+
+
+def folders_removed_message(result: Any) -> str:
+    """The status line after Remove, or after the leftovers go. **Always names
+    an amount**, as `cleared_message` does."""
+    folders = list((result or {}).get("folders") or [])
+    count = int((result or {}).get("files") or 0)
+    items = "item" if count == 1 else "items"
+    if not folders:
+        return (f"{count:,} {items} from folders no longer on the list taken out "
+                "of the index. Nothing on disk was touched.")
+    which = folders[0] if len(folders) == 1 else f"{len(folders)} folders"
+    return (f"Removed {which} - {count:,} {items} taken out of the index. "
+            "Nothing on disk was touched.")
+
+
+def leftovers_text(count: int) -> str:
+    """The line under the folder list while the index holds items from folders
+    no longer on it (2026-10-07, the owner: "the list must reflect what is in
+    the index"). Empty when there are none."""
+    if count <= 0:
+        return ""
+    items = "item" if count == 1 else "items"
+    return (f"The index still holds {count:,} {items} from folders that are no "
+            "longer on this list, so they still turn up in searches.")
+
+
+def remove_leftovers_confirmation(count: int) -> tuple[str, str]:
+    """What "Remove them from the index" asks. `(title, body)`."""
+    items = "item" if count == 1 else "items"
+    title = "Remove what is left from other folders?"
+    body = (f"This removes {count:,} {items} from Leasha's index - everything "
+            "read from folders that are no longer on the list.\n\n"
+            "Your files are not touched. Add a folder to the list to index it "
+            "again.")
+    return title, body
+
+
 def cleared_message(outcome: Any) -> str:
     """What the status bar says after a reset. **Always names an amount.**
 

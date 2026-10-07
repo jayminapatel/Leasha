@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.106 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
+**Doc version:** 7.107 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,27 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-07, later - removing a folder removes its data; Mail archives; the suite run over
+everything.** The full suite was run in the Windows venv over the working tree - this entry's
+work *and* the uncommitted work of the entry below - before both were committed: **13,386
+passed, 0 failed** (`scripts/run_suite.py -j 3`, 504 files, 1,235 s). So the entry below's
+"the tests are owed" is paid for what its tests cover. What changed:
+
+1. *Remove on the folder list* (owner: "the only way the list must reflect what is in the
+   index"). `app/index/forget_folder.py`: counts, asks (`SettingsController.ask_remove`),
+   then deletes under the index run lock everything the folder brought in - files, and mail
+   by `messages.store_path`, because a message's path is `pst://<mailbox>/<entry>`, under no
+   folder. A row any folder still listed covers stays. A line under the list counts rows from
+   no listed folder, with **Remove them from the index**. On the owner's index that is 342
+   files from `D:\WeddingVideoProject` (counted read-only on a copy, 0.29 s).
+2. *A `.pst` deleted from disk now takes its mail with it* (`_doomed_inside_archives`). The
+   older test of this models a message as `<archive>/message-1`, a shape no reader writes.
+3. *Mail archives* in Settings, What's indexed: every `.pst`/`.ost`, a reader choice of its
+   own (`ui:pst_backends`, applied each run as `PstExtractor.backends`), **Read again** and
+   **Clear and read again**. A forced read no longer resumes at an earlier run's cursor.
+4. *Not checked on real archives*: both readers are stubbed in the tests. The first real
+   Read again on one of the owner's archives is the check.
 
 **2026-10-07 - every popup menu was dead under PySide6; mail archives; pictures from mail (the
 owner's list, one commit).** **Written and committed without the suite being run, and with no

@@ -57,10 +57,21 @@ class SettingsView(SettingsShelves, QWidget):
     #: 2026-10-02. "Index now" on one line of the folder list: that folder.
     #: See `RootsBox.index_requested` - this only relays it.
     index_folder_requested = Signal(str)
+    #: 2026-10-07. Remove on the folder list: these folders, to be asked about
+    #: and taken out of the index. See `RootsBox.remove_requested`.
+    remove_folders_requested = Signal(list)
+    #: "Remove them from the index" under the list. See `RootsBox.set_leftovers`.
+    remove_leftovers_requested = Signal()
     #: `(preset, groups)` for the Code tab's file-type filter. A view
     #: preference: it changes what Code lists, never what is indexed.
     code_types_changed = Signal(str, list)
     pst_backend_changed = Signal(str)
+    #: 2026-10-07, the owner: each mail archive read its own way, and read
+    #: again. See `MailArchivesBox` (widgets/mail_archives_box.py) - these
+    #: only relay it: `(archive, backend)`, then the archive for each button.
+    mail_archive_choice_changed = Signal(str, str)
+    mail_archive_read_again_requested = Signal(str)
+    mail_archive_clear_requested = Signal(str)
     #: (enabled, model, timeout_s) for the Interpret button.
     ollama_model_changed = Signal(bool, str, int)
     convert_pst_requested = Signal(str, str)   # archive, destination

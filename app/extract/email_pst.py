@@ -65,6 +65,7 @@ __all__ = [
     "OUTLOOK_EXTENSIONS",
     "archive_marker",
     "MARKER_PREFIX",
+    "marker_difference",
     "DEFAULT_SKIP_FOLDERS",
     "MAX_ATTACHMENT_BYTES",
 ]
@@ -898,6 +899,11 @@ class PstExtractor:
     name = "pst"
     extensions = OUTLOOK_EXTENSIONS
 
+    #: 2026-10-07: `extract` is handed `resume_extra` even for a read from the
+    #: top, because it now carries the messages not to read again
+    #: (`pst_libpff.read_archive`'s `known_stamps`) as well as a resume's state.
+    takes_extra_from_the_top = True
+
     #: Read through Outlook, which holds the archive open - so it must never be
     #: byte-hashed. On the first real run that hash raised a permission error in
     #: the walker and took the entire index run down with it.
@@ -916,6 +922,21 @@ class PstExtractor:
 
     #: Which route to take. Settings writes this; `auto` prefers libpff.
     backend: str = PstBackend.AUTO
+
+    #: 2026-10-07, the owner: "need a way for each pst file it can be
+    #: configured how to index outlook or direct". `{archive key: backend}`,
+    #: keyed by `app.index.archives.normalise`, overriding `backend` for that
+    #: one file only. Set at the start of every run from what Settings saved
+    #: (`run_setup.apply_saved_pst_backend`); `auto` is never stored here.
+    backends: dict[str, str] = {}
+
+    def backend_for(self, path: Any) -> str:
+        """The route chosen for this archive: its own choice if it has one,
+        otherwise the global `backend`. What `choose_backend` is then asked
+        about, so an `.ost` still goes to Outlook whatever was chosen."""
+        from app.index.archives import normalise
+
+        return (self.backends or {}).get(normalise(path)) or self.backend
 
     #: Work order `dates-live-log-and-interrupted-runs` 3b. An interrupted
     #: archive carries on at the folder it was in - **through libpff only.**
@@ -951,7 +972,9 @@ class PstExtractor:
             return
 
         held_open: Optional[AppErrorException] = None
-        if choose_backend(path, self.backend) == PstBackend.LIBPFF:
+        # This archive's own choice, or the global one (`backends`).
+        preference = self.backend_for(path)
+        if choose_backend(path, preference) == PstBackend.LIBPFF:
             from app.extract import pst_libpff
 
             yielded = False
@@ -960,7 +983,10 @@ class PstExtractor:
                 for document in pst_libpff.read_archive(
                         path, resume_from=resume_from,
                         seen_attachments=extra.get("seen") or (),
-                        read_before=int(extra.get("read", 0) or 0)):
+                        read_before=int(extra.get("read", 0) or 0),
+                        # 2026-10-07: the messages already in the index as they
+                        # are here, which the direct reader passes over.
+                        known_stamps=extra.get("stamps") or None):
                     yielded = True
                     yield document
                 return
@@ -972,12 +998,12 @@ class PstExtractor:
                 # forced backend was a choice, and quietly overriding it hides
                 # that libpff is not doing the job.
                 if (yielded or exc.error.code != "ERR_FILE_LOCKED"
-                        or self.backend != PstBackend.AUTO):
+                        or preference != PstBackend.AUTO):
                     raise
                 held_open = exc
                 _log.warning("{} is held open; trying Outlook instead", path.name)
             except pst_libpff.LibpffUnavailable as exc:
-                if self.backend == PstBackend.LIBPFF:
+                if preference == PstBackend.LIBPFF:
                     raise_error(
                         "ERR_OUTLOOK_MISSING", "extract.pst", path=str(path),
                         suggestion=(
@@ -1077,6 +1103,32 @@ def archive_marker(path: Path) -> Optional[str]:
         216, 224,    # BREFNBT: bid, ib
         232, 240,    # BREFBBT: bid, ib
     ))
+
+
+#: The numbers `archive_marker` joins, in its order, by their [MS-PST] names.
+_MARKER_FIELDS = ("bidNextP", "bidNextB", "ibFileEof",
+                  "BREFNBT.bid", "BREFNBT.ib", "BREFBBT.bid", "BREFBBT.ib")
+
+
+def marker_difference(old: Optional[str], new: Optional[str]) -> str:
+    """Which header numbers differ between two markers, in words for the log.
+
+    2026-10-07. On the day three archives were read again with no mail known
+    to have changed, the old markers had already been overwritten, so nobody
+    could say whether Outlook had really written to them or the marker is too
+    easily moved. This is what the log now keeps. No I/O; never raises."""
+    try:
+        before = str(old or "")[len(MARKER_PREFIX):].split(":")
+        after = str(new or "")[len(MARKER_PREFIX):].split(":")
+        if (not str(old or "").startswith(MARKER_PREFIX)
+                or not str(new or "").startswith(MARKER_PREFIX)
+                or len(before) != len(_MARKER_FIELDS) or len(after) != len(_MARKER_FIELDS)):
+            return f"was {old!r}, now {new!r}"
+        moved = [f"{name} {int(a, 16):,} -> {int(b, 16):,} ({int(b, 16) - int(a, 16):+,})"
+                 for name, a, b in zip(_MARKER_FIELDS, before, after) if a != b]
+        return "; ".join(moved) if moved else "no number differs"
+    except Exception:                               # noqa: BLE001 - a log line, not a read
+        return f"was {old!r}, now {new!r}"
 
 
 def _busy_warning(path: Path) -> Optional[AppError]:

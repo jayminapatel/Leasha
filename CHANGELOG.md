@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.79 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
+**Doc version:** 4.80 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.4
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,27 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Removing a folder removes what was read from it (2026-10-07)
+
+- **Remove now takes a folder's data out of the index, after asking.** Before, Remove in
+  Settings only took the folder off the list: everything read from it stayed searchable for
+  good. Now Leasha says how many items will go - its files, and the mail and attachments
+  read from any mail archive inside it - and asks first. Your files are never touched, and
+  anything another listed folder still covers stays.
+- **The list and the index match.** If the index holds anything from a folder that is no
+  longer listed, a line under the list says how many, with **Remove them from the index**.
+- **A mail archive deleted from disk takes its mail with it.** Its messages and attachments
+  used to stay searchable after the `.pst` itself had gone.
+- **Each mail archive can be read its own way.** Settings, What's indexed, now lists every
+  `.pst` and `.ost` under **Mail archives**, with its message count and status. Each can be
+  read directly or through Outlook, or follow the setting above it.
+- **Read again, or clear and read again.** Every archive in that list has both. Read again
+  reads it from the start and keeps what is there meanwhile; Clear and read again says how
+  many items it holds, asks, removes them, then reads it afresh.
+- **Reading an archive again really starts at the top.** A forced read carried on from where
+  an earlier, stopped run had got to, and never read the folders before that point.
+- **The View menu's last item is the text-size box again.** It showed as a blank line.
 
 ### Menus open again, mail archives are read once, and pictures from mail are sorted out (2026-10-07)
 

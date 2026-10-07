@@ -701,6 +701,143 @@ class SettingsController(QObject):
         if extractor is not None:
             extractor.backend = backend
 
+    # -- Remove on the folder list (2026-10-07, the owner) ---------------------
+    #
+    # "If a location is removed the data for that location should be removed,
+    # ask confirmation at removal that the index data will be removed too - the
+    # only way the list must reflect what is in the index." Count, ask, delete,
+    # and only then take the row off: a removal that could not happen (an
+    # index run holds the index) leaves the folder listed, with its data.
+
+    def _remove_folders(self, folders: list[str]) -> None:
+        from app.index.forget_folder import count_from_folders
+
+        kept = self._kept_after(folders)
+        worker = CallableWorker(count_from_folders, self._w._store, folders, kept,
+                                component="ui.settings")
+        worker.signals.finished.connect(
+            lambda count: self._confirm_remove(folders, int(count or 0)))
+        worker.signals.failed.connect(self._w._show_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _kept_after(self, folders: list[str]) -> list[str]:
+        from app.index.archives import normalise
+
+        gone = {normalise(folder) for folder in folders}
+        return [root for root in self._w.settings_view.roots_box.current_roots()
+                if normalise(root) not in gone]
+
+    def _confirm_remove(self, folders: list[str], count: int) -> None:
+        box = self._w.settings_view.roots_box
+        if not count:
+            # Nothing of it is in the index - the list already says so.
+            box.remove_roots(folders)
+            return
+        if not self.ask_remove(folders, count):
+            return
+        from app.core.run_lock import GUI
+        from app.index.forget_folder import forget_folders
+
+        worker = CallableWorker(
+            forget_folders, self._w._store, self._w._vectors,
+            getattr(self._w, "_image_vectors", None), folders, self._kept_after(folders),
+            run_lock_owner=GUI, component="ui.settings")
+        worker.signals.finished.connect(self._folders_removed)
+        worker.signals.failed.connect(self._w._show_error)
+        self._w.notify("Removing from the index…")
+        run(QThreadPool.globalInstance(), worker)
+
+    def ask_remove(self, folders: list[str], count: int) -> bool:
+        """The question, with the count. Overridable so tests need no dialog."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from app.ui.presenter import remove_folders_confirmation
+
+        title, body = remove_folders_confirmation(folders, count)
+        answer = QMessageBox.question(
+            self._w, title, body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _folders_removed(self, result: Any) -> None:
+        from app.ui.presenter import folders_removed_message
+
+        folders = list(result.get("folders") or [])
+        if folders:
+            self._w.settings_view.roots_box.remove_roots(folders)
+        for view, method in (("files_view", "refresh_summary"), ("mail_view", "refresh")):
+            refresh = getattr(getattr(self._w, view, None), method, None)
+            if refresh is not None:
+                refresh()
+        self._w.notify(folders_removed_message(result), 20_000)
+        self._check_leftovers()
+
+    # -- what the index holds from no listed folder ------------------------------
+
+    def _check_leftovers(self, *_ignored: Any) -> None:
+        """Count, off the window's thread, what the index holds from folders no
+        longer on the list, and show it under the list. On loading, whenever
+        the list changes and after a run. The newest count wins."""
+        from app.index.forget_folder import count_outside
+
+        self._leftover_check = getattr(self, "_leftover_check", 0) + 1
+        check = self._leftover_check
+        listed = self._w.settings_view.roots_box.current_roots()
+        worker = CallableWorker(count_outside, self._w._store, listed,
+                                component="ui.settings")
+        worker.signals.finished.connect(
+            lambda count: self._show_leftovers(check, int(count or 0)))
+        worker.signals.failed.connect(
+            lambda error: _log.warning("could not count leftovers: {}", error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_leftovers(self, check: int, count: int) -> None:
+        if check == getattr(self, "_leftover_check", 0):
+            self._w.settings_view.roots_box.set_leftovers(count)
+
+    def _remove_leftovers(self) -> None:
+        from app.index.forget_folder import count_outside
+
+        listed = self._w.settings_view.roots_box.current_roots()
+        worker = CallableWorker(count_outside, self._w._store, listed,
+                                component="ui.settings")
+        worker.signals.finished.connect(
+            lambda count: self._confirm_leftovers(listed, int(count or 0)))
+        worker.signals.failed.connect(self._w._show_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _confirm_leftovers(self, listed: list[str], count: int) -> None:
+        if not count:
+            self._w.settings_view.roots_box.set_leftovers(0)
+            return
+        if not self.ask_remove_leftovers(count):
+            return
+        from app.core.run_lock import GUI
+        from app.index.forget_folder import forget_outside
+
+        worker = CallableWorker(
+            forget_outside, self._w._store, self._w._vectors,
+            getattr(self._w, "_image_vectors", None), listed,
+            run_lock_owner=GUI, component="ui.settings")
+        worker.signals.finished.connect(self._folders_removed)
+        worker.signals.failed.connect(self._w._show_error)
+        self._w.notify("Removing from the index…")
+        run(QThreadPool.globalInstance(), worker)
+
+    def ask_remove_leftovers(self, count: int) -> bool:
+        """The question, with the count. Overridable so tests need no dialog."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from app.ui.presenter import remove_leftovers_confirmation
+
+        title, body = remove_leftovers_confirmation(count)
+        answer = QMessageBox.question(
+            self._w, title, body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        return answer == QMessageBox.StandardButton.Yes
+
     def _save_roots(self, roots: list[str]) -> None:
         try:
             # The key `app.cli index` reads when it is given no folders, so
@@ -714,3 +851,135 @@ class SettingsController(QObject):
                    component="ui.settings", owner=self,
                    on_failed=lambda error: _log.warning(
                        "index roots not saved: {}", error))
+
+    # -- Mail archives: each read its own way, and read again (2026-10-07) -------
+    #
+    # The owner: "need a way for each pst file it can be configured how to
+    # index outlook or direct ... there should be a reindex button on those
+    # files". The list and the saved choices are read on a worker - at start,
+    # after every run and after a clear - and a choice is queued on the state
+    # writer like every other `ui:*` value. "Read again" is the forced one-file
+    # run "Index this file now" already starts; "Clear and read again" counts,
+    # asks, removes under the index run lock, and only then starts that run.
+
+    def _load_mail_archives(self, *_ignored: Any) -> None:
+        """Read every mail archive in the index and the saved per-archive
+        choices, off the window's thread. The newest load wins."""
+        self._archives_load = getattr(self, "_archives_load", 0) + 1
+        load = self._archives_load
+        worker = CallableWorker(_read_mail_archives, self._w._store,
+                                component="ui.settings")
+        worker.signals.finished.connect(
+            lambda found: self._show_mail_archives(load, found))
+        worker.signals.failed.connect(
+            lambda error: _log.warning("could not list mail archives: {}", error))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _show_mail_archives(self, load: int, found: Any) -> None:
+        if load != getattr(self, "_archives_load", 0):
+            return
+        rows, choices = found
+        self._pst_choices = dict(choices or {})
+        box = getattr(getattr(self._w, "settings_view", None), "mail_archives", None)
+        if box is not None:
+            box.set_archives(rows, self._pst_choices)
+
+    def _save_archive_choice(self, path: str, backend: str) -> None:
+        """One archive's way of being read. "auto" takes its own choice away."""
+        from app.index.archives import normalise
+        from app.index.run_setup import PST_BACKENDS_STATE_KEY, dump_pst_backends
+        from app.ui.presenter import archive_choice_saved_message
+
+        choices = dict(getattr(self, "_pst_choices", {}) or {})
+        key = normalise(path)
+        if str(backend or "auto") == "auto":
+            choices.pop(key, None)
+        else:
+            choices[key] = str(backend)
+        self._pst_choices = choices
+
+        def not_saved(error: Any) -> None:
+            _log.warning("mail archive choice not saved: {}", error)
+            self._w.notify("How that archive is read was not saved.", 8_000)
+
+        save_state(self._w._store, PST_BACKENDS_STATE_KEY, dump_pst_backends(choices),
+                   component="ui.settings", owner=self, on_failed=not_saved)
+        self._w.notify(archive_choice_saved_message(path, backend, choices), 8_000)
+
+    def _read_archive_again(self, path: str) -> None:
+        """Read it from the start, over the top: nothing is removed first."""
+        from app.ui.presenter import read_again_message
+
+        box = getattr(getattr(self._w, "settings_view", None), "mail_archives", None)
+        messages = box.messages_in(path) if box is not None else 0
+        # Said first: a start that is refused says why, over the top of this.
+        self._w.notify(read_again_message(path, messages), 12_000)
+        self._w._index_file_now(path)
+
+    def _clear_archive(self, path: str) -> None:
+        """Count what reading it brought in, then ask (`_confirm_clear_archive`)."""
+        from app.index.forget_folder import count_from_folders
+
+        worker = CallableWorker(count_from_folders, self._w._store, [path],
+                                component="ui.settings")
+        worker.signals.finished.connect(
+            lambda count: self._confirm_clear_archive(path, int(count or 0)))
+        worker.signals.failed.connect(self._w._show_error)
+        run(QThreadPool.globalInstance(), worker)
+
+    def _confirm_clear_archive(self, path: str, count: int) -> None:
+        if not count:
+            # Nothing of it in the index: there is nothing to clear, so this
+            # is "Read again" and needs no question.
+            self._read_archive_again(path)
+            return
+        if not self.ask_clear_archive(path, count):
+            return
+        from app.core.run_lock import GUI
+        from app.index.forget_folder import file_ids_from_folders, forget_ids
+        from app.ui.presenter import clearing_archive_message
+
+        store = self._w._store
+        worker = CallableWorker(
+            forget_ids, store, self._w._vectors,
+            getattr(self._w, "_image_vectors", None),
+            lambda: file_ids_from_folders(store, [path]),
+            run_lock_owner=GUI, component="ui.settings")
+        worker.signals.finished.connect(
+            lambda removed: self._archive_cleared(path, removed))
+        worker.signals.failed.connect(self._w._show_error)
+        self._w.notify(clearing_archive_message(path, count))
+        run(QThreadPool.globalInstance(), worker)
+
+    def ask_clear_archive(self, path: str, count: int) -> bool:
+        """The question, with the count. Overridable so tests need no dialog."""
+        from PySide6.QtWidgets import QMessageBox
+
+        from app.ui.presenter import clear_archive_confirmation
+
+        title, body = clear_archive_confirmation(path, count)
+        answer = QMessageBox.question(
+            self._w, title, body,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel)
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _archive_cleared(self, path: str, removed: Any) -> None:
+        from app.ui.presenter import archive_cleared_message
+
+        for view, method in (("files_view", "refresh_summary"), ("mail_view", "refresh")):
+            refresh = getattr(getattr(self._w, view, None), method, None)
+            if refresh is not None:
+                refresh()
+        self._load_mail_archives()
+        self._w.notify(archive_cleared_message(path, removed), 20_000)
+        self._w._index_file_now(path)
+
+
+def _read_mail_archives(store: Any) -> tuple[list, dict]:
+    """Worker body: every mail archive in the index, and the saved choices."""
+    from app.index.run_setup import PST_BACKENDS_STATE_KEY, load_pst_backends
+
+    rows = store.mail_archives()
+    choices = load_pst_backends(store.get_state(PST_BACKENDS_STATE_KEY, "") or "")
+    return rows, dict(choices or {})

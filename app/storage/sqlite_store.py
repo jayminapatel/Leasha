@@ -3351,6 +3351,51 @@ class SqliteStore:
             found.extend(int(row[0]) for row in rows)
         return found
 
+    def iter_file_origins(self) -> Iterator[tuple[int, str, bool, Optional[str]]]:
+        r"""`(id, path, is_message, mailbox)` for every row not on a catalogued
+        drive.
+
+        2026-10-07, for `app.index.forget_folder`: which folder each row came
+        from. `mailbox` is the `.pst` a message was read from
+        (`messages.store_path`), because **a message's path is not under any
+        folder** - it is `pst://<mailbox name>/<entry id>`. None for a message
+        read through Outlook, and for everything that is not a message,
+        attachments included. A drive's rows (`volume_id`) are the Offline
+        tab's and are left out.
+        """
+        for row in self.conn.execute(
+                "SELECT f.id, f.path, m.file_id IS NOT NULL, m.store_path FROM files f "
+                "LEFT JOIN messages m ON m.file_id = f.id "
+                "WHERE f.volume_id IS NULL"):
+            yield int(row[0]), str(row[1]), bool(row[2]), row[3]
+
+    def mail_archives(self) -> list[dict[str, Any]]:
+        r"""Every `.pst` and `.ost` in the index, with how many messages were
+        read out of each. Ordered by path.
+
+        2026-10-07, for the Mail archives box in Settings (the owner: "for each
+        pst file it can be configured how to index outlook or direct"). The
+        archive's own row - its marker (`source_kind='archive'`) once it has
+        been read, or a plain `file` row while it is waiting or was skipped -
+        with `path`, `status`, `skip_code`, and `messages`: the `messages` rows
+        whose `store_path` is that path, counted in **one grouped query**, not
+        one per archive. A drive's rows (`volume_id`) are the Offline tab's,
+        and an archive attached to a message (`pst://...`) is not a file on
+        disk anybody could read again; neither is listed.
+        """
+        rows = self.conn.execute(
+            "SELECT f.path, f.status, f.skip_code, COALESCE(m.n, 0) AS messages "
+            "FROM files f "
+            "LEFT JOIN (SELECT store_path, COUNT(*) AS n FROM messages "
+            "           WHERE store_path IS NOT NULL GROUP BY store_path) m "
+            "       ON m.store_path = f.path "
+            "WHERE f.ext IN ('pst', 'ost') AND f.source_kind IN ('archive', 'file') "
+            "  AND f.volume_id IS NULL AND f.path NOT LIKE 'pst://%' "
+            "ORDER BY f.path").fetchall()
+        return [{"path": str(row[0]), "status": str(row[1] or ""),
+                 "skip_code": row[2], "messages": int(row[3] or 0)}
+                for row in rows]
+
     def delete_file_by_path(self, path: str) -> Optional[int]:
         record = self.get_file(path)
         if record is None:

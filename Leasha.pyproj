@@ -261,6 +261,7 @@
     <Compile Include="app\index\face_clustering.py" />
     <Compile Include="app\index\file_watch.py" />
     <Compile Include="app\index\folder_watch.py" />
+    <Compile Include="app\index\forget_folder.py" />
     <Compile Include="app\index\held_archives.py" />
     <Compile Include="app\index\image_book.py" />
     <Compile Include="app\index\index_bench.py" />
@@ -403,6 +404,7 @@
     <Compile Include="app\ui\presenter\live_progress.py" />
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\mail.py" />
+    <Compile Include="app\ui\presenter\mail_archives.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
     <Compile Include="app\ui\presenter\photos.py" />
@@ -497,6 +499,7 @@
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
+    <Compile Include="app\ui\widgets\mail_archives_box.py" />
     <Compile Include="app\ui\widgets\mail_card.py" />
     <Compile Include="app\ui\widgets\mail_open.py" />
     <Compile Include="app\ui\widgets\mcp_box.py" />
@@ -762,6 +765,7 @@
     <Compile Include="tests\unit\test_folder_watch_ui.py" />
     <Compile Include="tests\unit\test_folding.py" />
     <Compile Include="tests\unit\test_force_skip_button.py" />
+    <Compile Include="tests\unit\test_forget_folder.py" />
     <Compile Include="tests\unit\test_format_health.py" />
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fts_bulk_recovery.py" />
@@ -832,6 +836,7 @@
     <Compile Include="tests\unit\test_logs_and_skip_detail.py" />
     <Compile Include="tests\unit\test_long_run_reporting.py" />
     <Compile Include="tests\unit\test_mac_volumes.py" />
+    <Compile Include="tests\unit\test_mail_archives_box.py" />
     <Compile Include="tests\unit\test_mail_attachment_rule.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
@@ -938,6 +943,7 @@
     <Compile Include="tests\unit\test_pst_folder_resume.py" />
     <Compile Include="tests\unit\test_pst_libpff.py" />
     <Compile Include="tests\unit\test_pst_partial_pipeline.py" />
+    <Compile Include="tests\unit\test_pst_reader_per_file.py" />
     <Compile Include="tests\unit\test_pst_resilience.py" />
     <Compile Include="tests\unit\test_pst_robust.py" />
     <Compile Include="tests\unit\test_quantize_model.py" />

@@ -126,6 +126,10 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Reset to defaults": ("rotate-ccw", "secondary"),
     "Save file types": ("save", "primary"),
     "Convert a .pst to .eml files…": ("arrow-right-left", "secondary"),
+    # 2026-10-07: on each line of Mail archives - that archive, read again;
+    # or its messages taken out of the index first (it asks).
+    "Read again": ("refresh-cw", "secondary"),
+    "Clear and read again": ("eraser", "danger"),
     # -- Settings › Models & AI › AI programs (2026-10-04) ----------------------
     "Start": ("play", "secondary"),
     "Connect": ("plus", "secondary"),

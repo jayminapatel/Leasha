@@ -793,6 +793,24 @@ class MainWindow(QMainWindow):
                 self.settings_ctl._save_first_folders)
             self.settings_view.rescan_archives_requested.connect(self._rescan_archives)
             self.settings_view.index_folder_requested.connect(self._index_folder_now)
+            # 2026-10-07, the owner: the list reflects what is in the index.
+            self.settings_view.remove_folders_requested.connect(
+                self.settings_ctl._remove_folders)
+            self.settings_view.remove_leftovers_requested.connect(
+                self.settings_ctl._remove_leftovers)
+            self.settings_view.roots_changed.connect(self.settings_ctl._check_leftovers)
+            self.indexing_view.finished.connect(self.settings_ctl._check_leftovers)
+            self.settings_ctl._check_leftovers()
+            # 2026-10-07, the owner: each mail archive read its own way, and
+            # read again - over the top, or cleared first.
+            self.settings_view.mail_archive_choice_changed.connect(
+                self.settings_ctl._save_archive_choice)
+            self.settings_view.mail_archive_read_again_requested.connect(
+                self.settings_ctl._read_archive_again)
+            self.settings_view.mail_archive_clear_requested.connect(
+                self.settings_ctl._clear_archive)
+            self.indexing_view.finished.connect(self.settings_ctl._load_mail_archives)
+            self.settings_ctl._load_mail_archives()
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())
             # 2026-10-05: the drop-down shows what was saved. Before the

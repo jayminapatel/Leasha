@@ -76,6 +76,13 @@ class RootsBox(QGroupBox):
     #: 2026-10-02. "Index now" on one line: the folder, exactly as its row
     #: spells it. The shell starts a run that reads that folder and no other.
     index_requested = Signal(str)
+    #: 2026-10-07, the owner: removing a folder removes what was read from it.
+    #: The folders selected when Remove was pressed, as their rows spell them.
+    #: Fired instead of removing them when `confirms_removal` is set - the
+    #: window then asks, deletes, and calls `remove_roots` once that is done.
+    remove_requested = Signal(list)
+    #: "Remove them from the index" on the leftovers line (`set_leftovers`).
+    leftovers_requested = Signal()
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Folders to index", parent)
@@ -84,6 +91,10 @@ class RootsBox(QGroupBox):
         #: than read back from the rows, because the order is the setting and
         #: the rows are in the order the folders were added.
         self._first: list[str] = []
+        #: Set by the Settings page, which asks before removing and takes the
+        #: folder's data out of the index. Left False, Remove takes the row off
+        #: at once - a box on its own has no index to ask about.
+        self.confirms_removal = False
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(5)
@@ -133,9 +144,9 @@ class RootsBox(QGroupBox):
         add_file.clicked.connect(self._add_file)
         remove = QPushButton("Remove")
         remove.setToolTip(
-            "Stop indexing this folder.\n\n"
-            "What has already been indexed from it stays searchable until the "
-            "next run, which removes it.")
+            "Stop indexing this folder, and take what was read from it out of "
+            "the index.\n\n"
+            "Leasha says how much first and asks. Your files are not touched.")
         remove.clicked.connect(self._remove_root)
 
         # **Separate from the mode, deliberately.** Changing a folder back to
@@ -193,11 +204,30 @@ class RootsBox(QGroupBox):
             "until you press Index.")
         self.suggest_all.clicked.connect(self._add_every_suggestion)
 
+        # 2026-10-07, the owner: "the list must reflect what is in the index".
+        # What is in it from no listed folder - an earlier Remove's leftovers,
+        # or a command-line run elsewhere - is said here, with the way out.
+        # Hidden while there is none (`set_leftovers`).
+        self.leftovers = QLabel()
+        self.leftovers.setWordWrap(True)
+        self.clear_leftovers = QPushButton("Remove them from the index")
+        style_button(self.clear_leftovers, "folder-minus", "secondary")
+        self.clear_leftovers.setToolTip(
+            "Take what was read from folders that are no longer on this list out "
+            "of the index. Leasha asks first. Your files are not touched.")
+        self.clear_leftovers.clicked.connect(
+            lambda _checked=False: self.leftovers_requested.emit())
+        leftover_row = QHBoxLayout()
+        leftover_row.addWidget(self.leftovers, 1)
+        leftover_row.addWidget(self.clear_leftovers)
+        self.set_leftovers(0)
+
         layout = QVBoxLayout(self)
         layout.addWidget(self.empty)
         layout.addLayout(self.suggestions)
         layout.addWidget(self.tree)
         layout.addLayout(buttons)
+        layout.addLayout(leftover_row)
         layout.addWidget(self.note)
         self._offer_suggestions()
         self._sync_rescan()
@@ -447,8 +477,28 @@ class RootsBox(QGroupBox):
             self.add_root(chosen)
 
     def _remove_root(self) -> None:
-        for item in self.tree.selectedItems():
-            self.tree.takeTopLevelItem(self.tree.indexOfTopLevelItem(item))
+        folders = [item.text(0) for item in self.tree.selectedItems()]
+        if not folders:
+            return
+        if self.confirms_removal:
+            self.remove_requested.emit(folders)
+        else:
+            self.remove_roots(folders)
+
+    def set_leftovers(self, count: int) -> None:
+        """Say how many items in the index came from no folder on the list."""
+        from app.ui.presenter import leftovers_text
+
+        self.leftovers.setText(leftovers_text(count))
+        for widget in (self.leftovers, self.clear_leftovers):
+            widget.setVisible(count > 0)
+
+    def remove_roots(self, folders: list[str]) -> None:
+        """Take these folders' rows off the list, and say so once."""
+        gone = {normalise(folder) for folder in folders}
+        for row in reversed(range(self.tree.topLevelItemCount())):
+            if normalise(self.tree.topLevelItem(row).text(0)) in gone:
+                self.tree.takeTopLevelItem(row)
         self._emit()
 
     def _row_menu(self, point: Any) -> None:

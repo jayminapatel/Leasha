@@ -42,6 +42,7 @@ from app.ui.widgets.defaults import attach_resets, restore_button
 from app.ui.widgets.editor_box import EditorBox
 from app.ui.widgets.environment_box import EnvironmentBox
 from app.ui.widgets.file_types import FileTypesEditor
+from app.ui.widgets.mail_archives_box import MailArchivesBox
 from app.ui.widgets.media_box import MediaBox
 from app.ui.widgets.model_box import ModelBox
 from app.ui.widgets.roots_box import RootsBox
@@ -111,9 +112,20 @@ class SettingsShelves:
         self.roots_box.rescan_requested.connect(self.rescan_archives_requested)
         self.roots_box.first_changed.connect(self.first_folders_changed)
         self.roots_box.index_requested.connect(self.index_folder_requested)
+        # 2026-10-07: Remove asks, and takes the folder's data out of the index.
+        self.roots_box.confirms_removal = True
+        self.roots_box.remove_requested.connect(self.remove_folders_requested)
+        self.roots_box.leftovers_requested.connect(self.remove_leftovers_requested)
 
         self.code_types = CodeTypesBox()
         self.code_types.changed.connect(self.code_types_changed)
+
+        # 2026-10-07: every mail archive in the index, each read its own way,
+        # and read again. Filled by the settings controller, off the UI thread.
+        self.mail_archives = MailArchivesBox()
+        self.mail_archives.choice_changed.connect(self.mail_archive_choice_changed)
+        self.mail_archives.read_again.connect(self.mail_archive_read_again_requested)
+        self.mail_archives.clear_and_read.connect(self.mail_archive_clear_requested)
 
         self.search_box = SearchBox(settings)
         self.rerank = self.search_box.rerank
@@ -299,7 +311,7 @@ class SettingsShelves:
         """
         shelves = (
             (CATEGORY_WHATS_INDEXED, (self.roots_box, self.code_types, pst_box,
-                                      behaviour, self.file_types)),
+                                      self.mail_archives, behaviour, self.file_types)),
             (CATEGORY_SEARCH, (self.search_box, self.search_behaviour,
                                self.editor_box, privacy)),
             (CATEGORY_MODELS, (self.model_manager, self.models, self.photo_people_box,

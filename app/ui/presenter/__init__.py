@@ -38,6 +38,7 @@ The package is split by domain; this file re-exports every name so that
   interrupted a run that did not finish, in words
   live_progress  each reader's place inside a file, and the heartbeat
   settings    Settings-page text and suggested folders
+  mail_archives  the Mail archives box in Settings: each .pst, read again
   offline     catalogued drives and online-only files
 
 Anything that reads a store, the disk or a subprocess lives in `app.ui.tasks`
@@ -316,6 +317,24 @@ from app.ui.presenter.settings import (
     suggested_roots,
     nothing_indexed_yet,
     cleared_message,
+    remove_folders_confirmation,
+    folders_removed_message,
+    leftovers_text,
+    remove_leftovers_confirmation,
+)
+from app.ui.presenter.mail_archives import (
+    ARCHIVE_CHOICES,
+    OUTLOOK_ONLY_TIP,
+    archive_name,
+    archive_status_words,
+    is_outlook_only,
+    messages_words,
+    mail_archives_empty_text,
+    clear_archive_confirmation,
+    read_again_message,
+    clearing_archive_message,
+    archive_cleared_message,
+    archive_choice_saved_message,
 )
 from app.ui.presenter.snippets import (
     SNIPPET_CHARS,

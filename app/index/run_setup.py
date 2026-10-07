@@ -24,7 +24,8 @@ every one of those places calls it:
 * `images_due_after` / `record_pass` - what a finished run means for the
   next one's pass;
 * `saved_cloud_content_keys` - the cloud-content opt-ins the window saves;
-* `apply_saved_pst_backend` - the PST reader chosen in Settings, applied by
+* `apply_saved_pst_backend` - the PST reader chosen in Settings, for every
+  archive and for each one on its own (`load_pst_backends`), applied by
   `Pipeline.run` itself so no run can miss it.
 
 Nothing here imports Qt, and nothing here is slow: each store read is one
@@ -33,10 +34,11 @@ row of `index_state`, made once per run, never per file.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
 
 from app.core.logging import logger
 
@@ -47,12 +49,15 @@ __all__ = [
     "NOW",
     "OCR_MODES",
     "PST_BACKEND_STATE_KEY",
+    "PST_BACKENDS_STATE_KEY",
     "SCHEDULED",
     "WATCH",
     "apply_saved_pst_backend",
     "build_pipeline_config",
     "covers_saved_folders",
+    "dump_pst_backends",
     "images_due_after",
+    "load_pst_backends",
     "ocr_schedule",
     "ocr_what",
     "pass_for",
@@ -71,6 +76,11 @@ IMAGES_DUE_STATE = "index:images_pass_due"
 #: Store state: the PST reader chosen in Settings - `auto`, `libpff` or
 #: `outlook` (`email_pst.PstBackend`). Written by the Settings page.
 PST_BACKEND_STATE_KEY = "ui:pst_backend"
+#: Store state: the PST reader chosen for single archives, overriding the one
+#: above for that file only - a JSON object `{archive key: backend}`, keyed by
+#: `archives.normalise` (`load_pst_backends`). Written by the Settings page's
+#: list of mail archives (2026-10-07).
+PST_BACKENDS_STATE_KEY = "ui:pst_backends"
 #: Store state: the master switch for reading cloud-only files ("on"/"off").
 #: The per-folder opt-ins are `walker.CLOUD_CONTENT_STATE_KEY`.
 CLOUD_SWITCH_STATE_KEY = "ui:index_cloud"
@@ -244,22 +254,79 @@ def saved_cloud_content_keys(store: Any) -> frozenset[str]:
         return frozenset()
 
 
+def _backend_choices(choices: Mapping[Any, Any]) -> dict[str, str]:
+    """`{normalised archive key: backend}`, keeping only real choices: `auto`
+    is the default and is never stored, and anything else unknown is dropped."""
+    from app.extract.email_pst import PstBackend
+    from app.index.archives import normalise
+
+    found: dict[str, str] = {}
+    for path, backend in choices.items():
+        if not isinstance(path, str) or not isinstance(backend, str):
+            continue
+        key, chosen = normalise(path.strip()), backend.strip().lower()
+        if key and chosen in PstBackend.ALL and chosen != PstBackend.AUTO:
+            found[key] = chosen
+    return found
+
+
+def load_pst_backends(raw: str) -> dict[str, str]:
+    r"""The per-archive PST reader choices from their saved JSON
+    (`PST_BACKENDS_STATE_KEY`). Never raises: anything unreadable is no
+    choice, which reads that archive the way every other one is read."""
+    if not raw:
+        return {}
+    try:
+        saved = json.loads(raw)
+    except Exception:                                # noqa: BLE001 - see docstring
+        return {}
+    return _backend_choices(saved) if isinstance(saved, dict) else {}
+
+
+def dump_pst_backends(choices: Mapping[str, str]) -> str:
+    """The per-archive choices as `PST_BACKENDS_STATE_KEY` keeps them: keys
+    normalised, `auto` and anything unknown left out, keys sorted."""
+    return json.dumps(_backend_choices(choices), sort_keys=True)
+
+
 def apply_saved_pst_backend(store: Any) -> Optional[str]:
-    """Point the PST reader at the route chosen in Settings, if one was saved.
+    """Point the PST reader at the routes chosen in Settings: the one for every
+    archive, if one was saved, and each archive's own (`PST_BACKENDS_STATE_KEY`).
+    Returns the first, or None.
 
     Called by `Pipeline.run` at the start of every run, on the run's own
     thread, so the window's run, the separate process, the command line, the
     folder watch and Offline Media all read a `.pst` the same way. Before,
     only the window's own process was told, and every other run fell back to
-    `auto`. Nothing saved leaves the reader as it is. Never raises.
+    `auto`. No global choice saved leaves `backend` as it is; the per-archive
+    choices are set every run, so one taken away in Settings is gone from the
+    next run of a window that stays open. Never raises.
     """
     from app.extract.email_pst import PstBackend
 
     try:
         chosen = str(store.get_state(PST_BACKEND_STATE_KEY, "") or "").strip().lower()
+        per_file = load_pst_backends(str(store.get_state(PST_BACKENDS_STATE_KEY, "") or ""))
     except Exception as exc:                         # noqa: BLE001 - see docstring
         log.debug("could not read the PST reader choice: {}", exc)
         return None
+    try:
+        from app.extract.base import extractor_for
+
+        extractor = extractor_for(Path("x.pst"))
+        if extractor is not None and getattr(extractor, "backends", None) != per_file:
+            extractor.backends = per_file
+        # 2026-10-07: one line per archive read its own way, so the log of a
+        # run says which route each of them took (an `.ost` is always Outlook).
+        from app.extract.email_pst import choose_backend
+
+        for key, backend in sorted(per_file.items()):
+            route = choose_backend(Path(key), backend)
+            log.info("{} is read {} in this run, as chosen for it under Mail archives",
+                     key, "through Outlook" if route == PstBackend.OUTLOOK
+                     else "directly")
+    except Exception as exc:                         # noqa: BLE001 - see docstring
+        log.debug("could not apply the per-archive PST reader choices: {}", exc)
     if chosen not in PstBackend.ALL:
         return None
     try:
