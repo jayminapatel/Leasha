@@ -671,6 +671,34 @@ def test_the_menu_calls_the_fit_callback_rather_than_a_plain_change():
     assert asked == ["fit"]
 
 
+def test_the_text_size_row_works_in_the_window_view_menu_too():
+    """The window's View menu borrows the tab menu's actions. The Size row was
+    one default widget, which can sit in one menu only, so View showed a blank
+    item at its foot where the box should have been (owner, 2026-10-07)."""
+    from app.ui.view_options import ViewPreferences, build_menu
+
+    app = _qt()
+    from PySide6.QtWidgets import QAbstractSpinBox, QMenu, QWidget
+
+    parent = QWidget()                       # held: a temporary is collected
+    asked: list = []
+    tab_menu = build_menu(
+        parent, ViewPreferences(), columns=COLUMNS_3, available=AVAILABLE_3,
+        on_change=asked.append,
+    )
+    window_view = QMenu(parent)
+    for action in tab_menu.actions():
+        window_view.addAction(action)
+
+    for menu in (tab_menu, window_view):
+        boxes = menu.findChildren(QAbstractSpinBox)
+        assert len(boxes) == 1, f"{len(boxes)} Size boxes in one menu"
+    borrowed = window_view.findChildren(QAbstractSpinBox)[0]
+    assert borrowed.text() == "System"
+    borrowed.setValue(12)
+    assert [prefs.font_pt for prefs in asked] == [12]
+
+
 def test_the_last_column_can_keep_a_width_somebody_dragged():
     r"""**`setStretchLastSection` owns the last column outright.**
 

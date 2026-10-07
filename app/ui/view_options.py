@@ -544,32 +544,42 @@ def build_menu(
         menu.addAction(fit)
 
     menu.addSection("Text size")
-    box = QWidget(menu)
-    row = QHBoxLayout(box)
-    row.setContentsMargins(12, 2, 12, 2)
-    row.addWidget(QLabel("Size"))
-    spin = QSpinBox(box)
-    spin.setRange(FONT_RANGE[0] - 1, FONT_RANGE[1])
-    spin.setSpecialValueText("System")      # the range's minimum means "follow the OS"
-    spin.setValue(prefs.font_pt or FONT_RANGE[0] - 1)
-    spin.setToolTip(
-        "Text size for this list only. Buttons and labels follow Windows, so "
-        "turning this up makes results easier to read without breaking the "
-        "layout around them. 'System' follows the operating system.")
-    spin.setKeyboardTracking(False)
-    spin.valueChanged.connect(
-        lambda value: on_change(replace(
-            prefs, font_pt=0 if value < FONT_RANGE[0] else value,
-        ))
-    )
-    # No arrows, and a back-to-default button (owner, 2026-09-29). The default
-    # is "System", the range's minimum - not the size this menu opened on.
-    from app.ui.widgets.number_field import fit
-    fit(spin, default=FONT_RANGE[0] - 1)
-    row.addWidget(spin)
-    holder = QWidgetAction(menu)
-    holder.setDefaultWidget(box)
-    menu.addAction(holder)
+
+    def size_row(parent: Any) -> Any:
+        box = QWidget(parent)
+        row = QHBoxLayout(box)
+        row.setContentsMargins(12, 2, 12, 2)
+        row.addWidget(QLabel("Size"))
+        spin = QSpinBox(box)
+        spin.setRange(FONT_RANGE[0] - 1, FONT_RANGE[1])
+        spin.setSpecialValueText("System")      # the range's minimum means "follow the OS"
+        spin.setValue(prefs.font_pt or FONT_RANGE[0] - 1)
+        spin.setToolTip(
+            "Text size for this list only. Buttons and labels follow Windows, so "
+            "turning this up makes results easier to read without breaking the "
+            "layout around them. 'System' follows the operating system.")
+        spin.setKeyboardTracking(False)
+        spin.valueChanged.connect(
+            lambda value: on_change(replace(
+                prefs, font_pt=0 if value < FONT_RANGE[0] else value,
+            ))
+        )
+        # No arrows, and a back-to-default button (owner, 2026-09-29). The default
+        # is "System", the range's minimum - not the size this menu opened on.
+        from app.ui.widgets.number_field import fit
+        fit(spin, default=FONT_RANGE[0] - 1)
+        row.addWidget(spin)
+        return box
+
+    # **A row for every menu it is added to, not one default widget.** The
+    # window's View menu borrows this menu's actions (`shell._fill_view_menu`),
+    # and a default widget can sit in one menu only: the borrowed copy showed
+    # as a blank item at the foot of View (owner, 2026-10-07).
+    class SizeRow(QWidgetAction):
+        def createWidget(self, parent: Any) -> Any:     # noqa: N802 - Qt's naming
+            return size_row(parent)
+
+    menu.addAction(SizeRow(menu))
 
     return menu
 
