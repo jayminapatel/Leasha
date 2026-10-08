@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.109 · **Updated:** 2026-10-08 · **Applies to:** app v0.3.5
+**Doc version:** 7.110 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,14 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-08 - release 1.0.0, on the owner's word.** `VERSION` 1.0.0, tagged `v1.0.0`.
+**Declared before its own milestone was checked:** `docs/VERSIONING.md` defines 1.0.0 as the
+24-hour soak passed, force-kill recovery verified and a cold start under 5s - none has been
+run. They are owed, and so is step 3 of the checklist (the performance budget), skipped for
+the same reason as at 0.3.5. Also in this release: a result row with nothing on its grey line
+closes up (`ResultDelegate._subtitle`), and Settings is no longer wrapped by the shell (it
+scrolls inside itself).
 
 **2026-10-08 - the owner's UI list: quick search, Chat, Settings tables, readable selection.**
 Built by four agents in parallel on separate files, reviewed from their screenshots, then the

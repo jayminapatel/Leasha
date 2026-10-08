@@ -1111,3 +1111,39 @@ def test_laying_out_a_snippet_measures_it_a_logarithmic_number_of_times():
     _wrap_ranges_scan(scan, text, 300, 2)
     assert scan.calls > 80, "the reference should be the quadratic one"
     assert metrics.calls <= 30, f"{metrics.calls} measurements for one snippet"
+
+
+def test_a_row_with_nothing_on_its_grey_line_does_not_keep_an_empty_line(qapp):
+    """2026-10-08, the owner: "should not show an empty line". A message with
+    no attachments had a blank second line between its title and the matched
+    words, in Search and in Chat alike. The row closes up instead - and is
+    still tall enough for its badge."""
+    from PySide6.QtGui import QFontMetrics
+    from PySide6.QtWidgets import QStyleOptionViewItem
+
+    from app.ui.result_delegate import BADGE_SIZE, ROLE_PAYLOAD, ResultDelegate
+
+    class Index:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def data(self, role):
+            return self.payload if role == ROLE_PAYLOAD else False
+
+    delegate = ResultDelegate()
+    option = QStyleOptionViewItem()
+    option.rect.setWidth(600)
+    with_line = group()
+    without = ResultGroup(file_id=2, name="Re: the deposit", folder="", kind="msg",
+                          when="12 Mar 2019", path="pst://Mail/2", rows=[row()])
+    assert delegate._subtitle(with_line) and not delegate._subtitle(without)
+
+    tall = delegate.sizeHint(option, Index(with_line)).height()
+    short = delegate.sizeHint(option, Index(without)).height()
+    from app.ui.view_options import Metrics
+
+    name, meta, _body = delegate._fonts(option.font)
+    metrics = Metrics.for_density(delegate.prefs.density)
+    assert tall - short == QFontMetrics(meta).height() + metrics.gap
+    badge = min(BADGE_SIZE, QFontMetrics(name).height() + metrics.gap + QFontMetrics(meta).height())
+    assert short >= badge + 2 * metrics.pad_y

@@ -904,9 +904,12 @@ class MainWindow(QMainWindow):
 
             # The two rail entries, appended in the order they always had. Indexing
             # has no button - it is the pill's page - and Settings is the foot page.
+            # 2026-10-08: neither is wrapped. Settings scrolls inside itself now
+            # (`CategoryNav(scroll=True)`), with its list of sections held still
+            # beside it; the outer scroll area had nothing left to scroll.
             for view, title, scroll, icon_name, placement in (
                 (self.indexing_view, "Indexing", False, "database", "pill"),
-                (self.settings_view, "Settings", True, "settings", "foot"),
+                (self.settings_view, "Settings", False, "settings", "foot"),
             ):
                 wrapped = wrap_if_needed(view, scroll=scroll)
                 self._tab_wrapped[view] = wrapped

@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.82 · **Updated:** 2026-10-08 · **Applies to:** app v0.3.5
+**Doc version:** 4.83 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-10-08
 
 ### A quick search you can move, a tidier Chat, and text you can read when it is selected (2026-10-08)
 
@@ -42,6 +44,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   file reading (as set above)" - in place of "Use the setting above", at the owner's request.
 - **Matched words line up under a result's title,** in Search and in Chat, instead of under
   its icon.
+- **A result with nothing to say on its second line no longer leaves a blank line there** -
+  a message with no attachments, in Search and in Chat. The matched words move up.
+- **Settings no longer sits inside a second, unused scroll area.**
 - **Turning off "Offer recent searches" now hides them on the Search page.** The switch had
   never taken effect there.
 - **If another program already uses the quick search shortcut, Leasha says so.** On the
@@ -450,6 +455,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - `docs/TROUBLESHOOTING.md` 1.5: a table of this week's problems and what they mean.
   `docs/GLOSSARY.md` 1.3: ten terms added. `README.md` 3.2: the picture tool and the About
   box. `HANDOFF.md` 7.47.
+- For 1.0.0: the user guide describes the quick search box, the Chat side panel and the
+  Mail archives choice; the technical reference the fitted tables, the fixed section list,
+  the chat panel, quick search and the selection colours. `docs/VERSIONING.md` records 1.0.0
+  as set by the owner, with its three checks still owed. Every document changed since 0.3.5
+  says it applies to 1.0.0.
 - For 0.3.5: the user guide, README and technical reference give install steps for Windows
   (installer or from source), macOS and Linux, and say what is true now; the guide and the
   reference describe removing a folder and Mail archives. Every document changed since 0.3.4

@@ -174,6 +174,10 @@ class ResultDelegate(QStyledItemDelegate):
         rows = [QFontMetrics(meta_font).height()]
         if isinstance(payload, ResultGroup):
             rows.insert(0, QFontMetrics(name_font).height())
+            # 2026-10-08, the owner: a row whose grey line would say nothing
+            # - a message with no attachments - does not keep an empty line.
+            if not self._subtitle(payload, expanded=bool(index.data(ROLE_EXPANDED))):
+                rows.pop()
         if self._shows_snippet(payload):
             text = _snippet_text(payload)
             snippet_font = _snippet_font(body_font, _payload_kind(payload))
@@ -182,7 +186,23 @@ class ResultDelegate(QStyledItemDelegate):
                                         max_lines=_max_snippet_lines(self.prefs.density)))
 
         height = sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y
+        if isinstance(payload, ResultGroup) and payload.kind:
+            # The badge spans the first two lines; with the grey line gone the
+            # row still has room for it.
+            side = min(BADGE_SIZE, QFontMetrics(name_font).height() + metrics.gap
+                       + QFontMetrics(meta_font).height())
+            height = max(height, side + 2 * metrics.pad_y)
         return QSize(width, height)
+
+    def _subtitle(self, group: Any, *, expanded: bool = False) -> str:
+        """A group row's grey second line, exactly as painted. Empty when it has
+        nothing to say, and then neither painted nor given room."""
+        note = offline_volume_note(self.volumes.get(int(getattr(group, "file_id", 0) or 0)))
+        best = getattr(group, "best", None)
+        online_only = (not note) and str(getattr(best, "path", "") or "") in self.placeholders
+        return group_subtitle(group, show_scores=self.prefs.show_scores,
+                              expanded=expanded, volume_note=note,
+                              online_only=online_only)
 
     def _shows_snippet(self, payload: Any) -> bool:
         """Compact drops the snippet from *group* rows only.
@@ -340,15 +360,12 @@ class ResultDelegate(QStyledItemDelegate):
                          name)
         y += name_metrics.height() + metrics.gap
 
+        subtitle = self._subtitle(group, expanded=expanded)
+        if not subtitle:
+            return y        # nothing to say: the matched words move up a line
         painter.setFont(meta_font)
         painter.setPen(QPen(faint))
         meta_metrics = QFontMetrics(meta_font)
-        note = offline_volume_note(self.volumes.get(int(getattr(group, "file_id", 0) or 0)))
-        best = getattr(group, "best", None)
-        online_only = (not note) and str(getattr(best, "path", "") or "") in self.placeholders
-        subtitle = group_subtitle(group, show_scores=self.prefs.show_scores,
-                                  expanded=expanded, volume_note=note,
-                                  online_only=online_only)
         # **Item 4c**: two results sharing a display name get the segment
         # that tells them apart bolded, in the same slot the folder always
         # occupies - `group_subtitle` puts `folder` first, so the emphasis

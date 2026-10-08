@@ -1185,8 +1185,9 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
             assert built.rail.indexOf(built._tab_wrapped[view]) == at, (
                 "`_tab_index` must agree with the rail after Mail/Code were "
                 "inserted ahead of these two")
-        # Settings is a stacked form, so it is the one wrapped in a scroll area.
-        assert built._tab_wrapped[built.settings_view] is not built.settings_view
+        # 2026-10-08: Settings scrolls inside itself (`CategoryNav`), with its
+        # list of sections held still, so neither page is wrapped any more.
+        assert built._tab_wrapped[built.settings_view] is built.settings_view
         assert built._tab_wrapped[built.indexing_view] is built.indexing_view
 
 

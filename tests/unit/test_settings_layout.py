@@ -2,6 +2,12 @@ r"""Nothing on the Settings page is smaller than the words inside it.
 
 Layer: L5
 
+*Note, 2026-10-08:* the page now scrolls inside itself - `CategoryNav(scroll=True)`
+puts the content side in one scroll area and holds the list of sections still -
+and `shell.py` no longer wraps it. The fixture below builds it the same way. The
+squeeze described next is what that inner scroll area prevents now; the
+explanation is kept as written.
+
 > *"look at alignment of things on settings page some of the check boxes are
 > cut"* - the owner
 
@@ -83,7 +89,6 @@ def settings_page(tmp_path_factory):
     from app.storage.sqlite_store import SqliteStore
     from app.ui.settings_view import SettingsView
     from app.ui.theme import stylesheet
-    from app.ui.widgets.scroll import scrollable
 
     root = tmp_path_factory.mktemp("settings")
     env = root / ".env"
@@ -100,9 +105,10 @@ def settings_page(tmp_path_factory):
     # and nothing walks every widget alive in the process - see
     # `test_no_application_stylesheet.py` for the crash that walk caused three times.
     view.setStyleSheet(stylesheet("light"))
-    area = scrollable(view)
-    area.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
-    area.show()
+    # 2026-10-08: unwrapped, as `shell.py` now adds it - the page scrolls
+    # inside itself.
+    view.resize(WINDOW_WIDTH, WINDOW_HEIGHT)
+    view.show()
     for _ in range(4):
         app.processEvents()
 
