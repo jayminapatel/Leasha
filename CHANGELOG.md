@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.84 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 4.85 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-10-08
 
 ### Words first, for real; spreadsheets by their words; results before the reranker (2026-10-08)
 
@@ -43,8 +45,6 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   repair at the start of a run cut a file's passages across batches, and each batch first
   deleted that file's vectors. 96 passages in 2 files were left that way on the owner's
   index.
-
-## [1.0.0] - 2026-10-08
 
 ### Every model, downloaded when you choose, and an installer in Leasha's colours (2026-10-08)
 
