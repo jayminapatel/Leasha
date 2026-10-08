@@ -94,8 +94,26 @@ def test_the_words():
         "Skipped: ERR_SOMETHING_NEW"
     assert presenter.archive_status_words("FAILED", None).startswith("Skipped: ")
     labels = [label for label, _value in presenter.ARCHIVE_CHOICES]
-    assert labels == ["Use the setting above", "Direct file reading (no Outlook needed)",
-                      "Through Outlook (MAPI)"]
+    assert labels == ["Automatic - direct if possible (as set above)",
+                      "Direct file reading (no Outlook needed)", "Through Outlook (MAPI)"]
+
+
+def test_the_first_choice_names_the_way_the_setting_above_reads():
+    # 2026-10-08, the owner: "the text use the setting above makes no sense it
+    # should display the actual option".
+    assert presenter.archive_default_label("auto") == \
+        "Automatic - direct if possible (as set above)"
+    assert presenter.archive_default_label("libpff") == "Direct file reading (as set above)"
+    assert presenter.archive_default_label("outlook") == "Through Outlook (as set above)"
+    assert presenter.archive_default_label("nonsense") == presenter.archive_default_label("auto")
+    for backend in ("auto", "libpff", "outlook"):
+        choices = presenter.archive_choices(backend)
+        assert [value for _label, value in choices] == ["auto", "libpff", "outlook"]
+        assert choices[0][0] == presenter.archive_default_label(backend)
+    assert "Use the setting above" not in presenter.ARCHIVE_CHOICE_TIP
+    # Put back to follow the setting, a line says which way that is.
+    said = presenter.archive_choice_saved_message(A, "auto", {}, "outlook")
+    assert said.startswith("2019.pst: Through Outlook (as set above).")
 
 
 def test_the_choice_labels_are_the_drop_down_above_word_for_word():
@@ -200,6 +218,99 @@ def test_both_buttons_carry_icons_and_emit_their_archive(qtbot):
     assert read == [B] and cleared == [B]
 
 
+def test_the_first_choice_follows_the_setting_above_and_emits_nothing(qtbot):
+    box = MailArchivesBox()
+    qtbot.addWidget(box)
+    box.set_archives(ROWS, {normalise(A): "outlook"}, default_backend="libpff")
+    first = lambda path: box.tree.itemWidget(box.item_for(path), COL_HOW).itemText(0)  # noqa: E731
+    assert first(B) == "Direct file reading (as set above)"
+    assert box.tree.itemWidget(box.item_for(B), COL_HOW).currentText() == \
+        "Direct file reading (as set above)"
+    seen: list = []
+    box.choice_changed.connect(lambda *a: seen.append(a))
+    box.set_default_backend("outlook")
+    assert [first(path) for path in (A, B, OST)] == ["Through Outlook (as set above)"] * 3
+    assert box.tree.itemWidget(box.item_for(B), COL_HOW).currentData() == "auto"
+    assert box.tree.itemWidget(box.item_for(A), COL_HOW).currentData() == "outlook"
+    assert seen == []
+    assert box.current_choices() == {normalise(A): "outlook"}
+    box.set_default_backend("auto")
+    assert first(B) == "Automatic - direct if possible (as set above)"
+    # A reload that does not say keeps what it was told last.
+    box.set_default_backend("libpff")
+    box.set_archives(ROWS, {})
+    assert first(B) == "Direct file reading (as set above)"
+
+
+def _shown(qtbot, width=900):
+    box = MailArchivesBox()
+    qtbot.addWidget(box)
+    box.set_archives(ROWS, {})
+    box.resize(width, 400)
+    box.show()
+    qtbot.waitExposed(box)
+    box.columns.fit()
+    qtbot.wait(20)
+    return box
+
+
+def test_every_column_can_be_dragged_and_is_fitted(qtbot):
+    from PySide6.QtWidgets import QHeaderView
+
+    box = _shown(qtbot)
+    header = box.tree.header()
+    for column in range(header.count()):
+        assert header.sectionResizeMode(column) == QHeaderView.ResizeMode.Interactive
+        assert header.sectionSize(column) >= header.sectionSizeHint(column)
+    assert sum(header.sectionSize(c) for c in range(header.count())) == \
+        box.tree.viewport().width()
+    # The drop-downs and both buttons are all on the page.
+    for column in (COL_HOW, COL_READ, COL_CLEAR):
+        widest = max(box.tree.itemWidget(box.item_for(p), column).sizeHint().width()
+                     for p in (A, B, OST))
+        assert header.sectionSize(column) >= widest
+
+
+def test_the_first_choice_changing_refits_its_column(qtbot):
+    box = _shown(qtbot)
+    before = box.tree.header().sectionSize(COL_HOW)
+    box.set_default_backend("outlook")          # shorter than "Automatic - ..."
+    qtbot.waitUntil(lambda: box.tree.header().sectionSize(COL_HOW) != before, timeout=3_000)
+
+
+def test_no_button_or_drop_down_is_cut_off_by_its_line(qtbot):
+    from PySide6.QtWidgets import QPushButton
+
+    box = _shown(qtbot)
+    tree = box.tree
+    for path in (A, B, OST):
+        item = box.item_for(path)
+        line = tree.visualItemRect(item)
+        for column in (COL_HOW, COL_READ, COL_CLEAR):
+            cell = tree.itemWidget(item, column)
+            place = cell.geometry()
+            assert line.top() <= place.top() and place.bottom() <= line.bottom()
+            assert cell.height() >= cell.sizeHint().height()
+        for column in (COL_READ, COL_CLEAR):
+            button = tree.itemWidget(item, column).findChild(QPushButton)
+            assert button.height() <= line.height()
+            assert button.text() == "" and not button.icon().isNull()
+            assert button.toolTip() and button.accessibleName()
+
+
+def test_the_archive_column_elides_in_the_middle_with_the_whole_path_in_the_tooltip(qtbot):
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QStyleOptionViewItem
+
+    box = _shown(qtbot)
+    item = box.item_for(B)
+    index = box.tree.indexFromItem(item, 0)
+    option = QStyleOptionViewItem()
+    box.tree.itemDelegate().initStyleOption(option, index)
+    assert option.textElideMode == Qt.TextElideMode.ElideMiddle
+    assert item.toolTip(0) == B
+
+
 # -- the controller -------------------------------------------------------------------
 
 class _Window(QWidget):
@@ -264,6 +375,29 @@ def test_the_list_and_the_choices_load_on_a_worker(qtbot, window, store):
     box = window.settings_view.mail_archives
     qtbot.waitUntil(lambda: box.archives() == sorted([A, B, OST]), timeout=5_000)
     assert box.current_choices() == {normalise(A): "outlook"}
+
+
+def test_the_setting_above_is_read_with_the_list_and_followed_when_it_changes(
+        qtbot, window, store):
+    from app.index.run_setup import PST_BACKEND_STATE_KEY
+
+    _fill(store)
+    store.set_state(PST_BACKEND_STATE_KEY, "libpff")
+    window._apply_pst_backend = lambda backend: None
+    ctl = _controller(window)
+    ctl._load_mail_archives()
+    box = window.settings_view.mail_archives
+    qtbot.waitUntil(lambda: box.archives() == sorted([A, B, OST]), timeout=5_000)
+    first = box.tree.itemWidget(box.item_for(B), COL_HOW).itemText(0)
+    assert first == "Direct file reading (as set above)"
+    # "How to read archives" changed in the same window.
+    ctl._save_pst_backend("outlook")
+    assert box.tree.itemWidget(box.item_for(B), COL_HOW).itemText(0) == \
+        "Through Outlook (as set above)"
+    # A reload straight after, before the write may have landed, keeps it.
+    ctl._load_mail_archives()
+    qtbot.wait(200)
+    assert box.default_backend() == "outlook"
 
 
 def test_a_choice_is_saved_where_the_reader_reads_it(qtbot, window, store):

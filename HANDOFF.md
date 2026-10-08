@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.108 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 7.109 · **Updated:** 2026-10-08 · **Applies to:** app v0.3.5
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,19 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-08 - the owner's UI list: quick search, Chat, Settings tables, readable selection.**
+Built by four agents in parallel on separate files, reviewed from their screenshots, then the
+full suite over everything before the commit. **Checked offscreen and in tests only - the real
+window on Windows is the check** (the system drag/resize of quick search, the chat panel with
+real mail, Outlook opening). New state keys: `ui:chat_panel` (`open|closed:sources|preview:width`)
+and `ui:mini_search_place`. New fields with defaults: `ChatTurn.details`, `Receipt.mtime_ns`,
+`SourcesEvent.details`. `ChatEngine._retrieve` drops mail archive files from sources.
+`widgets/fitted_tree.py` fits and frees the columns of Folders to index and Mail archives.
+Left as they are, for a decision: the shell still wraps Settings in a scroll area that no
+longer scrolls (`shell.py`, the Settings entry; `test_settings_layout.py` is written around
+it); and a message with no attachments shows an empty second line in result rows, in Search
+and Chat alike - what that line should say is the owner's call.
 
 **2026-10-07 - release 0.3.5.** `VERSION` 0.3.5, tagged `v0.3.5`, installer built with
 `packaging\build.ps1 -Release` into `Leasha\Releases\0.3.5\`. Step 3 of the release

@@ -324,7 +324,10 @@ from app.ui.presenter.settings import (
 )
 from app.ui.presenter.mail_archives import (
     ARCHIVE_CHOICES,
+    ARCHIVE_CHOICE_TIP,
     OUTLOOK_ONLY_TIP,
+    archive_choices,
+    archive_default_label,
     archive_name,
     archive_status_words,
     is_outlook_only,

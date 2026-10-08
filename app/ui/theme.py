@@ -121,7 +121,10 @@ PALETTES: dict[str, dict[str, str]] = {
         # a wall of text, and a saturated red at 12px vibrates against a dark
         # ground. See `ui/log_lines.TOKENS`, which names it and never a value.
         "danger": "#d97070",
-        "selection_text": "#ffffff",
+        # Text on `accent` where a line edit selects. The dark theme's accent is a
+        # light violet, so the text on it is dark (2026-10-08, the owner: white on
+        # it, and dark on the light theme's near-black indigo, could not be read).
+        "selection_text": "#15131f",
         "scroll": "#3a3d42",
         "scroll_hover": "#4c5057",
     },
@@ -188,7 +191,7 @@ PALETTES: dict[str, dict[str, str]] = {
         # the same token needs a different value on a white ground, which is
         # why these are two palettes rather than one with a flag.
         "danger": "#a32020",
-        "selection_text": "#0b1620",
+        "selection_text": "#ffffff",
     },
 }
 
@@ -217,6 +220,12 @@ QLineEdit {{
     selection-color: {selection_text};
 }}
 QLineEdit:hover {{ border-color: {border_strong}; }}
+/* Selected text in every text view reads as dark-on-tint, the way the search
+   box's drop-down does. Left to the system it was Windows' selection blue
+   behind black text, which nobody could read (2026-10-08). */
+QTextEdit, QPlainTextEdit, QTextBrowser {{
+    selection-background-color: {accent_soft}; selection-color: {text};
+}}
 /* **The one box that is the app** (202626160950 §3). Larger radius, a
    stronger edge, and a shadow-less lift by contrast alone - Qt stylesheets
    have no box-shadow, so the surface colour against the window does the

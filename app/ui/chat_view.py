@@ -7,7 +7,8 @@ turns the person's keys and clicks into signals.
 
 Work order 202626270611 section 3. The layout is three columns: your
 conversations, the conversation itself (bubbles, the documents on the shelf,
-the box you type in), and the local sources the answer stands on. **No banners:**
+the box you type in), and a side panel of the local sources the answer stands on
+and their preview (2026-10-08, `widgets/chat_side_panel.py`). **No banners:**
 the receipts are the honesty - every source number in the prose opens the passage
 it came from. The message actions (Copy, Regenerate, Try again, Edit) live on the
 messages themselves (`chat_bubbles.py`); this file only forwards them.
@@ -23,13 +24,13 @@ from PySide6.QtWidgets import (
     QComboBox, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
 )
 
-from app.ui.presenter.chat import NOT_BUILT_LINE, THINKING_LINE, unavailable_text
-from app.ui.view_options import preview_toggle
-from app.ui.widgets.chat_answer_run import AnswerRun
+from app.ui.presenter.chat import NOT_BUILT_LINE, PREVIEW_TAB, THINKING_LINE, unavailable_text
+from app.ui.widgets.chat_answer_run import AnswerRun, NoShelf
 from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble
 from app.ui.widgets.chat_message_box import MessageBox
 from app.ui.widgets.chat_session_list import SessionList
 from app.ui.widgets.chat_shelf import ShelfBar
+from app.ui.widgets.chat_side_panel import PanelSwitch
 from app.ui.widgets.chat_sources import SourcesPane
 from app.ui.widgets.model_picker import ModelPicker
 
@@ -72,6 +73,8 @@ class ChatView(QWidget):
         self.shelf = ShelfBar()
         self.box = MessageBox()
         self.sources = SourcesPane()
+        #: 2026-10-08: the side panel's switch; it gives the view `side_tabs` and `toggles`.
+        self.panel = PanelSwitch(self)
         self._run: Optional[AnswerRun] = None
         self._owner: Any = None                  # whose sources the pane shows
 
@@ -116,8 +119,11 @@ class ChatView(QWidget):
         # conversation, looking like a title rather than a choice (grabbed
         # 2026-09-27, order 0x section 9).
         head.addStretch(1)
-        # 2026-10-04: the same Preview toggle every other tab carries.
-        self.toggles = {"inspector": preview_toggle(self, checked=True, on_toggle=self.show_preview)}
+        # 2026-10-04: the same Preview toggle every other tab carries; 2026-10-08,
+        # the Sources toggle beside it (the owner: "the source tab viewing should be
+        # able to turn off and on too"). Each shows its page of the side panel, or
+        # puts the panel away when its page is the one showing.
+        head.addWidget(self.toggles["sources"])
         head.addWidget(self.toggles["inspector"])
         # 2026-10-04: which model answers; filled by the controller, hidden with fewer than two.
         self.model_picker = ModelPicker()
@@ -128,7 +134,9 @@ class ChatView(QWidget):
         column = QVBoxLayout(centre)
         # 10 a side: the three panes of the splitter met with a hairline between
         # them, so the footer line, the question box and "Send" all touched it.
+        # 2026-10-08: one 8px rhythm down the column (it had Qt's default gaps).
         column.setContentsMargins(10, 0, 10, 0)
+        column.setSpacing(8)
         column.addLayout(notice_row)
         column.addLayout(head)
         column.addWidget(self.speed_note)
@@ -136,13 +144,12 @@ class ChatView(QWidget):
         column.addWidget(self.shelf)
         column.addWidget(self.box)
 
-        split = QSplitter(Qt.Orientation.Horizontal)
+        self.split = QSplitter(Qt.Orientation.Horizontal)
         for part, weight in ((self.sessions, 1), (centre, 4), (self.sources, 2)):
-            split.addWidget(part)
-            split.setStretchFactor(split.indexOf(part), weight)
-        split.setChildrenCollapsible(False)
-        outer = QHBoxLayout(self)
-        outer.addWidget(split)
+            self.split.addWidget(part)
+            self.split.setStretchFactor(self.split.indexOf(part), weight)
+        self.split.setChildrenCollapsible(False)
+        self.panel.lay_out(QHBoxLayout(self), self.split)
 
         self.box.submitted.connect(self.question_submitted)
         self.box.stop_requested.connect(self.stop_requested)
@@ -168,14 +175,20 @@ class ChatView(QWidget):
         self.closing.emit()
 
     def set_store(self, store: Any) -> None:
-        """2026-10-04: the preview in the Sources column reads a message from it."""
+        # 2026-10-04: the preview reads a message from it. 2026-10-08: and the side
+        # panel is put back as it was left (`PanelSwitch.restore`).
         self.sources.set_store(store)
+        self.panel.restore(store)
 
-    def show_preview(self, on: bool) -> None:
-        """Show or hide the Sources column's preview; the toggle follows."""
-        self.sources.preview.setVisible(bool(on))
-        self.toggles["inspector"].set_quietly(bool(on))
-        self.preview_toggled.emit(bool(on))
+    # -- the side panel (2026-10-08): the window's keys and the toolbar ---------------
+    def toggle_panel(self) -> None:          # Ctrl+B: the panel away, or back
+        self.panel.toggle()
+
+    def toggle_preview(self) -> None:        # Ctrl+Shift+P, as on every list
+        self.panel.tab_clicked(PREVIEW_TAB)
+
+    def show_preview(self, on: bool) -> None:   # also the controller's remembered state
+        self.panel.toolbar(PREVIEW_TAB, on)
 
     @property
     def preview(self) -> Any:
@@ -254,7 +267,7 @@ class ChatView(QWidget):
         bubble.receipt_hovered.connect(self._hovered)
         bubble.result_opened.connect(self._opened)
         bubble.result_revealed.connect(self.result_revealed)
-        bubble.result_selected.connect(self.sources.preview_row)
+        bubble.result_selected.connect(self.panel.preview_result)
         bubble.regenerate_requested.connect(self.regenerate_requested)
         bubble.retry_requested.connect(self.retry_requested)
         bubble.link_activated.connect(self.open_link)
@@ -272,7 +285,7 @@ class ChatView(QWidget):
                 self.bubbles.add(self._user_bubble(turn.text))
                 continue
             bubble = self._answer_bubble()
-            run = AnswerRun(bubble, None, _NoShelf())
+            run = AnswerRun(bubble, None, NoShelf())
             run.finish(turn)
             self.bubbles.add(bubble)
             last = bubble
@@ -287,12 +300,16 @@ class ChatView(QWidget):
             return
         self._owner = bubble
         self.sources.clear()
+        self.sources.set_details(bubble.details)
         for number in sorted(bubble.shown):
             self.sources.add(number, bubble.shown[number])
 
     def _activate(self, bubble: AnswerBubble, number: int) -> None:
+        # A source number in the prose: its card picked, its passage shown, and
+        # (2026-10-08) the document itself on the Preview page.
         self._show_sources_of(bubble)
-        self.sources.select_number(number)
+        if self.sources.select_number(number):
+            self.panel.show_tab(PREVIEW_TAB)
 
     def _hovered(self, number: int) -> None:
         self.sources.hover_number(number)
@@ -302,9 +319,3 @@ class ChatView(QWidget):
         self.bubbles.scroll_to_end()
         self.box.focus()
 
-
-class _NoShelf:
-    """A shelf that ignores adds: redrawing history must not change the shelf."""
-
-    def add_receipt(self, _receipt: Any) -> None:
-        return None

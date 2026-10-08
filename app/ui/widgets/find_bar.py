@@ -178,10 +178,14 @@ class FindBar(QWidget):
 
             selections = []
             if needle:
-                # The theme's own highlight, so this reads the same way the
-                # search snippets do and survives a theme change.
-                colour = QColor(self._view.palette().color(
-                    self._view.palette().ColorRole.Highlight))
+                # 2026-10-08, the owner: the theme's `mark`, as the search
+                # words in a preview and the results list are painted
+                # (`search_marks`). This was the system's selection colour -
+                # Windows blue behind black text, which could not be read.
+                from app.ui.theme import theme_colours
+
+                colours = theme_colours()
+                colour, ink = QColor(colours["mark"]), QColor(colours["mark_text"])
                 cursor = QTextCursor(self._view.document())
                 while True:
                     cursor = self._view.document().find(needle, cursor)
@@ -190,6 +194,7 @@ class FindBar(QWidget):
                     found = QTextEdit.ExtraSelection()
                     found.cursor = cursor
                     found.format.setBackground(colour)
+                    found.format.setForeground(ink)
                     selections.append(found)
             self._view.setExtraSelections(selections)
         except Exception:                        # noqa: BLE001 - decoration

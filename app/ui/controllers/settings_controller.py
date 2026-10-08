@@ -442,7 +442,15 @@ class SettingsController(QObject):
             # search - they were given none, so a switch turned off here still
             # applied there.
             self._w.search_preferences = found
-            self._w.search_view.set_search_preferences(found)
+            # 2026-10-08: "Offer recent searches" is not a search behaviour, so
+            # `preferences` leaves it out - and the Search tab's empty box read
+            # the switch from this dictionary, found nothing and offered them
+            # anyway. Carried alongside, as it is now (an override wins).
+            from app.ui.first_contact import offer_recent
+
+            self._w.search_view.set_search_preferences({
+                **found, "search_offer_recent": offer_recent(
+                    self._w._settings, self._w._settings_overrides)})
             # 2026-10-04, the owner: Files and Code read their dates in the
             # register the Search tab does (`presenter.facts.date_words`).
             from app.ui.presenter import set_date_register
@@ -693,6 +701,12 @@ class SettingsController(QObject):
                    on_failed=lambda error: _log.warning(
                        "PST backend choice not saved: {}", error))
         self._w._apply_pst_backend(backend)
+        # 2026-10-08: each Mail archives line's first choice names this way
+        # ("Direct file reading (as set above)"), so it changes with it.
+        self._pst_default = str(backend or "auto")
+        box = getattr(getattr(self._w, "settings_view", None), "mail_archives", None)
+        if box is not None:
+            box.set_default_backend(self._pst_default)
 
     def _apply_pst_backend(self, backend: str) -> None:
         from app.extract.base import extractor_for
@@ -878,11 +892,14 @@ class SettingsController(QObject):
     def _show_mail_archives(self, load: int, found: Any) -> None:
         if load != getattr(self, "_archives_load", 0):
             return
-        rows, choices = found
+        rows, choices, default = found
         self._pst_choices = dict(choices or {})
+        # A choice made in this window since the worker read the store is
+        # newer than what it read: the write may not have landed yet.
+        self._pst_default = getattr(self, "_pst_default", None) or str(default or "auto")
         box = getattr(getattr(self._w, "settings_view", None), "mail_archives", None)
         if box is not None:
-            box.set_archives(rows, self._pst_choices)
+            box.set_archives(rows, self._pst_choices, self._pst_default)
 
     def _save_archive_choice(self, path: str, backend: str) -> None:
         """One archive's way of being read. "auto" takes its own choice away."""
@@ -904,7 +921,8 @@ class SettingsController(QObject):
 
         save_state(self._w._store, PST_BACKENDS_STATE_KEY, dump_pst_backends(choices),
                    component="ui.settings", owner=self, on_failed=not_saved)
-        self._w.notify(archive_choice_saved_message(path, backend, choices), 8_000)
+        self._w.notify(archive_choice_saved_message(
+            path, backend, choices, getattr(self, "_pst_default", None) or "auto"), 8_000)
 
     def _read_archive_again(self, path: str) -> None:
         """Read it from the start, over the top: nothing is removed first."""
@@ -976,10 +994,14 @@ class SettingsController(QObject):
         self._w._index_file_now(path)
 
 
-def _read_mail_archives(store: Any) -> tuple[list, dict]:
-    """Worker body: every mail archive in the index, and the saved choices."""
-    from app.index.run_setup import PST_BACKENDS_STATE_KEY, load_pst_backends
+def _read_mail_archives(store: Any) -> tuple[list, dict, str]:
+    """Worker body: every mail archive in the index, the saved choices, and
+    "How to read archives" (`ui:pst_backend`), which each line's first choice
+    is named after."""
+    from app.index.run_setup import PST_BACKEND_STATE_KEY, PST_BACKENDS_STATE_KEY
+    from app.index.run_setup import load_pst_backends
 
     rows = store.mail_archives()
     choices = load_pst_backends(store.get_state(PST_BACKENDS_STATE_KEY, "") or "")
-    return rows, dict(choices or {})
+    default = str(store.get_state(PST_BACKEND_STATE_KEY, "auto") or "auto")
+    return rows, dict(choices or {}), default

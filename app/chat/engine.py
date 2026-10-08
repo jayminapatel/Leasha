@@ -46,7 +46,7 @@ from typing import Any, Callable, Optional, Sequence
 from app.chat import absence, memory, prompts
 from app.chat.aggregate import parse_aggregate, run_aggregate
 from app.chat.config import ChatSettings
-from app.chat.context import Piece, Source, build_sources
+from app.chat.context import Piece, Source, build_sources, is_mail_archive
 from app.chat.llm import OllamaLLM, as_llm
 from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, widen
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
@@ -433,7 +433,24 @@ class ChatEngine:
         debug["timings"]["total_s"] = round(time.perf_counter() - started, 3)
         turn.debug = {**turn.debug, **{k: v for k, v in debug.items() if k != "timings"},
                       "timings": {**turn.debug.get("timings", {}), **debug["timings"]}}
+        if not turn.details:
+            turn.details = self._details_for(list(turn.receipts) + list(turn.result_set or ()))
         return turn
+
+    def _details_for(self, rows: Sequence[Any]) -> dict[int, dict]:
+        """Mail metadata for the messages (and attachments) among `rows` - one query
+        for the lot, the Search tab's own `mail_details`. 2026-10-08: what lets the tab
+        name a message by its subject and sender instead of its entry id. Never raises."""
+        from app.search.marks import mail_details
+
+        wanted = [r for r in rows if getattr(r, "file_id", None) is not None]
+        if not wanted:
+            return {}
+        try:
+            return {int(k): dict(v) for k, v in mail_details(self.store, wanted).items()}
+        except Exception as exc:                        # noqa: BLE001 - a title is a courtesy
+            log.debug("chat: no mail details ({})", exc)
+            return {}
 
     # ------------------------------------------------------------------ the flow
 
@@ -638,7 +655,7 @@ class ChatEngine:
                 chunks = self.store.chunks_for_file(file_id)
             except Exception:                           # noqa: BLE001 - one bad file never halts anything
                 continue
-            if record is None or not chunks:
+            if record is None or not chunks or is_mail_archive(record):
                 continue
             scored = sorted(((len(set(content_tokens(c.text)) & wanted) / (len(wanted) or 1), c)
                              for c in chunks), key=lambda pair: -pair[0])
@@ -691,6 +708,11 @@ class ChatEngine:
                 key = int(getattr(r, "chunk_id", 0) or 0) or id(r)
                 fid = getattr(r, "file_id", None)
                 if key in seen or (fid is not None and int(fid) in blocked):
+                    continue
+                if is_mail_archive(r):
+                    # 2026-10-08, the owner: the archive file is not a source - its
+                    # messages are. Left out here, where sources are chosen, so the
+                    # answer, its count and the side panel all agree.
                     continue
                 seen.add(key)
                 out.results.append(r)
@@ -777,7 +799,7 @@ class ChatEngine:
         if not results:
             return []
         sources = build_sources(list(results), terms, max_sources=limit, window_tokens=4096,
-                                chunks_per_file=1)
+                                chunks_per_file=1, metas=self._metas(results))
         out: list[Receipt] = []
         for source in sources:
             try:
@@ -1064,7 +1086,7 @@ class ChatEngine:
                 shown.append(source.receipt(piece, start, end))
             except Exception:                           # noqa: BLE001 - one bad file never halts anything
                 shown.append(Receipt(source.file_id, source.path, source.name, "", "", None))
-        send(SourcesEvent(tuple(shown)))
+        send(SourcesEvent(tuple(shown), details=self._details_for(shown)))
         say("Reading " + self._names(sources) + "...")
 
         system = prompts.archive_system(

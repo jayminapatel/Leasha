@@ -408,6 +408,7 @@
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
     <Compile Include="app\ui\presenter\photos.py" />
+    <Compile Include="app\ui\presenter\quick_search.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
     <Compile Include="app\ui\presenter\rows.py" />
@@ -461,6 +462,7 @@
     <Compile Include="app\ui\widgets\chat_roles.py" />
     <Compile Include="app\ui\widgets\chat_session_list.py" />
     <Compile Include="app\ui\widgets\chat_shelf.py" />
+    <Compile Include="app\ui\widgets\chat_side_panel.py" />
     <Compile Include="app\ui\widgets\chat_sources.py" />
     <Compile Include="app\ui\widgets\chips.py" />
     <Compile Include="app\ui\widgets\code_commands.py" />
@@ -482,6 +484,7 @@
     <Compile Include="app\ui\widgets\file_menu.py" />
     <Compile Include="app\ui\widgets\file_types.py" />
     <Compile Include="app\ui\widgets\find_bar.py" />
+    <Compile Include="app\ui\widgets\fitted_tree.py" />
     <Compile Include="app\ui\widgets\flow_layout.py" />
     <Compile Include="app\ui\widgets\git_tree.py" />
     <Compile Include="app\ui\widgets\highlight.py" />
@@ -505,6 +508,8 @@
     <Compile Include="app\ui\widgets\mcp_box.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
+    <Compile Include="app\ui\widgets\mini_search_frame.py" />
+    <Compile Include="app\ui\widgets\mini_search_rows.py" />
     <Compile Include="app\ui\widgets\model_box.py" />
     <Compile Include="app\ui\widgets\model_download.py" />
     <Compile Include="app\ui\widgets\model_manager.py" />
@@ -651,6 +656,7 @@
     <Compile Include="tests\unit\test_chat_router_conversation.py" />
     <Compile Include="tests\unit\test_chat_sessions.py" />
     <Compile Include="tests\unit\test_chat_sessions_store.py" />
+    <Compile Include="tests\unit\test_chat_side_panel.py" />
     <Compile Include="tests\unit\test_chat_tab.py" />
     <Compile Include="tests\unit\test_chat_tab_qt.py" />
     <Compile Include="tests\unit\test_chat_text.py" />
@@ -760,6 +766,8 @@
     <Compile Include="tests\unit\test_filters_properties.py" />
     <Compile Include="tests\unit\test_first_contact.py" />
     <Compile Include="tests\unit\test_first_contact_box.py" />
+    <Compile Include="tests\unit\test_fitted_columns.py" />
+    <Compile Include="tests\unit\test_fixed_section_nav.py" />
     <Compile Include="tests\unit\test_florence_tagger.py" />
     <Compile Include="tests\unit\test_folder_watch.py" />
     <Compile Include="tests\unit\test_folder_watch_ui.py" />
@@ -853,6 +861,7 @@
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
+    <Compile Include="tests\unit\test_mini_search_box.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_model_devices.py" />
     <Compile Include="tests\unit\test_model_dropdowns.py" />
@@ -875,6 +884,7 @@
     <Compile Include="tests\unit\test_ocr_passes.py" />
     <Compile Include="tests\unit\test_ocr_strategy.py" />
     <Compile Include="tests\unit\test_odf.py" />
+    <Compile Include="tests\unit\test_offer_recent_switch.py" />
     <Compile Include="tests\unit\test_office_full_layout.py" />
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
@@ -954,6 +964,7 @@
     <Compile Include="tests\unit\test_read_order.py" />
     <Compile Include="tests\unit\test_read_order_ui.py" />
     <Compile Include="tests\unit\test_read_process.py" />
+    <Compile Include="tests\unit\test_readable_selection.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />

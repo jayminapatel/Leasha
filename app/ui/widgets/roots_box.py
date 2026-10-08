@@ -18,6 +18,12 @@ would then protect nothing.
 The decision itself lives in `app/index/archives.py` and is tested there. This
 is widgets: two columns, a combo box per row, and a button that asks for a full
 rescan when somebody knows something the mtime check cannot see.
+
+2026-10-08, the owner: "the columns on this page are not sizeable and should
+autofit by default.. also the buttons size is big they are getting clipped".
+Every column can be dragged and is fitted to its contents when the rows
+change; Folder takes the spare width and elides in the middle; each line is
+as tall as its controls (`fitted_tree.py`).
 """
 
 from __future__ import annotations
@@ -32,7 +38,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMenu,
     QPushButton,
@@ -45,6 +50,7 @@ from PySide6.QtWidgets import (
 from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
 from app.ui.widgets.buttons import icon_button, put_on_row, style_button
+from app.ui.widgets.fitted_tree import FittedColumns
 from app.ui.widgets.result_table import align_headers
 from app.ui.qtsip import open_menu
 
@@ -112,15 +118,10 @@ class RootsBox(QGroupBox):
         # which Qt does not move when it sorts. The heading still points the
         # way its column reads.
         align_headers(self.tree)
-        header = self.tree.header()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        # The last column is a button's own width. Left to stretch, it would
-        # take the spare width from Folder, the one column that needs it.
-        header.setStretchLastSection(False)
+        # 2026-10-08: every column draggable, fitted to its contents whenever
+        # the rows change. Folder takes the spare width - the one column that
+        # needs it - and the last column stays a button's own width.
+        self.columns = FittedColumns(self.tree, stretch=0)
         # 2026-09-29. The row action, on the row: right-click a folder.
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._row_menu)
@@ -327,6 +328,9 @@ class RootsBox(QGroupBox):
             "you press Rescan, or after the interval in Settings.")
         for label, value in CHOICES:
             combo.addItem(label, value)
+        # As wide as its longest choice: fitted to the column, "Archive - it
+        # does not change" lost its last letters (2026-10-08).
+        combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         index = combo.findData(mode)
         combo.setCurrentIndex(index if index >= 0 else 0)
         # A wheel over a combo inside a scrolling panel changes the value while

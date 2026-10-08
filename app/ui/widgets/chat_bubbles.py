@@ -167,6 +167,9 @@ class AnswerBubble(QFrame):
         self._linkable: set[int] = set()
         #: reader-facing number -> the receipt behind it, for this answer.
         self.shown: dict[int, Any] = {}
+        #: 2026-10-08: file_id -> mail metadata for this answer's messages, so a
+        #: message is drawn by its subject and sender, never its entry id.
+        self.details: dict[int, Any] = {}
         self.results: Optional[ResultsView] = None
         self.done = False
         self._is_last = False
@@ -289,6 +292,8 @@ class AnswerBubble(QFrame):
             self.raw = turn.text
         self.render(final=True)
         self.narrate("")
+        if turn is not None and getattr(turn, "details", None):
+            self.details.update({int(k): v for k, v in dict(turn.details).items()})
         if turn is not None and getattr(turn, "result_set", None):
             self.show_results(turn.result_set)
         line = closing_line(turn, stopped=stopped)
@@ -321,7 +326,7 @@ class AnswerBubble(QFrame):
             # 2026-10-04: one click previews the row in the Sources column.
             self.results.selected.connect(self.result_selected.emit)
             self._layout.insertWidget(self._layout.indexOf(self.body) + 1, self.results)
-        self.results.show_results(results, [])
+        self.results.show_results(results, [], details=self.details)
         rows = min(len(results), INLINE_ROWS) + 1        # + the "that's all" row
         list_view = self.results._list
         heights = [list_view.sizeHintForRow(i) for i in range(rows)]

@@ -28,7 +28,15 @@ from typing import Any
 from app.chat.types import NarrationEvent, ShelfEvent, SourcesEvent, TokenEvent, WebAskEvent
 from app.ui.presenter.chat import Numbering
 
-__all__ = ["AnswerRun"]
+__all__ = ["AnswerRun", "NoShelf"]
+
+
+class NoShelf:
+    """A shelf that ignores adds: redrawing history must not change the shelf.
+    (Moved here from `chat_view.py` on 2026-10-08, beside the run that uses it.)"""
+
+    def add_receipt(self, _receipt: Any) -> None:
+        return None
 
 
 class AnswerRun:
@@ -56,6 +64,7 @@ class AnswerRun:
             self.bubble.ask_web(event.query)
         elif isinstance(event, SourcesEvent):
             self.known = list(event.receipts)
+            self._details(getattr(event, "details", None))
             self._place_new_sources()
         elif isinstance(event, TokenEvent):
             if not self.streamed:
@@ -67,6 +76,15 @@ class AnswerRun:
             self.known.append(event.receipt)
             self.shelf.add_receipt(event.receipt)
             self._place_new_sources()
+
+    def _details(self, details: Any) -> None:
+        """Mail metadata for the sources (2026-10-08): the bubble keeps it for a
+        redraw, the Sources list draws a message by its subject with it."""
+        if not details:
+            return
+        self.bubble.details.update({int(k): v for k, v in dict(details).items()})
+        if self.sources is not None:
+            self.sources.set_details(details)
 
     def _add(self, number: int, receipt: Any) -> None:
         self.shown[number] = receipt
@@ -120,6 +138,7 @@ class AnswerRun:
             return
         if turn is not None and getattr(turn, "text", ""):
             self.bubble.raw = turn.text
+        self._details(getattr(turn, "details", None))
         receipts = list(getattr(turn, "receipts", None) or [])
         if turn is not None and getattr(turn, "text", "") and self._placed \
                 and not self._streamed_agrees_with(receipts):

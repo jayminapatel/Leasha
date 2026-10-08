@@ -172,7 +172,10 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     read_layout.addWidget(view.tuning.coverage)
     read_layout.addStretch(1)
 
-    nav = CategoryNav()
+    # `scroll=False`: these shelves scroll themselves (above), so the nav adds
+    # no scroll area of its own around them - one per page, never two. The
+    # sidebar stays outside all of them either way, as on Settings.
+    nav = CategoryNav(scroll=False)
     nav.add_category(status_name, status_page)
     nav.add_category(read_name, scrollable(read_page))
     nav.add_category(schedule_name, scrollable(schedule_page))

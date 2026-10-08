@@ -81,8 +81,18 @@ class SavedSearches:
         return sections(self._recent, self._saved, self._settings)
 
     def set_settings(self, settings: Any) -> None:
-        """The preferences, pushed in. Never read from here."""
+        """The preferences, pushed in. Never read from here.
+
+        2026-10-08: switched back on, the history held was read while it was
+        off - which reads as nothing - so it is read again, to be offered at
+        once rather than after the next restart.
+        """
+        from app.ui.first_contact import offer_recent
+
+        was_offered = offer_recent(self._settings)
         self._settings = settings
+        if offer_recent(settings) and not was_offered:
+            self.refresh()
 
     # -- keeping it current --------------------------------------------------
 

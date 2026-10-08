@@ -33,6 +33,9 @@ __all__ = [
     "NOT_BUILT_LINE", "SHELF_EMPTY", "speed_note", "THINKING_LINE", "RETRY_LABEL",
     "COPY_LABEL", "COPIED_LABEL", "REGENERATE_LABEL", "EDIT_LABEL", "NEW_CHAT_LABEL",
     "WEB_LABEL", "is_web_receipt", "WEB_OFF_TIP", "WEB_ON_TIP", "plain_answer_text",
+    "SOURCES_TAB", "PREVIEW_TAB", "PANEL_TABS", "TAB_LABELS", "TAB_TIPS", "PANEL_SHORTCUT",
+    "PANEL_TOGGLE_TIP", "PANEL_KEY", "PANEL_WIDTH", "PanelState", "panel_after_click",
+    "panel_state_text", "panel_state_from_text", "shelf_count_label", "SHELF_LIST_TIP",
 ]
 
 # ---------------------------------------------------------------------------
@@ -202,7 +205,8 @@ def receipt_to_result(receipt: Any, rank: int) -> Any:
     return SearchResult(
         chunk_id=int(chunk_id), file_id=int(file_id), path=path,
         text=quote, score=1.0,
-        rank=int(rank), label=str(getattr(receipt, "locator", "") or ""))
+        rank=int(rank), label=str(getattr(receipt, "locator", "") or ""),
+        mtime_ns=int(getattr(receipt, "mtime_ns", 0) or 0))
 
 
 def passage_html(number: int, receipt: Any) -> str:
@@ -349,6 +353,88 @@ def speed_note(modes: Any, explicit: str = "") -> str:
         return (f"Only one model is installed ({fast}), so Fast and Thoughtful "
                 "answer the same way.")
     return ""
+
+
+# ---------------------------------------------------------------------------
+# The side panel: Sources and Preview (2026-10-08)
+# ---------------------------------------------------------------------------
+#
+# The owner: "the preview window goes under local sources that should i think
+# should be its own vertical tab and the source tab viewing should be able to
+# turn off and on too". A slim strip of two tabs on the right edge, as an editor's
+# side bar: click one to show it, click the one that is showing to put the whole
+# panel away. Remembered across restarts as one keyed-state value.
+
+#: The two tabs, in the order the strip shows them.
+SOURCES_TAB = "sources"
+PREVIEW_TAB = "preview"
+PANEL_TABS = (SOURCES_TAB, PREVIEW_TAB)
+#: What each tab is called on the strip and on the toolbar.
+TAB_LABELS = {SOURCES_TAB: "Sources", PREVIEW_TAB: "Preview"}
+TAB_TIPS = {
+    SOURCES_TAB: ("Show the documents this answer stands on. Click again to hide the "
+                  "panel and give the conversation the full width."),
+    PREVIEW_TAB: ("Show the chosen source itself - a message as its card and text, a file "
+                  "as its pages. Click again to hide the panel."),
+}
+#: The keyboard shortcut that puts the whole panel away and brings it back.
+PANEL_SHORTCUT = "Ctrl+B"
+PANEL_TOGGLE_TIP = (f"Show or hide the Sources and Preview panel beside the "
+                    f"conversation  {PANEL_SHORTCUT}")
+#: Keyed window state: `open|closed`, the tab, and the panel's width in pixels.
+PANEL_KEY = "ui:chat_panel"
+#: A panel width nobody chose: about a third of a laptop's window.
+PANEL_WIDTH = 360
+_PANEL_MIN, _PANEL_MAX = 220, 1400
+
+
+@dataclass(frozen=True)
+class PanelState:
+    """Whether the side panel shows, which tab it shows, and how wide it is."""
+
+    open: bool = True
+    tab: str = SOURCES_TAB
+    width: int = PANEL_WIDTH
+
+
+def panel_after_click(state: PanelState, clicked: str) -> PanelState:
+    """A tab was clicked on the strip (or its toolbar twin).
+
+    The tab already showing puts the panel away; any other tab - or any tab while
+    the panel is away - shows that tab. The width is kept either way."""
+    tab = clicked if clicked in PANEL_TABS else state.tab
+    if state.open and tab == state.tab:
+        return PanelState(False, state.tab, state.width)
+    return PanelState(True, tab, state.width)
+
+
+def panel_state_text(state: PanelState) -> str:
+    """`open:sources:360` - what `PANEL_KEY` holds."""
+    return f"{'open' if state.open else 'closed'}:{state.tab}:{int(state.width)}"
+
+
+def panel_state_from_text(text: Any) -> PanelState:
+    """`panel_state_text` read back. Anything unreadable is the default, never an error."""
+    parts = str(text or "").split(":")
+    if len(parts) != 3:
+        return PanelState()
+    shown, tab, width = parts
+    try:
+        pixels = min(_PANEL_MAX, max(_PANEL_MIN, int(width)))
+    except ValueError:
+        pixels = PANEL_WIDTH
+    return PanelState(shown != "closed", tab if tab in PANEL_TABS else SOURCES_TAB, pixels)
+
+
+def shelf_count_label(count: int, kept: int = 0) -> str:
+    """The folded shelf's button: "1 source", "4 sources, 1 kept" (2026-10-08). The
+    chips it replaced, a "Keep / Remove" pair per document, sit in the list it opens."""
+    words = f"{count:,} source" + ("" if count == 1 else "s")
+    return f"{words}, {kept:,} kept" if kept else words
+
+
+SHELF_LIST_TIP = ("The documents this chat may look at. Open the list to keep one in scope "
+                  "or take one out. The files themselves are not touched.")
 
 
 def title_from_question(question: str, limit: int = 48) -> str:

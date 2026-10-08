@@ -42,6 +42,8 @@ __all__ = [
     "receipt_to_dict",
     "receipt_from_dict",
     "title_for",
+    "details_to_json",
+    "details_from_json",
 ]
 
 
@@ -67,7 +69,8 @@ def receipt_from_dict(data: dict[str, Any]) -> Receipt:
     return Receipt(
         file_id=data.get("file_id"), path=str(data.get("path", "")),
         name=str(data.get("name", "")), quote=str(data.get("quote", "")),
-        locator=str(data.get("locator", "")), chunk_id=data.get("chunk_id"))
+        locator=str(data.get("locator", "")), chunk_id=data.get("chunk_id"),
+        mtime_ns=int(data.get("mtime_ns") or 0))
 
 
 def _result_to_dict(result: Any) -> dict[str, Any]:
@@ -94,7 +97,26 @@ def turn_to_dict(turn: ChatTurn) -> dict[str, Any]:
         "notes": list(turn.notes),
         "result_set": (None if turn.result_set is None
                        else [_result_to_dict(r) for r in turn.result_set]),
+        "details": details_to_json(turn.details),
     }
+
+
+def details_to_json(details: Any) -> dict[str, dict]:
+    """`ChatTurn.details` as JSON can hold it: the file ids as text keys."""
+    return {str(k): dict(v) for k, v in dict(details or {}).items() if isinstance(v, dict)}
+
+
+def details_from_json(data: Any) -> dict[int, dict]:
+    """`details_to_json` back again. A key that is not a number is dropped."""
+    out: dict[int, dict] = {}
+    if not isinstance(data, dict):
+        return out
+    for key, value in data.items():
+        try:
+            out[int(key)] = dict(value)
+        except (TypeError, ValueError):
+            continue
+    return out
 
 
 def turn_from_dict(data: dict[str, Any]) -> ChatTurn:
@@ -112,7 +134,8 @@ def turn_from_dict(data: dict[str, Any]) -> ChatTurn:
         receipts=[receipt_from_dict(r) for r in data.get("receipts", [])],
         result_set=restored, kind=str(data.get("kind", "answer")),
         notes=[str(n) for n in data.get("notes", [])],
-        model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)))
+        model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)),
+        details=details_from_json(data.get("details")))
 
 
 def title_for(turns: list[ChatTurn], limit: int = 60) -> str:

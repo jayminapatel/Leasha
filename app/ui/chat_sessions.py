@@ -35,11 +35,12 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
+from app.chat.sessions import details_from_json, details_to_json
 from app.chat.types import ChatTurn, Receipt
 from app.core.logging import logger
 from app.ui.presenter.chat import Shelf
 
-__all__ = ["ChatSession", "ChatSessions", "new_session", "STATE_KEY"]
+__all__ = ["ChatSession", "ChatSessions", "new_session", "name_messages", "STATE_KEY"]
 
 _log = logger.bind(component="ui.chat.sessions")
 
@@ -95,6 +96,7 @@ def turn_to_dict(turn: ChatTurn) -> dict:
         "receipts": [dataclasses.asdict(r) for r in turn.receipts],
         "result_set": (None if turn.result_set is None
                        else [_result_to_dict(r) for r in turn.result_set]),
+        "details": details_to_json(getattr(turn, "details", None)),
     }
 
 
@@ -109,7 +111,48 @@ def turn_from_dict(data: dict) -> ChatTurn:
         role=str(data.get("role", "assistant")), text=str(data.get("text", "")),
         receipts=receipts, result_set=results,
         kind=str(data.get("kind", "answer")), notes=list(data.get("notes", ())),
-        model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)))
+        model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)),
+        details=details_from_json(data.get("details")))
+
+
+def name_messages(session: ChatSession, backend: Any) -> ChatSession:
+    """Give a session saved before 2026-10-08 its messages' real names. **Worker only.**
+
+    Those sessions named a message read out of an archive by the tail of its key
+    ("2109476"), on its receipts, its shelf and its results list. One query for the
+    whole session (`mail_details`, the Search tab's) fetches each message's subject
+    and sender; a store without mail (a test's double) changes nothing. Never raises.
+    """
+    from app.chat.context import source_title
+    from app.search.marks import mail_details
+
+    rows: list[Any] = []
+    for turn in session.turns:
+        rows.extend(r for r in turn.receipts if r.file_id is not None)
+        rows.extend(r for r in (turn.result_set or ()) if getattr(r, "file_id", None) is not None)
+    rows.extend(i for i in session.shelf.items if i.file_id is not None)
+    if not rows:
+        return session
+    try:
+        found = {int(k): dict(v) for k, v in mail_details(backend, rows).items()}
+    except Exception as exc:                              # noqa: BLE001 - a name is a courtesy
+        _log.debug("no mail details for a saved chat: {}", exc)
+        return session
+    if not found:
+        return session
+    for turn in session.turns:
+        ids = {int(r.file_id) for r in turn.receipts if r.file_id is not None}
+        ids |= {int(getattr(r, "file_id", 0) or 0) for r in (turn.result_set or ())}
+        if not turn.details:
+            turn.details = {i: found[i] for i in ids if i in found}
+        turn.receipts = [
+            dataclasses.replace(r, name=source_title(r.path, found[int(r.file_id)]))
+            if r.file_id is not None and int(r.file_id) in found else r
+            for r in turn.receipts]
+    for item in session.shelf.items:
+        if item.file_id is not None and int(item.file_id) in found:
+            item.name = source_title(item.path, found[int(item.file_id)])
+    return session
 
 
 def session_to_dict(session: ChatSession) -> dict:
@@ -242,7 +285,7 @@ class ChatSessions:
             if data is None:
                 continue
             try:
-                found.append(session_from_dict(data))
+                found.append(name_messages(session_from_dict(data), self._backend))
             except (KeyError, TypeError, ValueError, AttributeError) as exc:
                 _log.warning("skipping an unreadable chat session: {}", exc)
         found.sort(key=lambda s: s.updated, reverse=True)

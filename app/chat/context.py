@@ -31,6 +31,7 @@ from typing import Any, Optional, Sequence
 
 from app.chat.text import DEFAULT_QUOTE_MAX, content_tokens, sentence_spans, snap_span
 from app.chat.types import Receipt
+from app.core.row_facts import MAIL_ARCHIVE_EXTS, is_message_key, message_name
 
 __all__ = [
     "Piece",
@@ -38,6 +39,8 @@ __all__ = [
     "budget_chars",
     "build_sources",
     "window_of",
+    "is_mail_archive",
+    "source_title",
     "CONTEXT_TOKEN_CAP",
     "CHARS_PER_TOKEN",
 ]
@@ -86,6 +89,8 @@ class Source:
     #: "Priya approved it" is supported by the header, not the text).
     meta: str = ""
     score: float = 0.0
+    #: The document's date for the receipt (`Receipt.mtime_ns`), 0 when unknown.
+    mtime_ns: int = 0
 
     def full_text(self) -> str:
         return "\n\n".join(piece.text for piece in self.pieces)
@@ -110,6 +115,7 @@ class Source:
         return Receipt(
             file_id=self.file_id, path=self.path, name=self.name, quote=quote,
             locator=self.locator_of(piece_index), chunk_id=piece.chunk_id,
+            mtime_ns=int(self.mtime_ns or 0),
         )
 
     def best_quote(self, words: Sequence[str], *, max_chars: int = DEFAULT_QUOTE_MAX
@@ -182,6 +188,38 @@ def _name_of(path: str) -> str:
     return str(path or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1] or str(path)
 
 
+def source_title(path: str, meta_row: Optional[dict] = None) -> str:
+    """What a source is called wherever it is shown: a message's subject, else the
+    file's name.
+
+    2026-10-08, the owner: a message read out of an archive was named by the tail of
+    its key - `pst://2024/2109476` showed as "2109476" in the sources, the shelf and
+    the prompt. `meta_row` is the message's `store.messages_for` row; a file has none.
+    """
+    if meta_row and not meta_row.get("attachment_of"):
+        return message_name(meta_row.get("subject"))
+    return _name_of(path)
+
+
+def is_mail_archive(result: Any) -> bool:
+    r"""Whether a search hit is a mail archive file itself (`D:\OutlookArchive\2021.pst`).
+
+    2026-10-08, the owner: an archive is not a chat source - its messages are. The
+    archive's row carries its file name for search, so a question naming a year can
+    find it; quoting it, or counting it among "the documents matching", says nothing.
+    A message *inside* one (`pst://...`, `D:\x.mbox/12`) is a key, not the file, and
+    is kept. Decided from the row alone - no I/O.
+    """
+    path = str(getattr(result, "path", "") or "")
+    if not path or is_message_key(path):
+        return False
+    ext = str(getattr(result, "ext", "") or "").lower().lstrip(".")
+    if not ext:
+        tail = _name_of(path)
+        ext = tail.rsplit(".", 1)[-1].lower() if "." in tail else ""
+    return ext in MAIL_ARCHIVE_EXTS
+
+
 def _folders_of(path: str) -> str:
     """The folder names of a path, drive letter left out - people file things
     under "Leeds" or "Tenancy", and that is evidence about what a document is."""
@@ -234,8 +272,10 @@ def build_sources(
             meta_row.get("recipients", ""), meta_row.get("subject", "")) if x)
         sources.append(Source(
             n=first_number + offset, file_id=key or None, path=str(head.path),
-            name=_name_of(head.path), pieces=pieces,
+            name=source_title(head.path, meta_row), pieces=pieces,
             passage=window_of(pieces[0].text, terms, per_source), meta=meta,
             score=float(getattr(head, "score", 0.0) or 0.0),
+            mtime_ns=int(getattr(head, "taken_at_ns", 0) or 0)
+            or int(getattr(head, "mtime_ns", 0) or 0),
         ))
     return sources

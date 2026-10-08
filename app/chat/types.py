@@ -66,6 +66,11 @@ class Receipt:
     #: Empty when the extractor could not say.
     locator: str = ""
     chunk_id: Optional[int] = None
+    #: **Added 2026-10-08, with a default.** The document's date (the shot date
+    #: for a photo, else the file's), nanoseconds since 1970 - `0` when unknown.
+    #: So a source in the side panel reads title, place, date like a search
+    #: result does. A message's own date is its sent date, in `ChatTurn.details`.
+    mtime_ns: int = 0
 
 
 @dataclass
@@ -101,6 +106,13 @@ class ChatTurn:
     #: The reply stopped part-way (Stop, or Ollama went away): `text` is what had
     #: arrived, and the tab offers Retry.
     partial: bool = False
+    #: **Added 2026-10-08 (the owner: a message is named by its subject, never its
+    #: entry id), with a default.** Mail metadata for the messages among this turn's
+    #: receipts and results, keyed by `file_id` - the rows `store.messages_for`
+    #: returns (`subject`, `sender`, `sent_at`, ...), and for an attachment its
+    #: message's row with `attachment_of`. The results list reads it exactly as the
+    #: Search tab does, so a message is drawn as "sender - subject" with its date.
+    details: dict[int, dict] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -137,6 +149,9 @@ class SourcesEvent:
     after the unsupported sentences are taken out)."""
 
     receipts: tuple
+    #: **Added 2026-10-08, with a default.** `ChatTurn.details` for these receipts,
+    #: so a message among them is titled by its subject while the answer streams.
+    details: dict = field(default_factory=dict, compare=False, hash=False)
 
 
 @dataclass(frozen=True)

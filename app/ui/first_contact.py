@@ -22,7 +22,7 @@ from typing import Any, Optional, Sequence
 
 __all__ = ["RECENT_LIMIT", "SAVED_LIMIT", "SAVED_HEADING", "RECENT_HEADING",
            "SUGGESTIONS", "recent", "rows_for", "greeting", "saved_rows",
-           "sections"]
+           "sections", "offer_recent"]
 
 #: **No placeholder is defined here, and that is a decision.**
 #:
@@ -125,16 +125,43 @@ def greeting(count: Optional[int]) -> str:
     return f"{count:,} documents ready to search."
 
 
+#: The `.env` words that mean "off", as `policy.preferences` reads them.
+_OFF_WORDS = ("0", "false", "no", "off", "")
+
+
+def _switch(value: Any) -> bool:
+    if isinstance(value, str):
+        return value.strip().lower() not in _OFF_WORDS
+    return bool(value)
+
+
+def offer_recent(settings: Any = None, overrides: Optional[dict] = None) -> bool:
+    r"""The "offer recent searches" switch as it is now: `Settings`, then a
+    change made in this session (`overrides`, raw `.env` strings), which wins.
+
+    2026-10-08: the window pushes the Search tab a *dictionary* of search
+    preferences, not `Settings`, and nothing in it carried this switch - so
+    `rows_for` read the default and the switch never took effect.
+    """
+    value: Any = True
+    if isinstance(settings, dict):
+        value = settings.get("search_offer_recent", True)
+    elif settings is not None:
+        value = getattr(settings, "search_offer_recent", True)
+    if overrides and "search_offer_recent" in overrides:
+        value = overrides["search_offer_recent"]
+    return _switch(value)
+
+
 def rows_for(rows: Any, settings: Any = None) -> Sequence[str]:
     """`recent`, with the preference read off `settings`.
 
     The switch is honoured here rather than in the view, so a view has one
     call and no rule of its own - the same reason `SearchPolicy` exists.
+    `settings` is `Settings`, or the preferences dictionary the window pushes
+    to the Search tab (`search_offer_recent` is a key there) - both count.
     """
-    enabled = True
-    if settings is not None:
-        enabled = bool(getattr(settings, "search_offer_recent", True))
-    return recent(rows, enabled=enabled)
+    return recent(rows, enabled=offer_recent(settings))
 
 
 # ---------------------------------------------------------------------------

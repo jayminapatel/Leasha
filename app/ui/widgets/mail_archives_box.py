@@ -23,6 +23,17 @@ Both are icon buttons on the line they act on, as "Index now" is on a folder's
 line in `roots_box.py`: nothing to select first, and the column's heading says
 the words once.
 
+**The first choice names the way it reads** (the owner, 2026-10-08: "the text
+use the setting above makes no sense it should display the actual option"):
+"Direct file reading (as set above)" and so on, following "How to read
+archives" as it changes (`set_default_backend`).
+
+**Columns and lines fit their contents** (the same day: "the columns on this
+page are not sizeable and should autofit by default.. also the buttons size is
+big they are getting clipped"): every column can be dragged, the Archive column
+takes the spare width and elides in the middle, and each line is as tall as its
+controls (`fitted_tree.py`).
+
 Widgets only: the list is read by the controller on a worker, and every word is
 in `app/ui/presenter/mail_archives.py`.
 """
@@ -33,19 +44,27 @@ from typing import Any, Mapping, Optional, Sequence
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QGroupBox, QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem,
-    QVBoxLayout,
+    QComboBox, QGroupBox, QLabel, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
 )
 
 from app.index.archives import normalise
 from app.ui.presenter.mail_archives import (
-    ARCHIVE_CHOICES, OUTLOOK_ONLY_TIP, archive_status_words, is_outlook_only,
-    mail_archives_empty_text, messages_words,
+    ARCHIVE_CHOICE_TIP, OUTLOOK_ONLY_TIP, archive_choices, archive_default_label,
+    archive_status_words, is_outlook_only, mail_archives_empty_text, messages_words,
 )
 from app.ui.widgets.buttons import icon_button, put_on_row
+from app.ui.widgets.fitted_tree import FittedColumns
 from app.ui.widgets.result_table import align_headers
 
 __all__ = ["MailArchivesBox"]
+
+_BACKENDS = ("auto", "libpff", "outlook")
+
+
+def _backend(value: Any) -> str:
+    """One of "auto", "libpff", "outlook"; anything else is "auto"."""
+    text = str(value or "auto").strip().lower()
+    return text if text in _BACKENDS else "auto"
 
 #: Column numbers, named so the controller and the tests need not count.
 COL_ARCHIVE, COL_MESSAGES, COL_STATUS, COL_HOW, COL_READ, COL_CLEAR = range(6)
@@ -67,28 +86,32 @@ class MailArchivesBox(QGroupBox):
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Mail archives", parent)
         self._rows: list[dict[str, Any]] = []
+        #: "How to read archives" above (`ui:pst_backend`): what each line's
+        #: first choice is named after.
+        self._default_backend = "auto"
 
         self.empty = QLabel(mail_archives_empty_text())
         self.empty.setWordWrap(True)
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(6)
+        # The two button columns' headings on two lines (2026-10-08): on one,
+        # "Clear and read again" made its column four times the width of its
+        # button, and on the window's default size the row ran off the side.
+        # The same words, broken where a person would break them.
         self.tree.setHeaderLabels(["Archive", "Messages", "Status", "How it is read",
-                                   "Read again", "Clear and read again"])
+                                   "Read\nagain", "Clear and\nread again"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
         align_headers(self.tree)
-        header = self.tree.header()
-        header.setSectionResizeMode(COL_ARCHIVE, QHeaderView.ResizeMode.Stretch)
-        for column in (COL_MESSAGES, COL_HOW, COL_READ, COL_CLEAR):
-            header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        # A skipped archive's reason is a whole sentence. Sized to its contents
-        # it pushed the drop-down and both buttons off the side of the page; it
-        # is cut short here instead, and the tooltip carries all of it.
-        header.setSectionResizeMode(COL_STATUS, QHeaderView.ResizeMode.Interactive)
-        header.resizeSection(COL_STATUS, 200)
-        header.setStretchLastSection(False)
+        # Every column draggable and fitted to its contents; Archive takes the
+        # spare width. A skipped archive's reason is a whole sentence: sized to
+        # its contents it pushed the drop-down and both buttons off the side of
+        # the page, so Status is the column that gives way first, and its
+        # tooltip carries all of it.
+        self.columns = FittedColumns(self.tree, stretch=COL_ARCHIVE,
+                                     squeeze=(COL_STATUS,))
 
         self.note = QLabel(
             "Each archive is read the way \"How to read archives\" says, unless it "
@@ -106,11 +129,16 @@ class MailArchivesBox(QGroupBox):
     # -- filling it in --------------------------------------------------------
 
     def set_archives(self, rows: Sequence[Mapping[str, Any]],
-                     choices: Optional[Mapping[str, str]] = None) -> None:
+                     choices: Optional[Mapping[str, str]] = None,
+                     default_backend: Optional[str] = None) -> None:
         """Replace the list, **without emitting**. `rows` as
         `SqliteStore.mail_archives` returns them; `choices` is
-        `{normalised path: backend}`, the saved per-archive setting."""
+        `{normalised path: backend}`, the saved per-archive setting;
+        `default_backend` is "How to read archives" above, left as it was when
+        omitted."""
         choices = dict(choices or {})
+        if default_backend is not None:
+            self._default_backend = _backend(default_backend)
         self._rows = [dict(row) for row in rows]
         self.tree.clear()
         for row in self._rows:
@@ -131,7 +159,7 @@ class MailArchivesBox(QGroupBox):
 
         combo = QComboBox()
         combo.setAccessibleName(f"How this archive is read: {path}")
-        for label, value in ARCHIVE_CHOICES:
+        for label, value in archive_choices(self._default_backend):
             combo.addItem(label, value)
         # As on the folder list: a wheel over a combo in a scrolling page
         # changes it while the person is trying to scroll past.
@@ -146,11 +174,7 @@ class MailArchivesBox(QGroupBox):
         else:
             index = combo.findData(str(choice or "auto"))
             combo.setCurrentIndex(index if index >= 0 else 0)
-            combo.setToolTip(
-                "How this archive is read.\n\n"
-                "\"Use the setting above\" follows How to read archives. Choose "
-                "one here when this archive needs the other way - one Outlook "
-                "cannot open, say. It applies from the next index run.")
+            combo.setToolTip(ARCHIVE_CHOICE_TIP)
             # Connected after the value is set, so filling the list says nothing.
             combo.currentIndexChanged.connect(
                 lambda _i, box=combo, where=path: self.choice_changed.emit(
@@ -177,6 +201,26 @@ class MailArchivesBox(QGroupBox):
             lambda _checked=False, where=path: self.clear_and_read.emit(where))
         put_on_row(self.tree, item, COL_CLEAR, clear)
         return item
+
+    def set_default_backend(self, backend: str) -> None:
+        """"How to read archives" above changed (or was read): every line's
+        first choice is renamed after it. **Emits nothing** - a line that
+        follows the setting still follows it; only its words change."""
+        self._default_backend = _backend(backend)
+        label = archive_default_label(self._default_backend)
+        for index in range(self.tree.topLevelItemCount()):
+            combo = self.tree.itemWidget(self.tree.topLevelItem(index), COL_HOW)
+            if combo is None:
+                continue
+            first = combo.findData("auto")
+            if first >= 0:
+                combo.setItemText(first, label)
+        # The first choice may now be longer or shorter than it was.
+        self.columns.schedule(force=True)
+
+    def default_backend(self) -> str:
+        """The setting above, as this box last heard it."""
+        return self._default_backend
 
     def _sync_empty(self) -> None:
         """One line saying there are none, instead of an empty table."""
@@ -210,7 +254,8 @@ class MailArchivesBox(QGroupBox):
 
     def current_choices(self) -> dict[str, str]:
         """`{normalised path: backend}` for every line with a way of its own -
-        "Use the setting above" and an `.ost`'s fixed line are left out."""
+        a line following the setting above and an `.ost`'s fixed line are left
+        out."""
         found: dict[str, str] = {}
         for index in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(index)

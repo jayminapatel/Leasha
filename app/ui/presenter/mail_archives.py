@@ -6,7 +6,8 @@ Layer: L5. Part of the presenter package; imports no Qt.
 to index outlook or direct ... there should be a reindex button on those
 files". One line per `.pst` or `.ost` in the index: how many messages it gave,
 where it stands, and how it is read - the setting above it, or a choice of its
-own. Two ways to read one again: over the top, or cleared first.
+own, named for what it is (2026-10-08). Two ways to read one again: over the
+top, or cleared first.
 
 **Every status-bar sentence names an amount**, as `folders_removed_message`
 does: "Done" with no number leaves somebody wondering whether anything
@@ -19,20 +20,54 @@ from pathlib import PureWindowsPath
 from typing import Any, Mapping, Optional
 
 __all__ = [
-    "ARCHIVE_CHOICES", "OUTLOOK_ONLY_TIP", "archive_name", "messages_words",
+    "ARCHIVE_CHOICES", "OUTLOOK_ONLY_TIP", "ARCHIVE_CHOICE_TIP", "archive_choices",
+    "archive_default_label", "archive_name", "messages_words",
     "archive_status_words", "is_outlook_only", "mail_archives_empty_text",
     "clear_archive_confirmation", "read_again_message", "clearing_archive_message",
     "archive_cleared_message", "archive_choice_saved_message",
 ]
 
-#: `(label, backend)` for each line's drop-down, in order. "auto" is no choice
-#: of its own: the line follows "How to read archives" above it. The other two
-#: are that drop-down's own words, so one setting reads the same in both places.
-ARCHIVE_CHOICES: tuple[tuple[str, str], ...] = (
-    ("Use the setting above", "auto"),
-    ("Direct file reading (no Outlook needed)", "libpff"),
-    ("Through Outlook (MAPI)", "outlook"),
-)
+#: What a line's first choice says, by the setting above it (`ui:pst_backend`).
+#:
+#: 2026-10-08, the owner: "the text use the setting above makes no sense it
+#: should display the actual option". The first choice is no choice of its own
+#: - the line follows "How to read archives" - so it names the way that
+#: setting reads archives *now*, and changes with it (`MailArchivesBox.
+#: set_default_backend`). "(as set above)" is what tells it from the same way
+#: chosen for this archive alone, which does not follow the setting.
+DEFAULT_LABELS: dict[str, str] = {
+    "auto": "Automatic - direct if possible (as set above)",
+    "libpff": "Direct file reading (as set above)",
+    "outlook": "Through Outlook (as set above)",
+}
+
+
+def archive_default_label(default_backend: Any = "auto") -> str:
+    """A line's first choice: the way "How to read archives" reads it now."""
+    key = str(default_backend or "auto").strip().lower()
+    return DEFAULT_LABELS.get(key, DEFAULT_LABELS["auto"])
+
+
+def archive_choices(default_backend: Any = "auto") -> tuple[tuple[str, str], ...]:
+    """`(label, backend)` for each line's drop-down, in order. "auto" is no
+    choice of its own and is named after the setting above; the other two are
+    that drop-down's own words, so one setting reads the same in both places."""
+    return (
+        (archive_default_label(default_backend), "auto"),
+        ("Direct file reading (no Outlook needed)", "libpff"),
+        ("Through Outlook (MAPI)", "outlook"),
+    )
+
+
+#: The drop-down's choices while the setting above is Automatic, its default.
+ARCHIVE_CHOICES: tuple[tuple[str, str], ...] = archive_choices("auto")
+
+#: Said on every line's drop-down but an `.ost`'s.
+ARCHIVE_CHOICE_TIP = (
+    "How this archive is read.\n\n"
+    "The first choice follows \"How to read archives\" above and names the way "
+    "it is set now. Choose one of the others when this archive needs a way of "
+    "its own - one Outlook cannot open, say. It applies from the next index run.")
 
 #: Said on an `.ost` line's drop-down, which cannot be changed.
 OUTLOOK_ONLY_TIP = (
@@ -138,10 +173,12 @@ def archive_cleared_message(path: Any, count: Any) -> str:
 
 
 def archive_choice_saved_message(path: Any, backend: str,
-                                 choices: Optional[Mapping[str, str]] = None) -> str:
+                                 choices: Optional[Mapping[str, str]] = None,
+                                 default_backend: Any = "auto") -> str:
     """The status line after a line's drop-down changes. Names how many
-    archives now have a choice of their own."""
-    labels = dict((value, label) for label, value in ARCHIVE_CHOICES)
+    archives now have a choice of their own; a line put back to follow the
+    setting above says which way that is."""
+    labels = dict((value, label) for label, value in archive_choices(default_backend))
     own = len(choices or {})
     archives = ("archive has a setting of its own" if own == 1
                 else "archives have a setting of their own")

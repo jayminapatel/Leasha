@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.81 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 4.82 · **Updated:** 2026-10-08 · **Applies to:** app v0.3.5
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,34 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A quick search you can move, a tidier Chat, and text you can read when it is selected (2026-10-08)
+
+- **Quick search (Ctrl+Alt+L) can be moved and resized, and opens where you left it.** It
+  now has All / Files / Mail / Photos / Code under the box, the same / filters as the Search
+  page, a preview beside the results, recent searches when it is empty, and keys for every
+  action - Enter opens, Ctrl+Enter shows the folder, Ctrl+C copies the path, Ctrl+O opens a
+  message in Outlook. Pressing the shortcut again hides it. It now follows the dark theme too;
+  before, it was always drawn light.
+- **Chat's Sources and Preview are two tabs on the right edge.** Click the open one to hide
+  the panel and give the conversation the whole width; Ctrl+B does the same. Clicking a source
+  opens it in Preview.
+- **Messages in Chat are named by their subject, sender and date,** not by a number, and a
+  mail archive file is no longer offered as a source - its messages are. The documents the
+  next answer may use fold into one "N sources" button.
+- **Selected and matched text can be read.** Words found with the preview's find box were
+  black on Windows blue; they now use the same soft marker as search matches. Selected text in
+  a search box was dark on dark indigo in the light theme, and white on light violet in the dark.
+- **In Settings, the list of sections stays put** while the page beside it scrolls, as it
+  already did on Indexing.
+- **The folder and mail archive lists fit their columns and let you drag them.** Their buttons
+  no longer overflow their rows, and a long path is shortened in the middle.
+- **Each mail archive's first choice says which way it will be read** - for example "Direct
+  file reading (as set above)" - in place of "Use the setting above", at the owner's request.
+- **Matched words line up under a result's title,** in Search and in Chat, instead of under
+  its icon.
+- **Turning off "Offer recent searches" now hides them on the Search page.** The switch had
+  never taken effect there.
 
 ### The installer build runs one at a time (2026-10-07)
 

@@ -23,6 +23,21 @@ so that "categories auto-expanding to show hits" is a real state rather than
 a metaphor: every category with a match becomes visible together, and the
 rest hide, in the same `QVBoxLayout` a single category normally has to
 itself.
+
+**The sidebar never scrolls with the page (owner, 2026-10-08).** *"the left
+section headers scroll with the right ... the left sections should not scroll
+with the right sections"*. Settings and Indexing scrolled differently: `shell.py`
+wraps the whole Settings page in one scroll area, so the sidebar sat *inside*
+it, moved off the top as the page scrolled, and a wheel over the list (which
+has nothing of its own to scroll) passed up to that area and scrolled the page;
+Indexing's shelves each carry their own scroll area, beside the sidebar, so
+there it stayed put. Now the rule is this widget's, not each caller's: the
+content side is one `QScrollArea` (`self.scroll`) and the sidebar is its
+sibling, never its descendant - so the list is always full height, always in
+view, and a wheel over it can only ever reach whatever holds the whole nav,
+never the content. `scroll=False` is for a caller whose pages each scroll
+themselves (Indexing - see `widgets/indexing_layout.assemble_pages`), so a
+page is never inside two scroll areas.
 """
 
 from __future__ import annotations
@@ -30,7 +45,7 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QListWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QListWidget, QScrollArea, QVBoxLayout, QWidget
 
 __all__ = ["CategoryNav"]
 
@@ -43,7 +58,7 @@ class CategoryNav(QWidget):
     #: not be indistinguishable from one on the signal a caller persists from).
     category_changed = Signal(str)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, *, scroll: bool = True) -> None:
         super().__init__(parent)
         self._pages: dict[str, QWidget] = {}
         self._order: list[str] = []
@@ -66,10 +81,26 @@ class CategoryNav(QWidget):
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(0, 0, 0, 0)
 
+        # The one scroll area on the content side, or None when every page
+        # brings its own (see the module docstring). `scrollable` is the same
+        # wrap each Indexing shelf gets and Settings used to get whole: it
+        # scrolls vertically, never sideways, and its width floor is what
+        # makes the content track the viewport's width - without an explicit
+        # floor the area sizes it to its widest drop-down (1,853 pixels on
+        # Search, measured) and cuts off the right-hand side.
+        self.scroll: Optional[QScrollArea] = None
+        if scroll:
+            from app.ui.widgets.scroll import scrollable
+
+            self.scroll = scrollable(self._content)
+            self.scroll.setObjectName("categoryScroll")
+
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        # The list is as tall as the nav, and the nav as tall as the window
+        # gives it: the content's own height stops at the scroll area.
         layout.addWidget(self.sidebar)
-        layout.addWidget(self._content, stretch=1)
+        layout.addWidget(self.scroll if self.scroll is not None else self._content, stretch=1)
 
     # -- building -------------------------------------------------------------
 
@@ -204,6 +235,7 @@ class CategoryNav(QWidget):
         """Filtering mode: show every category with a hit, hide the rest."""
         for key, page in self._pages.items():
             page.setVisible(key in visible_names)
+        self._to_top()
 
     def restore_single_view(self) -> None:
         """Filter cleared: back to exactly the sidebar's current category."""
@@ -220,3 +252,10 @@ class CategoryNav(QWidget):
     def _show_only(self, name: str) -> None:
         for key, page in self._pages.items():
             page.setVisible(key == name)
+        self._to_top()
+
+    def _to_top(self) -> None:
+        """A newly shown category opens at its top, not at wherever the last
+        one had been scrolled to - the scroll area is shared by all of them."""
+        if self.scroll is not None:
+            self.scroll.verticalScrollBar().setValue(0)

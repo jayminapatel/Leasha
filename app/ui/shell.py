@@ -1348,6 +1348,9 @@ class MainWindow(QMainWindow):
         # tab whose users are most likely to be keyboard-driven was the one that
         # needed a mouse. Ctrl+E for "code", since Ctrl+C is taken by copy.
         bind("Ctrl+E", self._focus_code)
+        # 2026-10-08: Chat's Sources and Preview panel, away and back. Not in the
+        # View menu, whose items after Preview pane are the tab's own options.
+        bind("Ctrl+B", self._toggle_side_panel)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
         # positional argument. Binding the method directly raises TypeError the
@@ -1502,6 +1505,7 @@ class MainWindow(QMainWindow):
                 lines.append(f"{keys:<14} {action.text().replace('&', '')}")
         lines.append(f"{'Ctrl+Enter':<14} Interpret")
         lines.append(f"{'Ctrl+F':<14} Search (also Ctrl+K)")
+        lines.append(f"{'Ctrl+B':<14} Chat: show or hide the Sources and Preview panel")
         QMessageBox.information(self, "Keyboard shortcuts", "\n".join(lines))
 
     def _show_about(self) -> None:
@@ -1563,11 +1567,17 @@ class MainWindow(QMainWindow):
         """The shortcut was pressed. **Never raises**: this runs from a native
         event filter, where an exception has nowhere sensible to go."""
         try:
+            if self._mini is not None and self._mini.isVisible():
+                # Pressed again while it is open: it goes (the owner, 2026-10-08).
+                self._mini.dismiss()
+                return
             if self._mini is None:
+                from app.ui.presenter.quick_search import recent_wanted
                 from app.ui.widgets.mini_search import MiniSearch
 
                 self._mini = MiniSearch(   # the Settings switches, read per search
-                    self._engine, preferences=lambda: getattr(self, "search_preferences", None))
+                    self._engine, preferences=lambda: getattr(self, "search_preferences", None),
+                    offer_recent=lambda: recent_wanted(self._settings, self._settings_overrides))
                 self._mini.chosen.connect(self._open_result)
                 self._mini.expanded.connect(self._search_from_mini)
             self._mini.summon()
@@ -1649,6 +1659,16 @@ class MainWindow(QMainWindow):
         """
         button = getattr(self._current_view(), "view_button", None)
         toggle = getattr(button, "toggle_preview", None)
+        # 2026-10-08: Chat has no View button; its own `toggle_preview` shows the
+        # Preview page of its side panel, or puts the panel away.
+        toggle = toggle or getattr(self._current_view(), "toggle_preview", None)
+        if toggle is not None:
+            toggle()
+
+    def _toggle_side_panel(self) -> None:
+        """Ctrl+B (2026-10-08): put the side panel of the tab in front away, or bring
+        it back. Only Chat has one today; elsewhere the key does nothing."""
+        toggle = getattr(self._current_view(), "toggle_panel", None)
         if toggle is not None:
             toggle()
 

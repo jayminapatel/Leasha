@@ -177,7 +177,8 @@ class ResultDelegate(QStyledItemDelegate):
         if self._shows_snippet(payload):
             text = _snippet_text(payload)
             snippet_font = _snippet_font(body_font, _payload_kind(payload))
-            rows.append(_snippet_height(snippet_font, text, width - 2 * metrics.pad_x,
+            indent = self.text_indent(payload, name_font, meta_font, metrics)
+            rows.append(_snippet_height(snippet_font, text, width - 2 * metrics.pad_x - indent,
                                         max_lines=_max_snippet_lines(self.prefs.density)))
 
         height = sum(rows) + metrics.gap * (len(rows) - 1) + 2 * metrics.pad_y
@@ -192,6 +193,20 @@ class ResultDelegate(QStyledItemDelegate):
         if isinstance(payload, ResultGroup):
             return self.prefs.density != Density.COMPACT
         return True
+
+    def text_indent(self, payload: Any, name_font: QFont, meta_font: QFont, metrics: Any) -> int:
+        """How far a group row's words start right of its kind badge: the name,
+        the grey line and - 2026-10-08 - the matched words under them, one column.
+
+        The snippet was painted from the row's left edge, under the badge, so the
+        third line of every row stuck out to the left of the two above it (seen on
+        the Chat tab's answer list; the Search list drew the same rows the same way).
+        The skeleton row already put its third bar here. 0 for a row with no badge."""
+        if not isinstance(payload, ResultGroup) or not payload.kind:
+            return 0
+        side = min(BADGE_SIZE, QFontMetrics(name_font).height() + metrics.gap
+                   + QFontMetrics(meta_font).height())
+        return side + 10
 
     # -- painting ----------------------------------------------------------
 
@@ -252,9 +267,11 @@ class ResultDelegate(QStyledItemDelegate):
                                   meta_font, faint, metrics)
 
         if self._shows_snippet(payload):
+            indent = self.text_indent(payload, name_font, meta_font, metrics)
             painter.setFont(_snippet_font(body_font, _payload_kind(payload)))
             _draw_snippet(painter, _snippet_payload(payload),
-                          QRect(left, y, width, option.rect.bottom() - y), text_colour,
+                          QRect(left + indent, y, width - indent, option.rect.bottom() - y),
+                          text_colour,
                           max_lines=_max_snippet_lines(self.prefs.density))
         painter.restore()
 
@@ -289,8 +306,9 @@ class ResultDelegate(QStyledItemDelegate):
         if group.kind:
             _paint_badge(painter, QRect(left, y, badge_side, badge_side), group.kind, colours,
                          icon=_icon_for(group.kind))
-            left += badge_side + 10
-            width -= badge_side + 10
+            indent = self.text_indent(group, name_font, meta_font, metrics)   # the snippet's too
+            left += indent
+            width -= indent
 
         # Date first, right-aligned, so the name is elided against the space
         # actually left rather than overlapping it.
