@@ -155,6 +155,7 @@ class ResourceLimits:
     poll_seconds: float = 2.0
 
     def resolved_workers(self) -> int:
+        """`workers`, with 0 meaning `default_workers()` for this machine."""
         return self.workers if self.workers > 0 else default_workers()
 
 
@@ -306,6 +307,7 @@ def verdict(
 # ---------------------------------------------------------------------------
 
 def psutil_available() -> bool:
+    """Whether the memory, CPU and battery governors can work here at all."""
     try:
         import psutil  # noqa: F401, PLC0415
     except ImportError:
@@ -342,6 +344,8 @@ class SystemProbe:
 
     @property
     def index_path(self) -> Optional[Path]:
+        """Where free space is measured, resolved on every read (the vector
+        store's uri may not exist when the probe is built). None = unknown."""
         target = self._index_path() if callable(self._index_path) else self._index_path
         if target is None:
             return None
@@ -351,6 +355,7 @@ class SystemProbe:
             return None
 
     def _psutil(self):
+        """The `psutil` module, or None - said once in the log when missing."""
         try:
             import psutil  # noqa: PLC0415
         except ImportError:
@@ -718,6 +723,8 @@ class ResourceGovernor:
 
     @property
     def manually_paused(self) -> bool:
+        """Is the person holding the run - the button, or the pause file? An
+        unreadable pause file reads as "not paused"."""
         if self._manual.is_set():
             return True
         if self._manual_check is None:
@@ -906,6 +913,9 @@ class ResourceGovernor:
         return True
 
     def apply_priority(self) -> bool:
+        """Lower the whole process (CPU and disk), if `low_priority` asks for
+        it. Through the probe's own `SystemProbe` when it has one, so an
+        injected fake is never asked to touch the real process."""
         if not self.limits.low_priority:
             return False
         probe = getattr(self._probe, "__self__", None)
@@ -923,6 +933,7 @@ class ResourceGovernor:
         return SystemProbe().lower_io_priority()
 
     def summary(self) -> dict[str, object]:
+        """The limits and the pause totals, for the run's closing report."""
         return {
             "workers": self.limits.resolved_workers(),
             "memory_mb_cap": self.limits.memory_mb,

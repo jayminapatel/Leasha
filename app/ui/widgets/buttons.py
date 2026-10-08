@@ -297,6 +297,9 @@ _spaced_cache: dict[tuple[str, str, str], QIcon] = {}
 
 
 def _spaced_pixmap(glyph: str, colour: str) -> Optional[QPixmap]:
+    """The glyph on a canvas `ICON_GAP` wider than itself, or None when the SVG
+    is missing. The empty strip is what keeps the icon off the first letter.
+    """
     plain = themed_icon(glyph, colour)
     if plain.isNull():
         return None
@@ -334,6 +337,9 @@ def _spaced_icon(glyph: str, colour: str, faint: str) -> QIcon:
 
 
 def _paint_icon(button: QPushButton, colours: dict[str, str]) -> None:
+    """Draw (or redraw) one button's icon in the theme's colours. UI thread.
+    Skips the work when the same glyph was last drawn in the same colours.
+    """
     glyph = button.property("buttonIcon")
     if glyph:
         colour = _ink(str(button.property("buttonRole")), colours)

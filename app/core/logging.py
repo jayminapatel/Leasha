@@ -302,6 +302,8 @@ def open_log_files() -> list[Path]:
         if run is not None and getattr(run, "path", None):
             found.append(Path(run.path))
     except Exception:                            # noqa: BLE001
+        # No run log, or runlog not importable yet: the list is best effort,
+        # and a file missed here is one `clear_logs` reports as undeletable.
         pass
 
     try:
@@ -312,6 +314,8 @@ def open_log_files() -> list[Path]:
         found.append(root / "app" / f"app_{stamp}.log")
         found.append(root / "errors" / f"errors_{stamp}.jsonl")
     except Exception:                            # noqa: BLE001
+        # `log_dir_for` reads `.env`; an unreadable one is already reported
+        # by `load_settings`, and this list must not be a second failure.
         pass
 
     return [item for item in found if item]

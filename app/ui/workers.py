@@ -19,7 +19,7 @@ from __future__ import annotations
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
@@ -79,6 +79,7 @@ _SHUTDOWN_DETAILS = (
 
 
 def _is_shutdown(error: Any) -> bool:
+    """Is this error the window closing under a worker, rather than a fault?"""
     if getattr(error, "code", "") in _SHUTDOWN_CODES:
         return True
     detail = str(getattr(error, "details", "") or "")
@@ -328,6 +329,9 @@ def open_row_async(store: Any, row: Any, *, reveal: bool = False, on_error: Any 
         component=component)
 
     def landed(result: Any) -> None:
+        """UI thread: route the worker's answer - an error to the caller's error box,
+        a message nothing can open to search-inside, a sentence to the toast.
+        """
         if isinstance(result, AppError):
             if errors is not None:
                 errors(result)
@@ -361,6 +365,7 @@ def copy_path_async(row: Any, *, store: Any = None) -> None:
     key = key_of(row)
 
     def put(text: Any) -> None:
+        """UI thread: put `text` (or the row's own key) on the clipboard."""
         clipboard = QGuiApplication.clipboard()
         if clipboard is not None:
             clipboard.setText(str(text or key))
@@ -371,6 +376,7 @@ def copy_path_async(row: Any, *, store: Any = None) -> None:
     reader = store if store is not None else _CONTEXT.store
 
     def resolved() -> str:
+        """Worker body: the drive's current path, or the key when it is not plugged in."""
         try:
             return resolve_open_path(reader, row)
         except Exception:                        # noqa: BLE001 - not plugged in: the key
@@ -479,6 +485,7 @@ class CallableWorker(QRunnable):
 
     def __init__(self, work: Callable[..., Any], *args: Any, component: str = "ui",
                 report_progress: bool = False, **kwargs: Any):
+        """Hold the callable and its arguments; nothing runs until a pool starts this."""
         super().__init__()
         self._work = work
         self._args = args
@@ -488,6 +495,10 @@ class CallableWorker(QRunnable):
         self.signals = WorkerSignals()
 
     def run(self) -> None:
+        """Pool thread. Emits `finished(result)`, or `failed(AppError)` for anything
+        raised - except a shutdown race, logged at debug and never shown - then
+        always `done`.
+        """
         try:
             if self._report_progress:
                 self._kwargs["on_progress"] = lambda stage: _emit(self.signals, "progress", stage)
@@ -514,6 +525,7 @@ class SearchWorker(QRunnable):
     """
 
     def __init__(self, engine: Any, query: str, *, tier: str, generation: int, **options: Any):
+        """Hold the engine, the query, the tier and the options for one search."""
         super().__init__()
         self._engine = engine
         self._query = query
@@ -523,6 +535,9 @@ class SearchWorker(QRunnable):
         self.signals = WorkerSignals()
 
     def run(self) -> None:
+        """Pool thread. Emits `finished((generation, response))`; a failure becomes
+        `failed(AppError)` unless the window is closing; `done` always follows.
+        """
         try:
             # **The recognised filters are applied here, on the worker** -
             # `presenter.auto_filters` reads the store's senders and file types,
@@ -564,6 +579,7 @@ class IndexWorker(QRunnable):
     """
 
     def __init__(self, pipeline: Any):
+        """Hold the pipeline; the run lock is taken in `run`, on the pool thread."""
         super().__init__()
         self.pipeline = pipeline
         self.signals = WorkerSignals()
@@ -590,6 +606,9 @@ class IndexWorker(QRunnable):
             # **A copy, made here on the run's thread.** The live `IndexStats`
             # is being written by the walker, the extraction threads and the
             # consumer while the window reads it to paint - see `snapshot`.
+            """Run thread: hand the window a snapshot of the live stats, never the object
+            the extraction threads are still writing to.
+            """
             snap = getattr(payload, "snapshot", None)
             _emit(self.signals, "progress", snap() if callable(snap) else payload)
 
@@ -726,12 +745,17 @@ def saved_searches_async(store: Any, on_ready: Callable) -> None:
     run(QThreadPool.globalInstance(), worker)
 
 
-def change_saved_search_async(store: Any, action: str, args: tuple, on_done: Callable) -> None:
+def change_saved_search_async(store: Any, action: str, args: tuple, on_done: Callable,
+                              on_failed: Optional[Callable] = None) -> None:
     """Rename or delete a saved search, then hand back the refreshed list.
 
     The same one-worker shape as `save_search_async`, for the same reason: the
     write and the re-read must not race, or the list somebody is looking at
     would still show the search they just deleted.
+
+    `on_failed` receives the `AppError` when the write raises. Found in review
+    2026-10-08: without it a failed rename or delete was logged and nothing
+    else - the menu looked as if it had worked.
     """
     from PySide6.QtCore import QThreadPool
 
@@ -745,17 +769,22 @@ def change_saved_search_async(store: Any, action: str, args: tuple, on_done: Cal
 
     worker = CallableWorker(write, component="ui.search.saved")
     worker.signals.finished.connect(on_done)
+    if on_failed is not None:
+        worker.signals.failed.connect(on_failed)
     run(QThreadPool.globalInstance(), worker)
 
 
 def save_search_async(store: Any, name: str, query: str, scope: str,
-                      on_done: Callable) -> None:
+                      on_done: Callable, on_failed: Optional[Callable] = None) -> None:
     """Store a named search, then hand back the refreshed list.
 
     **One worker for the write and the re-read.** Two would race: the list
     could come back from a read that started before the write committed, and
     the search somebody just saved would be missing from the menu they saved
     it in. That is the kind of bug that gets reported as "it did not save".
+
+    `on_failed` receives the `AppError` when the write raises - the other way
+    "it did not save" happens, and until 2026-10-08 the one nobody was told.
     """
     from PySide6.QtCore import QThreadPool
 
@@ -767,6 +796,8 @@ def save_search_async(store: Any, name: str, query: str, scope: str,
 
     worker = CallableWorker(write, component="ui.search.saved")
     worker.signals.finished.connect(on_done)
+    if on_failed is not None:
+        worker.signals.failed.connect(on_failed)
     run(QThreadPool.globalInstance(), worker)
 
 

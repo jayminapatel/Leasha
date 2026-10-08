@@ -609,6 +609,9 @@ def pictures_not_read_counts(raw: Any) -> dict[str, int]:
 
 
 def _last_run_field(raw: Any, name: str) -> Any:
+    """One field of the stored `last_run_stats` repr, read with `literal_eval`;
+    None for anything unreadable.
+    """
     if not raw:
         return None
     import ast

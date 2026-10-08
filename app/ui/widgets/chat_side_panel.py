@@ -62,6 +62,7 @@ _SHEET = """
 
 
 def _colours(colours: Optional[Mapping[str, str]] = None) -> dict:
+    """The theme's tokens with fallbacks for every key the strip's sheet uses."""
     if colours is None:
         from app.ui.theme import theme_colours
 
@@ -182,6 +183,9 @@ class PanelSwitch(QObject):
         self.apply(PanelState(), save=False)
 
     def eventFilter(self, watched: Any, event: Any) -> bool:      # noqa: N802 - Qt
+        """The view was shown: give the panel its remembered width once the
+        splitter has a size to share - deferred a turn so the layout exists.
+        """
         if event.type() == QEvent.Type.Show:
             QTimer.singleShot(0, self, self.apply_width)     # the width, once laid out
         return False
@@ -240,12 +244,16 @@ class PanelSwitch(QObject):
         return PanelState(state.open, state.tab, width) if width else state
 
     def _width(self) -> int:
+        """The panel's current width in the splitter, or 0 while it is away or hidden."""
         if not self.state.open or not self.panel.isVisible():
             return 0
         sizes = self.split.sizes()
         return int(sizes[2]) if len(sizes) > 2 and sizes[2] > 0 else 0
 
     def apply(self, state: PanelState, *, save: bool = True) -> None:
+        """Make the screen match `state`: the panel's page and visibility, the
+        strip, the toolbar toggles and the splitter. Saves unless told not to.
+        """
         was_preview = self.state.open and self.state.tab == PREVIEW_TAB
         opening, closing = state.open and not self.state.open, self.state.open and not state.open
         before = self.split.sizes()
@@ -287,6 +295,7 @@ class PanelSwitch(QObject):
             self._save()
 
     def _save(self) -> None:
+        """Queue the panel state on the ordered state writer; never waits on the store."""
         save_state(self.store, PANEL_KEY, panel_state_text(self.current()), component="ui.chat")
 
 

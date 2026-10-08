@@ -43,6 +43,9 @@ def gather(store: Any, file_id: int, path: str) -> dict:
         from app.ui.thumbnail_loader import decode_thumbnail
 
         out["image"] = decode_thumbnail(path, edge=PREVIEW_EDGE)
+    # Each part is best effort on its own: a photo whose EXIF cannot be read
+    # still shows its picture, and one that cannot decode still shows its
+    # details. Worker thread; the panel paints whatever came back.
     except Exception:                               # noqa: BLE001 - a blank picture
         pass
     try:
@@ -81,6 +84,7 @@ def gather(store: Any, file_id: int, path: str) -> dict:
 
 
 def _number(text: str) -> bool:
+    """Whether `text` reads as a number (EXIF values arrive as strings)."""
     try:
         float(text)
         return True
@@ -89,6 +93,7 @@ def _number(text: str) -> bool:
 
 
 def _value(text: str = "") -> QLabel:
+    """A wrapped, selectable value label that never widens the panel."""
     label = QLabel(text)
     label.setWordWrap(True)
     # A long file name has nowhere to wrap; without this it widens the panel.
@@ -181,6 +186,9 @@ class PhotoInfo(QWidget):
         self.show_row(None)
 
     def show_row(self, row: Any) -> None:
+        """Show `row`'s facts at once and ask a worker (`gather`) for the picture,
+        the index's details and the EXIF. A newer row's generation wins.
+        """
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -218,6 +226,7 @@ class PhotoInfo(QWidget):
         run(self._pool, worker)
 
     def _facts(self, facts: Any, generation: int) -> None:
+        """UI thread: `gather`'s answer, dropped when the selection has moved on."""
         if generation != self._generation or not isinstance(facts, dict):
             return
         image = facts.get("image")
@@ -249,6 +258,7 @@ class PhotoInfo(QWidget):
             label.widget().setVisible(shown)
 
     def _clear_camera(self) -> None:
+        """Empty the camera form; `removeRow` deletes the labels too."""
         while self.camera.rowCount():
             self.camera.removeRow(0)
 

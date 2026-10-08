@@ -461,6 +461,7 @@ class PreviewPane(QWidget):
         anim.setEndValue(end)
 
         def step(value: Any) -> None:
+            """One animation frame: resize the splitter so the pane slides open or shut."""
             v = int(value)
             new = list(split.sizes())
             new[me] = v
@@ -475,6 +476,9 @@ class PreviewPane(QWidget):
         return True
 
     def clear(self) -> None:
+        """Nothing selected: stop the debounce, stale anything in flight, and put
+        the pane back to its resting words.
+        """
         self._row = None
         self._generation += 1
         self._timer.stop()
@@ -641,6 +645,9 @@ class PreviewPane(QWidget):
         self._highlighter.setPalette(_theme_palette(self))
 
     def _start(self) -> None:
+        """The debounce fired: read the row on a worker (`load_preview_for`). The
+        generation taken now is what `_rendered` checks against.
+        """
         if self._row is None:
             return
         generation = self._generation
@@ -664,6 +671,9 @@ class PreviewPane(QWidget):
     # -- drawing -------------------------------------------------------------
 
     def _rendered(self, preview: Any, generation: int) -> None:
+        """UI thread: a `Preview` landed. Dropped if the selection moved on. Every
+        kind is drawn from data the worker already produced; no file is opened.
+        """
         if generation != self._generation:
             return                  # the selection moved on; this is stale
 
@@ -773,6 +783,7 @@ class PreviewPane(QWidget):
         )
 
     def _show_card(self, text: str) -> None:
+        """Plain words in place of a document: an error, or a kind with no preview."""
         self.card.setText(text)
         self.stack.setCurrentWidget(self.card)
 
@@ -817,6 +828,10 @@ class PreviewPane(QWidget):
         self.stack.setCurrentWidget(self.image)
 
     def _show_pdf(self, path: str, page: int, *, data: Any = None) -> None:
+        """Show a PDF in Qt's view: from bytes the worker read, or - for one over
+        the in-memory cap - by path, which Qt parses on this thread (accepted
+        2026-10-04; see the comment inside). Never raises.
+        """
         try:
             if data is not None:
                 # An attachment's bytes, read on the worker (2026-10-04). The

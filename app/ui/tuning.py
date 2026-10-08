@@ -98,6 +98,7 @@ def machine_line(profile: Any) -> str:
 
 
 def _core_words(profile: Any) -> str:
+    """Cores, the fast/efficient split and threads, in specification-sheet words."""
     physical = int(getattr(profile, "physical_cores", 0) or 0)
     logical = int(getattr(profile, "logical_processors", 0) or 0)
     performance = int(getattr(profile, "performance_cores", 0) or 0)
@@ -118,6 +119,7 @@ def _core_words(profile: Any) -> str:
 
 
 def _gpu_words(profile: Any) -> str:
+    """The first adapter, its memory, and whether DirectML can use it."""
     adapters = tuple(getattr(profile, "gpus", ()) or ())
     if not adapters:
         return "no graphics card"
@@ -206,6 +208,7 @@ def resolved_text(key: str, mode: str, stored: Any, profile: Any,
 
 
 def _as_int(value: Any) -> int:
+    """`int(value)`, or 0 for anything that is not a number."""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -329,6 +332,7 @@ def footer_text(run: Optional[dict]) -> str:
 
 
 def _stage_shares(stages: Any) -> str:
+    """Stage times as percentages, largest first; "" without any."""
     try:
         items = [(str(name), float(seconds)) for name, seconds in
                  dict(stages).items() if float(seconds) > 0]
@@ -344,6 +348,7 @@ def _stage_shares(stages: Any) -> str:
 
 
 def _settled_words(resolved: Any) -> str:
+    """The resolved workers, threads, batch and device: "workers 4, batch 32"."""
     try:
         pairs: Iterable = dict(resolved).items()
     except (TypeError, ValueError):

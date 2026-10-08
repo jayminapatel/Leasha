@@ -127,10 +127,12 @@ class TimedOutPanel(QGroupBox):
 
     @staticmethod
     def _heading(row: TimedOutRow) -> str:
+        """"3 PDF files - example.pdf and 2 more", from the presenter's row."""
         example = row.example_text
         return f"{row.heading} - {example}" if example else row.heading
 
     def _add_row(self, row: TimedOutRow) -> None:
+        """One line: the heading and its Retry button, remembered in `_drawn`."""
         heading = QLabel(self._heading(row))
         heading.setObjectName("timedOutHeading")
         heading.setWordWrap(True)
@@ -152,7 +154,9 @@ class TimedOutPanel(QGroupBox):
         self._drawn[row.ext] = (row, heading, button)
 
     def _pressed(self, ext: str) -> None:
+        """Retry for one type, with the factor the box says right now."""
         self.retryRequested.emit(ext, float(self.factor.value()))
 
     def _factor_changed(self, value: int) -> None:
+        """Keep the factor box's accessible name saying what the number means."""
         self.factor.setAccessibleName(f"{FACTOR_LABEL}: {factor_words(value)}")

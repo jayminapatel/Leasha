@@ -26,6 +26,7 @@ MIN_FULL_SEARCH_CHARS = 3
 
 
 class Tier:
+    """Which search a keystroke earns: none, the keyword glance, or the full pipeline."""
     NONE = "none"
     INTERIM = "interim"
     FULL = "full"
@@ -272,6 +273,7 @@ class GitPass:
 
     @property
     def status(self) -> str:
+        """The waiting sentence, naming the switches that reach into history."""
         if not self.switches:
             return ""
         return "Reading repository history for /" + ", /".join(self.switches) + "…"

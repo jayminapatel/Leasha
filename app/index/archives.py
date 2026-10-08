@@ -212,6 +212,7 @@ def load_modes(raw: str) -> dict[str, str]:
 
 
 def dump_modes(modes: Mapping[str, str]) -> str:
+    """The stored form of `MODE_STATE_KEY`: archive roots only, keys sorted."""
     return json.dumps({
         normalise(root): str(mode)
         for root, mode in modes.items()
@@ -223,6 +224,8 @@ def dump_modes(modes: Mapping[str, str]) -> str:
 
 
 def load_records(raw: str) -> dict[str, ArchiveRecord]:
+    """`{normalised root: ArchiveRecord}` from the stored JSON. Never raises:
+    an unreadable record means no pass is trusted, so every root is walked."""
     if not raw:
         return {}
     try:
@@ -242,6 +245,7 @@ def load_records(raw: str) -> dict[str, ArchiveRecord]:
 
 
 def dump_records(records: Mapping[str, ArchiveRecord]) -> str:
+    """The stored form of `RECORD_STATE_KEY`, keys normalised and sorted."""
     return json.dumps(
         {normalise(key): record.as_dict() for key, record in records.items()},
         sort_keys=True,

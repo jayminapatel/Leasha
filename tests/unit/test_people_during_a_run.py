@@ -94,7 +94,10 @@ def _pipeline(store, monkeypatch, every):
     built._face_stats = SimpleNamespace(enrichment_counts={})
     built._faces_since_cluster = 0
     calls = []
-    built._drain_face_cluster = lambda stats: calls.append(stats)
+    # `**kwargs`: the mid-run call passes `paced=False` since the 2026-10-08
+    # review (the consumer thread never waits on the governor); this stand-in
+    # counts calls and does not care how they are paced.
+    built._drain_face_cluster = lambda stats, **kwargs: calls.append(stats)
     return built, calls
 
 

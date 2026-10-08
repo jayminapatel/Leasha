@@ -85,6 +85,7 @@ class Entry:
 
     @property
     def is_verified(self) -> bool:
+        """Checked on a real machine (the `verified` record is present)."""
         return bool(self.verified)
 
     def model(self) -> Any:
@@ -98,6 +99,9 @@ class Entry:
 
     @classmethod
     def from_row(cls, row: dict) -> "Entry":
+        """One `catalogue.json` row as an `Entry`; missing optional fields take
+        their defaults, and a missing required one raises `KeyError` so a bad
+        catalogue is refused whole by `_parse`."""
         return cls(
             key=str(row["key"]), job=str(row["job"]), runner=str(row["runner"]),
             rank=int(row.get("rank", 5)), label=str(row.get("label") or row["key"]),
@@ -117,11 +121,15 @@ class Entry:
 
 @dataclass(frozen=True)
 class Catalogue:
+    """Every entry known, with the version string and where the list came from
+    ("shipped", "fetched" or merged with "huggingface" finds)."""
+
     version: str
     entries: tuple[Entry, ...]
     source: str = "shipped"
 
     def by_key(self, key: str) -> Optional[Entry]:
+        """The entry with this key, or None."""
         return next((e for e in self.entries if e.key == key), None)
 
     def for_job(self, job: str) -> list[Entry]:
@@ -145,6 +153,7 @@ def _parse(text: str, source: str) -> Catalogue:
 
 
 def fetched_path(state_dir: Optional[Path]) -> Optional[Path]:
+    """Where "Check for new models" keeps a newer catalogue it fetched."""
     return Path(state_dir) / "model_catalogue.json" if state_dir else None
 
 
@@ -154,6 +163,7 @@ def discovered_path(state_dir: Optional[Path]) -> Optional[Path]:
 
 
 def choices_path(state_dir: Optional[Path]) -> Optional[Path]:
+    """Where the "Use this" choices per job are remembered."""
     return Path(state_dir) / "model_choices.json" if state_dir else None
 
 
@@ -266,6 +276,8 @@ def verify_files(entry: Entry, folder: Path) -> list[str]:
         digest = hashlib.sha256()
         try:
             with open(path, "rb") as handle:
+                # 4 MiB blocks: a model file is gigabytes, and reading it whole
+                # for a checksum would double the memory a worker already holds.
                 for chunk in iter(lambda: handle.read(1 << 22), b""):
                     digest.update(chunk)
         except OSError:
@@ -303,4 +315,5 @@ def check_for_update(state_dir: Path, url: str = DEFAULT_URL, *, timeout: float 
 
 
 def keys(entries: Iterable[Entry]) -> list[str]:
+    """The keys of `entries`, in order - for tests and the Models box."""
     return [e.key for e in entries]

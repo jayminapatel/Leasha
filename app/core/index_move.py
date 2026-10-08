@@ -95,6 +95,8 @@ class MoveReport:
 
     @property
     def summary(self) -> str:
+        """One sentence for the dialog and the CLI, in the past or the
+        conditional tense according to `performed`."""
         if self.action == ADOPT:
             return f"Using the index already at {self.destination}."
         if self.action == FRESH:
@@ -185,6 +187,8 @@ def _folder_bytes(path: Path) -> int:
                 except OSError:
                     continue
     except OSError:
+        # A folder that vanishes or refuses listing mid-walk: the size is only
+        # for the wording of the report, so a short answer beats no move.
         pass
     return total
 

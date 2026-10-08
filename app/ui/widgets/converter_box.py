@@ -70,6 +70,9 @@ class ConverterBox(QGroupBox):
             self.load(settings)
 
     def load(self, settings: Any) -> None:
+        """Fill from Settings with signals blocked, then drop any debounced write
+        queued before the load - it was about the old values.
+        """
         for widget in (self.workers, self.timeout):
             widget.blockSignals(True)
         try:

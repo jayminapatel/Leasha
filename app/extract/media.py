@@ -173,10 +173,12 @@ def configure(
 
 
 def current() -> MediaConfig:
+    """The settings `configure` last installed (defaults: both layers off)."""
     return _config
 
 
 def media_extensions() -> frozenset[str]:
+    """Every video and audio extension this module can claim, switches ignored."""
     return VIDEO_EXTENSIONS | AUDIO_EXTENSIONS
 
 
@@ -516,6 +518,14 @@ class VideoExtractor(_MediaBase):
     supports_resume = False
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: container facts, words seen on screen, and the transcript.
+
+        Raises `ERR_MEDIA_TOOLS_MISSING` or `ERR_MEDIA_PROBE_FAILED` when the
+        container cannot be read, `ERR_MEDIA_INTERRUPTED` when Stop is pressed;
+        a transcript that fails is a warning, not a skip. Pictures are written to
+        a temp folder the pipeline deletes (`release_keyframes`); the video
+        itself is only read.
+        """
         cfg = current()
         info = media_tools.probe(path)             # missing tool / unreadable -> raises
         place = _place_for(info)
@@ -628,6 +638,12 @@ class AudioExtractor(_MediaBase):
     supports_resume = False
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: what the container says, then the transcript.
+
+        A missing PyAV costs the container facts, not the file; a speech failure
+        is a warning when there are facts to index and the skip when there are
+        none. `ERR_MEDIA_INTERRUPTED` on Stop. Reads only.
+        """
         cfg = current()
         info: Optional[media_tools.MediaInfo] = None
         try:

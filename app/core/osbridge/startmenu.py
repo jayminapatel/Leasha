@@ -1,5 +1,7 @@
 r"""The Start-menu shortcut: Leasha in the Start menu, with its own icon.
 
+Layer: L0 (part of `app.core.osbridge`; Windows-only writes, pywin32 needed)
+
 Until Layer 9 packages an `.exe`, the window is `pythonw.exe -m app.main` run
 from the project folder, and nothing put it in the Start menu - the only ways
 in were `leasha.cmd` and a typed command.
@@ -33,7 +35,16 @@ SHORTCUT_NAME = "Leasha.lnk"
 def shortcut_spec(root: Path) -> dict[str, str]:
     """What the shortcut holds for an installation at `root`. Pure, so the
     contents are testable on any platform."""
-    from app.ui.tray import APP_USER_MODEL_ID, ICON_FILE
+    # Imported inside the function, not at module scope: `app.ui.tray` is a Qt
+    # module, and importing this file must never pull Qt into a CLI process.
+    # It is also the one place under `app/core` that reads from `app.ui`; the
+    # two values are plain constants, so they could live in `core/branding.py`
+    # and be re-exported by the tray - see the 2026-10-08 review.
+    #
+    # 2026-10-08, later the same day: done. The two constants live in
+    # `app.core.branding` and the tray re-exports them, so this module no
+    # longer touches `app/ui` at all.
+    from app.core.branding import APP_USER_MODEL_ID, ICON_FILE
 
     root = Path(root)
     return {

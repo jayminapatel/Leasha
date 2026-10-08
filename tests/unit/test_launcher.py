@@ -193,8 +193,19 @@ def test_the_installer_still_writes_the_settings_that_are_not_choices():
     """
     block = _generated_env_block()
 
-    for key in ("DATA_PATH", "EMBED_MODEL", "EMBED_DIM"):
+    # 2026-10-08 review: `EMBED_MODEL` and `EMBED_DIM` left this list too. They
+    # *can* be derived - from the registry's defaults, which `config.py` applies
+    # when `.env` is silent - and pinning them meant a source install never saw
+    # a later default while the Inno installer's did (HANDOFF section 2: only
+    # the three locations are pinned; `test_installer_script.py` holds both
+    # installers to it). The anti-vacuity guard keeps the three locations.
+    for key in ("DATA_PATH", "PROJECT_PATH", "LOG_PATH"):
         assert f"{key}=" in block, f"install.ps1 no longer writes {key}"
+    for choice in ("EMBED_MODEL", "EMBED_DIM", "RERANK_ENABLED", "OLLAMA_URL",
+                   "MIN_FREE_GB", "REQUIRED_FREE_GB"):
+        assert f"{choice}=" not in block, (
+            f"install.ps1 pins {choice}, a Settings control with a registry default - "
+            f"a value in .env always wins, so the install would never see a later default")
 
     for derived in ("FTS_DB", "VECTOR_PATH", "CACHE_PATH", "MODEL_CACHE", "STATE_PATH"):
         assert f"{derived}=" not in block, (

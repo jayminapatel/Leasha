@@ -75,6 +75,7 @@ class TimelineDelegate(QStyledItemDelegate):
     # -- geometry -------------------------------------------------------------
 
     def _fonts(self, base: QFont) -> tuple[QFont, QFont]:
+        """The bold title font and a slightly smaller font for the second line."""
         title, meta = QFont(base), QFont(base)
         title.setBold(True)
         size = base.pointSizeF() if base.pointSize() > 0 else -1
@@ -83,6 +84,7 @@ class TimelineDelegate(QStyledItemDelegate):
         return title, meta
 
     def sizeHint(self, option: Any, index: Any) -> QSize:          # noqa: N802
+        """Row heights from the fonts alone; width 0 so the list never scrolls sideways."""
         block = index.data(ROLE_BLOCK)
         # Width 0: a list-mode row takes the viewport's width whatever it says,
         # and saying more is what put a horizontal scroll bar under the list.
@@ -101,12 +103,14 @@ class TimelineDelegate(QStyledItemDelegate):
         return max(40.0, (width - 2 * _PAD) / BAND_SIZE)
 
     def cell_at(self, rect: QRect, x: int, count: int) -> Optional[int]:
+        """Which photograph's slot `x` falls in, or None outside the band."""
         slot = int((x - rect.left() - _PAD) // self.cell_width(rect.width()))
         return slot if 0 <= slot < count else None
 
     # -- painting ---------------------------------------------------------------
 
     def paint(self, painter: QPainter, option: Any, index: Any) -> None:
+        """Paint one `Block`. UI thread, no I/O: pictures are *asked for* (`picture_for`)."""
         block = index.data(ROLE_BLOCK)
         if not isinstance(block, Block):
             return
@@ -178,6 +182,7 @@ class TimelineDelegate(QStyledItemDelegate):
             QFontMetrics(meta_font).elidedText(detail, Qt.TextElideMode.ElideRight, room))
 
     def _pill(self, painter, rect, text, colours, font) -> None:
+        """A rounded tag in the accent's soft colour: the source badge and the corner tags."""
         painter.setBrush(QColor(colours["accent_soft"]))
         painter.setPen(Qt.PenStyle.NoPen)
         painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
@@ -233,6 +238,7 @@ class TimelineDelegate(QStyledItemDelegate):
     # -- tooltips --------------------------------------------------------------
 
     def helpEvent(self, event: Any, view: Any, option: Any, index: Any) -> bool:   # noqa: N802
+        """Tooltips per photograph in a band, and for the date basis on a row."""
         block = index.data(ROLE_BLOCK) if index.isValid() else None
         if event.type() != QEvent.Type.ToolTip or not isinstance(block, Block):
             return False
@@ -287,6 +293,9 @@ class TimelineList(QListView):
     # -- content ------------------------------------------------------------
 
     def append_blocks(self, blocks: list) -> None:
+        """Add a page of blocks. Each gets spoken text for a screen reader; the
+        "more?" check runs once Qt has laid the new rows out.
+        """
         for block in blocks:
             item = QStandardItem()
             item.setData(block, ROLE_BLOCK)
@@ -331,6 +340,7 @@ class TimelineList(QListView):
         return None
 
     def _start_decode(self, path: str) -> None:
+        """Decode `path` on a worker if its cell was painted a moment ago; `_decoded` paints."""
         from app.ui.workers import CallableWorker, run
 
         worker = CallableWorker(_decode_if_still_wanted, path, self._seen, component="ui.timeline")
@@ -339,6 +349,7 @@ class TimelineList(QListView):
         run(self._pool, worker)
 
     def _decoded(self, path: str, image: Any) -> None:
+        """UI thread: a thumbnail landed (or was skipped). Kept, then the viewport repaints."""
         self._asked.discard(path)
         if image is None:
             return                       # skipped or unreadable: the placeholder stays
@@ -367,6 +378,7 @@ class TimelineList(QListView):
         self._maybe_more()
 
     def _maybe_more(self, *_args: Any) -> None:
+        """Near the bottom: ask the view for the next page."""
         bar = self.verticalScrollBar()
         if self._model.rowCount() and bar.value() >= bar.maximum() - 3 * BAND_HEIGHT:
             self.near_end.emit()
@@ -377,6 +389,7 @@ class TimelineList(QListView):
         return self._cell
 
     def _fold_at(self, index: Any, x: Optional[int] = None) -> Any:
+        """The fold under `x` in a band, or the row's one fold, or None for a day heading."""
         block = index.data(ROLE_BLOCK) if index.isValid() else None
         if block is None or block.kind == "day":
             return None
@@ -390,6 +403,7 @@ class TimelineList(QListView):
         return self._fold_at(self.currentIndex())
 
     def mousePressEvent(self, event: Any) -> None:                # noqa: N802
+        """Remember which cell in a band was pressed, so Enter and the menu know the photo."""
         index = self.indexAt(event.position().toPoint())
         block = index.data(ROLE_BLOCK) if index.isValid() else None
         if block is not None and block.kind == "band":
@@ -399,6 +413,7 @@ class TimelineList(QListView):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: Any) -> None:                  # noqa: N802
+        """Left/Right move within a band; Enter opens; everything else is Qt's."""
         block = self.currentIndex().data(ROLE_BLOCK) if self.currentIndex().isValid() else None
         key = event.key()
         if block is not None and block.kind == "band" and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
@@ -417,6 +432,7 @@ class TimelineList(QListView):
             self.opened.emit(fold.head)
 
     def _on_context_menu(self, point: Any) -> None:
+        """Right-click: select the row and hand the fold and the global point to the view."""
         index = self.indexAt(point)
         fold = self._fold_at(index, point.x())
         if fold is not None:

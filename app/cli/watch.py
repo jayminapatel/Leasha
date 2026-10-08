@@ -228,6 +228,9 @@ def cmd_watch(args: argparse.Namespace) -> int:
 
 def _refuse(reporter: _Reporter, machine: bool, args: argparse.Namespace,
             error: Any) -> int:
+    """A refusal, in the shape the caller reads: an `error` event and a
+    `stopped` event for the window (which otherwise waits for `stopped`), a
+    rendered error for a person."""
     if machine:
         reporter.event("error", {"error": error, "count": 0})
         reporter.event("stopped", {"batches": 0, "indexed": 0, "removed": 0})

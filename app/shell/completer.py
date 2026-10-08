@@ -84,6 +84,12 @@ class LeashaCompleter(Completer):
 
     def get_completions(self, document: Any, complete_event: Any = None
                         ) -> Iterable[Completion]:
+        """prompt_toolkit's hook: the menu for the text before the cursor.
+
+        Yields nothing unless the presenter says a `/` command or a `name:`
+        value is being typed - plain words never open a menu, which is what
+        keeps `D:/docs` and `12/03` inert here as in the window.
+        """
         text = document.text_before_cursor
         head, mode, partial, context = slash_context(text, self._resolve)
         self.note = ""

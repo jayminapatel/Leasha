@@ -177,6 +177,8 @@ def forget_outside(store: Any, vectors: Any, image_vectors: Any,
 
 
 def _drop_archive_records(store: Any, removed: Iterable[Any]) -> None:
+    """Forget the removed folders' archive-pass records (`archives.py`), so a
+    folder added back and marked Archive is walked in full again."""
     from app.index.archives import (
         RECORD_STATE_KEY, dump_records, load_records, normalise,
     )

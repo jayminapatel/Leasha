@@ -84,6 +84,7 @@ def text_on(start: QColor, end: QColor) -> QColor:
 
 
 def _colours() -> dict[str, str]:
+    """The theme's tokens, or `{}` when the theme cannot import (a bare test)."""
     try:
         from app.ui.theme import theme_colours
 
@@ -126,6 +127,7 @@ class ShimmerBar(QProgressBar):
     # -- keeping the timer honest ----------------------------------------------
 
     def _wanted(self) -> bool:
+        """Should the frame timer run: busy or active, on screen, window not minimised."""
         if not (self._active or self.busy()):
             return False
         if not self.isVisible():
@@ -134,6 +136,7 @@ class ShimmerBar(QProgressBar):
         return window is None or not window.isMinimized()
 
     def _sync(self) -> None:
+        """Start or stop the frame timer to match `_wanted`."""
         if self._wanted():
             if not self._anim.isActive():
                 self._t0 = time.monotonic()
@@ -142,6 +145,7 @@ class ShimmerBar(QProgressBar):
             self._anim.stop()
 
     def _frame(self) -> None:
+        """One animation frame: repaint, and stop if nobody could see it."""
         self.frames += 1
         if not self._wanted():
             self._anim.stop()
@@ -163,9 +167,13 @@ class ShimmerBar(QProgressBar):
     # -- painting --------------------------------------------------------------
 
     def _phase(self, period: float) -> float:
+        """Where in a `period`-second cycle the animation is, 0 to 1."""
         return ((time.monotonic() - self._t0) % period) / period
 
     def paintEvent(self, _event) -> None:  # noqa: N802 - Qt's name
+        """Paint the track, the fill (or the busy segment) and the text. UI thread,
+        no I/O: colours come from the theme's cached tokens.
+        """
         tokens = _colours()
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)

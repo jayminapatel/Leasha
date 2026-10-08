@@ -27,6 +27,9 @@ __all__ = ["SingleInstance", "DEFAULT_MUTEX_NAME", "HANDOVER_WAIT_S"]
 
 DEFAULT_MUTEX_NAME = "Local.KnowledgeGraph.V2.SingleInstance"
 
+#: Win32 `ERROR_ALREADY_EXISTS`. `CreateMutexW` still returns a valid handle
+#: when another process owns the mutex; this error code is the only way to
+#: tell "created" from "opened somebody else's".
 _ERROR_ALREADY_EXISTS = 183
 
 #: How long a starting window waits for a closing one to let go.
@@ -184,6 +187,8 @@ class SingleInstance:
             try:
                 os.close(self._fd)
             except OSError:
+                # Already closed, or the descriptor was never valid: either way
+                # there is nothing left to hold, and release() must not raise.
                 pass
             self._fd = None
 
@@ -191,6 +196,8 @@ class SingleInstance:
             try:
                 self._lock_file.unlink()
             except OSError:
+                # A lock file that cannot be removed is harmless: `flock` is
+                # what excludes, and the next acquire reopens the same path.
                 pass
             self._lock_file = None
 

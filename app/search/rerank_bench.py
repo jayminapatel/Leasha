@@ -53,6 +53,7 @@ PASSES = 3
 
 @dataclass
 class ModelTiming:
+    """One model's timings: the load once, then `passes` full reranks."""
     name: str
     size: str = ""
     #: Seconds per full rerank of `count` passages, one per pass.
@@ -76,6 +77,9 @@ class ModelTiming:
 
     @property
     def per_passage_ms(self) -> float:
+        """Always 0.0 here: the per-passage figure needs the candidate count, which
+        only `BenchResult` knows, so `BenchResult.as_dict` derives it from `median_s`.
+        """
         return 0.0
 
 
@@ -89,6 +93,7 @@ class BenchResult:
     timings: list[ModelTiming] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
+        """Every model's numbers beside the conditions they were measured under."""
         return {
             "candidates_scored": self.count,
             "window_chars": self.window_chars,

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.11 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.12 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -251,6 +251,18 @@ device**, wait for it to sync, then re-index. Only do that if you have the disk 
 Normal, and not a problem. One bad file never halts a run - it is recorded and skipped, and
 locked files are retried automatically on the next pass. Check the totals with
 `app.cli stats`; a handful out of hundreds of thousands is expected.
+
+### A linked folder was not indexed, or a folder could not be listed
+
+A Windows *junction* - a folder that is really a link to another folder, the kind
+`mklink /J` makes and some backup and sync tools leave behind - is not followed. One that
+points back up its own tree would otherwise be walked level by level until the path ran
+out of characters, and every file under it indexed once per level (it was, before
+2026-10-08: 64 copies of one document). Index the real folder instead, or turn on
+following links in the walk settings if the linked tree is wanted. The run's skip reasons
+count what it left out, as `directory junction (not followed)`; a folder Windows refused to
+list - permission denied, a path over 260 characters - is counted as `folder could not be
+listed`, so a total that looks short has a line saying why.
 
 ### Search feels slow
 

@@ -69,6 +69,7 @@ class ReportsView(QWidget):
     reveal_requested = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
+        """Build the list and the report pane. UI thread; `refresh` reads on a worker."""
         super().__init__(parent)
         self._store = store
         self._sources: list = []
@@ -181,6 +182,7 @@ class ReportsView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _load_done(self) -> None:
+        """UI thread: the load's worker is done; run a refresh asked for meanwhile."""
         self._loading = False
         if self._refresh_again:
             self._refresh_again = False
@@ -190,6 +192,7 @@ class ReportsView(QWidget):
         self.progress_label.setText(str(stage))
 
     def _loaded(self, snapshot: Any) -> None:
+        """UI thread: keep the snapshot (None means unchanged) and redraw the report."""
         self.progress_label.setText("")
         if snapshot is None:
             # Section 3c: the store's data timestamp had not moved since
@@ -202,6 +205,7 @@ class ReportsView(QWidget):
         self._show_selected(self.list.currentRow())
 
     def _show_selected(self, row: int) -> None:
+        """Draw the chosen report from the snapshot in hand - no store read."""
         from app.reports.inheritance import data_timestamp_sentence, render_inheritance_document
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
@@ -236,6 +240,7 @@ class ReportsView(QWidget):
         return str(self.list.item(row).data(REPORT_KEY)) if row >= 0 else ""
 
     def _start_export(self) -> None:
+        """Export: ask for sources (not for Space), then a path; the PDF is a worker."""
         if self._selected_key() == "space":
             # No source picker: the Space Report is about the whole corpus.
             if not self._space_document:
@@ -261,6 +266,7 @@ class ReportsView(QWidget):
         self._export_to(path, excluded)
 
     def _export_to(self, path: str, excluded: set) -> None:
+        """Render the inheritance document with `excluded` left out; the PDF is a worker."""
         from app.reports.inheritance import render_inheritance_document
         from dataclasses import replace
 
@@ -324,6 +330,7 @@ def _report_snapshot(
 
 
 def _local_roots(store: Any) -> list:
+    """Worker body: the folder list from the store, or [] when unreadable."""
     try:
         raw = store.get_state("ui:roots", "") or ""
     except Exception:                            # noqa: BLE001 - a report, not a search

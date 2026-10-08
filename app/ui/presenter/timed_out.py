@@ -79,6 +79,7 @@ class TimedOutRow:
 
     @property
     def heading(self) -> str:
+        """"3 .pdf files", or "2 files with no extension"."""
         noun = "file" if self.count == 1 else "files"
         if not self.ext:
             return f"{format_count(self.count)} {noun} with no extension"
@@ -111,6 +112,7 @@ def timed_out_rows(groups: Optional[Iterable[Any]]) -> list[TimedOutRow]:
 
 
 def panel_title(rows: Iterable[TimedOutRow]) -> str:
+    """"12 files timed out" - the panel's heading, over every row."""
     total = sum(row.count for row in rows)
     noun = "file" if total == 1 else "files"
     return f"{format_count(total)} {noun} timed out"

@@ -156,6 +156,9 @@ def _doctor(project_root: Path) -> Any:
     try:
         return json.loads(result.stdout)
     except json.JSONDecodeError:
+        # Doctor crashed or printed prose instead of JSON. Its tail is the
+        # diagnostic; 4000 characters holds a full traceback without letting a
+        # runaway log swell the bundle.
         return {"stdout": result.stdout[-4000:], "stderr": result.stderr[-4000:],
                 "returncode": result.returncode}
 

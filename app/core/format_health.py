@@ -79,6 +79,7 @@ class Requirement:
     extensions: tuple[str, ...] = ()
 
     def applies_to(self, extension: str) -> bool:
+        """Whether this requirement matters for `extension` (empty = all)."""
         return not self.extensions or extension.lower() in self.extensions
 
     @property

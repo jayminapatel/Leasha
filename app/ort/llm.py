@@ -189,6 +189,7 @@ END_TOKENS = {"chatml": ("<|im_end|>", "<|endoftext|>"),
 
 def format_prompt(fmt: str, messages: Sequence[Mapping[str, str]], *,
                   system: Optional[str] = None) -> str:
+    """Render `messages` in the named chat format; an unknown name is ChatML."""
     return FORMATS.get(fmt or "chatml", chatml)(messages, system=system)
 
 
@@ -306,6 +307,8 @@ class OnnxLLM:
         self.set_model(name)
 
     def set_model(self, name: str) -> None:
+        """Choose a catalogue model by key; an unknown name is ignored. The new
+        model loads on the next reply."""
         chosen = hub.by_key(name)
         if chosen is not None and chosen.key != self._model:
             self._model = chosen.key
@@ -320,6 +323,7 @@ class OnnxLLM:
         return [m.key for m in (hub.QWEN_1_5B,) if hub.present(m, self.cache_dir)]
 
     def has_model(self) -> bool:
+        """Whether some copy of the chosen chat model is downloaded. Reads the disk."""
         return hub.resolve_any(self._copies(), self.cache_dir) is not None
 
     def serving(self) -> str:
@@ -438,6 +442,7 @@ class OnnxLLM:
         return loaded
 
     def is_loaded(self) -> bool:
+        """Whether a session is resident now (no disk read)."""
         return self._loaded is not None
 
     def unload(self) -> bool:
@@ -496,6 +501,7 @@ class OnnxLLM:
             timer.start()
 
     def warm(self, **_kwargs: Any) -> bool:
+        """Load the model ahead of the first question. False when it cannot load."""
         try:
             self._ensure()
             return True
@@ -512,6 +518,8 @@ class OnnxLLM:
         loaded = self._ensure()
         ids = loaded.tokenizer.encode(prompt_text, add_special_tokens=False).ids
         budget = CONTEXT_TOKENS - len(ids)
+        # 512 new tokens when the caller names no limit: Ollama's default for
+        # the same callers, and a few paragraphs - more is a runaway on a CPU.
         limit = max(1, min(int(max_tokens or 512), budget if budget > 0 else 1))
         deadline = time.monotonic() + float(timeout or self.timeout)
 
@@ -592,6 +600,9 @@ class OnnxLLM:
                               pick=sample(temperature), should_stop=stopping):
             produced.append(token)
             text = loaded.tokenizer.decode(produced, skip_special_tokens=True)
+            # The literal is U+FFFD, the replacement character the tokenizer
+            # emits for an incomplete UTF-8 sequence. 2026-10-08 review: Python
+            # source here is ASCII by convention; the escape form of U+FFFD reads the same.
             if text.endswith("�"):        # half of a multi-byte character
                 continue
             if len(text) > len(shown):
@@ -669,6 +680,9 @@ class OnnxLLM:
     def stream(self, prompt: str, *, temperature: float = 0.0, timeout: Optional[float] = None,
                max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
                should_stop: Optional[Callable[[], bool]] = None) -> Iterator[str]:
+        """Text pieces of one reply to `prompt` as a single user turn, as they
+        arrive. Ends quietly at `timeout`; raises `ERR_LOCAL_MODEL_TIMEOUT` only
+        while waiting for another reply to release the model."""
         text = self._prompt([{"role": "user", "content": prompt}])
         yield from self._until_stop(self._tokens(text, temperature=temperature,
                                                  max_tokens=max_tokens, timeout=timeout,
@@ -679,6 +693,8 @@ class OnnxLLM:
                     stop: Optional[list[str]] = None,
                     should_stop: Optional[Callable[[], bool]] = None,
                     think: Optional[str] = None) -> Iterator[str]:
+        """`stream` for a whole conversation. `think` is accepted for the
+        protocol and ignored: Qwen 2.5 has no thinking mode."""
         text = self._prompt(messages)
         yield from self._until_stop(self._tokens(text, temperature=temperature,
                                                  max_tokens=max_tokens, timeout=timeout,
@@ -729,6 +745,7 @@ class OnnxLLM:
         return Completion(text=reply.strip(), model=self._model, elapsed_s=elapsed)
 
     def chat(self, messages: Sequence[Mapping[str, str]], **kwargs: Any) -> Any:
+        """One whole reply to a conversation, `Completion`-shaped."""
         from app.chat.llm import Completion
 
         started = time.monotonic()

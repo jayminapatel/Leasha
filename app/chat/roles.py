@@ -51,6 +51,7 @@ AFFORDABLE_MAX_B = 9.0
 
 @dataclass(frozen=True)
 class RoleModels:
+    """The model name for each of the three roles. Empty means none was chosen."""
     router: str = ""
     planner: str = ""
     answerer: str = ""
@@ -213,6 +214,7 @@ class InstalledModels:
 
 
 def is_vision_name(name: str) -> bool:
+    """Whether the name looks like a picture-reading model (`VISION_NAME_HINTS`)."""
     lowered = (name or "").lower()
     return any(hint in lowered for hint in VISION_NAME_HINTS)
 
@@ -287,10 +289,12 @@ class ModelOption:
 
     @property
     def engine(self) -> str:
+        """`"onnx"` or `"ollama"`, from the value's prefix."""
         return parse_option(self.value)[0]
 
     @property
     def name(self) -> str:
+        """The model's own name, without the engine prefix."""
         return parse_option(self.value)[1]
 
 

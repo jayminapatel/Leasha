@@ -1,4 +1,11 @@
-"""`stats`, `init`, `move-index`, `doctor`, `diagnose` and `lock`."""
+"""`stats`, `init`, `move-index`, `doctor`, `diagnose` and `lock`.
+
+Layer: L0
+
+The commands that have to work when nothing else does: each opens only what
+already exists (`stats`, `diagnose`), creates the stores deliberately
+(`init`), or touches no store at all (`doctor`, `lock`).
+"""
 
 from __future__ import annotations
 
@@ -318,7 +325,14 @@ def cmd_move_index(args: argparse.Namespace) -> int:
 
 
 def cmd_doctor(args: argparse.Namespace) -> int:
-    """Run doctor.py and pass its exit code through."""
+    """Run doctor.py and pass its exit code through.
+
+    A subprocess, not an import, on purpose: `doctor.py` is stdlib-only so it
+    can report on a venv where `app`'s own dependencies are broken, and
+    importing it here would tie it to this process's already-loaded modules.
+    `own_python()` rather than `sys.executable` because in the packaged build
+    the executable is `Leasha.exe`, which cannot run a script by path.
+    """
     doctor = project_root() / "doctor.py"
     if not doctor.is_file():
         return _report(make_error(

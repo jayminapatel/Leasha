@@ -227,6 +227,8 @@ class WorkList:
                 yield _candidate_from(row), (row[-2] if row[-1] else None)
 
     def close(self) -> None:
+        """Drop the list and delete the spill file and its sidecars. Safe to
+        call twice; a file that cannot be removed is left for the system."""
         self._memory = []
         self._pending = []
         if self._db is not None:
@@ -252,6 +254,9 @@ class WorkList:
     # -- the disk half -------------------------------------------------------
 
     def _spill(self) -> None:
+        """Past `SPILL_AT`: move everything gathered so far into a throwaway
+        SQLite file and add to that from here on. Falls back to the system's
+        temporary folder when the spill folder cannot be made."""
         folder = self._spill_dir
         if folder is not None:
             try:
@@ -283,6 +288,7 @@ class WorkList:
         self._flush()
 
     def _flush(self) -> None:
+        """Write the pending rows in one transaction. No-op in memory mode."""
         if self._db is None or not self._pending:
             return
         rows, self._pending = self._pending, []
@@ -306,6 +312,7 @@ def _row(key: tuple[int, int, int, int], candidate: Candidate, decision: Any) ->
 
 
 def _candidate_from(row: tuple) -> Candidate:
+    """A `Candidate` back from one spill row, column for column with `_row`."""
     return Candidate(
         path=Path(row[0]), size_bytes=row[1], mtime_ns=row[2], priority=row[3],
         volume_id=row[4], relative_path=row[5], attributes=row[6], flags=row[7],

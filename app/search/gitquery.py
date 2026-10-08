@@ -691,15 +691,30 @@ def _pathspecs(query: GitQuery) -> list[str]:
 
 
 def _revisions(query: GitQuery) -> list[str]:
-    """Which revisions the search covers, in git's own words."""
+    """Which revisions the search covers, in git's own words.
+
+    The four scopes whose values come from the search box are preceded by
+    `--end-of-options`, so a typed value can only ever be a revision. Found in
+    review on 2026-10-08: `x /range --output=notes..HEAD` reached `git log` as
+    an option, and `--output` writes the log to a file inside the repository -
+    a write against user data from a search box. After the marker git refuses
+    the same value ("unable to resolve revision"), which is the honest answer.
+    The marker is understood by `git grep` and `git log` since 2.24 (2019).
+    """
     if query.scope == "commit":
-        return list(query.commits)
+        return ["--end-of-options", *query.commits]
     if query.scope == "tag":
-        return list(query.tags)
+        return ["--end-of-options", *query.tags]
     if query.scope == "range":
-        return [query.rev_range]
+        return ["--end-of-options", query.rev_range]
     if query.scope == "branch":
-        return list(query.branches)
+        return ["--end-of-options", *query.branches]
+    if query.scope == "history" and query.branches:
+        # Found in review on 2026-10-08: `/history` outranks `/branch` when the
+        # scope is chosen, so `x /history /branch develop` walked HEAD and said
+        # "in the last 2,000 commits" - the named branch was dropped without a
+        # word. A branch named beside `/history` is where the history is read.
+        return ["--end-of-options", *query.branches]
     if query.scope == "all-branches":
         return ["--branches"]
     if query.scope == "remote-branches":
@@ -729,7 +744,8 @@ def _explain(query: GitQuery) -> str:
         "branch": "branch " + ", ".join(query.branches),
         "all-branches": "every local branch",
         "remote-branches": "every remote branch",
-        "history": f"the last {query.depth:,} commits",
+        "history": f"the last {query.depth:,} commits"
+                   + (" on branch " + ", ".join(query.branches) if query.branches else ""),
         "commit": "commit " + ", ".join(query.commits),
         "range": query.rev_range,
         "tag": "tag " + ", ".join(query.tags),

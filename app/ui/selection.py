@@ -174,6 +174,7 @@ try:                                             # pragma: no cover - Windows
     import ctypes as _ctypes
 
     class _KEYBDINPUT(_ctypes.Structure):
+        """Windows' `KEYBDINPUT`, for `SendInput`."""
         _fields_ = [
             ("wVk", _ctypes.c_ushort), ("wScan", _ctypes.c_ushort),
             ("dwFlags", _ctypes.c_ulong), ("time", _ctypes.c_ulong),
@@ -191,6 +192,7 @@ try:                                             # pragma: no cover - Windows
     _EXTRA_INFO = _ctypes.c_ulong(0)
 
     def _key_input(vk: int, flags: int = 0) -> "_INPUT":
+        """One keyboard `INPUT` for virtual key `vk`, pressed or (with `flags`) released."""
         union = _INPUT_UNION()
         union.ki = _KEYBDINPUT(vk, 0, flags, 0,
                                _ctypes.pointer(_EXTRA_INFO))

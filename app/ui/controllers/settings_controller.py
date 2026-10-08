@@ -39,7 +39,6 @@ from typing import Any
 from PySide6.QtCore import QObject, QThreadPool
 from PySide6.QtWidgets import QDialog
 
-from app.core.errors import to_app_error
 from app.core.logging import logger
 from app.ui.state_writes import save_state, save_states
 from app.ui.workers import CallableWorker, run
@@ -148,16 +147,24 @@ class SettingsController(QObject):
         # write and the move are one operation, performed together at startup by
         # `app.core.index_move`, before any store opens. Until then nothing has
         # changed and the application keeps working exactly as it did.
-        try:
-            from app.core.index_move import plan_move, write_pending
+        # On the ordered state-write pool (2026-10-08 review): `plan_move`
+        # walks the index folder and `write_pending` writes a file, and both
+        # ran on the UI thread. The field is updated once the plan is written.
+        from app.core.index_move import plan_move, write_pending
+        from app.ui.state_writes import start
 
-            plan_move(Path(self._w._settings.data_path), choice.destination, choice.action)
-            write_pending(Path(self._w._settings.project_path), choice.action, choice.destination)
-        except Exception as exc:                 # noqa: BLE001
-            self._w._show_error(to_app_error(exc, "ui.settings"))
-            return
+        data_path = Path(self._w._settings.data_path)
+        project_path = Path(self._w._settings.project_path)
+        destination, action = choice.destination, choice.action
 
-        self._w.settings_view.data_path.setText(str(choice.destination))
+        def record() -> None:
+            """Worker body: plan the move and write the pending decision."""
+            plan_move(data_path, destination, action)
+            write_pending(project_path, action, destination)
+
+        start(CallableWorker(record, component="ui.settings.move"), owner=self._w,
+              on_saved=lambda: self._w.settings_view.data_path.setText(str(destination)),
+              on_failed=self._w._show_error)
 
         if choice.action == ADOPT:
             what = "will use the index already there"
@@ -192,36 +199,43 @@ class SettingsController(QObject):
         if dialog.exec() != QDialog.DialogCode.Accepted:
             return
 
-        try:
-            from app.core.env_writer import apply_values
+        from app.core.env_writer import apply_values
+        from app.ui.state_writes import start
 
-            # **Both keys, in one write.** Writing `EMBED_MODEL` alone left
-            # `EMBED_DIM` describing the previous model, which is not a
-            # settings inconsistency but a broken index: the store refuses
-            # vectors of the wrong width, and the refusal arrives on the first
-            # batch after the new model has been downloaded, naming a setting
-            # the person never edited. `env_writer` writes the file atomically,
-            # so the two cannot land apart.
-            apply_values(Path(self._w._settings.env_file), {
-                "EMBED_MODEL": dialog.chosen_model(),
-                "EMBED_DIM": str(dialog.chosen_dim()),
-            })
-        except Exception as exc:                 # noqa: BLE001
-            self._w._show_error(to_app_error(exc, "ui.settings"))
-            return
+        chosen_model, chosen_dim = dialog.chosen_model(), dialog.chosen_dim()
 
-        save_state(self._w._store, "index:rebuild_vectors", "pending",
-                   component="ui.settings")
-        if dialog.chosen_dim() != current_dim:
-            self._w.notify(
-                f"Saved - {dialog.chosen_model()} at {dialog.chosen_dim()} "
-                "dimensions. The vector store is rebuilt from empty on the next "
-                "index run, so meaning-based search returns nothing until it "
-                "finishes. Keyword search is unaffected.", 20_000)
-        else:
-            self._w.notify(
-                "Saved. Restart, then run an index to re-embed everything - search "
-                "keeps working on the old vectors until it finishes.", 12_000)
+        # **Both keys, in one write.** Writing `EMBED_MODEL` alone left
+        # `EMBED_DIM` describing the previous model, which is not a
+        # settings inconsistency but a broken index: the store refuses
+        # vectors of the wrong width, and the refusal arrives on the first
+        # batch after the new model has been downloaded, naming a setting
+        # the person never edited. `env_writer` writes the file atomically,
+        # so the two cannot land apart.
+        #
+        # On the ordered state-write pool, not the UI thread (2026-10-08
+        # review): `.env` is a file write and a read-back, and this is a
+        # Settings slot. The rebuild flag and the notice follow in `saved`,
+        # after the file is really there.
+        def saved() -> None:
+            """UI thread: `.env` holds the new model; mark the rebuild and say so."""
+            save_state(self._w._store, "index:rebuild_vectors", "pending",
+                       component="ui.settings")
+            if chosen_dim != current_dim:
+                self._w.notify(
+                    f"Saved - {chosen_model} at {chosen_dim} "
+                    "dimensions. The vector store is rebuilt from empty on the next "
+                    "index run, so meaning-based search returns nothing until it "
+                    "finishes. Keyword search is unaffected.", 20_000)
+            else:
+                self._w.notify(
+                    "Saved. Restart, then run an index to re-embed everything - search "
+                    "keeps working on the old vectors until it finishes.", 12_000)
+
+        start(CallableWorker(apply_values, Path(self._w._settings.env_file), {
+                  "EMBED_MODEL": chosen_model,
+                  "EMBED_DIM": str(chosen_dim),
+              }, component="ui.settings.env"),
+              owner=self._w, on_saved=saved, on_failed=self._w._show_error)
 
     def _chunk_count(self) -> int:
         """How many chunks would have to be re-embedded. Never raises.
@@ -251,61 +265,20 @@ class SettingsController(QObject):
         """
         if not values:
             return
-        try:
-            from app.core.env_writer import apply_values
+        from app.core.env_writer import apply_values
+        from app.ui.state_writes import start
 
-            apply_values(Path(self._w._settings.env_file), values)
-        except Exception as exc:                 # noqa: BLE001
-            self._w._show_error(to_app_error(exc, "ui.settings"))
-            return
-
-        # §1a. **The search behaviours take effect on the very next search**,
-        # not at the next launch. For a switch somebody has just turned off,
-        # the difference is between a working control and one they conclude is
-        # broken - and they would be right to.
-        if any(key.startswith("SEARCH_") for key in values):
-            for key, value in values.items():
-                if key.startswith("SEARCH_"):
-                    # `Settings` is frozen, so the live object cannot be
-                    # updated - the preferences dictionary is built from these
-                    # values instead, which is the same answer by a route that
-                    # works. See task #238 for the frozen-Settings question.
-                    self._w._settings_overrides[key.lower()] = value
-            self._w._apply_search_preferences()
-
-        # §3a: the shortcut is re-taken on the spot, because a combination
-        # somebody has just typed and cannot try until the next launch is a
-        # control they will conclude does not work.
-        if any(key.startswith("MINI_SEARCH") for key in values):
-            for key, value in values.items():
-                if key.startswith("MINI_SEARCH"):
-                    self._w._settings_overrides[key.lower()] = value
-            self._w._apply_hotkey()
-
-        # Order 0y §2c: the editor a code result opens in is read at the moment
-        # of opening (`MainWindow._open_code_at`), so a choice just made applies
-        # to the very next Enter.
-        for key, value in values.items():
-            if key.startswith("CODE_EDITOR"):
-                self._w._settings_overrides[key.lower()] = value
-
-        # Reranking is the one that can take effect without a restart, and the
-        # one people most want to see change - the rest are read when the thing
-        # that uses them next starts.
-        reranker = getattr(self._w._engine, "reranker", None)
-        if reranker is not None:
-            for key, attribute in (("RERANK_TOP_N", "top_n"),
-                                   ("RERANK_WINDOW_CHARS", "window_chars")):
-                if key in values:
-                    try:
-                        setattr(reranker, attribute, int(values[key]))
-                    except Exception as exc:     # noqa: BLE001 - never fatal
-                        _log.debug("could not apply {} live: {}", key, exc)
-
-        if "RERANK_MODEL" in values:
-            self._w.notify(
-                "Saved. The rerank model is loaded at startup, so it changes "
-                "the next time the app opens.", 8_000)
+        # On the ordered state-write pool (2026-10-08 review): this wrote `.env`
+        # synchronously from a Settings slot - also reached from the folder-watch
+        # toggle, `_limits_changed` and the idle bench - and `.env` on a synced
+        # or slow disk stalls the window. The live overrides below are applied
+        # in `_apply_written_settings` once the file is really written, so a failed
+        # write never leaves the window believing a value the file does not hold.
+        values = dict(values)
+        start(CallableWorker(apply_values, Path(self._w._settings.env_file), values,
+                             component="ui.settings.env"),
+              owner=self._w, on_saved=lambda: _apply_written_settings(self._w, values),
+              on_failed=self._w._show_error)
 
     def _tray_changed(self, minimise: bool, close: bool) -> None:
         """Apply and persist the tray preferences.
@@ -509,6 +482,7 @@ class SettingsController(QObject):
         self._w.notify(refused_notice(text, first_free()), 20_000, level="warning")
 
     def _theme_changed(self, preference: str) -> None:
+        """Remember the theme choice (a queued write) and restyle the window now."""
         self._w._theme_preference = preference
         save_state(self._w._store, "ui:theme", preference, component="ui.settings")
         self._w._apply_theme()
@@ -581,9 +555,13 @@ class SettingsController(QObject):
         return choice_from(self._w._store)
 
     def _save_code_types(self, preset: str, groups: list) -> None:
+        """Save the Code tab's file-type choice on the ordered writer; the tab redraws
+        once the write has landed, so it cannot re-read the old choice.
+        """
         from app.core.code_types import STATE_KEY, dump_choice
 
         def not_saved(error: Any) -> None:
+            """Said aloud: a choice that silently failed to save would look like it worked."""
             _log.warning("code file types not saved: {}", error)
             self._w.notify(
                 "That Code file-type choice was not saved.", 8_000)
@@ -619,6 +597,7 @@ class SettingsController(QObject):
             return {}
 
     def _save_root_modes(self, modes: dict) -> None:
+        """Save which folders are Live or Archive, on the ordered writer."""
         from app.index.archives import MODE_STATE_KEY, dump_modes
 
         def not_saved(error: Any) -> None:
@@ -643,9 +622,11 @@ class SettingsController(QObject):
             return set()
 
     def _save_cloud_content_roots(self, roots: set) -> None:
+        """Save which folders may download cloud-only files, on the ordered writer."""
         from app.index.walker import CLOUD_CONTENT_STATE_KEY, dump_cloud_content_roots
 
         def not_saved(error: Any) -> None:
+            """Said aloud, as every failed settings write is."""
             _log.warning("cloud content roots not saved: {}", error)
             self._w.notify(
                 "That folder's Live/Archive setting was not saved.", 8_000)
@@ -667,6 +648,7 @@ class SettingsController(QObject):
             return []
 
     def _save_first_folders(self, folders: list) -> None:
+        """Save the "index first" folder order on the ordered writer."""
         from app.index.read_order import FIRST_FOLDERS_STATE_KEY, dump_first_folders
 
         def not_saved(error: Any) -> None:
@@ -727,6 +709,9 @@ class SettingsController(QObject):
             box.set_default_backend(self._pst_default)
 
     def _apply_pst_backend(self, backend: str) -> None:
+        """Point the live `.pst` extractor at the chosen route. UI thread; a registry
+        lookup, no I/O.
+        """
         from app.extract.base import extractor_for
 
         extractor = extractor_for(Path("x.pst"))
@@ -742,6 +727,9 @@ class SettingsController(QObject):
     # index run holds the index) leaves the folder listed, with its data.
 
     def _remove_folders(self, folders: list[str]) -> None:
+        """Remove on the folder list: count what the index holds from `folders` on a
+        worker, then ask (`_confirm_remove`).
+        """
         from app.index.forget_folder import count_from_folders
 
         kept = self._kept_after(folders)
@@ -753,6 +741,7 @@ class SettingsController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _kept_after(self, folders: list[str]) -> list[str]:
+        """The folder list as it would read without `folders`."""
         from app.index.archives import normalise
 
         gone = {normalise(folder) for folder in folders}
@@ -760,6 +749,9 @@ class SettingsController(QObject):
                 if normalise(root) not in gone]
 
     def _confirm_remove(self, folders: list[str], count: int) -> None:
+        """UI thread: nothing indexed means the rows just come off; else ask, then
+        forget the folders' data on a worker under the run lock.
+        """
         box = self._w.settings_view.roots_box
         if not count:
             # Nothing of it is in the index - the list already says so.
@@ -793,6 +785,7 @@ class SettingsController(QObject):
         return answer == QMessageBox.StandardButton.Yes
 
     def _folders_removed(self, result: Any) -> None:
+        """UI thread: take the rows off, refresh the lists and say how much went."""
         from app.ui.presenter import folders_removed_message
 
         folders = list(result.get("folders") or [])
@@ -829,6 +822,7 @@ class SettingsController(QObject):
             self._w.settings_view.roots_box.set_leftovers(count)
 
     def _remove_leftovers(self) -> None:
+        """"Remove them from the index": count what no listed folder holds, then ask."""
         from app.index.forget_folder import count_outside
 
         listed = self._w.settings_view.roots_box.current_roots()
@@ -840,6 +834,7 @@ class SettingsController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _confirm_leftovers(self, listed: list[str], count: int) -> None:
+        """UI thread: ask, then forget everything outside the listed folders, on a worker."""
         if not count:
             self._w.settings_view.roots_box.set_leftovers(0)
             return
@@ -871,6 +866,7 @@ class SettingsController(QObject):
         return answer == QMessageBox.StandardButton.Yes
 
     def _save_roots(self, roots: list[str]) -> None:
+        """Save the folder list on the ordered writer, under the key the CLI reads."""
         try:
             # The key `app.cli index` reads when it is given no folders, so
             # the command line and the window index the same thing. Named
@@ -908,6 +904,7 @@ class SettingsController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _show_mail_archives(self, load: int, found: Any) -> None:
+        """UI thread: draw the archives box from the newest load only."""
         if load != getattr(self, "_archives_load", 0):
             return
         rows, choices, default = found
@@ -964,6 +961,9 @@ class SettingsController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _confirm_clear_archive(self, path: str, count: int) -> None:
+        """UI thread: nothing indexed means a plain re-read; else ask, then forget the
+        archive's items on a worker and re-read it once they are gone.
+        """
         if not count:
             # Nothing of it in the index: there is nothing to clear, so this
             # is "Read again" and needs no question.
@@ -1001,6 +1001,7 @@ class SettingsController(QObject):
         return answer == QMessageBox.StandardButton.Yes
 
     def _archive_cleared(self, path: str, removed: Any) -> None:
+        """UI thread: refresh the lists, say how much went, and start the re-read."""
         from app.ui.presenter import archive_cleared_message
 
         for view, method in (("files_view", "refresh_summary"), ("mail_view", "refresh")):
@@ -1023,3 +1024,59 @@ def _read_mail_archives(store: Any) -> tuple[list, dict, str]:
     choices = load_pst_backends(store.get_state(PST_BACKENDS_STATE_KEY, "") or "")
     default = str(store.get_state(PST_BACKEND_STATE_KEY, "auto") or "auto")
     return rows, dict(choices or {}), default
+
+
+def _apply_written_settings(window: Any, values: dict) -> None:
+    """UI thread: `.env` holds `values`; apply the ones that take effect now.
+
+    A function of the window rather than a method, so the one controller
+    test that drives `_settings_changed` through a `SimpleNamespace`
+    stand-in reaches it too (2026-10-08).
+    """
+    # §1a. **The search behaviours take effect on the very next search**,
+    # not at the next launch. For a switch somebody has just turned off,
+    # the difference is between a working control and one they conclude is
+    # broken - and they would be right to.
+    if any(key.startswith("SEARCH_") for key in values):
+        for key, value in values.items():
+            if key.startswith("SEARCH_"):
+                # `Settings` is frozen, so the live object cannot be
+                # updated - the preferences dictionary is built from these
+                # values instead, which is the same answer by a route that
+                # works. See task #238 for the frozen-Settings question.
+                window._settings_overrides[key.lower()] = value
+        window._apply_search_preferences()
+
+    # §3a: the shortcut is re-taken on the spot, because a combination
+    # somebody has just typed and cannot try until the next launch is a
+    # control they will conclude does not work.
+    if any(key.startswith("MINI_SEARCH") for key in values):
+        for key, value in values.items():
+            if key.startswith("MINI_SEARCH"):
+                window._settings_overrides[key.lower()] = value
+        window._apply_hotkey()
+
+    # Order 0y §2c: the editor a code result opens in is read at the moment
+    # of opening (`MainWindow._open_code_at`), so a choice just made applies
+    # to the very next Enter.
+    for key, value in values.items():
+        if key.startswith("CODE_EDITOR"):
+            window._settings_overrides[key.lower()] = value
+
+    # Reranking is the one that can take effect without a restart, and the
+    # one people most want to see change - the rest are read when the thing
+    # that uses them next starts.
+    reranker = getattr(window._engine, "reranker", None)
+    if reranker is not None:
+        for key, attribute in (("RERANK_TOP_N", "top_n"),
+                               ("RERANK_WINDOW_CHARS", "window_chars")):
+            if key in values:
+                try:
+                    setattr(reranker, attribute, int(values[key]))
+                except Exception as exc:     # noqa: BLE001 - never fatal
+                    _log.debug("could not apply {} live: {}", key, exc)
+
+    if "RERANK_MODEL" in values:
+        window.notify(
+            "Saved. The rerank model is loaded at startup, so it changes "
+            "the next time the app opens.", 8_000)

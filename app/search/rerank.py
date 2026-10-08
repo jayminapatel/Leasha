@@ -120,6 +120,7 @@ class Reranker:
 
     @property
     def available(self) -> bool:
+        """Enabled, and not yet given up on this session (`RERANK_FAILURE_BUDGET`)."""
         return self.enabled and not self._unavailable
 
     def warm_up(self) -> bool:

@@ -165,6 +165,7 @@ def status_counts_text(counts: Any) -> str:
 def _decode_counts(text: str) -> dict[str, int]:
     # The same format `app.index.activity.encode_counts` writes; decoded here
     # rather than imported, so the presenter stays free of the index layer.
+    """`"Indexed=12;Failed=3"` back to a dict; a malformed part is skipped."""
     out: dict[str, int] = {}
     for part in str(text or "").split(";"):
         word, _, number = part.partition("=")

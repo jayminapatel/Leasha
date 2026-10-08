@@ -50,6 +50,7 @@ STATE_KEY = "chat:sessions"
 
 @dataclass
 class ChatSession:
+    """One conversation as the tab holds it: its turns, its shelf and its flags."""
     id: str
     title: str = "New chat"
     created: float = 0.0
@@ -73,12 +74,14 @@ def new_session() -> ChatSession:
 # -- records <-> plain dicts -------------------------------------------------
 
 def _result_to_dict(result: Any) -> dict:
+    """A `SearchResult` (or dict) as plain data for storage."""
     if dataclasses.is_dataclass(result) and not isinstance(result, type):
         return dataclasses.asdict(result)
     return dict(result) if isinstance(result, dict) else {}
 
 
 def _result_from_dict(data: dict) -> Any:
+    """A `SearchResult` back from storage, or None for a shape it cannot take."""
     from app.search.engine import SearchResult
 
     known = {f.name for f in dataclasses.fields(SearchResult)}
@@ -89,6 +92,7 @@ def _result_from_dict(data: dict) -> Any:
 
 
 def turn_to_dict(turn: ChatTurn) -> dict:
+    """One turn as plain data: its receipts, results and details included."""
     return {
         "role": turn.role, "text": turn.text, "kind": turn.kind,
         "model": turn.model, "partial": bool(turn.partial),
@@ -101,6 +105,7 @@ def turn_to_dict(turn: ChatTurn) -> dict:
 
 
 def turn_from_dict(data: dict) -> ChatTurn:
+    """A `ChatTurn` back from `turn_to_dict`'s shape; unknown receipt fields dropped."""
     receipt_fields = {f.name for f in dataclasses.fields(Receipt)}
     receipts = [Receipt(**{k: v for k, v in r.items() if k in receipt_fields})
                 for r in data.get("receipts", ())]
@@ -156,6 +161,7 @@ def name_messages(session: ChatSession, backend: Any) -> ChatSession:
 
 
 def session_to_dict(session: ChatSession) -> dict:
+    """A session as plain data - the shape `ChatSessions.save` takes."""
     return {
         "id": session.id, "title": session.title, "created": session.created,
         "updated": session.updated, "titled": session.titled,
@@ -166,6 +172,7 @@ def session_to_dict(session: ChatSession) -> dict:
 
 
 def session_from_dict(data: dict) -> ChatSession:
+    """A `ChatSession` back from `session_to_dict`'s shape."""
     return ChatSession(
         id=str(data["id"]), title=str(data.get("title") or "New chat"),
         created=float(data.get("created") or 0.0),
@@ -213,6 +220,7 @@ class ChatSessions:
     """Load, save and delete sessions. **Blocking - workers only.**"""
 
     def __init__(self, backend: Any) -> None:
+        """Hold the store (or a stand-in); nothing is read until `load`."""
         self._backend = backend
         #: The tab's id (a uuid) -> the store's integer id, for the sessions seen so far.
         self._store_ids: dict[str, int] = {}
@@ -262,6 +270,7 @@ class ChatSessions:
         return data if isinstance(data, dict) else {}
 
     def _state_write(self, records: dict[str, dict]) -> None:
+        """Write every record as one keyed-state JSON value - the fallback home."""
         setter = self._method("set_state")
         if setter is not None:
             setter(STATE_KEY, json.dumps(records))
@@ -306,6 +315,7 @@ class ChatSessions:
         self._state_write(records)
 
     def delete(self, session_id: str) -> None:
+        """Remove one session, by the store's own id when it has one."""
         remover = self._method("delete_session")
         if remover is not None:
             saver = self._method("save_session")

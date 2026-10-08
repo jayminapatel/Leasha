@@ -491,6 +491,7 @@ class SettingsShelves:
         self.filter_elsewhere.setVisible(bool(elsewhere))
 
     def _category_of(self, widget: QWidget) -> Optional[str]:
+        """Which category page holds `widget`, or None for one outside every page."""
         for name in self._nav.category_names():
             page = self._nav.page(name)
             if page is not None and page.isAncestorOf(widget):
@@ -498,6 +499,7 @@ class SettingsShelves:
         return None
 
     def _form_label_for(self, widget: QWidget) -> Optional[QLabel]:
+        """The `QFormLayout` label beside `widget`, searching up through its parents."""
         parent = widget.parentWidget()
         while parent is not None:
             form = parent.layout()

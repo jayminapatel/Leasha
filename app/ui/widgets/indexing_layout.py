@@ -238,6 +238,8 @@ def paint_totals(view: Any, payload: dict) -> None:
     stats = payload.get("stats") or {}
     try:
         view.totals_shown.emit(int(stats.get("files_total", 0) or 0))
+    # A view built without the signal (a bare test double), or a count that
+    # is not a number: the summary is already painted, so nothing is lost.
     except (AttributeError, TypeError, ValueError):
         pass
 

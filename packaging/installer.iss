@@ -17,14 +17,20 @@
 #endif
 
 [Setup]
+; Fixed for the life of the product: Inno matches an installed copy by AppId, so a
+; newer version installs over the old one as an upgrade rather than beside it.
 AppId={{6F1D2C5E-4B7A-4E8B-9C3D-2A5E8F1B7D40}
 AppName=Leasha
 AppVersion={#AppVersion}
 AppVerName=Leasha {#AppVersion}
 AppPublisher=Jaymin Patel
+; {autopf} is Program Files for an administrator install and %LOCALAPPDATA%\Programs
+; for the per-user default below, so one line serves both choices.
 DefaultDirName={autopf}\Leasha
 DefaultGroupName=Leasha
 DisableProgramGroupPage=yes
+; Per-user by default: no UAC prompt and nothing written outside the account.
+; PrivilegesRequiredOverridesAllowed=dialog lets the person choose per-machine.
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir={#OutputDir}
@@ -37,8 +43,12 @@ WizardStyle=modern
 ; The Leasha pictures, made by make_installer_art.py at each display scaling (2026-10-08).
 WizardImageFile=art\wizard-100.png,art\wizard-125.png,art\wizard-150.png,art\wizard-175.png,art\wizard-200.png,art\wizard-250.png
 WizardSmallImageFile=art\small-100.png,art\small-125.png,art\small-150.png,art\small-175.png,art\small-200.png,art\small-250.png
+; x64 only: the PyInstaller folder holds 64-bit DLLs (Qt, onnxruntime) and the
+; 64-bit Python the pins in requirements.txt were verified against.
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Windows 10 22H2 (build 19045), the last Windows 10 release: what doctor.py's
+; own "Windows 10/11" wording means.
 MinVersion=10.0.19045
 LicenseFile=..\LICENSE
 
@@ -46,6 +56,9 @@ LicenseFile=..\LICENSE
 WelcomeLabel2=This installs Leasha {#AppVersion}, which searches the files and mail on this computer from a plain-English description.%n%nEverything stays on this computer: Leasha sends nothing anywhere.%n%nThis copy is not signed, so Windows may have warned you before it started. That is expected.
 
 [Files]
+; ignoreversion: replace every file on an upgrade. PyInstaller's output carries
+; little version info, and Inno's default comparison (version, else time stamp)
+; could keep a file the new build meant to replace.
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
@@ -86,14 +99,25 @@ Filename: "{app}\leasha-cli.exe"; Parameters: "models download chat"; StatusMsg:
 Filename: "{app}\leasha-cli.exe"; Parameters: "models download faces"; StatusMsg: "Downloading the model that finds people in photos (about 275 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\faces
 Filename: "{cmd}"; Parameters: "/c winget install --id TheDocumentFoundation.LibreOffice -e --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing LibreOffice through winget..."; Flags: waituntilterminated; Tasks: libreoffice
 ; Section 4.2 step 6 and acceptance A8: the health check, in a window that stays open.
+; The whole command sits inside one more pair of quotes on purpose: cmd.exe strips
+; the first and last quote of a /k argument that holds more than one pair, so
+; without the outer pair the quotes round the two paths would be the ones lost.
+; (In this file a doubled "" inside a quoted parameter is one literal quote.)
 Filename: "{cmd}"; Parameters: "/k """"{app}\leasha-cli.exe"" ""{app}\_internal\doctor.py"" --quick"""; Description: "Check the installation (a window lists each check)"; Flags: postinstall skipifsilent
 Filename: "{app}\Leasha.exe"; Description: "Open Leasha now"; Flags: nowait postinstall skipifsilent
+
+; No [UninstallDelete] and no [UninstallRun]: the index lives at DATA_PATH, outside
+; {app}, and uninstalling removes the program only (the header's promise).
+; _internal\.env was written by [Code], not [Files], so Inno leaves it too - a
+; reinstall then finds its settings and does not ask for the index folder again.
 
 [Code]
 var
   DataPage: TInputDirWizardPage;
 
 const
+    { The same threshold as install.ps1 -RequiredFreeGB and doctor.py's default:
+      a large index is about half the size of what it reads. }
   RequiredFreeGB = 300;
 
 function EnvFile(): String;
@@ -161,6 +185,8 @@ begin
     Lines[2] := 'PROJECT_PATH=' + ExpandConstant('{app}\_internal');
     Lines[3] := 'LOG_PATH=' + Data + '\logs';
     Lines[4] := '';
+        { False: no byte-order mark, so the file is the plain UTF-8 install.ps1 writes
+          (Write-Utf8NoBom) and every reader of .env sees the same bytes. }
     SaveStringsToUTF8File(EnvFile(), Lines, False);
   end;
 end;

@@ -316,6 +316,11 @@ class _StopWhen(threading.Event):
         self._should_stop = should_stop
 
     def is_set(self) -> bool:
+        """Set once either `set()` was called or `should_stop()` says so.
+
+        Latched: once the callback answers True the event stays set, so a
+        caller that stops answering (a closed window) still stops the fetch.
+        """
         if not super().is_set() and self._should_stop is not None:
             try:
                 if self._should_stop():

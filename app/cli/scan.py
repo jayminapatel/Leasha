@@ -1,4 +1,7 @@
-"""`scan`: counting the corpus before a long index."""
+"""`scan`: counting the corpus before a long index.
+
+Layer: L3 (`app.index.scan`; the walker's rules, none of its writes)
+"""
 
 from __future__ import annotations
 

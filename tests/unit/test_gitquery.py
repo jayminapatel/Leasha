@@ -409,3 +409,36 @@ def test_a_message_switch_is_git_only():
     from app.search.gitquery import GIT_ONLY
 
     assert "message" in GIT_ONLY
+
+
+# --- a typed revision can never be read as an option -------------------------
+
+@pytest.mark.parametrize("line", [
+    "CustomerId /range --output=notes..HEAD",
+    "CustomerId /branch --output=notes",
+    "CustomerId /commit --output=notes",
+    "CustomerId /tag --output=notes",
+    "CustomerId /history /branch --output=notes",
+])
+def test_a_dash_leading_revision_is_fenced_off_from_the_options(line):
+    """Found in review on 2026-10-08. Every revision value typed into the
+    search box used to reach git bare, so `/range --output=x..HEAD` made
+    `git log` write its output into a file inside the repository - the
+    indexer's read-only promise broken from a search box. `--end-of-options`
+    must stand between the last real option and the first typed value."""
+    argv = plan(line).argv
+
+    assert "--end-of-options" in argv
+    marker = argv.index("--end-of-options")
+    typed = [a for a in argv[marker + 1:] if a.startswith("--output")]
+    assert typed, "the typed value must still reach git, after the marker"
+    before = [a for a in argv[:marker] if a.startswith("--output")]
+    assert not before
+
+
+def test_the_builtin_scopes_need_no_marker():
+    """`--all`, `--branches` and `--remotes` are this module's own words, not
+    the user's, and a marker in front of them would turn them into revision
+    names git cannot resolve."""
+    for line in ("x /lifetime", "x /all-branches", "x /remote-branches"):
+        assert "--end-of-options" not in plan(line).argv, line

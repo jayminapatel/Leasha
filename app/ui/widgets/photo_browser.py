@@ -95,6 +95,7 @@ class PhotoModel(QAbstractTableModel):
 
     @staticmethod
     def _blank(edge: int) -> QIcon:
+        """The grey placeholder tile at this size (`face_crops.blank_tile`, cached)."""
         from app.ui.widgets.face_crops import blank_tile
 
         return blank_tile(edge)
@@ -166,6 +167,7 @@ class PhotoModel(QAbstractTableModel):
         self._thumbs.forget_waiting()
 
     def set_edge(self, edge: int) -> None:
+        """A new thumbnail size: a new placeholder, and every first cell repaints."""
         if edge != self._edge:
             self._edge = edge
             self._placeholder = self._blank(edge)
@@ -196,6 +198,9 @@ class PhotoModel(QAbstractTableModel):
         return None
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """UI thread, no I/O: a picture not in memory is *asked for* and the
+        placeholder returned; `ready` repaints the cell when it arrives.
+        """
         row = self.row_at(index.row()) if index.isValid() else None
         if row is None:
             return None
@@ -222,6 +227,7 @@ class PhotoModel(QAbstractTableModel):
         return None
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
+        """Sort the rows in place by the column's own value; the selection follows."""
         key = COLUMNS[column][0] if 0 <= column < len(COLUMNS) else "date"
         reverse = order == Qt.SortOrder.DescendingOrder
 
@@ -238,6 +244,7 @@ class PhotoModel(QAbstractTableModel):
         self.layoutChanged.emit()
 
     def _thumb_ready(self, path: str) -> None:
+        """A thumbnail landed: start its fade-in and repaint its cell."""
         number = self._index.get(path)
         if number is not None:
             self._arrived[path] = time.monotonic()
@@ -253,6 +260,7 @@ class _FadeDelegate(QStyledItemDelegate):
     still fading in is drawn over that at the strength `PhotoModel.fade_of` gives."""
 
     def paint(self, painter: Any, option: Any, index: QModelIndex) -> None:
+        """UI thread, no I/O: the blurred preview under a picture fading in."""
         model = index.model()
         row = index.data(ROLE_ROW)
         if row is None or index.column() != 0:
@@ -296,6 +304,7 @@ class _Glide(QObject):
         view.viewport().installEventFilter(self)
 
     def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's name
+        """A wheel notch on the viewport: glide the scroll bar instead of jumping."""
         if event.type() != QEvent.Type.Wheel:
             return False
         if not event.pixelDelta().isNull() or event.modifiers() != Qt.KeyboardModifier.NoModifier:
@@ -416,6 +425,7 @@ class PhotoBrowser(QWidget):
             self.active_view().verticalScrollBar().setValue(scroll)
 
     def set_mode(self, mode: str) -> None:
+        """Switch between Details and the three grid sizes, keeping the selection in view."""
         if mode not in _EDGE:
             mode = "medium"
         self.mode = mode
@@ -459,6 +469,7 @@ class PhotoBrowser(QWidget):
         return [self.model.row_at(n) for n in numbers if self.model.row_at(n) is not None]
 
     def select_path(self, path: str) -> bool:
+        """Select and scroll to the row for `path`. False when it is not shown."""
         number = self.model.number_of(path)
         if number is None:
             return False
@@ -489,6 +500,7 @@ class PhotoBrowser(QWidget):
             self.opened.emit(row)
 
     def _menu(self, point: Any) -> None:
+        """Right-click: select the row under the pointer if it is not, then ask the page."""
         view = self.active_view()
         index = view.indexAt(point)
         row = self.model.row_at(index.row()) if index.isValid() else None
@@ -522,6 +534,7 @@ class PhotoBrowser(QWidget):
         self.model.prefetch(last + 1, last + span * AHEAD)
 
     def _scrolled(self, _value: int) -> None:
+        """The grid moved: show the month of the first row on screen for a moment."""
         if not self._month_follows or self.mode == "details":
             return
         index = self.grid.indexAt(QPoint(24, 24))

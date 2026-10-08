@@ -165,6 +165,7 @@
     <Compile Include="app\core\gpu_serialize.py" />
     <Compile Include="app\core\identifiers.py" />
     <Compile Include="app\core\index_move.py" />
+    <Compile Include="app\core\lag_monitor.py" />
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
@@ -705,6 +706,7 @@
     <Compile Include="tests\unit\test_compute_envelope.py" />
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
+    <Compile Include="tests\unit\test_consumer_never_waits.py" />
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
@@ -834,11 +836,13 @@
     <Compile Include="tests\unit\test_installer_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
     <Compile Include="tests\unit\test_interrupted_runs.py" />
+    <Compile Include="tests\unit\test_junctions.py" />
     <Compile Include="tests\unit\test_junk_images.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
     <Compile Include="tests\unit\test_late_labels.py" />
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
+    <Compile Include="tests\unit\test_layering_below_the_ui.py" />
     <Compile Include="tests\unit\test_legacy_office_completeness.py" />
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
@@ -1059,6 +1063,7 @@
     <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_status_two_columns.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
+    <Compile Include="tests\unit\test_stop_run_off_ui_thread.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_suite_ignores_the_battery.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />

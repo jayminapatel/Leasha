@@ -93,9 +93,11 @@ class Source:
     mtime_ns: int = 0
 
     def full_text(self) -> str:
+        """Every piece's text, for evidence checks that span chunks."""
         return "\n\n".join(piece.text for piece in self.pieces)
 
     def locator_of(self, piece_index: int) -> str:
+        """Where piece `piece_index` sits in the document, in words: "page 3", "Q3!A14"."""
         piece = self.pieces[piece_index]
         parts: list[str] = []
         if piece.label:

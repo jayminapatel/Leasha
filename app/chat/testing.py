@@ -59,6 +59,7 @@ __all__ = ["FakeLLM", "FakeReply", "hallucinations_for", "keyword_engine", "real
 
 @dataclass(frozen=True)
 class FakeReply:
+    """What `FakeLLM.generate` returns - the `.text` the engine reads."""
     text: str
     model: str = "fake"
     elapsed_s: float = 0.0
@@ -276,6 +277,7 @@ class FakeLLM:
     def generate(self, prompt: str, *, json_mode: bool = False, temperature: float = 0.0,
                  timeout: Optional[float] = None, max_tokens: Optional[int] = None,
                  stop: Optional[list[str]] = None, **_kwargs: Any) -> FakeReply:
+        """One reply, chosen by what kind of prompt this is (`prompts.kind_of`)."""
         if not self.up:
             raise self._down()
         text = self._reply(prompt)
@@ -286,6 +288,9 @@ class FakeLLM:
     def stream(self, prompt: str, *, temperature: float = 0.0, timeout: Optional[float] = None,
                max_tokens: Optional[int] = None, stop: Optional[list[str]] = None,
                should_stop: Optional[Callable[[], bool]] = None) -> Iterator[str]:
+        """`generate`, handed over `chunk` characters at a time, honouring Stop and
+        the scripted failure point (`fail_after`).
+        """
         if not self.up:
             raise self._down()
         text = self._reply(prompt)
@@ -306,6 +311,7 @@ class FakeLLM:
                     stop: Optional[list[str]] = None,
                     should_stop: Optional[Callable[[], bool]] = None,
                     think: Optional[str] = None) -> Iterator[str]:
+        """The conversation's reply in pieces; the call is recorded for assertions."""
         if not self.up:
             raise self._down()
         self.think_asked.append(think)

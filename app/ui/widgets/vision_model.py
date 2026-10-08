@@ -87,11 +87,13 @@ class VisionModelField(QWidget):
         self._offer(None)
 
     def _client(self) -> Any:
+        """A client for the current Ollama address; built on the worker, no I/O to make."""
         from app.llm.ollama import OllamaClient
 
         return OllamaClient(self._url)
 
     def set_url(self, url: str) -> None:
+        """The Ollama address changed in Settings; the next probe uses it."""
         self._url = str(url or self._url)
 
     def set_engine(self, engine: str, model_cache: Any = None) -> None:
@@ -111,6 +113,7 @@ class VisionModelField(QWidget):
             self.onnx_download.set_target(hub.FLORENCE.key)
 
     def showEvent(self, event: Any) -> None:       # noqa: N802 - Qt's naming
+        """First shown with Ollama as the engine: ask it once what is installed."""
         super().showEvent(event)
         # Ollama is asked only when it is the engine (2026-09-29).
         if not self._asked and self._engine == "ollama":
@@ -129,6 +132,7 @@ class VisionModelField(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _run_probe(self, url: str) -> InstalledModels:
+        """Worker thread: one request to Ollama for its installed models."""
         probe = self._probe
         if probe is None:
             from app.chat.llm import probe_installed
@@ -137,6 +141,7 @@ class VisionModelField(QWidget):
         return probe(url)
 
     def _probed(self, installed: Any) -> None:
+        """UI thread: refill the drop-down, say why it is short, and offer downloads."""
         self._probing = False
         self.look_again.setEnabled(True)
         if not isinstance(installed, InstalledModels):
@@ -147,6 +152,7 @@ class VisionModelField(QWidget):
         self._offer(installed)
 
     def _offer(self, installed: Optional[InstalledModels]) -> None:
+        """Download offers the picture-reading models not installed yet."""
         have = set(installed.vision) if installed is not None else set()
         bare = {name.split(":")[0] for name in have}
         self.download.set_offers(

@@ -252,6 +252,9 @@ class ChatBox(QGroupBox):
         self.roles.add_role(label, combo, help_text)
 
     def _make(self, setting: Any) -> QWidget:
+        """One control per registry entry, by its kind. Every signal it emits is
+        wired to `_emit` here, so a new key needs no edit elsewhere.
+        """
         if setting.key in ROLE_KEYS:
             combo = ModelCombo(setting.key, automatic="Automatic (the Local model)")
             combo.setToolTip(setting.help or setting.label)
@@ -294,6 +297,7 @@ class ChatBox(QGroupBox):
 
     @staticmethod
     def _read(control: QWidget) -> Any:
+        """A control's current value in the registry's own type."""
         if isinstance(control, ModelCombo):
             return control.value()
         if isinstance(control, QCheckBox):
@@ -349,6 +353,9 @@ class ChatBox(QGroupBox):
         return self._engine
 
     def _set_engine(self, engine: str) -> None:
+        """The engine drop-down changed. UI thread. Ollama is asked for its list
+        only when it is now the engine and the box is on screen.
+        """
         self._engine = "ollama" if engine == "ollama" else "onnx"
         self._apply_engine()
         if self._engine == "ollama" and self._manual and not self._asked and self.isVisible():
@@ -381,6 +388,9 @@ class ChatBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _run_probe(self, url: str) -> InstalledModels:
+        """Worker thread: one request to Ollama for its installed models. The
+        result lands in `_probed` by signal.
+        """
         probe = self._probe
         if probe is None:
             from app.chat.llm import probe_installed
@@ -443,6 +453,9 @@ class ChatBox(QGroupBox):
             note.show()
 
     def _show_memory(self) -> None:
+        """The memory line under the grid, from the chosen roles and what Ollama
+        reported. Blank while Ollama has not answered - no guess is shown.
+        """
         installed = self._installed
         if installed is None or not installed.reachable:
             self.roles.set_ram_line("")
@@ -485,6 +498,8 @@ class ChatBox(QGroupBox):
                     control.setCurrentIndex(index if index >= 0 else 0)
                 else:
                     control.setText(str(value or ""))
+            # A stored value the control cannot hold (text in an int box) is left
+            # at the control's own default rather than failing the whole load.
             except (TypeError, ValueError):
                 pass
             finally:

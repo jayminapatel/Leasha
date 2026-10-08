@@ -116,6 +116,7 @@ class StatusFunnel(QLabel):
         self._paint()
 
     def _paint(self) -> None:
+        """Both lines (files, then pictures when there are any) into the one label."""
         lines = [funnel_line(self.counts)]
         pictures = picture_line(self.pictures)
         if pictures:
@@ -123,6 +124,7 @@ class StatusFunnel(QLabel):
         self.setText("\n".join(lines))
 
     def _show_both(self, result: Any) -> None:
+        """UI thread: the worker's counts for files and pictures."""
         if isinstance(result, Mapping):
             self.pictures = dict(result.get("pictures") or self.pictures)
             self.show_counts(result.get("files"))
@@ -150,6 +152,7 @@ class StatusFunnel(QLabel):
         return True
 
     def _read_done(self) -> None:
+        """The read finished, however it ended: the next tick may ask again."""
         self._busy = False
 
     def tick(self, view: Any, stats: Any) -> bool:

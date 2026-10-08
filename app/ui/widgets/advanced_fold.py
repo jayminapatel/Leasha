@@ -68,6 +68,7 @@ class AdvancedFold(QWidget):
 
     @property
     def is_open(self) -> bool:
+        """Whether the heading says open - not whether the boxes show (`reveal`)."""
         return self._open
 
     def set_open(self, on: bool) -> None:
@@ -87,6 +88,9 @@ class AdvancedFold(QWidget):
         self.toggled.emit(self._open)
 
     def _show(self) -> None:
+        """One place decides what is on screen: the heading hides while a filter
+        reveals everything, and the body shows when either says so.
+        """
         self.header.setChecked(self._open)
         self.header.setVisible(not self._revealed)
         self.body.setVisible(self._open or self._revealed)
@@ -107,6 +111,7 @@ class AdvancedFold(QWidget):
     def changeEvent(self, event: QEvent) -> None:  # noqa: N802 - Qt's name
         # A theme change re-styles every widget; the arrow is a picture and
         # has to be drawn again in the new colour.
+        # UI thread, from Qt's own event delivery; `_draw_arrow` never raises.
         if event.type() == QEvent.Type.StyleChange:
             self._draw_arrow()
         super().changeEvent(event)

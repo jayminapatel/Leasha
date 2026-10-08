@@ -230,6 +230,10 @@ class Fb2Extractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document of the book's prose (capped at `MAX_TEXT_CHARS`) with
+        title and author in `meta`. Not FictionBook XML at all is
+        `ERR_FILE_CORRUPT`; a book with metadata but no prose yields nothing,
+        which `base.extract` reports as `ERR_NO_TEXT_LAYER`. Reads only."""
         try:
             raw = path.read_bytes()
         except PermissionError as exc:
@@ -266,6 +270,12 @@ class EpubExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: the chapters in spine order, capped at `MAX_TEXT_CHARS`.
+
+        Not a zip, no container.xml, or an unparseable package document is
+        `ERR_FILE_CORRUPT`; a locked file `ERR_FILE_LOCKED`. A missing or
+        oversized chapter costs that chapter only. Reads the zip; writes nothing.
+        """
         try:
             with zipfile.ZipFile(path) as archive:
                 chapters, meta = self._read(archive, path)

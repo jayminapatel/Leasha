@@ -89,10 +89,13 @@ class ExtractorSpec:
 
     @property
     def module_file(self) -> str:
+        """`<name>.py` under `app/extract/`."""
         return f"{self.name}.py"
 
     @property
     def class_name(self) -> str:
+        """`auto_cad` -> `AutoCadExtractor`: the naming every shipped reader
+        uses, so a generated one reads like the rest of the package."""
         return f"{self.name.title().replace('_', '')}Extractor"
 
 
@@ -116,6 +119,7 @@ class ScaffoldPlan:
 
     @property
     def paths(self) -> list[Path]:
+        """Every file the plan would touch, in the order `apply` writes them."""
         return [change.path for change in self.changes]
 
 

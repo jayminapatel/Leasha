@@ -201,6 +201,9 @@ class VisioExtractor:
     )
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """`.vsdx`/`.vsdm`: the file name, each page name and every shape label.
+        `.vsd`: the name and OLE summary fields only, with an `ERR_NO_TEXT_LAYER`
+        warning saying why. Never raises and never yields nothing. Reads only."""
         if path.suffix.lower() == ".vsd":
             # The 2003 binary format. Its shape text lives in an undocumented
             # compound-file layout; the summary stream is documented and is
@@ -259,6 +262,9 @@ class ProjectExtractor:
     )
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """The plan's task names when the JVM route is switched on and works;
+        otherwise the file name and summary fields with an `ERR_NO_TEXT_LAYER`
+        warning explaining the gap. Never raises; reads only."""
         tasks = _mpp_tasks(path)
         if tasks is None:
             yield _metadata_document(
@@ -375,11 +381,40 @@ def _mpp_reader():
 #: instead of the run. Until that exists, this is the honest default.
 JVM_SWITCH = "LEASHA_ENABLE_JVM"
 
+#: `JVM_READERS_ENABLED` from Settings, read once. `None` until asked.
+_SETTINGS_JVM: Optional[bool] = None
+
+
+def _jvm_from_settings() -> bool:
+    """The Settings control (`JVM_READERS_ENABLED`). Cached, never raises.
+
+    2026-10-08 review: the environment variable was the whole interface, a
+    tunable with no control (non-negotiable 11). The same shape as
+    `pdf._pages_from_settings`: cached because it is asked per `.mpp` on a
+    worker, and a missing or unreadable configuration is "off", which is what
+    this did before it was configurable.
+    """
+    global _SETTINGS_JVM
+    if _SETTINGS_JVM is None:
+        try:
+            from app.core.config import load_settings
+
+            settings = load_settings(create_dirs=False, check_writable=False)
+            _SETTINGS_JVM = bool(getattr(settings, "jvm_readers_enabled", False))
+        except Exception:                        # noqa: BLE001 - a switch; off is the safe answer
+            _SETTINGS_JVM = False
+    return bool(_SETTINGS_JVM)
+
 
 def _jvm_allowed() -> bool:
+    """May mpxj start a JVM in this process? The environment variable is the
+    override for one run; the Settings control is the ordinary route."""
     import os
 
-    return bool(os.environ.get(JVM_SWITCH))
+    raw = os.environ.get(JVM_SWITCH)
+    if raw is not None:
+        return bool(raw)
+    return _jvm_from_settings()
 
 
 def _mpp_tasks(path: Path) -> Optional[list[str]]:

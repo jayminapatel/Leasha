@@ -72,7 +72,8 @@ def _warn_write_failed(widget: QWidget, title: str, error: Any) -> None:
     dialog - logs, then tells the person plainly rather than leaving the
     click looking like it did nothing."""
     _log.warning("{}: {}", title, error)
-    QMessageBox.warning(widget, title, str(error))
+    # `render()` carries the FIX line; `str()` drops it (rule 2, review 2026-10-08).
+    QMessageBox.warning(widget, title, error.render() if hasattr(error, "render") else str(error))
 
 
 def _pile_label(pile: Any, rank: int) -> str:
@@ -105,6 +106,7 @@ class _PileList(QListWidget):
         self.setDefaultDropAction(Qt.DropAction.MoveAction)
 
     def startDrag(self, actions: Any) -> None:        # noqa: N802 - Qt override
+        """Drag a pile by its id, under `ROLE_MIME`, with its face as the drag picture."""
         item = self.currentItem()
         if item is None:
             return
@@ -131,6 +133,7 @@ class _PileList(QListWidget):
             super().dragMoveEvent(event)
 
     def dropEvent(self, event: Any) -> None:            # noqa: N802 - Qt override
+        """A pile dropped on another: ask the page to combine (it confirms first)."""
         mime = event.mimeData()
         if not mime.hasFormat(ROLE_MIME):
             super().dropEvent(event)
@@ -195,9 +198,11 @@ class _SuggestionChip(QWidget):
 
     @property
     def face_id(self) -> int:
+        """The face this chip asks about."""
         return self._face_id
 
     def set_picture(self, image: Any) -> None:
+        """A worker's `QImage` for the face; None leaves the blank tile."""
         if image is None:
             return
         self.set_pixmap(QPixmap.fromImage(image))
@@ -342,15 +347,18 @@ class PhotoTaggerPage(QWidget):
     # -- following a run ---------------------------------------------------
 
     def showEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """On screen: start following the run and look once now."""
         super().showEvent(event)
         self._follow.start()
         self._check_for_new_faces()
 
     def hideEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """Off screen: stop the follow timer; nothing is read while hidden."""
         self._follow.stop()
         super().hideEvent(event)
 
     def _check_for_new_faces(self) -> None:
+        """Ask the store, on a worker, for the four counts that say whether faces changed."""
         from app.ui.workers import CallableWorker, run
 
         worker = CallableWorker(self._store.faces_stamp, component="ui.photo_tagger.follow")
@@ -358,6 +366,9 @@ class PhotoTaggerPage(QWidget):
         run(self._pool, worker)
 
     def _stamp_ready(self, stamp: Any) -> None:
+        """UI thread: the counts landed. Reload only when they changed and nobody is
+        mid-edit in the list.
+        """
         stamp = tuple(stamp or ())
         if stamp == self._stamp:
             return
@@ -468,6 +479,7 @@ class PhotoTaggerPage(QWidget):
             item.setToolTip(tip)
 
     def _item_for(self, pile_id: int) -> Optional[QListWidgetItem]:
+        """The tile for `pile_id`, or None."""
         for row in range(self._list.count()):
             item = self._list.item(row)
             if item.data(ROLE_PILE_ID) == pile_id:
@@ -499,6 +511,7 @@ class PhotoTaggerPage(QWidget):
                 component="ui.photo_tagger")
             worker.signals.finished.connect(
                 lambda image, p=pile.id, k=key: self._crop_ready(p, k, image))
+            # A face that will not cut keeps its blank tile; the worker logged why.
             worker.signals.failed.connect(lambda _error: None)
             run(self._pool, worker)
 
@@ -573,6 +586,7 @@ class PhotoTaggerPage(QWidget):
             tallest + margins.top() + margins.bottom() + bar + 4)
 
     def _chip_picture(self, chip: _SuggestionChip, key: str, image: Any) -> None:
+        """UI thread: a chip's face landed; the chip may have been answered and gone."""
         pixmap = remember(key, image)
         if pixmap is None:
             return
@@ -584,6 +598,7 @@ class PhotoTaggerPage(QWidget):
     # -- accept all (2026-10-05) ------------------------------------------------
 
     def _counts_ready(self, counts: Any, generation: int) -> None:
+        """UI thread: how many faces wait per person; rebuilds the Accept all menu."""
         if generation != self._generation:
             return
         self._suggestion_counts = [tuple(c) for c in counts or []]
@@ -630,6 +645,7 @@ class PhotoTaggerPage(QWidget):
         return True
 
     def _accepted(self) -> None:
+        """UI thread: Accept all finished; re-read everything."""
         self._accept_all.setEnabled(True)
         self.reload()
 
@@ -661,6 +677,11 @@ class PhotoTaggerPage(QWidget):
         self._rename(int(item.data(ROLE_PILE_ID)), item.text())
 
     def _rename(self, pile_id: int, current_label: str) -> None:
+        # The label is `_pile_label`'s "Name - 47 photo(s)"; the name is what is
+        # before the dash. A name containing the dash itself would be cut short.
+        """Ask for a name, then check on a worker whether another group has it -
+        a taken name is offered as a combine (`_name_checked`).
+        """
         current_name = current_label.split(" — ", 1)[0]
         if current_name.startswith("Person "):
             current_name = ""
@@ -684,6 +705,9 @@ class PhotoTaggerPage(QWidget):
         run(self._pool, check)
 
     def _name_checked(self, pile_id: int, name: str, taken: Any) -> None:
+        """UI thread: the name is free (rename) or taken (combine, after asking).
+        The grid changes at once; the store's answer only confirms it.
+        """
         from app.ui.workers import CallableWorker, run
 
         if taken is not None:
@@ -740,6 +764,7 @@ class PhotoTaggerPage(QWidget):
     # grid back to what the store holds.
 
     def _show_renamed(self, pile_id: int, name: str) -> None:
+        """Relabel a tile now, before the store has written the name."""
         pile, item = self._piles.get(pile_id), self._item_for(pile_id)
         if pile is None or item is None:
             return
@@ -748,6 +773,7 @@ class PhotoTaggerPage(QWidget):
         self._dress(item, pile, self._list.row(item) + 1)
 
     def _show_combined(self, source_id: int, target_id: int) -> None:
+        """Take the dragged tile off and add its count to the target, before the store has."""
         source, target = self._piles.get(source_id), self._piles.get(target_id)
         item = self._item_for(source_id)
         if item is not None:
@@ -764,6 +790,7 @@ class PhotoTaggerPage(QWidget):
     # -- context menu: forget, manage faces ----------------------------------
 
     def _on_context_menu(self, point: Any) -> None:
+        """Right-click on a pile: name, combine, manage faces, forget - through `open_menu`."""
         item = self._list.itemAt(point)
         if item is None:
             return
@@ -943,6 +970,7 @@ class _BatchEraDialog(QDialog):
         fit_number_fields(self)
 
     def chosen_year(self) -> int:
+        """The midpoint of the two years, in either order."""
         low, high = sorted((self._from.value(), self._to.value()))
         return (low + high) // 2
 
@@ -1036,6 +1064,7 @@ class _ManageFacesDialog(QDialog):
     # -- reading, on workers --------------------------------------------------------
 
     def _load(self) -> None:
+        """Read the faces and the named people on workers; the list clears meanwhile."""
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -1054,6 +1083,9 @@ class _ManageFacesDialog(QDialog):
         run(self._pool, people)
 
     def _faces_ready(self, faces: Any) -> None:
+        """UI thread: one tile per face, from memory when seen before, else a worker
+        cuts it (`cached_face_crop`) and `_show` paints it.
+        """
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -1080,6 +1112,7 @@ class _ManageFacesDialog(QDialog):
         self._list.verticalScrollBar().setValue(getattr(self, "_scroll", 0))
 
     def _people_ready(self, piles: Any) -> None:
+        """UI thread: fill the Move to drop-down with the other named people."""
         self._move_to.clear()
         for pile in piles or []:
             if pile.id != self._pile_id and pile.name:
@@ -1092,6 +1125,7 @@ class _ManageFacesDialog(QDialog):
             Qt.TransformationMode.SmoothTransformation))
 
     def _show(self, item: QListWidgetItem, pixmap: Optional[QPixmap]) -> None:
+        """UI thread: a face landed; the list may have been re-read meanwhile."""
         if pixmap is None or pixmap.isNull():
             return
         try:
@@ -1111,6 +1145,7 @@ class _ManageFacesDialog(QDialog):
         self._move.setEnabled(some and self._move_to.count() > 0)
 
     def _apply(self, work: Any, failure: str) -> None:
+        """Run a store write on a worker, re-read on success, warn plainly on failure."""
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -1124,6 +1159,7 @@ class _ManageFacesDialog(QDialog):
         self._load()
 
     def _not_this_person(self) -> None:
+        """The selected faces leave the group and are never suggested for it again."""
         face_ids = self._selected_face_ids()
 
         def work() -> None:
@@ -1154,6 +1190,7 @@ class _ManageFacesDialog(QDialog):
         self._apply(work, "Could not move them")
 
     def _close(self) -> None:
+        """Close reports Accepted when anything changed, so the page re-reads."""
         if self._changed:
             self.accept()
         else:

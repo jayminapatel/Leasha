@@ -40,6 +40,9 @@ class NoShelf:
 
 
 class AnswerRun:
+    """One answer being streamed: routes the engine's events to the bubble, the
+    Sources pane and the shelf. UI thread only - events arrive by signal.
+    """
     def __init__(self, bubble: Any, sources: Any, shelf: Any) -> None:
         self.bubble = bubble
         self.sources = sources
@@ -55,6 +58,9 @@ class AnswerRun:
         self.streamed = False
 
     def event(self, event: Any) -> None:
+        """One engine event. UI thread. Nothing after `finish` changes the screen:
+        a token that lands late belongs to an answer already settled.
+        """
         if self.finished:
             return
         if isinstance(event, NarrationEvent):
@@ -92,11 +98,17 @@ class AnswerRun:
             self.sources.add(number, receipt)
 
     def _receipt_for(self, engine_number: int, final: Any = None) -> Any:
+        """The receipt the model's `[n]` points at, from the final turn's list when
+        there is one, else from what streaming has reported so far.
+        """
         pool = final if final is not None else self.known
         index = engine_number - 1
         return pool[index] if 0 <= index < len(pool) else None
 
     def _place_new_sources(self, final: Any = None) -> None:
+        """Every `[n]` the prose mentions whose receipt has arrived gets a reader
+        number and a card, in first-mention order; the bubble redraws once.
+        """
         self.numbering.feed(self.bubble.raw)
         for engine_number in self.numbering.in_order():
             if engine_number in self._placed:
@@ -134,6 +146,9 @@ class AnswerRun:
         return True
 
     def finish(self, turn: Any = None, *, stopped: bool = False) -> None:
+        """The engine's final turn is the truth: its text and receipts replace what
+        streamed. The Sources pane is rebuilt only if the numbering disagreed.
+        """
         if self.finished:
             return
         if turn is not None and getattr(turn, "text", ""):

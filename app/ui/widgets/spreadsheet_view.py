@@ -52,6 +52,7 @@ class SheetTableModel(QAbstractTableModel):
 
     def headerData(self, section: int, orientation: Qt.Orientation,     # noqa: N802
                    role: int = Qt.ItemDataRole.DisplayRole) -> Any:
+        """Column letters across (A, B ... AA) and row numbers down, as a spreadsheet shows."""
         if role != Qt.ItemDataRole.DisplayRole:
             return None
         if orientation == Qt.Orientation.Horizontal:

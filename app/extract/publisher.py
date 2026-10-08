@@ -92,6 +92,12 @@ class PublisherExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: every story's text from the Quill stream.
+
+        No Quill stream, an 8-bit Publisher 98 chunk or an oversized stream
+        goes to `fall_back` (LibreOffice to PDF, or `ERR_FILE_CORRUPT` when it
+        is off). A locked file is `ERR_FILE_LOCKED`. Reads only.
+        """
         try:
             text = self._read(path)
         except LegacyOfficeUnreadable as exc:

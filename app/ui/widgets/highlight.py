@@ -58,6 +58,7 @@ class CodeHighlighter(QSyntaxHighlighter):
 
     @property
     def language(self) -> Optional[str]:
+        """The grammar in force, or None for plain text."""
         return self._current
 
     def setLanguage(self, language: Optional[str]) -> None:   # noqa: N802 - Qt's naming
@@ -80,6 +81,7 @@ class CodeHighlighter(QSyntaxHighlighter):
         self.rehighlight()
 
     def _recompile(self) -> None:
+        """Build the one combined scanner for the current grammar (`grammars.combined`)."""
         pattern, roles = combined(self._current)
         self._scanner = QRegularExpression(pattern) if pattern else None
         self._roles = roles

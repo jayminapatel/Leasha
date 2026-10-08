@@ -239,6 +239,7 @@ def _find_sentence_end(text: str, start_idx: int, end_idx: int) -> Optional[int]
 
 
 def _head(text: str, width: int) -> Snippet:
+    """The opening of `text`, cut at a boundary, for a passage with no term to centre on."""
     if len(text) <= width:
         return Snippet(text)
     end = _snap_forward(text, width)

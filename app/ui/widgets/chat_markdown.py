@@ -341,6 +341,8 @@ def _swap_markers(chunk: str, show_number: Callable[[int], int],
                   linkable: frozenset) -> str:
     """Escape `<` (an answer quoting `<b>` must not become markup) and turn
     each source marker into a raised number, a link when it has a source."""
+    # The one escape the markdown importer needs: raw HTML in model output
+    # (`<img>`, `<script>`) would otherwise be parsed as markup.
     chunk = chunk.replace("<", "&lt;")
     chunk = _UNDER_EM.sub(r"*\1*", _UNDER_STRONG.sub(r"**\1**", chunk))
     matches = list(_MARKER.finditer(chunk))
@@ -430,6 +432,9 @@ _MONO_CHOICES = ("Cascadia Mono", "Cascadia Code", "Consolas", "Menlo",
 
 
 def _mono_family() -> str:
+    """The first installed monospace family from `_MONO_CHOICES`, else Qt's
+    fixed font. Asks the font database each time it is called.
+    """
     try:
         have = set(QFontDatabase.families())
     except Exception:                                       # noqa: BLE001 - no fonts yet
@@ -454,6 +459,7 @@ def _colours() -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def _tables(frame: QTextFrame) -> Iterable[QTextTable]:
+    """Every table in `frame`, depth first - tables may nest inside frames."""
     for child in frame.childFrames():
         if isinstance(child, QTextTable):
             yield child
@@ -470,6 +476,8 @@ class _Prose(QTextBrowser):
         self.setObjectName("answerProse")
         self.setAccessibleName("Answer text")
         self.setReadOnly(True)
+        # Links are reported, never followed: the parent decides what a receipt
+        # or a web link means, and nothing here opens a program or a page.
         self.setOpenLinks(False)
         self.setOpenExternalLinks(False)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -641,6 +649,9 @@ class _Prose(QTextBrowser):
 
     # -- height --------------------------------------------------------------
     def fit(self) -> None:
+        """Make the widget exactly as tall as its text at its current width. While
+        `_growing` (the streaming tail) the height only goes up, never down.
+        """
         width = self.width()          # no frame, no scroll bars: the viewport's width
         if width <= 0:
             return
@@ -758,6 +769,9 @@ class _CodeBlock(QFrame):
 
     def show_code(self, text: str, lang: str, colours: dict[str, str],
                   stamp: int) -> bool:
+        """Draw `text`; False (and no work) when nothing changed. Appends when the
+        new text extends the old, so a selection in the block survives streaming.
+        """
         key = (text, lang, stamp)
         if key == self._key:
             return False
@@ -812,6 +826,9 @@ class _CodeBlock(QFrame):
 
     # -- height --------------------------------------------------------------
     def fit(self) -> None:
+        """Height from the line count and font metrics - never from a layout pass
+        over the document, which a long code block would make per token.
+        """
         view = self.view
         lines = self._shown.count("\n") + 1
         fm = view.fontMetrics()
@@ -834,6 +851,7 @@ class _CodeBlock(QFrame):
         self.copy_button.setText(COPY_TEXT)
 
     def copy(self) -> None:
+        """Put the code on the clipboard and say "Copied" for `COPIED_MS`."""
         QGuiApplication.clipboard().setText(self._code)
         self.copy_button.setText(COPIED_TEXT)
         self._revert.start()
@@ -952,6 +970,7 @@ class AnswerBody(QWidget):
 
     # -- what a caller or a test can ask -------------------------------------
     def plain_text(self) -> str:
+        """The answer as shown, prose and code joined by blank lines. For tests and Copy."""
         parts: list[str] = []
         for widget in self._items:
             if isinstance(widget, _CodeBlock):
@@ -1004,6 +1023,9 @@ class AnswerBody(QWidget):
         return block
 
     def _drop_from(self, index: int) -> None:
+        """Remove segment widgets from `index` on. Only ever called for the tail,
+        so nothing above a line being read moves.
+        """
         for widget in self._items[index:]:
             self._layout.removeWidget(widget)
             widget.hide()
@@ -1013,6 +1035,9 @@ class AnswerBody(QWidget):
 
     # -- links ---------------------------------------------------------------
     def _receipt_number(self, href: str) -> Optional[int]:
+        """The reader-facing number behind a `leasha-receipt:` link, or None for
+        any other link or a number no source was shown for.
+        """
         if not href.startswith(_RECEIPT):
             return None
         try:
@@ -1022,6 +1047,9 @@ class AnswerBody(QWidget):
         return number if number in self._shown_numbers else None
 
     def _anchor_clicked(self, url: QUrl) -> None:
+        """A link in the prose. Only `leasha-receipt:` and http(s) are acted on;
+        `file:` and every other scheme a model might emit are ignored.
+        """
         href = url.toString()
         number = self._receipt_number(href)
         if number is not None:

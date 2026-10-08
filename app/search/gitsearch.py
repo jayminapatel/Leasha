@@ -116,6 +116,7 @@ class StopFlag:
         self._event = threading.Event()
 
     def stop(self) -> None:
+        """Flip the switch. Safe from any thread, and harmless to call twice."""
         self._event.set()
 
     @property
@@ -344,6 +345,7 @@ def git_version(*, runner: Runner = _run) -> str | None:
 
 
 def is_repository(repo: Path, *, runner: Runner = _run) -> bool:
+    """Whether `repo` is inside a git work tree. False when git is missing or fails."""
     code, out, _err = runner(
         ["git", "rev-parse", "--is-inside-work-tree"], Path(repo), 10.0)
     return code == 0 and out.strip() == "true"
@@ -530,6 +532,7 @@ class GitRow:
     root: str = ""
 
     def as_dict(self) -> dict[str, Any]:
+        """The row as JSON-able values; `line_no` is printed as `line`."""
         return {
             "kind": self.kind, "commit": self.commit, "date": self.date,
             "author": self.author, "subject": self.subject, "path": self.path,
@@ -562,6 +565,7 @@ class GitSearchResult:
     failed: list[tuple[str, str]] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
+        """The result as JSON-able values, every row included, for `--json` output."""
         return {
             "ok": self.ok, "matches": len(self.rows),
             "elapsed_s": round(self.elapsed_s, 3), "explain": self.explain,
@@ -828,6 +832,11 @@ class _LineReader:
         self._file = ""
 
     def feed(self, line: str) -> list[GitRow]:
+        """The rows one more line of git output completes - usually none or one.
+
+        A commit header is remembered rather than returned for the patch and
+        name-status shapes: their rows need it, and it arrived lines earlier.
+        """
         if self._kind == self._grep:
             return _read_grep([line], 1)
         if _header(line) is not None:

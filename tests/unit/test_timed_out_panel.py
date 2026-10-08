@@ -289,6 +289,16 @@ def test_a_press_while_a_run_is_going_starts_nothing_and_says_why(window) -> Non
         del built.notify
 
 
+def _settle_workers(app) -> None:
+    """2026-10-08: the learning runs on a worker (`cached_profile` and `learn`
+    both read the store), so wait for the pool and let its signals land."""
+    from PySide6.QtCore import QThreadPool
+
+    assert QThreadPool.globalInstance().waitForDone(10_000)
+    for _ in range(3):
+        app.processEvents()
+
+
 def test_a_finished_retry_teaches_the_tuner_nothing_and_offers_no_images_pass(
         window, monkeypatch) -> None:
     """A retry reads the slowest files in the index: it is not a measurement of
@@ -309,12 +319,14 @@ def test_a_finished_retry_teaches_the_tuner_nothing_and_offers_no_images_pass(
                              resolved={"workers": 2, RESOLVED_KEY: ".pdf, 4 times"})
         built.index_ctl._learn_from_run(retried)
         built.index_ctl._offer_images_pass(retried)
+        _settle_workers(_app)
         assert learned == [] and said == []
 
         ordinary = IndexStats(stages={"extract": 9.0, "embed": 1.0},
                               resolved={"workers": 2})
         built.index_ctl._learn_from_run(ordinary)
         built.index_ctl._offer_images_pass(ordinary)
+        _settle_workers(_app)
         assert len(learned) == 1, "an ordinary run is still learned from"
         assert len(said) == 1 and said[0].startswith("Text is indexed.")
     finally:

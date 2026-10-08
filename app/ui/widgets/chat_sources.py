@@ -59,6 +59,9 @@ NOTHING_YET = "Passages from your files appear here as the answer uses them."
 
 
 class SourcesPane(QWidget):
+    """The Sources list and the Preview, two pages of one side panel. Append-only
+    while an answer streams. UI thread; the preview reads on its own worker.
+    """
     opened = Signal(object)            # a ResultRow
     revealed = Signal(object)
     #: An `AppError` from the preview (a file that would not render).
@@ -183,6 +186,7 @@ class SourcesPane(QWidget):
         self.results.show_results(rows, [], details=self._details, keep_scroll=True)
 
     def clear(self) -> None:
+        """A new conversation or answer: forget every source and empty the preview."""
         self._by_number.clear()
         self._order.clear()
         self._details.clear()
@@ -197,6 +201,7 @@ class SourcesPane(QWidget):
 
     # -- the passage strip -----------------------------------------------------
     def show_passage(self, number: int) -> None:
+        """The passage strip for reader number `number`, hidden when there is none."""
         receipt = self._by_number.get(number)
         self.passage.setVisible(receipt is not None)
         if receipt is not None:
@@ -211,6 +216,9 @@ class SourcesPane(QWidget):
             self._selected(self.results.current_row())
 
     def _selected(self, row: Any) -> None:
+        """A card was picked in the list: show its passage, unless the pointer is
+        over a number in the prose, which wins while it is there.
+        """
         if self._hovering:
             return
         if row is None:

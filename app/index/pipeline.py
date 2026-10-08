@@ -745,6 +745,15 @@ class IndexStats:
 
 @dataclass
 class PipelineConfig:
+    """Everything one run is told, and nothing it could read for itself.
+
+    Built once per run by `run_setup.build_pipeline_config` (every entry point
+    goes through it) and handed to `Pipeline`, which has no `Settings` and no
+    store-independent way to look anything up. Each field's comment says why
+    it exists; a field with no caller setting it keeps the behaviour from
+    before it was added.
+    """
+
     walk: WalkConfig
     #: 0 -> `resources.default_workers()`: half the cores, capped at four.
     #: Deliberately not `cpu_count - 1`; see `app/index/resources.py` for why
@@ -1663,6 +1672,8 @@ class Pipeline:
         self._log.info("resumed at the person's request")
 
     def _release_pause(self) -> None:
+        """Clear the person's pause on the governor, if it has one to clear.
+        `getattr`, for the same stand-in governors `_person_paused` allows."""
         let_go = getattr(self.governor, "resume", None)
         if let_go is not None:
             let_go()
@@ -1797,6 +1808,24 @@ class Pipeline:
         *,
         on_progress: Optional[Callable[[IndexStats], None]] = None,
     ) -> IndexStats:
+        """One whole index run, on the calling thread. Returns its `IndexStats`.
+
+        The order of the stretches below is the order a reader needs to know:
+        the model loads first (so a load failure costs nothing written); the
+        catch-up drains fill what an earlier run left unembedded; the roots are
+        planned and narrowed; then the walker, N extraction workers and the
+        feeder thread start and `_consume` runs the whole reading phase on this
+        thread; the `finally` tears every thread down whether or not it raised;
+        and only a run that finished (`_interrupted` False, no `stopped_early`)
+        prunes missing rows and records an archive pass. `on_progress` gets a
+        live `IndexStats` on every phase change and checkpoint - take
+        `snapshot()` before reading it from another thread.
+
+        Raises `AppErrorException` when the embedding model cannot load or a
+        batch cannot be embedded even after the processor retry; a single bad
+        file never raises (it becomes a skip row). Stop and Pause are
+        `request_stop` / `pause` from any thread.
+        """
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
         if self.activity_into is not None:
             stats.activity = self.activity_into
@@ -3079,6 +3108,16 @@ class Pipeline:
                 self._log.warning("could not record repository {}: {}", root, exc)
 
     def _candidates(self) -> Iterator[Candidate]:
+        """Every file this run looks at, in the order the walker thread sees it.
+
+        The walk of `config.walk.roots` first, then the files read back from
+        the ledger: those skipped as locked last time, and - on the images
+        pass - the scanned PDFs and the archives whose pictures were held.
+        A `candidate_source` (the folder watch) replaces all of that with its
+        own list. Yields `Candidate`s; never raises for one file - the walk
+        counts what it cannot `stat`, and a re-queued row whose file has gone
+        is left to the clean-up pass. Walker thread only.
+        """
         # Work order 0z F1: a run given its files (the folder watch) yields
         # exactly those. No walk, and none of the re-queues below - they read
         # the whole skip ledger, and belong to a run over the whole corpus.
@@ -3542,6 +3581,16 @@ class Pipeline:
         return slots
 
     def _extract_worker_loop(self, work: queue.PriorityQueue, results: queue.Queue) -> None:
+        """One extraction thread's loop: take a candidate, read it, hand each
+        document to the consumer, until a `_STOP` marker or the stop flag.
+
+        Every exception a file raises - `BaseException` included - is turned
+        into one `_Extracted` carrying an `AppError` for that file (or the
+        watchdog's `ERR_FILE_TIMEOUT`), so the loop itself only ends on a
+        marker, a stop, a pause that became a stop, or being replaced after a
+        time-out. Returns normally in every one of those cases; the caller
+        `_extract_worker` reports anything else.
+        """
         slot = getattr(self._worker_slots(), "slot", None)
         #: 0z lane B: None when the run has no watchdog (a bare test pipeline).
         watch = getattr(self._worker_slots(), "watch", None)
@@ -4068,6 +4117,9 @@ class Pipeline:
 
     @property
     def _not_read_lock(self) -> threading.Lock:
+        """The lock over `IndexStats.pictures_not_read`, which every extraction
+        worker adds to. Made on first use, like `_worker_slots`, for the bare
+        test pipelines built without `__init__`."""
         lock = self.__dict__.get("_not_read_lock_obj")
         if lock is None:
             lock = self.__dict__.setdefault("_not_read_lock_obj", threading.Lock())
@@ -4081,6 +4133,8 @@ class Pipeline:
         return held
 
     def _is_held_archive(self, path: Path) -> bool:
+        """Is `path` an archive whose attached pictures wait for the pictures
+        pass? False on any failure, so the archive is read as a whole."""
         try:
             return self._held_archives().is_held(path)
         except Exception:                               # noqa: BLE001 - read it normally
@@ -4429,11 +4483,31 @@ class Pipeline:
         on_progress: Optional[Callable[[IndexStats], None]],
         work: Optional["queue.PriorityQueue[Any]"] = None,
     ) -> None:
+        """The consumer: the one thread that writes, from the results queue.
+
+        Loops until it has seen `_expected_stops` `_STOP` markers (one per
+        extraction worker) or the stop flag is set. Per document, in order:
+        skip rows and name-only rows are written at once; a document with text
+        has its chunks written to SQLite (PARTIAL) by `_write_one` and its
+        `(chunk_id, file_id, text)` triples gathered in `pending_vectors`;
+        every `embed_batch` of those is handed to the feeder thread, which
+        embeds, writes the vectors and only then marks the files INDEXED. The
+        resume cursors and an archive's marker are written only after a
+        blocking `_feed_sync`, so nothing durable ever claims a vector that is
+        not. Ends with a final blocking flush, whichever way the loop left.
+
+        Raises what the feeder caught (`_raise_if_feeder_failed`) - the model
+        failing is the one thing that ends a run from here; a bad document
+        never does. Reporting failures are logged and never cost the flush.
+        """
         finished = 0
         since_checkpoint = 0
         last_checkpoint = time.monotonic()
         self._last_summary = last_checkpoint
         stats.sample(now=last_checkpoint)          # the window's first point
+        # `(chunk_id, file_id, text)` for every passage written and not yet
+        # embedded - the batch the feeder thread is handed, as `_write_one`
+        # returns them.
         pending_vectors: list[tuple[int, int, str]] = []
         # 0x 5d: this thread does the writing, so its connection gets a page
         # cache sized to the database - see `SqliteStore.size_write_cache` for
@@ -5441,7 +5515,7 @@ class Pipeline:
             raise LookupError(f"the message {parent} is not in the index")
         return attachment_bytes(message, rest, max_bytes=self.MAIL_PICTURE_BYTES_LIMIT)
 
-    def _drain_face_cluster(self, stats: IndexStats) -> None:
+    def _drain_face_cluster(self, stats: IndexStats, *, paced: bool = True) -> None:
         r"""Give every unclustered face a verdict: assign, suggest, or a
         fresh pile. Work order 0j sections 1b and 2c.
 
@@ -5451,6 +5525,13 @@ class Pipeline:
         but it is asked anyway: turning the switch off mid-session must stop
         *every* face-shaped thing this pipeline does, immediately, not just
         the ones that create new rows.
+
+        `paced=False` is for the mid-run call from `_maybe_detect_faces`, on
+        the consumer thread. Found in review 2026-10-08: the consumer must
+        never wait on the memory governor (`_disk_ok` says why - the workers
+        are blocked in `_offer` holding their chunks, so memory cannot fall
+        and the pause never clears), and after `MAX_SETTLES` the governor waits
+        for ever. The start- and end-of-run drains keep their pacing.
         """
         if not self.config.people_recognition_enabled:
             stats.enrichment_counts[self.KIND_FACE_CLUSTER] = 0
@@ -5468,14 +5549,15 @@ class Pipeline:
             for batch in self.store.iter_unclustered_faces(batch_size=32):
                 if self._interrupted:
                     break
-                verdict = self.governor.wait_while_throttled(
-                    should_stop=lambda: self._interrupted)
-                stats.paused_seconds = self.governor.paused_seconds
-                stats.pauses = self.governor.pauses
-                stats.paused = self.governor.paused
-                stats.pause_reason = self.governor.pause_reason
-                if verdict.action == "stop":
-                    break
+                if paced:
+                    verdict = self.governor.wait_while_throttled(
+                        should_stop=lambda: self._interrupted)
+                    stats.paused_seconds = self.governor.paused_seconds
+                    stats.pauses = self.governor.pauses
+                    stats.paused = self.governor.paused
+                    stats.pause_reason = self.governor.pause_reason
+                    if verdict.action == "stop":
+                        break
 
                 plan = cluster_batch(
                     [(face.id, face.embedding) for face in batch], centroids,
@@ -5734,7 +5816,8 @@ class Pipeline:
         stats = getattr(self, "_face_stats", None)
         if stats is not None and self._faces_since_cluster >= FACE_CLUSTER_EVERY:
             self._faces_since_cluster = 0
-            self._drain_face_cluster(stats)
+            # On the consumer thread: never wait on the governor here.
+            self._drain_face_cluster(stats, paced=False)
 
     def _write_marker(self, item: _Extracted) -> None:
         """Record a container as indexed without giving it any chunks."""
@@ -6411,6 +6494,9 @@ class Pipeline:
         ]
 
     def _store_message_meta(self, file_id: int, meta: dict[str, Any]) -> None:
+        """Write a mail message's headers (`messages` row) for `file_id`, from
+        the keys the extractor put on `Document.meta`. A failure is logged and
+        costs the metadata only, never the document."""
         # **`quoted_removed` is in this tuple, and leaving it out killed the
         # feature it belongs to.** Schema v12 added the column, extraction
         # measured the value, the preview was built to read it - and this
@@ -6493,6 +6579,8 @@ class Pipeline:
             self._embed_pending_pictures()
 
     def _clip_failed(self, path: Any, exc: Optional[Exception]) -> None:
+        """Log and count one photo that got no CLIP vector (H4: the photo stays
+        indexed by everything else). `exc` None means it would not decode."""
         self._log.warning(
             "no CLIP vector for {}: {}. It stays searchable by name, "
             "folder, type and any OCR text - only image-similarity "
@@ -7276,6 +7364,14 @@ class Pipeline:
         # confidently more able to open a file OCR could not.
         if item.error is not None and item.error.code in (
                 "ERR_NO_TEXT_LAYER", "ERR_PICTURE_TEXT_LATER", "ERR_PAGE_TEXT_LATER"):
+            # Found in review 2026-10-08: `_write_one` commits the shared write
+            # group before its picture steps ("none of it may run holding the
+            # write lock"), and this path - which most photos take, since OCR
+            # finds no text in them - did not. CLIP, pHash and a 0.9 s face
+            # scan then ran inside the consumer's open transaction, and every
+            # queued UI write waited on it. The same commit, for the same reason.
+            if self._media_work_ahead(candidate):
+                self._commit_write_group(timed=False)
             self._maybe_embed_image(candidate, file_id)
             # Work order 0h §2a: same reasoning as the CLIP call just above -
             # a photo OCR found no text in is still a photo worth hashing.

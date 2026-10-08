@@ -42,6 +42,9 @@ class DraggableResultsModel(QStandardItemModel):
         self._missing = missing or (lambda: ())
 
     def mimeData(self, indexes: Any) -> QMimeData:              # noqa: N802 - Qt override
+        """Qt asks for this as a drag starts. UI thread, no stat: the paths come from
+        the payloads and `missing` is what a worker already decided.
+        """
         payloads = [index.data(ROLE_PAYLOAD) for index in (indexes or ())
                    if index.column() == 0]
         known_missing = set(self._missing() or ())

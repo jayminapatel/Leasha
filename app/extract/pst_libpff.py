@@ -49,6 +49,9 @@ __all__ = ["available", "read_archive", "export_to_eml", "LibpffUnavailable"]
 _log = logger.bind(component="extract.pst_libpff")
 
 _HEADER_ADDRESSES = re.compile(r"^(To|Cc):\s*(.+)$", re.IGNORECASE | re.MULTILINE)
+# 2026-10-08 review: `_HEADER_FIELD` is referenced nowhere in this module -
+# `_header` below compiles its own pattern per field. Left in place (not a
+# comment-only change to remove); a candidate for deletion.
 _HEADER_FIELD = re.compile(r"^{}:\s*(.+)$", re.IGNORECASE | re.MULTILINE)
 
 
@@ -109,12 +112,31 @@ def _sent_at(message: Any) -> Optional[int]:
     return None
 
 
+def _rtf_to_text(raw: str) -> str:
+    """An RTF body as text. `striprtf` is the pinned reader `app/extract/rtf.py`
+    already uses; a parse failure falls back to the HTML stripper, which at
+    least drops the braces, rather than losing the message."""
+    try:
+        from striprtf.striprtf import rtf_to_text
+
+        return rtf_to_text(raw, errors="ignore")
+    except Exception:                # noqa: BLE001 - striprtf raises assorted parse errors
+        return html_to_text(raw)
+
+
 def _text(message: Any) -> str:
     """Plain body if there is one, else the HTML stripped, else RTF's text."""
+    # 2026-10-08 review note: an RTF-only body is passed through the HTML
+    # stripper, which leaves RTF control words (`{\rtf1\ansi...`) in the text.
+    # `striprtf` is already a pinned dependency (`app/extract/rtf.py`); the
+    # third transform is the place to use it. Only reached when a message has
+    # neither a plain nor an HTML body.
+    #
+    # 2026-10-08, later the same day: done - `_rtf_to_text` above.
     for accessor, transform in (
         ("get_plain_text_body", lambda v: v),
         ("get_html_body", html_to_text),
-        ("get_rtf_body", html_to_text),
+        ("get_rtf_body", _rtf_to_text),
     ):
         try:
             raw = getattr(message, accessor)()
@@ -868,6 +890,9 @@ def _attachment_name(attachment: Any, index: int) -> str:
 
 
 def _hash_bytes(data: bytes) -> str:
+    # blake2b at 16 bytes: faster than sha256 on these sizes and the same shape
+    # `email_pst._hash_bytes` writes, so a dedup hash means the same thing
+    # whichever backend read the attachment.
     return hashlib.blake2b(data, digest_size=16).hexdigest()
 
 
@@ -892,6 +917,8 @@ class _Scratch:
         self._dir: Optional[Path] = None
 
     def write(self, name: str, data: bytes) -> Path:
+        """Write one attachment's bytes under a file-system-safe name; the folder
+        is created on first use. The caller unlinks the file after reading."""
         if self._dir is None:
             self._dir = Path(tempfile.mkdtemp(prefix=SCRATCH_PREFIX, dir=_scratch_parent()))
         target = self._dir / _attachment_filename(name)
@@ -899,6 +926,7 @@ class _Scratch:
         return target
 
     def close(self) -> None:
+        """Remove the folder and everything left in it. Safe to call twice."""
         if self._dir is not None:
             shutil.rmtree(self._dir, ignore_errors=True)
             self._dir = None

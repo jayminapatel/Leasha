@@ -75,11 +75,13 @@ class Plan:
     tried: list[str] = field(default_factory=list)
 
     def query(self, *, filters: bool = True, terms: Optional[Sequence[str]] = None) -> str:
+        """The search line: the filters (unless `filters=False`), then the terms."""
         parts = list(self.filters) if filters else []
         parts += list(self.terms if terms is None else terms)
         return " ".join(parts).strip()
 
     def stems(self) -> list[str]:
+        """The terms as stemmed content tokens, deduplicated - what `assess` compares on."""
         return list(dict.fromkeys(content_tokens(" ".join(self.terms))))
 
     def summary(self) -> str:

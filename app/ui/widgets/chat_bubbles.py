@@ -55,6 +55,7 @@ COPIED_MS = 1500
 
 
 def _action(text: str, tip: str, name: str) -> QPushButton:
+    """A flat message action (Copy, Regenerate ...): exempt from the button system."""
     button = QPushButton(text)
     button.setObjectName("chatAction")
     button.setFlat(True)
@@ -86,6 +87,9 @@ class _PlainText(QTextBrowser):
         self.document().documentLayout().documentSizeChanged.connect(lambda _s: self._fit())
 
     def _ideal(self) -> int:
+        """The width the text would take on one line, measured with the document
+        briefly unwrapped and then put back - no I/O, one layout pass.
+        """
         doc = self.document()
         width = doc.textWidth()
         doc.setTextWidth(-1)
@@ -243,6 +247,7 @@ class AnswerBubble(QFrame):
         self.narration.setVisible(bool(text))
 
     def append(self, text: str) -> None:
+        """A streamed token. The redraw is coalesced by `request_render` (`RENDER_MS`)."""
         self.raw += text
         self.request_render()
 
@@ -257,6 +262,9 @@ class AnswerBubble(QFrame):
         self.web_decided.emit(bool(allowed))
 
     def request_render(self) -> None:
+        """Redraw shortly, once, however many tokens arrive before the timer
+        fires - a document laid out per token stutters.
+        """
         if not self._timer.isActive():
             self._timer.start()
 
@@ -264,6 +272,9 @@ class AnswerBubble(QFrame):
         self._linkable = set(engine_numbers)
 
     def render(self, *, final: bool = False) -> None:
+        """Draw `raw` as markdown. UI thread. `final` lets the unfinished tail be
+        shown as it is rather than closed for display.
+        """
         self._timer.stop()
         self.body.set_text(self.raw, show_number=self.numbering.display,
                            linkable=frozenset(self._linkable), final=final)
@@ -311,6 +322,9 @@ class AnswerBubble(QFrame):
         self._refresh_actions()
 
     def _refresh_actions(self) -> None:
+        """Which action buttons show: Copy with text, Retry on a stopped or failed
+        last answer, Regenerate on a whole last answer.
+        """
         has_text = bool(self.raw.strip())
         self.copy_button.setVisible(has_text)
         self.retry_button.setVisible(self.done and self._is_last and self._retryable)
@@ -319,6 +333,9 @@ class AnswerBubble(QFrame):
         self.actions.setVisible(self.done and (has_text or self._retryable))
 
     def show_results(self, results: list) -> None:
+        """A FIND answer's rows as a real `ResultsView` inline, sized to a few rows
+        so it scrolls inside itself rather than stretching the conversation.
+        """
         if self.results is None:
             self.results = ResultsView()
             self.results.opened.connect(self.result_opened.emit)
@@ -367,6 +384,9 @@ class BubbleList(QScrollArea):
         self._stick = self._at_bottom()
 
     def _range_changed(self, _low: int, high: int) -> None:
+        """New content grew the scroll range: follow it only while the reader was
+        already at the bottom (`_stick`).
+        """
         if self._stick:
             self.verticalScrollBar().setValue(high)
 
@@ -411,6 +431,7 @@ class BubbleList(QScrollArea):
         bar.setValue(bar.maximum())
 
     def clear(self) -> None:
+        """Remove every bubble (deferred deletion) and show the empty-state text again."""
         for index in reversed(range(self._column.count() - 1)):
             item = self._column.itemAt(index)
             widget = item.widget() if item is not None else None

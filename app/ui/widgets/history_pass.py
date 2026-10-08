@@ -58,6 +58,7 @@ def run_history_pass(
     base = plan.rank_base
 
     def work() -> Any:
+        """Worker body: the git half of the search, imported only here (see below)."""
         # Imported inside the worker. `gitsearch` is the only thing in this
         # application that forks a process, and the modules on the typing path
         # are forbidden from importing it - see `test_nothing_that_runs_on_a_

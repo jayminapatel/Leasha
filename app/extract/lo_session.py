@@ -143,15 +143,15 @@ class ConversionFailed(Exception):
 
 
 class ConversionTimeout(ConversionFailed):
-    pass
+    """The file did not convert within its time limit; the session was killed."""
 
 
 class ConversionTooBig(ConversionFailed):
-    pass
+    """LibreOffice passed `MEMORY_LIMIT_MB` on this file; the session was killed."""
 
 
 class ConversionStopped(ConversionFailed):
-    pass
+    """Stop was pressed, or the application is closing. Not the file's fault."""
 
 
 class SessionCrashed(ConversionFailed):
@@ -288,6 +288,8 @@ def kill_tree(proc: "subprocess.Popen[Any]", extra_pids: Sequence[int] = ()) -> 
     except OSError:
         pass
     try:
+        # Reap the launcher so it does not linger as a zombie; five seconds is
+        # generous for a killed process and bounded so a caller never hangs here.
         proc.wait(timeout=5)
     except Exception:                                     # noqa: BLE001
         pass
@@ -388,6 +390,9 @@ class _ProfileLease:
         root.mkdir(parents=True, exist_ok=True)
         for slot in range(slots):
             lock = root / f"slot-{slot}.lock"
+            # The handle is kept open for the session's whole life: on Windows
+            # the byte lock lives on the handle, so closing it would release the
+            # slot while LibreOffice is still using the profile.
             try:
                 handle = open(lock, "a+b")
                 _lock_file(handle)
@@ -406,6 +411,7 @@ class _ProfileLease:
 
     @property
     def url(self) -> str:
+        """The profile as the `file:///` URL `-env:UserInstallation` wants."""
         return "file:///" + str(self.path.resolve()).replace("\\", "/")
 
     def reset(self) -> None:
@@ -414,6 +420,7 @@ class _ProfileLease:
         self.path.mkdir(parents=True, exist_ok=True)
 
     def release(self) -> None:
+        """Give the slot back; a throwaway directory is deleted with it."""
         if self._handle is not None:
             try:
                 _unlock_file(self._handle)
@@ -426,6 +433,9 @@ class _ProfileLease:
 
 
 def _lock_file(handle: Any) -> None:
+    # One byte, non-blocking: `msvcrt.locking` locks a byte range from the
+    # current position, and the file is only ever empty, so one byte at offset 0
+    # is the whole lock. LK_NBLCK fails at once instead of waiting ten seconds.
     if os.name == "nt":
         import msvcrt
 
@@ -473,6 +483,11 @@ def default_command(profile_url: str) -> list[str]:
         # can drive, so the cold command handles it.
         raise SessionUnavailable("soffice and LibreOffice's Python are not in the same folder")
     server = Path(__file__).with_name("lo_server.py")
+    # 2026-10-08 review note: `-P` exists from Python 3.11. LibreOffice 25/26
+    # bundle 3.13 (checked on this laptop), but LibreOffice 7.x shipped 3.8/3.9,
+    # where an unknown option makes the helper exit at once and every file goes
+    # cold for `_RETRY_AFTER_S`. `-I` (isolated mode, Python 3.4+) also keeps
+    # the script's folder off sys.path. UNCONFIRMED on a 7.x install.
     # `-P`: do not put this folder first on sys.path. It holds modules named
     # `doc`, `ppt` and `base`, which must never shadow anything LibreOffice's
     # Python imports.
@@ -542,6 +557,9 @@ class LoSession:
         return self._proc.pid if self._proc is not None else 0
 
     def start(self, should_stop: Optional[Callable[[], bool]] = None) -> None:
+        """Bring LibreOffice up, backing off after a crash and resetting a profile
+        it cannot start on. Raises `SessionUnavailable` (caller goes cold) or
+        `ConversionStopped`. A no-op while the session is alive."""
         with self._lock:
             if self.alive:
                 return
@@ -627,6 +645,8 @@ class LoSession:
         except Exception:                                 # noqa: BLE001 - pipe closed
             pass
         finally:
+            # `None` is the end-of-stream sentinel the waits below read as "the
+            # helper closed its stdout" - a crash is noticed within one POLL_S.
             out.put(None)
 
     def _teardown(self, kill: bool) -> None:
@@ -637,6 +657,8 @@ class LoSession:
                     assert proc.stdin is not None
                     proc.stdin.write('{"quit": true}\n')
                     proc.stdin.flush()
+                    # A polite quit lets LibreOffice write its profile tidily, so
+                    # the next start is not a recovery; ten seconds, then kill.
                     proc.wait(timeout=10)
                 except Exception:                         # noqa: BLE001 - fall through to kill
                     pass
@@ -863,6 +885,13 @@ class SessionPool:
         timeout_s: float,
         should_stop: _StopCheck = None,
     ) -> float:
+        """Convert one file on a borrowed session; returns LibreOffice's seconds.
+
+        A session that dies under the file is replaced and the file tried once
+        more; a second death is the file's and is `ConversionFailed`. Four
+        crashing files in a row open the circuit (`CIRCUIT_NOTICE`) for
+        `COOLDOWN_S`. Raises `SessionUnavailable` when no session can start.
+        """
         def stopping() -> bool:
             return bool((should_stop and should_stop()) or _stopped())
 
@@ -923,6 +952,7 @@ class SessionPool:
             return time.monotonic() < self._open_until
 
     def close(self) -> None:
+        """Kill every session now, waiting for none. Idempotent."""
         with self._cond:
             self._closed = True
             sessions = list(self._all)
@@ -947,6 +977,9 @@ class SessionPool:
             self._reaper.start()
 
     def _reap(self) -> None:
+        # A third of the idle limit, so a session is closed within about 1.3x
+        # the limit at worst; clamped so a test's tiny limit polls sanely and a
+        # long one never waits more than five seconds to notice `_closed`.
         interval = max(0.05, min(5.0, self._idle_close_s / 3))
         while True:
             time.sleep(interval)

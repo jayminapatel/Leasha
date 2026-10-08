@@ -659,6 +659,7 @@ class Eligibility:
 
     @property
     def filtered(self) -> bool:
+        """Whether the query carried any filter at all - the scope chip counts as one."""
         return self._filtered
 
     @property

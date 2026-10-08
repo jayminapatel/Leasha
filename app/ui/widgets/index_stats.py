@@ -72,6 +72,7 @@ class IndexStats(QGroupBox):
         self._hold_height()
 
     def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """A new width re-wraps the values, so the panel's floor is measured again."""
         super().resizeEvent(event)
         self._hold_height()
 

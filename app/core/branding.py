@@ -20,7 +20,19 @@ anybody reads.
 
 from __future__ import annotations
 
-__all__ = ["NAME", "TAGLINE", "SHORT_DESCRIPTION", "window_title", "banner"]
+__all__ = ["NAME", "TAGLINE", "SHORT_DESCRIPTION", "ICON_FILE", "APP_USER_MODEL_ID",
+           "window_title", "banner"]
+
+#: The application icon's file name under `assets/`. Here rather than in
+#: `app.ui.tray`, which re-exports it, because the Start-menu shortcut
+#: (`app.core.osbridge.startmenu`) needs it and nothing under `app/core` may
+#: import from `app/ui` (moved in the 2026-10-08 review).
+ICON_FILE = "leasha.ico"
+
+#: Arbitrary but stable - Windows only uses this to tell one app's windows
+#: apart from another's, never displays it. The shortcut and the running
+#: window must agree on it, which is why both read it from here.
+APP_USER_MODEL_ID = "Leasha.Leasha.DesktopApp.1"
 
 #: What the application is called.
 NAME = "Leasha"

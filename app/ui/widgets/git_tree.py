@@ -91,6 +91,8 @@ class GitTree(QTreeWidget):
         #: one without reading it again (2026-10-05, see `show_repos`).
         self._read: dict[str, dict] = {}
         self.itemExpanded.connect(self._expanded)
+        # `currentItemChanged`, not `itemClicked`: the keyboard moves the current
+        # row too, and a branch chosen by arrow key must scope the list as well.
         self.currentItemChanged.connect(
             lambda item, _previous: self._chosen(item))
 

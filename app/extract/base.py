@@ -336,6 +336,9 @@ class DocumentBuilder:
         self.warnings.append(error)
 
     def build(self) -> Document:
+        """Freeze what was added into an immutable-shaped `Document`. The builder
+        may be built more than once; each call copies, so later `add`s never
+        reach a document already handed out."""
         return Document(
             path=self.path,
             text="".join(self._parts),
@@ -595,6 +598,8 @@ def extractor_by_name(name: str) -> Optional[Extractor]:
 
 
 def supported_extensions() -> frozenset[str]:
+    """Every extension some extractor claims, lower-cased with the dot. Loads the
+    registry on first call (see `_LazyRegistry`); converter-only types are not here."""
     return frozenset(REGISTRY)
 
 
@@ -780,6 +785,10 @@ def _try_converter(path: Path) -> Optional[Iterator[Document]]:
     be able to reach that by importing the extraction package to ask whether
     `.pdf` is supported.
     """
+    # 2026-10-08 note: every shipped converter has been enabled by default since
+    # 2026-09-19 (config/extractors.toml explains the reversal); the paragraph
+    # above describes the earlier default. The `rule.enabled` test below is
+    # unchanged and still the point - a route switched off stays off.
     try:
         from app.core.formats import load_rules
         from app.extract.converter import extract_via_converter

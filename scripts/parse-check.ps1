@@ -77,6 +77,8 @@ foreach ($file in $Path) {
     # --- Syntax check -------------------------------------------------------
     $tokens = $null
     $errors = $null
+        # The engine's own parser, so what passes here is exactly what will run; a
+        # regular-expression check would miss the smart-quote delimiter fault above.
     [void][System.Management.Automation.Language.Parser]::ParseFile($file, [ref]$tokens, [ref]$errors)
 
     if ($errors -and $errors.Count -gt 0) {

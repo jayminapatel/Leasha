@@ -179,6 +179,7 @@ class CommandPopup(QCompleter):
     # -- command mode --------------------------------------------------------
 
     def show_all(self) -> None:
+        """Command mode with nothing typed after `/`: every switch this box honours."""
         self.set_prefix("")
 
     def set_prefix(self, prefix: str) -> None:
@@ -284,6 +285,9 @@ class CommandPopup(QCompleter):
         self._fill([(VALUE_ICON, row) for row in self._rows])
 
     def _fill(self, rows: Sequence[tuple[str, str]]) -> None:
+        """Replace the model's rows with `(glyph, text)` pairs; each glyph is
+        painted in the popup's own ink.
+        """
         ink = text_colour(self.popup())
         self._model.clear()
         for glyph, text in rows:
@@ -366,6 +370,9 @@ class _TabAccepts(QObject):
         self._completer = completer
 
     def eventFilter(self, watched: Any, event: Any) -> bool:   # noqa: N802 - Qt's naming
+        """Keys on the popup, UI thread. Tab accepts the highlighted (or first)
+        row; Backspace steps off a kind's second page; everything else passes.
+        """
         if event.type() != QEvent.Type.KeyPress:
             return False
         key = event.key()
@@ -429,6 +436,9 @@ class _OffersOnFocus(QObject):
         self._show = show
 
     def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's naming
+        """A deliberate focus on an empty box shows the offers. Focus the window
+        hands out on opening (`_PASSIVE_FOCUS_REASONS`) does not count.
+        """
         if (event.type() == QEvent.Type.FocusIn
                 and event.reason() not in _PASSIVE_FOCUS_REASONS
                 and not self._line_edit.text().strip()):
@@ -530,10 +540,14 @@ def attach_to(line_edit: QLineEdit,
 
     def _fetched(key: tuple[str, str], name: str, partial: str,
                  found: Any) -> None:
+        """A worker's value list landed: cache it under its scope and show it if still wanted."""
         cache[key] = (time.monotonic(), list(found or []))
         _deliver(name, partial, cache[key][1])
 
     def _deliver(name: str, partial: str, values: Sequence[str]) -> None:
+        """Show fetched values, filtered by what has been typed since - but only
+        while the box is still in value mode for the same command.
+        """
         # **Only if the box is still asking the same question.** A slow answer
         # arriving after somebody has typed on is the stale-result problem every
         # other worker in this application guards against, and here it would
@@ -568,6 +582,9 @@ def attach_to(line_edit: QLineEdit,
             popup.popup().hide()
 
     def on_text(text: str) -> None:
+        """Every edit: command mode after `/`, value mode after `name:`, else hidden.
+        UI thread; the store read for values goes through `offer_values`'s worker.
+        """
         _head, mode, partial, context = slash_context(text, resolve)
         if mode == "command":
             popup.set_prefix(partial)
@@ -639,7 +656,9 @@ def attach_to(line_edit: QLineEdit,
             popup.popup().hide()
             return
 
-        name = row_text.split()[0].lstrip("/")
+        # `(... or [""])`: an empty row text raised IndexError inside a Qt slot,
+        # which PySide6 treats as fatal. Found in review 2026-10-08.
+        name = (row_text.split() or [""])[0].lstrip("/")
         command = next((c for c in popup._catalogue if c.name == name), None)
         if command is None:
             return

@@ -99,12 +99,15 @@ class StageClock:
             self.add_worker(name, time.perf_counter() - started)
 
     def add(self, name: str, seconds: float) -> None:
+        """Add to a critical-path stage. Zero and negative are dropped: a clock
+        that read the same tick twice must not create a stage out of nothing."""
         if seconds <= 0:
             return
         with self._lock:
             self._seconds[name] = self._seconds.get(name, 0.0) + seconds
 
     def add_worker(self, name: str, seconds: float) -> None:
+        """Add to a parallel-thread tally (`worker`), never to the critical path."""
         if seconds <= 0:
             return
         with self._lock:

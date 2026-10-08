@@ -48,6 +48,7 @@ def geometry_text(rect: Any) -> str:
     """
     try:
         return f"{int(rect.x())},{int(rect.y())},{int(rect.width())},{int(rect.height())}"
+    # Anything that is not a QRect: no geometry is better than a wrong one.
     except Exception:                            # noqa: BLE001 - a preference
         return ""
 
@@ -160,6 +161,7 @@ class LogWindow(QWidget):
         self._remember_geometry()
 
     def closeEvent(self, event: Any) -> None:               # noqa: N802 - Qt's name
+        """Remember the geometry, tell the opener, and let the window go."""
         self._remember_geometry()
         self.closed.emit()
         super().closeEvent(event)

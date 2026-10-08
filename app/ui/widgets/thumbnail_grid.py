@@ -227,6 +227,7 @@ class ThumbnailGrid(QWidget):
         self._load_thumbnails(generation)
 
     def clear(self) -> None:
+        """Forget the rows and take back every decode not yet started."""
         self._cancel_queued()
         self._generation += 1
         self._rows = []
@@ -269,6 +270,7 @@ class ThumbnailGrid(QWidget):
             run(self._pool, worker)
 
     def _forget(self, worker: Any) -> None:
+        """A worker finished: it no longer needs taking back."""
         if worker in self._queued:
             self._queued.remove(worker)
 
@@ -286,11 +288,13 @@ class ThumbnailGrid(QWidget):
         self._queued.clear()
 
     def showEvent(self, event: Any) -> None:     # noqa: N802 - Qt's naming
+        """On screen: start the decodes that waited while the grid was hidden."""
         super().showEvent(event)
         if self._waiting and self._rows:
             self._load_thumbnails(self._generation)
 
     def hideEvent(self, event: Any) -> None:     # noqa: N802 - Qt's naming
+        """Off screen: take back what has not started; it waits for the next show."""
         super().hideEvent(event)
         if self._queued:
             # Off screen: what has not started waits for the next show.
@@ -319,6 +323,7 @@ class ThumbnailGrid(QWidget):
     # -- interaction --------------------------------------------------------
 
     def _row_at(self, item: Optional[QListWidgetItem]) -> Optional[Any]:
+        """The result row behind a grid item, or None."""
         return item.data(ROLE_ROW) if item is not None else None
 
     def _on_activated(self, item: QListWidgetItem) -> None:
@@ -327,6 +332,7 @@ class ThumbnailGrid(QWidget):
             self.opened.emit(row, self.image_rows())
 
     def _on_context_menu(self, point: Any) -> None:
+        """Right-click: the shared file menu, with View (the lightbox) added."""
         item = self._list.itemAt(viewport_point(self._list, point))
         row = self._row_at(item)
         if row is None:

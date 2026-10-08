@@ -162,6 +162,7 @@ class TuningBox(QGroupBox):
         self._apply()
 
     def current_mode(self) -> str:
+        """`defaults`, `auto` or `manual`, as the combo says."""
         return str(self.mode.currentData() or "defaults")
 
     def return_to_automatic(self) -> None:
@@ -193,6 +194,7 @@ class TuningBox(QGroupBox):
         self._apply()
 
     def set_last_run(self, run: Optional[dict]) -> None:
+        """The footer's evidence line from the last run's figures."""
         self.footer.setText(footer_text(run))
 
     def set_tuned_status(self, text: str) -> None:
@@ -216,11 +218,13 @@ class TuningBox(QGroupBox):
     # -- internals ----------------------------------------------------------
 
     def _apply(self) -> None:
+        """Re-bound and re-label the compute controls for the mode and profile in hand."""
         mode = self.current_mode()
         self.mode_help.setText(MODE_HELP.get(mode, ""))
         self.compute.apply_profile(self._profile, mode, self._measured)
 
     def _mode_changed(self, _index: int) -> None:
+        """The mode combo changed: apply it, and persist it as a setting in its own right."""
         self._apply()
         # **The mode is itself a setting**, so switching persists - otherwise
         # Manual would silently revert on the next start, which is exactly the

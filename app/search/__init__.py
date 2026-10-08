@@ -1,1 +1,4 @@
-"""Layer 4 — search: FTS5 BM25 + LanceDB ANN, RRF fusion, optional rerank."""
+"""Layer 4 — search: FTS5 BM25 + LanceDB ANN, RRF fusion, optional rerank.
+
+Layer: L4
+"""

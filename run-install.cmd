@@ -23,6 +23,7 @@ echo.
 echo === Step 1 of 2: parse-checking the scripts
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\parse-check.ps1"
+rem  "if errorlevel 1" is true for exit code 1 OR HIGHER - any failure, not only 1.
 if errorlevel 1 goto :parsefail
 
 echo.

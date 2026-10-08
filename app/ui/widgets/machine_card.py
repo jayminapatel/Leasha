@@ -123,6 +123,7 @@ class MachineCard(QGroupBox):
         run(self._pool, worker)
 
     def _detected(self, profile: Any) -> None:
+        """UI thread: the worker's profile. Painted, then handed up for re-bounding."""
         self.show_profile(profile)
         self.profile_detected.emit(profile)
 

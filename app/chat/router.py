@@ -92,6 +92,7 @@ class Route:
         return self.resolved_kind or self.kind
 
     def explain(self) -> str:
+        """One sentence for the debug pane: the class, who chose it, and the rule."""
         via = {"rules": "by rule", "model": "by the router model",
                "default": "by default"}.get(self.by, self.by)
         text = f"Routed as {self.kind} {via}: {self.reason}."
@@ -100,6 +101,7 @@ class Route:
         return text
 
     def as_dict(self) -> dict[str, str]:
+        """Plain values for `ChatTurn.debug["route"]`."""
         return {"kind": self.kind, "by": self.by, "reason": self.reason,
                 "question": self.question, "resolved_kind": self.resolved_kind}
 

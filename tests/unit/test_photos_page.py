@@ -364,3 +364,60 @@ def test_a_photo_with_no_metadata_date_takes_its_names_date_before_its_folders(t
     shown = _row(1, when=dt.datetime(2022, 8, 11, 16, 22, 38), hint=True)
     assert pp.date_text(shown) == "about 11 Aug 2022, 16:22"
     assert pp.date_text(_row(2, when=dt.datetime(2013, 6, 7), hint=True)) == "about 7 Jun 2013"
+
+
+# --- Escape during a write stops it; it does not hide it (review 2026-10-08) -----------
+
+def test_escape_while_writing_stops_the_write_instead_of_hiding_the_dialog(qapp, store, tmp_path):
+    """`QDialog`'s own Escape (and the title-bar X) called `reject()`, which hid
+    the dialog while `run_write` went on writing XMP into photos with no stop
+    flag and nothing on screen - in the one path allowed to touch a person's
+    photos. Found in review 2026-10-08."""
+    from PySide6.QtGui import QCloseEvent
+
+    from app.ui.widgets.photo_write_dialog import WriteNamesDialog
+
+    dialog = WriteNamesDialog(store, tmp_path, selected=[1])
+    dialog.show()
+    dialog._timer.start()                   # what `start()` does once the worker is running
+
+    dialog.reject()                         # Escape lands here
+    assert dialog._stop.is_set(), "Escape must ask the worker to stop"
+    assert dialog.isVisible(), "and must not hide the progress it is reporting"
+
+    dialog._stop.clear()
+    close = QCloseEvent()
+    dialog.closeEvent(close)                # the title-bar X
+    assert dialog._stop.is_set() and not close.isAccepted()
+
+    dialog._timer.stop()                    # the run has ended
+    dialog.reject()
+    assert not dialog.isVisible(), "once nothing is writing, Escape closes as before"
+    dialog.deleteLater()
+
+
+def test_an_emptied_backup_field_falls_back_to_the_proposed_folder_not_the_cwd(
+        qapp, store, tmp_path, monkeypatch):
+    """`Path(self.backup.text().strip() or ".")` sent the copies to the process's
+    working directory - wherever Leasha was started from. Found in review
+    2026-10-08."""
+    from app.ui.widgets import photo_write_dialog as pwd
+
+    # `start()` imports `run` from `app.ui.workers` at call time, so the pool
+    # hand-off is intercepted there; the worker is inspected, never run.
+    queued = []
+    monkeypatch.setattr("app.ui.workers.run", lambda pool, worker: queued.append(worker))
+
+    dialog = pwd.WriteNamesDialog(store, tmp_path, selected=[1])
+    proposed = Path(dialog.backup.text())
+    dialog.where_inside.setChecked(True)
+    dialog.backup.setText("   ")
+    dialog.start()
+
+    assert len(queued) == 1
+    backup_root = queued[0]._kwargs["backup_root"]
+    assert backup_root == proposed
+    assert backup_root != Path(".")
+    assert str(backup_root).startswith(str(tmp_path))
+    dialog._timer.stop()
+    dialog.deleteLater()

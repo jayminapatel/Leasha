@@ -1,5 +1,7 @@
 r"""`leasha suggest <source> [prefix]` — values for a shell completer.
 
+Layer: L0 (stdlib only; deliberately outside the `app` package - see below)
+
 **Standalone on purpose, and this is the whole design.** A Tab press expects an
 answer in tens of milliseconds. Measured on this machine:
 

@@ -141,3 +141,64 @@ def test_the_installer_shows_the_leasha_pictures_at_every_scaling():
             path = SCRIPT.parent / name.replace("\\", "/")
             assert path.is_file(), path
             assert Image.open(path).size == _scaled(base, percent), (path, percent)
+
+
+def test_the_build_script_never_feeds_python_stderr_to_null():
+    """2026-10-08, found in review: `& $Python -c "import PyInstaller" 2>$null`
+    under `$ErrorActionPreference = "Stop"` is a terminating NativeCommandError
+    in Windows PowerShell 5.1 the moment Python writes its traceback - so on a
+    machine without PyInstaller the script died on the probe and the branch
+    that installs it never ran. The probe must decide by exit code alone, with
+    nothing written to stderr for 5.1 to promote."""
+    text = (SCRIPT.parent / "build.ps1").read_text(encoding="utf-8-sig")
+    probes = [line for line in text.splitlines()
+              if line.lstrip().startswith("& $Python") and "2>$null" in line]
+    assert probes == [], probes
+    assert "find_spec('PyInstaller')" in text
+
+
+# --- install.ps1, the source installer (review 2026-10-08) -------------------------------
+
+INSTALL_PS1 = SCRIPT.parents[1] / "install.ps1"
+
+
+def _env_keys_written_by_install_ps1() -> list[str]:
+    """The KEY= lines inside the `$envText = @" ... "@` here-string."""
+    text = INSTALL_PS1.read_text(encoding="utf-8-sig")
+    block = text.split('$envText = @"', 1)[1].split('"@', 1)[0]
+    return sorted(line.split("=", 1)[0] for line in block.splitlines()
+                  if line and not line.startswith("#") and "=" in line
+                  and line.split("=", 1)[0].isupper())
+
+
+def test_install_ps1_writes_only_where_things_live():
+    """Found in review 2026-10-08: nine keys, not three - RERANK_ENABLED=true
+    overrode the registry's default and EMBED_MODEL pinned a source install to
+    the day's model. The Inno installer already wrote three; this is the same
+    test for the script."""
+    assert _env_keys_written_by_install_ps1() == ["DATA_PATH", "LOG_PATH", "PROJECT_PATH"]
+
+
+def test_install_ps1_fetches_models_through_the_catalogue():
+    """It downloaded BAAI/bge-reranker-base by name, 1.1 GB the app had not
+    used since the default moved, and doctor then warned the real one was
+    missing. The catalogue is the one list of models; the script asks it."""
+    text = INSTALL_PS1.read_text(encoding="utf-8-sig")
+    assert "TextCrossEncoder('BAAI/bge-reranker-base'" not in text
+    assert "TextEmbedding('BAAI/bge-small-en-v1.5'" not in text
+    assert "main(['models', 'download', 'search'])" in text
+    assert "main(['models', 'download', 'rerank'])" in text
+
+
+# --- the build ships the same thing twice (review 2026-10-08) ---------------------------
+
+def test_the_spec_refuses_a_build_missing_an_optional_package_unless_told_not_to():
+    """Optional packages were collected only if importable where the build ran,
+    so two builds of one commit could ship different Leashas while the
+    installer offered every user the People-in-photos model regardless."""
+    spec = (SCRIPT.parent / "leasha.spec").read_text(encoding="utf-8")
+    assert 'OPTIONAL_PACKAGES = ("av", "pypff", "reverse_geocoder", "insightface")' in spec
+    assert "LEASHA_BUILD_ALLOW_MISSING" in spec and "raise SystemExit(" in spec
+    build = (SCRIPT.parent / "build.ps1").read_text(encoding="utf-8-sig")
+    assert "[switch]$AllowMissingOptional" in build
+    assert '$env:LEASHA_BUILD_ALLOW_MISSING = "1"' in build

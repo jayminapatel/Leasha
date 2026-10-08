@@ -5,6 +5,8 @@ page" - the Indexing and Settings category lists had them (§0.3, icons
 wherever possible) and this list, built the same way, never did. The rows are
 `REPORTS` in `reports_view.py`; this is only how they are drawn. Its own
 widget because `reports_view.py` is at the line guard.
+
+Layer: L5
 """
 
 from __future__ import annotations

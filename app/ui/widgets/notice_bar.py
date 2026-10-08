@@ -107,5 +107,6 @@ class NoticeBar(QWidget):
         self.setVisible(bool(text))
 
     def _dismiss(self) -> None:
+        """Hide, and say so - a view may stop re-showing the same notice."""
         self.hide()
         self.dismissed.emit()

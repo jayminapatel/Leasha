@@ -84,6 +84,9 @@ _OURS = ("{%s}subject" % NS["dc"], "{%s}description" % NS["dc"],
 
 @dataclass(frozen=True)
 class PhotoMetadata:
+    """What goes into one photo: the people named in it and its description,
+    as `SqliteStore.photo_metadata_rows` reads them."""
+
     file_id: int
     path: str
     people: tuple[str, ...]
@@ -92,6 +95,11 @@ class PhotoMetadata:
 
 @dataclass
 class WriteResult:
+    """What one `write_photo_metadata` pass did. `written` is photos changed in
+    place, `sidecars` is `.xmp` files written beside them, `unchanged` is
+    photos whose metadata already said this; `problems` holds at most fifty
+    "name: reason" lines for the dialog."""
+
     written: int = 0
     sidecars: int = 0
     unchanged: int = 0
@@ -107,6 +115,8 @@ class WriteResult:
 # --- the XMP packet ------------------------------------------------------------------
 
 def _bag(parent: ET.Element, tag: str, values: Sequence[str], kind: str = "Bag") -> None:
+    """`<tag><rdf:Bag><rdf:li>value</rdf:li>...</rdf:Bag></tag>` - how XMP
+    writes a list property (keywords, people)."""
     holder = ET.SubElement(parent, tag)
     seq = ET.SubElement(holder, _RDF + kind)
     for value in values:
@@ -114,6 +124,9 @@ def _bag(parent: ET.Element, tag: str, values: Sequence[str], kind: str = "Bag")
 
 
 def _alt(parent: ET.Element, tag: str, text: str) -> None:
+    """`<tag><rdf:Alt><rdf:li xml:lang="x-default">text</rdf:li></rdf:Alt></tag>`
+    - how XMP writes a language-alternative text property (the description).
+    `x-default` is the entry every reader falls back to."""
     holder = ET.SubElement(parent, tag)
     alt = ET.SubElement(holder, _RDF + "Alt")
     item = ET.SubElement(alt, _RDF + "li")
@@ -122,6 +135,9 @@ def _alt(parent: ET.Element, tag: str, text: str) -> None:
 
 
 def _fill(description: ET.Element, meta: PhotoMetadata) -> None:
+    """Replace Leasha's three properties on an `rdf:Description`, as elements
+    or as attributes (both spellings are legal XMP), and write the new values.
+    Nothing else on the element is touched."""
     for child in list(description):
         if child.tag in _OURS:
             description.remove(child)
@@ -178,6 +194,10 @@ def merge_xmp(existing: bytes, meta: PhotoMetadata) -> bytes:
 
 
 def _packet(root: ET.Element) -> bytes:
+    """Wrap the XMP tree in the `xpacket` processing instructions readers look
+    for. The `begin` value is the Unicode byte-order mark, which the XMP
+    specification requires there (it is the one non-ASCII character in this
+    module); `end="w"` says the packet may be rewritten in place."""
     body = ET.tostring(root, encoding="unicode")
     return ('<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>\n' + body
             + '\n<?xpacket end="w"?>').encode("utf-8")
@@ -208,6 +228,8 @@ def _jpeg_segments(data: bytes) -> Optional[list[tuple[int, int, int]]]:
 
 
 def _jpeg_xmp(data: bytes, segments: list) -> Optional[tuple[int, int, bytes]]:
+    """`(start, end, packet)` of the APP1 segment carrying XMP, or None. Told
+    from the EXIF APP1 by the namespace string that opens it."""
     for marker, start, end in segments:
         if marker == 0xE1 and data[start + 4:start + 4 + len(_XMP_HEADER)] == _XMP_HEADER:
             return start, end, data[start + 4 + len(_XMP_HEADER):end]
@@ -215,6 +237,11 @@ def _jpeg_xmp(data: bytes, segments: list) -> Optional[tuple[int, int, bytes]]:
 
 
 def _jpeg_with(data: bytes, meta: PhotoMetadata) -> bytes:
+    """The JPEG bytes with Leasha's XMP in place: the existing packet replaced,
+    or a new APP1 inserted after the JFIF/EXIF segments. Every other byte is
+    copied as it was. Raises `ValueError` for a file this cannot walk safely
+    or a packet too big for one segment - the caller records the photo as
+    failed and leaves it untouched."""
     segments = _jpeg_segments(data)
     if segments is None:
         raise ValueError("not a JPEG this can change safely")
@@ -240,6 +267,8 @@ def _jpeg_with(data: bytes, meta: PhotoMetadata) -> bytes:
 # --- PNG -------------------------------------------------------------------------------
 
 def _png_chunks(data: bytes) -> list[tuple[bytes, int, int]]:
+    """`(type, start, end)` for each chunk up to and including `IEND`; `end`
+    covers the length, type, data and CRC. Raises `ValueError` for a non-PNG."""
     if not data.startswith(_PNG_SIGNATURE):
         raise ValueError("not a PNG")
     out, pos = [], len(_PNG_SIGNATURE)
@@ -255,6 +284,10 @@ def _png_chunks(data: bytes) -> list[tuple[bytes, int, int]]:
 
 
 def _png_with(data: bytes, meta: PhotoMetadata) -> bytes:
+    """The PNG bytes with Leasha's XMP in the `iTXt` chunk Adobe readers use:
+    an existing one replaced in place (its packet merged, decompressed first
+    if it was compressed), or a new uncompressed one inserted after `IHDR`.
+    Pixel data is never touched."""
     chunks = _png_chunks(data)
     existing = None
     for kind, start, end in chunks:
@@ -315,6 +348,10 @@ def sidecar_path(path: Path) -> Path:
 # --- writing -----------------------------------------------------------------------------
 
 def _backup(path: Path, backup_root: Path) -> int:
+    """Copy the photo under `backup_root/<drive>/<its path>` before it is
+    changed, times included (`copy2`). Returns the bytes copied, 0 when a copy
+    is already there: the first copy is the untouched original, and a second
+    write must not replace it with the already-changed file."""
     drive = path.drive.rstrip(":").rstrip("\\") or "root"
     relative = Path(*path.parts[1:]) if path.anchor else path
     target = backup_root / drive / relative
@@ -326,6 +363,9 @@ def _backup(path: Path, backup_root: Path) -> int:
 
 
 def _write_sidecar(path: Path, meta: PhotoMetadata) -> bool:
+    """Write (or merge into) the photo's `.xmp` sidecar. False when it already
+    said this. Written to a temporary name and renamed over, so a crash
+    mid-write cannot leave a half sidecar beside the photo."""
     side = sidecar_path(path)
     old = side.read_bytes() if side.exists() else b""
     packet = merge_xmp(old, meta) if old else build_xmp(meta)
@@ -366,6 +406,14 @@ def write_photo_metadata(items: Iterable[PhotoMetadata], *, backup_root: Path,
                 if changed == data:
                     result.unchanged += 1
                 else:
+                    # Order matters, and it is the owner's rule for this one
+                    # write into user data: the times are read before anything
+                    # moves; the backup copy exists before the photo changes;
+                    # the new bytes land under a temporary name and are renamed
+                    # over the photo in one step, so a crash leaves either the
+                    # old photo or the new one, never a truncated file; and the
+                    # original times are put back last, so the photo still sorts
+                    # by its date and the walker does not see it as changed.
                     stat = path.stat()
                     result.backed_up_bytes += _backup(path, backup_root)
                     temp = path.with_name(path.name + ".leasha-tmp")

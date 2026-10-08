@@ -131,6 +131,9 @@ class WebPage:
 
 @dataclass(frozen=True)
 class WebResult:
+    """What one web search produced: the query actually sent, the hits, the
+    pages read - or the one plain sentence in `error`.
+    """
     query: str
     provider: str = ""
     hits: list = field(default_factory=list)
@@ -179,6 +182,7 @@ def _flag(value: Any, default: bool) -> bool:
 
 @dataclass(frozen=True)
 class WebSettings:
+    """The web switches as read from Settings; off unless `enabled`."""
     enabled: bool = False
     provider: str = "auto"
     searxng_url: str = ""
@@ -460,12 +464,14 @@ def _site(url: str) -> str:
 # --------------------------------------------------------------------------- providers
 
 class Provider(Protocol):
+    """What a search provider must offer: a `name` and one `search` call."""
     name: str
 
     def search(self, query: str, *, limit: int, timeout: float) -> list[WebHit]: ...
 
 
 class WikipediaProvider:
+    """Keyless search of English Wikipedia through its Action API."""
     name = "wikipedia"
     api = "https://en.wikipedia.org/w/api.php"
 
@@ -473,6 +479,7 @@ class WikipediaProvider:
         self._t = transport
 
     def search(self, query: str, *, limit: int, timeout: float) -> list[WebHit]:
+        """Top `limit` articles for `query`; `snippet` is the API's HTML, flattened to text."""
         response = _send(self._t, "GET", self.api, timeout=timeout, params={
             "action": "query", "list": "search", "srsearch": query, "srlimit": limit,
             "srprop": "snippet", "format": "json", "formatversion": 2, "utf8": 1})
@@ -519,6 +526,7 @@ class _DdgParser(HTMLParser):
 
 
 class DuckDuckGoProvider:
+    """The keyless HTML endpoint; its anti-bot page is detected and reported."""
     name = "duckduckgo"
     endpoint = "https://html.duckduckgo.com/html/"
 
@@ -526,6 +534,7 @@ class DuckDuckGoProvider:
         self._t = transport
 
     def search(self, query: str, *, limit: int, timeout: float) -> list[WebHit]:
+        """Results parsed from the HTML; redirect links unwrapped, ads and site links dropped."""
         response = _send(self._t, "GET", self.endpoint, params={"q": query}, timeout=timeout)
         markup = _body(response)
         if response.status_code == 202 or "anomaly" in markup[:20000].lower():
@@ -552,6 +561,7 @@ class DuckDuckGoProvider:
 
 
 class SearxngProvider:
+    """The person's own SearXNG instance, asked for JSON."""
     name = "searxng"
 
     def __init__(self, transport: Callable, base_url: str) -> None:
@@ -575,6 +585,7 @@ class SearxngProvider:
 
 
 class BraveProvider:
+    """Brave Search API with the person's own key, sent in that one request's header."""
     name = "brave"
     endpoint = "https://api.search.brave.com/res/v1/web/search"
 

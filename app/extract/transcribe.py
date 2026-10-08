@@ -417,6 +417,8 @@ def load_engine(model: str, model_dir: Optional[Path], *, path: str = "") -> Tra
 # ---------------------------------------------------------------------------
 
 def default_journal_dir() -> Path:
+    """Where journals go when the caller names no folder - a test or the CLI;
+    the pipeline passes `<DATA_PATH>/transcripts` so they survive a reboot."""
     return Path(tempfile.gettempdir()) / "leasha-transcripts"
 
 
@@ -458,13 +460,16 @@ class TranscriptJournal:
         return segments, language, done
 
     def append(self, segment: SpeechSegment) -> None:
+        """Record one finished segment the moment it exists."""
         self._write({"s": round(segment.start, 2), "e": round(segment.end, 2),
                      "t": segment.text})
 
     def finish(self, language: str) -> None:
+        """Mark the transcript complete; `load` then answers from the journal alone."""
         self._write({"done": True, "lang": language})
 
     def discard(self) -> None:
+        """Delete the journal (a changed file or model starts clean). Never raises."""
         try:
             self.path.unlink()
         except OSError:
@@ -476,6 +481,10 @@ class TranscriptJournal:
             with self.path.open("a", encoding="utf-8") as handle:
                 handle.write(json.dumps(row, ensure_ascii=False) + "\n")
                 handle.flush()
+                # fsync per segment: the journal's whole purpose is to survive a
+                # kill, and a buffered line lost with the process is a minute of
+                # processor time redone. A segment is a few seconds of audio, so
+                # the write is rare and the sync is cheap next to the model.
                 os.fsync(handle.fileno())
         except OSError as exc:
             # A journal that cannot be written costs resumability, not the

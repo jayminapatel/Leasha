@@ -47,6 +47,9 @@ class EnterActivates(QObject):
         self._delivering = False
 
     def eventFilter(self, watched: Any, event: Any) -> bool:  # noqa: N802 - Qt's name
+        """Qt's filter, UI thread: deliver Enter to the list first, then send
+        `activated` only if nothing took the key and the list did not send it.
+        """
         if self._delivering:
             return False                         # our own delivery, on its way through
         try:

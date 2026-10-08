@@ -102,6 +102,7 @@ class Expansion:
 
     @property
     def ok(self) -> bool:
+        """Whether anything matched; a refused pattern is never ok."""
         return bool(self.terms)
 
     def message(self) -> str:

@@ -46,6 +46,11 @@ RESULTS_FILE = "device_test.json"
 
 
 def setting_key(model: str) -> str:
+    """The `.env` key for one model ("meaning" -> "DEVICE_MEANING").
+
+    Raises `StopIteration` for a name not in `MODELS`: every caller passes a
+    name from that table, so an unknown one is a programming error.
+    """
     return next(key for name, key, _label in MODELS if name == model)
 
 
@@ -78,6 +83,11 @@ def device_for(settings: Any, model: str) -> str:
 
 
 def results_path(settings: Any) -> Optional[Path]:
+    """`<STATE_PATH>/device_test.json`, or None when no state folder is set.
+
+    Beside the index rather than in `.env`: the result is a fact about this
+    machine's hardware, not a choice anybody maintains.
+    """
     state = getattr(settings, "state_path", None)
     return Path(state) / RESULTS_FILE if state else None
 

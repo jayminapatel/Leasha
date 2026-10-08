@@ -30,8 +30,12 @@ __all__ = [
 
 
 def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
-                store: Any = None, on_scope: Any = None) -> Any:
+                store: Any = None, on_scope: Any = None, on_failed: Any = None) -> Any:
     """The search box, its `/` dropdown, and what it offers when empty.
+
+    `on_failed` is told, with the `AppError`, when a saved search could not be
+    written - the view hands in its error signal so the notice bar says so
+    (rule 2; found in review 2026-10-08, when the dialog closed as if saved).
 
     Returns `(line_edit, completer, saved)`. The completer must be kept alive
     by the caller: a `QCompleter` that is garbage collected stops completing,
@@ -97,7 +101,7 @@ def build_input(parent: Optional[QWidget], on_typed: Any, on_submit: Any,
     # own suggestions still appear, which is the honest half of that menu.
     from app.ui.saved_box import SavedSearches
 
-    saved = SavedSearches(store, on_scope)
+    saved = SavedSearches(store, on_scope, on_failed=on_failed)
     saved.refresh()
     return box, attach_to(
         box, store=store, catalogue=SEARCH_CATALOGUE,
@@ -312,6 +316,7 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
 
     # -- the home state -------------------------------------------------------
     def type_into(text: str) -> None:
+        """A pill or a recent row: put its words in the box and search now."""
         view.input.setText(text)
         view.search_now()
 
@@ -332,6 +337,9 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     state = {"home": None}
 
     def show_home(on: bool) -> None:
+        """Move the one box between the home page's slot and the compact bar.
+        Focus is given back if the box had it, so typing is never interrupted.
+        """
         if state["home"] is on:
             return
         state["home"] = on
@@ -353,6 +361,7 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
             view.input.setFocus()
 
     def on_text(text: str) -> None:
+        """Every edit: redraw the chips and pick the home or compact state."""
         chips.show_for(text)
         show_home(not text.strip())
 
@@ -385,6 +394,7 @@ def _mirror_switches(view: Any, row: Any, body: Any) -> dict:
     made: dict = {}
 
     def bind(box: Any, target: Any) -> None:
+        """Keep a mirror and its checkbox in step, both ways, starting from the box."""
         target.setChecked(box.isChecked())
         target.toggled.connect(box.setChecked)
         box.toggled.connect(target.setChecked)
@@ -438,6 +448,7 @@ def _mirror_switches(view: Any, row: Any, body: Any) -> dict:
 
 
 def _set_silently(button: Any, checked: bool) -> None:
+    """Set a toggle's state without its signal, for a change that came from elsewhere."""
     if button.isChecked() != checked:
         button.blockSignals(True)
         button.setChecked(checked)
@@ -510,6 +521,7 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
             activated=lambda: on_interpret() if interpret.isVisible() else None))
 
     def _follow_interpret() -> None:
+        """Ctrl+Enter is live exactly while the Interpret action is shown."""
         for chord in chords:
             chord.setEnabled(interpret.isVisible())
 

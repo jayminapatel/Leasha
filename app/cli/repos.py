@@ -1,4 +1,12 @@
-"""`gitsearch` and `repos`: code repositories and their history."""
+"""`gitsearch` and `repos`: code repositories and their history.
+
+Layer: L4 (`gitsearch` - `app.search.gitsearch`, a git subprocess and never
+reachable from a search) and L3 (`repos` - what the walk attributed, and the
+`--scan` that runs the walk's detection half on its own).
+
+Exit codes: a search git could not run exits 1 with git's own words on
+stderr; "no repositories" and "nothing matched" are answers and exit 0.
+"""
 
 from __future__ import annotations
 

@@ -70,6 +70,7 @@ class MiniRowDelegate(QStyledItemDelegate):
     # -- sizes -------------------------------------------------------------------
 
     def _fonts(self, base: QFont) -> tuple[QFont, QFont]:
+        """The title font (a little larger, semibold) and the small font for the rest."""
         title = QFont(base)
         title.setPointSizeF(max(8.0, base.pointSizeF() * 13.0 / 12.0))
         title.setWeight(QFont.Weight.DemiBold)
@@ -78,6 +79,7 @@ class MiniRowDelegate(QStyledItemDelegate):
         return title, small
 
     def sizeHint(self, option: Any, index: Any) -> QSize:          # noqa: N802 - Qt's name
+        """Two lines for a result, one for a recent search, never shorter than the badge."""
         title, small = self._fonts(option.font)
         one = QFontMetrics(title).height()
         lines = index.data(ROLE_LINES)
@@ -92,6 +94,9 @@ class MiniRowDelegate(QStyledItemDelegate):
     # -- painting ------------------------------------------------------------------
 
     def paint(self, painter: QPainter, option: Any, index: Any) -> None:
+        """Paint one row from `ROLE_LINES`. No I/O and no icon rendering: the badge
+        icons were drawn in `retint`.
+        """
         lines = index.data(ROLE_LINES)
         if lines is None:
             super().paint(painter, option, index)

@@ -57,6 +57,8 @@ class CacheSpec:
 
     @classmethod
     def from_session(cls, session: Any, *, heads: int, head_dim: int) -> "CacheSpec":
+        """Read the cache inputs off the session's declared inputs; `heads` and
+        `head_dim` (from `config.json`) fill the symbolic dimensions."""
         names, dtypes, shapes, encoder = [], {}, {}, []
         merged = False
         for arg in session.get_inputs():
@@ -80,6 +82,9 @@ class CacheSpec:
         for name in self.names:
             declared = self.shapes.get(name) or [None, None, None, None]
             dims = []
+            # The exports lay a cache tensor out as [batch, heads, sequence,
+            # head_dim]; index 2 is the sequence axis, which is empty before the
+            # first step.
             for index, dim in enumerate(declared):
                 if index == 0:
                     dims.append(batch)
@@ -109,10 +114,12 @@ class Decoder:
         self.steps = 0
 
     def reset(self) -> None:
+        """Forget the cache: the next `step` is a first step with an empty one."""
         self.past = {}
         self.steps = 0
 
     def accepts(self, name: str) -> bool:
+        """Whether the session declares an input called `name`."""
         return name in self._inputs
 
     def step(self, inputs: dict[str, np.ndarray]) -> np.ndarray:
@@ -161,6 +168,7 @@ def no_repeat_ngram(size: int) -> LogitsRule:
 
 
 def suppress(token_ids: Iterable[int]) -> LogitsRule:
+    """Never generate these tokens (Whisper's `suppress_tokens`)."""
     ids = [int(t) for t in token_ids]
 
     def rule(_generated: Sequence[int], logits: np.ndarray) -> None:
@@ -180,6 +188,7 @@ def force_first(token_id: int) -> LogitsRule:
 
 
 def greedy(logits: np.ndarray) -> int:
+    """The likeliest token - beam 1, temperature 0."""
     return int(np.argmax(logits))
 
 

@@ -78,6 +78,9 @@ class FlowLayout(QLayout):
         return self._height_for_width
 
     def heightForWidth(self, width: int) -> int:              # noqa: N802 - Qt's name
+        """The height the widgets need wrapped at `width`. Cached per width: Qt asks
+        several times per resize with the same number.
+        """
         # Qt asks this several times per resize with the same width; the answer
         # only changes when the width or the widgets do (`invalidate`).
         cached = self._hfw
@@ -88,6 +91,7 @@ class FlowLayout(QLayout):
         return height
 
     def invalidate(self) -> None:
+        """Widgets or sizes changed: forget the cached height-for-width answer."""
         self._hfw = None
         super().invalidate()
 
@@ -96,6 +100,7 @@ class FlowLayout(QLayout):
         self._arrange(rect, place=True)
 
     def sizeHint(self) -> QSize:                              # noqa: N802 - Qt's name
+        """Everything on one line - the width it would like given the room."""
         # Everything on one line: the width it would like, given the room.
         width = sum(item.sizeHint().width() for item in self._items)
         width += self._spacing * max(0, len(self._items) - 1)
@@ -105,6 +110,7 @@ class FlowLayout(QLayout):
                      height + margins.top() + margins.bottom())
 
     def minimumSize(self) -> QSize:                           # noqa: N802 - Qt's name
+        """As narrow as its widest single widget: the rest can wrap to lines of their own."""
         # The narrowest it can go is its widest single widget: everything else
         # can move to a line of its own.
         size = QSize()

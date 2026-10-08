@@ -97,10 +97,12 @@ class Reconciled:
 
     @property
     def partial(self) -> bool:
+        """Whether any sentence was taken out."""
         return bool(self.dropped)
 
     @property
     def has_support(self) -> bool:
+        """Whether at least one kept sentence stands on a passage."""
         return self.supported > 0
 
 

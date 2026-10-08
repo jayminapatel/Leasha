@@ -123,6 +123,7 @@ class _Cleaner(HTMLParser):
     """
 
     def __init__(self) -> None:
+        """Fresh parts and counters; the parser is single-use."""
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.blocked_images = 0
@@ -132,6 +133,7 @@ class _Cleaner(HTMLParser):
     # -- tags ---------------------------------------------------------------
 
     def handle_starttag(self, tag: str, attrs) -> None:
+        """Emit the tag only if allowed, with its attributes filtered; drop subtrees."""
         if tag in _DROP_ENTIRELY:
             self._suppress += 1
             return
@@ -146,6 +148,7 @@ class _Cleaner(HTMLParser):
         self.parts.append(f"<{tag}{rendered}>")
 
     def handle_endtag(self, tag: str) -> None:
+        """Close an allowed tag; void tags and dropped subtrees emit nothing."""
         if tag in _DROP_ENTIRELY:
             self._suppress = max(0, self._suppress - 1)
             return
@@ -157,6 +160,7 @@ class _Cleaner(HTMLParser):
         self.handle_starttag(tag, attrs)
 
     def handle_data(self, data: str) -> None:
+        """Text, escaped, unless inside a dropped subtree."""
         if not self._suppress:
             self.parts.append(
                 data.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -165,6 +169,9 @@ class _Cleaner(HTMLParser):
     # -- attributes ---------------------------------------------------------
 
     def _attributes(self, tag: str, attrs: dict) -> dict | None:
+        """The attributes to keep for `tag`, or None when the tag itself must go (a
+        remote or embedded image).
+        """
         allowed = _ALLOWED_ATTRIBUTES.get(tag, frozenset())
         kept: dict[str, str] = {}
 
@@ -205,6 +212,7 @@ class _Cleaner(HTMLParser):
 
 
 def _escape(value: str) -> str:
+    """HTML-escape an attribute value or text."""
     return (
         str(value)
         .replace("&", "&amp;")

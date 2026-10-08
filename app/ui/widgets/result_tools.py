@@ -64,6 +64,7 @@ def _read_flag(store: Any, key: str, *, default: bool) -> bool:
 
 
 def _write_flag(store: Any, key: str, value: bool) -> None:
+    """Queue one `index_state` boolean on the ordered state writer. Never waits."""
     # Queued on the ordered state writer (bug 3a): a switch flipped mid-index
     # must not wait for the indexer's batch. A failure is logged there, which
     # the bare `except: pass` this replaced never did.
@@ -148,6 +149,7 @@ def _switches(*, results: ResultsView, pinned: PinnedPanel, timeline: TimelineSt
 
 
 def _similar_summary(row: Any) -> str:
+    """The results summary for "more like this": the file's name, not its path."""
     from pathlib import Path
 
     name = Path(str(getattr(row, "path", "") or "")).name or "this result"
@@ -178,10 +180,12 @@ def _wire_similar(*, results: ResultsView, grid: ThumbnailGrid, engine: Any,
     from app.ui.workers import CallableWorker, run
 
     def _finished(response: Any, row: Any) -> None:
+        """UI thread: the similar-to worker's response, shown as a result set."""
         found = list(getattr(response, "results", None) or [])
         results.show_results(found, [], summary=_similar_summary(row))
 
     def _run(row: Any) -> None:
+        """Ask the engine for neighbours on a worker; text and photo rows pick the backend."""
         if engine is None:
             return
         chunk_id = int(getattr(row, "chunk_id", 0) or 0)
@@ -209,6 +213,9 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
     open_windows: list = []
 
     def _state_now() -> dict:
+        """Every `index_state` row, for the pop-out's geometry and pin. Read on the
+        UI thread at the click that opens a window - small, keyed, deliberate.
+        """
         if store is None:
             return {}
         try:
@@ -221,6 +228,7 @@ def _wire_lightbox(*, grid: ThumbnailGrid, store: Any, on_error: Any) -> None:
         save_states(store, values, component="ui.lightbox")
 
     def _open(row: Any, siblings: Any) -> None:
+        """A thumbnail opened: a lightbox window over its siblings, kept alive in a list."""
         sibling_list = list(siblings or ())
         try:
             index = sibling_list.index(row)
@@ -274,10 +282,12 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     preview, split = attach_preview(results, on_opened, on_error, store=store)
 
     def remember(values: dict) -> None:
+        """Queue the pinned set (and any other UI state) on the ordered writer."""
         # Queued, never waited for - see `_write_flag`.
         save_states(store, values, component="ui.results")
 
     def open_all(paths: Any) -> None:
+        """Open every pinned path through the window's own open route."""
         for path in paths:
             on_opened(_PinnedRow(path))
 
@@ -297,6 +307,7 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     results.rows_changed.connect(timeline.set_rows)
     if search_box is not None and on_filter is not None:
         def _apply(text: str) -> None:
+            """A clicked timeline band: append its filter to the box and search."""
             current = search_box.text().strip()
             search_box.setText(f"{current} {text}".strip())
             on_filter()

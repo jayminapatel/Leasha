@@ -139,6 +139,7 @@ class WatchChild:
 
     @property
     def running(self) -> bool:
+        """Started, and not yet seen to end."""
         return self._thread is not None and not self._ended.is_set()
 
     def start(self) -> None:
@@ -152,6 +153,9 @@ class WatchChild:
         self._thread.start()
 
     def _run(self) -> None:
+        """The reading thread: start the process, pass every complete JSON line
+        to `on_event`, and report `ended` once the pipe closes. A half line or
+        a non-JSON line is a dying child's or a library's output and is skipped."""
         try:
             proc = self._open()
         except Exception as exc:                 # noqa: BLE001 - said as an event
@@ -206,6 +210,8 @@ class WatchChild:
                 handle.close()                   # the child has its own copy now
 
     def _finish(self, code: Optional[int], *, reason: str = "") -> None:
+        """The process has gone (or never started): close the pipes, leave the
+        live set, and say `ended` once with whether anybody asked for it."""
         self.returncode = code
         proc = self._proc
         for stream in (getattr(proc, "stdin", None), getattr(proc, "stdout", None)):

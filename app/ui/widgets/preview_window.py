@@ -368,6 +368,8 @@ class PreviewWindow(QWidget):
         worker = CallableWorker(
             load_preview_for, self._row, body_provider=self._body_provider,
             component="ui.preview.window")
+        # A plain connect: this window is kept alive by Python (the opener's
+        # list) for as long as any worker it started is out - see `later.py`.
         worker.signals.finished.connect(
             lambda preview, g=generation: self._loaded(preview, g))
         worker.signals.failed.connect(
@@ -376,6 +378,9 @@ class PreviewWindow(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _loaded(self, preview: Any, generation: int) -> None:
+        """UI thread: the document landed. Dropped if a later load moved the
+        generation on. Pictures and PDFs go on to `_render`; text is shown here.
+        """
         if generation != self._generation:
             return                               # a later request won
         from app.ui.preview_loader import (
@@ -579,6 +584,9 @@ class PreviewWindow(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _describe_status_ready(self, status: "_DescribeStatus", generation: int) -> None:
+        """UI thread: whether Describe can run. Dropped if a newer check is out, and
+        stands aside while a Describe is running (its own answer sets the button).
+        """
         if generation != self._describe_check:
             return                               # a later check won
         if self._describing:
@@ -614,6 +622,7 @@ class PreviewWindow(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _describe_done(self, caption: Optional[str], generation: int) -> None:
+        """UI thread: the caption was stored; a reload shows it with the other text."""
         if generation != self._describe_generation:
             return
         self._describing = False
@@ -629,6 +638,7 @@ class PreviewWindow(QWidget):
         self.reload()
 
     def _describe_failed(self, generation: int) -> None:
+        """UI thread: the worker gave None or raised; the button offers a retry."""
         if generation != self._describe_generation:
             return
         self._describing = False
@@ -669,6 +679,7 @@ class PreviewWindow(QWidget):
         self._enable_picture_controls(True)
 
     def _show_card(self, text: str, generation: int) -> None:
+        """Plain words instead of a page, unless a later request has moved on."""
         if generation != self._generation:
             return
         self.card.setText(text)
@@ -687,11 +698,13 @@ class PreviewWindow(QWidget):
     # -- the controls ---------------------------------------------------------
 
     def _turn(self) -> None:
+        """Rotate a quarter turn; remembered in the app's state, never in the file."""
         self._view = self._view.turned()
         self.remember.emit(self._view.as_state(self._path))
         self._render()
 
     def _zoom(self, *, out: bool) -> None:
+        """Zoom: a scale for a picture or PDF, a font-size step for text (sharper)."""
         if self._is_picture():
             self._view = self._view.zoomed(out=out)
             self._render()
@@ -864,6 +877,7 @@ class PreviewWindow(QWidget):
             self._render()
 
     def closeEvent(self, event: Any) -> None:               # noqa: N802 - Qt's name
+        """Remember the geometry and tell the opener, which drops its reference."""
         self._remember_geometry()
         self.closed.emit(self)
         super().closeEvent(event)

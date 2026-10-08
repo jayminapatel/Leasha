@@ -97,5 +97,6 @@ def small_copy(picture: Any, shortest: int = 256) -> Any:
 
 
 def clear() -> None:
+    """Forget every kept decode (tests, and a run's end, so memory goes back)."""
     with _lock:
         _kept.clear()

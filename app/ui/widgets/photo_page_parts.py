@@ -66,6 +66,7 @@ class ViewButton(QToolButton):
         _as_icon(self)
 
     def menu_for(self, menu: QMenu) -> None:
+        """Fill the window's View menu with this tab's entries (the window calls it)."""
         fill_view_menu(menu, self._view)
 
 

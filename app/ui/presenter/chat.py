@@ -121,6 +121,7 @@ class Numbering:
         self._map: dict[int, int] = {}
 
     def display(self, engine_number: int) -> int:
+        """The reader's number for an engine marker, assigning the next on first sight."""
         if engine_number not in self._map:
             self._map[engine_number] = len(self._map) + 1
         return self._map[engine_number]
@@ -224,6 +225,7 @@ def passage_html(number: int, receipt: Any) -> str:
 
 @dataclass
 class ShelfItem:
+    """One document on the shelf: its path, its name, and whether it is pinned."""
     path: str
     name: str
     file_id: Optional[int] = None
@@ -258,6 +260,7 @@ class Shelf:
         return True
 
     def add_receipt(self, receipt: Any) -> bool:
+        """Put a receipt's document on the shelf; a web page never goes on it."""
         if is_web_receipt(receipt):          # a web page is not one of the person's documents
             return False
         return self.add(str(getattr(receipt, "path", "") or ""),
@@ -269,6 +272,7 @@ class Shelf:
         self.removed.add(path)
 
     def toggle_pin(self, path: str) -> bool:
+        """Pin or unpin `path`. Returns the new state; False for a path not on the shelf."""
         item = self._find(path)
         if item is None:
             return False
@@ -286,6 +290,7 @@ class Shelf:
         return True
 
     def _trim(self) -> None:
+        """Drop the oldest unpinned items past `MAX_UNPINNED`; pinned ones never go."""
         loose = [i for i in self.items if not i.pinned]
         while len(loose) > MAX_UNPINNED:
             oldest = loose.pop(0)
@@ -302,6 +307,7 @@ class Shelf:
 
     @classmethod
     def from_dict(cls, data: Optional[dict]) -> "Shelf":
+        """A shelf back from `to_dict`'s shape; entries with no path are skipped."""
         data = data or {}
         items = [ShelfItem(str(d.get("path", "")), str(d.get("name", "")),
                            d.get("file_id"), bool(d.get("pinned", False)))

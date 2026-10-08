@@ -689,6 +689,17 @@ def test_a_worker_body_is_only_called_through_a_worker(path):
     # Moved to `IndexController` (work order 202626082352 section 7);
     # `MainWindow._start_indexing` is a forwarding method with nothing to prove.
     ("controllers/index_controller.py", "_start_indexing"),
+    # 2026-10-08 review: the same `cached_profile` (PowerShell probe, store
+    # read and write) was still called on the UI thread from the tuning
+    # status line at start-up and from the end-of-run learning; `.env` was
+    # written synchronously from three Settings slots; the index-move plan
+    # walked the index folder inline. The AST guard above could not see any of
+    # it, because the I/O hides inside `app.core` helpers.
+    ("controllers/index_controller.py", "_refresh_tuning_status"),
+    ("controllers/index_controller.py", "_learn_from_run"),
+    ("controllers/settings_controller.py", "_settings_changed"),
+    ("controllers/settings_controller.py", "_change_meaning_model"),
+    ("controllers/settings_controller.py", "_change_index_location"),
 ])
 def test_a_long_operation_starts_a_worker(module, method):
     r"""Asserted on the *worker*, not the result: the point is that the call

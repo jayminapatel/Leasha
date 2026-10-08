@@ -62,6 +62,8 @@ class WindowBox(QGroupBox):
         )
 
         for box in (self.minimise_to_tray, self.close_to_tray):
+            # Both values travel together: the window installs or removes the tray
+            # icon from the pair, not from one switch at a time.
             box.stateChanged.connect(lambda _s: self.changed.emit(
                 self.minimise_to_tray.isChecked(), self.close_to_tray.isChecked()))
 

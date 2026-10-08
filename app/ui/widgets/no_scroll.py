@@ -96,11 +96,13 @@ def _has_focus(candidate: Any) -> bool:
 
 
 def _parent_of(candidate: Any) -> Any:
+    """The widget's parent, or None when it has gone or cannot answer."""
     getter = getattr(candidate, "parent", None)
     if not callable(getter):
         return None
     try:
         return getter()
+    # The C++ object went away mid-event - see `_has_focus`.
     except RuntimeError:
         return None
 

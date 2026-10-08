@@ -146,6 +146,10 @@ class MailArchivesBox(QGroupBox):
         self._sync_empty()
 
     def _append(self, row: Mapping[str, Any], choice: str) -> QTreeWidgetItem:
+        """One line: the archive, its count and status, a drop-down for how it is
+        read, and the two icon buttons. Connected after the value is set, so
+        filling the list emits nothing.
+        """
         path = str(row["path"])
         messages = int(row.get("messages") or 0)
         status = archive_status_words(row.get("status"), row.get("skip_code"), messages)
@@ -245,6 +249,7 @@ class MailArchivesBox(QGroupBox):
         return 0
 
     def item_for(self, path: str) -> Optional[QTreeWidgetItem]:
+        """The line for `path`, matched by normalised path, or None."""
         wanted = normalise(path)
         for index in range(self.tree.topLevelItemCount()):
             item = self.tree.topLevelItem(index)

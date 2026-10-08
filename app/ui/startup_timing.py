@@ -33,6 +33,7 @@ class StartupTimer:
     """Track startup pipeline stages and record timings."""
 
     def __init__(self) -> None:
+        """Mark the process start; the other moments are recorded as they happen."""
         self.process_start = time.perf_counter()
         self.splash_visible: Optional[float] = None
         self.window_visible: Optional[float] = None
@@ -87,6 +88,7 @@ class CloseTimer:
     """Track close pipeline stages."""
 
     def __init__(self) -> None:
+        """Mark the close request; the other moments are recorded as they happen."""
         self.close_requested = time.perf_counter()
         self.window_hidden: Optional[float] = None
         self.stores_closed: Optional[float] = None
@@ -111,24 +113,28 @@ class CloseTimer:
 
     @property
     def elapsed_to_hidden(self) -> float:
+        """Seconds from the close request, or 0.0 while not reached."""
         if self.window_hidden is None:
             return 0.0
         return self.window_hidden - self.close_requested
 
     @property
     def elapsed_to_stores_closed(self) -> float:
+        """Seconds from the close request, or 0.0 while not reached."""
         if self.stores_closed is None:
             return 0.0
         return self.stores_closed - self.close_requested
 
     @property
     def elapsed_to_lock_released(self) -> float:
+        """Seconds from the close request, or 0.0 while not reached."""
         if self.lock_released is None:
             return 0.0
         return self.lock_released - self.close_requested
 
     @property
     def elapsed_to_exit(self) -> float:
+        """Seconds from the close request, or 0.0 while not reached."""
         if self.process_exiting is None:
             return 0.0
         return self.process_exiting - self.close_requested

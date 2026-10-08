@@ -18,10 +18,12 @@ fragments for no reason.
 
 from __future__ import annotations
 
+import dataclasses
+
 import pytest
 
 from app.search.engine import SearchEngine
-from app.search.query import parse_query
+from app.search.query import ParsedQuery, parse_query
 
 
 class _Store:
@@ -193,4 +195,54 @@ def test_the_key_version_was_bumped():
     because entries written under the previous format would otherwise be served
     against the new one - which is the stale read the version guards against.
     """
-    assert key(_engine("m")).startswith("v4|")
+    # v5 (2026-10-08): the photo, place, people, volume, `only:` and status
+    # filters joined the key - see `test_every_filter_field_changes_the_key`.
+    assert key(_engine("m")).startswith("v5|")
+
+
+# --- every filter, derived from the dataclass -------------------------------
+
+#: Fields of `ParsedQuery` that do not change the answer and so must stay out
+#: of the key. Everything else the parser can set is a filter or an operator,
+#: and a filter missing from the key is a stale read waiting to happen.
+_NOT_A_FILTER = {
+    "raw",                  # the typed line; `terms`/`phrases` carry its content
+    "text",                 # derived from `terms`
+    "expansions",           # how a term was widened, not what was asked
+    "unknown_operators",    # a notice, not a filter
+    "date_problems",        # a notice, not a filter
+}
+
+
+def _filter_fields():
+    """Every `tuple[str, ...]` field of `ParsedQuery` that is a filter.
+
+    Derived from the dataclass rather than typed out, so a filter added to the
+    parser without being added to the key fails here on the day it is added.
+    Found in review on 2026-10-08: twelve such fields had been missing since
+    the day they were introduced, and nothing said so.
+    """
+    return sorted(
+        f.name for f in dataclasses.fields(ParsedQuery)
+        if f.name not in _NOT_A_FILTER
+        and str(f.type).startswith("tuple[str")
+    )
+
+
+@pytest.mark.parametrize("field", _filter_fields())
+def test_every_filter_field_changes_the_key(field):
+    """`beach shows:dog` and `beach shows:cat` must never share an entry."""
+    engine = _engine("m")
+    base = parse_query("beach")
+    changed = dataclasses.replace(base, **{field: ("zzz",)})
+
+    assert engine._cache_key("beach", base, True, 20) != \
+        engine._cache_key("beach", changed, True, 20), field
+
+
+def test_the_derived_field_list_is_not_empty():
+    """If the dataclass changed shape so that nothing matched, the test above
+    would pass vacuously by running zero times. Guard the guard."""
+    fields = _filter_fields()
+    assert "shows" in fields and "not_shows" in fields
+    assert len(fields) >= 29

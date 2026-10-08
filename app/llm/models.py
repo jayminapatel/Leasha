@@ -116,11 +116,13 @@ class ModelChoice:
 
     @property
     def label(self) -> str:
+        """The dropdown row: name plus the cost hint, or the install command."""
         return describe(self.name, self.billions, self.embedding_only,
                         installed=self.installed)
 
     @property
     def selectable(self) -> bool:
+        """Whether a person may pick it: installed, and able to write text."""
         return self.installed and not self.embedding_only
 
 
@@ -143,6 +145,9 @@ def parameter_billions(name: str) -> Optional[float]:
 
 
 def is_embedding_model(name: str) -> bool:
+    """Does the name say this model makes vectors rather than text? A guess
+    from `EMBEDDING_HINTS`; Ollama's listing does not say, so a name is all
+    there is to go on, and a wrong guess only greys out one row."""
     lowered = name.lower()
     return any(hint in lowered for hint in EMBEDDING_HINTS)
 

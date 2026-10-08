@@ -130,6 +130,7 @@ _OFF_WORDS = ("0", "false", "no", "off", "")
 
 
 def _switch(value: Any) -> bool:
+    """A `.env` value or a bool as the switch it means."""
     if isinstance(value, str):
         return value.strip().lower() not in _OFF_WORDS
     return bool(value)

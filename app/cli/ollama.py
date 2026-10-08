@@ -1,4 +1,10 @@
-"""`ollama`: checking the optional Ollama connection."""
+"""`ollama`: checking the optional Ollama connection.
+
+Layer: L8 (`app.llm.ollama`; never in the search path - non-negotiable 1)
+
+Exit codes: 1 at the first question that fails, so a script can stop there;
+0 only when Ollama answered, and - with `--translate` - produced a query.
+"""
 
 from __future__ import annotations
 

@@ -188,6 +188,9 @@ def _one(key: str, mode: str, stored: int, profile: Any,
 
 
 def _profile(store: Any, settings: Any) -> Optional[Any]:
+    """This machine's compute profile: the store's cached one when there is a
+    store, a fresh detection otherwise. None when it cannot be read, which
+    leaves the stored tuning values standing."""
     try:
         from app.core.compute_profile import cached_profile, detect
 
@@ -230,6 +233,8 @@ def _gpu_regression(store: Any, settings: Any) -> str:
 
 
 def _rates(store: Any, profile: Any) -> Optional[Any]:
+    """The measured rates for this profile (Auto mode only), or None - which
+    the envelope reads as "use the heuristics"."""
     if store is None or profile is None:
         return None
     try:

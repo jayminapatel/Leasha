@@ -249,6 +249,7 @@ def _copy_path(path: str, row: Any) -> None:
 
 
 def _copy(text: str) -> None:
+    """Plain text to the clipboard; a missing clipboard (headless) is a no-op."""
     clipboard = QGuiApplication.clipboard()
     if clipboard is not None:
         clipboard.setText(text)

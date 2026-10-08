@@ -1,5 +1,8 @@
 r"""Retake the user guide's pictures from the real window, and put them in.
 
+Layer: tooling, not app code (builds on `tools/grab_ui.py`; writes only
+`docs/USER_GUIDE.html` and the `--out` folder).
+
 2026-10-04. The guide's pictures were first taken on 1 October with a script
 that lived in a session's scratch folder and was lost (HANDOFF 2026-10-01:
 "regenerating the guides after a UI change means re-grabbing and editing the

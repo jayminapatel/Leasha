@@ -61,6 +61,9 @@ _LIST_SHEET = """
 
 
 def _colours(colours: Optional[Mapping[str, str]] = None) -> dict:
+    """The theme's tokens with a light-theme fallback for each one the sheet
+    needs, so a palette missing a key never breaks the sheet's `format`.
+    """
     if colours is None:
         from app.ui.theme import theme_colours
 
@@ -166,6 +169,9 @@ class ShelfBar(QWidget):
         self.refresh()
 
     def refresh(self) -> None:
+        """Rebuild the list from `shelf.items`. The old chips are `deleteLater`d, so
+        a click still being delivered to one cannot land on a freed widget.
+        """
         for chip in self.chips():
             self._rows.removeWidget(chip)
             chip.deleteLater()
@@ -198,6 +204,9 @@ class ShelfBar(QWidget):
             chips[0].name_button.setFocus()
 
     def _place(self) -> None:
+        """Put the pop-up just above the button, or below it when there is no room
+        above (the shelf sits low in the window).
+        """
         self.popup.adjustSize()
         width = max(self.popup.sizeHint().width(), 320)
         self.popup.resize(width, self.popup.sizeHint().height())
@@ -245,6 +254,7 @@ class ShelfBar(QWidget):
             event.acceptProposedAction()
 
     def dropEvent(self, event: Any) -> None:                     # noqa: N802 - Qt
+        """A result dragged in: each local file goes on the shelf as the person's own choice."""
         added = False
         for url in event.mimeData().urls():
             if url.isLocalFile():

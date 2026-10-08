@@ -33,6 +33,11 @@ _shared: dict[tuple, Any] = {}
 #: strongly now: an unloaded client is a few attributes, and what is *loaded* is
 #: limited process-wide by `app.ort.llm.MAX_RESIDENT` (the default and one picked).
 _chosen: dict[tuple, Any] = {}
+# One lock over both dictionaries: Interpret, Chat and Describe ask from
+# different worker threads at once, and two of them building the same 1.5 GB
+# model on the same key would be exactly the double load this module exists
+# to prevent. Held only while a client is looked up or constructed (not
+# loaded), so it is never contended for long.
 _shared_lock = threading.Lock()
 
 

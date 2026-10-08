@@ -99,6 +99,8 @@ def snappy_decompress(buf: bytes) -> bytes:
         shift += 7
         if not byte & 0x80:
             break
+        # A Snappy length is at most 32 bits, so five 7-bit groups; a sixth means
+        # the block is not Snappy and the loop must not run off the end.
         if shift > 35:
             raise ValueError("snappy length is not a varint")
     if expected > MAX_IWA_BYTES:
@@ -177,6 +179,8 @@ def _varint(buf: bytes, position: int) -> tuple[int, int]:
         if not byte & 0x80:
             return result, position
         shift += 7
+        # Protobuf varints hold 64 bits in ten bytes; more is damage, and an
+        # unbounded loop on hostile bytes is the thing this guards against.
         if shift > 70:
             raise ValueError("varint too long")
 
@@ -304,6 +308,12 @@ class IWorkExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """Text runs and table strings of a modern iWork file, read in-process.
+
+        Anything the reader cannot vouch for (iWork '09, encrypted, damaged) is
+        handed to `fall_back` - the LibreOffice route, or `ERR_FILE_CORRUPT`
+        when none is on. A locked file is `ERR_FILE_LOCKED`. Reads the zip only.
+        """
         try:
             body, segments = self._read(path)
         except LegacyOfficeUnreadable as exc:

@@ -99,7 +99,9 @@ enabled = true
 ".gif"  = { extractor = "ocr", max_bytes = 26214400 }
 ".heic" = { extractor = "ocr", max_bytes = 26214400 }
 ".heif" = { extractor = "ocr", max_bytes = 26214400 }
-".svg"  = { extractor = "ocr", max_bytes = 26214400 }
+# .svg: XML, read as text. It was routed to OCR, which has no rasteriser for
+# it and failed on every one (2026-10-08 review; owner's decision the same day).
+".svg"  = { extractor = "plaintext", max_bytes = 26214400 }
 
 # RAW camera formats: extract the embedded JPEG preview via rawpy, then OCR that.
 # Never decode the full RAW — it adds no text value and wastes time. If rawpy is

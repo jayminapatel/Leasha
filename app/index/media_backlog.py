@@ -123,6 +123,8 @@ def queued_candidates(store: Any, *, limit: Optional[int] = None) -> Iterator[Ca
 
 
 def _backlog_pipeline_class() -> type:
+    """The `Pipeline` subclass for the tail, built on demand: `pipeline`
+    imports this module, so importing `Pipeline` at the top would be a cycle."""
     from app.index.pipeline import Pipeline
 
     class BacklogPipeline(Pipeline):

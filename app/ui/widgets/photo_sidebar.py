@@ -144,6 +144,9 @@ class PhotoSidebar(QTreeWidget):
                 item.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
 
     def _clicked(self, item: QTreeWidgetItem, _column: int) -> None:
+        """A click: "More..." opens a section fully, an action row asks the page,
+        a value row toggles its switch in the box, a heading folds.
+        """
         action = item.data(0, ROLE_ACTION)
         if action and str(action).startswith("more:"):
             self._expanded.add(str(action)[5:])

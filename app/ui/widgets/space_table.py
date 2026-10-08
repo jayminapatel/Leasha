@@ -59,6 +59,7 @@ def _item(row: SpaceRow, aligns: tuple[str, ...]) -> SortableTreeItem:
 
 
 def _tree(table: SpaceTable) -> QTreeWidget:
+    """One sortable tree for a `SpaceTable`; the copies inside a row are made on expand."""
     tree = QTreeWidget()
     tree.setObjectName(f"space-{table.key}")
     tree.setAccessibleName(f"{table.title} table")
@@ -92,6 +93,7 @@ def _tree(table: SpaceTable) -> QTreeWidget:
     waiting: dict[int, tuple[Any, SpaceRow]] = {}
 
     def reveal(item: Any) -> None:
+        """A row was opened: make its copies now, once."""
         held = waiting.pop(id(item), None)
         if held is not None:
             item.addChildren([_item(child, table.aligns) for child in held[1].children])

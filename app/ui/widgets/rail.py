@@ -152,6 +152,9 @@ class _Pill(QFrame):
         self.bar.setVisible(self._busy and not compact)
 
     def show_state(self, state: PillState, fraction: Optional[float]) -> None:
+        """Paint the pill from a `PillState`: headline, dot colour, the thin bar
+        while busy, and the figures in the tooltip and accessible name.
+        """
         self.headline.setText(state.headline)
         self.detail.setText(state.detail)
         self._tone = getattr(state, "tone", "quiet") or "quiet"
@@ -181,6 +184,7 @@ class _Pill(QFrame):
         self._draw_glyph()
 
     def retint(self, colours: dict[str, str]) -> None:
+        """New theme colours: redraw the glyph and its dot."""
         self._colours = dict(colours)
         self._draw_glyph()
 
@@ -289,6 +293,7 @@ class Rail(QWidget):
         # placeholder letter rather than breaking the rail (tray.py does the
         # same for the window icon).
         from app.ui.tray import icon_path
+        # A shipped asset read once at construction, not user data.
         found = icon_path()
         if found is not None:
             pixmap = QPixmap(str(found))
@@ -329,6 +334,9 @@ class Rail(QWidget):
 
     def insertTab(self, index: int, widget: QWidget, title: str, *,   # noqa: N802
                   icon: str = "", foot: bool = False, pill: bool = False) -> int:
+        """Add a page at `index`. Every map keyed by stack index shifts up with it,
+        which is why there are four of them to move.
+        """
         index = self.stack.insertWidget(index, widget)
         self._titles.insert(index, title)
         # Everything at or after `index` shifts by one.
@@ -380,6 +388,7 @@ class Rail(QWidget):
     # -- the pill -------------------------------------------------------------
 
     def show_pill(self, state: PillState, fraction: Optional[float]) -> None:
+        """Repaint the pill; re-measure the column only when its headline word changed."""
         headline = self.pill.headline.text()
         self.pill.show_state(state, fraction)
         # "Index" is one line; "Up to date" may wrap to two at a large font,
@@ -404,6 +413,7 @@ class Rail(QWidget):
         self.pill.retint(colours)
 
     def _retint_buttons(self) -> None:
+        """Each page button's icon, in the chosen or the quiet ink."""
         if not self._colours:
             return
         # **The chosen page's icon takes the chosen page's text colour.** It was
@@ -493,6 +503,7 @@ class Rail(QWidget):
         self._fit_height()
 
     def _fit_height(self) -> None:
+        """Icons only when the column is shorter than the labels need; labels back when not."""
         if not self._compact:
             self._natural = self.column.layout().totalMinimumSize().height()
         should = self.column.height() < self._natural
@@ -513,6 +524,7 @@ class Rail(QWidget):
         self.currentChanged.emit(index)
 
     def _sync_checked(self, index: int) -> None:
+        """Tick the button for `index`, or none when the pill's page (or nothing) is shown."""
         button = self._buttons.get(index)
         if button is not None:
             button.setChecked(True)
@@ -526,6 +538,7 @@ class Rail(QWidget):
         self.pill.set_selected(index == self._pill_index)
 
     def _column_key(self, event: Any) -> None:
+        """Up/Down move between pages; Enter or Space opens the one under the cursor."""
         order = sorted(self._buttons)
         if not order:
             return QFrame.keyPressEvent(self.column, event)

@@ -1861,6 +1861,9 @@ def _apply_step(conn: sqlite3.Connection, step: int,
 
 
 def _roll_back(conn: sqlite3.Connection) -> None:
+    """Undo a failed step's open transaction, if there is one. Never raises:
+    the error worth reporting is the one that caused the rollback, and a
+    second one here (a connection already closed) would only hide it."""
     try:
         if conn.in_transaction:
             conn.execute("ROLLBACK")

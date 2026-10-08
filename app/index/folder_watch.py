@@ -220,6 +220,9 @@ class _Stopping(Exception):
 
 
 def _root_key(root: Any) -> str:
+    """The key a watched folder is counted under. Plain `.lower()`, like the
+    stored folder settings (`archives.normalise`), because it only groups
+    changes by folder and never decides whether two files are one."""
     return str(root).rstrip("\\/").lower()
 
 
@@ -409,6 +412,9 @@ class _Source:
         raise NotImplementedError
 
     def _report(self, problem: Optional[AppError]) -> None:
+        """Remember this folder's current problem (None = watched again) and
+        tell `on_problem` only when it changed, so a folder that stays
+        unreachable is reported once, not every `REOPEN_S`."""
         changed = (problem is None) != (self.problem is None) or (
             problem is not None and self.problem is not None
             and problem.message != self.problem.message)
@@ -420,6 +426,7 @@ class _Source:
                 log.debug("could not report a folder watch problem: {}", exc)
 
     def _lost(self, reason: str) -> None:
+        """The folder cannot be watched right now: report `ERR_WATCH_FOLDER`."""
         self._report(make_error("ERR_WATCH_FOLDER", "index.folder_watch",
                                 path=str(self.root), reason=reason))
 
@@ -481,6 +488,9 @@ class NativeSource(_Source):
                 self._watch = None
 
     def _read_until_lost(self) -> None:
+        """Feed the buffer from the open handle until the watch is stopped or
+        the handle fails (the folder went, or Windows gave up on it). Returns
+        after reporting the loss; `run` reopens after `REOPEN_S`."""
         while not self._stop.is_set():
             try:
                 records = self._watch.read(READ_WAIT_S)
@@ -600,6 +610,13 @@ class PollingSource(_Source):
                 path = Path(entry.path)
                 try:
                     if entry.is_dir(follow_symlinks=False):
+                        # Not a junction: a Windows junction is a directory to
+                        # `is_dir(follow_symlinks=False)` and a loop to this
+                        # listing when it points up its own tree. The walker
+                        # does not descend into them; neither does the
+                        # snapshot (review 2026-10-08).
+                        if entry.is_junction():
+                            continue
                         if not rules.excluded(self.root, path, is_dir=True):
                             pending.append(path)
                         continue
@@ -613,6 +630,9 @@ class PollingSource(_Source):
 
 
 def _os_reason(exc: OSError, root: Path) -> str:
+    """The plain-words reason for `ERR_WATCH_FOLDER`, from the error and a look
+    at whether the folder is still there (a renamed folder raises nothing
+    specific)."""
     if isinstance(exc, FileNotFoundError) or not os.path.isdir(root):
         return "the folder is not there (moved, renamed, or its drive is not connected)"
     if isinstance(exc, PermissionError):
@@ -846,6 +866,9 @@ class BatchIndexer:
 
     def _plan_one(self, change: Change, rules: Any, plan: "_Plan",
                   result: BatchResult, mailboxes: frozenset) -> None:
+        """Decide what one changed path needs, from the disk and the index:
+        rows to remove (gone), a folder to walk (new), a file to read, or
+        nothing. Read-only; see `_plan`."""
         path = change.path
         try:
             is_dir = path.is_dir()
@@ -1230,6 +1253,9 @@ class FolderWatcher:
     # -- the dispatcher ------------------------------------------------------------
 
     def _dispatch(self) -> None:
+        """The dispatcher thread: one `step` per tick until `stop`. A step that
+        raises is logged and the next tick carries on - the watch must outlive
+        any one batch."""
         said_ready = False
         while not self._stop.wait(self._tick_s):
             if not said_ready and all(s.ready.is_set() for s in self.sources):
@@ -1294,6 +1320,8 @@ class FolderWatcher:
         self._say("problem", {"root": str(root), "error": error})
 
     def _say(self, kind: str, data: dict) -> None:
+        """One event to `on_event`, from whichever watcher thread has it.
+        A listener that raises is logged, never allowed to end the watch."""
         if self._on_event is None:
             return
         try:

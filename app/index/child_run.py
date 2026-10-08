@@ -334,6 +334,8 @@ class ChildIndexRun:
 
     @property
     def pid(self) -> Optional[int]:
+        """The child's process id, or None before it has started (the bench
+        samples the child's memory by it)."""
         proc = self._proc
         return getattr(proc, "pid", None) if proc is not None else None
 
@@ -431,6 +433,8 @@ class ChildIndexRun:
         lines: "queue.Queue[bytes]" = queue.Queue()
 
         def pump() -> None:
+            """Reader thread: every line of the child's output onto `lines`,
+            then one empty bytes so the loop below knows the pipe closed."""
             try:
                 while True:
                     line = proc.stdout.readline(LINE_LIMIT_BYTES)

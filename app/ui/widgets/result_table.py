@@ -422,6 +422,7 @@ def offer_filters(view: Any, notices: Any, generation: int, response: Any = None
         chips.show_applied(applied)
 
     def landed(offers: Any) -> None:
+        """UI thread: the offers arrived; shown only if no newer search has landed."""
         if offers and generation == view._shown_generation:
             view.notices.show_notices([*notices, *offers])
 

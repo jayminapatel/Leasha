@@ -88,6 +88,10 @@ def _timed(work: Callable[[], Any], repeat: int = 3) -> tuple[float, Any]:
 
 
 # --- one runner per model: build on `device`, return (seconds, answer) ------------
+#
+# Each runner builds its model afresh for the device asked, so the processor
+# and the graphics card are never the same session with a different label.
+# They raise freely: `run_device_test` turns a failure into that model's note.
 
 def _meaning(settings: Any, device: str, samples: dict) -> tuple[float, Any]:
     from app.index.embedder import Embedder
@@ -107,6 +111,10 @@ def _rerank(settings: Any, device: str, samples: dict) -> tuple[float, Any]:
 def _ocr(settings: Any, device: str, samples: dict) -> tuple[float, Any]:
     from app.extract import ocr
 
+    # The OCR engine is a module-level singleton with no per-device constructor,
+    # so the test swaps its state for the device under test and puts it back in
+    # `finally`, whatever happened - the run that follows must find the engine
+    # exactly as the settings left it.
     saved = (ocr._engine, ocr._engine_failed, ocr._device)
     try:
         ocr._engine, ocr._engine_failed = None, False
@@ -176,6 +184,7 @@ def agree(model: str, first: Any, second: Any) -> bool:
 
 
 def winner(entry: dict) -> str:
+    """`"gpu"` only when it ran, agreed, and was `MIN_GAIN` faster; else `"cpu"`."""
     gpu_s, cpu_s = entry.get("gpu_s"), entry.get("cpu_s")
     if entry.get("gpu_ok") and entry.get("agree") and gpu_s and cpu_s \
             and gpu_s <= cpu_s * MIN_GAIN:

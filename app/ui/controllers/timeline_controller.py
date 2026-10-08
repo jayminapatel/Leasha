@@ -45,6 +45,7 @@ class TimelineController(QObject):
     """Connects the window's pages to the timeline. Holds no state of its own."""
 
     def __init__(self, window: Any) -> None:
+        """Wire the Reports page, the results menu and the strip to the timeline."""
         super().__init__(window)
         self._w = window
         reports = window.reports_view
@@ -64,6 +65,7 @@ class TimelineController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _open_month(self, when_ns: Any) -> None:
+        """UI thread: the worker found the date (or none); open the timeline there."""
         if when_ns is None:
             self._w.notify(NO_DATE)
             return

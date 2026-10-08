@@ -71,6 +71,8 @@ def index_summary(store: Any) -> str:
         if offline:
             text += f", including drives that are offline: {', '.join(offline[:4])}"
     except Exception:                                   # noqa: BLE001
+        # The offline-drive names are a courtesy on the end of the sentence;
+        # the count above stands without them.
         pass
     return text
 

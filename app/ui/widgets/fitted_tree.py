@@ -131,17 +131,22 @@ class _RowDelegate(QStyledItemDelegate):
         self._elide = set(elide)
 
     def initStyleOption(self, option: Any, index: Any) -> None:   # noqa: N802 - Qt's naming
+        """The path column elides in the middle so both the drive and the file name show."""
         super().initStyleOption(option, index)
         if index.column() in self._elide:
             option.textElideMode = Qt.TextElideMode.ElideMiddle
 
     def sizeHint(self, option: Any, index: Any) -> Any:           # noqa: N802 - Qt's naming
+        """Never shorter than the tallest control on any line (`row_height`)."""
         size = super().sizeHint(option, index)
         if self.row_height > size.height():
             size.setHeight(self.row_height)
         return size
 
     def updateEditorGeometry(self, editor: Any, option: Any, index: Any) -> None:  # noqa: N802
+        """Place a row widget at its own height, centred in the cell - Qt's own
+        version hands it the text rectangle and cuts the button's bottom off.
+        """
         # Qt's own version gives the widget the *text* rectangle, the row less
         # the sheet's item padding: the bottom of every button was cut off.
         cell = QRect(option.rect)
@@ -211,9 +216,13 @@ class FittedColumns(QObject):
         self._timer.start()
 
     def _rows_changed(self, *_args: Any) -> None:
+        """Rows came or went: refit even over a dragged width - new rows may need room."""
         self.schedule(force=True)
 
     def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802 - Qt's naming
+        """A viewport resize, or a show/style/font change, asks for a fit on the
+        next pass of the event loop.
+        """
         kind = event.type()
         if watched is self._viewport:
             if kind == QEvent.Type.Resize:
@@ -223,6 +232,9 @@ class FittedColumns(QObject):
         return False
 
     def _run(self) -> None:
+        """The deferred fit. A dragged column is respected unless `force` was asked
+        for; a tree already torn down is left alone.
+        """
         force, self._force = self._force, False
         try:
             if force or not self.dragged():
@@ -294,6 +306,7 @@ class FittedColumns(QObject):
         return [tree.topLevelItem(i) for i in range(tree.topLevelItemCount())]
 
     def _widgets_width(self, column: int) -> int:
+        """The widest row widget in `column`, with a drop-down's cell inset added."""
         widest = 0
         for item in self._items():
             widget = self._tree.itemWidget(item, column)

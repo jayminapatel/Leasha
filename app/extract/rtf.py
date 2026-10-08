@@ -51,6 +51,12 @@ class RtfExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document of the RTF's body text, capped at `MAX_TEXT_CHARS`.
+
+        Not starting with `{\rtf`, or a parse failure inside striprtf, is
+        `ERR_FILE_CORRUPT`; locked is `ERR_FILE_LOCKED`; a file holding only an
+        embedded picture yields nothing (`ERR_NO_TEXT_LAYER`). Reads only.
+        """
         from striprtf.striprtf import rtf_to_text
 
         try:

@@ -1,4 +1,11 @@
-"""`evaluate`: measuring whether plain sentences find the right documents."""
+"""`evaluate`: measuring whether plain sentences find the right documents.
+
+Layer: L4 (search quality); `--chat` hands off to `app.chat.evaluate` (L8b).
+
+Exit codes: 0 when the measurement ran, whatever the numbers say - a low
+recall is a result, not a failure of this command. 1 when it could not run
+(no questions, Ollama asked for and not answering).
+"""
 
 from __future__ import annotations
 

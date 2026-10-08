@@ -40,10 +40,12 @@ INTRO = ("The models Leasha runs itself. Recommended ones were checked on a real
 
 
 class _Relay(QObject):
+    """Carries discovery progress from the worker thread to the window's thread."""
     said = Signal(str)
 
 
 def _cell(text: str, data: Any = None) -> QTableWidgetItem:
+    """A read-only table cell, carrying `data` under `UserRole` when given."""
     item = QTableWidgetItem(text)
     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
     if data is not None:
@@ -52,6 +54,9 @@ def _cell(text: str, data: Any = None) -> QTableWidgetItem:
 
 
 class ModelManagerBox(QGroupBox):
+    """The Models box. Every disk look, removal and network call is a worker;
+    `_scanned`, `_removed` and `_listed` paint on the UI thread.
+    """
     #: Emitted after anything changed on disk or in the choices.
     models_changed = Signal()
 
@@ -164,6 +169,7 @@ class ModelManagerBox(QGroupBox):
             self.refresh()
 
     def refresh(self) -> None:
+        """Scan the model folder and the catalogue on a worker; `_scanned` draws it."""
         if self._busy:
             return
         self._asked = True
@@ -174,6 +180,7 @@ class ModelManagerBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _scan(self) -> tuple[list, list]:
+        """Worker thread: what is on disk, and what the catalogue offers that is not."""
         from app.ort import catalogue, inventory
 
         cache = getattr(self._settings, "model_cache", None)
@@ -185,6 +192,7 @@ class ModelManagerBox(QGroupBox):
         return items, offer
 
     def _scanned(self, result: Any) -> None:
+        """UI thread: redraw both tables from the scan."""
         self._items, self._available = result
         present = [i for i in self._items if i.present]
         self.installed.setRowCount(0)
@@ -211,6 +219,7 @@ class ModelManagerBox(QGroupBox):
         self._note = ""
 
     def _fill_available(self) -> None:
+        """Redraw the Available table through the filter box's words."""
         words = [w for w in self.filter.text().lower().split() if w]
         self.available.setRowCount(0)
         for entry in self._available:
@@ -294,6 +303,7 @@ class ModelManagerBox(QGroupBox):
             self._run_removal(spare, force=False)
 
     def _run_removal(self, items: list, *, force: bool) -> None:
+        """Delete `items` on a worker. `force` removes a model that is in use."""
         self._busy = True
         self.delete_button.setEnabled(False)
         self.clean_button.setEnabled(False)
@@ -322,6 +332,9 @@ class ModelManagerBox(QGroupBox):
         self.refresh()
 
     def _use_selected(self) -> None:
+        """Make the selected model its job's choice. Writes the small choices file in
+        Leasha's state folder on the UI thread - a few bytes, not user data.
+        """
         from app.ort import catalogue
 
         item = self._selected_item()
@@ -354,6 +367,7 @@ class ModelManagerBox(QGroupBox):
         self.refresh()
 
     def _update_list(self) -> None:
+        """Ask Hugging Face for the catalogue on a worker; progress comes through the relay."""
         if self._busy:
             return
         self._busy = True
@@ -369,6 +383,8 @@ class ModelManagerBox(QGroupBox):
             def said(text: str) -> None:
                 try:
                     relay.said.emit(text)
+                # The relay's C++ side has gone (the box closed): the progress line
+                # has nowhere to go, and discovery itself still finishes.
                 except RuntimeError:
                     pass
 
@@ -381,6 +397,7 @@ class ModelManagerBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _listed(self, sentence: Any) -> None:
+        """UI thread: discovery ended (or raised); its sentence is kept across the refresh."""
         self._busy = False
         self.update_button.setEnabled(True)
         self._note = str(getattr(sentence, "message", sentence))

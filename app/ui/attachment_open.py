@@ -1,5 +1,7 @@
 r"""Open a file that came out of an email: save a copy, open the copy.
 
+Layer: L5
+
 2026-10-04, the owner: "build the open on attachment, save a copy and open
 it", and "it must still have the option to open in outlook" - which it has,
 beside this, unchanged. A program can only open a file it can find on disk,

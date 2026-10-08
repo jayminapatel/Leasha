@@ -104,6 +104,9 @@ def _fib(word: bytes) -> dict[str, int]:
     if flags & (_FLAG_ENCRYPTED | _FLAG_OBFUSCATED):
         raise LegacyOfficeUnreadable("the document is encrypted")
 
+    # FibBase is a fixed 32 bytes ([MS-DOC] 2.5.2); the variable-length arrays
+    # that follow each start with their own count, which is why the walk below
+    # reads a count and skips rather than using fixed offsets.
     position = 32
     (csw,) = struct.unpack_from("<H", word, position)
     position += 2 + csw * 2
@@ -117,6 +120,9 @@ def _fib(word: bytes) -> dict[str, int]:
     pairs_start = position + 2
     if cb_fc_lcb < 34:
         raise LegacyOfficeUnreadable("FibRgFcLcb is too short to hold a Clx")
+    # fcClx/lcbClx are pair 33 of FibRgFcLcb97 ([MS-DOC] 2.5.5); each pair is
+    # two 4-byte fields, hence `* 8`. `lw[3]` below is ccpText, the body's
+    # character count, and `lw[4..10]` the other stories in FibRgLw97 order.
     fc_clx, lcb_clx = struct.unpack_from("<II", word, pairs_start + 33 * 8)
     fc_dgg, lcb_dgg = (0, 0)
     if cb_fc_lcb > _FC_DGG_INFO:
@@ -458,6 +464,13 @@ class DocExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """Body, footnotes, comments, text boxes and WordArt of a Word 97-2003 file.
+
+        A file this reader will not vouch for (encrypted, Word 6/95, damaged,
+        not OLE2) goes to the LibreOffice route via `fall_back`, which raises
+        `ERR_FILE_CORRUPT` if no converter is on. A locked file is
+        `ERR_FILE_LOCKED`. Reads the streams only; never writes beside the file.
+        """
         try:
             stories = self._read(path)
         except LegacyOfficeUnreadable as exc:

@@ -57,6 +57,9 @@ class XlsxUnreadable(Exception):
 
 @dataclass
 class SheetData:
+    """One worksheet as `read_workbook` returns it: name, written rows, and
+    whether the row cap cut it short."""
+
     name: str
     #: `(row number, [(column, value), ...])`, rows in order, values as openpyxl
     #: would return them (never None: an empty cell is simply absent).

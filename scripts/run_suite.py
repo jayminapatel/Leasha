@@ -170,7 +170,14 @@ def main(argv: list[str] | None = None) -> int:
         # file names from the log - so a crashed part could never say which file
         # it died in (`FILE_LINE` matched nothing; "Last file it started: (none
         # started)"). One line per file, the dots after it, as pytest's default.
-        command = [sys.executable, "-m", "pytest", *group, "-v", "-rf",
+        # 2026-10-08, found in review: `-rf` lists FAILED tests only. A test whose
+        # fixture raised is an ERROR, which `-rf` leaves out of the short summary,
+        # so `FAILED_LINE` (which already accepts ERROR) matched nothing, the part
+        # "finished" with a normal summary line, and the run exited 0 with the
+        # tally saying "1 error". `-rfE` lists both; the error count from the
+        # summary line is counted below as well, so the exit code cannot be green
+        # while the tally is not.
+        command = [sys.executable, "-m", "pytest", *group, "-v", "-rfE",
                    "-p", "no:cacheprovider", f"--timeout={args.timeout}",
                    f"--basetemp={work / f'tmp{number}'}"]
         process = subprocess.Popen(command, cwd=ROOT, stdout=handle,
@@ -179,6 +186,7 @@ def main(argv: list[str] | None = None) -> int:
 
     failures: set[str] = set()
     crashed = 0
+    errored = 0
     for number, group, log, handle, process in running:
         code = process.wait()
         handle.close()
@@ -186,8 +194,12 @@ def main(argv: list[str] | None = None) -> int:
         last_file = next((m.group(1) for m in map(FILE_LINE.match, reversed(text.splitlines()))
                           if m), "(none started)")
         last_summary = next((line for line in reversed(text.splitlines())
-                             if re.search(r"\d+ (passed|failed)", line)), "")
-        tally = ", ".join(f"{count} {word}" for count, word in SUMMARY.findall(last_summary))
+                             if re.search(r"\d+ (passed|failed|error)", line)), "")
+        counts = SUMMARY.findall(last_summary)
+        tally = ", ".join(f"{count} {word}" for count, word in counts)
+        # The belt to `-rfE`'s braces: whatever the short summary lists, a
+        # non-zero error count on the summary line is never a green run.
+        errored += sum(int(count) for count, word in counts if word.startswith("error"))
         failures.update(m.group(2) for m in map(FAILED_LINE.match, text.splitlines()) if m)
         if not part_died(code, text):
             print(f"  part {number}: finished ({tally or 'nothing passed or failed'}) - "
@@ -212,9 +224,9 @@ def main(argv: list[str] | None = None) -> int:
     print()
     for name in sorted(failures):
         print(f"FAILED {name}")
-    print(f"\n{len(failures)} failed, {crashed} process(es) crashed, "
+    print(f"\n{len(failures)} failed, {errored} errored, {crashed} process(es) crashed, "
           f"{int(time.time() - started)}s.  Full logs: {work}")
-    return 1 if failures or crashed else 0
+    return 1 if failures or errored or crashed else 0
 
 
 if __name__ == "__main__":

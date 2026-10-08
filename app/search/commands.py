@@ -121,6 +121,7 @@ class Command:
 
     @property
     def spellings(self) -> tuple[str, ...]:
+        """The name and every alias - what `command_for` resolves."""
         return (self.name, *self.aliases)
 
 

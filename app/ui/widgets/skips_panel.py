@@ -109,5 +109,6 @@ class SkipsPanel(QScrollArea):
             widget.show_details(lines)
 
     def _retitle(self, groups) -> None:
+        """The box's title carries the total across every reason."""
         total = sum(group.count for group in groups)
         self.box.setTitle(f"{format_count(total)} files skipped — review")

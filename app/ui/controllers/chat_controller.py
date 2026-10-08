@@ -100,6 +100,7 @@ class _Ask:
     """One question in flight."""
 
     def __init__(self, token: int, run_view: Any) -> None:
+        """One question's state, shared between the window thread and its worker."""
         self.token = token
         self.run = run_view
         self.stopped = False
@@ -148,7 +149,11 @@ def supported_kwargs(engine: Any, **wanted: Any) -> dict:
 
 
 class ChatController(QObject):
+    """The Chat tab's engine, worker and saving. A `QObject` parented to the window,
+    so a signal connected to one of its methods is delivered on the GUI thread.
+    """
     def __init__(self, window: Any) -> None:
+        """Build the state and the settle timer; the view itself comes from `build`."""
         super().__init__(window)
         self._w = window
         self.view: Optional[ChatView] = None
@@ -197,6 +202,9 @@ class ChatController(QObject):
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
+        """Make the `ChatView` and wire its signals. UI thread; nothing here reads the
+        store - sessions load when the tab first comes forward.
+        """
         view = ChatView()
         self.view = view
         view.error.connect(self._w._show_error)
@@ -259,6 +267,9 @@ class ChatController(QObject):
             tuning.changed.connect(self._tuning_changed)
 
     def shutdown(self) -> None:
+        """The window is closing: stop the settle timer and flag any answer in flight
+        so its worker winds down.
+        """
         self._closing = True
         self._settle.stop()               # 2026-10-04, code review: no load after closing
         if self._ask is not None:
@@ -266,6 +277,9 @@ class ChatController(QObject):
 
     # -- the tab coming forward ------------------------------------------------
     def _tab_changed(self, index: int) -> None:
+        """Rail slot: on the tab's first showing, load the sessions, probe the engine
+        and list the models - all on workers.
+        """
         if self.view is None or index != self._w._tab_index.get(self.view):
             return
         # Not while somebody is arrowing down the rail: the composer taking the
@@ -297,6 +311,9 @@ class ChatController(QObject):
         self._engine_gen += 1
 
     def _settings_changed(self, values: dict) -> None:
+        """Settings saved `.env` values: drop the engine on a `CHAT_*` change so the
+        next question rebuilds it, refit the context window, follow the Web switch.
+        """
         if any(str(key).startswith("CHAT_") for key in values):
             self._drop_engine()       # rebuilt from `.env` on the next question
         if {"CHAT_CONTEXT_TOKENS", "INDEX_TUNING_MODE"} & {str(key) for key in values}:
@@ -347,6 +364,7 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _refit_body(self) -> int:
+        """Worker body: give every Ollama client the chat context window read from `.env`."""
         from app.llm.engines import ollama_context
 
         window = ollama_context(self._fresh_settings())
@@ -387,6 +405,7 @@ class ChatController(QObject):
         return settings
 
     def _default_engine(self) -> Any:
+        """Worker body: a `ChatEngine` for the picked model, from the live `.env`."""
         from app.chat.engine import ChatEngine            # absent in older builds
         from app.chat.config import ChatSettings
         from app.chat.roles import parse_option
@@ -439,12 +458,14 @@ class ChatController(QObject):
 
     # -- availability and loading -------------------------------------------------
     def _check(self) -> None:
+        """Probe the engine on a worker; `_probed` draws the answer."""
         worker = CallableWorker(self._probe, component="ui.chat")
         worker.signals.finished.connect(self._probed)
         worker.signals.failed.connect(lambda _e: self._probed((True, False, "")))
         run(QThreadPool.globalInstance(), worker)
 
     def _probed(self, result: tuple) -> None:
+        """UI thread: keep the worker's engine and show whether chat is available."""
         built, ok, reason = result[:3]
         if len(result) > 5:
             self._adopt(result[4], result[5])
@@ -454,12 +475,14 @@ class ChatController(QObject):
             self.view.show_speed_note(result[3] if len(result) > 3 else "")
 
     def _load_sessions(self) -> None:
+        """Read the saved conversations on a worker; `_loaded` draws them."""
         worker = CallableWorker(self._load, component="ui.chat")
         worker.signals.finished.connect(self._loaded)
         worker.signals.failed.connect(lambda _e: None)
         run(QThreadPool.globalInstance(), worker)
 
     def _loaded(self, result: tuple) -> None:
+        """UI thread: show the saved sessions, keeping one already begun at the top."""
         found, speed, preview = (*result, "")[:3]
         if self.view is None:
             return
@@ -480,11 +503,13 @@ class ChatController(QObject):
 
     # -- sessions ------------------------------------------------------------------
     def _refresh_list(self) -> None:
+        """Redraw the session list with the current one marked."""
         if self.view is not None:
             active = self.session.id if self.session in self.sessions else ""
             self.view.sessions.set_sessions(self.sessions, active)
 
     def _open_session(self, session: ChatSession) -> None:
+        """Show a saved conversation: its turns, its shelf and its Web switch."""
         self.session = session
         self.view.show_turns(session.turns)
         self.view.shelf.set_shelf(session.shelf)
@@ -492,6 +517,7 @@ class ChatController(QObject):
         self._refresh_list()
 
     def _new(self) -> None:
+        """Start an empty conversation and put the cursor in the box."""
         self.session = new_session()
         self.view.show_turns([])
         self.view.shelf.set_shelf(self.session.shelf)
@@ -500,6 +526,7 @@ class ChatController(QObject):
         self.view.focus()
 
     def _select(self, session_id: str) -> None:
+        """The list chose a session; ignored while an answer is in flight."""
         if session_id == self.session.id or self._ask is not None:
             return
         found = next((s for s in self.sessions if s.id == session_id), None)
@@ -507,12 +534,14 @@ class ChatController(QObject):
             self._open_session(found)
 
     def _rename(self, session_id: str, title: str) -> None:
+        """The person renamed a session: their title wins from now on, and is saved."""
         found = next((s for s in self.sessions if s.id == session_id), None)
         if found is not None and found.title != title:
             found.title, found.titled = title, True
             self._persist(found)
 
     def _delete(self, session_id: str) -> None:
+        """Forget a session, on a worker; a new one opens if it was the current one."""
         self.sessions = [s for s in self.sessions if s.id != session_id]
         worker = CallableWorker(self._sessions.delete, session_id, component="ui.chat")
         worker.signals.failed.connect(lambda error: _log.warning("chat: {}", error))
@@ -536,6 +565,7 @@ class ChatController(QObject):
             self._flush()
 
     def _flush(self) -> None:
+        """Save the next pending session on a worker, one at a time (`_saved` chains)."""
         if not self._pending:
             return
         session_id = next(iter(self._pending))
@@ -547,6 +577,7 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _saved(self, error: Any) -> None:
+        """UI thread: a save landed (or failed, logged); save the next pending one."""
         self._saving = False
         if error is not None:
             _log.warning("chat: a conversation could not be saved: {}", error)
@@ -576,6 +607,7 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _show_similar(self, row: Any, chunk_id: int) -> None:
+        """Hand a source to the Search page's "more like this"."""
         if chunk_id <= 0:
             return
         found = dataclasses.replace(row, chunk_id=chunk_id)
@@ -628,6 +660,9 @@ class ChatController(QObject):
                                         ollama=full or runner == "ollama")
 
     def _models_listed(self, result: tuple, *, warm: bool = False, full: bool = True) -> None:
+        """UI thread: fill the model picker from the worker's list, apply a remembered
+        pick, and warm the model in use when asked - deferred while an answer runs.
+        """
         if self._ask is not None and not self._closing:
             # 2026-10-04, code review: the start-up list (and its saved pick) landed
             # while the first question was answered, and the list changed to a model
@@ -728,6 +763,7 @@ class ChatController(QObject):
         return (engine, generation, ok)
 
     def _warmed(self, result: Any) -> None:
+        """UI thread: keep the warmed engine and say the model is ready."""
         if isinstance(result, tuple) and len(result) == 3:
             self._adopt(result[0], result[1])
             if result[2] and not self._closing:
@@ -774,6 +810,9 @@ class ChatController(QObject):
 
     # -- asking ---------------------------------------------------------------------
     def ask(self, question: str, *, again: int = 0) -> None:
+        """Send a question: draw the bubble, snapshot the shelf, start the worker.
+        UI thread; the engine runs in `_answer` on a pool thread.
+        """
         view = self.view
         if view is None or self._ask is not None or not question.strip():
             return
@@ -815,6 +854,9 @@ class ChatController(QObject):
         phrase with Allow / Skip and **waits** for the person. Skips on Stop, on the
         window closing, or after five minutes without an answer."""
         def gate(query: str) -> bool:
+            """Worker thread: ask the window (through the bridge signal) and block until
+            Allow/Skip, Stop, closing, or five minutes have passed.
+            """
             ask.decision.clear()
             ask.allowed = False
             self._bridge.event.emit((ask.token, WebAskEvent(query)))
@@ -836,12 +878,16 @@ class ChatController(QObject):
                           **supported_kwargs(engine, **extra))
 
     def _on_event(self, pair: tuple) -> None:
+        """UI thread: an engine event, only for the question still in flight."""
         token, event = pair
         ask = self._ask
         if ask is not None and ask.token == token and not ask.finalised:
             ask.run.event(event)
 
     def stop(self) -> None:
+        """Stop: close the bubble with what arrived, flag the worker, and hand the box
+        back after `STOP_GRACE_MS` if the engine has not come back by then.
+        """
         ask = self._ask
         if ask is None or ask.finalised:
             return
@@ -878,6 +924,7 @@ class ChatController(QObject):
         self._show_deferred_list()
 
     def _close_answer(self, ask: _Ask, turn: Any, *, stopped: bool = False) -> None:
+        """Finish the bubble and record the turn - the partial words when stopped."""
         ask.finalised = True
         ask.run.finish(turn, stopped=stopped)
         session = self.session
@@ -891,6 +938,7 @@ class ChatController(QObject):
         self._persist(session)
 
     def _answered(self, ask: _Ask, turn: Any) -> None:
+        """UI thread: the worker returned a turn (anything else is drawn as a failure)."""
         if not ask.finalised:
             if isinstance(turn, ChatTurn):
                 self._close_answer(ask, turn)
@@ -899,12 +947,16 @@ class ChatController(QObject):
         self._finished_asking(ask)
 
     def _answer_failed(self, ask: _Ask, error: Any) -> None:
+        """UI thread: the worker raised; the bubble says it did not work."""
         _log.warning("chat: the answer failed: {}", error)
         if not ask.finalised:
             self._close_answer(ask, ChatTurn("assistant", FAILED_LINE, kind="error"))
         self._finished_asking(ask)
 
     def _finished_asking(self, ask: _Ask) -> None:
+        """Common tail of an answer: hand the box back, keep the engine, title the
+        session, and apply a model picked meanwhile.
+        """
         if ask.released:
             return                               # the box was handed back already; this is the orphan
         if self._ask is ask:
@@ -950,6 +1002,7 @@ class ChatController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _titled(self, session: ChatSession, title: Any) -> None:
+        """UI thread: the fast model's title landed; a rename made meanwhile wins."""
         title = " ".join(str(title or "").split())
         if not title or session.titled:
             self._persist(session)                # keeps `auto_titled`, so it is not asked again

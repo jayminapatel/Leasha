@@ -86,6 +86,8 @@ def identify_root(root: Path) -> Optional[VolumeIdentity]:
 
     try:
         k32 = ctypes.windll.kernel32
+        # 261 = MAX_PATH + 1: the buffer size the Windows volume APIs document
+        # for a volume GUID path, a label and a file-system name alike.
         guid_buf = ctypes.create_unicode_buffer(261)
         guid_ok = k32.GetVolumeNameForVolumeMountPointW(
             ctypes.c_wchar_p(text), guid_buf, ctypes.c_uint(261)

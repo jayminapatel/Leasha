@@ -482,6 +482,8 @@ class EventWriter:
     # -- the writing thread ---------------------------------------------------
 
     def _loop(self) -> None:
+        """The writing thread: a progress line when one is due, otherwise a
+        heartbeat on time, then sleep until the next thing that could be due."""
         while not self._stopping.is_set():
             now = time.monotonic()
             with self._lock:
@@ -503,6 +505,8 @@ class EventWriter:
             self._wake.clear()
 
     def _send_progress(self) -> None:
+        """Snapshot the newest stats and write one `progress` line. A snapshot
+        that cannot be built is logged and skipped - the next tick tries again."""
         with self._lock:
             live = self._latest
             self._pending = False
@@ -521,6 +525,9 @@ class EventWriter:
         self._write(line)
 
     def _write(self, line: str) -> None:
+        """One line to the stream, under the write lock. The first failure
+        marks the writer broken for good and tells `on_broken` once; every
+        later line is dropped, since nobody is reading."""
         if self._broken:
             return
         with self._write_lock:

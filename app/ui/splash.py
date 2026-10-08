@@ -422,6 +422,11 @@ class SplashScreen:
             if original.isNull():
                 return None
 
+            # A Python loop over every pixel of a 2667x1611 asset - seconds, on the UI
+            # thread, before the splash shows. Reached only when `leasha-logo-white.png`
+            # is missing: the release ships it, so this is the fallback for a build that
+            # left it out, and the save below keeps it to one run where the folder is
+            # writable.
             # In-place recolor: R<70, G<60, B<130 → white, alpha preserved
             for y in range(original.height()):
                 for x in range(original.width()):

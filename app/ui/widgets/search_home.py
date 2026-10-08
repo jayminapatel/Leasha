@@ -35,6 +35,9 @@ BOX_WIDTH = 640
 
 
 class SearchHome(QWidget):
+    """The empty-state page. Draws from lists already in memory; the only store
+    read behind it is the window's totals worker (`set_count`).
+    """
     def __init__(self, *, on_type: Callable[[str], None],
                  sections: Callable[[], Any], parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -103,6 +106,7 @@ class SearchHome(QWidget):
     # -- sizing -----------------------------------------------------------------
 
     def resizeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """A new width may wrap the pills differently: give their box the height it needs."""
         super().resizeEvent(event)
         self._fit_pills(event.size().width())
 
@@ -168,6 +172,7 @@ class SearchHome(QWidget):
 
 
 def _clear(layout: Any) -> None:
+    """Empty a layout recursively; widgets are `deleteLater`d."""
     while layout.count():
         item = layout.takeAt(0)
         if item.widget() is not None:

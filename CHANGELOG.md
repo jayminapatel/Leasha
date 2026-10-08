@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.83 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 4.84 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,42 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The whole of Leasha read through, and what it found put right (2026-10-08)
+
+- **A folder that pointed at itself no longer swallows an index run.** A Windows junction
+  leading back up its own tree was followed level by level until the path ran out of
+  characters, and the same file was indexed once per level - 64 copies of one document.
+  Junctions are now left out, counted, and said so in the run's skip reasons.
+- **Searching by a name pattern works on a Windows index.** `/name inv*` found nothing,
+  because the slash was trimmed from the file's name and the backslash was not.
+- **A second search no longer shows the first one's results.** Searches that differed
+  only in a photo tag, a place, a person, a drive, `only:` or a status shared one cached
+  answer.
+- **A typed repository search can no longer make git write a file.** `/range` and its
+  neighbours used to pass what you typed straight to git as an option; a branch named
+  beside `/history` is also searched now rather than silently ignored.
+- **Pressing Escape while names are being written into photos stops the writing.** It used
+  to hide the dialog and carry on. An emptied backup field no longer sends copies to
+  wherever Leasha was started from.
+- **The window stays smooth in more places**: stopping another copy's index run, the end
+  of a run's tuning and learning, saving a Settings change to `.env`, and photos that OCR
+  found no text in no longer hold the writer open while their picture work runs.
+- **A saved search that could not be saved now says so** in the notice bar instead of
+  looking saved.
+- **A window left on a second monitor stays there.** It used to be dragged back onto the
+  first screen on every start.
+- **Mail whose body was only in rich text is read as text**, not as formatting codes.
+- **Two recordings can no longer corrupt each other's transcript** on the same speech
+  engine.
+- **`.svg` files are read as text**, not sent to OCR, which could never read them.
+- **Settings gained "Read task lists from Microsoft Project files"** (off, with the reason)
+  and lists **"Once, shortly after opening"** as a schedule the control can show.
+- **For the people building Leasha:** the source installer writes only where things live
+  into `.env` and fetches models through Leasha's own catalogue; the build refuses to ship
+  without an optional package unless told to; the test runner no longer reports green on a
+  fixture error; nothing below the window imports from it; and every module and most
+  functions now say what they are for and why they are the way they are.
 
 ## [1.0.0] - 2026-10-08
 

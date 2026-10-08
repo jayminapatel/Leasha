@@ -59,6 +59,7 @@ class SortableItem(QTableWidgetItem):
     """A cell that sorts on `SORT_ROLE` when it has one."""
 
     def __lt__(self, other: QTableWidgetItem) -> bool:      # noqa: D105 - Qt's hook
+        """Qt's sort hook: compare `SORT_ROLE` values, falling back to the shown text."""
         mine = _sortable(self.data(SORT_ROLE))
         theirs = _sortable(
             other.data(SORT_ROLE) if isinstance(other, QTableWidgetItem) else None)
@@ -88,6 +89,7 @@ class SortableTreeItem(QTreeWidgetItem):
     """
 
     def __lt__(self, other: object) -> bool:                 # noqa: D105 - Qt's hook
+        """Qt's sort hook for a tree row: as the table's, on the column being sorted."""
         tree = self.treeWidget()
         column = tree.sortColumn() if tree is not None else 0
         mine = _sortable(self.data(column, SORT_ROLE))

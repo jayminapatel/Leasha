@@ -24,7 +24,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional, Sequence
 
+from app.core.logging import logger
+
 __all__ = ["SavedSearches"]
+
+_log = logger.bind(component="ui.saved")
 
 
 class SavedSearches:
@@ -36,7 +40,13 @@ class SavedSearches:
     """
 
     def __init__(self, store: Any = None,
-                 on_scope: Optional[Callable[[str], None]] = None) -> None:
+                 on_scope: Optional[Callable[[str], None]] = None, *,
+                 on_failed: Optional[Callable[[Any], None]] = None) -> None:
+        """Hold the store and the empty lists; nothing is read until `refresh`.
+
+        `on_failed` seeds `self.failed` (below); keyword-only so the two
+        positional arguments every existing caller passes keep their meaning.
+        """
         self._store = store
         self._on_scope = on_scope
         #: The current list, most-run first. Empty until the first fetch lands,
@@ -53,6 +63,11 @@ class SavedSearches:
         self._settings: Any = None
         #: Told when the list changes, so a dropdown can redraw itself.
         self.changed: Optional[Callable[[tuple], None]] = None
+        #: Told, with the `AppError`, when a save, rename or delete fails on
+        #: the worker. Found in review 2026-10-08: until then the failure was
+        #: logged and the dialog closed as if it had worked. The view points
+        #: this at its notice bar; unset, the error is still logged here.
+        self.failed: Optional[Callable[[Any], None]] = on_failed
 
     # -- what is in it -------------------------------------------------------
 
@@ -134,7 +149,7 @@ class SavedSearches:
             return
         from app.ui.workers import save_search_async
 
-        save_search_async(self._store, name, query, scope, self._took)
+        save_search_async(self._store, name, query, scope, self._took, self._failed)
 
     def rename(self, old: str, new: str, on_done: Any = None) -> None:
         """Rename one, then refresh. Adoptions 3b - the dialog for this never existed."""
@@ -145,16 +160,29 @@ class SavedSearches:
         self._change("delete", (name,), on_done)
 
     def _change(self, action: str, args: tuple, on_done: Any) -> None:
+        """Rename or delete on a worker, then take the refreshed list."""
         if self._store is None:
             return
         from app.ui.workers import change_saved_search_async
 
         def landed(saved: Any) -> None:
+            """UI thread: the list after the change, then the caller's follow-up."""
             self._took(saved)
             if on_done is not None:
                 on_done()
 
-        change_saved_search_async(self._store, action, args, landed)
+        change_saved_search_async(self._store, action, args, landed, self._failed)
+
+    def _failed(self, error: Any) -> None:
+        """UI thread: a write did not happen. Tell whoever asked to be told;
+        **never raises** - a failure to report a failure helps nobody."""
+        try:
+            if self.failed is not None:
+                self.failed(error)
+            else:
+                _log.warning("saved search write failed and nobody is listening: {}", error)
+        except Exception:                        # noqa: BLE001 - a convenience
+            pass
 
     def _took(self, saved: Any) -> None:
         """A fetched list has arrived. **Never raises**: it is a convenience."""
@@ -204,6 +232,7 @@ class SavedSearches:
             store = self._store
 
             def write() -> None:
+                """Worker body: count the saved searches that just ran."""
                 from app.search.run import note_saved_runs
 
                 note_saved_runs(store, names)

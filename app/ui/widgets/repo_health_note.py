@@ -46,11 +46,14 @@ class RepoHealthNote(QLabel):
         self._generation += 1
         generation = self._generation
         worker = CallableWorker(repo_health_notes, self._store, component="ui.code.health")
+        # A plain connect: the note is a child of the Code view, which lives as
+        # long as the window; a late answer finds it in place.
         worker.signals.finished.connect(lambda notes, g=generation: self._show(notes, g))
         worker.signals.failed.connect(lambda _e: self._show([], generation))
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, notes: Any, generation: int) -> None:
+        """UI thread: the notes landed. Dropped if `refresh` was called again since."""
         if generation != self._generation:
             return
         text = "\n\n".join(str(one) for one in (notes or ()))

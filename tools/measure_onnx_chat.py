@@ -1,5 +1,10 @@
 """The ONNX chat model on the real Qwen2.5-1.5B int8: load, first token, speed, and the
-three things Leasha asks of it (Interpret, a Chat answer, the planner's JSON)."""
+three things Leasha asks of it (Interpret, a Chat answer, the planner's JSON).
+
+Layer: tooling, not app code. Run by hand; the numbers it prints are the
+evidence behind the chat model's defaults, not a test. The model must already
+be downloaded (Settings, Models) - this never fetches.
+"""
 import json
 import sys
 import time

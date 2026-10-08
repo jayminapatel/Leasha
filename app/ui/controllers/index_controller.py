@@ -45,7 +45,7 @@ from app.ui.presenter import (
     PREPARING_WORDS, _read_external_run, _scan_and_save, cleared_message,
     index_bytes, offline_media_run_summary,
 )
-from app.ui.state_writes import save_states
+from app.ui.state_writes import save_state, save_states
 from app.ui.widgets.indexing_layout import repaint_totals
 from app.ui.workers import CallableWorker, run
 
@@ -85,8 +85,14 @@ class IndexController(QObject):
     IMAGES_DUE_STATE = IMAGES_DUE_STATE
 
     def __init__(self, window: Any) -> None:
+        """Hold the window and the images-pass flags; the window still owns the views."""
         super().__init__(window)
         self._w = window
+        #: The hardware profile, as the last `_refresh_tuning_status` worker
+        #: read it. `cached_profile` shells out to PowerShell on a cold cache
+        #: and reads and writes the store, so it is never called on the UI
+        #: thread (2026-10-08 review); `_can_use_gpu` answers from this copy.
+        self._known_profile: Any = None
         #: See `IMAGES_DUE_STATE`. Read from the store after start-up
         #: (`load_images_due`); False until then, which is the old behaviour.
         self._images_due = False
@@ -168,6 +174,7 @@ class IndexController(QObject):
         self._w.indexing_view.schedule_box.set_schedule_status(self._w.scheduler.status())
 
     def _load_last_index_time(self) -> Optional[datetime]:
+        """The last run's finish time from the store (one keyed read), or None."""
         raw = self._w._store.get_state(LAST_RUN_STATE)
         if not raw:
             return None
@@ -316,6 +323,9 @@ class IndexController(QObject):
             return
 
     def _set_images_due(self, due: bool) -> None:
+        """Record whether the images pass is due: in memory now, in the store on the
+        ordered writer, and the What gets read page told.
+        """
         self._images_due = bool(due)
         self._tell_coverage()
         self._images_due_saving = True
@@ -327,6 +337,7 @@ class IndexController(QObject):
             self._images_due_saved()
 
     def _images_due_saved(self) -> None:
+        """The queued write landed (or failed): store reads may be believed again."""
         self._images_due_saving = False
 
     def _offer_images_pass(self, _stats: Any) -> None:
@@ -396,19 +407,41 @@ class IndexController(QObject):
         Both read the store, so both happen here rather than in the widget -
         the panel is built inside `MainWindow.__init__`, where nothing may
         touch a database.
+
+        On a worker since the 2026-10-08 review: `cached_profile` runs the
+        PowerShell hardware probe (10 s and 15 s timeouts) on a cold cache and
+        writes the profile back, and this ran on the UI thread at start-up,
+        racing the detection it had just started. The panel is painted in the
+        slot; the profile is kept for `_can_use_gpu`.
         """
-        try:
+        from app.ui.later import when_done
+
+        settings, store = self._w._settings, self._w._store
+
+        def read() -> Any:
+            """Worker body: the profile, its status line and the measured rates."""
             from app.core.compute_profile import cached_profile
             from app.core.measured import for_profile
             from app.index.autotune import status_line
 
-            profile = cached_profile(self._w._store, self._w._settings.data_path)
-            self._w.indexing_view.tuning.set_tuned_status(
-                status_line(self._w._store, profile))
-            self._w.indexing_view.tuning.set_measured(
-                {"rates": for_profile(self._w._store, profile)})
+            profile = cached_profile(store, settings.data_path)
+            return profile, status_line(store, profile), for_profile(store, profile)
+
+        worker = CallableWorker(read, component="ui.tuning.status")
+        when_done(self._w, worker, finished=self._tuning_status_read,
+                  failed=lambda exc: _log.debug(
+                      "the tuning status could not be refreshed: {}", exc))
+        run(QThreadPool.globalInstance(), worker)
+
+    def _tuning_status_read(self, found: Any) -> None:
+        """UI thread: paint what `_refresh_tuning_status`'s worker read."""
+        profile, line, rates = found
+        self._known_profile = profile
+        try:
+            self._w.indexing_view.tuning.set_tuned_status(line)
+            self._w.indexing_view.tuning.set_measured({"rates": rates})
         except Exception as exc:                 # noqa: BLE001 - a status line
-            _log.debug("the tuning status could not be refreshed: {}", exc)
+            _log.debug("the tuning status could not be painted: {}", exc)
 
     def _learn_from_run(self, stats: Any) -> None:
         r"""§5c: what the run just measured, and what it argues for.
@@ -420,10 +453,15 @@ class IndexController(QObject):
 
         Wrapped whole, because none of this may cost somebody the end of an
         index run that otherwise succeeded.
+
+        The learning runs on a worker (2026-10-08 review): `cached_profile`
+        and `learn` both read the store, and `cached_profile` can run the
+        hardware probe. What was learned is applied in `_learned`, on the UI
+        thread, exactly as before.
         """
+        from app.ui.later import when_done
+
         try:
-            from app.core.compute_profile import cached_profile
-            from app.index.autotune import learn
             from app.index.timed_out_retry import was_retry
 
             if was_retry(stats):
@@ -431,10 +469,29 @@ class IndexController(QObject):
                 # construction. It is not a measurement of this computer, and
                 # it must not move a tuning setting: "nothing is saved".
                 return
-            profile = cached_profile(self._w._store, self._w._settings.data_path)
-            found = learn(self._w._store, profile, stats,
-                          mode=self._w.indexing_view.tuning.current_mode(),
-                          device=self._w._settings.embed_device)
+            settings, store = self._w._settings, self._w._store
+            mode = self._w.indexing_view.tuning.current_mode()
+            device = settings.embed_device
+
+            def study() -> Any:
+                """Worker body: what this run measured, against this machine's profile."""
+                from app.core.compute_profile import cached_profile
+                from app.index.autotune import learn
+
+                profile = cached_profile(store, settings.data_path)
+                return learn(store, profile, stats, mode=mode, device=device)
+
+            worker = CallableWorker(study, component="ui.tuning.learn")
+            when_done(self._w, worker, finished=self._learned,
+                      failed=lambda exc: _log.debug(
+                          "nothing was learned from this run: {}", exc))
+            run(QThreadPool.globalInstance(), worker)
+        except Exception as exc:                 # noqa: BLE001
+            _log.debug("nothing was learned from this run: {}", exc)
+
+    def _learned(self, found: Any) -> None:
+        """UI thread: apply (Auto) or propose (Manual) what the worker learned."""
+        try:
             self._w._refresh_tuning_status()
             self._w.indexing_view.tuning.set_last_run(self._w._last_run_record())
             if not found:
@@ -468,6 +525,7 @@ class IndexController(QObject):
         devices = ("cpu", "gpu") if self._w._can_use_gpu() else None
 
         def measure() -> Any:
+            """Worker body: time the pipeline and remember the result for this machine."""
             found = run_index_bench(self._w._settings, devices=devices)
             if not found.error:
                 profile = cached_profile(self._w._store, self._w._settings.data_path)
@@ -487,13 +545,21 @@ class IndexController(QObject):
 
         The one question §0 says the specification sheet cannot answer, so it
         is only worth the extra minute when there is something to compare.
+
+        Answered from `_known_profile`, which `_refresh_tuning_status`'s
+        worker fills at start-up (2026-10-08 review: this called
+        `cached_profile` on the UI thread from the Benchmark button and the
+        hourly idle timer). Before the first read lands the answer is "no",
+        and a refresh is asked for so the next click has it.
         """
+        profile = self._known_profile
+        if profile is None:
+            self._refresh_tuning_status()
+            return False
         try:
-            from app.core.compute_profile import cached_profile
             from app.index.backends import why_unavailable
 
-            return not why_unavailable(
-                cached_profile(self._w._store, self._w._settings.data_path))
+            return not why_unavailable(profile)
         except Exception:                        # noqa: BLE001
             return False
 
@@ -653,12 +719,18 @@ class IndexController(QObject):
         thing the run lock exists to prevent - so this writes the flag and the
         runner honours it at its next checkpoint, keeping everything read so far.
         """
-        from app.core.run_lock import request_stop
+        import time
 
-        try:
-            request_stop(self._w._store)
-        except Exception as exc:                 # noqa: BLE001
-            _log.warning("could not ask the other run to stop: {}", exc)
+        from app.core.run_lock import STOP_STATE_KEY
+
+        # Found in review 2026-10-08: this called `run_lock.request_stop`, a
+        # synchronous `store.set_state` on the UI thread - bug 3a's exact shape,
+        # on the one button pressed while another process holds the write lock
+        # per batch. The same flag, written through the ordered state pool.
+        save_state(self._w._store, STOP_STATE_KEY, str(time.time()),
+                   component="ui.index.stop", owner=self,
+                   on_failed=lambda exc: _log.warning(
+                       "could not ask the other run to stop: {}", exc))
 
     def _maybe_run_idle_bench(self) -> None:
         r"""Work order 0b §5e: "the first bench runs at the first idle
@@ -680,6 +752,7 @@ class IndexController(QObject):
         devices = ("cpu", "gpu") if self._w._can_use_gpu() else None
 
         def measure() -> Any:
+            """Worker body: ask whether a bench is due and, if so, run and remember it."""
             from app.core.compute_profile import cached_profile
             from app.core.measured import remember
             from app.index.autotune import should_bench
@@ -716,6 +789,7 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _unexpected_detail_read(self, rows: Any) -> None:
+        """UI thread: the skip rows landed; show them under the ERR_UNEXPECTED reason."""
         self._w.indexing_view.skips.show_details("ERR_UNEXPECTED", rows)
 
     def _idle_bench_finished(self, result: Any) -> None:
@@ -791,6 +865,7 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _scan_finished(self, payload: dict) -> None:
+        """UI thread: say how many files the scan counted."""
         files = int(payload.get("files", 0) or 0)
         self._w.notify(
             f"{files:,} files to index. The progress bar can show a percentage "
@@ -838,6 +913,7 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _conversion_done(self, count: int, target: Path) -> None:
+        """UI thread: say what was written and offer the folder as an index root."""
         self._w.notify(f"Wrote {count:,} messages to {target}", 15_000)
         roots = self._w.settings_view.current_roots()
         if str(target) not in roots:
@@ -1259,6 +1335,9 @@ class IndexController(QObject):
             # It is ended first (here, on the worker, where waiting is allowed)
             # and started again in `_index_cleared`, or it would go on writing
             # into a vector table that is about to be dropped.
+            """Worker body: end the folder watch, clear the index and drop the vectors,
+            weighing the two before and after.
+            """
             from app.index.watch_child import end_all_watch_children
             end_all_watch_children()
             before = index_bytes(self._w._store, self._w._settings)
@@ -1273,6 +1352,7 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _index_cleared(self, outcome: Any) -> None:
+        """UI thread: report the reset and refresh every count that changed."""
         self._w.notify(cleared_message(outcome), 20_000)
         self._w.indexing_view.refresh_totals(self._w._store, self._w._settings)
         self._w.files_view.refresh_summary()
@@ -1377,6 +1457,7 @@ class IndexController(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _offline_media_run_done(self, result: Any) -> None:
+        """UI thread: a Scan, Rescan or Delete finished - redraw and say what it did."""
         self._w.offline_media_view.set_busy("")
         self._w.offline_media_view.refresh()
         self._w.files_view.refresh_summary()

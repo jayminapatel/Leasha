@@ -347,4 +347,5 @@ class SearchBehaviourBox(QGroupBox):
         self.mini_status.setText(describe(text, registered=registered))
 
     def _emit(self) -> None:
+        """One `changed` with every key; the writer takes the dict whole."""
         self.changed.emit(self.values())

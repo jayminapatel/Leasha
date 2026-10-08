@@ -110,10 +110,15 @@ class ComputeProfile:
 
     @property
     def hybrid(self) -> bool:
+        """True when the platform reported both P-cores and E-cores."""
         return bool(self.performance_cores and self.efficiency_cores)
 
     @property
     def directml_available(self) -> bool:
+        """True when some adapter can be used by onnxruntime's DirectML provider.
+
+        A card that DXGI lists but no provider can drive reads as False here.
+        """
         return any(gpu.directml for gpu in self.gpus)
 
     def fingerprint(self) -> str:
@@ -136,6 +141,11 @@ class ComputeProfile:
         return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
     def as_dict(self) -> dict[str, Any]:
+        """The profile as plain data, with its fingerprint attached.
+
+        The fingerprint is written out so a stored profile can be compared
+        without rebuilding it; `from_dict` ignores the key on the way back in.
+        """
         out = asdict(self)
         out["fingerprint"] = self.fingerprint()
         return out
@@ -409,6 +419,9 @@ def _linux_disk_kind(path: Path, unknowns: list[str]) -> str:
             if rotational.is_file():
                 return "hdd" if rotational.read_text().strip() == "1" else "ssd"
     except Exception:                            # noqa: BLE001
+        # A container, a network mount or a missing /sys entry: the module
+        # rule is that detection never raises, so the gap is recorded below
+        # as an unknown and `doctor` prints it as such.
         pass
     unknowns.append("index disk type")
     return ""

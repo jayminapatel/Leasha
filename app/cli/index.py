@@ -1,4 +1,17 @@
-"""`index` and `reembed`: building the index and rebuilding its vectors."""
+"""`index` and `reembed`: building the index and rebuilding its vectors.
+
+Layer: L3
+
+The two writers. Both take `IndexRunLock` rather than the window's
+`SingleInstance`, because what must not overlap is two processes writing one
+SQLite file - a window that is only reading is not in the way (see
+`cmd_index`). `timed-out` is registered from here too, beside the
+`--retry-timed-out` flag it serves.
+
+The imports from `app.ui.presenter` are deliberate and Qt-free: non-negotiable 8
+wants the command line and the Indexing page to say the same words, so both
+read them from one place rather than keeping two copies.
+"""
 
 from __future__ import annotations
 

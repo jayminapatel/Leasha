@@ -30,7 +30,11 @@ _log = logger.bind(component="ui.mcp")
 
 
 class McpController(QObject):
+    """Start, stop and connect the server for AI programs. A `QObject` parented
+    to the window; every action is a worker (see the module docstring).
+    """
     def __init__(self, window: Any) -> None:
+        """Build the host and wire the Settings box; nothing listens until Start."""
         super().__init__(window)
         from app.serve.mcp import McpHost
 
@@ -55,6 +59,7 @@ class McpController(QObject):
     # -- start, stop -----------------------------------------------------------
 
     def start(self, port: int) -> None:
+        """Start the server on `port`, on a worker, with the window's own models."""
         from app.serve.mcp import IndexTools, key_for
 
         settings, store, host, models = self._w._settings, self._w._store, self.host, self._models
@@ -63,11 +68,13 @@ class McpController(QObject):
         def switches() -> Any:
             # The window's current Settings search switches, read per call, so
             # AI programs search as the Search tab does now (2026-10-04).
+            """Read at each search, on the server's thread: the Settings switches now."""
             return getattr(window, "search_preferences", None)
 
         controller = self
 
         def start_server() -> Any:
+            """Worker body: bind the port, closing any tools the last start left open."""
             if host.running:
                 return host.start(controller.tools, int(port), "")
             tools = IndexTools(settings, models, switches)
@@ -82,9 +89,11 @@ class McpController(QObject):
                   "ui.mcp.start")
 
     def stop(self) -> None:
+        """Stop the server and close its index, on a worker."""
         host, controller = self.host, self
 
         def stop_server() -> str:
+            """Worker body: stop the host, then close the index the tools held open."""
             host.stop()
             # 2026-10-04, code review: and the index the server held open.
             tools, controller.tools = controller.tools, None
@@ -134,6 +143,7 @@ class McpController(QObject):
         store = self._w._store
 
         def read_states() -> tuple:
+            """Worker body: each program's state, and the key (made only when none exists)."""
             states = {}
             for program in PROGRAMS:
                 states[program.key] = ("not installed" if not program.installed()
@@ -148,6 +158,7 @@ class McpController(QObject):
         self._run(read_states, lambda found: self._box.show_programs(*found), "ui.mcp.status")
 
     def connect_program(self, key: str, join: bool) -> None:
+        """Connect or disconnect one program by rewriting its settings file, on a worker."""
         from app.serve.clients import PROGRAMS, connect, disconnect
         from app.serve.mcp import endpoint, key_for
 
@@ -157,11 +168,13 @@ class McpController(QObject):
         store, port = self._w._store, self._box.port.value()
 
         def change_settings() -> Any:
+            """Worker body: write (or remove) the program's entry for this server."""
             if join:
                 return connect(program, endpoint(port), key_for(store))
             return disconnect(program)
 
         def done(_backup: Any) -> None:
+            """UI thread: say what changed and re-read the states."""
             verb = "connected to" if join else "disconnected from"
             self._w.notify(f"Leasha is {verb} {program.name}. {program.note}", 8_000)
             self.refresh()
@@ -171,6 +184,7 @@ class McpController(QObject):
     # -- the one way work is run ----------------------------------------------------
 
     def _run(self, body: Any, on_done: Any, component: str) -> None:
+        """The one way work runs here: a worker whose failure goes to the error box."""
         worker = CallableWorker(body, component=component)
         worker.signals.finished.connect(on_done)
         worker.signals.failed.connect(self._failed)

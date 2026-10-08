@@ -153,6 +153,11 @@ class IndexRunLock:
         self.acquired = False
 
     def acquire(self) -> "IndexRunLock":
+        """Take the run lock, clear any stale stop request, publish the run.
+
+        Raises `AppErrorException(ERR_INDEX_RUNNING)` naming the holder when
+        another process has it after `CONTENTION_WAIT_S` of asking.
+        """
         try:
             self._guard.acquire(wait_s=CONTENTION_WAIT_S)
         except AppErrorException as exc:
@@ -369,6 +374,11 @@ def stop_requested(store: Any) -> bool:
 
 
 def clear_stop(store: Any) -> None:
+    """Withdraw a stop request. Never raises.
+
+    Called when a run takes the lock (a fresh run inherits nobody's stop) and
+    when it releases it, so a flag can never outlive the run it was aimed at.
+    """
     if store is None:
         return
     try:

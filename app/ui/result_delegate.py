@@ -111,6 +111,9 @@ class ResultDelegate(QStyledItemDelegate):
     """Draws a result group, or one chunk of an expanded group."""
 
     def __init__(self, parent: Optional[Any] = None) -> None:
+        """UI thread. The three view-synced dicts below are filled by the view from
+        a worker's answer, so painting never reaches the store.
+        """
         super().__init__(parent)
         self.prefs = ViewPreferences()
         #: file_id -> {"name", "scanned"}, set by the view - Offline Media
@@ -146,6 +149,7 @@ class ResultDelegate(QStyledItemDelegate):
         pixel = base.pixelSize()
 
         def sized(delta: int, bold: bool = False) -> QFont:
+            """`base` shifted by `delta` points (or pixels, when the sheet sized it in px)."""
             font = QFont(base)
             if point > 0:
                 font.setPointSize(max(6, point + delta))
@@ -157,6 +161,9 @@ class ResultDelegate(QStyledItemDelegate):
         return sized(metrics.name_bump, True), sized(-metrics.meta_drop), sized(0)
 
     def sizeHint(self, option: Any, index: Any) -> QSize:   # noqa: N802 - Qt's naming
+        """Qt's measure, UI thread: the row height from the same fonts and `Metrics`
+        that `paint` draws with, so the two cannot disagree.
+        """
         payload = index.data(ROLE_PAYLOAD)
         name_font, meta_font, body_font = self._fonts(option.font)
         metrics = Metrics.for_density(self.prefs.density)
@@ -231,6 +238,9 @@ class ResultDelegate(QStyledItemDelegate):
     # -- painting ----------------------------------------------------------
 
     def paint(self, painter: QPainter, option: Any, index: Any) -> None:
+        """Qt's paint, UI thread. Draws from the payload and the theme tokens alone -
+        no store, no stat; `_fonts` and `Metrics` are shared with `sizeHint`.
+        """
         payload = index.data(ROLE_PAYLOAD)
         if payload is None:
             super().paint(painter, option, index)
@@ -299,6 +309,9 @@ class ResultDelegate(QStyledItemDelegate):
                      name_font, meta_font, colour, faint, metrics,
                      expanded: bool = False, selected: bool = False,
                      colours: Optional[dict] = None) -> int:
+        """One document row: badge, date, status word, name and grey subtitle.
+        Returns the y the snippet starts at.
+        """
         colours = colours or theme_colours()
         if selected:
             # §4b: the selection also thickens the name, so it survives
@@ -387,6 +400,9 @@ class ResultDelegate(QStyledItemDelegate):
         return y + meta_metrics.height() + metrics.gap
 
     def _paint_chunk(self, painter, row, left, y, width, meta_font, faint, metrics) -> int:
+        """One expanded passage row: its location, status word and (if shown) score.
+        Returns the y the snippet starts at.
+        """
         painter.setFont(meta_font)
         painter.setPen(QPen(faint))
         meta_metrics = QFontMetrics(meta_font)
@@ -480,6 +496,7 @@ class ResultDelegate(QStyledItemDelegate):
 # ---------------------------------------------------------------------------
 
 def _rounded(rect: QRectF, radius: float) -> Any:
+    """A rounded-rectangle path, the shape every fill here uses."""
     from PySide6.QtGui import QPainterPath
     path = QPainterPath()
     path.addRoundedRect(rect, radius, radius)
@@ -521,6 +538,7 @@ def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict,
     painter.restore()
 
 def _snippet_payload(payload: Any) -> Any:
+    """The `Snippet` a payload paints: a group's best row's, or the row's own."""
     if isinstance(payload, ResultGroup):
         return payload.best.snippet if payload.best else None
     return getattr(payload, "snippet", None)

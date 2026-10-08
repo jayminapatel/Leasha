@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.110 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 7.111 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,53 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-08, evening - the whole codebase reviewed, commented and repaired (owner:
+"review all code in the project ... make sure it is commented properly; if not, write
+the comments in", then "do the recommended").** Seven reviewers read all 178k lines of
+`app/`, `tools/`, `scripts/`, `packaging/` and the installers in full, one per package,
+against the twelve non-negotiables; every finding below was confirmed against the source
+or reproduced before it was fixed. **Comments:** roughly 1,100 docstrings and 150
+why-comments written in, every module now carries its `Layer:` line, nothing existing
+reworded. **Fixed, each with a regression test:** (1) a Windows directory junction pointing
+up its own tree was walked level by level until the 260-character limit - one file indexed
+64 times, reproduced here; pruned and counted in the walker, the scan, the polling snapshot
+and the offline-media reconcile walk (`test_junctions.py`); unlistable folders are counted
+too. (2) `scripts/run_suite.py` exited 0 when a fixture errored (`-rf` lists FAILED only;
+now `-rfE` plus the summary-line count). (3) `/range --output=x..HEAD` typed into the
+search box made `git log` write a file into the repository; every typed revision is fenced
+by `--end-of-options`, and a `/branch` beside `/history` is no longer dropped. (4) The
+search cache key omitted `shows`, `place`, `who`, `on`, `only`, `status` and their
+negations (key v5; the test derives the field list from `ParsedQuery`). (5) `/name inv*`
+matched nothing on a Windows index (a raw-string bug trimming `/` but not `\`). (6) UI-thread
+I/O: the stop-run flag, the photo skip path's CLIP/pHash/face work inside the write group,
+mid-run face grouping waiting on the memory governor from the consumer, `cached_profile` from
+the tuning status and end-of-run learning, `.env` writes from three Settings slots and the
+index-move plan - all on workers now; `test_ui_never_blocks` names the five methods. (7) The
+one approved write into photos: Escape or the X hid the dialog while XMP writing carried on;
+an emptied backup field sent copies to the working directory. (8) A failed saved-search write
+looked like a success; it reaches the notice bar. (9) The Whisper engine is locked per
+transcription; RTF-only mail bodies are read as text; the window clamp recognises a second
+monitor; the build script's PyInstaller probe no longer dies under PowerShell 5.1; an empty
+`/` row no longer raises in a slot. **The recommendations, done:** `install.ps1` writes the
+three location keys only and fetches models through `app.cli models download` (it wrote nine
+keys and fetched a 1.1 GB reranker the app does not use); `leasha.spec` refuses a build
+missing an optional package unless `build.ps1 -AllowMissingOptional`; `.svg` is read as text
+by `plaintext`, not OCR; `JVM_READERS_ENABLED` is a Settings control (the environment
+variable stays as the one-run override) and `startup` is a listed schedule; nothing below
+`app/ui` imports from it any more - `shown_date_ns`, `join_chunks`, `file_row_context` and
+the lag monitor moved down and are re-exported (`test_layering_below_the_ui.py`, which also
+imports every CLI module with PySide6 blocked). **Left as it was, deliberately:** the
+file-types editor reads two small TOML files in Leasha's own folder on the UI thread at
+Settings build; its twelve tests drive it synchronously, and the comment there says why.
+**Not checked on the real Windows window:** the photo dialog's Escape, Stop during a real
+external run, a two-monitor restore, the new Settings checkbox. **Full suite before commit:**
+13,721 passed, 0 failed, 0 errored in the Windows venv (`scripts/run_suite.py -j 3`, 517
+files, 1,164 s) over the finished tree, recommendations included. Also updated: the VS Code
+tasks (the runner, model downloads, the installer build), `docs/VSCODE.md`, and
+`Leasha.pyproj` regenerated for the five new files. Owner decisions still open: the `doctor` fix texts that tell a
+person to create `.env` by hand; `search` exiting 1 on no results; `LOG_PATH` differing
+between `install.ps1` and the Inno installer.
 
 **2026-10-08 - every model downloadable, one at a time or all; branded installer.** The
 single list is `app/core/model_catalogue.py` (keys search, rerank, pictures, photo-tags,

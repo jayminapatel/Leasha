@@ -93,6 +93,7 @@ _QUANTISED = ("_int8", "_uint8", "_quantized", "_q4", "_q4f16", "_bnb4")
 
 
 def is_quantised(path: Path) -> bool:
+    """Whether the graph's file name marks it as a quantised export."""
     return Path(path).stem.endswith(_QUANTISED)
 
 

@@ -63,6 +63,8 @@ def _fail(component: str, path: Path, exc: BaseException) -> None:
 
 
 class DocxExtractor:
+    """Word 2007+ packages: `.docx`, `.docm` and the `.dotx`/`.dotm` templates."""
+
     name = "docx"
     #: `.dotx` and `.dotm` are templates: the same package with a different
     #: content type. 83 of them were on the measured disk and every one was
@@ -79,6 +81,11 @@ class DocxExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: paragraphs and tables in body order, text boxes included.
+
+        `ooxml_fast` first; python-docx for what it declines. A locked file is
+        `ERR_FILE_LOCKED`, one neither reader opens `ERR_FILE_CORRUPT`. Reads only.
+        """
         # The fast path first - see `ooxml_fast`: 2.0 s -> a few tens of ms on a
         # 6 MB report. Anything it will not read cleanly falls through to the
         # python-docx code below, unchanged.
@@ -165,6 +172,8 @@ def _truncated_warning(path: Path, name: Any) -> Any:
 
 
 class XlsxExtractor:
+    """Excel 2007+ workbooks: `.xlsx`, `.xlsm` and `.xltx` templates."""
+
     name = "xlsx"
     extensions = frozenset({".xlsx", ".xlsm", ".xltx"})
     requires = (Requirement("openpyxl", "openpyxl",
@@ -174,6 +183,10 @@ class XlsxExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document, a segment per sheet, rows as tab-separated lines with a
+        `Sheet!A14` anchor each; capped at `MAX_SHEET_ROWS` with a loud
+        `ERR_FILE_TRUNCATED` warning. `ooxml_xlsx` first, openpyxl after.
+        Locked is `ERR_FILE_LOCKED`, unreadable `ERR_FILE_CORRUPT`. Reads only."""
         import warnings
 
         import openpyxl
@@ -340,6 +353,8 @@ class XlsxExtractor:
 
 
 class PptxExtractor:
+    """PowerPoint 2007+ decks, slide shows and templates (`.pptx` family)."""
+
     name = "pptx"
     #: Slide shows (`.ppsx`, `.ppsm`) and templates (`.potx`, `.potm`) are the same
     #: package under another content type. python-pptx refuses them; the fast
@@ -353,6 +368,10 @@ class PptxExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document, a segment per slide (groups, tables and chart words
+        included) and one per speaker-notes page, labelled. A deck that is mostly
+        pictures carries an `ERR_MOSTLY_PICTURES` warning. Locked is
+        `ERR_FILE_LOCKED`, unreadable `ERR_FILE_CORRUPT`. Reads only."""
         # Fast path first: see `ooxml_pptx`. Falls through to python-pptx, below,
         # for anything it will not vouch for.
         try:

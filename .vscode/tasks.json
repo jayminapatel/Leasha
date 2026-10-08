@@ -58,6 +58,15 @@
       "presentation": { "reveal": "always" }
     },
     {
+      "label": "Run the whole suite (3 processes, the project's runner)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["scripts/run_suite.py", "-j", "3"],
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
       "label": "Run acceptance tests for the current layer",
       "type": "shell",
       "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
@@ -84,6 +93,25 @@
       "args": ["-m", "app.cli", "stats"],
       "problemMatcher": [],
       "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Download models (search and rerank)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["-m", "app.cli", "models", "download", "search", "rerank"],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always" }
+    },
+    {
+      "label": "Build the installer",
+      "type": "shell",
+      "command": "powershell",
+      "args": [
+        "-NoProfile", "-ExecutionPolicy", "Bypass",
+        "-File", "${workspaceFolder}\\packaging\\build.ps1"
+      ],
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
     }
   ]
 }

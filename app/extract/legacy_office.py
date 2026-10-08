@@ -95,6 +95,7 @@ def take_unread_embedded_summary() -> str:
 
 def _reason_class(reason: str) -> str:
     """The reason with its numbers removed, so 'slide 4 ...' and 'slide 9 ...' count together."""
+    # Sixty characters keeps the top-three summary on one log line.
     return re.sub(r"\d+", "N", reason)[:60]
 
 

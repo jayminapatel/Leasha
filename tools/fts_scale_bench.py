@@ -191,6 +191,9 @@ def build(db: Path, files: int, chunks_per_file: int, words_per_chunk: int, seed
 # ---------------------------------------------------------------------------
 
 def _time(fn: Callable[[], Any], repeat: int = 5) -> dict:
+    """Run `fn` once for `first_ms` - the nearest thing to a cold figure here,
+    since the OS file cache cannot be dropped - then `repeat` times for the
+    best and the median."""
     t = time.perf_counter()
     result = fn()
     first = (time.perf_counter() - t) * 1000
@@ -205,6 +208,11 @@ def _time(fn: Callable[[], Any], repeat: int = 5) -> dict:
 
 
 def _segments(conn: sqlite3.Connection, table: str) -> int:
+    """How many b-tree segments the FTS5 index holds - the number `optimize`
+    merges down. SQLite exposes no query for it, so this reads the "structure"
+    record (rowid 10 of `<table>_data`, FTS5's documented on-disk format): the
+    4-byte cookie, a second 4-byte marker in newer files, then varints for the
+    level count and the total segment count."""
     blob = conn.execute(f"SELECT block FROM {table}_data WHERE id = 10").fetchone()[0]
 
     def varint(i: int) -> tuple[int, int]:
@@ -225,6 +233,8 @@ def _segments(conn: sqlite3.Connection, table: str) -> int:
 
 
 def _df(conn: sqlite3.Connection, word: str) -> int:
+    """Document frequency of a planted word, through the app's own query parser
+    so the MATCH expression is the one a real search would send."""
     from app.search.query import parse_query
     expression = parse_query(word).fts_match()
     return conn.execute("SELECT count(*) FROM chunks_fts WHERE chunks_fts MATCH ?",

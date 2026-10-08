@@ -90,6 +90,9 @@ def _slug(text: str) -> str:
     can contain, and a run log that failed to open is the least useful
     outcome available."""
     kept = [c if (c.isalnum() or c in "-_") else "-" for c in str(text).strip()]
+    # 40 characters: with the `run-YYYYMMDD-HHMMSS-` prefix and `.log` the
+    # name stays well inside Windows' 260-character path limit even under a
+    # deep LOG_PATH, and a command line is recognisable from its first words.
     return ("".join(kept).strip("-") or "run")[:40]
 
 
@@ -136,11 +139,14 @@ class RunLog:
         self._write(f"  {key!s:<26} {_masked(str(key), value)}")
 
     def section(self, title: str) -> None:
+        """An underlined heading, preceded by a blank line. Never raises."""
         self._write()
         self._write(title)
         self._write("-" * len(title))
 
     def stage(self, name: str, seconds: float) -> None:
+        """Record one timed phase for the footer's Timings table. Never raises:
+        a bad value is dropped rather than allowed to end the run."""
         try:
             self.stages.append((str(name), float(seconds)))
         except Exception:  # noqa: BLE001

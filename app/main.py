@@ -233,6 +233,8 @@ def _log_every_unhandled_exception() -> None:
         threading.excepthook = lambda args: _hook(
             args.exc_type, args.exc_value, args.exc_traceback)
     except Exception:                            # noqa: BLE001
+        # Installing a crash reporter must never be why the window fails to
+        # start; without it worker-thread crashes go to stderr, as before.
         pass
 
 
@@ -270,10 +272,19 @@ def _log_qt_messages() -> None:
 
         qInstallMessageHandler(_handler)
     except Exception:                            # noqa: BLE001
+        # No PySide6, or a build whose message API differs: Qt's own stderr
+        # handler stays in place, and the missing dependency is reported by
+        # `_run_window` with a fix rather than from here.
         pass
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Run the window. Returns the process exit code (1 on a start-up failure).
+
+    `--debug` is the only argument this reads; the rest go to Qt. The run log
+    is opened before anything else and finished in every exit path, so a
+    window that never appeared still leaves a file saying how far it got.
+    """
     from app.core.config import log_dir_for
     from app.core.runlog import start_run
 
@@ -392,6 +403,10 @@ def _acquire_gui_lock_responsively(
     import time as _time
 
     deadline = _time.monotonic() + max(0.0, float(wait_s))
+    # 100 ms: the splash repaints and its case rotation runs ten times a
+    # second, which reads as alive, while the mutex is asked often enough that
+    # the hand-over is noticed within a tenth of a second of the old copy
+    # letting go.
     poll_s = 0.1
     while True:
         try:
@@ -794,7 +809,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # indexer reads it through `window.lag_monitor` and yields when the
             # window runs late; the summary below is how a run's effect on the
             # window is read afterwards. See `app/ui/lag_monitor.py`.
-            from app.ui import lag_monitor
+            from app.core import lag_monitor
             switch = lag_monitor.tighten_switch_interval()
             window.lag_monitor = lag_monitor.install(application)
             log.info("startup: window responsiveness is being measured "

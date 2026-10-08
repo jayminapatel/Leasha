@@ -96,6 +96,7 @@ class Debounced(QObject):
     # -- internals -----------------------------------------------------------
 
     def _fire(self) -> None:
+        """The timer fired: run the work once with the last arguments noted."""
         args, self._pending = self._pending, None
         if args is None:
             return

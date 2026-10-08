@@ -129,6 +129,8 @@ def parse(url: Any) -> Optional[Request]:
     query = unquote(str(values.get("q", ""))).strip()[:MAX_QUERY]
     if not query:
         return None
+    # A scope is one of a handful of short tab names; 20 characters is room
+    # for any of them and refuses a link that tries to smuggle text in here.
     scope = str(values.get("scope", "")).strip().lower()[:20]
     return Request(action, query, scope)
 

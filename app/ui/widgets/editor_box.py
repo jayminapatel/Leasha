@@ -52,6 +52,8 @@ class EditorBox(QGroupBox):
             "Only editors found on this machine are listed - so nothing here "
             "can be chosen and then fail on every click.")
 
+        # `detect` looks for each known editor's executable on PATH - a handful of
+        # stats, done once when Settings is built, not on any keystroke.
         found = detect()
         installed = {value for value, _label, _where in found}
         self.editor.addItem(

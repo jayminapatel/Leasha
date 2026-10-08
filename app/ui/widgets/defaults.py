@@ -117,6 +117,9 @@ def attach_resets(panel: QWidget, on_reset: Any) -> int:
 
 
 def _show_menu(widget: QWidget, point: Any, key: str, on_reset: Any) -> None:
+    """The right-click menu on one control. The reset sends `{key: None}` so
+    the line is removed from `.env`, never the default written back.
+    """
     menu = QMenu(widget)
     action = menu.addAction(_describe(key))
     action.setToolTip(

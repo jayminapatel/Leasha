@@ -25,6 +25,7 @@ NO_FOLDERS = "There are no folders to watch yet. Add one under Folders to index.
 
 
 def _clock(data: dict) -> str:
+    """`HH:MM` for the event's time, or now when it carries none."""
     try:
         return time.strftime("%H:%M", time.localtime(float(data.get("t"))))
     except (TypeError, ValueError):
@@ -32,6 +33,7 @@ def _clock(data: dict) -> str:
 
 
 def _error_message(error: Any) -> str:
+    """The message out of an error dict or `AppError`, or ""."""
     if isinstance(error, dict):
         return str(error.get("message") or "")
     return str(getattr(error, "message", "") or "")

@@ -248,6 +248,7 @@ class RootsBox(QGroupBox):
             if widget is not None:
                 widget.deleteLater()
 
+        # Four `is_dir` checks inside this account's profile, once at construction.
         self._suggested = suggested_roots()
         for folder in self._suggested:
             button = QPushButton(folder)
@@ -263,6 +264,7 @@ class RootsBox(QGroupBox):
         self.suggestions.addStretch(1)
 
     def _accept_suggestion(self, folder: str) -> None:
+        """A suggested profile folder clicked: add it and hide the offer if it was the first."""
         if self.add_root(folder):
             self._sync_empty()
 
@@ -315,6 +317,9 @@ class RootsBox(QGroupBox):
         self._sync_first()
 
     def _append(self, root: str, mode: str = LIVE, cloud_content: bool = False) -> QTreeWidgetItem:
+        """One line: the folder, its Live/Archive drop-down, the cloud tick box, the
+        "first" place and the Index now button. Emits nothing.
+        """
         item = QTreeWidgetItem([str(root), "", ""])
         item.setToolTip(0, str(root))
         self.tree.addTopLevelItem(item)
@@ -392,6 +397,7 @@ class RootsBox(QGroupBox):
     # -- what the shell reads -----------------------------------------------
 
     def current_roots(self) -> list[str]:
+        """Every line's folder, in the order shown - which is the saved order."""
         return [
             self.tree.topLevelItem(row).text(0)
             for row in range(self.tree.topLevelItemCount())
@@ -481,6 +487,7 @@ class RootsBox(QGroupBox):
             self.add_root(chosen)
 
     def _remove_root(self) -> None:
+        """Remove: ask the window first when `confirms_removal`, else take the rows off."""
         folders = [item.text(0) for item in self.tree.selectedItems()]
         if not folders:
             return
@@ -506,6 +513,7 @@ class RootsBox(QGroupBox):
         self._emit()
 
     def _row_menu(self, point: Any) -> None:
+        """Right-click on a folder: "Index this folder first" and "Index now"."""
         item = self.tree.itemAt(point)
         if item is None:
             return
@@ -545,6 +553,7 @@ class RootsBox(QGroupBox):
         self.cloud_content_changed.emit(self.current_cloud_content_roots())
 
     def _emit(self) -> None:
+        """Say what changed, roots first (a mode needs its folder to exist in the list)."""
         # Roots first: a mode for a folder that is not in the list yet would be
         # written and then have nothing to attach to.
         self.roots_changed.emit(self.current_roots())

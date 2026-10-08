@@ -95,12 +95,14 @@ class _LruCache:
         self._limit = max(1, int(limit))
 
     def get(self, key: str) -> Any:
+        """The entry for `key`, moved to most-recent, or None."""
         if key not in self._entries:
             return None
         self._entries.move_to_end(key)
         return self._entries[key]
 
     def set(self, key: str, value: Any) -> None:
+        """Store `value`, evicting the least recently used once past `limit`."""
         self._entries[key] = value
         self._entries.move_to_end(key)
         while len(self._entries) > self._limit:
@@ -307,6 +309,11 @@ class SearchResult:
         return reason
 
     def as_dict(self) -> dict[str, Any]:
+        """The JSON shape `app.cli search --json` and the MCP server print.
+
+        Only what a reader outside the window needs: the ranking signals
+        (`recency`, `declares`, `distance`) stay on the object itself.
+        """
         return {
             "rank": self.rank, "chunk_id": self.chunk_id, "file_id": self.file_id,
             "path": self.path, "page": self.page, "score": round(self.score, 6),
@@ -398,6 +405,14 @@ class _Retrieved:
 
 @dataclass
 class SearchResponse:
+    """What one search returned, and how far to trust it.
+
+    `results` is the ranked list. Everything else qualifies it: `notices`
+    and the two retriever counts tell a degraded search from a thin corpus,
+    `folds` says how to draw the list, and `parsed` is the query that
+    actually ran - the corrected or relaxed one when `spelling` or `relaxed`
+    is set, with `parsed.raw` still holding what was typed.
+    """
     results: list[SearchResult] = field(default_factory=list)
     parsed: Optional[ParsedQuery] = None
     elapsed_ms: float = 0.0
@@ -476,6 +491,7 @@ class SearchResponse:
         return len(self.results)
 
     def as_dict(self) -> dict[str, Any]:
+        """The headless report `app.cli search --json` prints; `SearchRun.as_dict` extends it."""
         return {
             "hits": len(self.results),
             "elapsed_ms": round(self.elapsed_ms, 1),
@@ -1721,8 +1737,16 @@ class SearchEngine:
         # rows and must share an entry - while `explicit_and`, the shape of
         # `or_groups` and the exclusion lists carry the operators, which are
         # case-sensitive by design and now genuinely distinguish two searches.
+        #
+        # v5 (2026-10-08, found in review): `shows`, `place`, `who`, `volumes`,
+        # `only`, `statuses` and their six negated twins were never in the key,
+        # so `beach shows:dog` and `beach shows:cat` shared one entry and the
+        # second search in a session was served the first one's results. Every
+        # filter field of `ParsedQuery` is now listed; `test_cache_key` derives
+        # the field list from the dataclass so a new filter cannot be left out
+        # again.
         return "|".join([
-            "v4", str(generation),
+            "v5", str(generation),
             repr(_fold(parsed.terms)), repr(_fold(parsed.phrases)),
             repr(_fold(parsed.excluded)),
             repr(tuple(_fold(group) for group in parsed.or_groups)),
@@ -1731,11 +1755,17 @@ class SearchEngine:
             repr(_fold(parsed.paths)), repr(_fold(parsed.senders)),
             repr(_fold(parsed.recipients)), repr(_fold(parsed.subjects)),
             repr(_fold(parsed.names)), repr(_fold(parsed.repos)),
+            repr(_fold(parsed.shows)), repr(_fold(parsed.place)),
+            repr(_fold(parsed.who)), repr(_fold(parsed.volumes)),
+            repr(_fold(parsed.only)), repr(_fold(parsed.statuses)),
             repr(parsed.sizes), repr(parsed.has_attachment), repr(parsed.sort),
             repr(_fold(parsed.not_ext)), repr(_fold(parsed.not_paths)),
             repr(_fold(parsed.not_names)), repr(_fold(parsed.not_senders)),
             repr(_fold(parsed.not_recipients)), repr(_fold(parsed.not_subjects)),
             repr(_fold(parsed.not_repos)), repr(_fold(parsed.not_phrases)),
+            repr(_fold(parsed.not_shows)), repr(_fold(parsed.not_place)),
+            repr(_fold(parsed.not_who)), repr(_fold(parsed.not_volumes)),
+            repr(_fold(parsed.not_only)),
             parsed.scope, "r" if rerank else "-", model, str(limit),
         ])
 

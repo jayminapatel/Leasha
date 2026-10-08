@@ -108,6 +108,7 @@ class IndexControls(QWidget):
         # their eyes see.
         order = (self.start_button, self.pause_button, self.stop_button,
                  self.scan_button, self.reset_button)
+        # Pairwise: each button hands focus to the one on its right.
         for first, second in zip(order, order[1:]):
             QWidget.setTabOrder(first, second)
         #: The buttons left to right, as the row reads. **The one place this

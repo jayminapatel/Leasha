@@ -24,6 +24,9 @@ __all__ = ["SegmentedControl"]
 
 
 class SegmentedControl(QFrame):
+    """Four checkable tool buttons with a `QComboBox`-shaped surface, so the
+    window's scope code did not change when the combo became segments.
+    """
     currentIndexChanged = Signal(int)          # noqa: N815 - QComboBox's name
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
@@ -89,6 +92,7 @@ class SegmentedControl(QFrame):
     # -- internals ---------------------------------------------------------------
 
     def _toggled(self, index: int, checked: bool) -> None:
+        """A segment chosen: emit `currentIndexChanged` once, for the new index only."""
         if checked and index != self._current:
             self._current = index
             self.currentIndexChanged.emit(index)

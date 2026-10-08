@@ -73,6 +73,9 @@ PROBE_TIMEOUT_S = 30.0
 
 @dataclass(frozen=True, slots=True)
 class OllamaResponse:
+    """One completion: the text, which model wrote it, and how long it took
+    (wall time including the model load, which is what a timeout budget sees)."""
+
     text: str
     model: str
     elapsed_s: float
@@ -195,6 +198,8 @@ class OllamaClient:
         self._healthy_until = 0.0
 
     def available_models(self) -> list[str]:
+        """The names Ollama has pulled, as it reports them (`llava:latest`).
+        `[]` when it cannot be reached - never raises, like `health`."""
         try:
             payload = self._get("/api/tags", timeout=min(self.timeout, 5.0))
         except Exception:  # noqa: BLE001
@@ -492,6 +497,8 @@ class OllamaClient:
         )
 
     def down_error(self, details: str) -> AppError:
+        """The one error shape this client raises for "not reachable", with the
+        pull command for this client's model in its action payload."""
         return make_error(
             "ERR_OLLAMA_DOWN", "llm.ollama",
             details=details,

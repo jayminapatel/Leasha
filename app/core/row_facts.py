@@ -49,6 +49,7 @@ from typing import Any, Iterable
 from app.extract.base import SourceKind
 
 __all__ = [
+    "shown_date_ns", "join_chunks",
     "MAIL_SOURCE_KINDS", "MESSAGE_FILE_EXTS", "OUTLOOK_ARCHIVE_EXTS", "MAIL_ARCHIVE_EXTS",
     "ZIP_FAMILY_EXTS", "NO_SUBJECT", "ATTACHMENT_MARKER", "MAIL_KEY_SCHEME", "DAY_FORMAT",
     "suffixes", "ext_alternation",
@@ -266,3 +267,55 @@ def moment_words(stamp_ns: Any) -> str:
     """The day and the minute: "17 May 2023, 09:30". `""` when there is none."""
     stamp = _local(stamp_ns)
     return time.strftime(f"{DAY_FORMAT}, %H:%M", stamp) if stamp is not None else ""
+
+
+# ---------------------------------------------------------------------------
+# Shared by the window, the CLI and the MCP server (moved here 2026-10-08)
+# ---------------------------------------------------------------------------
+#
+# Both lived under `app/ui` and were imported by `app/serve/mcp.py`, the one
+# backend package reaching into the UI layer. They are pure functions of row
+# facts, so this is where they belong; the UI modules re-export them under the
+# same names and nothing that called them changed.
+
+
+def shown_date_ns(*, mtime_ns: Any = 0, taken_at_ns: Any = 0, sent_at: Any = 0) -> int:
+    """The date a row shows, in nanoseconds; 0 when none is known.
+
+    In order: **the message's sent date** (`sent_at`, seconds - for a message,
+    or for an attachment, whose own file time is its archive's); **a photo's
+    own date** (`taken_at_ns`, the date the Files list is ordered by); then
+    the file's modification time.
+    """
+    for value, scale in ((sent_at, 1_000_000_000), (taken_at_ns, 1), (mtime_ns, 1)):
+        try:
+            number = int(value or 0)
+        except (TypeError, ValueError):
+            number = 0
+        if number > 0:
+            return number * scale
+    return 0
+
+
+def join_chunks(chunks: Any) -> str:
+    r"""One document's chunks back into one body. **No invented paragraphs.**
+
+    This was `"\n\n".join(...)`, which put a blank line at every chunk
+    boundary - so a long message read as arbitrarily broken paragraphs, in
+    places decided by a 512-token window rather than by whoever wrote it.
+    Chunking is an indexing decision and has no business being visible.
+
+    Chunks are contiguous slices of the original, so joining them with nothing
+    restores the text as extracted, including its real paragraph breaks. A
+    single newline is inserted only where the seam would otherwise run two
+    words together, which happens when a chunker trims trailing whitespace.
+    """
+    out: list[str] = []
+    for chunk in chunks or ():
+        text = str(getattr(chunk, "text", "") or "")
+        if not text:
+            continue
+        if out and not out[-1].endswith(("\n", " ")) and not text.startswith(("\n", " ")):
+            out.append("\n")
+        out.append(text)
+    return "".join(out)

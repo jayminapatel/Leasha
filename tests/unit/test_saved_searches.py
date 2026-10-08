@@ -582,3 +582,54 @@ def test_the_view_reads_saved_searches_through_a_worker_and_never_directly():
     for call in ("_store.saved_searches(", "_store.save_search(",
                  "_store.rename_saved_search(", "_store.delete_saved_search("):
         assert call not in source, f"saved_box.py calls {call} on the UI thread"
+
+
+# ---------------------------------------------------------------------------
+# A write that fails is reported, not logged and forgotten (review 2026-10-08)
+# ---------------------------------------------------------------------------
+
+class _RefusingStore:
+    """A store whose saved-search writes always fail."""
+
+    def save_search(self, *args):
+        raise OSError("disk full")
+
+    def rename_saved_search(self, *args):
+        raise OSError("disk full")
+
+    def delete_saved_search(self, *args):
+        raise OSError("disk full")
+
+    def saved_searches(self):
+        return []
+
+
+@pytest.mark.qt
+def test_a_failed_save_reaches_whoever_is_listening(qtbot):
+    """`save_search_async` connected `finished` and never `failed`, so a save
+    the store refused was logged by the worker and the dialog closed as if it
+    had worked - the very "it did not save" its own docstring names. Found in
+    review 2026-10-08."""
+    from app.ui.saved_box import SavedSearches
+
+    told = []
+    box = SavedSearches(_RefusingStore())
+    box.failed = told.append
+
+    box.save("invoices", "invoice 2024")
+    qtbot.waitUntil(lambda: bool(told), timeout=5000)
+
+    assert told and "disk full" in (getattr(told[0], "details", "") or str(told[0]))
+
+
+@pytest.mark.qt
+def test_a_failed_rename_and_delete_are_reported_the_same_way(qtbot):
+    from app.ui.saved_box import SavedSearches
+
+    told = []
+    box = SavedSearches(_RefusingStore())
+    box.failed = told.append
+
+    box.rename("a", "b")
+    box.delete("a")
+    qtbot.waitUntil(lambda: len(told) >= 2, timeout=5000)

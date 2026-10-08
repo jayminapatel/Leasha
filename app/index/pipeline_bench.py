@@ -478,7 +478,12 @@ def _run_with_probe(run: Callable[[Callable[[Any], None]], Any],
     from PySide6.QtCore import QEventLoop, QObject, QTimer, Signal
     from PySide6.QtWidgets import QApplication, QLabel, QProgressBar, QVBoxLayout, QWidget
 
-    from app.ui import lag_monitor
+    # This was the one place under `app.index` that named `app.ui`: the bench's
+    # stand-in for the window measures the window's own monitor, not a copy of
+    # it. The monitor is pure Python and moved to `app.core.lag_monitor` in the
+    # 2026-10-08 review (`app.ui.lag_monitor` re-exports it), so the layering
+    # rule holds and the bench still measures the real thing.
+    from app.core import lag_monitor
 
     application = QApplication.instance() or QApplication([])
     before_switch = sys.getswitchinterval()

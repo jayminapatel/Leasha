@@ -119,6 +119,7 @@ class CodeTypesBox(QGroupBox):
         self._describe()
 
     def _tick(self, names: Any) -> None:
+        """Tick exactly `names`; callers block signals around it where that matters."""
         wanted = set(names or ())
         for row in range(self.groups.count()):
             item = self.groups.item(row)
@@ -136,6 +137,9 @@ class CodeTypesBox(QGroupBox):
     # -- events --------------------------------------------------------------
 
     def _preset_changed(self) -> None:
+        """A preset chosen: its groups are ticked quietly (`_loading`), then one
+        `changed` is emitted - never one per tick.
+        """
         if self._loading:
             return
         preset = str(self.preset.currentData() or DEFAULT_PRESET)

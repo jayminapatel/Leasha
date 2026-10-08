@@ -23,6 +23,9 @@ ID_ROLE = int(Qt.ItemDataRole.UserRole)
 
 
 class SessionList(QWidget):
+    """The conversations sidebar. Emits only on the person's action; `set_sessions`
+    fills quietly (`_loading`).
+    """
     selected = Signal(str)
     new_requested = Signal()
     renamed = Signal(str, str)
@@ -67,6 +70,7 @@ class SessionList(QWidget):
         layout.addLayout(buttons)
 
     def set_sessions(self, sessions: list[Any], active: str = "") -> None:
+        """Replace the list without emitting `selected` or `renamed` on the way in."""
         self._loading = True
         try:
             self.list.clear()
@@ -89,6 +93,7 @@ class SessionList(QWidget):
             self.selected.emit(str(current.data(ID_ROLE)))
 
     def _item_edited(self, item) -> None:
+        """A name typed in place. An empty name is ignored rather than saved."""
         if not self._loading and item.text().strip():
             self.renamed.emit(str(item.data(ID_ROLE)), item.text().strip())
 

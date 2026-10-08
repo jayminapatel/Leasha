@@ -45,6 +45,16 @@ from app.core.osbridge.pathnames import case_sensitive, path_key
 from app.core.row_facts import ZIP_FAMILY_EXTS, format_size, suffixes
 from app.index.walker import DEFAULT_EXCLUDE_DIRS, DEFAULT_EXCLUDE_GLOBS
 
+
+def _size_exempt() -> frozenset[str]:
+    """The extensions the walker reads a piece at a time and so never drops on
+    size: streamed mailboxes and media. Imported lazily, as the walker does,
+    so a scan does not pay for the media table unless it meets a big file."""
+    from app.extract.media import media_extensions
+    from app.index.walker import STREAMED_MAILBOXES
+
+    return frozenset(STREAMED_MAILBOXES) | frozenset(media_extensions())
+
 __all__ = [
     "ScanConfig",
     "ScanResult",
@@ -664,6 +674,8 @@ def _routing() -> tuple[Any, Any, frozenset[str], frozenset[str]]:
 # ---------------------------------------------------------------------------
 
 def _matches_any(name: str, globs: Sequence[str]) -> bool:
+    """The walker's own glob test, repeated here so the scan prunes exactly what
+    the walk prunes (`walker._matches_any`)."""
     lowered = name.lower()
     return any(fnmatch.fnmatch(lowered, pattern.lower()) for pattern in globs)
 
@@ -755,6 +767,18 @@ def scan(
                     if str(child).lower() in blocked:
                         result.pruned[name] = result.pruned.get(name, 0) + 1
                         continue
+                    # A Windows directory junction is not a symlink:
+                    # `is_dir(follow_symlinks=False)` is True for it, so a
+                    # junction pointing at its own parent was descended level
+                    # by level until the path ran out of characters, counting
+                    # the same files once per level. Found in review
+                    # 2026-10-08; the walker prunes them the same way.
+                    try:
+                        if entry.is_junction():
+                            result.pruned[name] = result.pruned.get(name, 0) + 1
+                            continue
+                    except OSError:
+                        continue
                     if inside_git or name == ".git":
                         # **The one directory this walk enters and the indexer
                         # does not.** Its bytes are the answer to "why is my
@@ -800,7 +824,13 @@ def scan(
                 if size == 0:
                     result.empty_files += 1
                     continue
-                if size > config.max_file_bytes:
+                # Streamed mailboxes and media are read a piece at a time and
+                # the walker exempts them from the ceiling (`walker.size_exempt`);
+                # counting a 20 GB `.pst` as oversize here undercounted exactly
+                # the files the run would spend longest on. Found in review
+                # 2026-10-08.
+                if (size > config.max_file_bytes
+                        and Path(filename).suffix.lower() not in _size_exempt()):
                     result.oversize.add(size)
                     continue
 

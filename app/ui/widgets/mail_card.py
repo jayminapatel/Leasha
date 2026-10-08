@@ -70,6 +70,9 @@ _SELECTABLE = (Qt.TextInteractionFlag.TextSelectableByMouse
 
 
 def _label(name: str, *, wrap: bool = False) -> QLabel:
+    """A selectable, plain-text label. `PlainText` is the point: every word here
+    came from a stranger's email and must never be read as markup.
+    """
     label = QLabel("")
     label.setObjectName(name)
     label.setWordWrap(wrap)
@@ -206,6 +209,7 @@ class MailCardView(QFrame):
         self.conversation_box.setVisible(shown)
 
     def _chosen(self, item: Any) -> None:
+        """A message in the conversation list was clicked: hand its row to the pane."""
         row = item.data(Qt.ItemDataRole.UserRole) if item is not None else None
         if row is not None:
             self.message_chosen.emit(row)
@@ -217,6 +221,7 @@ class MailCardView(QFrame):
                 for n in range(self._chip_flow.count())]
 
     def _show_chips(self, names: Any) -> None:
+        """Replace the attachment chips; the layout is told to re-measure."""
         while self._chip_flow.count():
             item = self._chip_flow.takeAt(0)
             chip = item.widget() if item is not None else None
@@ -249,6 +254,9 @@ class MailBody(QTextBrowser):
     copy_header: str = ""
 
     def createMimeDataFromSelection(self) -> QMimeData:       # noqa: N802 - Qt's name
+        """Copy. The whole document selected puts the `From:` block on top as plain
+        text; a partial selection copies exactly what was selected.
+        """
         data = super().createMimeDataFromSelection()
         if not self.copy_header:
             return data

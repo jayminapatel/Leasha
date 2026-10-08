@@ -37,6 +37,9 @@ MAX_LINES = 5
 
 
 class _Edit(QPlainTextEdit):
+    """The text box itself: Enter sends, Shift+Enter breaks the line, Up/Down at
+    the edge walk the Sources list, Esc is claimed from the window.
+    """
     submitted = Signal()
     open_source = Signal()
     walk = Signal(int)
@@ -174,6 +177,7 @@ class MessageBox(QWidget):
         self.focus()
 
     def _submit(self) -> None:
+        """Send what is typed, unless busy, unavailable or empty. Clears the box first."""
         text = self.edit.toPlainText().strip()
         if self._busy or self._reason or not text:
             return
@@ -181,6 +185,7 @@ class MessageBox(QWidget):
         self.submitted.emit(text)
 
     def set_busy(self, busy: bool) -> None:
+        """An answer is being written: Send gives way to Stop."""
         self._busy = busy
         self.send_button.setVisible(not busy)
         self.stop_button.setVisible(busy)

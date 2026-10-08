@@ -187,7 +187,10 @@ class PlainTextExtractor:
     """Text-shaped files of every flavour."""
 
     name = "plaintext"
-    extensions = TEXT_EXTENSIONS
+    #: `.svg` joined on 2026-10-08: an SVG is XML, and routing it through OCR
+    #: cost a failed engine call per file and a misleading run-wide warning,
+    #: because nothing installed rasterises SVG. Its `<text>` reads as text.
+    extensions = TEXT_EXTENSIONS | frozenset({".svg"})
     #: Whole filenames, for the build and configuration files that have no
     #: extension at all. `register` reads this into `base.NAME_REGISTRY`.
     names = NAMED_FILES
@@ -205,6 +208,13 @@ class PlainTextExtractor:
                 or path.name.lower() in NAMED_FILES)
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document of the file's text, decoded by the ladder in the module
+        docstring and cut at `MAX_TEXT_CHARS`.
+
+        NUL-bearing files are `ERR_NO_TEXT_LAYER` (binary with a text name);
+        locked `ERR_FILE_LOCKED`; a latin-1 fallback or a cut is an
+        `ERR_ENCODING` warning on a document that is still indexed. Reads only.
+        """
         try:
             with path.open("rb") as handle:
                 sniff = handle.read(SNIFF_BYTES)

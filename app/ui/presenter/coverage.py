@@ -61,6 +61,7 @@ class Place:
 
 
 def _value(levers: Any, name: str) -> Any:
+    """One lever from a mapping or an object, else its documented default."""
     if isinstance(levers, Mapping):
         found = levers.get(name, levers.get(name.upper()))
     else:
@@ -69,6 +70,7 @@ def _value(levers: Any, name: str) -> Any:
 
 
 def _flag(levers: Any, name: str) -> bool:
+    """A lever as a bool; the `.env` spellings of true count."""
     value = _value(levers, name)
     if isinstance(value, str):
         return value.strip().lower() in ("1", "true", "yes", "on")
@@ -183,6 +185,7 @@ def _pictures(levers: Any) -> str:
 
 
 def _media(levers: Any) -> str:
+    """The video and audio sentence, from the two background switches."""
     video = _flag(levers, "video_indexing_enabled")
     audio = _flag(levers, "audio_transcription_enabled")
     parts = [

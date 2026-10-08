@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.10 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.11 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 ## Scheme
 
@@ -134,7 +134,9 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
 9. Build the Windows installer from the tag: `.\packaging\build.ps1 -Release`. It makes
    `Leasha-Setup-<version>.exe`, checks the built program runs, and copies the installer and
    its `.sha256` to `Leasha\Releases\<version>\` on Google Drive. Install it once on this
-   machine and let **Check the installation** say READY.
+   machine and let **Check the installation** say READY. The build refuses to run if one of
+   the optional libraries (`av`, `pypff`, `reverse_geocoder`, `insightface`) is missing from
+   the venv, naming it; a release build never passes `-AllowMissingOptional`.
 
 Steps 5 and 6 are enforced by tests rather than trusted to memory. Documentation that has
 quietly gone stale is worse than none: it is confidently wrong, and someone acts on it.

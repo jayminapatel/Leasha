@@ -61,11 +61,13 @@ def _read(store: Any, text: str, reading: dict) -> tuple:
 
 
 class PhotosView(QWidget):
+    """The Photos tab. Every read is a worker; narrowing is in memory."""
     open_requested = Signal(str)
     reveal_requested = Signal(str)
     error = Signal(object)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
+        """Build the sidebar, browser and info panel; `refresh` reads the library on a worker."""
         super().__init__(parent)
         self._store = store
         self._pool = QThreadPool.globalInstance()
@@ -157,6 +159,7 @@ class PhotosView(QWidget):
         self._timer.start()
 
     def _run(self, *_args: Any) -> None:
+        """Read the box on a worker, tagged so a late reading is dropped."""
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -175,6 +178,7 @@ class PhotosView(QWidget):
         self._show(applied)
 
     def _show(self, applied: Any = ()) -> None:
+        """Narrow the library in memory, sort it and draw it with its summary."""
         shown = narrow(self._all, self._parsed, self._words)
         order = getattr(self._parsed, "sort", "") or self.sort_key
         self.browser.set_rows(sort_rows(shown, order), dated=order in ("newest", "oldest"))

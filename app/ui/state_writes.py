@@ -80,7 +80,12 @@ def start(worker: CallableWorker, *, owner: Any = None,
     """
     if on_saved is not None or on_failed is not None:
         finished = (lambda _result: on_saved()) if on_saved is not None else None
-        if owner is not None:
+        from PySide6.QtCore import QObject
+
+        # `isinstance`: a controller test hands in a `SimpleNamespace` window as
+        # the owner, which `when_done` cannot parent to. The callbacks then
+        # connect directly, as they do with no owner at all (2026-10-08).
+        if owner is not None and isinstance(owner, QObject):
             from app.ui.later import when_done
 
             when_done(owner, worker, finished=finished, failed=on_failed)

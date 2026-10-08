@@ -1,4 +1,7 @@
-"""`report`: read-only reports over the existing index."""
+"""`report`: read-only reports over the existing index.
+
+Layer: L4 (reports - `app.reports`, which reads L1 and never writes to it)
+"""
 
 from __future__ import annotations
 

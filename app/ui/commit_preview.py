@@ -69,6 +69,7 @@ def _marked(text: str, needle: str) -> str:
 
 
 def _diff_line(line: str, needle: str) -> str:
+    """One diff line as HTML: headers bold, hunks, additions and removals coloured."""
     body = _marked(line, needle) or "&nbsp;"
     if line.startswith(("diff --git", "+++ ", "--- ", "index ", "new file", "deleted file",
                         "rename ", "similarity ", "old mode", "new mode")):
