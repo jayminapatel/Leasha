@@ -489,6 +489,7 @@ class MiniSearch(CardWindow):
         which is what makes it safe to always show even when it is wrong.
         """
         self._apply_theme()
+        self._fit_minimum()
         self._load_place()
         self._place_window()
         self.box.clear()
@@ -500,6 +501,7 @@ class MiniSearch(CardWindow):
         self._load_saved()
         self._load_recent()
         self.show()
+        self._fit_minimum()
         self.raise_()
         self.activateWindow()
         self.box.setFocus()
@@ -513,6 +515,29 @@ class MiniSearch(CardWindow):
             self.box.setText(prefill)
             self.box.selectAll()
         self._show_mode("empty")
+
+    def _fit_minimum(self) -> None:
+        """No narrower than its type chips need, in the font this machine draws.
+
+        `MIN_SIZE` is a floor, not the answer: the chips row can need more. On
+        GitHub's Windows runner, whose fonts are wider, "All" was squeezed below
+        its own text at 560px (2026-10-08) - a box narrower than its chips cuts
+        them. Measured after the theme is applied, since that sets the font, and
+        again once shown, when the row's place in the window is known.
+
+        **The chips row only**, plus its margins either side: the footer hints
+        and the result counts give way when room is short, by design, so the
+        window's overall minimum is not the measure.
+        """
+        from PySide6.QtCore import QPoint
+
+        from app.ui.presenter.quick_search import MIN_SIZE
+
+        self.ensurePolished()
+        if self.layout() is not None:
+            self.layout().activate()
+        left = max(0, self.scopes.mapTo(self, QPoint(0, 0)).x())
+        self.setMinimumWidth(max(MIN_SIZE[0], self.scopes.sizeHint().width() + 2 * left))
 
     def offer_prefill(self, text: str) -> None:
         r"""A selection read *after* the box was already shown. Adoptions §4a.

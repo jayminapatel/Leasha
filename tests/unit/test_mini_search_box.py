@@ -692,3 +692,24 @@ def test_a_narrow_box_keeps_its_type_chips_whole(qapp, mixed_engine):
     _pump(qapp, 0.1)
     assert not box.chips.isHidden()
     box.dismiss()
+
+
+def test_the_box_is_never_narrower_than_its_chips_need(qapp, mixed_engine, monkeypatch):
+    """GitHub's Windows runner draws wider text than the laptop, and at the
+    560px floor "All" was squeezed below its own label (2026-10-08). The floor
+    is shrunk here so the rule shows on any machine's fonts: the box's minimum
+    width is what its row of chips needs, never only the floor."""
+    from app.ui.presenter import quick_search
+
+    monkeypatch.setattr(quick_search, "MIN_SIZE", (100, 100))
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    _pump(qapp, 0.1)
+    need = box.scopes.sizeHint().width()
+    assert need > 100
+    assert box.minimumWidth() >= need
+    box.resize(100, 380)
+    _pump(qapp, 0.1)
+    for chip in box._scope_buttons.values():
+        assert chip.width() >= chip.sizeHint().width(), chip.text()
+    box.dismiss()
