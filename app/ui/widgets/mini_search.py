@@ -534,6 +534,22 @@ class MiniSearch(CardWindow):
         from app.ui.presenter.quick_search import MIN_SIZE
 
         self.ensurePolished()
+        # **Each chip as wide as it is when chosen.** A chosen chip is drawn
+        # semibold, which is a pixel or two wider; without room kept for it,
+        # choosing a chip in a box at its narrowest cut that chip short (55px
+        # for a 56px "All" on GitHub's runner) and nudged its neighbours.
+        for chip in self._scope_buttons.values():
+            chosen = chip.isChecked()
+            widths = []
+            for state in (False, True):
+                chip.setChecked(state)
+                chip.style().unpolish(chip)
+                chip.style().polish(chip)
+                widths.append(chip.sizeHint().width())
+            chip.setChecked(chosen)
+            chip.style().unpolish(chip)
+            chip.style().polish(chip)
+            chip.setMinimumWidth(max(widths))
         if self.layout() is not None:
             self.layout().activate()
         left = max(0, self.scopes.mapTo(self, QPoint(0, 0)).x())

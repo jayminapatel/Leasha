@@ -713,3 +713,39 @@ def test_the_box_is_never_narrower_than_its_chips_need(qapp, mixed_engine, monke
     for chip in box._scope_buttons.values():
         assert chip.width() >= chip.sizeHint().width(), chip.text()
     box.dismiss()
+
+
+def test_choosing_a_chip_never_cuts_it_short(qapp, mixed_engine, monkeypatch):
+    """A chosen chip is drawn semibold, a pixel or two wider. On GitHub's
+    runner, at the box's narrowest, the chosen "All" got 55px of its 56
+    (2026-10-08). Each chip now keeps the width it has when chosen, so
+    choosing one changes no widths at all."""
+    from app.ui.presenter import quick_search
+
+    monkeypatch.setattr(quick_search, "MIN_SIZE", (100, 100))
+    box = MiniSearch(mixed_engine)
+    box.summon()
+    box.resize(100, 380)
+    _pump(qapp, 0.1)
+    # The rule, whatever this machine's fonts: each chip keeps at least the
+    # width it needs when chosen. (On the laptop semibold is no wider, so
+    # measuring alone would pass with or without it.)
+    for chip in box._scope_buttons.values():
+        chosen = chip.isChecked()
+        chip.setChecked(True)
+        chip.style().unpolish(chip)
+        chip.style().polish(chip)
+        assert chip.minimumWidth() >= chip.sizeHint().width(), chip.text()
+        chip.setChecked(chosen)
+        chip.style().unpolish(chip)
+        chip.style().polish(chip)
+    before = {bucket: chip.width() for bucket, chip in box._scope_buttons.items()}
+    for bucket in list(box._scope_buttons):
+        box._select_chip(bucket)
+        _pump(qapp, 0.05)
+        for chip in box._scope_buttons.values():
+            chip.style().unpolish(chip)
+            chip.style().polish(chip)
+            assert chip.width() >= chip.sizeHint().width(), (bucket, chip.text())
+        assert {b: c.width() for b, c in box._scope_buttons.items()} == before
+    box.dismiss()
