@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.111 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 7.112 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -86,6 +86,8 @@ what each load was for. **Still open:** two ~0.6 s start-up lags, and the Mail l
 cell by cell on the window thread (`mail_view._show`). Two load-only flakes seen:
 `test_file_watch.py::test_a_timed_out_file_is_settled_and_not_read_again` (3/3 alone) and a
 psutil `open_files` access violation inside `test_pipeline_bench.py` (passes alone).
+
+*Note, 2026-10-08 (later): since this entry, v1.0.0 is tagged (annotated, on 40b191e) and `Leasha-Setup-1.0.0.exe` is built and in `Leasha\Releases\1.0.0\` (SHA256 CBB8CEE5B4CC75ABA7B709DA9260BAB0BD1191E2008815103B5C412ADB426ED3), by the "Index writer" thread after its own work was in. insightface loading in the frozen build is still not verified - that needs an install.*
 
 **2026-10-08 - every model downloadable, one at a time or all; branded installer.** The
 single list is `app/core/model_catalogue.py` (keys search, rerank, pictures, photo-tags,
