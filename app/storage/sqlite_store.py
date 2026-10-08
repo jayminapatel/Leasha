@@ -3963,6 +3963,57 @@ class SqliteStore:
             last_id = batch[-1].id
             yield batch
 
+    def unembedded_by_file(self, batch_size: int = 256) -> list[list[tuple[int, int]]]:
+        r"""Chunks awaiting a vector, as `(chunk_id, file_id)` batches of **whole files**.
+
+        2026-10-08. `iter_unembedded` cuts batches by chunk id, so one file's
+        passages can land in two batches - and the pipeline replaces a file's
+        vectors with `delete_by_file_ids` just before each batch's add, so the
+        second batch deleted the vectors the first had just written. A
+        spreadsheet with 5,000 rows left unembedded kept only its last
+        batch's worth. Never splitting a file is what makes that delete safe.
+
+        A batch holds at least `batch_size` passages unless the backlog runs
+        out, and more when its last file is long - a file is never cut. One
+        sorted read of two integers per passage, not of the text: the caller
+        fetches text with `chunk_texts` one batch at a time.
+        """
+        rows = self.conn.execute(
+            "SELECT id, file_id FROM chunks WHERE embedded = 0 ORDER BY file_id, id"
+        ).fetchall()
+        batches: list[list[tuple[int, int]]] = []
+        batch: list[tuple[int, int]] = []
+        current: Optional[int] = None
+        for row in rows:
+            file_id = int(row["file_id"])
+            if file_id != current and len(batch) >= batch_size:
+                batches.append(batch)
+                batch = []
+            current = file_id
+            batch.append((int(row["id"]), file_id))
+        if batch:
+            batches.append(batch)
+        return batches
+
+    def chunk_texts(self, chunk_ids: Iterable[int]) -> dict[int, str]:
+        """`{chunk_id: text}` for the given chunks that still await a vector.
+
+        A chunk that is gone (its file was read again since) or already has a
+        vector is simply absent from the answer - the caller decides what that
+        means for the rest of its file.
+        """
+        ids = [int(one) for one in chunk_ids]
+        found: dict[int, str] = {}
+        for start in range(0, len(ids), 500):
+            part = ids[start:start + 500]
+            marks = ",".join("?" * len(part))
+            for row in self.conn.execute(
+                f"SELECT id, text FROM chunks WHERE embedded = 0 AND id IN ({marks})",
+                part,
+            ):
+                found[int(row["id"])] = row["text"]
+        return found
+
     def iter_uncaptioned_images(
         self, extensions: Sequence[str], *, batch_size: int = 32,
         label: str = "AI caption",
@@ -4791,6 +4842,39 @@ class SqliteStore:
             return
         with self.write() as conn:
             conn.executemany("UPDATE chunks SET embedded = 1 WHERE id = ?", ids)
+
+    #: 2026-10-08. `chunks.embedded` for a passage found by its words only, on
+    #: purpose (a spreadsheet, `pipeline.KEYWORD_ONLY_EXTS`). Not 0, which every
+    #: repair reads as "lost its vector, fill it in"; not 1, which says a vector
+    #: exists. `mark_all_unembedded` leaves it alone for the same reason.
+    KEYWORD_ONLY = 2
+
+    def mark_keyword_only(self, chunk_ids: Iterable[int]) -> None:
+        ids = [(int(i),) for i in chunk_ids]
+        if not ids:
+            return
+        with self.write() as conn:
+            conn.executemany(
+                f"UPDATE chunks SET embedded = {self.KEYWORD_ONLY} WHERE id = ?", ids)
+
+    def reset_keyword_only(self) -> int:
+        """Put keyword-only passages in the embedding queue. Returns how many.
+
+        For "Find spreadsheets by meaning" switched back on: the run's start
+        repair (`Pipeline._drain_unembedded`) then gives them vectors without
+        reading a single spreadsheet again.
+        """
+        with self.write() as conn:
+            cursor = conn.execute(
+                f"UPDATE chunks SET embedded = 0 WHERE embedded = {self.KEYWORD_ONLY}")
+            return int(cursor.rowcount)
+
+    def has_embedded_chunks(self, file_id: int) -> bool:
+        """Does this file have any passage with a vector? One indexed lookup."""
+        return self.conn.execute(
+            "SELECT 1 FROM chunks WHERE file_id = ? AND embedded = 1 LIMIT 1",
+            (int(file_id),),
+        ).fetchone() is not None
 
     # -- messages ------------------------------------------------------------
 
@@ -6318,6 +6402,9 @@ class SqliteStore:
             "files_total": sum(counts.values()),
             "chunks_total": int(chunk_total),
             "chunks_embedded": int(embedded),
+            # 2026-10-08: found by their words only, on purpose - never a gap
+            # in meaning-based search. See `KEYWORD_ONLY`.
+            "chunks_keyword_only": self.keyword_only_count(),
             "skipped_by_code": self.skipped_summary(),
         }
 
@@ -6340,20 +6427,31 @@ class SqliteStore:
         perfectly and a check comparing those two reports everything healthy.
         `semantic_search_warnings` in the CLI already learned this the hard way.
         """
-        chunks = int(self.conn.execute(
+        total = int(self.conn.execute(
             "SELECT COUNT(*) AS n FROM chunks").fetchone()["n"])
+        # 2026-10-08: passages kept by their words only on purpose are not
+        # missing anything, so they are not counted against the vectors.
+        keyword_only = self.keyword_only_count()
+        chunks = max(0, total - keyword_only)
         rows = max(0, int(vector_rows or 0))
-        covered = (rows / chunks) if chunks else 0.0
+        covered = min(1.0, rows / chunks) if chunks else (1.0 if total else 0.0)
         return {
             # True only when meaning-based search covers effectively all of it.
             # Not `rows > 0`: a store holding 5% of the corpus is not "ready",
             # and calling it ready is how a half-working search looks healthy.
             "vectors_ready": bool(chunks) and covered >= 0.95,
             "vector_rows": rows,
-            "chunks_total": chunks,
+            "chunks_total": total,
+            "chunks_keyword_only": keyword_only,
             "coverage": round(covered, 4),
             "missing": max(0, chunks - rows),
         }
+
+    def keyword_only_count(self) -> int:
+        """Passages found by their words only, on purpose. See `KEYWORD_ONLY`."""
+        return int(self.conn.execute(
+            f"SELECT COUNT(*) AS n FROM chunks WHERE embedded = {self.KEYWORD_ONLY}"
+        ).fetchone()["n"])
 
     def integrity_check(self) -> bool:
         row = self.conn.execute("PRAGMA integrity_check").fetchone()

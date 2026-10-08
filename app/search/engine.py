@@ -750,8 +750,13 @@ class SearchEngine:
         use_cache: bool = True,
         scope: str = "all",
         policy: Optional[SearchPolicy] = None,
+        record: bool = True,
     ) -> SearchResponse:
         r"""The full pipeline. What runs when someone stops typing or presses Enter.
+
+        `record=False` (2026-10-08) leaves the search out of the search log:
+        the window's first, not-yet-reranked pass of a search it is about to
+        run again with the reranker (`SearchWorker`) is one search, not two.
 
         `policy` is **what this surface is allowed to do on the person's
         behalf** - fix a spelling, drop a word, fold older versions. The engine
@@ -1058,7 +1063,8 @@ class SearchEngine:
         if use_cache and self.cache is not None:
             self._cache_set(cache_key, response)
 
-        response.search_id = self._log_search(raw, parsed, response, want_rerank)
+        if record:
+            response.search_id = self._log_search(raw, parsed, response, want_rerank)
         return response
 
     def similar_to(self, chunk_id: int, *, limit: int = 20,

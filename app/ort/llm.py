@@ -91,6 +91,23 @@ _resident: list["OnnxLLM"] = []
 _registry_lock = threading.Lock()
 
 
+def _asked_by(depth: int = 6) -> str:
+    """The application frames that led to a model load, outermost first, as
+    `module.function` - a worker's stack names the job it was handed. Never raises."""
+    try:
+        import os
+        import traceback
+
+        inside = f"{os.sep}app{os.sep}"
+        mine = f"{os.sep}app{os.sep}ort{os.sep}"
+        frames = [frame for frame in traceback.extract_stack()[:-2]
+                  if inside in frame.filename and mine not in frame.filename]
+        return " > ".join(f"{Path(frame.filename).stem}.{frame.name}"
+                          for frame in frames[-depth:]) or "(nothing in app/)"
+    except Exception:                                  # noqa: BLE001 - a log line only
+        return "(unknown)"
+
+
 def _make_resident(client: "OnnxLLM") -> list["OnnxLLM"]:
     """Note `client` as loaded and used now; returns the models to unload so that at
     most `MAX_RESIDENT` stay - never `client`, and the one Settings chose
@@ -421,6 +438,12 @@ class OnnxLLM:
                 loaded = self._loaded
                 _log.info("{} loaded in {:.1f}s on the {}", spec.key, time.monotonic() - started,
                           "graphics card" if self._loaded.on_gpu else "processor")
+                # 2026-10-08. Building the session holds Python's lock for the
+                # whole load (measured: 8.8 s of a 9.0 s build with no other
+                # thread running), so a load in the window's process freezes the
+                # window wherever it runs. Which code asked is what decides
+                # whether it should have - so the log says.
+                _log.info("{} was loaded for: {}", spec.key, _asked_by())
             except AppErrorException:
                 raise
             except Exception as exc:                     # noqa: BLE001 - said plainly below

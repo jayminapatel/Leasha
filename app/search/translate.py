@@ -58,6 +58,7 @@ from app.search.query import parse_query
 __all__ = [
     "Translation",
     "QueryTranslator",
+    "warm_at_startup",
     "build_prompt",
     "clean_output",
     "TRANSLATE_TIMEOUT_S",
@@ -403,6 +404,21 @@ def _merge_query(model_query: str, filters: list[str]) -> str:
     """
     extra = [f for f in filters if f not in model_query]
     return " ".join(part for part in (model_query, " ".join(extra)) if part)
+
+
+def warm_at_startup(enabled: bool, engine: str) -> bool:
+    r"""Should the window warm Interpret's model as it starts? 2026-10-08.
+
+    Only for somebody who already switched Interpret on, and only when the
+    model is Ollama's - a separate process, so warming it is a request and
+    the window carries on. The model inside Leasha (`onnx`, the default)
+    loads in the window's own process, and building its session holds
+    Python's lock for the whole load: measured 8.8 s of a 9.0 s build with no
+    other thread able to run, and a 6.7 s frozen window at every start. It
+    loads on the first press instead, inside the 45 s budget
+    (`TRANSLATE_TIMEOUT_S`) that already allows for it.
+    """
+    return bool(enabled) and str(engine or "").strip().lower() == "ollama"
 
 
 class QueryTranslator:

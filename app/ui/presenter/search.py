@@ -105,6 +105,20 @@ def file_query(raw: str) -> Any:
     return parse_query(expand_slashes((raw or "").strip()))
 
 
+def draws_answer(generation: int, shown: int, finished: int, *, early: bool) -> bool:
+    r"""Should the Search tab draw this answer? 2026-10-08.
+
+    A full search with the reranker on answers twice under one generation:
+    early, before the reranker has ordered the rows, then finished
+    (`SearchWorker._rerank_follows`). An older generation is never drawn - the
+    person has typed since - and an early answer never replaces the finished
+    one of its own search, should the two ever land out of order.
+    """
+    if generation < shown:
+        return False
+    return not (early and generation == finished)
+
+
 def search_options(tier: str, *, scope: str, rerank: bool,
                    surface: str = "search", preferences: Any = None,
                    declined: Any = None) -> dict:

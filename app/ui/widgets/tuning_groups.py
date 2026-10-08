@@ -506,6 +506,16 @@ class StrategyBox(QGroupBox):
             "difference between search being useful on day one and on day\n"
             "fourteen. Nothing is skipped either way.")
 
+        # 2026-10-08, the owner: spreadsheets by their words only, by default.
+        self.spreadsheet_meaning = QCheckBox("Find spreadsheets by meaning")
+        self.spreadsheet_meaning.setObjectName("INDEX_SPREADSHEET_MEANING")
+        self.spreadsheet_meaning.setToolTip(
+            "Off: spreadsheets and CSV files are found by the words and\n"
+            "numbers in them, and indexing does not spend time working out\n"
+            "what each row of cells means. On: they are found by meaning as\n"
+            "well, as documents are, and indexing takes longer.\n"
+            "Takes effect from the next Start.")
+
         self.dedup = QCheckBox("Embed repeated text once")
         self.dedup.setObjectName("EMBED_DEDUP")
         self.dedup.setToolTip(
@@ -575,13 +585,14 @@ class StrategyBox(QGroupBox):
         self._save = Debounced(lambda: self.changed.emit(self.values()),
                                parent=self)
         for widget in (self.two_phase, self.dedup, self.separate_process,
-                       self.read_processes):
+                       self.read_processes, self.spreadsheet_meaning):
             widget.stateChanged.connect(lambda _s: self._save())
         for widget in (self.bulk_fts, self.ocr_pass, self.read_order):
             widget.currentIndexChanged.connect(lambda _i: self._save())
 
         form = QFormLayout(self)
         form.addRow(self.two_phase)
+        form.addRow(self.spreadsheet_meaning)
         form.addRow(self.dedup)
         form.addRow("Word index", self.bulk_fts)
         form.addRow("Read images", self.ocr_pass)
@@ -594,12 +605,15 @@ class StrategyBox(QGroupBox):
 
     def load(self, settings: Any) -> None:
         widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass,
-                   self.read_order, self.separate_process, self.read_processes)
+                   self.read_order, self.separate_process, self.read_processes,
+                   self.spreadsheet_meaning)
         for widget in widgets:
             widget.blockSignals(True)
         try:
             self.two_phase.setChecked(
                 bool(getattr(settings, "index_two_phase", True)))
+            self.spreadsheet_meaning.setChecked(
+                bool(getattr(settings, "index_spreadsheet_meaning", False)))
             self.dedup.setChecked(bool(getattr(settings, "embed_dedup", True)))
             self.separate_process.setChecked(
                 bool(getattr(settings, "index_separate_process", False)))
@@ -620,6 +634,7 @@ class StrategyBox(QGroupBox):
     def values(self) -> dict:
         return {
             "INDEX_TWO_PHASE": bool(self.two_phase.isChecked()),
+            "INDEX_SPREADSHEET_MEANING": bool(self.spreadsheet_meaning.isChecked()),
             "EMBED_DEDUP": bool(self.dedup.isChecked()),
             "INDEX_BULK_FTS": str(self.bulk_fts.currentData() or "auto"),
             "INDEX_OCR_PASS": str(self.ocr_pass.currentData() or "with-run"),

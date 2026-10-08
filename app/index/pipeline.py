@@ -48,6 +48,7 @@ still does not.
 
 from __future__ import annotations
 
+import collections
 import copy
 import hashlib
 import itertools
@@ -135,7 +136,7 @@ from app.index.walker import (
     walk,
 )
 from app.storage.filters import MAIL_KINDS
-from app.storage.sqlite_store import FileStatus, SqliteStore
+from app.storage.sqlite_store import ChunkRecord, FileStatus, SqliteStore
 from app.storage.vector_store import ImageVectorStore, VectorStore
 
 #: Still importable from here (tests do); this module itself calls
@@ -246,6 +247,12 @@ RESUME_PERSIST_S = 30.0
 #: lever was connected to nothing. One constant, in the module that uses it.
 EMBED_BATCH = _EMBED_BATCH
 
+#: 2026-10-08, the owner. Types found by their words only unless
+#: `PipelineConfig.spreadsheet_meaning` is on. Measured on the owner's index:
+#: xlsx 24.6%, xls 14.3%, xlsm 9.9% and csv 3.4% of 386,665 passages - over
+#: half of all embedding, for rows of cells a meaning search rarely helps with.
+KEYWORD_ONLY_EXTS = frozenset({"xlsx", "xlsm", "xlsb", "xls", "ods", "csv", "tsv"})
+
 #: Files between free-space checks. `shutil.disk_usage` is a syscall, so this is
 #: cheap, but not free enough to do per file.
 DISK_CHECK_EVERY = 200
@@ -306,6 +313,10 @@ PHASE_PLANNING = "planning"
 #: against a real total from the first file read.
 PHASE_SCANNING = "scanning"
 PHASE_READING = "reading"
+#: 2026-10-08. Text first (`PipelineConfig.two_phase`): every file the run read
+#: is already searchable by its words, and the meaning model is finishing the
+#: passages it was too busy to take while the files were being read.
+PHASE_MEANING = "meaning"
 PHASE_MEDIA = "media"
 #: 2026-10-04. Florence-2 tags for photos with no text, at the end of a run.
 PHASE_PHOTO_TAGS = "photo_tags"
@@ -776,6 +787,10 @@ class PipelineConfig:
     #: catching up behind. `auto | on | off` for the word index; see
     #: `_optimise_keyword_index`.
     two_phase: bool = True
+    #: 2026-10-08, the owner. Spreadsheet passages get a vector too. Off: they
+    #: are written and searchable by their words, marked `embedded = 2`
+    #: (`KEYWORD_ONLY_EXTS`), and never queued for the model.
+    spreadsheet_meaning: bool = False
     bulk_fts: str = "auto"
     min_free_gb: int = 5
     #: Where the completions sidecar goes - `DATA_PATH`, normally.
@@ -1138,6 +1153,12 @@ _STOP = object()
 #: anyway.
 _FEEDER_QUEUE_SIZE = 1
 
+#: 2026-10-08, text first. How long the feeder waits for a new batch before it
+#: looks at the parked ones instead, and how often the end-of-run catch-up
+#: looks to see whether the model has finished. A tenth of a second against
+#: batches that take half a minute: nothing waits on it.
+_PARKED_POLL_S = 0.1
+
 #: §6g. How dominant `waiting` must be, as a share of the critical path,
 #: before another extraction worker is worth starting. The same threshold
 #: `stages.advice()` uses for "this run is extraction-bound" - one number,
@@ -1497,6 +1518,20 @@ class Pipeline:
         #: so a second run on the same instance never sees the first run's
         #: leftover queue or error.
         self._feeder_queue: "queue.Queue[Any]" = queue.Queue(maxsize=_FEEDER_QUEUE_SIZE)
+        #: 2026-10-08, text first. Batches the meaning model was too busy to
+        #: take, as `(chunk_id, file_id)` pairs - never the text, which is
+        #: already in SQLite and is read back when the model gets to them. A
+        #: deque, because the consumer appends and the feeder pops, and both
+        #: are atomic on a deque. See `_hand_over_or_park`.
+        #: Each entry is `(ids, repair)`: `repair` is True for passages an
+        #: earlier run left without vectors, so they count as `vectors_repaired`.
+        self._parked: "collections.deque[tuple[list[tuple[int, int]], bool]]" = (
+            collections.deque())
+        self._parked_lock = threading.Lock()
+        self._parked_busy = False
+        #: The governor said stop while the model was free for a parked batch:
+        #: the rest wait for the next run (`_next_parked`).
+        self._parked_refused = False
         #: Exceptions the feeder thread caught rather than let vanish. A list
         #: rather than one slot: `_raise_if_feeder_failed` always re-raises the
         #: *first* one, which is the one that actually explains what went
@@ -1818,6 +1853,9 @@ class Pipeline:
         # second run must not inherit a queue or an error from the first.
         self._feeder_queue = queue.Queue(maxsize=_FEEDER_QUEUE_SIZE)
         self._feeder_errors = []
+        self._parked = collections.deque()
+        self._parked_busy = False
+        self._parked_refused = False
         # §6g: same reason - a second run starts back at the static count.
         self._dynamic_workers = []
         self._replacement_workers = []
@@ -1934,6 +1972,17 @@ class Pipeline:
         self._face_stats = stats
         self._faces_since_cluster = 0
         if not light:
+            # 2026-10-08: "Find spreadsheets by meaning" switched on - the
+            # passages kept by their words only join the repair just below.
+            if getattr(self.config, "spreadsheet_meaning", False):
+                try:
+                    released = self.store.reset_keyword_only()
+                    if released:
+                        self._log.info(
+                            "{} spreadsheet passage(s) will be given meaning "
+                            "as well as words", released)
+                except Exception as exc:          # noqa: BLE001 - a repair, not the job
+                    self._log.warning("could not queue spreadsheet passages: {}", exc)
             self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
@@ -3411,7 +3460,14 @@ class Pipeline:
         # whose attached pictures it held (`_held_archive_candidates`). Every
         # other re-queue reads SKIPPED rows only, so for them this changes
         # nothing.
-        if (not changed and record is not None and record.status == FileStatus.INDEXED
+        # **PARTIAL counts as read** (2026-10-08, text first). Its passages are
+        # written whole - `replace_chunks` runs in the same transaction as the
+        # row - and only vectors are missing, which every run's start finds
+        # by `embedded = 0` (`_drain_unembedded`). Reading it again replaced
+        # those passages with new ids behind the parked batch, and the file
+        # was embedded twice.
+        if (not changed and record is not None
+                and record.status in (FileStatus.INDEXED, FileStatus.PARTIAL)
                 and not getattr(candidate, "retry", False)):
             return UNCHANGED
 
@@ -4578,7 +4634,7 @@ class Pipeline:
                 # this archive's own images flush before the marker too, for
                 # exactly the reason the text vectors do just above.
                 self._flush_pending_images()
-                self._feed_sync(pending_vectors)
+                self._settle(pending_vectors)
                 if self._embed_abandoned:
                     # A stop abandoned part of a batch (0u 6e), so the archive
                     # may be missing vectors: no marker, and the next run reads
@@ -4700,6 +4756,14 @@ class Pipeline:
         # embed failure here must still end the run the way it always has.
         # `_feed_sync` waits for the feeder and re-raises whatever it caught.
         self._flush_pending_images()
+        if self._text_first():
+            # 2026-10-08: the last of the text is committed and searchable;
+            # the resume cursors can be written now (see `_settle`), and the
+            # meaning model finishes what it was too busy to take while the
+            # files were being read.
+            self._settle(pending_vectors)
+            self._persist_text_first_progress(stats)
+            self._catch_up_meaning(stats, on_progress)
         self._feed_sync(pending_vectors)
         # Work order 202626270509, item 1b. Only reached once `_feed_sync`
         # above has returned *without raising* - so everything this run has
@@ -4780,7 +4844,27 @@ class Pipeline:
         # count; `embed_batches` (m) is counted by whoever hands batches over.
         done = 0
         while True:
-            batch = self._feeder_queue.get()
+            try:
+                batch = self._feeder_queue.get(timeout=_PARKED_POLL_S)
+            except queue.Empty:
+                # 2026-10-08, text first: nothing new handed over, so the model
+                # is free - it takes the oldest parked batch, if there is one.
+                parked = self._next_parked()
+                if parked is None:
+                    continue
+                self._embedding_now.set()
+                self._stats_ref.embed_batch = done + 1
+                try:
+                    self._embed_parked(parked)
+                except BaseException as exc:          # noqa: BLE001 - reraised, not lost
+                    self._feeder_errors.append(exc)
+                    return
+                finally:
+                    self._parked_done()
+                    self._embedding_now.clear()
+                    self._stats_ref.embed_batch = 0
+                done += 1
+                continue
             if batch is _STOP:
                 self._feeder_queue.task_done()
                 return
@@ -4797,6 +4881,156 @@ class Pipeline:
                 self._stats_ref.embed_batch = 0
             done += 1
             self._feeder_queue.task_done()
+
+    def _next_parked(self) -> Optional[tuple[list[tuple[int, int]], bool]]:
+        """The oldest parked batch, marked as in hand - or None.
+
+        None while the run is stopping or the person has paused it: a parked
+        batch is work nobody is waiting on, so it waits for them. Taken and
+        marked busy under one lock, so `_parked_idle` can never see an empty
+        deque in the instant between the take and the work starting.
+
+        **The governor is asked first**, as the start-of-run repair always
+        asked it before each batch (work order 0i section 2b): a battery or a
+        busy machine holds this work like any other. A `stop` puts the batch
+        back and ends parked work for this run; the passages stay
+        `embedded = 0` for the next one.
+        """
+        if self._stop.is_set() or self._person_paused() or self._parked_refused:
+            return None
+        with self._parked_lock:
+            if not self._parked:
+                return None
+            self._parked_busy = True
+            entry = self._parked.popleft()
+        verdict = self.governor.wait_while_throttled(should_stop=self._stop.is_set)
+        if getattr(verdict, "action", "run") == "stop":
+            with self._parked_lock:
+                self._parked.appendleft(entry)
+                self._parked_refused = True
+                self._parked_busy = False
+            return None
+        return entry
+
+    def _parked_done(self) -> None:
+        with self._parked_lock:
+            self._parked_busy = False
+
+    def _parked_idle(self) -> bool:
+        """Nothing parked, nothing parked in hand, nothing queued or embedding.
+
+        Parked batches the governor refused do not count: they wait for the
+        next run, and nothing in this one will take them.
+        """
+        with self._parked_lock:
+            parked = (bool(self._parked) and not self._parked_refused) or self._parked_busy
+        return (not parked and self._feeder_queue.unfinished_tasks == 0
+                and not self._embedding_now.is_set())
+
+    def _embed_parked(self, entry: tuple[list[tuple[int, int]], bool]) -> None:
+        r"""Embed a parked batch, its text read back from SQLite.
+
+        **A file is embedded whole or not at all.** If any of its passages is
+        missing - the file was read again after it was parked, so these chunk
+        ids are gone and its new passages are a batch of their own - the
+        file is left out, so `_embed_pending`'s `delete_by_file_ids` can only
+        ever replace a file's vectors with its complete current set.
+        """
+        parked, repair = entry
+        texts = self.store.chunk_texts(cid for cid, _fid in parked)
+        incomplete = {fid for cid, fid in parked if cid not in texts}
+        pending = [(cid, fid, texts[cid]) for cid, fid in parked
+                   if fid not in incomplete]
+        if not pending:
+            return
+        count = len(pending)          # `_embed_pending` clears its argument
+        before = self._stats_ref.vectors
+        self._embed_pending(pending)
+        if repair:
+            # Counted as the old start-of-run repair counted it: passages an
+            # earlier run left without vectors that now have them.
+            filled = min(count, self._stats_ref.vectors - before)
+            stats = self._stats_ref
+            stats.vectors_repaired += filled
+            stats.enrichment_counts["unembedded_chunk"] = (
+                stats.enrichment_counts.get("unembedded_chunk", 0) + filled)
+
+    def _catch_up_meaning(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]],
+    ) -> None:
+        r"""Wait, visibly, while the meaning model finishes the parked batches.
+
+        2026-10-08, text first. Every file is already searchable by its words
+        when this starts; what is left is the model's backlog. On this thread
+        because it is the one that reports progress - so the page keeps
+        moving ("batch n of m") instead of sitting on the last file read - and
+        the one that honours the person's pause and Stop. A stop leaves the
+        rest `embedded = 0` for the next run to park again at its start.
+        """
+        if self._parked_idle():
+            return
+        # Named only when there is a backlog. The run's last batch is nearly
+        # always still with the model as reading ends, and that wait was never
+        # a phase of its own - the old final flush waited for it silently.
+        with self._parked_lock:
+            backlog = bool(self._parked) and not self._parked_refused
+        if backlog:
+            self._announce_phase(stats, on_progress, PHASE_MEANING)
+        last = time.monotonic()
+        while not self._stop.is_set():
+            self._raise_if_feeder_failed()
+            if self._feeder_thread is not None and not self._feeder_thread.is_alive():
+                break
+            if self._parked_idle():
+                break
+            if self._person_paused():
+                self._report_pause(stats, on_progress)
+                held_from = time.monotonic()
+                stopped = self._hold_if_paused()
+                note = getattr(self.governor, "note_manual_pause", None)
+                if note is not None:
+                    note(time.monotonic() - held_from)
+                if stopped:
+                    break
+                self._report_pause(stats, on_progress)
+                continue
+            now = time.monotonic()
+            if (now - last) >= HEARTBEAT_SECONDS:
+                last = now
+                if not self._disk_ok(stats):
+                    break
+                if on_progress is not None:
+                    try:
+                        stats.sample(now=now)
+                        on_progress(stats)
+                    except Exception as exc:  # noqa: BLE001 - reporting, not work
+                        self._log.warning("progress reporting failed: {}", exc)
+            time.sleep(_PARKED_POLL_S)
+        # A parked batch already in the model's hands is finished (or cut
+        # short by the stop) before anything else in the run moves on - the
+        # teardown must never find the feeder still writing vectors.
+        while True:
+            with self._parked_lock:
+                busy = self._parked_busy
+            if not busy or self._feeder_errors:
+                break
+            if self._feeder_thread is not None and not self._feeder_thread.is_alive():
+                break
+            time.sleep(0.01)
+        self._raise_if_feeder_failed()
+
+    def _persist_text_first_progress(self, stats: IndexStats) -> None:
+        """The resume cursors, once the last text is committed. See `_settle`."""
+        if self._embed_abandoned:
+            return
+        stats.stage = STAGE_SAVING_RESUME
+        try:
+            self._persist_resume_progress()
+        except Exception as exc:            # noqa: BLE001 - H4: never the run
+            self._log.warning("could not persist mbox resume progress: {}", exc)
+        finally:
+            stats.stage = ""
 
     def _raise_if_feeder_failed(self) -> None:
         """The feeder's exception, on the caller's own thread - or nothing.
@@ -4853,7 +5087,78 @@ class Pipeline:
             return
         batch = list(pending)
         pending.clear()
-        self._put_on_feeder(batch)
+        if self._text_first():
+            self._hand_over_or_park(batch)
+        else:
+            self._put_on_feeder(batch)
+
+    def _text_first(self) -> bool:
+        """Is "Make text searchable first" (`INDEX_TWO_PHASE`) on for this run?"""
+        return bool(getattr(self.config, "two_phase", False))
+
+    def _keyword_only(self, ext: Optional[str]) -> bool:
+        """Is a file of this type found by its words only? See `KEYWORD_ONLY_EXTS`."""
+        if getattr(self.config, "spreadsheet_meaning", False):
+            return False
+        return str(ext or "").lower().lstrip(".") in KEYWORD_ONLY_EXTS
+
+    def _hand_over_or_park(self, batch: list[tuple[int, int, str]]) -> None:
+        r"""Give the batch to the meaning model if it is free; park it if not.
+
+        **2026-10-08, the owner: readers waiting for the index writer.** The
+        hand-off queue holds one batch (`_FEEDER_QUEUE_SIZE`). With the model
+        busy on one batch and the next already queued, `_put_on_feeder`
+        blocked this thread, the results queue filled behind it, and every
+        reader showed "Waiting for the index writer". Measured on the owner's
+        15-hour run: 54,555 s embedding against 1,568 s writing - the run read
+        and wrote at the model's pace, so "Make text searchable first" was
+        searchable first by about one batch.
+
+        Parking keeps only the ids. The passages are already committed - the
+        caller committed the write group - and their files are PARTIAL, which
+        is searchable by their words now (`app/core/file_state.py`); the
+        feeder reads the text back from SQLite when it reaches them
+        (`_embed_parked`) and `_embed_pending` promotes them to INDEXED.
+        Nothing is lost if the run ends first: the chunks are `embedded = 0`,
+        the next run's walk takes an unchanged PARTIAL file as read
+        (`_classify`), and parks its passages again at its start
+        (`_drain_unembedded`).
+
+        **The batch stays whole documents**, exactly as gathered, so the
+        `delete_by_file_ids` in `_embed_pending` still only ever replaces a
+        file's vectors with that file's complete new set.
+        """
+        try:
+            self._feeder_queue.put_nowait(batch)
+            self._stats_ref.embed_batches += 1   # 0x 3a: the m in "n of m"
+            return
+        except queue.Full:
+            pass
+        self._parked.append(([(cid, fid) for cid, fid, _t in batch], False))
+        self._stats_ref.embed_batches += 1
+
+    def _settle(self, pending: list[tuple[int, int, str]]) -> None:
+        r"""Make everything written so far durable, before a marker or a cursor.
+
+        Without text first this is `_feed_sync`: wait until the vectors exist,
+        because a marker or a resume cursor written before them was a hole
+        nothing would ever fill (M6).
+
+        **With text first the hole has a route out**, so the wait is not
+        needed: a passage with no vector is `embedded = 0` in SQLite, and
+        every run starts by parking those (`_drain_unembedded`). Committed
+        text is therefore enough - and waiting here was the stall again,
+        once per archive and once every `RESUME_PERSIST_S` while one is read.
+        """
+        if not self._text_first():
+            self._feed_sync(pending)
+            return
+        self._commit_write_group()
+        self._raise_if_feeder_failed()
+        if pending:
+            batch = list(pending)
+            pending.clear()
+            self._hand_over_or_park(batch)
 
     def _feed_sync(self, pending: list[tuple[int, int, str]]) -> None:
         r"""Hand off whatever remains, then wait until it is actually written.
@@ -5074,10 +5379,43 @@ class Pipeline:
         refuses to start because old ones are incomplete.
         """
         try:
-            batches = self.store.iter_unembedded(batch_size=self.config.embed_batch)
+            # 2026-10-08: whole files per batch - see `unembedded_by_file`.
+            backlog = self.store.unembedded_by_file(batch_size=self.config.embed_batch)
         except Exception as exc:                 # noqa: BLE001 - a repair, not the job
             self._log.warning("could not check for unembedded chunks: {}", exc)
             return
+
+        if self._text_first():
+            # 2026-10-08. **Parked, not embedded here.** Filling these first
+            # held every new file back behind them - after a stopped run with
+            # hours of meaning still to do, the next run read nothing for
+            # hours. They are searchable by their words already; the model
+            # takes them whenever reading leaves it free, and the end of the
+            # run waits for whatever is left (`_catch_up_meaning`).
+            #
+            # Their files stay PARTIAL until the vectors exist, and the walk
+            # takes an unchanged PARTIAL file as read (`_classify`) - so it is
+            # not read again behind the parked batch and embedded twice.
+            parked = 0
+            for ids in backlog:
+                self._parked.append((ids, True))
+                self._stats_ref.embed_batches += 1
+                parked += len(ids)
+            # What was *filled*, as before - `_embed_parked` adds to it.
+            stats.enrichment_counts["unembedded_chunk"] = 0
+            if parked:
+                self._log.info(
+                    "{} passage(s) an earlier run left without vectors are "
+                    "searchable by their words, and are given meaning as this "
+                    "run goes", parked)
+            return
+
+        def _texts_for(ids: list[tuple[int, int]]) -> list[Any]:
+            texts = self.store.chunk_texts(cid for cid, _fid in ids)
+            return [ChunkRecord(id=cid, file_id=fid, ordinal=0, text=texts[cid])
+                    for cid, fid in ids if cid in texts]
+
+        batches = (_texts_for(ids) for ids in backlog)
 
         filled = 0
         try:
@@ -5926,7 +6264,7 @@ class Pipeline:
         self._stats_ref.stage = STAGE_SAVING_RESUME
         try:
             self._flush_pending_images()
-            self._feed_sync(pending)
+            self._settle(pending)
             if self._embed_abandoned:
                 return
             try:
@@ -6014,7 +6352,8 @@ class Pipeline:
         if item.source_kind == "file" or not item.key:
             return False
         record = self.store.get_file(item.key)
-        if record is None or record.status != FileStatus.INDEXED:
+        # PARTIAL as well as INDEXED - see `_classify` (2026-10-08).
+        if record is None or record.status not in (FileStatus.INDEXED, FileStatus.PARTIAL):
             return False
         return record.content_hash == _text_digest(item.chunks)
 
@@ -6313,7 +6652,19 @@ class Pipeline:
                 place=place,
             )
 
+            # 2026-10-08: a spreadsheet, by its words only - see
+            # `KEYWORD_ONLY_EXTS`. Asked before the passages are replaced,
+            # because afterwards nothing can say whether it had vectors.
+            keyword_only = bool(item.chunks) and self._keyword_only(row_ext)
+            had_vectors = keyword_only and self.store.has_embedded_chunks(file_id)
+
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)
+
+            if keyword_only and chunk_ids:
+                # Complete as it stands: nothing is coming for it, so it is
+                # INDEXED now rather than PARTIAL for ever.
+                self.store.mark_keyword_only(chunk_ids)
+                self.store.mark_indexed_many([file_id])
 
             if item.meta:
                 self._store_message_meta(file_id, item.meta)
@@ -6403,6 +6754,13 @@ class Pipeline:
             # point at chunk ids that no longer exist: they cost the ANN index
             # its accuracy and can resurface content the file no longer holds.
             self.vectors.delete_by_file_ids([file_id])
+            return []
+
+        if keyword_only:
+            # Its old vectors point at passages that are gone - the same
+            # orphans the empty-file case above removes, for the same reason.
+            if had_vectors:
+                self.vectors.delete_by_file_ids([file_id])
             return []
 
         return [

@@ -166,3 +166,24 @@ def test_every_generate_carries_keep_alive():
     source = inspect.getsource(OllamaClient.generate)
 
     assert "keep_alive" in source
+
+
+def test_the_model_inside_leasha_is_not_warmed_at_startup():
+    """2026-10-08. Building the in-process model's session holds Python's lock
+    for the whole load, so warming it at startup froze the window for 6.7 s
+    (reproduced; the log named `translate.warm`). Ollama's model is another
+    process - warming it still costs the window nothing."""
+    from app.search.translate import warm_at_startup
+
+    assert warm_at_startup(True, "ollama") is True
+    assert warm_at_startup(True, "onnx") is False
+    assert warm_at_startup(True, "") is False          # the default engine is onnx
+    assert warm_at_startup(False, "ollama") is False   # never for a feature that is off
+
+
+def test_the_window_asks_that_rule_at_startup():
+    import inspect
+
+    from app.ui import shell
+
+    assert "warm_at_startup(interpret_on, engine_of(settings))" in inspect.getsource(shell)

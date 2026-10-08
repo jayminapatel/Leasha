@@ -184,7 +184,12 @@ def test_a_markers_vectors_are_not_still_in_flight_when_it_is_written(tmp_path):
     vectors.add = logged_add                          # type: ignore[method-assign]
 
     store = SqliteStore(tmp_path / "index.db").connect()
-    config = PipelineConfig(walk=WalkConfig(roots=[root]), workers=1, embed_batch=1)
+    # Dated note, 2026-10-08: with "Make text searchable first" on, a marker no
+    # longer waits for vectors - a passage without one is `embedded = 0` and the
+    # next run fills it (`Pipeline._settle`). This rule is the classic mode's,
+    # so the test runs with it off; `test_text_first.py` covers the other.
+    config = PipelineConfig(walk=WalkConfig(roots=[root]), workers=1, embed_batch=1,
+                            two_phase=False)
     pipeline = Pipeline(store, vectors, embedder, config)
 
     original_marker = pipeline._write_marker

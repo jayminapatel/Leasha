@@ -488,6 +488,7 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         embed_batch=tuned.embed_batch,
         dedup_chunks=bool(setting("embed_dedup", True)),
         two_phase=bool(setting("index_two_phase", True)),
+        spreadsheet_meaning=bool(setting("index_spreadsheet_meaning", False)),
         bulk_fts=str(setting("index_bulk_fts", "auto")),
         # 0x §5b: "Read files in separate processes". The window's child
         # indexer runs through here too, so it honours the same switch.

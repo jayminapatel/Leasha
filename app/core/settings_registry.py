@@ -449,6 +449,15 @@ SETTINGS: tuple[Setting, ...] = (
              "Takes effect from the next Start.",
     ),
     Setting(
+        key="INDEX_SPREADSHEET_MEANING", label="Find spreadsheets by meaning",
+        kind="bool", default=False, group="Tuning", surface="indexing.tuning",
+        help="Off: spreadsheets and CSV files are found by the words and "
+             "numbers in them, and indexing does not spend time working out "
+             "what each row of cells means. On: they are found by meaning as "
+             "well, as documents are, and indexing takes longer. Takes effect "
+             "from the next Start.",
+    ),
+    Setting(
         key="INDEX_FILE_TIME_LIMIT_S", label="Time limit per file",
         kind="int", default=120, group="Tuning", surface="indexing.tuning",
         minimum=0, maximum=3600, unit="s",
