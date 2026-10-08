@@ -152,3 +152,28 @@ def test_the_shortcut_still_hides_an_open_box():
     shell = Shell()
     MainWindow._summon_mini(shell)
     assert shell._mini.calls == ["dismiss"]
+
+
+# --- the screenshot tool does not wait for a notice ---------------------------
+
+
+def test_the_grab_tool_does_not_wait_for_a_notice_to_go(qtbot):
+    """The 20s "shortcut is taken" warning, queued behind the startup notices,
+    kept the window "busy" past the grab tool's 30s wait on GitHub's runner.
+    A notice's timer is not work in flight; a real debounce still is."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QWidget
+
+    from tools.grab_ui import _pending_timers
+
+    window = QWidget()
+    qtbot.addWidget(window)
+    window.toast = QWidget(window)
+    shown_for = QTimer(window.toast)
+    shown_for.setSingleShot(True)
+    shown_for.start(20_000)
+    debounce = QTimer(window)
+    debounce.setSingleShot(True)
+    debounce.start(20_000)
+
+    assert _pending_timers(window) == [debounce]

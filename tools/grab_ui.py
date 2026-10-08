@@ -430,10 +430,27 @@ def _pending_timers(window: Any) -> list:
     """Single-shot timers still armed anywhere in the window: debounces (the
     search box's two tiers, the preview's), each one a piece of work that has
     not started yet. Repeating timers (watchers, pollers) never finish and are
-    not counted."""
+    not counted.
+
+    **Nor is how long a notice stays up.** A toast's timer is not work in
+    flight, and a queue of them can outlast the wait: on 2026-10-08 the
+    "shortcut is taken" warning (20s), queued behind the startup notices,
+    kept the window "busy" past 30s on GitHub's runner and every grab there
+    failed. The grab clears toasts anyway (`_reach`)."""
     from PySide6.QtCore import QTimer
 
-    return [t for t in window.findChildren(QTimer) if t.isSingleShot() and t.isActive()]
+    toast = getattr(window, "toast", None)
+
+    def a_notice(timer: Any) -> bool:
+        owner = timer.parent()
+        while owner is not None:
+            if owner is toast:
+                return True
+            owner = owner.parent()
+        return False
+
+    return [t for t in window.findChildren(QTimer)
+            if t.isSingleShot() and t.isActive() and not a_notice(t)]
 
 
 def _settle(app: Any, window: Any, what: str, seconds: float = WAIT_SECONDS) -> None:
