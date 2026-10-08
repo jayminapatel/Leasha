@@ -1,8 +1,35 @@
 # Leasha
 
-**Doc version:** 3.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 4.0 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
-**Search everything on this machine — by describing it in plain English.**
+<p align="center">
+  <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
+</p>
+
+<p align="center">
+  <strong>Search everything on your PC by describing it in plain English.</strong><br>
+  Files, Outlook mail, photos and code. One process, fully offline. Nothing leaves your machine.
+</p>
+
+<p align="center">
+  <a href="https://github.com/jayminapatel/Leasha/actions/workflows/ci.yml"><img src="https://github.com/jayminapatel/Leasha/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/jayminapatel/Leasha/tags"><img src="https://img.shields.io/github/v/tag/jayminapatel/Leasha?label=version&color=2f2a6b" alt="Version"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/jayminapatel/Leasha?color=2f2a6b" alt="MIT licence"></a>
+  <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4" alt="Windows 10 and 11">
+  <img src="https://img.shields.io/badge/python-3.12-3776ab" alt="Python 3.12">
+  <img src="https://img.shields.io/badge/runs-100%25%20offline-7a9a01" alt="Runs fully offline">
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#what-it-does">What it does</a> ·
+  <a href="#how-it-stays-private">Privacy</a> ·
+  <a href="docs/USER_GUIDE.html">User guide</a> ·
+  <a href="docs/TECHNICAL_REFERENCE.html">Technical reference</a> ·
+  <a href="CHANGELOG.md">Changelog</a>
+</p>
+
+---
 
 One headline feature. Type what you remember about a document, and get the document:
 
@@ -10,9 +37,25 @@ One headline feature. Type what you remember about a document, and get the docum
 the safety report Dave sent about Leeds before the audit
 ```
 
+<p align="center">
+  <img src="docs/images/search-results.png" width="900" alt="Leasha's Search page: results for 'boiler quote dave' across files, mail and code, with the preview pane open">
+</p>
+
 Keyword and meaning-based search run together over ~100GB of local files and Outlook
-archives. Filters — sender, recipient, subject, date, file type, size, state — are typed with
+archives. Filters - sender, recipient, subject, date, file type, size, state - are typed with
 `/` and offered as you type. Windows 10/11, single user, **fully local**.
+
+## Why Leasha
+
+- **You describe it, Leasha finds it.** Words and meaning are searched together, so
+  `voice` finds `Invoice 2024.pdf` and a sentence finds the document it describes.
+- **Files, mail, photos and code in one box.** Documents, Outlook mail and `.pst` archives,
+  attachments, zips, pictures, recordings and every git repository under your folders.
+- **Nothing leaves your machine.** No cloud, no account, no service, no port. The index and
+  every model live on your own disk.
+- **Search never waits for a model.** With every model missing, search works exactly as it
+  always does. Warm search is budgeted at under 300ms.
+- **It only ever reads.** Leasha never changes, moves or deletes a file.
 
 **Two illustrated guides** cover everything below in more depth, with screenshots of every
 page:
@@ -30,6 +73,7 @@ Both are single self-contained files: open them in any browser, offline.
 |---|---|
 | **Search** | One box over files, mail and code. Words and meaning together; `/` for filters; a preview pane; pinned working set; saved searches |
 | **Files** | Find a file by any part of its name — `voice` finds `Invoice 2024.pdf` |
+| **Photos** | See, find and name your pictures: by who is in them, when, where, and what they show |
 | **Mail** | Your mail as a table you can sort and filter, newest first |
 | **Code** | Every repository under your folders, with git history search (`/history`, `/introduced`, `/branch` …) |
 | **Chat** | Ask about your files and get an answer in plain words, with every source one click away |
@@ -38,10 +82,25 @@ Both are single self-contained files: open them in any browser, offline.
 | **Indexing** | Start, pause and watch a run; what gets read from files, mail, attachments, zips, pictures, video and code; schedule; tuning |
 | **Settings** | Folders, file types, search behaviour, models, appearance, storage and maintenance |
 
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/search-dark.png" alt="Search results in the dark theme"><br><sub>The dark theme. Light, dark, or follow Windows.</sub></td>
+    <td align="center"><img src="docs/images/mail.png" alt="The Mail page"><br><sub>Mail, newest first, with <code>/from</code>, <code>/to</code>, <code>/subject</code>, <code>/after</code> filters.</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/files.png" alt="The Files page"><br><sub>Files by any part of their name, including files on drives that are not plugged in.</sub></td>
+    <td align="center"><img src="docs/images/life-timeline.png" alt="The Life Timeline"><br><sub>The Life Timeline: everything Leasha has catalogued, month by month.</sub></td>
+  </tr>
+</table>
+
 Help › About Leasha says which version this is, who makes it, and what it is built on.
 
 Plus a search box that appears over any program (`Ctrl+Shift+Space`), folder watching that indexes a
 file seconds after it is saved (off by default), and `leasha://` links.
+
+<p align="center">
+  <img src="docs/images/quick-search-box.png" width="520" alt="The quick search box that appears over any program">
+</p>
 
 ## How it stays private
 
@@ -128,7 +187,8 @@ checksum, to the Releases folder. The build stops if one of the optional librari
 `.pst` reading, place names, people in photos) is missing from the venv, so two builds of
 one version ship the same thing; `-AllowMissingOptional` builds a smaller Leasha on purpose.
 
-### macOS - from source
+<details>
+<summary><strong>macOS - from source</strong></summary>
 
 Needs a Mac with Apple Silicon and macOS 14 or later (onnxruntime publishes nothing for older
 systems), and Python 3.12 (`brew install python@3.12`, or the python.org installer).
@@ -147,7 +207,10 @@ venv/bin/python -m app.main                   # the window
 `.env` needs only `DATA_PATH`; everything else has a default. `docs/MAC_VERIFICATION.md` is
 the list of what still has to be checked on a real Mac.
 
-### Linux - from source (unsupported)
+</details>
+
+<details>
+<summary><strong>Linux - from source (unsupported)</strong></summary>
 
 Checked on Ubuntu 24.04 under WSL, with Python 3.12: the whole test suite runs, with two
 query-plan tests that differ under Ubuntu's older SQLite, and the window opens (through WSLg).
@@ -168,6 +231,8 @@ venv/bin/python -m app.main
 Without `sudo`, `python3 -m venv --without-pip venv` and then `get-pip.py` from
 bootstrap.pypa.io makes the same environment. The test suite, headless:
 `QT_QPA_PLATFORM=offscreen venv/bin/python scripts/run_suite.py -j 3`.
+
+</details>
 
 **Leasha and shared computers.** Everything Leasha indexes and everything you
 search stays on this computer - nothing is ever sent anywhere. On a computer
@@ -217,6 +282,26 @@ and date, completely offline.
 The Takeout archive is processed like any other zip: Gmail is indexed as mail, Keep notes
 as text, and photos with their metadata intact. No setup, no configuration, no import wizard.
 
+## Built on
+
+| | |
+|---|---|
+| **Window** | PySide6 (Qt 6.11) |
+| **Keyword search and metadata** | SQLite with FTS5, the single source of truth |
+| **Meaning search** | LanceDB vectors from FastEmbed ONNX embeddings, rebuilt from SQLite whenever needed |
+| **Models, all inside the app** | ONNX Runtime: Florence-2 for photo tags, Whisper for speech, Qwen 2.5 for Chat (Ollama optional) |
+| **Mail** | A running Outlook on Windows; `.pst`, `.eml` and `.mbox` archives read as files |
+| **Installer** | PyInstaller and Inno Setup, no administrator rights needed |
+
+## When something breaks
+
+```powershell
+venv\Scripts\python.exe -m app.cli diagnose
+```
+
+Writes a zip to `logs\diagnostics\` with everything needed to work out what went wrong.
+See `docs/TROUBLESHOOTING.md`.
+
 ## Developing
 
 Open the folder in VS Code, or double-click `Leasha.code-workspace`. See
@@ -233,16 +318,61 @@ to the second. `tools\grab_ui.py` renders every page of the real window to PNG, 
 `tools\guide_pictures.py` retakes the user guide's pictures against the demonstration store
 and puts them into the guide (`--list` names them; `--all` takes the lot).
 
-## When something breaks
+CI runs the unit, Qt and property-based suites on Windows for every push to `main` and every
+pull request, and the macOS suite once a week (`.github/workflows/ci.yml`).
 
-```powershell
-venv\Scripts\python.exe -m app.cli diagnose
+### Layout
+
+```
+app/core      L0  config, settings registry, AppError, logging, locks, osbridge
+app/storage   L1  SQLite/FTS5 + LanceDB (schema v35)
+app/extract   L2  PDF, Office, plaintext, PST/EML/mbox, zip, OCR, media + chunking
+app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat LLM
+app/index     L3  walker, resumable pipeline, embedder, governor, folder watch
+app/search    L4  BM25 + ANN, RRF fusion, rerank, filters, git search, evaluation
+app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
+app/ui        L5  the window (PySide6, Qt 6.11)
+app/shell     L5  `leasha shell`, the terminal search prompt
+app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe
+app/chat      L8b the Chat tab's engine
+app/cli           `python -m app.cli`, the headless entry point
+packaging/        the Windows installer: PyInstaller build, Inno Setup script, build.ps1
+tests/        unit, integration, and fixtures (healthy + deliberately corrupt)
 ```
 
-Writes a zip to `logs\diagnostics\` with everything needed to work out what went wrong.
-See `docs/TROUBLESHOOTING.md`.
+### Non-negotiables
 
-## Documents
+These are design constraints, not preferences. They are the reason V2 exists. The full twelve
+are in `docs/PROJECT_INSTRUCTIONS.md`.
+
+- **No service in the search hot path.** Search must work with Ollama stopped, uninstalled,
+  or crashed.
+- **Every error states what happened AND how to fix it.** Structured `AppError`, never a bare
+  traceback, never a silent `except: pass`.
+- **One bad file never halts a 100GB run.** Log it, mark it, count it, continue.
+- **Everything long-running is resumable.** The cursor is persisted before it is needed.
+- **The UI thread never does I/O.**
+- **SQLite is the authority.** LanceDB is derived and can always be rebuilt from it.
+- **The retrieval path never calls a model.** Query *translation* may, once, before the
+  search, and always visibly. Keyword and semantic search stay instant.
+- **A translated query is shown and editable.** Invisible rewriting makes search
+  unpredictable, and unpredictable search over your own archive is worse than blunt search.
+- **Every `.ps1` is ASCII-only or UTF-8 with a BOM.** PowerShell 5.1 reads a BOM-less file as
+  the ANSI codepage; one em dash is enough to kill the script at parse time, silently.
+
+### Targets
+
+| Metric | Target |
+|---|---|
+| Warm search (p95) | <300ms |
+| First search after launch | <3s |
+| RAM | 8GB minimum, 16GB comfortable |
+| Free disk on the index drive | 300GB (Leasha warns before a run below it; the index is about half the size of what it reads) |
+| Services to manage | 0 (1 optional) |
+
+Measured, not assumed — the per-stage budget is in `BUILD_SPEC_V2.md`.
+
+### Documents
 
 | File | What it is |
 |---|---|
@@ -265,53 +395,7 @@ See `docs/TROUBLESHOOTING.md`.
 | `CHANGELOG.md` | What changed and why |
 | `archive/README.md` | Retired documents, kept for reference |
 
-## Layout
+## Licence
 
-```
-app/core      L0  config, settings registry, AppError, logging, locks, osbridge
-app/storage   L1  SQLite/FTS5 + LanceDB (schema v35)
-app/extract   L2  PDF, Office, plaintext, PST/EML/mbox, zip, OCR, media + chunking
-app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat LLM
-app/index     L3  walker, resumable pipeline, embedder, governor, folder watch
-app/search    L4  BM25 + ANN, RRF fusion, rerank, filters, git search, evaluation
-app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
-app/ui        L5  the window (PySide6, Qt 6.11)
-app/shell     L5  `leasha shell`, the terminal search prompt
-app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe
-app/chat      L8b the Chat tab's engine
-app/cli           `python -m app.cli`, the headless entry point
-packaging/        the Windows installer: PyInstaller build, Inno Setup script, build.ps1
-tests/        unit, integration, and fixtures (healthy + deliberately corrupt)
-```
-
-## Non-negotiables
-
-These are design constraints, not preferences. They are the reason V2 exists. The full twelve
-are in `docs/PROJECT_INSTRUCTIONS.md`.
-
-- **No service in the search hot path.** Search must work with Ollama stopped, uninstalled,
-  or crashed.
-- **Every error states what happened AND how to fix it.** Structured `AppError`, never a bare
-  traceback, never a silent `except: pass`.
-- **One bad file never halts a 100GB run.** Log it, mark it, count it, continue.
-- **Everything long-running is resumable.** The cursor is persisted before it is needed.
-- **The UI thread never does I/O.**
-- **SQLite is the authority.** LanceDB is derived and can always be rebuilt from it.
-- **The retrieval path never calls a model.** Query *translation* may, once, before the
-  search, and always visibly. Keyword and semantic search stay instant.
-- **A translated query is shown and editable.** Invisible rewriting makes search
-  unpredictable, and unpredictable search over your own archive is worse than blunt search.
-- **Every `.ps1` is ASCII-only or UTF-8 with a BOM.** PowerShell 5.1 reads a BOM-less file as
-  the ANSI codepage; one em dash is enough to kill the script at parse time, silently.
-
-## Targets
-
-| Metric | Target |
-|---|---|
-| Warm search (p95) | <300ms |
-| First search after launch | <3s |
-| RAM | 8GB minimum, 16GB comfortable |
-| Free disk on the index drive | 300GB (Leasha warns before a run below it; the index is about half the size of what it reads) |
-| Services to manage | 0 (1 optional) |
-
-Measured, not assumed — the per-stage budget is in `BUILD_SPEC_V2.md`.
+MIT. Copyright (c) 2026 Jaymin Patel. See [`LICENSE`](LICENSE); the licences of what Leasha
+depends on are in [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md).

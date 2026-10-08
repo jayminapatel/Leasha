@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.87 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 4.88 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The GitHub front page made presentable (2026-10-08)
+
+- **`README.md` restructured for a visitor, not a maintainer.** Logo, one-line pitch, CI,
+  version, licence and platform badges, a jump bar, a "Why Leasha" list, the Search page
+  as a hero picture and four more pages in a gallery, a "Built on" table and a licence
+  section. macOS and Linux install steps fold away. The maintainer material (layout,
+  non-negotiables, targets, the document index) moved under *Developing*, unchanged.
+- **`docs/images/`** holds six screenshots lifted from the user guide for the README;
+  the guide itself still embeds its own copies.
 
 ## [1.0.1] - 2026-10-08
 
