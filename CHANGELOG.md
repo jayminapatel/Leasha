@@ -48,6 +48,9 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   owner's laptop Ctrl+Alt+L belongs to another program, so the key did nothing, and only the
   Settings page said why. Now a notice says it when Leasha starts, with a combination that is
   free on this computer.
+- **The quick search shortcut is Ctrl+Shift+Space** (the owner's choice), in place of
+  Ctrl+Alt+L, which another program holds on his laptop. It can still be changed under
+  Settings, Search.
 - **The tray icon's Search… opens the quick search box,** the one the shortcut opens, instead
   of bringing the main window forward. If the box is already open it comes to the front with
   what you typed kept.

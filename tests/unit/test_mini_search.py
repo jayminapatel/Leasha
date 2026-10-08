@@ -180,10 +180,16 @@ def test_a_bare_letter_is_never_a_global_shortcut():
 def test_the_default_is_usable_and_deliberate():
     r"""The obvious candidates are all taken: `Ctrl+Space` is the IME switch
     on any machine with a second layout, `Win+S` is Windows' own search,
-    `Ctrl+Shift+F` is find-in-files in every editor a developer has open."""
+    `Ctrl+Shift+F` is find-in-files in every editor a developer has open.
+
+    *2026-10-08, the owner: Ctrl+Shift+Space.* Another program on his laptop
+    holds Ctrl+Alt+L, so the box never opened there."""
+    from app.ui.hotkey import MOD_SHIFT
+
     found = parse(DEFAULT_HOTKEY)
     assert found is not None and found.usable
-    assert found.modifiers == MOD_CONTROL | MOD_ALT
+    assert found.modifiers == MOD_CONTROL | MOD_SHIFT
+    assert found.text == "Ctrl+Shift+Space"
 
 
 def test_the_repeat_bit_is_set():

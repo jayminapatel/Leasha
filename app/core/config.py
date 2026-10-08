@@ -173,7 +173,7 @@ class Settings(BaseModel):
     #: intrusive thing this application does to a machine, and somebody who
     #: does not want one must not have to guess how to stop it.
     mini_search_enabled: bool = True
-    mini_search_hotkey: str = "Ctrl+Alt+L"
+    mini_search_hotkey: str = "Ctrl+Shift+Space"
     #: Adoptions §4a. Pre-fill the box from whatever is selected in the
     #: foreground application when the shortcut is pressed.
     #:
@@ -696,7 +696,7 @@ def load_settings(
                 "MINI_SEARCH_ENABLED",
                 values.get("MINI_SEARCH_ENABLED", "true")),
             mini_search_hotkey=(
-                values.get("MINI_SEARCH_HOTKEY") or "Ctrl+Alt+L").strip(),
+                values.get("MINI_SEARCH_HOTKEY") or "Ctrl+Shift+Space").strip(),
             mini_search_prefill_selection=_as_bool(
                 "MINI_SEARCH_PREFILL_SELECTION",
                 values.get("MINI_SEARCH_PREFILL_SELECTION", "true")),

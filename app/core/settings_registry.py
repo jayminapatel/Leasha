@@ -202,9 +202,9 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="MINI_SEARCH_HOTKEY", label="The shortcut that opens it",
-        kind="text", default="Ctrl+Alt+L", group="Search",
+        kind="text", default="Ctrl+Shift+Space", group="Search",
         surface="settings.search",
-        help="Something like Ctrl+Alt+L. It needs at least one of Ctrl, Alt, "
+        help="Something like Ctrl+Shift+Space. It needs at least one of Ctrl, Alt, "
              "Shift or Win. If another program is already using it, Leasha "
              "says so and nothing changes.",
     ),

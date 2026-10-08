@@ -40,7 +40,7 @@ Both are single self-contained files: open them in any browser, offline.
 
 Help › About Leasha says which version this is, who makes it, and what it is built on.
 
-Plus a search box that appears over any program (`Ctrl+Alt+L`), folder watching that indexes a
+Plus a search box that appears over any program (`Ctrl+Shift+Space`), folder watching that indexes a
 file seconds after it is saved (off by default), and `leasha://` links.
 
 ## How it stays private

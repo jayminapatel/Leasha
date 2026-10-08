@@ -158,9 +158,9 @@ class SearchBehaviourBox(QGroupBox):
         # holds the one setting somebody using a screen reader is most likely
         # to want - the shortcut that opens search without the mouse.
         self.mini_hotkey.setAccessibleName("The shortcut that opens search")
-        self.mini_hotkey.setPlaceholderText("Ctrl+Alt+L")
+        self.mini_hotkey.setPlaceholderText("Ctrl+Shift+Space")
         self.mini_hotkey.setToolTip(
-            "Something like Ctrl+Alt+L. It needs at least one of Ctrl, Alt, "
+            "Something like Ctrl+Shift+Space. It needs at least one of Ctrl, Alt, "
             "Shift or Win. If another program is already using it, Leasha "
             "says so and nothing changes.")
         self.mini_hotkey.editingFinished.connect(self._emit)

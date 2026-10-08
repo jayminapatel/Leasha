@@ -203,7 +203,7 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Open them all": ("external-link", "secondary"),
     "Copy the paths": ("copy", "secondary"),
     "Clear the list": ("eraser", "secondary"),
-    # 2026-10-08: the quick search box's top bar (Ctrl+Alt+L), icons only.
+    # 2026-10-08: the quick search box's top bar (Ctrl+Shift+Space), icons only.
     "Preview": ("panel-right", "secondary"),
     "Show all results": ("external-link", "secondary"),
     # -- Find, notices, saved searches -----------------------------------------

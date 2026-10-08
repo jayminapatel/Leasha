@@ -40,13 +40,18 @@ _log = logger.bind(component="ui.hotkey")
 
 #: The combination Leasha asks for first.
 #:
+#: *2026-10-08, the owner: Ctrl+Shift+Space.* On his laptop another program
+#: holds Ctrl+Alt+L (and Ctrl+Alt+Space), so the box never opened; Ctrl+Shift+
+#: Space was free there. The reasoning below was for Ctrl+Alt+L and is kept as
+#: written.
+#:
 #: **`Ctrl+Alt+L`, and the letter is the point.** The obvious candidates are
 #: all taken: `Ctrl+Space` is the IME switch on any machine with a second
 #: keyboard layout, `Win+S` is Windows' own search, `Ctrl+Shift+F` is find-in-
 #: files in every editor a developer has open. `L` for Leasha is free far more
 #: often, and being wrong here costs one trip to Settings rather than a
 #: shortcut that fights something else all day.
-DEFAULT_HOTKEY = "Ctrl+Alt+L"
+DEFAULT_HOTKEY = "Ctrl+Shift+Space"
 
 #: Windows modifier bits, from `RegisterHotKey`. Named here so the parser can
 #: be read and tested without a Windows header.
@@ -179,7 +184,7 @@ def available() -> bool:
 
 #: Combinations offered when the chosen one is taken, in the order offered.
 #: Each is asked of Windows before it is suggested (`first_free`).
-ALTERNATIVES = ("Ctrl+Shift+Space", "Ctrl+Alt+K", "Ctrl+Shift+L", "Ctrl+Alt+Shift+L")
+ALTERNATIVES = ("Ctrl+Alt+K", "Ctrl+Shift+L", "Ctrl+Alt+Shift+L", "Ctrl+Alt+L")
 
 
 def first_free(candidates: Any = ALTERNATIVES, *, can_take: Any = None) -> Optional[str]:
