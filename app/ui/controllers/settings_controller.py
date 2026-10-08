@@ -487,8 +487,26 @@ class SettingsController(QObject):
             box = getattr(self._w.settings_view, "search_behaviour", None)
             if box is not None and hasattr(box, "say_hotkey"):
                 box.say_hotkey(text, registered=taken or not wanted)
+            self._say_if_refused(text, wanted=bool(wanted), taken=bool(taken))
         except Exception as exc:                 # noqa: BLE001 - see docstring
             _log.debug("could not set the global shortcut: {}", exc)
+
+    def _say_if_refused(self, text: str, *, wanted: bool, taken: bool) -> None:
+        """Tell the person, once per combination, that Windows refused it.
+
+        2026-10-08, the owner: "the ctrl alt l shortcut is not working". It was
+        not Leasha: another program on the laptop holds Ctrl+Alt+L (Windows
+        error 1409), and the only place that said so was under the box in
+        Settings. Now the window says it too, with a combination that is free.
+        """
+        from app.ui.hotkey import available, first_free, parse, refused_notice
+
+        if not wanted or taken or parse(text) is None or not available():
+            return
+        if getattr(self._w, "_hotkey_refusal_said", None) == text:
+            return
+        self._w._hotkey_refusal_said = text
+        self._w.notify(refused_notice(text, first_free()), 20_000, level="warning")
 
     def _theme_changed(self, preference: str) -> None:
         self._w._theme_preference = preference

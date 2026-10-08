@@ -253,6 +253,16 @@ class TrayPresence:
         bring_forward(self._window)
 
     def restore_and_search(self) -> None:
+        """Tray › Search…: the quick search box, the one the shortcut opens.
+
+        2026-10-08, the owner: "the search from the notification should bring
+        the same box". The main window is not brought forward for it; a window
+        too old to have the box falls back to the main window's search.
+        """
+        quick = getattr(self._window, "_search_from_tray", None)
+        if callable(quick):
+            quick()
+            return
         self.restore()
         focus = getattr(self._window, "_focus_search", None)
         if callable(focus):

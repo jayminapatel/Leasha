@@ -1563,11 +1563,21 @@ class MainWindow(QMainWindow):
     # -- §3a: search from anywhere --------------------------------------------
 
 
-    def _summon_mini(self) -> None:
+    def _search_from_tray(self) -> None:
+        """Tray › Search…: the same box the shortcut opens (the owner,
+        2026-10-08). Shown, never toggled away - the tray asks for it."""
+        self._summon_mini(toggle=False)
+
+    def _summon_mini(self, toggle: bool = True) -> None:
         """The shortcut was pressed. **Never raises**: this runs from a native
         event filter, where an exception has nowhere sensible to go."""
         try:
-            if self._mini is not None and self._mini.isVisible():
+            if not toggle and self._mini is not None and self._mini.isVisible():
+                # Already open: brought to the front, with what was typed kept.
+                self._mini.raise_()
+                self._mini.activateWindow()
+                return
+            if toggle and self._mini is not None and self._mini.isVisible():
                 # Pressed again while it is open: it goes (the owner, 2026-10-08).
                 self._mini.dismiss()
                 return

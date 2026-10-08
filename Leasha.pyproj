@@ -1028,6 +1028,7 @@
     <Compile Include="tests\unit\test_settings_writes.py" />
     <Compile Include="tests\unit\test_shell.py" />
     <Compile Include="tests\unit\test_shimmer_bar.py" />
+    <Compile Include="tests\unit\test_shortcut_and_tray_search.py" />
     <Compile Include="tests\unit\test_show_in_folder.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />

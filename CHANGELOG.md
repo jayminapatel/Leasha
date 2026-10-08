@@ -44,6 +44,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   its icon.
 - **Turning off "Offer recent searches" now hides them on the Search page.** The switch had
   never taken effect there.
+- **If another program already uses the quick search shortcut, Leasha says so.** On the
+  owner's laptop Ctrl+Alt+L belongs to another program, so the key did nothing, and only the
+  Settings page said why. Now a notice says it when Leasha starts, with a combination that is
+  free on this computer.
+- **The tray icon's Search… opens the quick search box,** the one the shortcut opens, instead
+  of bringing the main window forward. If the box is already open it comes to the front with
+  what you typed kept.
 
 ### The installer build runs one at a time (2026-10-07)
 

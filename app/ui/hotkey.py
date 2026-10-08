@@ -33,6 +33,7 @@ from app.core.logging import logger
 __all__ = [
     "DEFAULT_HOTKEY", "Hotkey", "parse", "spell", "describe", "available",
     "HotkeyListener", "MOD_NAMES", "KEY_NAMES",
+    "ALTERNATIVES", "first_free", "refused_notice",
 ]
 
 _log = logger.bind(component="ui.hotkey")
@@ -174,6 +175,58 @@ def describe(text: Any, *, registered: bool = True) -> str:
 def available() -> bool:
     """Can a global hotkey be taken on this machine at all?"""
     return sys.platform.startswith("win")
+
+
+#: Combinations offered when the chosen one is taken, in the order offered.
+#: Each is asked of Windows before it is suggested (`first_free`).
+ALTERNATIVES = ("Ctrl+Shift+Space", "Ctrl+Alt+K", "Ctrl+Shift+L", "Ctrl+Alt+Shift+L")
+
+
+def first_free(candidates: Any = ALTERNATIVES, *, can_take: Any = None) -> Optional[str]:
+    """The first of `candidates` Windows would grant now, or None. **Never raises.**
+
+    2026-10-08: on the owner's laptop Ctrl+Alt+L and Ctrl+Alt+Space were both
+    held by other programs, so suggesting "another combination" without
+    checking it could name one that is taken too. Each is taken and given
+    straight back. `can_take` is the test seam: `text -> bool`.
+    """
+    check = can_take or _can_take
+    for text in candidates:
+        try:
+            if check(text):
+                return text
+        except Exception:                        # noqa: BLE001 - a suggestion
+            continue
+    return None
+
+
+def _can_take(text: str) -> bool:
+    found = parse(text)
+    if found is None or not available():
+        return False
+    import ctypes
+
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    probe = 0x7A11
+    if not user32.RegisterHotKey(None, probe, found.modifiers | MOD_NOREPEAT, found.key):
+        return False
+    user32.UnregisterHotKey(None, probe)
+    return True
+
+
+def refused_notice(text: Any, suggestion: Optional[str]) -> str:
+    """What the window says, once, when the shortcut could not be taken.
+
+    Settings already says so under the box; this is for the person who never
+    opens Settings and presses the shortcut to find nothing happens.
+    """
+    found = parse(text)
+    name = found.text if found is not None else str(text)
+    where = "Choose another under Settings, Search"
+    if suggestion:
+        where += f" - {suggestion} is free"
+    return (f"{name} is used by another program on this computer, so it does not "
+            f"open Leasha's search box. {where}. The tray icon's Search… opens it too.")
 
 
 class HotkeyListener:
