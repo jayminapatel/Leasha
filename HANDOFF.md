@@ -64,9 +64,14 @@ line, no traceback and no window.
 ## 3. Current state
 
 **2026-10-08, night - release 1.0.1 (owner: "finish all off and release the installer").**
-`VERSION` 1.0.1, tagged `v1.0.1`; `Leasha-Setup-1.0.1.exe` built with `packaging\build.ps1
--Release` into `Leasha\Releases\1.0.1\` (its SHA256 is in the dated note below this entry once
-the build is in). Carries the whole-codebase review entry below and the text-first work
+`VERSION` 1.0.1, tagged `v1.0.1` on `a5a2edb`; `Leasha-Setup-1.0.1.exe` (328 MB) built from
+it with `packaging\build.ps1 -Release` under Windows PowerShell 5.1 into
+`Leasha\Releases\1.0.1\` on Google Drive, SHA256
+`C99BE4DDAC73878126222808726C5A88C8B13CB003AB261CC40A48E6D13EAA1B`, recomputed on the Drive
+copy. The build's own check ran the frozen `leasha-cli.exe`; the spec's new refusal did not
+fire, so all four optional libraries are in this build. **Not done: installing it on this
+machine and letting Check the installation say READY** - that is the owner's step 9, on the
+real desktop. Carries the whole-codebase review entry below and the text-first work
 merged from the other thread. **Step 3 of the checklist, measured this time**, on the owner's
 index (216,149 files, 386,665 passages), one process, both models warmed, no cache hit,
 nothing else running: `bench-index` reads 109 documents/s, writes 3,751/s and embeds 13.2
