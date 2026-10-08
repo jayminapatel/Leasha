@@ -265,7 +265,12 @@ def _name_clause(value: str, *, negated: bool = False) -> tuple[str, str]:
     """
     word = "NOT LIKE" if negated else "LIKE"
     if has_wildcard(value):
-        return f"LTRIM({_BASENAME}, '/\') {word} ?{ESCAPE}", glob(value)
+        # A raw f-string, deliberately. Found in review 2026-10-08: as a plain
+        # f-string `'/\'` read `\'` as an escaped quote, so the SQL trimmed `/`
+        # only and `/name inv*` compared `inv%` against `\invoice.pdf` - every
+        # wildcard name search on a Windows index matched nothing. The test
+        # fixture built its paths with `as_posix()`, so nothing noticed.
+        return rf"LTRIM({_BASENAME}, '/\') {word} ?{ESCAPE}", glob(value)
     return f"{_BASENAME} {word} ?{ESCAPE}", contains(value)
 
 
@@ -608,6 +613,12 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
 
 
 def epoch_ns(day: Any, *, end_of_day: bool = False) -> int:
+    """A `date` or `datetime` from the parser as local-clock nanoseconds since
+    1970, the unit `files.mtime_ns` and `files.taken_at_ns` are stored in.
+
+    A `date` is the start of that day, or its last microsecond with
+    `end_of_day=True` (a `before:` edge); a `datetime` is the moment itself.
+    """
     from datetime import datetime
     from datetime import time as time_of_day
 

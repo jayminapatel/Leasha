@@ -111,6 +111,7 @@ GRACEFUL_S = 2
 
 
 def endpoint(port: int) -> str:
+    """The address AI programs are given for a server on `port`."""
     return f"http://127.0.0.1:{int(port)}/mcp"
 
 
@@ -245,6 +246,9 @@ class IndexTools:
     # -- the four tools -----------------------------------------------------
 
     def search(self, query: str, limit: int = 10) -> dict:
+        """The `search` tool: `run_search` over the open index, `limit` capped at
+        `SEARCH_LIMIT_MAX`. Every failure is answered as `{"error": ...}`, never raised.
+        """
         from app.search.policy import SEARCH
         from app.search.run import run_search
 
@@ -273,6 +277,7 @@ class IndexTools:
                 "notices": [n.as_dict() for n in response.notices]}
 
     def find_files(self, name: str, type: str = "", limit: int = 25) -> dict:
+        """The `find_files` tool: the Files tab's search, `type` read as a `type:` switch."""
         from app.search.run import find_files
 
         text = str(name or "").strip()
@@ -287,9 +292,10 @@ class IndexTools:
         # would be typed with. It used to be a name-only lookup, so the same
         # words found something different here than on the tab.
         line = f"{text} type:{','.join(kinds)}" if kinds else text
-        from app.core.row_facts import has_own_size, own_size
-        from app.ui.presenter.facts import shown_date_ns
-        from app.ui.tasks import file_row_context
+        # All three from below the UI layer (2026-10-08 review): this module used
+        # to import them from `app.ui`, the one backend package that did.
+        from app.core.row_facts import has_own_size, own_size, shown_date_ns
+        from app.search.marks import file_row_context
 
         try:
             with self._open() as index:
@@ -324,7 +330,8 @@ class IndexTools:
         return out
 
     def read_text(self, path: str, max_chars: int = 20_000) -> dict:
-        from app.ui.preview_loader import join_chunks
+        """The `read_text` tool: one file's indexed text, cut at `TEXT_CHARS_MAX`."""
+        from app.core.row_facts import join_chunks
 
         key = str(path or "").strip()
         if not key:
@@ -351,6 +358,7 @@ class IndexTools:
         return out
 
     def index_status(self) -> dict:
+        """The `index_status` tool: row counts of files, messages and passages."""
         missing = self._missing()
         if missing:
             return missing
@@ -423,6 +431,7 @@ class _OpenIndex:
         return any(v.deferred_error() is not None for v in (self.vectors, self.image_vectors))
 
     def engine_for(self, models: Callable[[], tuple]) -> Any:
+        """The engine over this index, rebuilt only when the window's models change."""
         from app.search.engine import SearchEngine
 
         embedder, reranker, clip = models()
@@ -442,6 +451,7 @@ class _OpenIndex:
             return engine
 
     def close(self) -> None:
+        """Close every engine, both vector stores and the store, each regardless of the others."""
         for step in (*(e.close for e in (*self._spent, self._engine) if e is not None),
                      self.vectors.close, self.image_vectors.close, self.store.close):
             try:
@@ -713,6 +723,8 @@ class _KeyRequired:
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
         if scope.get("type") == "http":
             given = dict(scope.get("headers") or ()).get(b"authorization", b"")
+            # Constant-time, so a wrong key cannot be narrowed down byte by byte
+            # from how long the comparison takes.
             if not hmac.compare_digest(given, self._expected):
                 body = b'{"error": "Leasha needs its key for this. Copy it from Settings."}'
                 await send({"type": "http.response.start", "status": 401,
@@ -733,6 +745,7 @@ class McpHost:
 
     @property
     def running(self) -> bool:
+        """Whether the server thread is alive and uvicorn reports it has started."""
         return bool(self._thread and self._thread.is_alive() and self._server
                     and self._server.started)
 
@@ -768,6 +781,7 @@ class McpHost:
         return endpoint(port)
 
     def stop(self, *, timeout_s: float = 5.0) -> None:
+        """Ask uvicorn to exit, wait `timeout_s`, then force it. Never raises."""
         server, thread = self._server, self._thread
         if server is not None:
             server.should_exit = True

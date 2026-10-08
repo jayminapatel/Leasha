@@ -136,3 +136,78 @@ def test_a_process_that_ended_without_a_summary_did_not_finish():
     source = (ROOT / "scripts" / "run_suite.py").read_text(encoding="utf-8")
     assert "STOPPED EARLY" in source and "'no summary'" not in source
     assert run_suite.TIMEOUT_MARK in "+++++++++++ Timeout +++++++++++"
+
+
+def _part_that_writes(log_text: str, exit_code: int):
+    """A stand-in for `subprocess.Popen` whose part writes `log_text` and exits
+    with `exit_code`; records every command it was started with."""
+    seen = []
+
+    class Part:
+        def __init__(self, command, cwd, stdout, stderr):
+            seen.append(command)
+            stdout.write(log_text)
+            stdout.flush()
+
+        def wait(self):
+            return exit_code
+
+    return Part, seen
+
+
+def test_a_fixture_error_is_not_a_green_run(tmp_path, monkeypatch, capsys):
+    """2026-10-08, found in review: `-rf` lists FAILED tests only, so a test
+    whose fixture raised (an ERROR) was absent from the short summary, matched
+    nothing, and the run exited 0 while its own tally said "1 error". This is
+    the exact failure the runner exists to prevent: a green exit code that
+    cannot be trusted."""
+    import subprocess
+
+    log = ("tests/unit/test_err.py::test_fine PASSED [ 50%]\n"
+           "tests/unit/test_err.py::test_uses_broken ERROR [100%]\n"
+           "=========================== short test summary info ===========================\n"
+           "ERROR tests/unit/test_err.py::test_uses_broken - RuntimeError: boom\n"
+           "========================= 1 passed, 1 error in 0.42s ==========================\n")
+    Part, seen = _part_that_writes(log, 1)
+    monkeypatch.setattr(subprocess, "Popen", Part)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: ["tests/unit/test_err.py"])
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
+
+    assert run_suite.main(["-j", "1"]) == 1
+    assert "-rfE" in seen[0], "errors must be listed in the short summary, not only failures"
+    out = capsys.readouterr().out
+    assert "FAILED tests/unit/test_err.py::test_uses_broken" in out
+    assert "1 errored" in out
+
+
+def test_the_summary_line_error_count_alone_is_enough(tmp_path, monkeypatch, capsys):
+    """Belt and braces: even if pytest's short summary listed nothing (an older
+    pytest, a plugin eating the section), a non-zero error count on the summary
+    line is never reported as exit 0."""
+    import subprocess
+
+    log = ("tests/unit/test_err.py::test_fine PASSED [ 50%]\n"
+           "tests/unit/test_err.py::test_uses_broken ERROR [100%]\n"
+           "========================= 1 passed, 2 errors in 0.42s =========================\n")
+    Part, _ = _part_that_writes(log, 1)
+    monkeypatch.setattr(subprocess, "Popen", Part)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: ["tests/unit/test_err.py"])
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
+
+    assert run_suite.main(["-j", "1"]) == 1
+    assert "2 errored" in capsys.readouterr().out
+
+
+def test_a_clean_part_is_still_green(tmp_path, monkeypatch, capsys):
+    """The guard above must not turn an ordinary pass into a failure."""
+    import subprocess
+
+    log = ("tests/unit/test_ok.py::test_fine PASSED [100%]\n"
+           "============================== 1 passed in 0.10s ==============================\n")
+    Part, _ = _part_that_writes(log, 0)
+    monkeypatch.setattr(subprocess, "Popen", Part)
+    monkeypatch.setattr(run_suite, "find_files", lambda explicit: ["tests/unit/test_ok.py"])
+    monkeypatch.setattr(run_suite.tempfile, "mkdtemp", lambda prefix: str(tmp_path))
+
+    assert run_suite.main(["-j", "1"]) == 0
+    assert "0 failed, 0 errored, 0 process(es) crashed" in capsys.readouterr().out

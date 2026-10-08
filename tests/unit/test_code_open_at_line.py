@@ -318,6 +318,20 @@ def test_the_window_reads_the_setting_in_force_and_never_launches_inline(monkeyp
         "a choice just made in Settings applies at once")
 
 
+def _settle_state_writes() -> None:
+    """Wait for the state-write pool, then let its queued signals land."""
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtWidgets import QApplication
+
+    from app.ui.state_writes import pool
+
+    app = QApplication.instance() or QApplication([])
+    assert pool().waitForDone(5000)
+    for _ in range(3):
+        QCoreApplication.processEvents()
+    del app
+
+
 def test_a_changed_editor_applies_without_a_restart(tmp_path) -> None:
     from app.ui.controllers.settings_controller import SettingsController
 
@@ -330,6 +344,9 @@ def test_a_changed_editor_applies_without_a_restart(tmp_path) -> None:
     SettingsController._settings_changed(
         SimpleNamespace(_w=window),
         {"CODE_EDITOR": "vscode", "CODE_EDITOR_COMMAND": "ed {path}"})
+    # 2026-10-08: `.env` is written on the ordered state pool, not the UI
+    # thread, and the live overrides follow once the write has landed.
+    _settle_state_writes()
     assert window._settings_overrides["code_editor"] == "vscode"
     assert window._settings_overrides["code_editor_command"] == "ed {path}"
     assert "CODE_EDITOR=vscode" in env.read_text(encoding="utf-8")

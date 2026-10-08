@@ -134,3 +134,40 @@ def test_the_filter_is_scoped_not_global():
         line.startswith("warnings.simplefilter") or line.startswith("warnings.filterwarnings")
         for line in module_body.splitlines()
     )
+
+
+# --- the switch has a control now (review 2026-10-08) -------------------------------------
+
+def test_the_jvm_switch_is_a_setting_with_a_surface():
+    """`LEASHA_ENABLE_JVM` was the whole interface: a tunable with no control,
+    non-negotiable 11 broken. The Settings control is the ordinary route; the
+    variable stays as the one-run override, as `LEASHA_PDF_OCR_PAGES` does."""
+    from app.core.settings_registry import SURFACES, by_key
+
+    setting = by_key("JVM_READERS_ENABLED")
+    assert setting is not None and setting.kind == "bool"
+    assert setting.default is False, "a JVM fault ends the run; off unless asked for"
+    assert setting.surface in SURFACES
+
+
+def test_the_setting_turns_the_reader_on_and_the_variable_still_wins(monkeypatch):
+    from app.extract import diagrams
+
+    monkeypatch.delenv(diagrams.JVM_SWITCH, raising=False)
+    monkeypatch.setattr(diagrams, "_SETTINGS_JVM", True)
+    assert diagrams._jvm_allowed() is True
+
+    monkeypatch.setattr(diagrams, "_SETTINGS_JVM", False)
+    assert diagrams._jvm_allowed() is False
+
+    monkeypatch.setenv(diagrams.JVM_SWITCH, "1")       # one run, whatever Settings says
+    assert diagrams._jvm_allowed() is True
+    monkeypatch.setenv(diagrams.JVM_SWITCH, "")        # set but empty: off, deliberately
+    monkeypatch.setattr(diagrams, "_SETTINGS_JVM", True)
+    assert diagrams._jvm_allowed() is False
+
+
+def test_the_setting_reaches_config():
+    from app.core.config import Settings
+
+    assert "jvm_readers_enabled" in Settings.model_fields

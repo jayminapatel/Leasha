@@ -411,7 +411,12 @@ def reconcile_moves(store: Any, volume_id: int, mount_root: Path) -> ReconcileRe
     }
 
     current: dict[str, tuple[int, int]] = {}
-    for dirpath, _dirs, filenames in os.walk(mount_root):
+    for dirpath, dirs, filenames in os.walk(mount_root):
+        # `os.walk` never follows symlinks here but does descend into Windows
+        # directory junctions, which are not symlinks; one pointing up its own
+        # tree loops until the path is too long. Pruned in place, as the
+        # walker does (review 2026-10-08).
+        dirs[:] = [d for d in dirs if not Path(dirpath, d).is_junction()]
         for name in filenames:
             full = Path(dirpath) / name
             try:

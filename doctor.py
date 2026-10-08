@@ -2,6 +2,10 @@
 """
 doctor.py - Leasha environment verification.
 
+Layer: L0 (stdlib only at import time; the `app` imports inside the checks are
+each guarded, so this still runs - and still says why - on a venv where `app`
+itself will not import)
+
 Every check that fails states WHAT failed, WHY, and HOW to fix it.
 Optional components (rerank model, Outlook, Ollama) can fail without
 blocking readiness - only hard requirements gate the app.
@@ -67,6 +71,8 @@ class Check:
 # ---------------------------------------------------------------------------
 
 def load_env() -> dict[str, str]:
+    """`.env` as a plain dict, read with `utf-8-sig` so a file saved by an
+    editor that adds a BOM still yields `DATA_PATH` rather than `\\ufeffDATA_PATH`."""
     values: dict[str, str] = {}
     if not ENV_FILE.exists():
         return values
@@ -83,6 +89,8 @@ ENV = load_env()
 
 
 def env_path(key: str, default: str = "") -> str:
+    """`.env` first, then the process environment - the same precedence
+    `app/core/config.py` applies, so doctor reports the path the app will use."""
     return ENV.get(key, os.environ.get(key, default))
 
 
@@ -196,6 +204,11 @@ PACKAGES = [
 
 
 def check_packages() -> list[Check]:
+    """Import each required package rather than consult `pip list`: a listed
+    package can still be broken, and importing is the test the app itself
+    applies. Even that missed a half-removed onnxruntime once (an empty
+    namespace package imports fine - see install.ps1's WinError 5 note), which
+    is why `check_onnxruntime_integrity` exists beside this."""
     out: list[Check] = []
     for module, pipname in PACKAGES:
         try:
@@ -225,6 +238,9 @@ def check_pywin32() -> Check:
 
 
 def check_fts5() -> Check:
+    """Create a table AND match against it. The module compiling in is not the
+    question - a build can report FTS5 in `compile_options` and still fail a
+    MATCH - so the probe does what the index does."""
     try:
         con = sqlite3.connect(":memory:")
         con.execute("CREATE VIRTUAL TABLE t USING fts5(body)")
@@ -243,6 +259,9 @@ def check_fts5() -> Check:
 
 
 def check_sqlite_wal() -> Check:
+    """WAL is what lets a search read while an index run writes (non-negotiable
+    1's "search must work" while indexing). It is probed on a real file, not
+    `:memory:`, because WAL silently falls back on some network file systems."""
     try:
         with tempfile.TemporaryDirectory() as td:
             db = Path(td) / "wal_probe.db"
@@ -572,6 +591,12 @@ def required_free_gb() -> int:
 
 
 def check_disk() -> Check:
+    """Free space on the drive the index will live on, not the app's drive.
+
+    Walks up to the nearest existing parent because on a fresh install
+    `DATA_PATH` may not exist yet, and `disk_usage` on a missing path raises
+    rather than answering for its drive.
+    """
     need = required_free_gb()
     data_path = env_path("DATA_PATH") or str(PROJECT_ROOT)
     target = Path(data_path)
@@ -592,6 +617,9 @@ def check_disk() -> Check:
 
 
 def check_lancedb_roundtrip() -> Check:
+    """Write two vectors to a scratch table and search them. LanceDB is native
+    code (lance, pyarrow) that can import and still fail at the first real
+    call, so an import check alone would pass a broken install."""
     try:
         import lancedb  # noqa: F401
         with tempfile.TemporaryDirectory() as td:
@@ -632,6 +660,11 @@ def model_cache_dir() -> str:
 
 
 def check_embedding_model(quick: bool = False) -> Check:
+    """Load the search model and embed one sentence. Required: without it there
+    is no meaning-based search at all. `FASTEMBED_CACHE_PATH` is set as well as
+    `cache_dir`, as install.ps1's download step does, so both look in the one
+    folder; the dimension is compared with `EMBED_DIM` because a mismatch there
+    makes every vector written afterwards unsearchable."""
     if quick:
         return Check("Embedding model (skipped: --quick)", True, optional=True)
     model_cache = model_cache_dir()
@@ -659,6 +692,8 @@ def check_embedding_model(quick: bool = False) -> Check:
 # ---------------------------------------------------------------------------
 
 def check_rerank_model(quick: bool = False) -> Check:
+    """Load the reranker named by the settings (not a copy of the name - see
+    `env_setting`) and score one pair. Optional: search works without it."""
     if quick:
         return Check("Rerank model (skipped: --quick)", True, optional=True)
     model_cache = model_cache_dir()
@@ -673,7 +708,8 @@ def check_rerank_model(quick: bool = False) -> Check:
         return Check(
             "Rerank model", False, f"{type(exc).__name__}: {exc}",
             fix="OPTIONAL - reranking is a quality toggle in Settings and search works without it. "
-                "Re-run install.ps1 to download it (~1.1GB).",
+                "Fetch it with: venv\\Scripts\\python.exe -m app.cli models download rerank "
+                "(or Settings > Models).",
             optional=True,
         )
 
@@ -979,6 +1015,10 @@ def classic_outlook_registered() -> bool:
 
 
 def check_outlook() -> Check:
+    """Classic Outlook, by its registry entry (never by starting it - see
+    `classic_outlook_registered`). The fix text distinguishes "none installed"
+    from "the new Outlook is installed", because the second reads as a false
+    negative to the person who has it."""
     if sys.platform != "win32":
         return Check("Outlook MAPI (PST)", False, "not Windows",
                      fix="OPTIONAL - PST indexing is Windows-only.", optional=True)
@@ -1008,6 +1048,10 @@ def check_outlook() -> Check:
 
 
 def check_ollama() -> Check:
+    """Is Ollama listening, and does it hold the configured model? Both
+    optional (non-negotiable 1: nothing in search needs it). `/api/tags` is
+    used because it is the one call that answers both questions without
+    loading a model into memory."""
     url = env_setting("OLLAMA_URL").rstrip("/")
     try:
         import urllib.request

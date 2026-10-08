@@ -450,3 +450,29 @@ def test_the_real_library_has_the_api_we_use() -> None:
 
     for name in ("open", "close", "get_root_folder"):
         assert hasattr(pypff.file, name), f"pypff.file lost {name}"
+
+
+def test_an_rtf_only_body_is_read_as_text_not_control_words(monkeypatch) -> None:
+    r"""Found in review 2026-10-08: the third transform was the HTML stripper,
+    so a message with only an RTF body was indexed as `{\rtf1\ansi\deff0 ...`.
+    `striprtf` is already pinned for `.rtf` files; the same reader applies."""
+    rtf = r"{\rtf1\ansi\deff0{\fonttbl{\f0 Calibri;}}\f0\fs22 The pump seal failed again.\par}"
+    message = FakeMessage(1, plain="", html="", rtf=rtf)
+    root = FakeFolder("Top", children=[FakeFolder("Inbox", messages=[message])])
+    install_fake(monkeypatch, root)
+
+    text = next(iter(pst_libpff.read_archive(Path("a.pst")))).text
+    assert "The pump seal failed again." in text
+    assert "\rtf1" not in text and "fonttbl" not in text
+
+
+def test_an_rtf_body_striprtf_cannot_parse_still_yields_something(monkeypatch) -> None:
+    """A malformed body must not lose the message: the fallback is the old
+    behaviour, the HTML stripper."""
+    from app.extract import pst_libpff as module
+
+    def boom(raw, errors="ignore"):
+        raise ValueError("bad control word")
+
+    monkeypatch.setattr("striprtf.striprtf.rtf_to_text", boom)
+    assert "words" in module._rtf_to_text("{\rtf1 some words}")

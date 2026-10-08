@@ -15,8 +15,17 @@
     ASCII only, saved UTF-8 with a BOM: non-negotiable 7.
 #>
 [CmdletBinding()]
-param([switch]$Release)
+param(
+    [switch]$Release,
+    # 2026-10-08 review: leasha.spec now refuses to build when one of the optional
+    # packages (av, pypff, reverse_geocoder, insightface) is missing from the venv,
+    # so two builds of one commit ship the same thing. This switch is the deliberate
+    # "a smaller Leasha is what I want"; the spec reads the variable set below.
+    [switch]$AllowMissingOptional
+)
 
+# Stop on the first failed cmdlet. A native program (python, ISCC) never raises,
+# so each one below is followed by its own $LASTEXITCODE check.
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Python = Join-Path $Root "venv\Scripts\python.exe"
@@ -44,11 +53,24 @@ if ($Others.Count -gt 0) {
            "). Let it finish, or close its window, then run this again.")
 }
 
-& $Python -c "import PyInstaller" 2>$null
+# 2026-10-08, found in review: this probe was `& $Python -c "import PyInstaller"
+# 2>$null`. Under $ErrorActionPreference = "Stop", Windows PowerShell 5.1 turns
+# anything a native command writes to a redirected stderr into a terminating
+# NativeCommandError - so on a machine without PyInstaller the traceback ended
+# the script here and the "install it" branch below never ran (pwsh 7 was fine).
+# find_spec writes nothing to stderr either way; the exit code is the answer.
+& $Python -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('PyInstaller') else 1)"
 if ($LASTEXITCODE -ne 0) {
     Write-Host "Installing PyInstaller (packagingequirements-build.txt)..." -ForegroundColor Cyan
     & $Python -m pip install -r (Join-Path $PSScriptRoot "requirements-build.txt")
     if ($LASTEXITCODE -ne 0) { throw "Could not install PyInstaller (exit $LASTEXITCODE)." }
+}
+
+if ($AllowMissingOptional) {
+    $env:LEASHA_BUILD_ALLOW_MISSING = "1"
+    Write-Host "Optional packages may be missing from this build (-AllowMissingOptional)." -ForegroundColor Yellow
+} else {
+    Remove-Item Env:\LEASHA_BUILD_ALLOW_MISSING -ErrorAction SilentlyContinue
 }
 
 Write-Host "1/4 PyInstaller..." -ForegroundColor Cyan
@@ -68,6 +90,8 @@ if (Test-Path -LiteralPath (Join-Path $Dist "Leasha\_internal\.env")) {
 }
 
 Write-Host "3/4 Inno Setup..." -ForegroundColor Cyan
+# Inno Setup's three install locations: per-machine 32-bit (its installer's own
+# default), per-machine 64-bit, and a per-user install under %LOCALAPPDATA%.
 $Iscc = @(
     "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
     "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
@@ -76,17 +100,23 @@ $Iscc = @(
 if (-not $Iscc) {
     throw "Inno Setup 6 is not installed. Run: winget install --id JRSoftware.InnoSetup -e"
 }
+# The /D defines land in the #ifndef defaults at the top of installer.iss, so the
+# same .iss also compiles by hand from the Inno Setup editor without editing it.
 & $Iscc "/DAppVersion=$Version" "/DSourceDir=$Dist\Leasha" "/DOutputDir=$Out" `
     (Join-Path $PSScriptRoot "installer.iss")
 if ($LASTEXITCODE -ne 0) { throw "Inno Setup failed (exit $LASTEXITCODE)." }
 
 Write-Host "4/4 Done." -ForegroundColor Cyan
 $Setup = Join-Path $Out "Leasha-Setup-$Version.exe"
+# Printed, and with -Release written beside the file: an unsigned installer has
+# nothing else a person can check a download against.
 $Hash = (Get-FileHash -LiteralPath $Setup -Algorithm SHA256).Hash
 $SizeMB = [math]::Round((Get-Item -LiteralPath $Setup).Length / 1MB)
 Write-Host "  $Setup ($SizeMB MB)"
 Write-Host "  SHA256 $Hash"
 
+# HANDOFF, "Where a session runs": release builds travel to the laptop by Google
+# Drive sync, never through git, so the shelf is the Drive folder outside the repo.
 if ($Release) {
     $Shelf = Join-Path "D:\Local\GDrive\Leasha\Releases" $Version
     New-Item -ItemType Directory -Force -Path $Shelf | Out-Null

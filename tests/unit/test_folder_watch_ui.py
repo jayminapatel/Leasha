@@ -267,6 +267,17 @@ def test_the_switch_is_off_and_nothing_is_watched_until_it_is_pressed(watch) -> 
     assert built == [] and box.watch_status.text() == OFF
 
 
+def _settle_env_write(app) -> None:
+    """2026-10-08: `.env` is written on the ordered state pool, not the UI
+    thread, and what follows the write (the live switch, the watch) runs once
+    it has landed. Wait for the pool, then let the queued signals through."""
+    from app.ui.state_writes import pool
+
+    assert pool().waitForDone(5000)
+    for _ in range(3):
+        app.processEvents()
+
+
 @pytest.mark.gui
 def test_pressing_the_switch_saves_it_and_starts_a_watch_on_the_folders_shown(
         watch) -> None:
@@ -274,6 +285,7 @@ def test_pressing_the_switch_saves_it_and_starts_a_watch_on_the_folders_shown(
 
     box.watch.click()
     app.processEvents()
+    _settle_env_write(app)
 
     assert window._settings.index_watch_folders is True
     assert load_settings(Path(window._settings.env_file)).index_watch_folders is True
@@ -296,6 +308,7 @@ def test_pressing_the_switch_saves_it_and_starts_a_watch_on_the_folders_shown(
 
     box.watch.click()
     app.processEvents()
+    _settle_env_write(app)
     assert built[0].stopped and not control.running
     assert window._settings.index_watch_folders is False
     assert load_settings(Path(window._settings.env_file)).index_watch_folders is False

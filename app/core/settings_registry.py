@@ -239,8 +239,12 @@ SETTINGS: tuple[Setting, ...] = (
     Setting(
         key="INDEX_SCHEDULE", label="When to index", kind="choice",
         default="manual", group="Schedule", surface="indexing.schedule",
-        choices=("manual", "interval", "daily"),
-        help="Manual means it only runs when you ask.",
+        # "startup" was accepted by `config.SCHEDULES` and `index/schedule.py`
+        # but missing here, so a `.env` could hold a value the control could
+        # not show (rule 11; 2026-10-08 review).
+        choices=("manual", "startup", "interval", "daily"),
+        help="Manual means it only runs when you ask. Startup runs once each "
+             "time Leasha opens.",
     ),
     Setting(
         key="INDEX_INTERVAL_HOURS", label="Index every", kind="int", default=6,
@@ -548,6 +552,17 @@ SETTINGS: tuple[Setting, ...] = (
              "about 3.6 seconds a page, 20 pages is roughly a minute a "
              "document and covers the title, contents and introduction - most "
              "of what makes it findable. Only the images pass uses this.",
+    ),
+    Setting(
+        # 2026-10-08 review: `LEASHA_ENABLE_JVM` was the whole interface - a
+        # tunable with no control (rule 11). The variable still wins for one
+        # run, the way `LEASHA_PDF_OCR_PAGES` does; this is the ordinary route.
+        key="JVM_READERS_ENABLED", label="Read task lists from Microsoft Project files",
+        kind="bool", default=False, group="Tuning", surface="indexing.tuning",
+        help="Off, deliberately. Reading .mpp task lists needs a Java virtual "
+             "machine inside Leasha's own process, and a Java fault ends the "
+             "whole indexing run rather than skipping one file. Project files "
+             "are indexed by name and properties either way.",
     ),
     Setting(
         key="MIN_FREE_GB", label="Stop if free space drops below", kind="int",
@@ -942,6 +957,7 @@ def keys() -> frozenset[str]:
 
 
 def by_key(key: str) -> Optional[Setting]:
+    """The registry entry for one `.env` key, or None for a key with no control."""
     for setting in SETTINGS:
         if setting.key == key:
             return setting

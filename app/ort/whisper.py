@@ -77,6 +77,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional, Sequence
@@ -328,6 +329,9 @@ class WhisperTokens:
     @classmethod
     def from_configs(cls, generation: dict, config: dict,
                      token_to_id: Callable[[str], Optional[int]]) -> "WhisperTokens":
+        """Read every special token from `generation_config.json`, then
+        `config.json`, then the tokenizer, in that order of trust. Raises
+        `ValueError` naming any token no source can supply."""
         def first(*values: Any) -> Any:
             return next((v for v in values if v is not None), None)
 
@@ -500,7 +504,16 @@ class OnnxWhisperEngine:
                  name: str = "whisper") -> None:
         self.language = ""
         self.name = name
+        #: Held for the whole of one `transcribe()`. `self.language` and the
+        #: decoder's KV cache are rewritten by every window, and the media tail
+        #: runs a sub-pipeline whose worker count can exceed one, so two
+        #: recordings could reach one engine at once and interleave their
+        #: caches into garbage text. Found in review 2026-10-08; `OnnxFlorence`
+        #: holds `self.lock` per image for the same reason.
+        self.lock = threading.Lock()
         self._encoder = encoder
+        # 8 heads and d_model 512 are whisper-base's values - the fallback only
+        # for a config.json missing the fields; every real export states them.
         heads = int(config.get("decoder_attention_heads") or 8)
         head_dim = int(config.get("d_model") or 512) // heads
         self._decoder = Decoder(decoder, heads=heads, head_dim=head_dim)
@@ -605,6 +618,26 @@ class OnnxWhisperEngine:
     # -- the seam --------------------------------------------------------
 
     def transcribe(self, path: str, start_s: float = 0.0) -> Iterator[Any]:
+        """Segments of `path` from `start_s` on, absolute times, one 30 s window
+        at a time; `self.language` is set after the first window with sound.
+
+        The whole decoded audio is held in memory (int16, 230 MB for two hours).
+        **One call at a time per engine**: `self.language` and the decoder's
+        cache are rewritten by every window, and there is no lock here - the
+        caller must not transcribe two files on one engine concurrently
+        (2026-10-08 review; `OnnxFlorence` holds `self.lock` for the same reason).
+
+        2026-10-08, later: `self.lock` is now held from the first `next()` to
+        exhaustion (or `close()`), so a second caller waits rather than
+        corrupting the first. A generator abandoned mid-file releases it when
+        it is garbage-collected, which is when its `with` block unwinds.
+        """
+        with self.lock:
+            yield from self._transcribe_unlocked(path, start_s)
+
+    def _transcribe_unlocked(self, path: str, start_s: float) -> Iterator[Any]:
+        """`transcribe` without the lock - the body as it was before the lock
+        was added, so the diff that added it is one `with` and a `yield from`."""
         from app.extract.transcribe import SpeechSegment
 
         self.language = ""

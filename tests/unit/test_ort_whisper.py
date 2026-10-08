@@ -490,3 +490,47 @@ def test_the_real_base_model_transcribes_real_speech(tmp_path):
             assert word in text, (word, result.text)
     starts = [s.start for s in result.segments]
     assert starts == sorted(starts) and all(s.end >= s.start for s in result.segments)
+
+
+# --- one recording at a time per engine (review 2026-10-08) ------------------------------
+
+def test_the_engine_is_locked_for_the_whole_of_one_transcription():
+    """`self.language` and the decoder's KV cache are rewritten by every window,
+    and the media tail's sub-pipeline can run more than one worker, so two
+    recordings could reach one engine together and interleave their caches
+    into garbage text. The lock is held from the first `next()` until the
+    generator is exhausted."""
+    engine, _, _ = make_engine(loud(45))
+    assert not engine.lock.locked()
+
+    segments = engine.transcribe("memo.wav")
+    assert not engine.lock.locked(), "a generator that has not started holds nothing"
+    first = next(segments)
+    assert engine.lock.locked(), "held while windows are being decoded"
+    rest = list(segments)
+    assert not engine.lock.locked(), "released once the recording is done"
+    assert first.text == "hello world" and len(rest) == 2
+
+
+def test_a_second_recording_waits_for_the_first():
+    import threading
+
+    engine, _, _ = make_engine(loud(45))
+    first = engine.transcribe("one.wav")
+    next(first)                                  # holds the lock mid-file
+
+    started = threading.Event()
+    finished = threading.Event()
+
+    def second():
+        started.set()
+        list(engine.transcribe("two.wav"))
+        finished.set()
+
+    thread = threading.Thread(target=second, daemon=True)
+    thread.start()
+    assert started.wait(2.0)
+    assert not finished.wait(0.3), "the second caller must block while the first is mid-file"
+    first.close()                                # abandoning the first releases the lock
+    assert finished.wait(5.0), "and then the second one runs"
+    thread.join(5.0)

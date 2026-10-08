@@ -434,6 +434,8 @@ def own_paths(settings: object) -> frozenset[str]:
 
 
 def _matches_any(name: str, globs: Iterable[str]) -> bool:
+    """Does `name` match any exclusion glob? Case-folded on both sides, because
+    the patterns are written once and Windows names arrive in any case."""
     lowered = name.lower()
     return any(fnmatch.fnmatch(lowered, pattern.lower()) for pattern in globs)
 
@@ -556,6 +558,43 @@ def _priority_for(path: Path, priority_roots: Sequence[Path]) -> int:
 #: `ERROR_PATH_NOT_FOUND` is what Windows returns for both, which is why the
 #: length has to be checked rather than the error code.
 _WINDOWS_PATH_LIMIT = 260
+
+
+#: `stat_failures` keys for the two directory-level outcomes added in the
+#: 2026-10-08 review. Named here so a test and the walker agree on the words.
+JUNCTION_SKIPPED = "directory junction (not followed)"
+FOLDER_UNLISTABLE = "folder could not be listed"
+
+
+def _prune_junctions(config: WalkConfig, directory: str, subdirectories: list[str]) -> None:
+    """Drop Windows directory junctions from the folders about to be walked.
+
+    `os.walk(followlinks=False)` still descends into a junction, because a
+    junction is not a symlink (`is_symlink()` is False, `is_junction()` True).
+    One pointing at its own parent was walked level by level until the path
+    ran out of characters, and every depth was a distinct `path_key`, so the
+    same file was indexed once per level - 64 copies of one text file on this
+    laptop, bounded only by the 260-character limit. Found in review 2026-10-08.
+    Counted in `stat_failures`, not silent: a tree somebody linked in and
+    expected to be read deserves a line saying it was not.
+    """
+    kept = []
+    for name in subdirectories:
+        try:
+            if Path(directory, name).is_junction():
+                config.stat_failures[JUNCTION_SKIPPED] = (
+                    config.stat_failures.get(JUNCTION_SKIPPED, 0) + 1)
+                continue
+        except OSError:
+            pass                                 # unreadable: os.walk's onerror will count it
+        kept.append(name)
+    subdirectories[:] = kept
+
+
+def _record_unlistable(config: WalkConfig, exc: OSError) -> None:
+    """`os.walk`'s `onerror`: one folder that could not be listed, counted
+    under its own key so the total of files is not silently short."""
+    config.stat_failures[FOLDER_UNLISTABLE] = config.stat_failures.get(FOLDER_UNLISTABLE, 0) + 1
 
 
 def _record_stat_failure(config: WalkConfig, path: Path, exc: OSError) -> None:
@@ -697,7 +736,12 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
         if root.is_file():
             steps: Iterable = [(str(root.parent), [], [root.name])]
         else:
-            steps = os.walk(root, topdown=True, followlinks=config.follow_symlinks)
+            # `onerror`: without it a folder that cannot be listed (permission
+            # denied, a path over 260 characters, an ACL-protected junction)
+            # vanished with no count anywhere - `stat_failures` counted files
+            # only. Found in review 2026-10-08.
+            steps = os.walk(root, topdown=True, followlinks=config.follow_symlinks,
+                            onerror=lambda exc: _record_unlistable(config, exc))
 
         for directory, subdirectories, filenames in steps:
             # **Detection happens here, and the position is load-bearing.**
@@ -742,6 +786,8 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                         and not _matches_any(name, config.exclude_globs))
                 )
             ]
+            if not config.follow_symlinks:
+                _prune_junctions(config, directory, subdirectories)
 
             for filename in filenames:
                 if _matches_any(filename, config.exclude_globs):

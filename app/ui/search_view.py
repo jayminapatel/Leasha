@@ -66,6 +66,7 @@ class SearchView(QWidget):
     interpreted = Signal(object)
 
     def __init__(self, engine: Any, translator: Any = None, parent: QWidget | None = None) -> None:
+        """Build the bar, the results pane and the two timers. UI thread, no store."""
         super().__init__(parent)
         self._engine = engine
         self._translator = translator
@@ -95,7 +96,7 @@ class SearchView(QWidget):
         # engine without one is a menu offering the grammar's own values
         # rather than a view that fails to build.
         self.input, self.commands, self.saved = build_input(
-            self, self._on_text_changed, self._on_submitted,
+            self, self._on_text_changed, self._on_submitted, on_failed=self.error.emit,
             store=getattr(engine, "store", None), on_scope=self.set_scope)
 
         (self.scope, self.interpret_button, self.rerank_toggle,
@@ -179,6 +180,7 @@ class SearchView(QWidget):
         select_scope(self.scope, value)
 
     def _view_changed(self, prefs: Any) -> None:
+        """The View button changed the preferences: apply them and tell the window."""
         self.results.set_view_preferences(prefs)
         self._apply_preview(prefs)
         self.view_preferences_changed.emit(prefs)
@@ -311,6 +313,9 @@ class SearchView(QWidget):
         self.status.setText("")
 
     def _on_results(self, payload: Any) -> None:
+        """UI thread: a search landed - dropped if stale, else notices, rows and status
+        are drawn and the subtitles and marks fetched on a worker.
+        """
         generation, response = payload
 
         # Stale: the person has typed since this was dispatched. Showing it would

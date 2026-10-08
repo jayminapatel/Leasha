@@ -166,6 +166,12 @@ def test_persistence_to_env_still_works_unchanged(tmp_path) -> None:
     app, built, store, vectors, env = _window(tmp_path)
     try:
         built._limits_changed({"index_workers": 6})
+        # 2026-10-08: the `.env` write happens on the ordered state pool, not
+        # the UI thread; wait for it to land before reading the file.
+        from app.ui.state_writes import pool
+
+        assert pool().waitForDone(5000)
+        app.processEvents()
 
         text = env.read_text(encoding="utf-8")
         assert "INDEX_WORKERS=6" in text, (

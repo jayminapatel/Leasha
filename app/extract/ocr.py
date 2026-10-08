@@ -614,9 +614,18 @@ class OcrExtractor:
     """Images, read as text."""
 
     name = "ocr"
+    #: 2026-10-08 review note on `.svg`: neither Pillow nor RapidOCR rasterises
+    #: SVG, so every `.svg` costs one failed engine call, trips the once-per-run
+    #: "detection probe failed" warning in `ocr_ladder`, and ends as
+    #: ERR_NO_TEXT_LAYER. An SVG is XML text; its `<text>` is readable without
+    #: OCR. Left as it is here - a routing decision for the owner, not a comment.
+    #:
+    #: 2026-10-08, later, on the owner's word: `.svg` now goes to `plaintext`
+    #: (`app/extract/plaintext.py`, `config/extractors.toml`), which reads the
+    #: XML as text. Removed from this set so the two never claim it together.
     extensions = frozenset({
         ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp", ".gif",
-        ".heic", ".heif", ".svg",
+        ".heic", ".heif",
     })
     reads_externally = False
     #: Declared so Settings and `doctor` can say "images are indexed by name
@@ -649,6 +658,14 @@ class OcrExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """The words in one picture, or a Florence-2 description when it has none.
+
+        Never writes. The outcomes, in order: `ERR_OCR_UNAVAILABLE` (no engine),
+        nothing for an icon-sized image, `ERR_PAGE_TEXT_LATER` /
+        `ERR_PICTURE_TEXT_LATER` while an index run defers pictures to its end,
+        a document with `meta["format"]` "ocr" or "florence_tags", or nothing -
+        which `base.extract` reports as `ERR_NO_TEXT_LAYER`.
+        """
         if not available():
             raise_error(
                 "ERR_OCR_UNAVAILABLE", "extract.ocr", path=str(path),

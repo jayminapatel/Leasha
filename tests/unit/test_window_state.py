@@ -273,3 +273,48 @@ class TestWindowStateEdgeCases:
                     # Width and height should be <= screen size
                     assert call_args[2] <= 1920
                     assert call_args[3] <= 1080
+
+
+# --- a second monitor is a visible screen too (review 2026-10-08) -----------------------
+
+def _two_monitors(mock_app):
+    primary = Mock()
+    primary.availableGeometry.return_value = QRect(0, 0, 1920, 1080)
+    secondary = Mock()
+    secondary.availableGeometry.return_value = QRect(1920, 0, 1920, 1080)
+    mock_app.primaryScreen.return_value = primary
+    mock_app.screens.return_value = [primary, secondary]
+
+
+def test_a_window_on_a_second_monitor_is_left_where_it_is(qapp):
+    """Only `primaryScreen()` was asked, so a window legitimately restored onto
+    a secondary monitor that does not overlap the primary was dragged to the
+    primary's centre on every launch. Found in review 2026-10-08."""
+    widget = QWidget()
+    with (patch.object(widget, "frameGeometry") as mock_frame,
+          patch.object(widget, "setGeometry") as mock_set_geom,
+          patch("app.ui.window_state.QGuiApplication") as mock_app):
+        # Entirely on the second monitor, to the right of the first.
+        mock_frame.return_value = QRect(2200, 100, 800, 600)
+        _two_monitors(mock_app)
+
+        restore_window_state(widget, b"fake_geometry", ensure_visible=True)
+
+        mock_set_geom.assert_not_called()
+
+
+def test_a_window_on_a_monitor_that_is_gone_is_still_brought_back(qapp):
+    """The guard above must not undo the original clamp: off every attached
+    screen still means moved back onto the primary."""
+    widget = QWidget()
+    with (patch.object(widget, "frameGeometry") as mock_frame,
+          patch.object(widget, "setGeometry") as mock_set_geom,
+          patch("app.ui.window_state.QGuiApplication") as mock_app):
+        mock_frame.return_value = QRect(-5000, 100, 800, 600)
+        _two_monitors(mock_app)
+
+        restore_window_state(widget, b"fake_geometry", ensure_visible=True)
+
+        mock_set_geom.assert_called_once()
+        x, y = mock_set_geom.call_args[0][:2]
+        assert 0 <= x < 1920 and 0 <= y < 1080

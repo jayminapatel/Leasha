@@ -19,8 +19,15 @@ from app.extract.ocr import OcrExtractor
 from app.ui.preview_loader import _IMAGE_SUFFIXES
 
 
+#: 2026-10-08: `.svg` is read by the indexer as the XML text it is (`plaintext`;
+#: OCR has no rasteriser for it and failed on every one), while the preview
+#: still draws it through Qt. The one named exception, subtracted here so the
+#: equality below keeps catching every other drift.
+_DRAWN_NOT_OCRED = frozenset({".svg"})
+
+
 def test_image_suffixes_match_the_indexers_ocr_extensions():
-    assert _IMAGE_SUFFIXES == OcrExtractor.extensions, (
+    assert _IMAGE_SUFFIXES - _DRAWN_NOT_OCRED == OcrExtractor.extensions, (
         "the preview's image suffixes and the indexer's OCR extensions have "
         "drifted apart - a type one side accepts and the other does not is "
         "exactly the '.tiff' bug workspace §4a's note describes"

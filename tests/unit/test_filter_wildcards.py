@@ -127,3 +127,33 @@ def test_the_help_says_so():
     from app.search.commands import help_lines
 
     assert any("/name inv*" in line for line in help_lines())
+
+
+# --- the owner's index joins names to folders with a backslash (review 2026-10-08) -------
+
+def _basename(path: str) -> str:
+    return path.replace("\\", "/").rsplit("/", 1)[-1]
+
+
+@pytest.mark.parametrize("typed, expected", [
+    ("/name inv*", ["invoice-2026.pdf"]),
+    ("/name *.pdf", ["invoice-2026.pdf"]),
+    ("/name invoice-202?.pdf", ["invoice-2026.pdf"]),
+    ("-name:inv* /type pdf,txt", ["notes.txt"]),
+])
+def test_a_wildcard_name_matches_a_windows_path(tmp_path, typed, expected):
+    r"""`_name_clause` trimmed `/` only - `'/\'` in a non-raw f-string is an
+    escaped quote - so against `D:\Docs\invoice-2026.pdf` the glob met
+    `\invoice-2026.pdf` and found nothing. Every row the fixture above builds
+    is posix, which is why the bug lived. Found in review 2026-10-08."""
+    opened = SqliteStore(tmp_path / "windows.db").connect()
+    try:
+        for name, ext in (("invoice-2026.pdf", "pdf"), ("notes.txt", "txt")):
+            file_id = opened.upsert_file(
+                r"D:\Docs" + "\\" + name, parent_dir=r"D:\Docs", ext=ext, size_bytes=10,
+                mtime_ns=1_741_780_800_000_000_000, status="INDEXED", source_kind="file")
+            opened.replace_chunks(file_id, [{"ordinal": 0, "text": name}])
+        rows = opened.browse_files(parse_query(expand_slashes(typed)), limit=50)
+        assert sorted(_basename(row["path"]) for row in rows) == expected
+    finally:
+        opened.close()

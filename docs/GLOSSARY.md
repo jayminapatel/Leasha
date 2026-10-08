@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.9 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.10 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -97,6 +97,7 @@ Verified against `app/search/commands.py`.
 | Cursor | The persisted position in a run, written *before* it is needed | A crash costs seconds, not hours |
 | Name-only | A file indexed by filename and metadata, with no content read | `stats.name_only`. Correct for encrypted files and cloud placeholders |
 | Skip ledger | The record of files that could not be read, with the reason | One bad file never halts a run |
+| Junction | A Windows folder that is really a link to another folder (`mklink /J`). Not a symlink to Python, so `os.walk` follows it | Never followed by the walker, the scan or the folder watch since 2026-10-08; counted as `directory junction (not followed)` |
 | Settle | Recognising an unchanged file by hash so it is not re-extracted | H1 is the finding that this was not happening |
 | Chunk | A unit of text sent to the embedder | SQLite `chunks` is the authority; LanceDB is derived and rebuildable |
 | Segment | A labelled span within a document — a spreadsheet cell, an email header, an AI-written tag | AI-written segments are always marked as such |

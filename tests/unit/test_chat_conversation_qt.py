@@ -463,6 +463,12 @@ def test_the_new_settings_have_controls_that_emit_their_key(chat):
     assert {"CHAT_WEB_ENABLED": True} in seen
     assert {"CHAT_STYLE_NOTE": "Keep answers short."} in seen
     assert {"CHAT_CONTEXT_TOKENS": 4096} in seen
+    # 2026-10-08: the write goes through the ordered state pool, not the UI thread.
+    from app.ui.state_writes import pool
+
+    assert pool().waitForDone(5000)
+    for _ in range(3):
+        chat.app.processEvents()
     # ...and the window writes each one to `.env` (captured here, never written): the setting is used
     assert {"CHAT_WEB_ENABLED": True} in chat.written and {"CHAT_CONTEXT_TOKENS": 4096} in chat.written
     assert chat.errors == []

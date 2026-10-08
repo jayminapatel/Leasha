@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.12 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 2.13 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -259,12 +259,15 @@ round-trip, embedding model load + dimension, rerank model (optional), Outlook M
 (optional), and Ollama reachability plus whether the configured model is actually pulled
 (optional).
 
-Models downloaded by the installer (all cached under `<DataPath>\models` — offline after first install):
+Models downloaded by the installers (all cached under `<DataPath>\models` — offline after
+first install). Both installers, Settings › Models & AI and `leasha-cli models download`
+fetch through one list, `app/core/model_catalogue.py`, so they cannot disagree about which
+model is the one in force:
 
 | Model | Size | Role | Required? |
 |---|---|---|---|
 | BAAI/bge-small-en-v1.5 | ~130MB | Embeddings (in-process ONNX, 384-dim) | Yes |
-| BAAI/bge-reranker-base | ~1.1GB | Result reranking (Settings toggle) | Optional |
+| Xenova/ms-marco-MiniLM-L-6-v2 | small | Result reranking (Settings toggle). The default since the 9.2x measurement; `BAAI/bge-reranker-base` scored the same and was slower | Optional |
 | mistral (via Ollama) | ~4.1GB | Chat, Interpret and Describe, only when `CHAT_ENGINE=ollama`; Leasha's own default Ollama model is `qwen2.5:1.5b` | Optional |
 
 By default Chat, Interpret and Describe do not use Ollama: the chat model (Qwen 2.5 1.5B),
@@ -470,7 +473,7 @@ indexer at it.
 |---|---|---|---|
 | Warm search | "<500ms cached" | **<300ms** | FTS5 BM25 + LanceDB ANN in parallel, RRF fusion, no LLM in hot path |
 | First search after launch | "<2s cold" | **<3s** | ONNX model load ~1–2s once per session |
-| Rerank | Mistral 7B (impossible <2s on CPU) | Cross-encoder top-30, ~100–300ms, **optional toggle** | bge-reranker-base ONNX |
+| Rerank | Mistral 7B (impossible <2s on CPU) | Cross-encoder top-30, ~100–300ms, **optional toggle** | ms-marco-MiniLM-L-6-v2 ONNX (bge-reranker-base measured 9.2x slower for the same scores) |
 | Initial index, 100GB | "30–50h GPU / 80–150h CPU" | **Days on CPU — set expectations in UI**; prioritised folders first, background, resumable | bge-small ~384-dim helps; PyMuPDF removes the parse bottleneck |
 | RAM | 16–32GB | **8GB min, 16GB comfortable** | No Postgres/Redis/Qdrant resident |
 | Disk | 200GB free | **300GB free on the index drive** (the threshold Leasha, `install.ps1`, `doctor.py` and the Windows installer all check), excluding the corpus itself | vectors + FTS + cache + models ≈ 50% of corpus size; the threshold leaves room above that |

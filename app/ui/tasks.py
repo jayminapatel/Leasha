@@ -19,6 +19,7 @@ from typing import Any, Optional
 
 from app.core.logging import logger
 from app.core.row_facts import is_message_key, is_synthetic_path
+from app.search.marks import file_row_context  # moved down 2026-10-08; re-exported unchanged
 from app.ui.presenter.code import REPO_FILE_LIMIT, code_type_filter, git_rows_matching
 from app.ui.presenter.formatting import format_size, format_when
 from app.ui.presenter.indexing import pictures_not_read_counts, warned_counts
@@ -423,6 +424,9 @@ def record_open(engine: Any, search_id: Any, chunk_id: Any) -> None:
     try:
         engine.record_open(search_id, chunk_id)
     except Exception:                            # noqa: BLE001 - never block an open
+        # Silent by design: the open has already happened, the ranking signal is a
+        # courtesy, and the next open records again. Nothing here is worth a line
+        # in front of the person.
         pass
 
 
@@ -438,43 +442,9 @@ def missing_paths(paths: Any) -> set[str]:
     return _missing(paths)
 
 
-def file_row_context(store: Any, rows: Any) -> Any:
-    """What a page of Files rows is shown with that the row does not carry.
-    **Worker only.** Returns the same row dicts, added to:
-
-    * an attachment's message - `message_sender`, `message_subject`,
-      `message_sent_at` - so its folder says who sent it and about what, and
-      its date is the message's (the Search list's way, 2026-10-04);
-    * a catalogued drive's name, `volume_label`, for "<drive> > folder".
-
-    **One statement for the attachments and one per distinct drive on the
-    page** - never one per row, and nothing on the thread that paints. Never
-    raises: a missing folder or date is a cosmetic loss, not the list.
-    """
-    from app.search.marks import parent_messages
-
-    rows = list(rows or ())
-    if store is None or not rows:
-        return rows
-    try:
-        parents = parent_messages(store, [(row.get("id"), row.get("path")) for row in rows])
-        for row in rows:
-            parent = (parents or {}).get(int(row.get("id") or 0))
-            if parent is not None:
-                row["message_sender"] = parent.get("sender")
-                row["message_subject"] = parent.get("subject")
-                row["message_sent_at"] = parent.get("sent_at")
-        labels: dict[int, str] = {}
-        for volume_id in {int(row["volume_id"]) for row in rows
-                          if row.get("volume_id") is not None}:
-            record = store.get_volume(volume_id) if hasattr(store, "get_volume") else None
-            labels[volume_id] = str(getattr(record, "name", "") or "") if record else ""
-        for row in rows:
-            if row.get("volume_id") is not None:
-                row["volume_label"] = labels.get(int(row["volume_id"]), "")
-    except Exception as exc:                     # noqa: BLE001 - see docstring
-        _log.debug("no attachment or drive context for this page: {}", exc)
-    return rows
+# `file_row_context` lived here until 2026-10-08. The MCP server needs it and
+# nothing below `app/ui` may import from it, so it moved to `app.search.marks`
+# beside `parent_messages`, the one store read it makes; imported above.
 
 
 def volume_labels(store: Any, results: Any) -> dict[int, dict]:

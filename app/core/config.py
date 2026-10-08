@@ -453,6 +453,11 @@ class Settings(BaseModel):
     #: introduction - most of what makes it findable. All-or-nothing is the
     #: sixty-hour column.
     pdf_ocr_pages: int = 0
+    #: Whether `.mpp` task lists are read through mpxj, which starts a JVM in
+    #: this process. Off by default because a JVM fault ends the run, not the
+    #: file - `app/extract/diagrams.py` has the reasoning. `LEASHA_ENABLE_JVM`
+    #: in the environment overrides it for one run (2026-10-08 review).
+    jvm_readers_enabled: bool = False
     #: both | text | images. Which pass an index run is. See `pipeline.
     #: OCR_MODES`: OCR costs about 3.6 seconds a page, so at a terabyte a
     #: single pass means nothing is searchable until everything is.
@@ -480,6 +485,12 @@ class Settings(BaseModel):
 
     @property
     def index_dirs(self) -> tuple[Path, ...]:
+        """The five folders an index is made of, derived from `data_path`.
+
+        Derived, not the configured `vector_path`/`fts_db`/... values: this is
+        what `index_move` moves, and a pinned sub-path would otherwise be
+        left behind on the old drive.
+        """
         return tuple(self.data_path / name for name in _INDEX_SUBDIRS)
 
 
@@ -575,6 +586,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "ARCHIVE_READ_INSIDE",
     "ARCHIVE_MAX_MB",
     "PDF_OCR_PAGES",
+    "JVM_READERS_ENABLED",
     "MAIL_ATTACHMENTS",
     "OCR_WHITE_PAGE_PERCENT",
     "INDEX_JUNK_IMAGE_FILTER",
@@ -800,6 +812,8 @@ def load_settings(
                 "ARCHIVE_MAX_MB", values.get("ARCHIVE_MAX_MB", "100")),
             pdf_ocr_pages=_as_int(
                 "PDF_OCR_PAGES", values.get("PDF_OCR_PAGES", "0")),
+            jvm_readers_enabled=_as_bool(
+                "JVM_READERS_ENABLED", values.get("JVM_READERS_ENABLED", "false")),
             ocr_white_page_percent=_as_int(
                 "OCR_WHITE_PAGE_PERCENT",
                 values.get("OCR_WHITE_PAGE_PERCENT", "70")),

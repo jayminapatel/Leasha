@@ -31,12 +31,12 @@ __all__ = [
     "ICON_FILE", "TRAY_ICON_FILE",
 ]
 
-ICON_FILE = "leasha.ico"
-TRAY_ICON_FILE = "leasha-tray.ico"
+# Both constants moved to `app.core.branding` in the 2026-10-08 review, so the
+# Start-menu shortcut under `app/core` no longer imports from `app/ui`. They
+# are re-exported here under their old names; every caller is unchanged.
+from app.core.branding import APP_USER_MODEL_ID, ICON_FILE
 
-#: Arbitrary but stable - Windows only uses this to tell one app's windows
-#: apart from another's, never displays it.
-APP_USER_MODEL_ID = "Leasha.Leasha.DesktopApp.1"
+TRAY_ICON_FILE = "leasha-tray.ico"
 
 
 def set_app_user_model_id(app_id: str = APP_USER_MODEL_ID) -> bool:
@@ -178,6 +178,7 @@ class TrayPresence:
     """
 
     def __init__(self, window: Any) -> None:
+        """Both switches off; nothing is installed until `install`."""
         self._window = window
         self._tray: Any = None
         #: Both off. See the module docstring - vanishing unasked is alarming.
@@ -237,6 +238,7 @@ class TrayPresence:
     # -- behaviour ------------------------------------------------------------
 
     def _on_activated(self, reason: Any) -> None:
+        """A click or double-click on the icon brings the window back."""
         from PySide6.QtWidgets import QSystemTrayIcon
 
         # Both, because which one people expect differs by platform and habit,

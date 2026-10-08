@@ -1,6 +1,6 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.3 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.4 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 ## Opening it
 
@@ -54,14 +54,20 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 | Preflight (no downloads) | Cheap local checks only, nothing installed |
 | Diagnose (bundle for troubleshooting) | Builds a support bundle (`app.cli diagnose`) into `logs\diagnostics\` |
 | Doctor / Doctor (quick) | Environment verification; `--quick` skips model loading |
-| Run all tests | The whole suite |
+| Run all tests | The whole suite in one pytest process |
+| Run the whole suite (3 processes, the project's runner) | `scripts/run_suite.py -j 3`: the suite split over three processes, each with its own temp folder, a crashed or timed-out process reported as such, and an exit code that is red when any part failed or errored. This is what a release and a hand-off run |
 | Run acceptance tests for the current layer | Just `tests/integration` |
 | Parse-check PowerShell scripts | Real parser plus the encoding audit |
 | Install dev tools | pytest, ruff, mypy |
 | CLI: stats | Prints the resolved configuration |
+| Download models (search and rerank) | `app.cli models download search rerank`, the same route the installers and Settings use |
+| Build the installer | `packaging\build.ps1`: PyInstaller, a run of the built program, Inno Setup. Stops if an optional library is missing from the venv |
 
 `Ctrl+Shift+B` is not bound; **`Run all tests` is the default test task**, so
-`Ctrl+Shift+P` -> **Tasks: Run Test Task** runs the suite.
+`Ctrl+Shift+P` -> **Tasks: Run Test Task** runs the suite. Before committing, prefer
+**Run the whole suite (3 processes, the project's runner)**: on a machine with less than
+about 10 GB free a single process holding Qt, onnxruntime and LanceDB can fault rather than
+raise, and the runner is what says so.
 
 **Debugging** (`F5`, then pick a configuration): `CLI: stats`, `CLI: stats (json)`,
 `CLI: doctor`, `CLI: index (Layer 3)`, `CLI: search (Layer 4)`, `App: desktop shell (Layer 5)`,

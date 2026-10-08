@@ -40,6 +40,7 @@ from app.core.file_state import (
 )
 from app.core.row_facts import (
     ATTACHMENT_MARKER, NO_SUBJECT, format_size, has_own_size, message_name, own_size,
+    shown_date_ns,  # moved down to core 2026-10-08; re-exported here unchanged
 )
 from app.ui.presenter.formatting import _exact_date, breadcrumb, format_address, format_when
 
@@ -71,22 +72,9 @@ def date_register() -> str:
     return _REGISTER["value"]
 
 
-def shown_date_ns(*, mtime_ns: Any = 0, taken_at_ns: Any = 0, sent_at: Any = 0) -> int:
-    """The date a row shows, in nanoseconds; 0 when none is known.
-
-    In order: **the message's sent date** (`sent_at`, seconds - for a message,
-    or for an attachment, whose own file time is its archive's); **a photo's
-    own date** (`taken_at_ns`, the date the Files list is ordered by); then
-    the file's modification time.
-    """
-    for value, scale in ((sent_at, 1_000_000_000), (taken_at_ns, 1), (mtime_ns, 1)):
-        try:
-            number = int(value or 0)
-        except (TypeError, ValueError):
-            number = 0
-        if number > 0:
-            return number * scale
-    return 0
+# `shown_date_ns` lived here until 2026-10-08. It is a pure function of row
+# facts and the MCP server needed it, so it moved to `app.core.row_facts`
+# (imported above) - nothing under `app/` except `app/ui` may import `app.ui`.
 
 
 def date_words(when_ns: Any, *, register: Optional[str] = None,

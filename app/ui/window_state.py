@@ -108,6 +108,16 @@ def _clamp_to_visible_screen(window: Any) -> None:
     # If any part of the window is visible on a screen, we're good.
     if available.intersects(geom):
         return
+    # Found in review 2026-10-08: only the primary screen was asked, so a
+    # window restored onto a second monitor that does not overlap the first
+    # was dragged to the primary's centre on every launch. Any attached screen
+    # showing part of the window is a visible window.
+    for screen in (QGuiApplication.screens() or ()):
+        try:
+            if screen.availableGeometry().intersects(geom):
+                return
+        except Exception:                        # noqa: BLE001 - a screen mid-detach
+            continue
 
     # Window is fully off-screen. Move it to the centre of the available
     # screen, keeping its size (or shrinking if it's larger than the screen).
@@ -183,7 +193,9 @@ def listen_for_front(on_front: Any) -> Any:
         offset = ctypes.sizeof(ctypes.c_void_p)   # MSG: HWND, then UINT message
 
         class _Filter(QAbstractNativeEventFilter):
+            """The native filter that hears the second launch's message."""
             def nativeEventFilter(self, _kind, message):   # noqa: N802 - Qt's name
+                """Qt's native filter, UI thread: call `on_front` for the front message."""
                 try:
                     code = ctypes.c_uint.from_address(int(message) + offset).value
                     if code == wanted:

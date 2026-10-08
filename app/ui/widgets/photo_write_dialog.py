@@ -82,6 +82,10 @@ class WriteNamesDialog(QDialog):
 
         stamp = _dt.date.today().isoformat()
         default = (Path(data_dir) / "photo_backups" / stamp) if data_dir else Path.home()
+        #: Where the copies go when the field has been emptied. Found in review
+        #: 2026-10-08: a blank field fell back to `Path(".")`, the process's
+        #: working directory - wherever Leasha happened to be started from.
+        self._default_backup = default
         self.backup = QLineEdit(str(default))
         self.backup.setPlaceholderText("Folder for the copies kept before a photo is changed")
         self.backup.setAccessibleName("Backup folder")
@@ -139,6 +143,7 @@ class WriteNamesDialog(QDialog):
             self.backup.setText(chosen)
 
     def chosen_ids(self) -> Optional[list[int]]:
+        """The file ids to write, or None for every photo with a name or description."""
         if self.scope_selected.isChecked():
             return list(self._selected)
         if self.scope_shown.isChecked():
@@ -146,11 +151,14 @@ class WriteNamesDialog(QDialog):
         return None
 
     def start(self) -> bool:
+        """"Write them": the one place XMP is written, on a worker (`run_write`).
+        Progress is polled from a shared dict every 250 ms; `_finished` reports.
+        """
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
         where = INSIDE if self.where_inside.isChecked() else SIDECAR
-        backup_root = Path(self.backup.text().strip() or ".")
+        backup_root = Path(self.backup.text().strip() or self._default_backup)
         for widget in (self.scope_all, self.scope_selected, self.scope_shown,
                        self.where_sidecar, self.where_inside, self.backup_row, self.go):
             widget.setEnabled(False)
@@ -167,6 +175,7 @@ class WriteNamesDialog(QDialog):
         return True
 
     def _tick(self) -> None:
+        """UI thread: the progress bar from the worker's counters."""
         total, done = self._progress.get("total", 0), self._progress.get("done", 0)
         if total:
             self.bar.setRange(0, total)
@@ -174,6 +183,7 @@ class WriteNamesDialog(QDialog):
             self.status.setText(f"Writing… {done:,} of {total:,}")
 
     def _finished(self, result: Any) -> None:
+        """UI thread: say what was written, kept, skipped and copied; Cancel becomes Close."""
         self._timer.stop()
         self.bar.setVisible(False)
         parts = []
@@ -198,14 +208,39 @@ class WriteNamesDialog(QDialog):
         self.cancel.clicked.connect(self.accept)
 
     def _failed(self, error: Any) -> None:
+        """UI thread: the worker raised. Its message in the status line, never a dialog."""
         self._timer.stop()
         self.bar.setVisible(False)
         self.status.setText(f"Writing stopped: {getattr(error, 'message', error)}")
         self.cancel.setText("Close")
 
     def _cancel(self) -> None:
+        """Stop while writing (after the current photo); otherwise close the dialog."""
         if self._timer.isActive():
             self._stop.set()
             self.status.setText("Stopping after this photo…")
         else:
             self.reject()
+
+    def _writing(self) -> bool:
+        """True while `run_write` is on the worker - the timer runs exactly that long."""
+        return self._timer.isActive()
+
+    def reject(self) -> None:
+        """Escape and the Cancel role land here. **While writing, this stops, it
+        does not close.** Found in review 2026-10-08: `QDialog`'s own Escape
+        hid the dialog and the worker went on writing XMP into photos with no
+        stop flag and nothing on screen - in the one path allowed to touch a
+        person's photos. Once the run has ended, Escape closes as before."""
+        if self._writing():
+            self._cancel()
+            return
+        super().reject()
+
+    def closeEvent(self, event: Any) -> None:  # noqa: N802 - Qt's name
+        """The title-bar X: the same rule as `reject`, stop first, close after."""
+        if self._writing():
+            self._cancel()
+            event.ignore()
+            return
+        super().closeEvent(event)

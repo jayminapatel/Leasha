@@ -236,6 +236,19 @@ class LongRunBox(QGroupBox):
         self.ocr_white_page_percent.valueChanged.connect(
             lambda _v: self.changed.emit())
 
+        # 2026-10-08 review: `LEASHA_ENABLE_JVM` was the only way to read `.mpp`
+        # task lists - a tunable with no control (non-negotiable 11). Off by
+        # default and labelled with the cost, because a JVM fault ends the run.
+        self.jvm_readers = QCheckBox("Read task lists from Microsoft Project files")
+        self.jvm_readers.setObjectName("JVM_READERS_ENABLED")
+        self.jvm_readers.setToolTip(
+            "Off, deliberately. Reading .mpp task lists needs a Java virtual\n"
+            "machine inside Leasha's own process, and a Java fault ends the\n"
+            "whole indexing run rather than skipping one file.\n\n"
+            "Project files are indexed by name and properties either way."
+        )
+        self.jvm_readers.stateChanged.connect(lambda _s: self.changed.emit())
+
         # Work order 0z lane B: how long one file may hold a reader
         # (`app/index/file_watch.py`). Coverage because a file that runs past
         # it is not read - it is recorded as skipped, like a damaged one.
@@ -275,11 +288,13 @@ class LongRunBox(QGroupBox):
         # levers, and a sentence saying what they do there - recomputed as a
         # lever moves (`presenter/coverage.py`). The controls and the labels
         # beside them are the ones this box always had; only the grouping is new.
+        # Hidden once `place_in` puts the real media box here (`what_gets_read`).
         self._media_note = _elsewhere("Switched on and off in Settings, Models & AI.")
         rows = {
             FILES: [(None, self.name_only), (None, _cost("INDEX_NAME_ONLY")),
                     ("Re-check archives every", self.archive_recheck_days),
-                    ("Time limit per file", self.file_time_limit)],
+                    ("Time limit per file", self.file_time_limit),
+                    (None, self.jvm_readers)],
             EMAIL: [("Skip a mailbox or archive after no progress for", self.stall_limit)],
             ATTACHMENTS: [("What to read from email attachments", self.mail_attachments),
                           (None, self.junk_images_note), (None, self.junk_images)],
@@ -365,7 +380,7 @@ class LongRunBox(QGroupBox):
                    self.archive_read_inside, self.archive_max_mb,
                    self.pdf_ocr_pages, self.ocr_white_page_percent,
                    self.file_time_limit, self.stall_limit, self.junk_images,
-                   self.mail_attachments)
+                   self.mail_attachments, self.jvm_readers)
         for widget in widgets:
             widget.blockSignals(True)
         try:
@@ -393,6 +408,8 @@ class LongRunBox(QGroupBox):
             found = self.mail_attachments.findData(
                 str(getattr(settings, "mail_attachments", "documents")))
             self.mail_attachments.setCurrentIndex(found if found >= 0 else 1)
+            self.jvm_readers.setChecked(
+                bool(getattr(settings, "jvm_readers_enabled", False)))
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
@@ -413,4 +430,5 @@ class LongRunBox(QGroupBox):
             "index_stall_limit_s": int(self.stall_limit.value()),
             "index_junk_image_filter": bool(self.junk_images.isChecked()),
             "mail_attachments": str(self.mail_attachments.currentData() or "documents"),
+            "jvm_readers_enabled": bool(self.jvm_readers.isChecked()),
         }

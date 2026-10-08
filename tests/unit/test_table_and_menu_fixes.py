@@ -270,3 +270,25 @@ def test_the_menu_offers_a_way_back_to_fitted(qapp):
             action.trigger()
 
     assert seen and seen[-1].widths == ()
+
+
+# --- an empty row never raises inside the activation slot (review 2026-10-08) ----------
+
+def test_activating_an_empty_row_is_a_no_op_rather_than_an_index_error(qtbot):
+    """`row_text.split()[0]` raised `IndexError` inside a Qt slot on an empty
+    row text, which PySide6 treats as fatal. Found in review 2026-10-08."""
+    from PySide6.QtWidgets import QLineEdit
+
+    from app.ui.widgets.code_commands import SEARCH_CATALOGUE, search_command_for, search_matching
+    from app.ui.widgets.command_popup import attach_to
+
+    box = QLineEdit()
+    qtbot.addWidget(box)
+    box.setText("report ")
+    popup = attach_to(box, catalogue=SEARCH_CATALOGUE, matcher=search_matching,
+                      resolve=search_command_for)
+
+    popup.activated[str].emit("")           # the slot runs synchronously
+    popup.activated[str].emit("   ")
+
+    assert box.text() == "report "

@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 3.7 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 3.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 **Search everything on this machine — by describing it in plain English.**
 
@@ -124,7 +124,9 @@ already has one leaves it exactly where it is.
 
 To build the installer from source: `.\packaging\build.ps1` (about ten minutes; needs Inno
 Setup 6 - `winget install --id JRSoftware.InnoSetup -e`). `-Release` also copies it, with its
-checksum, to the Releases folder.
+checksum, to the Releases folder. The build stops if one of the optional libraries (video,
+`.pst` reading, place names, people in photos) is missing from the venv, so two builds of
+one version ship the same thing; `-AllowMissingOptional` builds a smaller Leasha on purpose.
 
 ### macOS - from source
 

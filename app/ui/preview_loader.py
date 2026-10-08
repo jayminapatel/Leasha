@@ -23,6 +23,7 @@ from typing import Any, Optional
 
 from app.core.errors import AppError, make_error
 from app.core.logging import logger
+from app.core.row_facts import join_chunks  # moved down to core 2026-10-08; re-exported
 
 __all__ = ["Preview", "KIND_TEXT", "KIND_HTML", "KIND_PDF", "KIND_IMAGE",
            "KIND_MARKDOWN", "KIND_SPREADSHEET", "KIND_EPUB", "KIND_NONE",
@@ -138,6 +139,11 @@ _HTML_SUFFIXES = frozenset({".html", ".htm", ".eml", ".msg"})
 #: drifts from it is exactly the `.tiff` class of bug the order names: a type
 #: the index reads happily shown as "no preview" because this set forgot it.
 #: `test_viewer_suffixes.py` pins the two sets equal.
+#: `.svg` is the one named exception to "equal" since 2026-10-08: the indexer
+#: reads an SVG as the XML text it is (`plaintext`, since OCR could never
+#: rasterise one), while the preview still draws it, because Qt decodes SVG
+#: through `QImage` and a drawing is what a person expects to see.
+#: `test_viewer_suffixes.py` holds the sets equal with that one subtraction.
 _IMAGE_SUFFIXES = frozenset({".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp",
                              ".tif", ".tiff", ".svg", ".heic", ".heif"})
 #: Workspace §4b. **Kept equal to `XlsxExtractor.extensions`** in
@@ -786,28 +792,9 @@ def stored_text(store: Any, file_id: Any) -> str:
     return join_chunks(chunks)
 
 
-def join_chunks(chunks: Any) -> str:
-    r"""One document's chunks back into one body. **No invented paragraphs.**
-
-    This was `"\n\n".join(...)`, which put a blank line at every chunk
-    boundary - so a long message read as arbitrarily broken paragraphs, in
-    places decided by a 512-token window rather than by whoever wrote it.
-    Chunking is an indexing decision and has no business being visible.
-
-    Chunks are contiguous slices of the original, so joining them with nothing
-    restores the text as extracted, including its real paragraph breaks. A
-    single newline is inserted only where the seam would otherwise run two
-    words together, which happens when a chunker trims trailing whitespace.
-    """
-    out: list[str] = []
-    for chunk in chunks or ():
-        text = str(getattr(chunk, "text", "") or "")
-        if not text:
-            continue
-        if out and not out[-1].endswith(("\n", " ")) and not text.startswith(("\n", " ")):
-            out.append("\n")
-        out.append(text)
-    return "".join(out)
+# `join_chunks` lived here until 2026-10-08. The MCP server reads documents
+# through it too, and nothing under `app/` except `app/ui` may import `app.ui`,
+# so it moved to `app.core.row_facts` and is imported above under its old name.
 
 
 #: Field order for the header block above a message body.
@@ -1706,6 +1693,7 @@ def dwg_preview_available() -> bool:
 
 @lru_cache(maxsize=1)
 def _dwg_converter_default() -> bool:
+    """The real probe for `dwg2SVG`, cached per process like `_office_converter_default`."""
     try:
         from app.extract.converter import resolve_binary
 
