@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.11 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.11 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 ## Scheme
 

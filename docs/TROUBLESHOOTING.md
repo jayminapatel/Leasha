@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.12 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.12 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -141,6 +141,12 @@ from - that closes the application properly, releasing the lock on the index and
 flushing the database, which ending the task from Task Manager does not.
 
 ## What is in the logs folder
+
+Where it is depends on how Leasha was installed, and both are deliberate: a source install
+(`install.ps1`) keeps `logs\` inside the project folder beside the code, and the Windows
+installer puts it inside the index folder (`<Data>\logs`), because the program folder under
+`%LOCALAPPDATA%\Programs` is not a place a person looks. `LOG_PATH` in `.env` says which;
+**Diagnose** finds the right one either way.
 
 ```
 logs\

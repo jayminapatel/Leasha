@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.86 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 4.87 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [1.0.1] - 2026-10-08
 
 ### The whole of Leasha read through, and what it found put right (2026-10-08)
 
@@ -52,6 +54,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   without an optional package unless told to; the test runner no longer reports green on a
   fixture error; nothing below the window imports from it; and every module and most
   functions now say what they are for and why they are the way they are.
+
+### Docs
+
+- `HANDOFF.md` 7.114, `CHANGELOG.md` 4.87, `README.md` 3.8, `LOCAL_KNOWLEDGE_GRAPH_V2.md` 2.13,
+  `docs/PROJECT_INSTRUCTIONS.md` 1.8, `docs/TROUBLESHOOTING.md` 1.12, `docs/GLOSSARY.md` 1.10,
+  `docs/VERSIONING.md` 1.11, `docs/VSCODE.md` 1.4, `docs/WORKORDER-CONVENTIONS.md` 2.6; the user
+  guide and the technical reference rewritten in place. The project instructions no longer list
+  OCR as unbuilt: scans are read, and a scanned PDF up to its page budget. Troubleshooting says
+  where the logs folder is for each kind of install, and what a junction is.
 
 ## [1.0.0] - 2026-10-08
 

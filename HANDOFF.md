@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.113 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 7.114 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,28 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-08, night - release 1.0.1 (owner: "finish all off and release the installer").**
+`VERSION` 1.0.1, tagged `v1.0.1`; `Leasha-Setup-1.0.1.exe` built with `packaging\build.ps1
+-Release` into `Leasha\Releases\1.0.1\` (its SHA256 is in the dated note below this entry once
+the build is in). Carries the whole-codebase review entry below and the text-first work
+merged from the other thread. **Step 3 of the checklist, measured this time**, on the owner's
+index (216,149 files, 386,665 passages), one process, both models warmed, no cache hit,
+nothing else running: `bench-index` reads 109 documents/s, writes 3,751/s and embeds 13.2
+passages/s on the processor (480 passages in 40 s). Search, five distinct queries: without
+reranking 1,959 ms for the first query of the session then 177, 238, 664 and 976 ms; with
+reranking 991, 1,129, 1,206, 3,342 and 1,856 ms. **Against the 300 ms warm budget that is a
+miss on most queries, and the reranker is the larger half** - the other thread measured it at
+576-818 ms; the filtered searches (`type:pdf`, `from:`) are the slowest. Recorded, not fixed:
+it is a measurement to tune from, not a reason to hold the release. The three decisions left
+open by the review were taken as the review recommended: `doctor` no longer tells anyone to
+write `.env` by hand; `search` exiting 1 on no results is now in the CLI's exit-code table
+(scripts can tell empty from failed); the two `LOG_PATH` choices are documented as deliberate
+in troubleshooting (project folder for a source install, the index folder for the Windows
+installer). The project instructions no longer list OCR as unbuilt. **Still owed from 1.0.0:**
+the 24-hour soak, force-kill recovery and the cold start under 5 s named in `docs/VERSIONING.md`.
+**Not checked on the real window:** the same list as the review entry below, plus the 1.0.1
+installer installing over 1.0.0.
 
 **2026-10-08, evening - the whole codebase reviewed, commented and repaired (owner:
 "review all code in the project ... make sure it is commented properly; if not, write

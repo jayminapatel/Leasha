@@ -30,7 +30,8 @@ answer that does not need a debugger.
 
 Exit codes:
     0  success
-    1  an AppError occurred
+    1  an AppError occurred - and, for `search`, nothing found (so a script
+       can tell an empty answer from a successful one; 2026-10-08)
     2  the feature is not built yet
 """
 

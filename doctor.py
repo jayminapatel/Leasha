@@ -132,8 +132,10 @@ def check_env_file() -> Check:
     return Check(
         ".env present with DATA_PATH", False,
         f"not found or incomplete at {ENV_FILE}",
-        fix="Re-run install.ps1 from this folder - it writes .env. "
-            "Or create it by hand with DATA_PATH=<your index location>.",
+        # No "by hand": the application and its installers write .env, never the
+        # person (non-negotiable 11; 2026-10-08 review).
+        fix="Re-run install.ps1 from this folder (or the Windows installer) - it asks "
+            "where the index should live and writes .env with DATA_PATH itself.",
     )
 
 

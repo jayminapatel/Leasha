@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.7 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -195,7 +195,10 @@ Do not add these without an explicit decision to change scope:
 
 - **Cloud APIs** (Graph, SharePoint REST). OAuth, tenants and app registrations would break
   the offline promise. Sync the library locally and index the folder.
-- **OCR.** Image-only PDFs are marked, not read.
+- **Reading every page of every scanned PDF by default.** Pictures and scans are read by
+  RapidOCR in the images pass; a scanned PDF is read only up to the **Pages to read from a
+  scanned PDF** budget, which is 0 - marked, not read - until somebody raises it, because a
+  terabyte of scans at 3.6 seconds a page is the sixty-hour column.
 - **Multi-user, server or web deployment.** Single user, single machine, one process.
 - **Telemetry of any kind.** Nothing leaves the machine.
 - **An LLM anywhere in the search path.** Answers only.

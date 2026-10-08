@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.13 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 2.13 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
