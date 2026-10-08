@@ -1,5 +1,7 @@
 """Read the owner's own .pst files with the libpff reader, and say how it went.
 
+Layer: tooling over L2 (`app.extract.pst_libpff`); nothing in `app/` imports it.
+
 Order 0z lane C, field test. **Read-only**: nothing is written to the index,
 the settings or the archives. Each archive is read in a process of its own,
 with pictures held (the text-first pass the pipeline makes), and watched: an

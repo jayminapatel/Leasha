@@ -72,6 +72,7 @@ class EpubView(QWidget):
             self.browser.setHtml("")
 
     def _show_chapter(self, row: int) -> None:
+        """Show chapter `row`'s already-sanitised HTML, or nothing for a bad row."""
         if 0 <= row < len(self._chapters):
             self.browser.setHtml(self._chapters[row].html)
         else:

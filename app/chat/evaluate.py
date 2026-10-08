@@ -336,11 +336,13 @@ class ChatReport:
 
     @property
     def citation_validity(self) -> Optional[float]:
+        """Share of cited sentences whose receipt checks out against the database."""
         total = sum(r.sentences for r in self.results)
         return (sum(r.valid_sentences for r in self.results) / total) if total else None
 
     @property
     def unreceipted_sentences(self) -> int:
+        """Unmarked sentences, in all, that state a specific no receipt contains."""
         return sum(r.unreceipted for r in self.results)
 
     @property
@@ -352,6 +354,7 @@ class ChatReport:
 
     @property
     def aggregate_exactness(self) -> Optional[float]:
+        """Share of counting questions whose stated number is the fixture's own count."""
         return self._rate(self._of(lambda r: r.qa.outcome == "aggregate"), lambda r: r.correct)
 
     @property
@@ -401,6 +404,12 @@ class ChatReport:
         return self._rate(self._of(lambda r: r.qa.cls == "SYNTHESIS"), lambda r: r.correct)
 
     def latency(self, attribute: str) -> dict[str, Optional[float]]:
+        """`{n, p50, p95, max}` of one timing attribute, in seconds.
+
+        Nearest-rank percentiles over the sorted values: the p-th percentile is
+        the value at 1-based position `ceil(p * n)`, so p95 of twenty turns is
+        the nineteenth slowest - never an interpolated time no turn actually took.
+        """
         values = sorted(v for v in (getattr(r, attribute) for r in self.results) if v is not None)
         if not values:
             return {"n": 0, "p50": None, "p95": None, "max": None}
@@ -414,6 +423,7 @@ class ChatReport:
     # -- floors --------------------------------------------------------------------------
 
     def measures(self) -> dict[str, Optional[float]]:
+        """Every measure by name; `None` where no question of that kind ran."""
         return {
             "citation_validity": self.citation_validity,
             "extractive": self.extractive,
@@ -437,6 +447,7 @@ class ChatReport:
                 if measured[name] is not None and measured[name] < floor - 1e-9]
 
     def as_dict(self) -> dict[str, Any]:
+        """The report as JSON for `evaluate --chat --json`, failures listed by id."""
         return {
             "model": self.model, "real_model": self.real_model, "machine": self.machine,
             "roles": self.roles, "questions": len(self.results),
@@ -457,6 +468,7 @@ class ChatReport:
         }
 
     def lines(self) -> list[str]:
+        """The report as text: the model and machine first, then each measure beside its floor."""
         def pct(value: Optional[float]) -> str:
             return "   n/a" if value is None else f"{value:>6.1%}"
 
@@ -615,6 +627,7 @@ class ConversationReport:
 
     @property
     def structure(self) -> Optional[float]:
+        """Share of steps with the right shape; `None` when none ran."""
         steps = self.steps
         return (sum(1 for s in steps if s.ok) / len(steps)) if steps else None
 
@@ -626,6 +639,7 @@ class ConversationReport:
                 "p50": round(values[len(values) // 2], 3), "max": round(values[-1], 3)}
 
     def as_dict(self) -> dict[str, Any]:
+        """The report as JSON, every step's transcript included."""
         return {
             "model": self.model, "real_model": self.real_model, "machine": self.machine,
             "structure": None if self.structure is None else round(self.structure, 4),
@@ -642,6 +656,7 @@ class ConversationReport:
         }
 
     def lines(self, *, width: int = 420) -> list[str]:
+        """The report as text: each conversation as a transcript with its problems."""
         kind = "a real local model" if self.real_model else \
             "the deterministic FakeLLM - NOT a language model"
         out = [f"Conversation evaluation  ({len(self.steps)} steps)", "=" * 62,

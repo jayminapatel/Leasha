@@ -349,6 +349,12 @@ class ParsedQuery:
 
     @property
     def has_filters(self) -> bool:
+        """True when anything narrows the search besides the words.
+
+        **The scope counts as a filter.** A Mail or Code chip restricts the rows
+        exactly as `type:` does, so a filter-only query on those tabs still
+        browses (newest first) rather than returning nothing.
+        """
         return bool(
             self.ext or self.after or self.before or self.paths
             or self.repos or self.shows or self.place or self.volumes

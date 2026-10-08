@@ -72,6 +72,7 @@ def format_stacks(frames: Optional[dict] = None,
 
 
 def _dump() -> None:
+    """Log every thread's stack; a failure to do so is itself logged."""
     try:
         _log.warning(
             "the window closed but this process is still running. "

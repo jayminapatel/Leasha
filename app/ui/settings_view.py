@@ -41,6 +41,9 @@ _log = logger.bind(component="ui.settings")
 
 
 class SettingsView(SettingsShelves, QWidget):
+    """The Settings page: its wording and signals. The boxes and shelves are
+    `SettingsShelves`.
+    """
     roots_changed = Signal(list)
     #: `{normalised root: "live"|"archive"}` - which folders never change.
     #: See `app/index/archives.py`; the saving this buys on a settled corpus is
@@ -101,6 +104,9 @@ class SettingsView(SettingsShelves, QWidget):
     error = Signal(object)
 
     def __init__(self, settings: Any, store: Any = None, parent: Optional[QWidget] = None) -> None:
+        """Build every box and the category sidebar. UI thread; the two slow labels
+        are filled by `refresh_slow_labels` after construction.
+        """
         super().__init__(parent)
         self._settings = settings
         self._store = store
@@ -303,6 +309,7 @@ class SettingsView(SettingsShelves, QWidget):
         self.pst_status.setText("Checking how Outlook archives can be read…")
 
     def _convert_pst(self) -> None:
+        """Ask for an archive and a folder, then emit `convert_pst_requested`."""
         archive, _filter = QFileDialog.getOpenFileName(
             self, "Choose an Outlook archive", "", "Outlook archives (*.pst)"
         )

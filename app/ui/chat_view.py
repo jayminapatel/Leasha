@@ -40,6 +40,7 @@ SPEEDS = (("Fast", "fast"), ("Thoughtful", "thoughtful"))
 
 
 class ChatView(QWidget):
+    """The Chat tab's layout and signals. Thin: see the module docstring."""
     question_submitted = Signal(str)
     stop_requested = Signal()
     recheck_requested = Signal()
@@ -67,6 +68,7 @@ class ChatView(QWidget):
     preview_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
+        """Build the three columns and wire the widgets' signals. UI thread, no store."""
         super().__init__(parent)
         self.sessions = SessionList()
         self.bubbles = BubbleList()

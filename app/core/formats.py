@@ -170,6 +170,8 @@ class FormatRules:
     # -- the questions the rest of the app asks -----------------------------
 
     def rule_for(self, extension: str) -> Optional[ExtensionRule]:
+        """The configured rule for `extension` (with its dot), or None when
+        configuration says nothing about it."""
         return self.extensions.get(extension.lower())
 
     def is_enabled(self, extension: str) -> bool:
@@ -183,6 +185,7 @@ class FormatRules:
         return True if rule is None else rule.enabled
 
     def max_bytes_for(self, extension: str) -> int:
+        """The size cap for one extension: its own rule's, else `[defaults]`."""
         rule = self.rule_for(extension)
         return rule.max_bytes if rule is not None else self.default_max_bytes
 
@@ -191,6 +194,8 @@ class FormatRules:
         return frozenset(ext for ext in known if self.is_enabled(ext))
 
     def converter_for(self, extension: str) -> Optional[ConverterRule]:
+        """The Tier 2 converter for `extension`, or None. Only consulted when
+        the extractor registry has no reader for it."""
         return self.converters.get(extension.lower())
 
     def describe(self, registry: Optional[Mapping[str, Any]] = None) -> list[dict[str, Any]]:

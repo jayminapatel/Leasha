@@ -148,6 +148,12 @@ class MainWindow(QMainWindow):
         debug: bool = False,
         parent: Optional[QWidget] = None,
     ) -> None:
+        """Build the window: Search and Files now, the other pages a beat later.
+
+        UI thread. Nothing here starts a worker - see the note above `_deferred_start`
+        - and the store is read only for its small `index_state` table (`_read_state`,
+        `load_prefs`), which the guard allows in a constructor.
+        """
         super().__init__(parent)
         self._settings = settings
         #: Settings changed in this session, by lower-cased key.
@@ -1183,6 +1189,11 @@ class MainWindow(QMainWindow):
         # nothing to start into yet, so the request is **kept, not dropped**
         # and replayed the moment the page exists (`_replay_index_requests`).
         # It used to be skipped, which lost a folder somebody had just dropped.
+        """Start a run, or queue the request until the Indexing page exists.
+
+        UI thread. The work is `IndexController._start_indexing`, which resolves the
+        tuning numbers on a worker before anything is built.
+        """
         if getattr(self, "indexing_view", None) is None:
             _log.debug("start indexing queued: the Indexing page is not built yet")
             self._queued_index_requests.append((roots, recheck_archives))
@@ -1331,7 +1342,13 @@ class MainWindow(QMainWindow):
     # -- shortcuts ----------------------------------------------------------
 
     def _build_shortcuts(self) -> None:
+        """Bind the window-wide keys as `QAction`s on this window. UI thread, once.
+
+        `_BOUND_ELSEWHERE` names them so the menu bar can show a key without
+        binding it a second time.
+        """
         def bind(sequence: str, slot: Any) -> None:
+            """One window-scoped `QAction` for `sequence`, triggering `slot`."""
             action = QAction(self)
             action.setShortcut(QKeySequence(sequence))
             action.triggered.connect(slot)
@@ -1379,6 +1396,10 @@ class MainWindow(QMainWindow):
 
         def add(menu: Any, text: str, slot: Any, keys: str = "", *,
                 icon: str = "", role: Any = None, tip: str = "") -> QAction:
+            """One menu item: the shortcut shown (bound only when `_build_shortcuts` has
+            not), its tooltip, its macOS menu role and the icon name
+            `_tint_menu_icons` repaints from.
+            """
             action = QAction(text, self)
             if keys:
                 action.setShortcut(QKeySequence(keys))
@@ -1518,6 +1539,7 @@ class MainWindow(QMainWindow):
         AboutDialog(self).exec()
 
     def _tint_menu_icons(self, colours: dict) -> None:
+        """Repaint the menu bar's icons in `colours` - pixmaps never see the stylesheet."""
         from app.ui.widgets.icons import icon
         for action in getattr(self, "_menu_actions", ()):
             name = getattr(action, "icon_name", "")
@@ -1546,6 +1568,9 @@ class MainWindow(QMainWindow):
         translator.just_enabled = False
 
         worker = CallableWorker(translator.warm, component="ui.translate")
+        # Swallowed on purpose: `CallableWorker` has already logged the AppError, and
+        # the person pays for a failed warm as a slow first press - the docstring's
+        # accepted cost - so there is nothing worth a dialog here.
         worker.signals.failed.connect(lambda _error: None)
         run(QThreadPool.globalInstance(), worker)
 
@@ -1735,6 +1760,11 @@ class MainWindow(QMainWindow):
         if not self._theme_hooked:
             self._theme_hooked = True
             try:
+                # A lambda, not the bound method: the signal carries the new scheme and
+                # `_apply_theme` takes nothing. The application's style hints outlive this
+                # window, so the connection has no owner to die with - tolerable only because
+                # there is one main window for the life of the process (the triage in
+                # `test_worker_signal_owner.py` is the rule for receiver-less lambdas).
                 QGuiApplication.instance().styleHints().colorSchemeChanged.connect(
                     lambda _scheme: self._apply_theme()
                 )
@@ -2022,6 +2052,9 @@ class MainWindow(QMainWindow):
         self._apply_motion()
 
     def _preview_panes(self) -> list:
+        """Every preview pane built so far, for a change that reaches them all (theme,
+        motion, Escape). Pages built a beat later are skipped until they exist.
+        """
         panes = []
         for view in (self.search_view, self.files_view,
                      getattr(self, "mail_view", None),
@@ -2034,6 +2067,7 @@ class MainWindow(QMainWindow):
         return panes
 
     def _apply_motion(self) -> None:
+        """Push the motion switch to every preview pane. UI thread, no I/O."""
         for pane in self._preview_panes():
             pane.motion = self._motion
 
@@ -2090,6 +2124,7 @@ class MainWindow(QMainWindow):
                 return
 
     def _focus_search(self) -> None:
+        """Ctrl+K / Ctrl+F: the Search page, cursor in the box."""
         self._show(self.search_view)
         self.search_view.focus()
 
@@ -2110,6 +2145,7 @@ class MainWindow(QMainWindow):
         dialog.show()
 
     def _run_saved_search(self, token: str) -> None:
+        """The saved-searches dialog chose one: its token goes in the box and runs."""
         self._show(self.search_view)
         self.search_view.input.setText(token)
         self.search_view.search_now()
@@ -2241,6 +2277,7 @@ class MainWindow(QMainWindow):
             chat_engine=str(getattr(self._settings, "chat_engine", "onnx")))
 
     def _reindex_for(self, row: Any) -> None:
+        """"Re-index this" on a result: a folder-scoped run over the row's folder."""
         folder = str(Path(row.path).parent)
         self._show(getattr(self, "indexing_view", None))
         self._start_indexing(roots=[folder])
@@ -2345,11 +2382,15 @@ class MainWindow(QMainWindow):
         box.setInformativeText(getattr(error, "suggestion", ""))
         if getattr(error, "details", None):
             box.setDetailedText(error.details)
+        # Modal on purpose: this box is for an action the person asked for (an open,
+        # a reset) and is worth reading before anything else. A failure that can
+        # repeat per keystroke takes the notice bar instead - `SearchView._search_failed`.
         box.exec()
 
     # -- drag and drop ------------------------------------------------------
 
     def dragEnterEvent(self, event: Any) -> None:       # noqa: N802 - Qt's naming
+        """Accept a drag carrying file URLs; `dropEvent` does the work."""
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
@@ -2428,6 +2469,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._repaint_after_state_change)
 
     def _hide_to_tray(self) -> None:
+        """Minimise-to-tray: hide the window and say where it went, once."""
         self.hide()
         self.tray.notify_hidden()
 
@@ -2548,6 +2590,9 @@ class MainWindow(QMainWindow):
         stages: list[tuple[str, float]] = []
 
         def stage(name: str, action: Any) -> None:
+            """Run one teardown step, timing it; a failure is logged and the close goes
+            on to the next step.
+            """
             started = time.monotonic()
             try:
                 action()

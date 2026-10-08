@@ -100,6 +100,8 @@ def _trailing_size(record: bytes, flags: int) -> int:
                 byte = record[position]
                 value |= (byte & 0x7F) << shift
                 shift += 7
+                # A backward varint ends at the byte with its high bit set; four
+                # bytes (28 bits) is the format's maximum, so stop there on damage.
                 if byte & 0x80 or shift >= 28:
                     break
             total += value
@@ -138,8 +140,13 @@ def book_text(data: bytes) -> tuple[str, dict[str, str]]:
         (header_length,) = struct.unpack_from(">I", first, 20)
         (code_page,) = struct.unpack_from(">I", first, 28)
         encoding = "utf-8" if code_page == 65001 else "cp1252"
+        # The extra-data flags live at MOBI header offset 0xE2 (0xF2 from the
+        # record start, after the 16-byte PalmDOC header) and exist only when
+        # the header is long enough to hold them (Mobipocket 6, length >= 0xE4).
         if header_length >= 0xE4 and len(first) >= 0xF4:
             (flags,) = struct.unpack_from(">H", first, 0xF2)
+        # Full name offset and length: MOBI header offsets 0x54 and 0x58, i.e.
+        # 84 and 88 from the record start.
         if len(first) >= 92:
             name_offset, name_length = struct.unpack_from(">II", first, 84)
             if 0 < name_length < 1024 and name_offset + name_length <= len(first):
@@ -182,6 +189,13 @@ class MobiExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: the title and the book's prose, capped at `MAX_TEXT_CHARS`.
+
+        DRM, HUFF/CDIC compression, a damaged record table or an oversized file
+        go to `fall_back`, which has no converter for these and so raises
+        `ERR_FILE_CORRUPT` naming the reason. A locked file is `ERR_FILE_LOCKED`.
+        Reads only.
+        """
         try:
             if path.stat().st_size > MAX_FILE_BYTES:
                 raise LegacyOfficeUnreadable("larger than any Kindle book")

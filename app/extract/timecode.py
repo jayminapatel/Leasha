@@ -60,6 +60,7 @@ def parse_timecode(text: object) -> Optional[int]:
 
 
 def is_timecode(text: object) -> bool:
+    """Whether `text` is an `m:ss` or `h:mm:ss` locator rather than, say, `Q3!A14`."""
     return parse_timecode(text) is not None
 
 

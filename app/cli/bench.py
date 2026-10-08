@@ -1,4 +1,12 @@
-"""`embed-bench`, `bench-index`, `bench-pipeline` and `rerank-bench`: what this machine costs."""
+"""`embed-bench`, `bench-index`, `bench-pipeline` and `rerank-bench`: what this machine costs.
+
+Layer: L3 (embed-bench, bench-index, bench-pipeline drive the index side) and
+L4 (rerank-bench drives the search side).
+
+Measurements, not features (non-negotiable 9). Each command prints its
+conditions beside its numbers, because every throughput claim in this project
+that turned out wrong was a number quoted without them.
+"""
 
 from __future__ import annotations
 

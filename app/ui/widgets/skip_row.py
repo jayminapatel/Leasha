@@ -88,6 +88,7 @@ class SkipRow(QWidget):
 
     @staticmethod
     def _heading_text(group: Any) -> str:
+        """"4,000 x reason" - the count and the plain-words message."""
         return f"{format_count(group.count)} × {group.message}"
 
     def update_count(self, group: Any) -> None:

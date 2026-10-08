@@ -36,6 +36,7 @@ WARNING_TIP = "About the model picked in the list beside this."
 
 
 def _note_for(option: Any) -> str:
+    """The one-line cost note for a large model, or `""`. Never raises."""
     from app.chat.roles import large_model_note
 
     try:
@@ -101,6 +102,7 @@ class ModelPicker(QComboBox):
         return self.warning.text()
 
     def _refresh_warning(self) -> None:
+        """Show the cost note for the picked model, and only once the picker is in a window."""
         text = _note_for(self._options.get(self.value())) if self.value() else ""
         self.warning.setText(text)
         # Never shown on its own: a label with no window yet would open as one.
@@ -127,11 +129,13 @@ class ModelMenu(QMenu):
         self.menuAction().setVisible(False)
 
     def follow(self, action: QAction) -> None:
+        """Show this menu only while `action` (Interpret) is shown."""
         self._follows = action
         action.changed.connect(self._refresh_visible)
         self._refresh_visible()
 
     def set_options(self, options: Sequence[Any], selected: str = "") -> None:
+        """Rebuild the radio actions; `selected` is ticked, or Settings' choice when absent."""
         for action in list(self._group.actions()):
             self._group.removeAction(action)
             self.removeAction(action)

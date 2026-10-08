@@ -124,6 +124,8 @@ _SCHEDULES = ("with-run", "after-run", "manual")
 
 
 def _folder_keys(folders: Any) -> frozenset[str]:
+    """The folders as comparable keys (`path_key`, no trailing separator), so
+    two lists spelt differently still compare as the same set."""
     from app.core.osbridge.pathnames import path_key
 
     return frozenset(path_key(str(Path(str(folder)).expanduser()).rstrip("\\/"))

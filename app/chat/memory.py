@@ -133,6 +133,7 @@ class Packed:
     clipped: bool = False
 
     def as_dict(self) -> dict[str, Any]:
+        """The debug pane's view of the packing: counts, never the text."""
         return {"kept": self.kept, "dropped": self.dropped, "tokens": self.tokens,
                 "digest": bool(self.digest), "clipped": self.clipped}
 

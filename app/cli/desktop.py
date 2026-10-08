@@ -1,4 +1,12 @@
-"""`open` and `completions`: the `leasha://` link and PowerShell tab completion."""
+"""`open` and `completions`: the `leasha://` link and PowerShell tab completion.
+
+Layer: L0 (desktop integration - `app.core.deeplink`, `app.core.osbridge.
+startmenu` and the completer; no store layer is driven)
+
+Everything here is per-user and needs no administrator rights: the registry
+key, the Start-menu shortcut and the profile edit all live under the account
+that runs it, so the installer can offer them without elevating.
+"""
 
 from __future__ import annotations
 

@@ -54,6 +54,7 @@ class IndexScheduler(QObject):
         parent: Optional[QObject] = None,
         tick_ms: int = TICK_MS,
     ) -> None:
+        """Hold the policy and the three callbacks; the timer starts in `start`."""
         super().__init__(parent)
         self.policy = policy
         self._is_running = is_running
@@ -74,6 +75,7 @@ class IndexScheduler(QObject):
         self._timer.timeout.connect(self._tick)
 
     def start(self) -> None:
+        """Start ticking unless the policy is manual, and say the status."""
         if self.policy.mode != "manual":
             self._timer.start()
         self.state_changed.emit(self.status())
@@ -130,6 +132,7 @@ class IndexScheduler(QObject):
         return self._stored_last_run
 
     def _tick(self) -> None:
+        """Timer slot, UI thread: emit `due` when the policy says so and nothing runs."""
         if self._is_running():
             return                            # never stack a run on top of a run
         now = datetime.now()

@@ -98,6 +98,7 @@ class Outcome:
     note: str = ""
 
     def hit(self, k: int = DEFAULT_K) -> bool:
+        """Whether the wanted document was in the top `k`."""
         return self.rank is not None and self.rank <= k
 
 
@@ -145,6 +146,7 @@ class Report:
         return {kind: self._rate(group) for kind, group in sorted(kinds.items())}
 
     def as_dict(self) -> dict[str, Any]:
+        """The report as JSON for `app.cli evaluate --json`; `misses` lists each failure."""
         return {
             "mode": self.mode,
             "k": self.k,

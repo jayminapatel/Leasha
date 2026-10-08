@@ -140,6 +140,12 @@ class CloudStubExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document naming the pointer, its kind, link and id. Opens no network.
+
+        A file too large to be a stub, or one holding no link or id, is
+        `ERR_CLOUD_STUB` - a skip with the keys that were found, so a renamed
+        real document is recognisable as one. Reads only.
+        """
         kind = KINDS.get(path.suffix.lower(), "Google Drive file")
 
         try:

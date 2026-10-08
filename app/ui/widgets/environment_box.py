@@ -187,10 +187,12 @@ class EnvironmentBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _check_done(self, lines: Any) -> None:
+        """The built-in search check finished: its report replaces the output box."""
         self.check_button.setEnabled(True)
         self.output.setPlainText("\n".join(str(line) for line in (lines or ())))
 
     def _check_failed(self, error: Any) -> None:
+        """The check's worker raised: the error's own words in the output box."""
         self.check_button.setEnabled(True)
         self.output.setPlainText(f"The check could not run: {error}")
 
@@ -218,6 +220,7 @@ class EnvironmentBox(QGroupBox):
         self.bundle_status.setText(f"Saved to {path}")
 
     def _bundle_failed(self, error: Any) -> None:
+        """The bundle could not be written: a warning box with the error's words."""
         self.bundle_button.setEnabled(True)
         self.bundle_status.setText("The bundle could not be saved.")
         QMessageBox.warning(self, "Support bundle", f"Could not save the bundle: {error}")
@@ -329,6 +332,9 @@ class EnvironmentBox(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _say_logs(self, text: str) -> None:
+        """Put the logs-folder summary on its label. The page may have closed while
+        the folder was walked, hence the guard on the deleted label.
+        """
         try:
             self.logs_status.setText(str(text or ""))
         except RuntimeError:             # the page closed while the folder was walked

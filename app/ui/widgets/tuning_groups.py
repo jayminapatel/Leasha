@@ -102,6 +102,7 @@ class AutoSpin(QSpinBox):
         self.setSpecialValueText(text)
 
     def _retip(self) -> None:
+        """The tooltip: the limit note, and the machine's reason for the ceiling."""
         note = limit_note(self.key)
         self.setToolTip("\n\n".join(part for part in (note, self._why) if part))
 
@@ -174,6 +175,7 @@ class ComputeBox(QGroupBox):
     # -- state --------------------------------------------------------------
 
     def load(self, settings: Any) -> None:
+        """Fill from Settings with signals blocked; then drop any debounced write queued before."""
         widgets = (self.embed_device, self.workers, self.threads, self.batch,
                    self.quantised)
         for widget in widgets:
@@ -194,6 +196,7 @@ class ComputeBox(QGroupBox):
         self._save.cancel()
 
     def values(self) -> dict:
+        """`{registry key: value}` for the writer."""
         return {
             "EMBED_DEVICE": str(self.embed_device.currentData() or "auto"),
             "INDEX_WORKERS": int(self.workers.value()),
@@ -310,6 +313,7 @@ class ComputeBox(QGroupBox):
         self.warning.setVisible(bool(text))
 
     def _device_changed(self, _index: int) -> None:
+        """The device combo changed: re-grey the smaller-model box, then save."""
         # Quantisation depends on the device, so it re-greys the moment the
         # device changes rather than at the next restart.
         self._grey_quantised()
@@ -412,6 +416,7 @@ class ResourcesBox(QGroupBox):
             self.load(settings)
 
     def load(self, settings: Any) -> None:
+        """Fill from Settings with signals blocked; then drop any debounced write queued before."""
         widgets = (self.memory_mb, self.cpu_percent, self.min_free_gb,
                    self.required_free_gb, self.low_priority,
                    self.pause_on_battery)
@@ -433,6 +438,7 @@ class ResourcesBox(QGroupBox):
         self._save.cancel()
 
     def values(self) -> dict:
+        """`{registry key: value}` for the writer."""
         return {
             "INDEX_MEMORY_MB": int(self.memory_mb.value()),
             "INDEX_CPU_PERCENT": int(self.cpu_percent.value()),
@@ -593,6 +599,7 @@ class StrategyBox(QGroupBox):
             self.load(settings)
 
     def load(self, settings: Any) -> None:
+        """Fill from Settings with signals blocked; then drop any debounced write queued before."""
         widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass,
                    self.read_order, self.separate_process, self.read_processes)
         for widget in widgets:
@@ -618,6 +625,7 @@ class StrategyBox(QGroupBox):
         self._save.cancel()
 
     def values(self) -> dict:
+        """`{registry key: value}` for the writer."""
         return {
             "INDEX_TWO_PHASE": bool(self.two_phase.isChecked()),
             "EMBED_DEDUP": bool(self.dedup.isChecked()),

@@ -82,6 +82,7 @@ class TimelineStrip(QWidget):
         open_menu(menu, button.mapToGlobal(point))
 
     def _redraw(self, found: tuple) -> None:
+        """Rebuild the bars; each is as wide as its share of the hits."""
         while self._layout.count():
             item = self._layout.takeAt(0)
             widget = item.widget()

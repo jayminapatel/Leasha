@@ -372,6 +372,9 @@ def _bucket_top_level(root: str, parent_dir_counts: list) -> list:
 
 
 class FileStatus:
+    """The values `files.status` may hold; the CHECK constraint in the schema
+    enforces the same list (widened by migrations v10 and v25)."""
+
     PENDING = "PENDING"
     INDEXED = "INDEXED"
     SKIPPED = "SKIPPED"
@@ -414,6 +417,10 @@ class FileStatus:
 
 @dataclass(frozen=True)
 class FileRecord:
+    """One `files` row as Python. Built by `from_row` from whatever columns a
+    SELECT asked for, so every column added after the first release has a
+    default (see the notes beside each)."""
+
     id: int
     path: str
     parent_dir: str
@@ -461,6 +468,8 @@ class FileRecord:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "FileRecord":
+        """Only the columns the row carries: a `SELECT id, path` and a
+        `SELECT *` both build a record, the missing fields at their defaults."""
         return cls(**{key: row[key] for key in cls.__dataclass_fields__
                       if key in row.keys()})
 
@@ -488,11 +497,17 @@ class VolumeRecord:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> "VolumeRecord":
+        """Every column, so the row must come from `SELECT * FROM volumes`."""
         return cls(**{key: row[key] for key in cls.__dataclass_fields__})
 
 
 @dataclass(frozen=True)
 class ChunkRecord:
+    """One passage of one file. **No `label` field**: the preview reads the
+    label out of the text itself (`add_caption_chunk` writes it there), and
+    `add_caption_chunk`'s docstring says why rebuilding from these would
+    lose it."""
+
     id: int
     file_id: int
     ordinal: int
@@ -993,6 +1008,8 @@ class SqliteStore:
             try:
                 conn.close()
             except sqlite3.Error:
+                # The connection is being thrown away; the PRAGMA failure is
+                # the error worth reporting, not a second one from closing it.
                 pass
             raise self._busy_error(str(exc)) from exc
 
@@ -1037,6 +1054,8 @@ class SqliteStore:
             try:
                 conn.close()
             except sqlite3.Error:
+                # Its thread is gone, so nothing can use it again whether or
+                # not SQLite managed to close it cleanly; drop it either way.
                 pass
             self._open.remove(conn)
             closed += 1
@@ -1068,6 +1087,13 @@ class SqliteStore:
             self._conns_lock.release()
 
     def connect(self) -> "SqliteStore":
+        """Open this thread's connection and, once per store, migrate the schema.
+
+        Raises `ERR_CONFIG_INVALID` for a database written by a newer build,
+        `ERR_MIGRATION_FAILED` for a step that would not apply (the file is
+        left as it was), `ERR_DB_LOCKED`/`ERR_DB_BUSY` when it cannot be
+        opened. Other threads need not call this: `conn` opens theirs lazily.
+        """
         with self._conns():
             self._closed = False
             conn = getattr(self._local, "conn", None)
@@ -1280,6 +1306,11 @@ class SqliteStore:
             return False
 
     def close(self) -> None:
+        """Close every thread's connection. Safe to call more than once.
+
+        Waits up to `_CLOSE_WAIT_S` for a worker mid-query; a connection still
+        busy after that is retired and left to close itself (see below).
+        """
         # Both, in the lock order set out in `__init__`: wait for an in-flight
         # write to finish rather than closing the connection underneath it.
         #
@@ -1321,6 +1352,8 @@ class SqliteStore:
                 try:
                     conn.close()
                 except sqlite3.Error:
+                    # A connection that will not close cleanly is still gone
+                    # from `_open`; shutdown reports nothing it cannot act on.
                     pass
             self._open.clear()
             self._local = threading.local()
@@ -1393,6 +1426,7 @@ class SqliteStore:
 
     @property
     def schema_version(self) -> int:
+        """The version recorded in the file; `CURRENT_VERSION` after connect."""
         return read_version(self.conn)
 
     @contextmanager
@@ -1897,14 +1931,17 @@ class SqliteStore:
         return added
 
     def get_file(self, path: str) -> Optional[FileRecord]:
+        """The row keyed exactly by `path` (case as stored), or None."""
         row = self.conn.execute("SELECT * FROM files WHERE path = ?", (str(path),)).fetchone()
         return FileRecord.from_row(row) if row else None
 
     def get_file_by_id(self, file_id: int) -> Optional[FileRecord]:
+        """The row with this id, or None once it has been deleted."""
         row = self.conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
         return FileRecord.from_row(row) if row else None
 
     def mark_indexed(self, file_id: int) -> None:
+        """One file as INDEXED, its skip cleared. See `mark_indexed_many`."""
         self.mark_indexed_many((file_id,))
 
     def mark_indexed_many(self, file_ids: Iterable[int]) -> None:
@@ -2200,6 +2237,9 @@ class SqliteStore:
                         conn.execute(
                             "INSERT INTO messages_fts(messages_fts) VALUES('rebuild')")
                     except sqlite3.OperationalError:
+                        # No `messages_fts` on this index (a SQLite without
+                        # trigram, or a schema before v8): nothing to rebuild,
+                        # and the chunk index above is already repaired.
                         pass
                 self._content_triggers_dropped = False
                 self.set_state("fts_dirty", "")
@@ -2547,6 +2587,7 @@ class SqliteStore:
         return [dict(row) for row in reversed(rows)]
 
     def count_messages(self) -> int:
+        """Every message row. A full count, so for a panel, not a keystroke."""
         row = self.conn.execute("SELECT COUNT(*) AS n FROM messages").fetchone()
         return int(row["n"]) if row else 0
 
@@ -3397,6 +3438,8 @@ class SqliteStore:
                 for row in rows]
 
     def delete_file_by_path(self, path: str) -> Optional[int]:
+        """`delete_file` for a path; the id removed, or None if it was not
+        in the index (not an error: the walker reports deletions it infers)."""
         record = self.get_file(path)
         if record is None:
             return None
@@ -3843,6 +3886,8 @@ class SqliteStore:
             last_id = int(rows[-1][0])
 
     def note_picture_described(self, file_id: int) -> None:
+        """Half-way marker for a waiting picture: described, text still to
+        read. `iter_pictures_waiting(described=...)` reads it back."""
         with self.write() as conn:
             conn.execute("UPDATE files SET skip_detail = ? WHERE id = ?",
                          (self.PICTURE_DESCRIBED, int(file_id)))
@@ -3859,6 +3904,8 @@ class SqliteStore:
                 "WHERE id = ?", (self.PHOTO_TAGS_TRIED, int(file_id)))
 
     def face_scanned(self, file_id: int) -> bool:
+        """Has the face detector looked at this file? "Looked" is recorded
+        apart from "found", so a photo with no faces is not re-scanned."""
         row = self.conn.execute("SELECT 1 FROM face_scans WHERE file_id = ?",
                                 (int(file_id),)).fetchone()
         return row is not None
@@ -3920,6 +3967,8 @@ class SqliteStore:
             return int(cursor.lastrowid)
 
     def get_chunk(self, chunk_id: int) -> Optional[ChunkRecord]:
+        """One passage by id, or None. `label` and `symbols` are not carried
+        (see `ChunkRecord`)."""
         row = self.conn.execute("SELECT * FROM chunks WHERE id = ?", (chunk_id,)).fetchone()
         if row is None:
             return None
@@ -3930,6 +3979,9 @@ class SqliteStore:
         )
 
     def chunks_for_file(self, file_id: int) -> list[ChunkRecord]:
+        """Every passage of one file in reading order - what the preview joins.
+        A 5,000-page PDF is thousands of rows, so this is for one file at a
+        time on a worker, never for a page of results."""
         rows = self.conn.execute(
             "SELECT * FROM chunks WHERE file_id = ? ORDER BY ordinal", (file_id,)
         )
@@ -4092,6 +4144,7 @@ class SqliteStore:
             return int(cursor.rowcount or 0)
 
     def faces_for_file(self, file_id: int) -> list[FaceRecord]:
+        """Every detection in one photo, in detection order, embeddings included."""
         rows = self.conn.execute(
             "SELECT * FROM faces WHERE file_id = ? ORDER BY id", (file_id,)
         ).fetchall()
@@ -4137,6 +4190,11 @@ class SqliteStore:
         return out
 
     def create_pile(self, name: Optional[str] = None) -> int:
+        """A new pile, unnamed unless `name` is given. Returns its id.
+
+        Raises `sqlite3.IntegrityError` for a name already taken: names are
+        unique (`idx_piles_name`), and the caller (`rename_pile`) checks first.
+        """
         with self.write() as conn:
             cursor = conn.execute(
                 "INSERT INTO piles (name, created_at) VALUES (?, ?)",
@@ -4786,6 +4844,12 @@ class SqliteStore:
             return int(cursor.rowcount)
 
     def mark_embedded(self, chunk_ids: Iterable[int]) -> None:
+        """These chunks now have a vector. One transaction for the batch.
+
+        Called after `VectorStore.add` returns, never before: a crash between
+        the two leaves a chunk unembedded (re-done next run) rather than a flag
+        claiming a vector that was never written.
+        """
         ids = [(int(i),) for i in chunk_ids]
         if not ids:
             return
@@ -4884,6 +4948,8 @@ class SqliteStore:
         return len(pairs)
 
     def get_message(self, file_id: int) -> Optional[dict[str, Any]]:
+        """The mail metadata of one file, every column, or None for a file
+        that is not a message."""
         row = self.conn.execute("SELECT * FROM messages WHERE file_id = ?", (file_id,)).fetchone()
         return dict(row) if row else None
 
@@ -4999,6 +5065,8 @@ class SqliteStore:
             )
 
     def recent_searches(self, limit: int = 50) -> list[dict[str, Any]]:
+        """The last `limit` searches, newest first - what the empty search box
+        offers (`SEARCH_OFFER_RECENT`)."""
         rows = self.conn.execute(
             "SELECT * FROM searches ORDER BY searched_at DESC LIMIT ?", (limit,)
         ).fetchall()
@@ -5839,12 +5907,16 @@ class SqliteStore:
             return int(row["id"])
 
     def get_volume(self, volume_id: int) -> Optional[VolumeRecord]:
+        """One catalogued source by id, or None."""
         row = self.conn.execute(
             "SELECT * FROM volumes WHERE id = ?", (int(volume_id),)
         ).fetchone()
         return VolumeRecord.from_row(row) if row else None
 
     def get_volume_by_identity(self, identity_key: str) -> Optional[VolumeRecord]:
+        """The source whose stable identity (a volume GUID, a UNC root, a Mac
+        volume UUID) is `identity_key` - how a rescan finds a drive again
+        whatever letter it came back under."""
         row = self.conn.execute(
             "SELECT * FROM volumes WHERE identity_key = ?", (identity_key,)
         ).fetchone()
@@ -6196,6 +6268,8 @@ class SqliteStore:
                 [(*row, now) for row in rows])
 
     def get_state(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """One `index_state` value, or `default` when the key was never written.
+        Values are strings: callers parse their own (`json.loads`, `int`)."""
         row = self.conn.execute("SELECT value FROM index_state WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else default
 
@@ -6213,6 +6287,8 @@ class SqliteStore:
             conn.execute("DELETE FROM index_state WHERE key = ?", (key,))
 
     def all_state(self) -> dict[str, str]:
+        """Every `index_state` row, for the diagnostic bundle. Includes the
+        cursors, the settings kept here and the UI preferences alike."""
         return {r["key"]: r["value"] for r in self.conn.execute("SELECT key, value FROM index_state")}
 
     # -- generation (search cache invalidation) ------------------------------
@@ -6301,6 +6377,12 @@ class SqliteStore:
         ).fetchone() is not None
 
     def stats(self) -> dict[str, Any]:
+        """Counts for `cli stats`, `doctor` and the diagnostic bundle.
+
+        **Not cheap**: two `COUNT(*)` over `chunks` are a scan (93 ms at two
+        million chunks). The window asks `has_any_files`, `status_counts` and
+        `count_listed_files` instead, each of which rides an index or a cache.
+        """
         counts = {
             row["status"]: int(row["n"])
             for row in self.conn.execute("SELECT status, COUNT(*) AS n FROM files GROUP BY status")
@@ -6356,5 +6438,7 @@ class SqliteStore:
         }
 
     def integrity_check(self) -> bool:
+        """SQLite's own full check: reads the whole file, so minutes on a big
+        index. For `diagnose` and `doctor`, never a window refresh."""
         row = self.conn.execute("PRAGMA integrity_check").fetchone()
         return str(row[0]).lower() == "ok"

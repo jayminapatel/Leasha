@@ -69,6 +69,7 @@ def tools_sentence(status: dict[str, Optional[str]]) -> str:
 
 
 def speech_sentence(installed: bool) -> str:
+    """Whether speech to text can run here, in words. Pure."""
     # 2026-09-29, corrected: these named the faster-whisper package, which the
     # speech engine no longer uses (it runs inside Leasha on ONNX Runtime).
     if installed:
@@ -79,6 +80,7 @@ def speech_sentence(installed: bool) -> str:
 
 
 def model_sentence(model: str, present: bool) -> str:
+    """Whether the chosen speech model is downloaded, in words. Pure."""
     if present:
         return f"Speech model '{model}': downloaded."
     # 2026-09-29, corrected: "to fetch it once, run: <command>" - the fetch is the
@@ -192,6 +194,7 @@ class MediaBox(QGroupBox):
 
     @staticmethod
     def _note(name: str) -> QLabel:
+        """A wrapped, selectable status label - selectable so a command in it can be copied."""
         label = QLabel()
         label.setObjectName(name)
         label.setWordWrap(True)
@@ -231,6 +234,8 @@ class MediaBox(QGroupBox):
 
     def refresh(self) -> None:
         """Re-ask what is installed. Cheap: file lookups, no processes, no imports."""
+        # `find_spec` and package metadata, not imports: importing PyAV loads
+        # FFmpeg, which is a second's work for a yes/no Settings asks on open.
         self.tools_note.setText(tools_sentence(media_tools.tools_status()))
         self.speech_note.setText(speech_sentence(transcribe.available()))
         # Without the package there is nothing that could load a speech model,
@@ -239,6 +244,7 @@ class MediaBox(QGroupBox):
         self._on_model(emit=False)
 
     def _on_model(self, emit: bool = True) -> None:
+        """The speech model changed: redraw its sentence and point Download at it."""
         name = str(self.model.currentData() or "base")
         self.model_note.setText(model_sentence(
             name, transcribe.model_present(name, self._model_dir)))

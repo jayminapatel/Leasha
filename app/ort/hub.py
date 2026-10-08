@@ -47,9 +47,11 @@ class OnnxModel:
     revision: str = ""
 
     def graph_file(self, graph: str) -> str:
+        """The repository path of one graph at this model's precision."""
         return f"onnx/{graph}{self.suffix}.onnx"
 
     def files(self) -> tuple[str, ...]:
+        """Every file that must be present for the model to count as downloaded."""
         return tuple(self.graph_file(g) for g in self.graphs) + self.required + self.extra
 
 
@@ -134,6 +136,8 @@ def by_key(key: str) -> Optional[OnnxModel]:
 def _snapshots(repo: str, cache_dir: Path) -> list[Path]:
     root = Path(cache_dir) / ("models--" + repo.replace("/", "--")) / "snapshots"
     try:
+        # Newest snapshot first: when no revision is pinned, the one most
+        # recently downloaded is the one a person meant.
         return sorted((p for p in root.iterdir() if p.is_dir()),
                       key=lambda p: p.stat().st_mtime, reverse=True)
     except OSError:
@@ -158,6 +162,7 @@ def resolve(model: OnnxModel, cache_dir: Optional[Path]) -> Optional[Path]:
 
 
 def present(model: OnnxModel, cache_dir: Optional[Path]) -> bool:
+    """Whether every file of `model` is in the cache. Offline; never raises."""
     return resolve(model, cache_dir) is not None
 
 

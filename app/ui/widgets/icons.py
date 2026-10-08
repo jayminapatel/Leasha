@@ -81,17 +81,24 @@ def icon_file(name: str) -> Optional[Path]:
 
 
 def _svg_bytes(name: str, colour: str) -> Optional[bytes]:
+    """The SVG with `currentColor` replaced by `colour`, or None. Reads a shipped
+    asset of a few hundred bytes; the result is cached by `icon`.
+    """
     path = icon_file(name)
     if path is None:
         return None
     try:
         text = path.read_text(encoding="utf-8")
+    # An unreadable asset is a missing glyph, never a failure to open a page.
     except OSError:
         return None
     return text.replace("currentColor", colour).encode("utf-8")
 
 
 def _render(data: bytes, size: int) -> QPixmap:
+    """Rasterise the SVG at `size`, through `QSvgRenderer` when the module is
+    present, else Qt's image plugin. A blank pixmap when neither can.
+    """
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     try:

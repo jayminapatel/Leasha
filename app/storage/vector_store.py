@@ -127,6 +127,10 @@ class VectorStore:
         #: search typed the instant the window appears still sees the connected
         #: store. Off by default: everything but the window opens it eagerly.
         self._deferred = bool(deferred)
+        # Guards the hand-over between the one background connect thread and
+        # every reader of `_db`/`_table`: without it two early callers could
+        # each start a connect, and LanceDB opened twice on one directory is
+        # two handles to the same files.
         self._connect_lock = threading.Lock()
         self._connect_thread: Optional[threading.Thread] = None
         self._connect_error: Optional[BaseException] = None
@@ -169,6 +173,11 @@ class VectorStore:
         return thread
 
     def _connect_worker(self) -> None:
+        # `BaseException`, not `Exception`: this runs on a daemon thread, where
+        # a KeyboardInterrupt or SystemExit would otherwise die silently and
+        # leave every later read waiting on a connect that never finished.
+        # Kept and re-raised on the first read instead, so the caller that
+        # needed the store is the one that sees why it is not there.
         try:
             self.connect()
         except BaseException as exc:                # noqa: BLE001 - re-raised at first use
@@ -196,6 +205,8 @@ class VectorStore:
 
     @property
     def connected(self) -> bool:
+        """True once `connect()` has finished, here or on the background thread.
+        Never blocks, so a GUI poll (`main._watch_vector_connect`) can ask."""
         return self._db_value is not None
 
     @property
@@ -219,6 +230,12 @@ class VectorStore:
     # -- lifecycle -----------------------------------------------------------
 
     def connect(self) -> "VectorStore":
+        """Open the LanceDB directory and the table, if it exists yet.
+
+        Raises `ERR_MODEL_LOAD` when lancedb is not importable, `ERR_CONFIG_
+        INVALID` when the directory cannot be opened or the stored vectors are
+        not `dim` wide. Idempotent: a connected store returns itself.
+        """
         # A deferred store that is being (or has been) connected in the
         # background is connected once, there - never twice.
         if self._connect_thread is not None:
@@ -300,6 +317,7 @@ class VectorStore:
         return list(db.table_names())
 
     def close(self) -> None:
+        """Drop the handles. Safe to call more than once, and before connect."""
         # A connect still running must finish before the handles are dropped, or
         # it would re-open the store behind the close.
         self.wait()
@@ -323,6 +341,7 @@ class VectorStore:
 
     @property
     def db(self) -> Any:
+        """The LanceDB connection, or `ERR_UNEXPECTED` when there is none."""
         if self._db is None:
             # **Two ways to get here, and the message used to name only one.**
             #
@@ -348,6 +367,7 @@ class VectorStore:
 
     @property
     def exists(self) -> bool:
+        """Whether the table has been created. False before the first index run."""
         return self._table is not None
 
     def _verify_dimension(self) -> None:
@@ -607,6 +627,8 @@ class VectorStore:
         self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})")
 
     def delete_by_chunk_ids(self, chunk_ids: Iterable[int]) -> None:
+        """Remove the vectors of these chunks, in one delete. A no-op on an
+        empty list or before the table exists."""
         ids = [int(i) for i in chunk_ids]
         if not ids or self._table is None:
             return
@@ -816,6 +838,8 @@ class VectorStore:
         return None
 
     def count(self) -> int:
+        """Rows in the table: a scan, so not for the write path (see `add`).
+        0 when there is no table yet or LanceDB cannot count it."""
         self._open_if_created_since()
         if self._table is None:
             return 0
@@ -825,6 +849,8 @@ class VectorStore:
             return 0
 
     def stats(self) -> dict[str, Any]:
+        """Plain data for `doctor`, the diagnostic bundle and `cli stats`.
+        Counts the rows, so it costs a scan."""
         return {
             "uri": str(self.uri),
             "table": self.table_name,
@@ -916,6 +942,8 @@ class ImageVectorStore(VectorStore):
                 _log.debug("frame vectors not cleared for {} file(s): {}", len(ids), exc)
 
     def maybe_compact(self, *, force: bool = False) -> bool:
+        """Compact this table and, when it has been opened, the frame table.
+        A frame-table failure is logged, never raised: housekeeping only."""
         done = super().maybe_compact(force=force)
         if self._frames is not None:
             try:
@@ -925,6 +953,8 @@ class ImageVectorStore(VectorStore):
         return done
 
     def maybe_create_index(self, *, force: bool = False) -> bool:
+        """Index this table and, when it has been opened, the frame table.
+        Same contract as the base method: a failed build is never fatal."""
         done = super().maybe_create_index(force=force)
         if self._frames is not None:
             try:
@@ -988,6 +1018,11 @@ class VideoFrameVectorStore(VectorStore):
 
     @staticmethod
     def key_for(file_id: int, seconds: float) -> int:
+        """The `chunk_id` of one frame: `file_id * _MOMENTS + second`.
+
+        The second is clamped into `[0, _MOMENTS)` so a film longer than the
+        ceiling cannot roll a frame over into the next file's key range.
+        """
         return int(file_id) * _MOMENTS + max(0, min(int(seconds), _MOMENTS - 1))
 
     def replace_frames(

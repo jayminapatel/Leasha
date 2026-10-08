@@ -168,6 +168,7 @@ class Fold:
 
     @property
     def folded(self) -> bool:
+        """Whether anything is hidden behind the head."""
         return bool(self.older)
 
     def label(self) -> str:

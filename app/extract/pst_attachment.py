@@ -5,6 +5,8 @@ it". The index holds an attachment's words, not its bytes; to open it in its
 own program the bytes are read again from the `.pst` - read-only, through
 libpff, with Outlook never started.
 
+Layer: L2
+
 **Found by where it sits, not by searching.** pypff has no lookup by message
 number, and walking a 4.9 GB archive's 6,278 messages for one of them took
 38 s (measured on the owner's `2024.pst`, 2026-10-04) - his largest is 18 GB.

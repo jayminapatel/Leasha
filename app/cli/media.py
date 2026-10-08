@@ -84,6 +84,8 @@ def moments_for(
 
 
 def _find(text: str, args: argparse.Namespace, settings: Any) -> int:
+    """`--find TEXT`: the per-frame CLIP lane, headless. Exits 0 with a sentence
+    when nothing is indexed - an empty lane is a state, not a fault."""
     from app.search import vector as search_vector
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import ImageVectorStore
@@ -170,6 +172,9 @@ def _print_status(report: dict[str, Any]) -> None:
 
 
 def _show_file(path: Path, args: argparse.Namespace, settings: Any) -> int:
+    """What an index run would write for this one file, through the same
+    extractor. The switches are forced on for the duration (`media.configure`)
+    and put back in `finally`, because naming a file is the instruction."""
     from app.extract import extractor_for, media
 
     extractor = extractor_for(path)
@@ -260,6 +265,9 @@ def _measure(path: Path, args: argparse.Namespace, settings: Any) -> int:
 
 
 def cmd_media(args: argparse.Namespace) -> int:
+    """Dispatch on the one verb given; `--status` is the default. Every branch
+    reports through `AppErrorException` so a missing library is a sentence with
+    the install command, never a traceback (non-negotiable 2)."""
     settings = _load(args)
     setup_logging(settings.log_path)
     try:

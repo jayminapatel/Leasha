@@ -297,6 +297,7 @@ def empty_words(has_recent: bool) -> str:
 
 
 def nothing_found(query: str) -> str:
+    """The empty-results sentence, quoting what was typed."""
     text = str(query or "").strip()
     return (f"Nothing found for “{text}”. Try fewer words, or press Enter to "
             "search in the main window.")
@@ -310,6 +311,7 @@ Rect = tuple[int, int, int, int]
 
 
 def _overlap(a: Rect, b: Rect) -> int:
+    """The area two rectangles share, or 0."""
     ax, ay, aw, ah = a
     bx, by, bw, bh = b
     width = min(ax + aw, bx + bw) - max(ax, bx)

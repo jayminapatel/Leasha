@@ -203,6 +203,7 @@ class Translation:
 
     @property
     def used_model(self) -> bool:
+        """Whether a model call produced this - false for a cached or rules-only answer."""
         return self.changed and not self.from_cache
 
 

@@ -79,6 +79,9 @@ RENDER_FORMAT = "pnm"
 
 
 class PdfExtractor:
+    """PDF files through PyMuPDF, page by page, with OCR for scanned pages when
+    a page budget allows it."""
+
     name = "pdf"
     extensions = frozenset({".pdf"})
     #: Hard, and pinned in requirements.txt rather than optional - declared here
@@ -92,6 +95,13 @@ class PdfExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document, a segment per page with its 1-based number.
+
+        Cannot open, or password-protected: `ERR_FILE_CORRUPT`. No text on any
+        page: OCR of the first N pages when `PDF_OCR_PAGES` allows, else
+        `ERR_NO_TEXT_LAYER` (a skip the pictures pass reads back). Pages without
+        text in a mixed document become a warning. Reads only; closes the file.
+        """
         import pymupdf  # imported lazily: ~40MB of C library
 
         # MuPDF writes its own diagnostics straight to stderr from C. Across a

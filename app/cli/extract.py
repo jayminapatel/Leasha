@@ -1,4 +1,12 @@
-"""`extract` and `convert`: reading files and archives without indexing them."""
+"""`extract` and `convert`: reading files and archives without indexing them.
+
+Layer: L2
+
+Exit codes: `extract` exits 1 when nothing at all could be extracted, so a
+script can tell "the reader is broken" from "it read some and skipped some" -
+one skipped file is normal (non-negotiable 3) and exits 0. `convert` exits 1
+when no message was written.
+"""
 
 from __future__ import annotations
 

@@ -45,6 +45,7 @@ _VOLUME_KEY = re.compile(r"^leasha-volume://\d+/")
 
 @dataclass(frozen=True, slots=True)
 class SpaceRow:
+    """One table row: its cells, what each sorts on, a tooltip and its child rows."""
     cells: tuple[str, ...]
     #: Lines up with `cells`. `None` means "sort this cell by its text".
     sort: tuple[Any, ...]
@@ -54,6 +55,7 @@ class SpaceRow:
 
 @dataclass(frozen=True, slots=True)
 class SpaceTable:
+    """One of the Space Report's four tables, as plain data for the widget."""
     key: str
     title: str
     #: Plain words: what this table lists and how to use it (its tooltip).
@@ -74,6 +76,7 @@ def _status_note(status: str) -> str:
 
 
 def _where(copy: DuplicateCopy) -> str:
+    """Where a copy lives, in words: this computer, or the source and its status."""
     if copy.source_kind == "local":
         return "This computer"
     note = _status_note(copy.source_status)
@@ -87,6 +90,7 @@ def _location(copy: DuplicateCopy) -> str:
 
 
 def _where_summary(copies: Sequence[DuplicateCopy]) -> str:
+    """The distinct places a group's copies live, up to `WHERE_NAMED` named."""
     seen: list[str] = []
     for copy in copies:
         place = _where(copy)
@@ -98,6 +102,7 @@ def _where_summary(copies: Sequence[DuplicateCopy]) -> str:
 
 
 def _name(copy: Optional[DuplicateCopy]) -> str:
+    """A copy's file name, read the same way for a Windows path on any platform."""
     if copy is None:
         return "(unknown)"
     from app.core.osbridge.pathnames import name_of  # 2026-10-05: `name_of`, so a Windows-shaped path reads the same on a Mac
@@ -107,6 +112,7 @@ def _name(copy: Optional[DuplicateCopy]) -> str:
 
 def _copy_row(copy: DuplicateCopy, *, size: Optional[int] = None, size_column: int = -1,
               width: int = 5) -> SpaceRow:
+    """A child row for one copy: its path, optionally its size, and where it lives."""
     cells = [_location(copy)] + [""] * (width - 1)
     sort: list[Any] = [_location(copy).lower()] + [None] * (width - 1)
     place = _where(copy)
@@ -117,6 +123,7 @@ def _copy_row(copy: DuplicateCopy, *, size: Optional[int] = None, size_column: i
 
 
 def _duplicates(findings: SpaceFindings) -> SpaceTable:
+    """The Duplicates table: biggest saving first, each row opening to its copies."""
     rows = []
     for group in findings.groups:
         copies = len(group.copies)
@@ -144,6 +151,7 @@ def _duplicates(findings: SpaceFindings) -> SpaceTable:
 
 
 def _similar_photos(findings: SpaceFindings) -> SpaceTable:
+    """The Similar photos table. No saving column - see the module docstring."""
     rows = []
     for group in findings.near_duplicates:
         versions = len(group.copies)
@@ -173,6 +181,7 @@ def _similar_photos(findings: SpaceFindings) -> SpaceTable:
 
 
 def _by_source(findings: SpaceFindings) -> SpaceTable:
+    """The By source table: how much of each source also exists elsewhere."""
     rows = []
     for source in findings.duplicate_share:
         note = _status_note(source.status)
@@ -196,6 +205,7 @@ def _by_source(findings: SpaceFindings) -> SpaceTable:
 
 
 def _only_copy(findings: SpaceFindings) -> SpaceTable:
+    """The only-copy table: files that exist on exactly one source, per source."""
     rows = []
     for source in findings.uniqueness:
         note = _status_note(source.status)

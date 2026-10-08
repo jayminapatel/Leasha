@@ -173,6 +173,7 @@ def defer(on: bool) -> None:
 
 
 def deferred() -> bool:
+    """True while an index run has asked for photo tagging to wait until its end."""
     return _deferred
 
 

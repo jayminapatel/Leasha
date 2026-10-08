@@ -77,10 +77,12 @@ class WebNeed:
     reason: str
 
     def as_dict(self) -> dict:
+        """Plain values for the debug pane."""
         return {"wanted": self.wanted, "reason": self.reason}
 
 
 def is_personal(text: str) -> bool:
+    """Whether the question is about the person's own affairs - a first-person word."""
     return bool(_PERSONAL.search(text or ""))
 
 

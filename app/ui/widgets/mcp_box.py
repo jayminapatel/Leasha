@@ -158,6 +158,7 @@ class McpBox(QGroupBox):
     # -- what the controller tells it --------------------------------------------
 
     def show_running(self, url: str) -> None:
+        """The controller says the server is up at `url` (or down for `""`)."""
         self._url = url
         self.status.setText(f"Running at {url}" if url else "Stopped.")
         self.start.setEnabled(not url)
@@ -165,6 +166,7 @@ class McpBox(QGroupBox):
         self.port.setEnabled(not url)
 
     def show_busy(self, text: str) -> None:
+        """Starting or stopping: both buttons off until the controller says which."""
         self.status.setText(text)
         self.start.setEnabled(False)
         self.stop.setEnabled(False)
@@ -188,11 +190,13 @@ class McpBox(QGroupBox):
         return self._url or endpoint(self.port.value())
 
     def address_entry(self) -> str:
+        """The MCP settings JSON for a program that connects by address, key included."""
         from app.serve.clients import ENTRY_NAME, http_entry
 
         return json.dumps({ENTRY_NAME: http_entry("http", self._address(), self._key)}, indent=2)
 
     def bridge_text(self) -> str:
+        """The MCP settings JSON for a program that can only start a command."""
         from app.serve.clients import ENTRY_NAME, bridge_entry
 
         return json.dumps({ENTRY_NAME: bridge_entry()}, indent=2)

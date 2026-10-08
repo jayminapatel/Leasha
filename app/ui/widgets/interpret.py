@@ -58,6 +58,7 @@ def run_interpretation(
     set_status("Interpreting…")
 
     def finished(translation: Any) -> None:
+        """UI thread: the translation landed. The query goes in the box, then the search."""
         query, note = interpret_message(translation)
         if query is not None:
             set_text(query)          # visible and editable, never hidden
@@ -65,6 +66,7 @@ def run_interpretation(
         on_done(translation)
 
     def failed(error: Any) -> None:
+        """UI thread: the translator raised. The typed words are searched instead."""
         # `translate` is not supposed to raise - it returns a usable query on
         # every path - but a button that does nothing is worse than one that
         # does the plain thing.
@@ -99,6 +101,7 @@ def interpret_into(view: Any) -> None:
     from app.ui.presenter import Tier
 
     def done(translation: Optional[Any]) -> None:
+        """Either outcome: stop both debounce timers, then dispatch the full tier once."""
         for timer in (view._interim_timer, view._full_timer):
             timer.stop()
         if translation is not None:

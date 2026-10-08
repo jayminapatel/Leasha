@@ -143,6 +143,7 @@ class IndexingWorkers(QWidget):
         return self._timer.isActive()
 
     def hideEvent(self, event: Any) -> None:       # noqa: N802 - Qt's name
+        """Stop the once-a-second redraw while nobody can see the heartbeat."""
         # Nobody can see it, so nothing needs redrawing. `showEvent` starts it
         # again only while there is a run to show.
         self._timer.stop()
@@ -162,6 +163,9 @@ class IndexingWorkers(QWidget):
         self._paint_heartbeat(text, quiet)
 
     def _paint_heartbeat(self, text: str, quiet: bool) -> None:
+        """Set the heartbeat text and its `quiet` property; the stylesheet decides
+        how a long silence looks, so the words carry the meaning either way.
+        """
         # A dynamic property rather than a colour set here, so the theme's
         # stylesheet decides how a quiet warning looks - and a screen reader
         # gets the same words either way.
@@ -209,6 +213,9 @@ class IndexingWorkers(QWidget):
         self._current = busy
 
     def _pressed(self, key: str) -> None:
+        """A Force skip press: remember which file it was for, so the button stays
+        off until that reader moves on, then ask the page to skip it.
+        """
         current = self._current.get(key)
         if current is None:
             return
@@ -220,6 +227,7 @@ class IndexingWorkers(QWidget):
 
     @staticmethod
     def _set(label: QLabel, text: str) -> None:
+        """Set a label's text only when it changed, and hide it when empty."""
         if label.text() != text:
             label.setText(text)
         label.setVisible(bool(text))

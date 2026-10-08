@@ -167,12 +167,14 @@ class Period:
 
     @classmethod
     def month(cls, year: int, month: int) -> "Period":
+        """The whole of one calendar month."""
         first = date(year, month, 1)
         following = date(year + (month // 12), (month % 12) + 1, 1)
         return cls.between(first, following - timedelta(days=1))
 
     @classmethod
     def year(cls, year: int) -> "Period":
+        """The whole of one calendar year."""
         return cls.between(date(year, 1, 1), date(year, 12, 31))
 
     @classmethod
@@ -202,6 +204,7 @@ class Period:
 
     @property
     def is_month(self) -> bool:
+        """Whether this is exactly one calendar month - the strip's heading form."""
         return (self.after is not None and self.before is not None
                 and self.after.day == 1
                 and (self.before + timedelta(days=1)).day == 1
@@ -220,10 +223,12 @@ class Cursor(NamedTuple):
     file_id: int
 
     def encode(self) -> str:
+        """The cursor as the one string the command line and the view pass around."""
         return f"{self.when_ns}:{self.branch}:{self.file_id}"
 
     @classmethod
     def decode(cls, text: str) -> Optional["Cursor"]:
+        """`encode` back again, or None for anything that is not one."""
         try:
             when, branch, file_id = str(text).split(":")
             return cls(int(when), int(branch), int(file_id))
@@ -298,6 +303,9 @@ class TimelineEntry:
 
     @property
     def when(self) -> datetime:
+        """`when_ns` as a local `datetime`, by UTC arithmetic where the platform
+        cannot (Windows refuses timestamps before 1970).
+        """
         try:
             return datetime.fromtimestamp(self.when_ns / _NS)
         except (OverflowError, OSError, ValueError):
@@ -322,6 +330,7 @@ class TimelinePage:
 
     @property
     def done(self) -> bool:
+        """Whether this was the last page."""
         return self.cursor is None
 
     @property
@@ -360,6 +369,7 @@ class Overview:
 
     @property
     def total(self) -> int:
+        """Every dated item, across all months."""
         return sum(count for _y, _m, count in self.months)
 
     @property
@@ -380,10 +390,12 @@ class Overview:
 
     @property
     def first(self) -> Optional[tuple]:
+        """`(year, month)` of the earliest month with anything in it, or None."""
         return (self.months[0][0], self.months[0][1]) if self.months else None
 
     @property
     def last(self) -> Optional[tuple]:
+        """`(year, month)` of the latest month with anything in it, or None."""
         return (self.months[-1][0], self.months[-1][1]) if self.months else None
 
 
@@ -400,6 +412,10 @@ def _file_kind_clause(kind: str) -> tuple[str, list]:
     to one kind. Empty string: no narrowing. Mail is its own branch."""
     photo = sorted(PHOTO_EXTS)
     video = sorted(VIDEO_EXTS)
+    # The unary `+` on each column stops SQLite choosing an index on it. The
+    # branch must walk its *date* index in order and stop at LIMIT; a plan that
+    # seeks on `repo_id` or `ext` instead would sort every match in the range.
+    # The pinned query plans (`test_timeline_query_plans.py`) hold this.
     marks = lambda values: ", ".join("?" for _ in values)          # noqa: E731
     if kind == "code":
         return "+f.repo_id IS NOT NULL", []

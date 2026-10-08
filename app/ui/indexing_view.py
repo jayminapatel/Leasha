@@ -285,6 +285,7 @@ class IndexingView(QWidget):
         self._next_run_text = text
 
     def start(self, pipeline: Any, *, total_estimate: int = 0) -> None:
+        """Start `pipeline` on the page's own pool and wire its signals; refuses a second run."""
         if self._worker is not None:
             return
         self._total_estimate = total_estimate

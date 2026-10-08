@@ -312,6 +312,7 @@ class BookEntry:
 
     @property
     def wordless(self) -> bool:
+        """Read once, and that reading gave fewer than `MIN_WORDS` words."""
         return self.words is not None and self.words < MIN_WORDS
 
 
@@ -337,6 +338,7 @@ class ImageBook:
             return len(self._entries)
 
     def get(self, digest: str) -> Optional[BookEntry]:
+        """A copy of what is known about these bytes, or None. Safe to keep."""
         with self._lock:
             entry = self._entries.get(digest)
             return None if entry is None else BookEntry(**vars(entry))
@@ -408,6 +410,8 @@ class ImageBook:
             self._dirty.difference_update(digests)
 
     def entries(self) -> Iterator[tuple[str, BookEntry]]:
+        """Every entry as a copy, snapshotted under the lock so a writer on
+        another thread cannot change the book mid-iteration."""
         with self._lock:
             items = [(digest, BookEntry(**vars(entry)))
                      for digest, entry in self._entries.items()]

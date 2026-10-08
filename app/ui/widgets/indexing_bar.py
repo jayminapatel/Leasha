@@ -101,6 +101,7 @@ class GlidingBar(ShimmerBar):
         self.steps = 0
         #: The pixel column the filled part last ended at, so a step that would
         #: not move it by a pixel skips `setValue` (and its repaint) entirely.
+        # -1 is "no column drawn yet", so the first step after a jump always paints.
         self._last_column = -1
 
     # -- what the page calls ----------------------------------------------

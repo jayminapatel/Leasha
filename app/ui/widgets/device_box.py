@@ -127,6 +127,9 @@ class DeviceBox(QGroupBox):
     # -- the test ------------------------------------------------------------------------
 
     def _read_results(self) -> None:
+        """Read the saved test results on a worker (`_results_for_this_machine`);
+        `_stored` paints them unless a test has started since.
+        """
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -163,6 +166,7 @@ class DeviceBox(QGroupBox):
         return True
 
     def _tested(self, results: Any) -> None:
+        """The test's worker finished: paint its results and release the buttons."""
         self._tested_here = True
         self._set_busy(False)
         self.show_results(results)
@@ -170,6 +174,7 @@ class DeviceBox(QGroupBox):
                             "gave the same answer, from the next restart.")
 
     def _failed(self, error: Any) -> None:
+        """The test's worker raised: say so in the status line, never a dialog."""
         self._set_busy(False)
         self.status.setText(f"The test could not finish: {getattr(error, 'message', error)}")
 

@@ -1,5 +1,7 @@
 """Layer 2 — extraction: any supported file in, clean text and chunks out.
 
+Layer: L2
+
 **Importing this package no longer imports every extractor.** It used to, and
 that cost about a quarter of a second before the window was on screen: three
 modules the first paint does need (`app.extract.cells` for the spreadsheet

@@ -44,10 +44,14 @@ TAGLINE = ("Find anything", "on your computer,", "from a description.")
 
 
 def _scaled(size: tuple[int, int], percent: int) -> tuple[int, int]:
+    """The 100% size at a display scaling, to whole pixels."""
     return round(size[0] * percent / 100), round(size[1] * percent / 100)
 
 
 def _font(px: int) -> ImageFont.ImageFont:
+    """Segoe UI Semilight (the brand's weight) when Windows has it, then the
+    regular face, then Arial; the bitmap default only off Windows, where the
+    pictures are not what ships anyway."""
     for name in ("segoeuisl.ttf", "segoeui.ttf", "arial.ttf"):
         try:
             return ImageFont.truetype(name, px)
@@ -99,10 +103,13 @@ def small_image(percent: int) -> Image.Image:
 
 
 def wizard_files() -> list[str]:
+    """The names `installer.iss` lists for `WizardImageFile`;
+    `tests/unit/test_installer_script.py` holds the two to each other."""
     return [f"wizard-{p}.png" for p in SCALES]
 
 
 def small_files() -> list[str]:
+    """The names `installer.iss` lists for `WizardSmallImageFile`."""
     return [f"small-{p}.png" for p in SCALES]
 
 

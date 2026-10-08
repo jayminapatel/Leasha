@@ -64,6 +64,7 @@ _PACK_MAGIC = b"LTP1"
 
 
 def cache_name(path: str, size: int, mtime_ns: int) -> str:
+    """The on-disk name for one photo's thumbnail: a hash of path, size and mtime."""
     key = f"{path}|{int(size)}|{int(mtime_ns)}".encode("utf-8", "replace")
     return hashlib.sha1(key).hexdigest() + ".jpg"
 
@@ -224,9 +225,11 @@ class ThumbLoader(QObject):
     # -- the blurred previews ------------------------------------------------------
 
     def _pack_path(self) -> Optional[Path]:
+        """Where the blurred previews live, or None without a cache folder."""
         return self._cache_dir / TINY_PACK if self._cache_dir else None
 
     def _read_pack(self) -> None:
+        """Read the previews pack on a worker when the loader is made."""
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -238,6 +241,7 @@ class ThumbLoader(QObject):
         run(self._pool, worker)
 
     def _pack_read(self, tiny: Any) -> None:
+        """UI thread: the pack landed; a preview made meanwhile is newer and kept."""
         for name, data in dict(tiny or {}).items():
             self._tiny.setdefault(name, data)        # one made meanwhile is newer
 
@@ -272,6 +276,7 @@ class ThumbLoader(QObject):
         run(self._pool, worker)
 
     def pixmap(self, path: str) -> Optional[QPixmap]:
+        """The thumbnail already in memory, or None (and no request)."""
         found = self._pixmaps.get(path)
         if found is not None:
             self._pixmaps.move_to_end(path)
@@ -292,6 +297,7 @@ class ThumbLoader(QObject):
         self._waiting.clear()
 
     def _next(self) -> None:
+        """Start decodes from the top of the stack while fewer than `AT_ONCE` run."""
         from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
@@ -307,6 +313,9 @@ class ThumbLoader(QObject):
             run(self._pool, worker)
 
     def _made(self, path: str, made: Any, name: str = "") -> None:
+        """UI thread: a decode landed. Keep the pixmap and the blurred preview,
+        say `ready`, and start the next one waiting.
+        """
         self._running.discard(path)
         image, tiny = made if isinstance(made, tuple) else (made, b"")
         if tiny and name and name not in self._tiny:

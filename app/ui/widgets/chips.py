@@ -33,6 +33,9 @@ __all__ = ["ChipRow"]
 
 
 class ChipRow(QWidget):
+    """The filter chips under a search box: typed operators and the filters a
+    search applied from plain words. Draws only; `chips_logic` decides.
+    """
     #: The box's new text after a chip was removed. The view writes it into
     #: the box; the box's own signal does the rest.
     text_edited = Signal(str)
@@ -85,6 +88,9 @@ class ChipRow(QWidget):
         self._redraw()
 
     def _redraw(self) -> None:
+        """Rebuild every chip. `deleteLater`, never `setParent(None)`: a click still
+        in flight to a removed chip must reach a live widget.
+        """
         while self._layout.count():
             item = self._layout.takeAt(0)
             if item.widget() is not None:
@@ -127,6 +133,9 @@ class ChipRow(QWidget):
         return button
 
     def _decline(self, applied) -> None:
+        """An applied chip removed: remember the refusal so typing on does not bring
+        it back, redraw, and ask for the search again (the box is unchanged).
+        """
         self.declined.add(applied.key)
         self._applied = tuple(a for a in self._applied if a.key != applied.key)
         self._redraw()

@@ -122,15 +122,18 @@ class SavedSearchesDialog(QDialog):
         self._sync()
 
     def _selected(self) -> Optional[str]:
+        """The name of the highlighted saved search, or None."""
         item = self.list.currentItem()
         return str(item.data(ROLE_NAME)) if item is not None else None
 
     def _sync(self) -> None:
+        """The three buttons live only while something is highlighted."""
         has = self._selected() is not None
         for button in (self.run_button, self.rename_button, self.delete_button):
             button.setEnabled(has)
 
     def _run(self) -> None:
+        """Emit the highlighted search as `saved:name` and close."""
         name = self._selected()
         if name is None:
             return
@@ -141,6 +144,7 @@ class SavedSearchesDialog(QDialog):
                 return
 
     def _rename(self) -> None:
+        """Ask for a new name; a blank or unchanged one does nothing."""
         old = self._selected()
         if old is None:
             return

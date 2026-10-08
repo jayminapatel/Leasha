@@ -83,6 +83,7 @@ _SCREENSHOT_WORDS = ("screenshot", "screen shot", "snip")
 # --- reading a row ---------------------------------------------------------------
 
 def _moment(row: Any) -> Optional[_dt.datetime]:
+    """The row's shown date as a local datetime, or None."""
     when = row.when_ns
     if not when:
         return None
@@ -152,6 +153,7 @@ def _starts(values: Iterable[str], wanted: str) -> bool:
 
 
 def _in_dates(row: Any, after: Any, before: Any) -> bool:
+    """Whether the row's date lies within `after`/`before` (dates or datetimes)."""
     if not (after or before):
         return True
     moment = _moment(row)
@@ -170,6 +172,7 @@ def _in_dates(row: Any, after: Any, before: Any) -> bool:
 
 
 def _size_ok(row: Any, sizes: Sequence[tuple[str, int]]) -> bool:
+    """Whether the row's size satisfies every `size:` comparison."""
     for op, amount in sizes:
         if op in (">", ">=") and not row.size_bytes >= amount:
             return False
@@ -271,6 +274,7 @@ def facets(rows: Iterable[Any]) -> dict[str, Counter]:
 
 
 def sort_rows(rows: Sequence[Any], key: str) -> list[Any]:
+    """The rows in the order `key` names (`SORTS`); newest first for any other key."""
     if key == "oldest":
         return sorted(rows, key=lambda r: r.when_ns)
     if key == "name":
@@ -314,6 +318,7 @@ def toggle_in_box(text: str, op: str, value: Any) -> str:
 # --- wording -----------------------------------------------------------------------------
 
 def month_heading(when_ns: int) -> str:
+    """`"June 2023"` for a date in nanoseconds; "No date" for none or unreadable."""
     if not when_ns:
         return "No date"
     try:
@@ -346,6 +351,7 @@ def date_text(row: Any) -> str:
 
 
 def size_text(size: int) -> str:
+    """Bytes as GB, MB, KB or bytes for the Details view."""
     size = int(size or 0)
     if size >= 1 << 30:
         return f"{size / (1 << 30):.1f} GB"
@@ -357,6 +363,7 @@ def size_text(size: int) -> str:
 
 
 def people_text(row: Any) -> str:
+    """The named people, then how many faces are still unnamed."""
     named = ", ".join(row.people)
     extra = row.faces - len(row.people)
     if extra > 0:
@@ -365,6 +372,7 @@ def people_text(row: Any) -> str:
 
 
 def column_text(row: Any, key: str) -> str:
+    """The text of one Details-view cell, by column key (`COLUMNS`)."""
     path = PurePath(row.path)
     if key == "name":
         return path.name

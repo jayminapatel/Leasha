@@ -112,6 +112,7 @@ def _get(source: Any, name: str, default: Any = None) -> Any:
 
 
 def _int(value: Any) -> int:
+    """`int(value)`, or 0 for anything that is not a number."""
     try:
         return int(value or 0)
     except (TypeError, ValueError):
@@ -258,6 +259,7 @@ def live_headline(stats: Any) -> str:
         return ""
 
     def rank(pair: tuple[str, Mapping[str, Any]]) -> tuple:
+        """Busiest first: a reader inside a container, then the one on its file longest."""
         worker = pair[1]
         started = worker.get("started_at") or 0.0
         return (0 if worker.get("inner") else 1, started or float("inf"))

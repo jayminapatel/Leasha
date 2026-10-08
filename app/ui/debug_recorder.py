@@ -106,6 +106,7 @@ class DebugRecorder:
     enabled = True
 
     def __init__(self, path: Path, *, context: Optional[dict[str, Any]] = None) -> None:
+        """Open the session file for appending; recording stays off if that fails."""
         self.path = Path(path)
         self._lock = threading.Lock()
         self._count = 0
@@ -146,6 +147,7 @@ class DebugRecorder:
             pass
 
     def _write(self, payload: dict[str, Any]) -> None:
+        """Append one JSON line, stamped, and flush it at once."""
         payload["at"] = datetime.now().isoformat(timespec="milliseconds")
         payload["t"] = round(time.monotonic() - self._started, 3)
         payload["thread"] = threading.current_thread().name
@@ -155,6 +157,7 @@ class DebugRecorder:
         self._handle.flush()
 
     def close(self) -> None:
+        """Write `session_end` and close the file. Never raises; safe to call twice."""
         if self._handle is None:
             return
         try:

@@ -1,5 +1,7 @@
 r"""`models`: every model Leasha needs - which are here, and downloading them.
 
+Layer: L1 (`app.core.model_catalogue`; the only I/O is the model folder)
+
     python -m app.cli models list
     python -m app.cli models list --json
     python -m app.cli models download search rerank
@@ -24,10 +26,12 @@ from app.cli._common import EXIT_ERROR, EXIT_OK, _load
 
 
 def _size(mb: int) -> str:
+    """The published size in the words the installer's task list uses."""
     return f"about {mb / 1024:.1f} GB" if mb >= 1024 else f"about {mb} MB"
 
 
 def cmd_models(args: argparse.Namespace) -> int:
+    """`models list` (the default when no action is given) or `models download`."""
     from app.core import model_catalogue
 
     settings = _load(args)
@@ -39,6 +43,8 @@ def cmd_models(args: argparse.Namespace) -> int:
 
 
 def _list(catalogue, settings, as_json: bool) -> int:
+    """Each needed model with here/missing. Always exits 0: a missing model is
+    a fact about this computer, not a failure of the listing."""
     rows = []
     for model in catalogue.needed_models(settings):
         here = catalogue.is_present(model.key, settings)
@@ -68,6 +74,10 @@ def _list(catalogue, settings, as_json: bool) -> int:
 
 
 def _download(catalogue, settings, keys: list[str], as_json: bool) -> int:
+    """Fetch the models named (or `all`). Exit 0 only when every one asked for
+    is present afterwards - checked on disk, not inferred from the download's
+    own report, because the installer's model step once ran to completion and
+    left nothing behind (HANDOFF, 2026-10-08: no `.env` yet, so no model folder)."""
     # "photo_tags" as well as "photo-tags": the installer's task has to be called
     # models\photo_tags, since Inno allows no "-" in a task name.
     asked = [k.strip().lower().replace("_", "-") for k in keys]

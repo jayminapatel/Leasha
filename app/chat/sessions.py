@@ -62,10 +62,12 @@ class Session:
 
 
 def receipt_to_dict(receipt: Receipt) -> dict[str, Any]:
+    """A `Receipt` as the JSON-able dict `chat_sessions` stores."""
     return dataclasses.asdict(receipt)
 
 
 def receipt_from_dict(data: dict[str, Any]) -> Receipt:
+    """`receipt_to_dict` back again; a field missing from an older row takes its default."""
     return Receipt(
         file_id=data.get("file_id"), path=str(data.get("path", "")),
         name=str(data.get("name", "")), quote=str(data.get("quote", "")),
@@ -90,6 +92,7 @@ def _result_from_dict(data: dict[str, Any]) -> Any:
 
 
 def turn_to_dict(turn: ChatTurn) -> dict[str, Any]:
+    """A `ChatTurn` as stored: everything shown, `debug` deliberately left out."""
     return {
         "role": turn.role, "text": turn.text, "kind": turn.kind,
         "model": turn.model, "partial": bool(turn.partial),
@@ -120,6 +123,9 @@ def details_from_json(data: Any) -> dict[int, dict]:
 
 
 def turn_from_dict(data: dict[str, Any]) -> ChatTurn:
+    """`turn_to_dict` back again. A result row that no longer fits `SearchResult`
+    is skipped on its own, never the whole turn.
+    """
     results = data.get("result_set")
     restored: Optional[list] = None
     if results is not None:
@@ -171,4 +177,5 @@ def load_sessions(store: Any, *, with_turns: bool = True) -> list[Session]:
 
 
 def delete_session(store: Any, session_id: int) -> bool:
+    """Remove one saved conversation; True when a row was deleted."""
     return bool(store.delete_session(session_id))

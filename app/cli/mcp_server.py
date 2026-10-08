@@ -1,5 +1,7 @@
 r"""`mcp`: the bridge an AI program starts, to reach Leasha's running server.
 
+Layer: L6 (the client side of `app/serve/mcp.py`)
+
 2026-10-04. Leasha runs the server for AI programs itself, from Settings >
 Models & AI > AI programs, on `127.0.0.1` (`app/serve/mcp.py`). A program that
 connects by address needs nothing else. A program that can only start a

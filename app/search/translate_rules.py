@@ -196,6 +196,7 @@ class Reading:
 
     @property
     def found(self) -> bool:
+        """Whether any rule recognised anything - a chip, or the mail verb."""
         return bool(self.chips) or self.mail
 
     def query(self) -> str:
@@ -249,6 +250,8 @@ def _known(store: Any, kind: str, limit: int = 400) -> tuple:
                 found.extend(str(one) for one in json.loads(text) if one)
                 continue
             except Exception:                      # noqa: BLE001
+                # Not a JSON list after all: a value that merely starts with
+                # "[" is a real value, and is kept as text below.
                 pass
         if text:
             found.append(text)
@@ -623,6 +626,7 @@ class AppliedFilter:
 
     @property
     def key(self) -> tuple:
+        """`(kind, words)` - what `declined` holds. See the class docstring."""
         return (self.kind, self.words.lower())
 
 
@@ -636,6 +640,7 @@ class Applied:
 
     @property
     def changed(self) -> bool:
+        """Whether any filter was applied, so `query` differs from `sentence`."""
         return bool(self.filters)
 
 

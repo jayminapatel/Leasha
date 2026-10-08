@@ -140,6 +140,7 @@ class CodeResults(QWidget):
         self.apply_prefs(prefs)
 
     def apply_prefs(self, prefs: Any) -> None:
+        """Show the columns the View menu chose and the preview if it is on."""
         apply_to_table(
             self.table, prefs,
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],
@@ -148,6 +149,7 @@ class CodeResults(QWidget):
         self.preview.apply_preference(prefs, self.table.current_row())
 
     def shutdown(self) -> None:
+        """Stop the preview's debounce and in-flight render before the window closes."""
         self.preview.shutdown()
 
     # -- acting on a row -----------------------------------------------------

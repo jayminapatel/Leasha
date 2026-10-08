@@ -157,6 +157,7 @@ class DebugPane(QGroupBox):
         self._timer.start()
 
     def hideEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
+        """Stop polling the moment nobody is looking - the pane costs nothing when hidden."""
         self._timer.stop()
         super().hideEvent(event)
 

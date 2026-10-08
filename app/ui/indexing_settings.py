@@ -43,6 +43,7 @@ class IndexingSettings(QGroupBox):
     watch_toggled = Signal(bool)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
+        """Build the schedule controls and the watch switch; saving is debounced."""
         super().__init__("When to index", parent)
 
         # Work order 0z F1. A new control with a new label. Off by default:
@@ -149,6 +150,7 @@ class IndexingSettings(QGroupBox):
         self._sync_schedule_rows()
 
     def current_policy(self):
+        """The controls as a `SchedulePolicy`."""
         from app.index.schedule import SchedulePolicy
 
         time = self.daily_at.time()
@@ -173,6 +175,7 @@ class IndexingSettings(QGroupBox):
                 buddy.setVisible(widget.isVisible())
 
     def _row_label(self, text: str):
+        """The form's label widget for a row, by its text."""
         for child in self.findChildren(QLabel):
             if child.text().rstrip(":") == text:
                 return child

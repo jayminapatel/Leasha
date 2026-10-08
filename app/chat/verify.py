@@ -718,11 +718,15 @@ class AnswerAssembler:
     # -- feeding ------------------------------------------------------------------------
 
     def feed(self, piece: str) -> list[Accepted]:
+        """Take one more piece of model text; returns the sentences it completed
+        that passed verification.
+        """
         self.raw += piece
         self._buffer += piece
         return self._judge(self._drain(final=False))
 
     def flush(self) -> list[Accepted]:
+        """Judge whatever is left in the buffer, marker complete or not."""
         return self._judge(self._drain(final=True))
 
     def _drain(self, *, final: bool) -> list[str]:
@@ -801,6 +805,7 @@ class AnswerAssembler:
     # -- the result ---------------------------------------------------------------------
 
     def text(self) -> str:
+        """The verified answer so far, as one string."""
         return " ".join(a.text for a in self.accepted)
 
     def receipts(self) -> list[Receipt]:
@@ -808,6 +813,7 @@ class AnswerAssembler:
         return [self._receipts[n] for n in self._order]
 
     def source_order(self) -> list[int]:
+        """Source numbers, as the model wrote them, in display order."""
         return list(self._order)
 
 

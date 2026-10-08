@@ -66,6 +66,11 @@ _children_low = False
 
 
 def set_children_low(on: bool) -> None:
+    """Say whether child processes started from now on run below normal.
+
+    Called by `background_thread` on the way in (True) and out (False); the
+    converters read the answer through `child_creationflags`.
+    """
     global _children_low
     # Only Windows reads a priority class from `creationflags`; elsewhere the
     # flag would mean nothing, so it is never switched on there.

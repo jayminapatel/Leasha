@@ -76,15 +76,18 @@ _STATUS_WORDS = {
 
 
 def basis_words(basis: str) -> str:
+    """The short label for a date's `basis`; an unknown code reads as a file date."""
     return BASIS_WORDS.get(str(basis), BASIS_WORDS["saved"])
 
 
 def basis_tip(basis: str) -> str:
+    """The tooltip for a date's `basis`, with the same fallback as `basis_words`."""
     return BASIS_TIPS.get(str(basis), BASIS_TIPS["saved"])
 
 
 def size_words(size_bytes: int) -> str:
     # 2026-10-04, the owner: one size formatter everywhere (`row_facts`).
+    """A byte count in words - the one formatter every list uses."""
     from app.core.row_facts import format_size
 
     return format_size(size_bytes)

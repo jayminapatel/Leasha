@@ -74,6 +74,7 @@ class CodeView(QWidget):
     indexing_requested = Signal()
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
+        """Build the box, list, tree and View button; `refresh` reads first, on a worker."""
         super().__init__(parent)
         self._store = store
         self._generation = 0

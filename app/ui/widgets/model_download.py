@@ -48,6 +48,7 @@ class _Relay(QObject):
 
 
 def _size_words(name: str) -> str:
+    """`" (about 1.2 GB)"` from the approximate table, or `""` when unknown."""
     mb = model_fetch.APPROX_MB.get(name, 0)
     if not mb:
         return ""
@@ -142,6 +143,7 @@ class DownloadRow(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def showEvent(self, event: Any) -> None:       # noqa: N802 - Qt's naming
+        """First shown: ask the question `set_target` put off while the row was hidden."""
         super().showEvent(event)
         if self._pending and self._target and not self._busy:
             self.set_target(self._target)
@@ -153,6 +155,7 @@ class DownloadRow(QWidget):
                                    client=client)
 
     def _probed(self, generation: int, name: str, here: Any) -> None:
+        """UI thread: whether the model is here. Dropped if the target changed meanwhile."""
         if generation != self._probe_generation or self._busy:
             return                               # a newer choice has been made since
         if here:
@@ -179,6 +182,7 @@ class DownloadRow(QWidget):
     # -- downloading ---------------------------------------------------------------
 
     def _pressed(self) -> None:
+        """Download: the menu of offers, or the one target."""
         if self._offers and not self._target:
             self.menu.popup(self.download.mapToGlobal(self.download.rect().bottomLeft()))
             return
@@ -207,6 +211,7 @@ class DownloadRow(QWidget):
         relay = self._relay
 
         def said(text: str) -> None:
+            """Worker thread: forward a progress line; a row already gone stops the download."""
             try:
                 relay.said.emit(text)
             except RuntimeError:                 # the row has gone; stop quietly
@@ -216,15 +221,18 @@ class DownloadRow(QWidget):
                                  client=client, on_progress=said, stop=stop)
 
     def _say(self, text: str) -> None:
+        """UI thread, via the relay: a progress line, while a download is running."""
         if self._busy:
             self.status.setText(text)
 
     def _stop_pressed(self) -> None:
+        """Ask the worker to stop at the next chunk; the row says so meanwhile."""
         self._stop.set()
         self.stop.setEnabled(False)
         self.status.setText("Stopping...")
 
     def _ended(self, name: str, result: str) -> None:
+        """UI thread: the download finished or stopped. Re-asks whether the target is here."""
         self._busy = False
         self.stop.hide()
         if result == model_fetch.STOPPED:
@@ -238,6 +246,7 @@ class DownloadRow(QWidget):
             self.set_target(self._target)
 
     def _failed(self, name: str, error: Any) -> None:
+        """UI thread: the download raised. The error's code, message and suggestion, in a line."""
         self._busy = False
         self.stop.hide()
         code = getattr(error, "code", "ERR_MODEL_DOWNLOAD")

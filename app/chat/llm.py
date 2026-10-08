@@ -161,6 +161,7 @@ class OllamaLLM:
         return list(self.client.available_models())
 
     def warm(self, **kwargs: Any) -> bool:
+        """Load the model into memory ahead of use, at this window size."""
         if _takes(self.client.warm, "num_ctx"):
             kwargs.setdefault("num_ctx", self.num_ctx)
         return bool(self.client.warm(**kwargs))
@@ -170,6 +171,7 @@ class OllamaLLM:
         # the planner's calls ran at Ollama's default and the answer at `num_ctx`, and
         # Ollama reloads a model every time the window changes (3.9-4.9 s each,
         # measured on qwen2.5:1.5b) - twice a question.
+        """One completion through the shared client, at this instance's window size."""
         if _takes(self.client.generate, "num_ctx"):
             kwargs.setdefault("num_ctx", self.num_ctx)
         # 2026-10-04, code review: the router and the planner pass their Stop; a whole

@@ -341,6 +341,9 @@ class FileTypesEditor(QGroupBox):
         try:
             from app.core.formats import added_routes, load_rules
 
+            # Two small TOML files in Leasha's own data folder, read on the UI thread
+            # when Settings is built; `format_health` below probes importability
+            # without importing a library. Deliberate: a few milliseconds, not user data.
             self._rules = load_rules(self._settings.data_path)
             self._added = added_routes(self._rules)
         except Exception as exc:                 # noqa: BLE001 - reported, not raised
@@ -380,6 +383,9 @@ class FileTypesEditor(QGroupBox):
             return {}
 
     def _fill(self) -> None:
+        """Rebuild every row from `_rules.describe`. UI thread, no I/O: the rules
+        and the health were read in `reload`.
+        """
         # With the registry, so the table lists everything the app reads rather
         # than only what configuration happens to mention - without it there was
         # no `.pdf` row and no way to switch PDFs off.
@@ -431,6 +437,9 @@ class FileTypesEditor(QGroupBox):
         self._apply_filter()
 
     def _status_item(self, status: Any, row: dict) -> QTableWidgetItem:
+        """The Status cell: the state's word and colour, with the fix on the row
+        itself for a blocked or limited type.
+        """
         if status is None:
             return QTableWidgetItem("-")
 
@@ -499,6 +508,7 @@ class FileTypesEditor(QGroupBox):
     # -- adding and removing --------------------------------------------------
 
     def _readers(self) -> list[str]:
+        """Every registered extractor name, or `plaintext` alone if extraction cannot import."""
         try:
             from app.extract.base import extractor_names
 
@@ -507,6 +517,7 @@ class FileTypesEditor(QGroupBox):
             return ["plaintext"]
 
     def _converter_binaries(self) -> dict:
+        """`{name: path or None}` for the allowed converters; empty if the module cannot import."""
         try:
             from app.extract.converter import available_binaries
 
@@ -581,6 +592,7 @@ class FileTypesEditor(QGroupBox):
         run(QThreadPool.globalInstance(), worker)
 
     def _installed(self, result: Any) -> None:
+        """The pip worker's result: reload the health column on success, or say what to run."""
         if not isinstance(result, dict):
             return
         if result.get("ok"):
@@ -598,6 +610,9 @@ class FileTypesEditor(QGroupBox):
         )
 
     def _stage_route(self, extension: str, reader: str) -> None:
+        """Add a Tier 1 route to the in-memory rules and redraw. Nothing is written
+        until Save.
+        """
         try:
             from app.core.formats import with_route
 
@@ -788,6 +803,7 @@ class FileTypesEditor(QGroupBox):
 
             override = user_path(self._settings.data_path)
             existed = override.is_file()
+            # Leasha's own override file in its data folder - never a user document.
             override.unlink(missing_ok=True)
         except OSError as exc:
             self.status.setText(
@@ -849,6 +865,7 @@ class FileTypesEditor(QGroupBox):
     # -- saving --------------------------------------------------------------
 
     def current(self) -> dict[str, bool]:
+        """`{extension: ticked}` for every row."""
         return {extension: box.isChecked() for extension, box in self._boxes.items()}
 
     def save(self) -> None:
@@ -922,12 +939,14 @@ class FileTypesEditor(QGroupBox):
 
 
 def _to_clipboard(text: str) -> None:
+    """Plain text to the clipboard; a missing clipboard (headless) is a no-op."""
     clipboard = QGuiApplication.clipboard()
     if clipboard is not None:
         clipboard.setText(text)
 
 
 def _human(count: int) -> str:
+    """A byte count as the one size wording the whole application uses."""
     # 2026-10-04, code review: `row_facts.format_size`, the one size wording.
     # This copy wrote "4.2MB" and stopped at GB; it now reads "4.2 MB".
     from app.core.row_facts import format_size

@@ -235,6 +235,8 @@ def said(retry: RetryTimedOut, found: RetryPlan) -> str:
 
 
 def _retry_pipeline_class() -> type:
+    """The `Pipeline` subclass for a retry, built on demand for the same reason
+    `media_backlog._backlog_pipeline_class` is: `pipeline` imports this module."""
     from app.index.pipeline import Pipeline
 
     class RetryPipeline(Pipeline):

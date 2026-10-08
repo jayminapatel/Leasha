@@ -192,6 +192,9 @@ class RunLog(QWidget):
             return
 
     def _append(self, log: Any) -> None:
+        """The appending itself: new entries since `_seq`, kept whatever the filter,
+        drawn if it lets them through; the reader's place is preserved.
+        """
         if log is None:
             return
         run = getattr(log, "run", None)

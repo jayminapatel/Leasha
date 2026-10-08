@@ -1,4 +1,11 @@
-"""The progress line `index` and `scan` both draw."""
+"""The progress line `index` and `scan` both draw.
+
+Layer: L0
+
+Console plumbing only: it knows nothing about what is being counted, so the
+same class serves a Layer 3 index run and a scan without either importing
+the other.
+"""
 
 from __future__ import annotations
 

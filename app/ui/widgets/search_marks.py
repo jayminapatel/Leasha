@@ -72,6 +72,7 @@ class SearchMarks(QObject):
 
     @property
     def count(self) -> int:
+        """How many searched words were found in the text."""
         return len(self._spans)
 
     def show(self, terms: Optional[Sequence[str]]) -> None:

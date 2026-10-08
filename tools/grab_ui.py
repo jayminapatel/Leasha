@@ -1,5 +1,8 @@
 r"""Eyes for the coding agent: every surface of the real window, to PNG.
 
+Layer: tooling, not app code - it drives the real L5 window offscreen and is
+imported by `tests/unit/test_grab_ui.py` and `tools/guide_pictures.py`.
+
 Work order 0m §0 (`202626270547`), folded into the UI Redesign
 (`202626160950` §9k) by the owner on 2026-09-16.
 
@@ -290,6 +293,9 @@ def _show_timeline(app: Any, window: Any) -> None:
 
 
 def _pump(app: Any, n: int = 8) -> None:
+    """Turn the event loop `n` times. One `processEvents` is not enough: a
+    layout change posts events that post further events (resize, then polish,
+    then paint), and a grab taken after one turn is of a half-laid-out page."""
     for _ in range(n):
         app.processEvents()
 

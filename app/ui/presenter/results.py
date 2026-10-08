@@ -96,6 +96,7 @@ class ResultRow:
     search_id: Optional[int] = None
 
     def as_dict(self) -> dict[str, Any]:
+        """The row as plain data, for the debug recorder and tests."""
         return {
             "rank": self.rank, "chunk_id": self.chunk_id, "path": self.path,
             "display_path": self.display_path, "snippet": self.snippet.text,
@@ -306,6 +307,7 @@ def group_results(
     details = details or {}
 
     def key_of(row: ResultRow) -> Any:
+        """What a row groups under: its conversation when folding, else its file."""
         detail = details.get(row.file_id) if conversations else None
         conversation = (detail or {}).get("conversation")
         return ("conversation", str(conversation)) if conversation else row.file_id
@@ -432,6 +434,9 @@ def _build_group(
     now: Optional[float] = None,
     register: str = "plain",
 ) -> ResultGroup:
+    """One `ResultGroup` from a document's rows: its name, folder, kind and date,
+    read the Search tab's way (`presenter.facts`) and stamped back onto the rows.
+    """
     path = rows[0].path if rows else ""
     name = path.replace("\\", "/").rstrip("/").rpartition("/")[2] or path
     folder = breadcrumb(path[: len(path) - len(name)])

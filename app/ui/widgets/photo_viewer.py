@@ -29,6 +29,7 @@ KEEP = 5
 
 
 def caption(row: Any, position: int, total: int) -> str:
+    """The line under the picture: name, date, place, people, and "n of total"."""
     parts = [PurePath(row.path).name, date_text(row), row.place or "", people_text(row)]
     text = "  ·  ".join(p for p in parts if p)
     return f"{text}    ({position:,} of {total:,})" if total else text
@@ -72,6 +73,7 @@ class PhotoViewer(QDialog):
     # -- showing ------------------------------------------------------------------------
 
     def _show(self, row: Any) -> None:
+        """Show `row`: caption now, the picture when its decode lands."""
         if row is None:
             return
         self._row = row
@@ -82,6 +84,7 @@ class PhotoViewer(QDialog):
         self._decode(str(row.path))
 
     def _paint(self) -> None:
+        """Scale the decoded picture to the label, or show a dot while it is on its way."""
         image = self._decoded.get(str(self._row.path)) if self._row is not None else None
         if image is None:
             self.picture.setPixmap(QPixmap())
@@ -93,6 +96,7 @@ class PhotoViewer(QDialog):
             Qt.TransformationMode.SmoothTransformation))
 
     def _decode(self, path: str) -> None:
+        """Decode `path` at the screen's size on a worker, once; `_decoded_one` paints it."""
         from app.ui.later import when_done
         from app.ui.thumbnail_loader import decode_thumbnail
         from app.ui.workers import CallableWorker, run
@@ -106,6 +110,7 @@ class PhotoViewer(QDialog):
         run(self._pool, worker)
 
     def _decoded_one(self, path: str, image: Any) -> None:
+        """UI thread: a picture landed. Kept (`KEEP` most recent) and painted if current."""
         self._asked.discard(path)
         if image is None or image.isNull():
             if self._row is not None and str(self._row.path) == path:
@@ -118,6 +123,7 @@ class PhotoViewer(QDialog):
             self._paint()
 
     def go(self, delta: int) -> None:
+        """Step to the next or previous photo as the page orders them."""
         row = self._step(delta)
         if row is not None:
             self._show(row)
@@ -129,6 +135,7 @@ class PhotoViewer(QDialog):
         self._paint()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:  # noqa: N802 - Qt's name
+        """Arrows step, F toggles full screen, Esc leaves full screen first."""
         key = event.key()
         if key in (Qt.Key.Key_Right, Qt.Key.Key_Down, Qt.Key.Key_Space, Qt.Key.Key_PageDown):
             self.go(1)

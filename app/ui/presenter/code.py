@@ -86,6 +86,7 @@ def repo_file_rows(
     an implementation detail of `read_repo_files`, not of the tree.
     """
     def field(record: Any, key: str, default: Any = "") -> Any:
+        """One value off a store row, whether a mapping or a dataclass."""
         if isinstance(record, Mapping):
             return record.get(key, default)
         return getattr(record, key, default)
@@ -228,6 +229,7 @@ class GitScope:
         return self.kind in ("branch", "commit")
 
     def describe(self) -> str:
+        """The scope in words, for the line above the list."""
         if self.kind == "branch":
             return f"{self.repo} · branch {self.ref}"
         if self.kind == "commit":
@@ -679,6 +681,9 @@ def code_summary(rows: list[Any], repos: list[Any], scope: Any = None,
 
 
 def git_summary(found: Any) -> str:
+    """The line above a finished git search: how many, how long, what stopped it,
+    which repositories could not be searched, and the command when nothing came.
+    """
     parts = [f"{len(found.rows):,} result{'s' if len(found.rows) != 1 else ''} "
              f"{found.explain}", f"{found.elapsed_s:.2f}s"]
     if found.truncated:

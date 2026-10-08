@@ -41,6 +41,7 @@ AUTOMATIC = "Automatic"
 
 
 def _size_words(n_bytes: int) -> str:
+    """A model's size for the drop-down, or `""` when unknown."""
     # 2026-10-04, code review: `row_facts.format_size`, the one size wording
     # ("512 MB" now reads "512.0 MB").
     if n_bytes <= 0:
@@ -147,6 +148,7 @@ class RolesGrid(QWidget):
         self.ram.hide()
 
     def add_role(self, label: str, combo: ModelCombo, help_text: str = "") -> None:
+        """One row: the job's label, its drop-down, and a hidden reason line under it."""
         row = self._grid.rowCount()
         name = QLabel(label)
         name.setBuddy(combo)

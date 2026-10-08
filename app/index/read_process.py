@@ -120,6 +120,9 @@ START_LIMIT_S = 60.0
 #: How often `wait_ready` looks up from its wait, to notice a stop.
 _READY_POLL_S = 0.05
 
+# Four bytes of length before each frame: one document's passages are kilobytes
+# to a few megabytes, nowhere near the 4GB this allows, and a fixed-width
+# header is what lets `_read_exact` know how much to wait for.
 _HEADER = struct.Struct("<I")
 
 
@@ -138,6 +141,9 @@ def reads_in_process(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 def _write(stream: Any, message: Any) -> None:
+    """One pickled frame onto `stream`, flushed. Raises what the pipe raises
+    (`BrokenPipeError`, `ValueError` on a closed stream) - the callers decide
+    what a gone peer means."""
     data = pickle.dumps(message, protocol=pickle.HIGHEST_PROTOCOL)
     stream.write(_HEADER.pack(len(data)) + data)
     stream.flush()
@@ -270,6 +276,8 @@ class ReaderProcess:
     # -- life ----------------------------------------------------------------
 
     def argv(self) -> list[str]:
+        """The child's command line: this module as `-m`, with the window's own
+        interpreter, so it imports the same `app` package."""
         argv = [self.python, "-m", "app.index.read_process"]
         if self.low_priority:
             argv.append("--low-priority")
@@ -511,14 +519,19 @@ class _FrameSender(threading.Thread):
         self._sequence = 0
 
     def begin(self, sequence: int) -> None:
+        """A file is being read: send its frames, tagged with `sequence` so the
+        parent can drop a copy that belongs to the previous file."""
         self._last = None
         self._sequence = sequence
         self._active.set()
 
     def end(self) -> None:
+        """The file is done; nothing more is sent until the next `begin`."""
         self._active.clear()
 
     def run(self) -> None:
+        """Every `_FRAMES_EVERY_S` while a file is open, send the frame stack if
+        it changed. Ends only when a send fails, which means the parent went."""
         while True:
             self._active.wait()
             time.sleep(_FRAMES_EVERY_S)
@@ -535,9 +548,20 @@ class _FrameSender(threading.Thread):
 
 
 def _serve(inbound: Any, outbound: Any) -> None:
+    """The child's loop: say "ready", then for each `("read", ...)` request
+    stream `("doc", ...)` frames and one `("end", error, failure)`.
+
+    Returns when the parent sends `("quit",)` or closes the pipe. A reader's
+    `AppErrorException` travels as `error`; any other exception as `failure`
+    text - neither ends the child, so the next file is read by the same
+    process. Only a crash of the interpreter itself ends it, which the parent
+    records as `ERR_READER_PROCESS_ENDED`.
+    """
     from app.extract import chunk_document, extract
     from app.extract import progress as reader_progress
 
+    # One writer at a time on the pipe: the frame sender thread and this loop
+    # both send, and two interleaved frames would corrupt the stream.
     lock = threading.Lock()
 
     def send(message: Any) -> None:

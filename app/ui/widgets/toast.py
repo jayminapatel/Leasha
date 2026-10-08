@@ -35,6 +35,9 @@ DEFAULT_TIMEOUT_MS = 4000
 
 
 class Toast(QFrame):
+    """The one-line notice over the central widget, queued and timed. UI
+    thread; `show_message` is what `MainWindow.notify` calls.
+    """
     def __init__(self, host: QWidget) -> None:
         super().__init__(host)
         self.setObjectName("toast")
@@ -82,11 +85,13 @@ class Toast(QFrame):
             self._advance()
 
     def current_text(self) -> str:
+        """The message on screen, or `""`."""
         # `isHidden`, not `isVisible`: a toast in a window that has not been
         # shown yet (every headless test) is still "showing" its message.
         return "" if self.isHidden() else self.label.text()
 
     def clear(self) -> None:
+        """Drop the queue and hide at once."""
         self._queue.clear()
         self._timer.stop()
         self.setVisible(False)
@@ -97,6 +102,7 @@ class Toast(QFrame):
     # -- internals ----------------------------------------------------------------
 
     def _advance(self) -> None:
+        """Show the next queued message, or hide when the queue is empty."""
         if not self._queue:
             self.setVisible(False)
             return
@@ -129,6 +135,7 @@ class Toast(QFrame):
         self._timer.start(timeout)
 
     def _place(self) -> None:
+        """Bottom-centre of the host, never off its top-left."""
         host = self._host
         self.adjustSize()
         x = (host.width() - self.width()) // 2
@@ -136,6 +143,7 @@ class Toast(QFrame):
         self.move(max(8, x), max(8, y))
 
     def eventFilter(self, obj: Any, event: Any) -> bool:      # noqa: N802
+        """The host moved or resized: keep the toast at the bottom centre."""
         if obj is self._host and not self.isHidden():
             from PySide6.QtCore import QEvent
             if event.type() in (QEvent.Type.Resize, QEvent.Type.Move):
@@ -143,6 +151,7 @@ class Toast(QFrame):
         return False
 
     def mousePressEvent(self, event: Any) -> None:            # noqa: N802
+        """A click dismisses the message and shows the next one, if any."""
         self._timer.stop()
         self._advance()
         event.accept()

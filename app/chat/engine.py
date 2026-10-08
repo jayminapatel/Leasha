@@ -576,6 +576,7 @@ class ChatEngine:
                     f"SELECT id, ext FROM files WHERE id IN ({marks})", ids):
                 ext[int(row[0])] = str(row[1] or "")
         except Exception:                               # noqa: BLE001
+            # The extension is decoration on a listing; a row without it still lists.
             pass
         out = []
         for rank, (fid, path, mtime_ns, taken_ns) in enumerate(rows, start=1):

@@ -44,6 +44,9 @@ _ROLE = Qt.ItemDataRole
 
 def result_item(payload: Any, *, expanded: bool, missing: set, volumes: dict,
                 placeholders: set, statuses: Any = None) -> QStandardItem:
+    """One model item for a result payload: the roles the delegate, the tooltip
+    and a screen reader read. No I/O - `missing` and `volumes` came from a worker.
+    """
     item = QStandardItem()
     item.setEditable(False)
     item.setData(payload, ROLE_PAYLOAD)

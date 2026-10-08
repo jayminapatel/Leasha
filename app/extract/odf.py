@@ -219,6 +219,12 @@ class OdfExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document of `content.xml`'s text, tables as tab-separated rows.
+
+        Not a zip or no `content.xml` is `ERR_FILE_CORRUPT`; a content part over
+        `MAX_CONTENT_BYTES` (checked from the header) `ERR_FILE_TOO_LARGE`; a
+        locked file `ERR_FILE_LOCKED`. An empty document yields nothing. Reads only.
+        """
         try:
             if path.suffix.lower() in self.FLAT:
                 if path.stat().st_size > MAX_CONTENT_BYTES:

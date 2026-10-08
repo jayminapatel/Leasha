@@ -188,6 +188,11 @@ def parse_choice(raw: str) -> tuple[str, tuple[str, ...]]:
 
 
 def dump_choice(preset: str, chosen: Iterable[str] = ()) -> str:
+    """The inverse of `parse_choice`: the stored JSON for `index_state`.
+
+    Keys are sorted so two identical choices compare equal as strings, which is
+    how the settings panel tells "changed" from "re-saved".
+    """
     import json
 
     return json.dumps({"preset": preset, "groups": list(chosen)}, sort_keys=True)

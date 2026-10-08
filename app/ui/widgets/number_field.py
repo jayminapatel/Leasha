@@ -75,6 +75,7 @@ def _registry_default(field: QAbstractSpinBox) -> Any:
         return None
     try:
         from app.core.settings_registry import by_key
+    # A registry that cannot import (a bare test) means no registry default.
     except Exception:                              # noqa: BLE001 - a lookup, never a failure
         return None
     setting = by_key(name)
@@ -103,6 +104,7 @@ def _as_value(field: QAbstractSpinBox, raw: Any) -> Any:
 
 
 def _current(field: QAbstractSpinBox) -> Any:
+    """The field's value in its own type (a `QTime` for a time field)."""
     if isinstance(field, QDateTimeEdit):
         return field.time()
     if isinstance(field, (QSpinBox, QDoubleSpinBox)):
@@ -152,6 +154,7 @@ class _ResetButton(QToolButton):
         self._paint()
 
     def reset(self) -> None:
+        """Put the default back through the field's own setter, so every save fires as usual."""
         field, value = self._field, default_of(self._field)
         if value is None:
             return
@@ -227,6 +230,7 @@ _PLACER = _Placer()
 
 
 def _place(field: QAbstractSpinBox, button: QToolButton) -> None:
+    """Put the button inside the field's right edge, a little smaller than the field."""
     side = max(12, field.height() - 6)
     button.setFixedSize(side, side)
     button.move(field.width() - side - 3, (field.height() - side) // 2)

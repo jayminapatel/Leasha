@@ -3,6 +3,10 @@
 Layer: L5
 
 Trial port only (branch `trial/pyside6`).
+
+2026-10-08 note: PySide6 is the shipped toolkit since order 202626270238
+(5 October 2026); this module is production code, kept under the name the
+call sites use.
 """
 
 from __future__ import annotations
@@ -15,14 +19,19 @@ __all__ = ["isdeleted", "delete", "unwrapinstance", "transferto", "open_menu"]
 
 
 def isdeleted(obj: Any) -> bool:
+    """True once Qt has destroyed `obj`'s C++ half - the test before touching a
+    widget a signal may deliver to late.
+    """
     return not shiboken6.isValid(obj)
 
 
 def delete(obj: Any) -> None:
+    """Destroy `obj`'s C++ half now, as `sip.delete` did."""
     shiboken6.delete(obj)
 
 
 def unwrapinstance(obj: Any) -> int:
+    """The C++ pointer as an int, for native calls that want a handle."""
     return int(shiboken6.getCppPointer(obj)[0])
 
 

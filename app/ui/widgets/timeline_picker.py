@@ -148,6 +148,9 @@ class TimelinePicker(QWidget):
     # -- preferences (keyed reads of `index_state`, never a scan) -----------------
 
     def _remembered(self, key: str, default: str) -> str:
+        """One keyed `index_state` read at construction - the same allowance every
+        remembered view choice has. Never raises.
+        """
         try:
             value = self._store.get_state(key, None) if self._store is not None else None
         except Exception:                            # noqa: BLE001 - a preference
@@ -155,6 +158,7 @@ class TimelinePicker(QWidget):
         return default if value is None else str(value)
 
     def _remember(self, key: str, value: str) -> None:
+        """Queue a preference on the ordered state writer; never waits on the store."""
         # Queued on the ordered state writer (bug 3a), so a choice made while
         # an index runs never waits for its batch; a failure is logged there.
         save_state(self._store, key, value, component="ui.timeline")
@@ -168,6 +172,7 @@ class TimelinePicker(QWidget):
     # -- what the counts say ----------------------------------------------------
 
     def set_overview(self, overview: Any) -> None:
+        """The years and their counts arrived: refill the year box without emitting."""
         self._overview = overview
         self.year_box.blockSignals(True)
         self.year_box.clear()
@@ -193,6 +198,7 @@ class TimelinePicker(QWidget):
         self.month_buttons[month].setChecked(True)
 
     def _enable_months(self, year: Optional[int]) -> None:
+        """Only months with anything in them can be chosen; each says its count."""
         counts = self._overview.months_of(year) if (year is not None and self._overview) else {}
         for index, button in enumerate(self.month_buttons):
             button.setEnabled(year is not None and (index == 0 or bool(counts.get(index))))
@@ -203,6 +209,7 @@ class TimelinePicker(QWidget):
     # -- what was chosen --------------------------------------------------------
 
     def _year_chosen(self, at: int) -> None:
+        """A year picked in the box: show it, tick "Whole year", emit the period."""
         year = self.year_box.itemData(at) if at >= 0 else None
         if year is not None:
             self.show_year(int(year))
@@ -215,6 +222,7 @@ class TimelinePicker(QWidget):
                                     else Period.month(self._year, index))
 
     def choose_range(self) -> None:
+        """"Show" for the two date boxes; an unreadable date is a sentence, not an error."""
         period = Period.from_words(self.range_from.text(), self.range_to.text())
         if period is None:
             self.bad_date.emit(BAD_DATE)

@@ -84,6 +84,7 @@ def blocks_for(items: Sequence[Any], previous_day: Optional[date] = None,
     band: list = []
 
     def flush() -> None:
+        """Close the band being built, if any, as one block."""
         nonlocal band
         if band:
             blocks.append(Block("band", folds=tuple(band)))
@@ -108,6 +109,7 @@ def blocks_for(items: Sequence[Any], previous_day: Optional[date] = None,
 
 
 def _folder_of(entry: Any) -> str:
+    """The folder part of an entry's path, with the file name cut off."""
     path = (entry.relative_path or entry.path or "").replace("\\", "/")
     folder = path.rsplit("/", 1)[0] if "/" in path else ""
     return folder

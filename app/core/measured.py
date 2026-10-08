@@ -153,10 +153,17 @@ class Measured:
     # -- serialisation ------------------------------------------------------
 
     def as_dict(self) -> dict[str, Any]:
+        """Plain data for `index_state`; the inverse of `from_dict`."""
         return asdict(self)
 
     @classmethod
     def from_dict(cls, payload: Any) -> Optional["Measured"]:
+        """Rebuild from `as_dict`, or None if it is not one. Never raises.
+
+        Unknown keys are dropped (an older or newer build wrote them) and the
+        embedding rates go through `plausible_embed_rates`, so a stored number
+        that cannot be true is refused where it is read.
+        """
         if not isinstance(payload, dict):
             return None
         try:

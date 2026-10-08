@@ -55,6 +55,7 @@ class _FitsItsNames(QObject):
     CEILING = 240
 
     def eventFilter(self, watched: Any, event: Any) -> bool:      # noqa: N802 - Qt's name
+        """On show, or a font or style change, hold the list at its longest name's width."""
         if event.type() in (QEvent.Type.Show, QEvent.Type.FontChange, QEvent.Type.StyleChange,
                             QEvent.Type.PolishRequest):
             if watched.count():

@@ -111,6 +111,8 @@ class MailItem:
 
 
 class MapiAttachment(Protocol):
+    """One attachment as the walk needs it: a name, a size, and a way to save it."""
+
     filename: str
     size_bytes: int
 
@@ -118,6 +120,8 @@ class MapiAttachment(Protocol):
 
 
 class MapiFolder(Protocol):
+    """A mail folder: its name, its path from the store root, children and items."""
+
     name: str
     path: str
 
@@ -126,6 +130,8 @@ class MapiFolder(Protocol):
 
 
 class MapiStore(Protocol):
+    """One mounted store - an archive file or the live mailbox - and its root."""
+
     display_name: str
     file_path: Optional[str]
     is_live: bool
@@ -135,6 +141,8 @@ class MapiStore(Protocol):
 
 
 class MapiSession(Protocol):
+    """What the walk asks of Outlook: the list of stores, and nothing else."""
+
     def stores(self) -> Iterable[MapiStore]: ...
 
 
@@ -765,6 +773,7 @@ class Win32ComSession:
         self._attached: list[str] = []
 
     def stores(self) -> Iterator[_ComStore]:
+        """Every store Outlook has mounted, archives and live mailboxes alike."""
         # Read whole, and asked again while Outlook is busy (2026-10-05): this
         # is the first call every reader makes, and the one it refused.
         yield from when_outlook_answers(
@@ -801,6 +810,8 @@ class Win32ComSession:
             )) from exc
 
     def close(self) -> None:
+        """Detach only the archives this session attached, then release COM for
+        this thread. Never raises - it runs in `extract`'s `finally`."""
         try:
             self._detach()
         finally:
@@ -864,6 +875,9 @@ def iter_mailbox_documents(
 #: How to read a `.pst`. Settings exposes this; `auto` is what almost everyone
 #: should use.
 class PstBackend:
+    """The three values the PST backend setting may hold. `choose_backend` maps
+    a value and a path to the route actually taken (`.ost` is always Outlook)."""
+
     #: libpff if it is installed, otherwise Outlook. Prefers libpff because it
     #: needs no Outlook, takes no file lock, does not touch the user's mail
     #: profile, and works from any thread.
@@ -966,6 +980,16 @@ class PstExtractor:
         self, path: Path, *, resume_from: int = 0,
         resume_extra: Optional[Mapping[str, Any]] = None,
     ) -> Iterable[Document]:
+        """Every message (and readable attachment) in one `.pst`/`.ost`.
+
+        libpff first when the backend allows it; Outlook/MAPI otherwise, or as
+        the fallback when libpff finds the archive held open before any message
+        was read. Failures are structured skips - `ERR_FILE_LOCKED`,
+        `ERR_FILE_CORRUPT`, `ERR_OUTLOOK_MISSING`, `ERR_PST_PARTIAL` as a
+        warning. The Outlook route mounts the archive into the user's profile
+        for the read and detaches it after (non-negotiable 10's one documented
+        exception); libpff opens the file read-only.
+        """
         if self.session_factory is not None:
             session = self.session_factory()
             yield from walk_session(session, include_live=False, only_paths=[str(path)])

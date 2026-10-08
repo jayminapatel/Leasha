@@ -138,6 +138,7 @@ def bridge_entry() -> dict:
 
 
 def entry_for(program: Program, url: str, key: str) -> dict:
+    """The entry `program` wants: the bridge command, or the address with the key."""
     return bridge_entry() if program.style == "bridge" else http_entry(program.style, url, key)
 
 

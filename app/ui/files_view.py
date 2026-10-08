@@ -125,6 +125,9 @@ class FilesView(QWidget):
     index_file_requested = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
+        """Build the box, the table, the picker and the preview. UI thread; the first
+        fill and the counts run on workers (`refresh_summary`, `_run`).
+        """
         super().__init__(parent)
         self._store = store
         self._generation = 0
@@ -339,6 +342,7 @@ class FilesView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, rows: Any, generation: int, text: str) -> None:
+        """UI thread: draw one page of files, if it is still the newest query."""
         if generation != self._generation:
             return                                  # a newer query has been sent
 

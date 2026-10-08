@@ -166,6 +166,8 @@ def folder_gb(path: Path) -> float:
         for entry in path.rglob("*"):
             if entry.is_file():
                 total += entry.stat().st_size
+    # A folder that cannot be walked is reported as 0 GB rather than refused:
+    # the dialog still opens and says it is measuring.
     except OSError:
         pass
     return total / 1e9
@@ -271,6 +273,7 @@ class IndexLocationDialog(QDialog):
         return self._facts is None or self._index_gb is None
 
     def _measure(self) -> None:
+        """Measure the current index on a worker; `_measured` paints the size."""
         from app.ui.later import when_done
 
         worker = CallableWorker(folder_gb, self._current, component="ui.index_location")
@@ -281,6 +284,7 @@ class IndexLocationDialog(QDialog):
         run(QThreadPool.globalInstance(), worker)
 
     def _measured(self, size: Any) -> None:
+        """The index's size landed: redraw the consequence and the OK button."""
         self._index_gb = float(size or 0.0)
         self._refresh()
 
@@ -293,6 +297,9 @@ class IndexLocationDialog(QDialog):
         self._check_timer.start()
 
     def _check(self) -> None:
+        """Ask a worker about the folder in the box. Carries a generation so an
+        answer about text since replaced is dropped (`_checked`).
+        """
         generation = self._check_generation
         worker = CallableWorker(check_destination, self.destination.text(), self._current,
                                 component="ui.index_location")
@@ -314,6 +321,7 @@ class IndexLocationDialog(QDialog):
             self.destination.setText(chosen)
 
     def choice(self) -> LocationChoice:
+        """What was decided, for the window to carry out. Nothing is moved here."""
         action = MOVE if self.move.isChecked() else (
             ADOPT if self.adopt.isChecked() else FRESH)
         return LocationChoice(action, Path(self.destination.text().strip()))

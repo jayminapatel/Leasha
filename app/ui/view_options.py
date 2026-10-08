@@ -174,6 +174,7 @@ class Metrics:
 
     @classmethod
     def for_density(cls, density: str) -> "Metrics":
+        """The metrics for a density: compact shrinks the padding only."""
         if density == Density.COMPACT:
             # Padding shrinks, text does not. The point of a compact list is
             # more rows on screen; text you cannot read is not more information.
@@ -274,6 +275,7 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
         font_pt = DEFAULT_FONT_PT
 
     def flag(key: str, default: bool) -> bool:
+        """One on/off key in the `.env` spellings; `default` for anything else."""
         raw = str(state.get(f"{prefix}:{key}", "") or "").strip().lower()
         if raw in ("on", "true", "1", "yes"):
             return True
@@ -480,6 +482,9 @@ def build_menu(
         )
 
         def fold(checked: bool) -> None:
+            """Fold conversations, bringing the Messages column with it when columns are
+            chosen.
+            """
             chosen = replace(prefs, group_by_conversation=checked)
             # Somebody who has picked their columns has a list of them, and a
             # column added since is not on it - so folding would hide the one
@@ -546,6 +551,7 @@ def build_menu(
     menu.addSection("Text size")
 
     def size_row(parent: Any) -> Any:
+        """The Text size row: a spin box whose minimum means "System"."""
         box = QWidget(parent)
         row = QHBoxLayout(box)
         row.setContentsMargins(12, 2, 12, 2)
@@ -608,6 +614,7 @@ def _weakly(callback: Any) -> Any:
     ref = weakref.WeakMethod(callback)
 
     def call(*args: Any) -> None:
+        """The weak call: nothing once the method's owner has gone."""
         method = ref()
         if method is not None:
             method(*args)
@@ -692,6 +699,7 @@ def button(
     watchers: list = []
 
     def changed(prefs: ViewPreferences) -> None:
+        """Store, save (queued), redraw, and tell every mirror about new preferences."""
         widget.prefs = prefs
         if store is not None:
             save_prefs_later(store, prefix, prefs)
@@ -731,6 +739,7 @@ def button(
         )
 
     def show(at: Any = None) -> None:
+        """Open the View menu at `at`, or under the button."""
         from app.ui.qtsip import open_menu      # lazily: this module imports no Qt at load
 
         menu = menu_for(widget)
@@ -821,6 +830,7 @@ def _as_icon(widget: Any) -> None:
     widget.icon_name = VIEW_ICON
 
     def paint(colours: Any = None) -> None:
+        """Draw the View icon in `colours` (the current palette when none is given)."""
         if colours is None:
             from app.ui.theme import theme_colours
 
@@ -867,6 +877,7 @@ def preview_toggle(view: Any, *, checked: Any = None, on_toggle: Any = None) -> 
     toggle.icon_name = "panel-right"
 
     def paint(colours: Any = None) -> None:
+        """Draw the Preview icon, lit when checked."""
         if colours is None:
             from app.ui.theme import theme_colours
 
@@ -876,6 +887,7 @@ def preview_toggle(view: Any, *, checked: Any = None, on_toggle: Any = None) -> 
         toggle.setIcon(icon("panel-right", text if toggle.isChecked() else dim))
 
     def quietly(on: bool) -> None:
+        """Mirror a preference change without re-emitting."""
         if toggle.isChecked() != bool(on):
             toggle.blockSignals(True)
             toggle.setChecked(bool(on))
@@ -1205,6 +1217,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
         button_ref = lambda: button              # noqa: E731
 
     def live() -> Any:
+        """The table, or raise `RuntimeError` once it has been collected."""
         found = table_ref()
         if found is None:
             raise RuntimeError("the table has been collected")
@@ -1219,6 +1232,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     viewport: list = [-1]
 
     def widths_now() -> dict:
+        """Visible column widths by index, read from the header."""
         view = live()
         header = view.horizontalHeader()
         return {index: int(header.sectionSize(index))

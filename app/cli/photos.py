@@ -30,6 +30,8 @@ __all__ = ["cmd_photos", "add_photos_parser"]
 
 
 def _list(store: Any, args: argparse.Namespace) -> int:
+    """The library, narrowed and sorted by the Photos tab's own rules
+    (`app.ui.presenter.photos`, Qt-free), so the two never disagree."""
     from app.extract.ocr import OcrExtractor
     from app.search.run import read_typed, words_of
     from app.ui.presenter.photos import date_text, narrow, people_text, sort_rows
@@ -51,6 +53,9 @@ def _list(store: Any, args: argparse.Namespace) -> int:
 
 
 def _write(store: Any, args: argparse.Namespace, settings: Any) -> int:
+    """Option b (the owner's exception to non-negotiable 10): write names into
+    the photos' XMP. `--dry-run` lists and writes nothing; `--inside` is the
+    only path that changes a photo, and a copy is kept first."""
     from app.index.photo_metadata import INSIDE, SIDECAR, run_write
 
     if args.dry_run:
@@ -74,6 +79,8 @@ def _write(store: Any, args: argparse.Namespace, settings: Any) -> int:
 
 
 def cmd_photos(args: argparse.Namespace) -> int:
+    """List the library, or with `--write-names` write into it. One store open
+    for either, so a write sees exactly the rows a list would have shown."""
     from app.storage.sqlite_store import SqliteStore
 
     settings = _load(args)

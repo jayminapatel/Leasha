@@ -52,6 +52,7 @@ class PhotoTaggerWindow(QWidget):
         self._loaded_once = True          # the page's constructor loads
 
     def showEvent(self, event: Any) -> None:          # noqa: N802 - Qt override
+        """Every show but the first re-reads the piles: a run may have grouped more faces."""
         # The constructor already reloaded; every later show re-reads.
         if self._loaded_once:
             self._loaded_once = False

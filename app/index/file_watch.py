@@ -287,6 +287,8 @@ class FileWatch:
 
     def begin(self, candidate: Any, digest: Optional[str], kind: str,
               factor: float = 1.0) -> None:
+        """A new file on this thread: reset every per-file field and bump the
+        token, so a Force skip asked for the previous file cannot land here."""
         now = time.monotonic()
         with self.lock:
             self.token += 1
@@ -368,6 +370,8 @@ class FileWatch:
     # -- the watchdog's side ---------------------------------------------------
 
     def reader_seconds(self, now: float) -> float:
+        """Seconds this file has spent inside the reader so far, the open
+        `next()` included. Caller holds `lock`."""
         running = (now - self.reading_since) if self.reading_since else 0.0
         return self.read_s + running
 
@@ -453,6 +457,9 @@ class Watchdog:
             thread.join(timeout=2)
 
     def _run(self) -> None:
+        """The watchdog thread: one `check` per tick until `stop`. A failing
+        check is logged and the next tick tries again - a watchdog that died
+        would leave every reader unlimited for the rest of the run."""
         while not self._stop.wait(self.tick_s):
             try:
                 self.check()

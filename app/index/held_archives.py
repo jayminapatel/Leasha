@@ -59,6 +59,8 @@ class HeldArchives:
         self._dirty = False
 
     def _load(self) -> dict[str, str]:
+        """The list from the store, read once per run on first use. Caller
+        holds `_lock`. An unreadable row starts empty rather than failing."""
         if self._paths is None:
             paths: dict[str, str] = {}
             try:

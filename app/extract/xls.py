@@ -91,6 +91,11 @@ class XlsExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document, a segment per sheet with `Sheet!B14` anchors, dates and
+        whole numbers rendered as a person would type them. Capped at
+        `MAX_SHEET_ROWS` with an `ERR_FILE_TRUNCATED` warning. A renamed `.xlsx`
+        or damaged file is `ERR_FILE_CORRUPT`, locked `ERR_FILE_LOCKED`. The
+        workbook is released in a `finally`. Reads only."""
         book = self._open(path)
         if book is None:
             return

@@ -51,6 +51,7 @@ def _live_timer(view: Any) -> Any:
 
 
 def _timer(view: Any) -> QTimer:
+    """The view's skeleton timer, made (and cached on the view) on first use."""
     timer = _live_timer(view)
     if timer is None:
         timer = QTimer(view)
@@ -96,6 +97,7 @@ def gone(view: Any) -> bool:
 
 
 def showing(view: Any) -> bool:
+    """Are skeleton rows on screen right now?"""
     model = getattr(view, "_model", None)
     if model is None or model.rowCount() == 0:
         return False
@@ -103,6 +105,7 @@ def showing(view: Any) -> bool:
 
 
 def _show(view: Any) -> None:
+    """The timer fired with nothing on screen: put `SKELETON_ROWS` grey bars in the model."""
     model = getattr(view, "_model", None)
     if model is None or model.rowCount() > 0:
         # Something real is on screen - keep it (the view's own rule: never

@@ -53,6 +53,9 @@ class TimelineView(QWidget):
     reveal_requested = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
+        """Build the picker, the list and the labels. UI thread; `refresh` reads on a
+        worker.
+        """
         super().__init__(parent)
         self._store = store
         self._overview: Any = None
@@ -112,6 +115,7 @@ class TimelineView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _overview_ready(self, overview: Any) -> None:
+        """UI thread: the counts landed, unless unchanged or for another kind."""
         if overview is None or overview.kind != self.picker.kind():
             return                                   # unchanged, or for a kind no longer chosen
         self._overview = overview
@@ -121,6 +125,7 @@ class TimelineView(QWidget):
         self.picker.set_overview(overview)
 
     def _kind_changed(self, _kind: str) -> None:
+        """The picker's kind changed: recount and reload the period."""
         self._overview = None
         self.refresh()
         self._reload()
@@ -157,6 +162,7 @@ class TimelineView(QWidget):
         self._fetch_more()
 
     def _fetch_more(self) -> None:
+        """Ask for the next page on a worker, tagged so a late page is dropped."""
         if self._loading or self._done or self._period is None or self._store is None:
             return
         self._loading = True
@@ -169,11 +175,13 @@ class TimelineView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _page_failed(self, generation: int, error: Any) -> None:
+        """UI thread: the page failed; said through `error` if still current."""
         if generation == self._generation:
             self._loading = False
             self.error.emit(error)
 
     def _page_ready(self, generation: int, page: Any) -> None:
+        """UI thread: append the page's blocks and update the status line."""
         if generation != self._generation:
             return                                   # another month was picked meanwhile
         self._loading = False
@@ -189,6 +197,7 @@ class TimelineView(QWidget):
     # -- right-click ------------------------------------------------------------
 
     def _show_menu(self, fold: Any, where: Any) -> None:
+        """The right-click menu for one entry, with Show all for a folded group."""
         entry = fold.head
         actions = FileActions(open_file=lambda: self.opened.emit(entry),
                               reveal=lambda: self.reveal_requested.emit(entry),

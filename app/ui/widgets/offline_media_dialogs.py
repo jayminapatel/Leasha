@@ -100,6 +100,7 @@ class ScanNameDialog(QDialog):
         return self.description.toPlainText().strip()
 
     def _refresh(self) -> None:
+        """OK (reading "Scan") only once a name has been typed."""
         problem = "" if self.chosen_name() else "Give this drive a name."
         self.problem.setText(problem)
         ok = self.buttons.button(QDialogButtonBox.StandardButton.Ok)

@@ -115,6 +115,9 @@ class MailView(QWidget):
     opened = Signal(int)                 # file_id
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
+        """Build the box, the table and the preview. UI thread; the first list comes
+        from `refresh`, on a worker.
+        """
         super().__init__(parent)
         self._store = store
         self._generation = 0
@@ -234,6 +237,7 @@ class MailView(QWidget):
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, rows: Any, generation: int, leftover: str) -> None:
+        """UI thread: draw one page of messages, if it is still the newest query."""
         if generation != self._generation:
             return                          # newer typing has overtaken this
 
@@ -284,6 +288,7 @@ class MailView(QWidget):
     # -- how it looks ----------------------------------------------------------
 
     def _apply_prefs(self) -> None:
+        """Apply the View preferences to the table and the preview pane."""
         apply_to_table(
             self.results, self.view_button.prefs,
             columns=[(key, heading) for key, heading, _a, _r in COLUMNS],

@@ -73,6 +73,8 @@ class AddFileTypeWizard(QDialog):
         self.setMinimumWidth(560)
         self._readers = readers
         self._binaries = binaries
+        #: The scaffold plan, kept after `accept` so the editor can report what
+        #: was written and whether a pip install is still wanted.
         self._plan: Any = None
 
         self.extension = QLineEdit()
@@ -275,9 +277,11 @@ class AddFileTypeWizard(QDialog):
 
     @property
     def tier(self) -> str:
+        """Which tab is open, as one of `TIER_ROUTE`, `TIER_CONVERT`, `TIER_CODE`."""
         return (TIER_ROUTE, TIER_CONVERT, TIER_CODE)[self.tabs.currentIndex()]
 
     def clean_extension(self) -> str:
+        """The typed extension, lower-cased and led by a dot (`.DXF` -> `.dxf`)."""
         raw = self.extension.text().strip().lower()
         if raw and not raw.startswith("."):
             raw = f".{raw}"
@@ -310,6 +314,9 @@ class AddFileTypeWizard(QDialog):
             )
 
     def _problem(self) -> str:
+        """The one sentence that stops OK, or `""` when the form is usable. Pure;
+        every field is validated here so the tab and the summary cannot disagree.
+        """
         extension = self.clean_extension()
         if len(extension) < 2:
             return "Enter a file extension, for example .dxf"
@@ -340,9 +347,13 @@ class AddFileTypeWizard(QDialog):
     # -- results -------------------------------------------------------------
 
     def route(self) -> tuple[str, str]:
+        """Tier 1's answer: `(extension, reader name)`."""
         return self.clean_extension(), self.reader.currentText()
 
     def converter(self) -> dict[str, Any]:
+        """Tier 2's answer as the TOML block `formats.append_converter` writes.
+        The arguments are split on whitespace, so a path with a space needs quoting.
+        """
         binary = self.binary.currentData()
         arguments = self.command.text().strip().split()
         return {
@@ -452,6 +463,9 @@ class ConfirmScaffoldDialog(QDialog):
 
 
 def _describe(scaffold: Any) -> str:
+    """The plan as plain text for the confirmation box: each file, then the
+    generated reader in full, so nothing is written sight unseen.
+    """
     lines: list[str] = []
     for change in scaffold.changes:
         verb = "CREATE" if change.action == "create" else "AMEND "

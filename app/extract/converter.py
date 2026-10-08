@@ -60,6 +60,11 @@ __all__ = [
 
 log = logger.bind(component="extract.converter")
 
+# 2026-10-08 note on the docstring's last paragraph: every shipped converter has
+# been enabled by default since 2026-09-19, on the owner's instruction - see the
+# `[converters]` section of config/extractors.toml for the reasoning. Nothing in
+# this module changed; `base._try_converter` still honours a route switched off.
+
 #: **The only programs this application will ever run.**
 #:
 #: In code, deliberately, and not read from configuration. Adding to this list

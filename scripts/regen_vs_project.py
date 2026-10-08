@@ -1,5 +1,7 @@
 r"""Regenerate `Leasha.pyproj` from what git tracks.
 
+Layer: L0 (tooling; nothing in `app/` imports this)
+
 Run after adding or removing files:
 
     venv\Scripts\python.exe scripts\regen_vs_project.py

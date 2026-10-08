@@ -24,6 +24,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+# This script's own folder goes on PATH, because leasha.cmd sits beside it.
 $folder = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 $current = [Environment]::GetEnvironmentVariable("Path", "User")

@@ -99,6 +99,7 @@ class PinnedPanel(QGroupBox):
         style_all(self)
 
     def _button(self, label: str, tip: str, on_click: Any) -> QPushButton:
+        """A tooltipped button whose click calls `on_click` with no arguments."""
         button = QPushButton(label)
         button.setToolTip(tip)
         button.clicked.connect(lambda _checked=False: on_click())
@@ -108,10 +109,12 @@ class PinnedPanel(QGroupBox):
 
     @property
     def pins(self) -> tuple:
+        """The gathered documents, in the order they were pinned."""
         return self._pins
 
     @property
     def paths(self) -> tuple:
+        """The pinned paths alone, for Open them all and Copy."""
         return pinned.paths(self._pins)
 
     def restore(self, state: Any) -> None:
@@ -133,6 +136,7 @@ class PinnedPanel(QGroupBox):
         self._redraw()
 
     def _remove(self) -> None:
+        """Take the selected rows out. The files themselves are never touched."""
         wanted = {index.data(ROLE_PAYLOAD).path
                  for index in self.list.selectedIndexes()
                  if index.data(ROLE_PAYLOAD) is not None}
@@ -141,6 +145,9 @@ class PinnedPanel(QGroupBox):
         self._redraw()
 
     def _redraw(self, *, remember: bool = True) -> None:
+        """Rebuild the list from `_pins`, enable the buttons, and say `changed`;
+        `remember=False` on a restore, so a load never writes itself back.
+        """
         self._model.clear()
         for pin in self._pins:
             item = QStandardItem()

@@ -1,5 +1,7 @@
 r"""Making user text safe to put inside a SQL `LIKE` pattern.
 
+Layer: L1 (pure string functions; imported by `filters.py` and `sqlite_store.py`).
+
 One function, in its own module, because the alternative is what this codebase
 already had: the same three-line escape written inline at some call sites, a
 private copy in `sqlite_store`, and none at all in `filters`. A literal `%`

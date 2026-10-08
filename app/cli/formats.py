@@ -1,4 +1,8 @@
-"""`formats`: which file types are indexed and what reads them."""
+"""`formats`: which file types are indexed and what reads them.
+
+Layer: L2 (what the extractors read); the rules themselves come from
+`app.core.formats` (L0) so Settings and this command print one answer.
+"""
 
 from __future__ import annotations
 

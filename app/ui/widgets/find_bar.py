@@ -151,12 +151,14 @@ class FindBar(QWidget):
     # -- searching ------------------------------------------------------------
 
     def _retype(self, needle: str) -> None:
+        """Typing in the box: highlight everything, then jump to the first match."""
         self._index = -1
         self._highlight(needle)
         if needle:
             self.next_match()
 
     def _text(self) -> str:
+        """The view's plain text, or `""` when there is no view or it has gone."""
         try:
             return self._view.toPlainText() if self._view is not None else ""
         except Exception:                        # noqa: BLE001 - a count
@@ -247,6 +249,7 @@ class FindBar(QWidget):
         self.visibilityChanged.emit(False)
 
     def keyPressEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
+        """Escape dismisses; Shift+Enter is Previous (Enter is Next via `returnPressed`)."""
         if event.key() == Qt.Key.Key_Escape:
             self.dismissed.emit()
             return
@@ -279,6 +282,7 @@ def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
     bar.hide()
 
     def dismiss() -> None:
+        """Clear the highlight, hide the bar and give focus back to the document."""
         bar.clear()
         bar.hide()
         try:

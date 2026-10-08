@@ -149,8 +149,12 @@ if ($dry) {
 if ($PSCmdlet.ShouldProcess($TaskName, "Register a daily scheduled task at $Time")) {
     $action = New-ScheduledTaskAction -Execute $pythonw -Argument "`"$script`"" -WorkingDirectory $ProjectPath
     $trigger = New-ScheduledTaskTrigger -Daily -At $Time
+        # StartWhenAvailable: a laptop asleep at the hour runs it on waking. The three-hour
+        # limit and IgnoreNew stop one stuck night from piling up behind the next.
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -ExecutionTimeLimit (New-TimeSpan -Hours 3) `
         -MultipleInstances IgnoreNew
+        # Interactive and Limited: runs only while this user is logged on, with no stored
+        # password and no elevation - the boundary install.ps1's optional steps keep too.
     $principal = New-ScheduledTaskPrincipal -UserId ([System.Security.Principal.WindowsIdentity]::GetCurrent().Name) `
         -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `

@@ -6,6 +6,8 @@ needs both. One small dialog: the logo, the name and what it does in one
 sentence, the version and build, Leasha Ltd and the web address, and a button
 to the third-party notices (`docs/THIRD_PARTY_NOTICES.md`). Read-only; the
 only thing it can do is open that file and close.
+
+Layer: L5
 """
 
 from __future__ import annotations
@@ -57,6 +59,9 @@ def build_line(info: dict | None = None) -> str:
 
 
 class AboutDialog(QDialog):
+    """Help > About. Built on the UI thread; the lockup PNG is a shipped asset,
+    read once here (a few KB), not user data. Layer: L5.
+    """
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)

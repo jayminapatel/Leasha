@@ -184,6 +184,12 @@ class ArchiveExtractor:
     name = "archive"
 
     def extract(self, path: Path) -> Iterator[Document]:
+        """One `Document` per readable zip member, plus name-only rows for the rest.
+
+        Raises `ERR_ARCHIVE_UNREADABLE` only when the container itself will not
+        open; a bad member costs that member. Writes nothing beside the file -
+        each member is unpacked into the system temp folder and deleted at once.
+        """
         settings = _settings()
         if settings is not None and not getattr(settings, "archive_read_inside", True):
             return                               # switched off in Settings
@@ -495,6 +501,11 @@ class _extracted:
                 log.warning("refused to write {} outside the temp directory",
                             self._name)
                 return None
+            # `read()` here is bounded by the central directory's `file_size`,
+            # which `_refusal` has already capped at MAX_MEMBER_BYTES: zipfile
+            # stops decompressing at that many bytes and raises BadZipFile
+            # (bad CRC) if the header lied. Checked 2026-10-08 with a zip whose
+            # header claimed 10 bytes for a 5 MB member - 10 bytes were read.
             with self._archive.open(self._entry) as source:
                 target.write_bytes(source.read())
             self.path = target

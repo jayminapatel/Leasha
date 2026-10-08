@@ -1,5 +1,12 @@
 """Shared by every subcommand: the exit codes, how an error is printed, and the one
-place every command gets its configuration."""
+place every command gets its configuration.
+
+Layer: L0
+
+The exit codes are the contract `leasha.cmd`, the installer and the window's
+child-process runner all read, so they live here rather than in `__init__`:
+a subcommand module can import this without importing the whole parser.
+"""
 
 from __future__ import annotations
 
@@ -54,6 +61,12 @@ def _report(error: AppError, as_json: bool) -> int:
 
 
 def _load(args: argparse.Namespace) -> Settings:
+    """Load the settings for this run, honouring `--env` wherever it was typed.
+
+    Raises `AppErrorException` (via `load_settings`) on a bad `.env`; `main`
+    turns that into a rendered error and exit code 1, so no command needs its
+    own handling for configuration faults.
+    """
     env_file = Path(args.env) if getattr(args, "env", None) else None
     settings = load_settings(env_file)
 
@@ -105,5 +118,8 @@ def _saved_roots(settings: Settings) -> "list[str]":
 
 
 def _preview(text: str, width: int = 160) -> str:
+    """One line of `text`, cut to `width`. Newlines and runs of spaces are
+    folded first, because a chunk printed raw would spread over the console
+    and hide which line belongs to which result."""
     flat = " ".join(text.split())
     return flat if len(flat) <= width else flat[: width - 1] + "…"

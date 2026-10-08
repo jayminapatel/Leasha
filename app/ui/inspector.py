@@ -52,6 +52,7 @@ def preview_facts(row: Any, *, now: Any = None) -> Sequence[tuple[str, str]]:
 
 
 def _when(mtime_ns: int, now: Any) -> str:
+    """The age and the exact date, together when they differ."""
     if not mtime_ns:
         return ""
     age = format_when(mtime_ns, now=now)

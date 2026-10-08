@@ -223,6 +223,9 @@ def mounted_macos_roots(
         if mounted("/"):
             roots.append(Path("/"))
     except OSError:
+        # `ismount("/")` failing means the start-up disk cannot be asked
+        # about; the docstring promises an answer, so the list simply goes
+        # on without it.
         pass
     try:
         names = sorted(os.listdir(str(volumes_folder)))

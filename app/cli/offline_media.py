@@ -1,4 +1,11 @@
-"""`offline-media`: cataloguing removable drives."""
+"""`offline-media`: cataloguing removable drives.
+
+Layer: L3 (`app.index.offline_media`, order 202626270513)
+
+Every verb here is typed by a person: there is no watcher and no schedule,
+by the owner's decision, so a drive that is plugged in is never scanned
+until somebody asks.
+"""
 
 from __future__ import annotations
 
@@ -241,6 +248,9 @@ def _offline_media_scan(settings: Any, root: Path, *, name: Optional[str],
 
 
 def _offline_media_rescan(settings: Any, identifier: str, *, as_json: bool) -> int:
+    """Rescan a catalogued source that is connected now. Moves on disk are
+    reconciled first so a renamed folder is repaired, not re-extracted; a
+    source that is not connected is a clean error, never a credential prompt."""
     from app.index.offline_media import (
         connected_volumes, reconcile_moves, remember_hardware_serial,
     )
@@ -328,6 +338,9 @@ def _offline_media_archive(settings: Any, identifier: str,
 
 def _offline_media_delete(settings: Any, identifier: str, as_json: bool, *,
                           confirmed: bool) -> int:
+    """Forget a source. Without `--yes` it only says how many rows would go and
+    exits 0: a delete that happens on the first try is the kind of command
+    somebody runs once to see what it does."""
     from app.index.offline_media import delete_volume
     from app.storage.sqlite_store import SqliteStore
     from app.storage.vector_store import VectorStore

@@ -116,6 +116,8 @@ class Chunk:
 
     @property
     def tokens(self) -> int:
+        """The chunk's estimated token count, by the same `token_cost` the budget
+        was spent with - so what is reported is what was measured."""
         return estimate_tokens(self.text)
 
 

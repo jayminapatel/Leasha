@@ -62,6 +62,9 @@ def html_to_text(markup: str) -> str:
     text = _BLOCK_END.sub("\n", text)
     text = _TAG.sub(" ", text)
     text = html.unescape(text)
+    # The third character in the class is a literal no-break space (U+00A0), the
+    # entity `&nbsp;` becomes after `unescape`. 2026-10-08 review: Python source
+    # here is ASCII by convention; `\u00a0` would say the same thing visibly.
     text = re.sub(r"[ \t ]+", " ", text)
     return normalise_whitespace(text)
 
@@ -249,6 +252,8 @@ def document_from_message(
 
 
 class EmlExtractor:
+    """RFC 822 message files (`.eml`) and web archives saved as MIME (`.mht`)."""
+
     name = "eml"
     extensions = frozenset({".eml", ".mht", ".mhtml"})
 
@@ -256,6 +261,12 @@ class EmlExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One mail `Document` (headers and quote-stripped body) per file.
+
+        Unreadable bytes are `ERR_FILE_CORRUPT`, a locked file `ERR_FILE_LOCKED`,
+        and a message with no subject, sender or body `ERR_NO_TEXT_LAYER`.
+        Attachments are listed by name only, never unpacked. Reads only.
+        """
         try:
             raw = path.read_bytes()
         except PermissionError as exc:
@@ -304,6 +315,12 @@ class MsgExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One mail `Document` per `.msg`, through extract-msg.
+
+        Without the package the file is `ERR_UNSUPPORTED_TYPE` with the install
+        command; a file extract-msg rejects is `ERR_FILE_CORRUPT`; an empty
+        message `ERR_NO_TEXT_LAYER`. The item is always closed. Reads only.
+        """
         try:
             import extract_msg
         except ImportError as exc:

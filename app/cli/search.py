@@ -1,4 +1,16 @@
-"""`search`, `files`, `commands` and `shell`: finding things."""
+"""`search`, `files`, `commands` and `shell`: finding things.
+
+Layer: L4
+
+Exit codes: `search` exits 1 when nothing was found, so a script can tell an
+empty answer from a hit without parsing the output. That differs from
+`__init__`'s "1 means an AppError" and is recorded here so an empty search in
+a log is not read as a crash.
+
+The imports from `app.ui.presenter` and `app.ui.tasks` are Qt-free row
+formatters, shared so this prints exactly what the Files tab shows
+(non-negotiable 8).
+"""
 
 from __future__ import annotations
 

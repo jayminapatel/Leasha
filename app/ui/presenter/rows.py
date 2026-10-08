@@ -42,6 +42,7 @@ from app.ui.presenter.results import kind_tag
 
 @dataclass(frozen=True, slots=True)
 class FileRow:
+    """One row of the Files list, formatted, with the raw values it sorts on."""
     file_id: int
     name: str
     folder: str
@@ -257,6 +258,7 @@ def file_summary(total: int, shown: int = -1, text: str = "",
 
 @dataclass(frozen=True, slots=True)
 class MailRow:
+    """One row of the Mail table, formatted, with the raw values it sorts on."""
     file_id: int
     sender: str
     recipients: str

@@ -206,6 +206,9 @@ def first_free(candidates: Any = ALTERNATIVES, *, can_take: Any = None) -> Optio
 
 
 def _can_take(text: str) -> bool:
+    """Register `text` for a moment and give it straight back: True if Windows
+    granted it.
+    """
     found = parse(text)
     if found is None or not available():
         return False
@@ -254,6 +257,7 @@ class HotkeyListener:
     HOTKEY_ID = 0xA71
 
     def __init__(self) -> None:
+        """Nothing registered yet; `start` takes the combination."""
         self.registered = False
         self.hotkey: Optional[Hotkey] = None
         self._filter: Any = None
@@ -299,6 +303,7 @@ class HotkeyListener:
     # -- Windows --------------------------------------------------------------
 
     def _register(self, found: Hotkey) -> bool:
+        """Windows only: `RegisterHotKey`, then a native event filter for `WM_HOTKEY`."""
         import ctypes
 
         from PySide6.QtCore import QAbstractNativeEventFilter, QCoreApplication
@@ -323,6 +328,7 @@ class HotkeyListener:
             """
 
             def nativeEventFilter(self, _kind, message):   # noqa: N802 - Qt's name
+                """Qt's native filter, UI thread: call `pressed` for this hotkey's WM_HOTKEY."""
                 try:
                     msg = ctypes.cast(
                         int(message), ctypes.POINTER(_MSG)).contents
@@ -343,6 +349,7 @@ class HotkeyListener:
         return True
 
     def _unregister(self) -> None:
+        """Give the combination back to Windows."""
         import ctypes
 
         ctypes.WinDLL("user32", use_last_error=True).UnregisterHotKey(

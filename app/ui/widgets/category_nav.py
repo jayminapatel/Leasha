@@ -213,6 +213,7 @@ class CategoryNav(QWidget):
             self._show_only(name)
 
     def current_category(self) -> str:
+        """The sidebar's choice, or the first category before anything is chosen."""
         item = self.sidebar.currentItem()
         if item is not None:
             return item.text()
@@ -244,6 +245,9 @@ class CategoryNav(QWidget):
     # -- internals -------------------------------------------------------------
 
     def _on_row_selected(self, name: str) -> None:
+        """A click on the sidebar: show that page and tell the caller. Blocked
+        signals keep a restore (`show_category(persist=False)`) out of here.
+        """
         if not name:
             return
         self._show_only(name)

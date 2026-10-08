@@ -241,6 +241,12 @@ def target_dir(kind: str, model_cache: Any) -> Optional[Path]:
 
 
 def _folder_bytes(path: Path) -> int:
+    """Bytes on disk under `path`, for the progress line only. Never raises.
+
+    The child is writing into this folder while it is measured, so a file
+    that vanishes or is locked between listing and `stat` is ordinary here,
+    and a progress estimate a little low is better than a stopped download.
+    """
     total = 0
     try:
         for entry in path.rglob("*"):

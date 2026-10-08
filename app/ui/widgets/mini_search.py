@@ -107,6 +107,7 @@ SAVE_PLACE_MS = 600
 
 
 def _full_answer() -> int:
+    """The engine's own result cap, imported on first need (the engine is heavy)."""
     if FULL_ANSWER is not None:
         return int(FULL_ANSWER)
     from app.search.engine import FUSED_LIMIT
@@ -463,6 +464,7 @@ class MiniSearch(CardWindow):
                 pass
 
     def _tint_scopes(self) -> None:
+        """Recolour the type chips: the chosen one in the accent, the rest dim."""
         from app.ui.widgets.icons import icon
 
         colours = getattr(self, "_colours", None) or {}
@@ -625,6 +627,7 @@ class MiniSearch(CardWindow):
     # -- the place: where it was left -------------------------------------------
 
     def _store(self) -> Any:
+        """The engine's store, or None - every store call goes through here."""
         return getattr(self._engine, "store", None)
 
     def _load_place(self) -> None:
@@ -640,6 +643,8 @@ class MiniSearch(CardWindow):
         from app.ui.presenter.quick_search import PLACE_KEY, read_place
 
         try:
+            # The one store read on the UI thread in this file - a keyed row, once
+            # per process, deliberately; see the docstring above.
             text = store.get_state(PLACE_KEY, "") or ""
         except Exception as exc:                 # noqa: BLE001 - centred, then
             _log.debug("the mini search's place was not read: {}", exc)
@@ -668,6 +673,7 @@ class MiniSearch(CardWindow):
             _log.debug("the mini search could not be placed: {}", exc)
 
     def moved_by_hand(self) -> None:
+        """A drag or resize ended: save the place once it settles (`SAVE_PLACE_MS`)."""
         self._place_timer.start()
 
     def moveEvent(self, event: Any) -> None:                # noqa: N802 - Qt's name
@@ -799,6 +805,7 @@ class MiniSearch(CardWindow):
     # -- searching ------------------------------------------------------------
 
     def _typed(self, text: str) -> None:
+        """Each keystroke: an empty box clears at once, anything else restarts the debounce."""
         if not str(text or "").strip():
             self._timer.stop()
             self._generation += 1
@@ -827,6 +834,7 @@ class MiniSearch(CardWindow):
             _log.debug("saved searches not read ahead: {}", exc)
 
     def _took_saved(self, saved: Any) -> None:
+        """UI thread: the saved searches landed; redraw the empty box if it is showing."""
         self._saved = tuple(saved or ())
         if self.stack.currentWidget() is not self.list:
             self._show_mode("empty")
@@ -857,6 +865,7 @@ class MiniSearch(CardWindow):
             _log.debug("recent searches not read: {}", exc)
 
     def _took_recent(self, found: Any) -> None:
+        """UI thread: the recent searches landed; redraw the empty box if it is showing."""
         self._recent = tuple(found or ())
         if self.stack.currentWidget() is not self.list and not self.box.text().strip():
             self._show_mode("empty")
@@ -935,6 +944,8 @@ class MiniSearch(CardWindow):
             return found, details, deep, chip, full
 
         worker = CallableWorker(ask, component="ui.mini.search")
+        # A plain connect, not `when_done`: this box lives as long as the
+        # application, so a late answer cannot find it deleted.
         worker.signals.finished.connect(
             lambda payload, g=generation: self._show(payload, g))
         worker.signals.failed.connect(
@@ -942,6 +953,9 @@ class MiniSearch(CardWindow):
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, payload: Any, generation: int) -> None:
+        """UI thread: a search landed. Dropped when a later keystroke moved the
+        generation on. Grouping is cheap arithmetic over rows already in hand.
+        """
         if generation != self._generation:
             return                               # a later keystroke won
         try:
@@ -967,6 +981,9 @@ class MiniSearch(CardWindow):
         self._apply_chip_filter()
 
     def _failed(self, error: Any, generation: int) -> None:
+        """UI thread: the search raised. The worker already logged the error; the
+        box goes back to empty rather than showing a dialog over someone's work.
+        """
         if generation != self._generation:
             return
         _log.debug("mini search failed: {}", error)
@@ -1138,6 +1155,7 @@ class MiniSearch(CardWindow):
             self._row_changed(self.list.currentRow())
 
     def _fill_recent(self) -> None:
+        """The empty box's list: recent searches first, then a few saved ones."""
         from app.ui.presenter.quick_search import SAVED_NOTE
         from app.ui.widgets.mini_search_rows import ROLE_LINES
 
@@ -1250,6 +1268,7 @@ class MiniSearch(CardWindow):
             self._place_timer.start()
 
     def _screen_width(self) -> int:
+        """Room to the right edge of this screen, or a large number when there is no screen."""
         screen = self.screen()
         if screen is None:
             return 4000
@@ -1257,6 +1276,9 @@ class MiniSearch(CardWindow):
         return max(0, area.right() - self.x())
 
     def _build_preview(self) -> None:
+        """Make the preview pane on first use. The pane reads on its own worker and
+        reports an error as a sentence in the status line, never a dialog.
+        """
         from app.ui.widgets.preview import PreviewPane
 
         pane = PreviewPane()
@@ -1290,10 +1312,12 @@ class MiniSearch(CardWindow):
     # -- choosing -------------------------------------------------------------
 
     def _current(self) -> Any:
+        """The highlighted result group, or None."""
         row = self.list.currentRow()
         return self._rows[row] if 0 <= row < len(self._rows) else None
 
     def _is_mail(self, group: Any) -> bool:
+        """Whether a group is a message or an attachment - what Ctrl+O can send to Outlook."""
         from app.ui.presenter.quick_search import is_message_group
 
         detail = self._details.get(getattr(group, "file_id", 0))
@@ -1399,6 +1423,7 @@ class MiniSearch(CardWindow):
 
 
 def _words() -> Any:
+    """The presenter's wording module, imported on use."""
     from app.ui.presenter import quick_search
 
     return quick_search

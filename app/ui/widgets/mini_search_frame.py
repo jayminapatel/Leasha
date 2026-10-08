@@ -82,6 +82,9 @@ class CardWindow(QFrame):
         """Called when a move or resize ends. `MiniSearch` saves the place."""
 
     def _start_move(self, global_pos: QPoint) -> None:
+        """Begin a drag: the window system's own move when it offers one, else a
+        hand move tracked in `eventFilter` (the offscreen platform has none).
+        """
         handle = self.windowHandle()
         try:
             if handle is not None and handle.startSystemMove():
@@ -106,6 +109,7 @@ class CardWindow(QFrame):
 
     @staticmethod
     def _cursor_for(edges: Any) -> Any:
+        """The resize cursor for a set of edges, or None away from any edge."""
         left, right = bool(edges & Qt.Edge.LeftEdge), bool(edges & Qt.Edge.RightEdge)
         top, bottom = bool(edges & Qt.Edge.TopEdge), bool(edges & Qt.Edge.BottomEdge)
         if (left and top) or (right and bottom):
@@ -119,6 +123,7 @@ class CardWindow(QFrame):
         return None
 
     def _start_resize(self, edges: Any, global_pos: QPoint) -> None:
+        """Begin a resize, by the window system or by hand - as `_start_move`."""
         handle = self.windowHandle()
         try:
             if handle is not None and handle.startSystemResize(edges):
@@ -128,6 +133,7 @@ class CardWindow(QFrame):
         self._resizing = (edges, global_pos, QRect(self.geometry()))
 
     def _resize_to(self, global_pos: QPoint) -> None:
+        """A hand resize: move the grabbed edges, never below the minimum size."""
         edges, start, geometry = self._resizing
         delta = global_pos - start
         rect = QRect(geometry)
@@ -143,6 +149,9 @@ class CardWindow(QFrame):
         self.setGeometry(rect)
 
     def eventFilter(self, obj: Any, event: Any) -> bool:     # noqa: N802 - Qt's name
+        """Mouse events on the drag handles (move) and the card (resize cursor and
+        resize). UI thread.
+        """
         kind = event.type()
         if obj in self._drag_handles:
             if (kind == QEvent.Type.MouseButtonPress

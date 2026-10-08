@@ -171,6 +171,8 @@ def _master_text(data: bytes, start: int, end: int, depth: int = 0) -> list[str]
                     (kind,) = struct.unpack_from("<I", data, inner_start)
                 elif inner_type in (RT_TEXT_CHARS_ATOM, RT_TEXT_BYTES_ATOM):
                     runs.append(_text_of(data, inner_type, inner_start, inner_end))
+            # TextHeaderAtom textType 4 is "Other" ([MS-PPT] 2.13.33): a text box
+            # a person drew on the master, as against title/body placeholders.
             if kind == 4:
                 found.extend(run for run in runs if not run.startswith("Click to edit"))
         elif record_type in RT_ESCHER_OPT:
@@ -216,6 +218,8 @@ def _persist_directory(data: bytes, current_edit: int) -> tuple[dict[int, int], 
         while cursor + 4 <= dir_end:
             (head,) = struct.unpack_from("<I", data, cursor)
             cursor += 4
+            # PersistDirectoryEntry ([MS-PPT] 2.3.5): the low 20 bits are the
+            # first persist id of a run, the high 12 bits how many offsets follow.
             first_id = head & 0xFFFFF
             count = head >> 20
             for index in range(count):
@@ -299,6 +303,8 @@ def read_ppt(stream_data: bytes, current_user: bytes
     """
     if len(current_user) < 20:
         raise LegacyOfficeUnreadable("no usable 'Current User' stream")
+    # CurrentUserAtom ([MS-PPT] 2.3.2): after the 8-byte record header and the
+    # 4-byte size come headerToken (12) and offsetToCurrentEdit (16).
     token, current_edit = struct.unpack_from("<II", current_user, 12)
     if token == _ENCRYPTED_TOKEN:
         raise LegacyOfficeUnreadable("the presentation is encrypted")
@@ -410,6 +416,13 @@ class PptExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """One document: a segment per slide, per notes page, and one for the
+        deck's header and footer text.
+
+        Encrypted, PowerPoint 4/95, or a record tree that does not add up goes
+        to `fall_back` (LibreOffice, or `ERR_FILE_CORRUPT` when none is on). A
+        locked file is `ERR_FILE_LOCKED`. Reads the two OLE streams only.
+        """
         try:
             texts, notes, footers = self._read(path)
         except LegacyOfficeUnreadable as exc:

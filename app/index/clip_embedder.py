@@ -162,6 +162,7 @@ class ClipImageEmbedder:
 
     @property
     def loaded(self) -> bool:
+        """Has the model (or an injected encoder) been set up yet?"""
         return self._encoder is not None
 
     def warm_up(self) -> None:

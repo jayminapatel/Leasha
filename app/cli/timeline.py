@@ -24,6 +24,7 @@ from app.core.logging import setup_logging
 
 
 def _bad(key: str, reason: str, suggestion: str, as_json: bool) -> int:
+    """A refused flag, as a structured error with the fix (non-negotiable 2)."""
     return _report(make_error(
         "ERR_CONFIG_INVALID", "cli.timeline", key=key, reason=reason,
         suggestion=suggestion), as_json)
@@ -117,6 +118,11 @@ def _print_page(period: Any, page: Any, kind: str, as_json: bool) -> None:
 
 
 def cmd_timeline(args: argparse.Namespace) -> int:
+    """The overview (no dates given) or one page of a period.
+
+    The flags are checked before the settings are loaded, so a mistyped date
+    is refused in milliseconds rather than after the index has been opened.
+    """
     from app.reports.timeline import (
         KINDS, PAGE_SIZE, Cursor, timeline_overview, timeline_page,
     )

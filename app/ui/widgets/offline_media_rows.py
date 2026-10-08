@@ -100,6 +100,7 @@ class LineActions:
     """
 
     def _add_line_button(self, item: Any, row: Any, column: int) -> None:
+        """One line's Rescan icon button, placed at its own size."""
         button = rescan_button(row, self._rescan_row)
         self._row_buttons[row.volume_id] = button
         put_on_row(self.tree, item, column, button)
@@ -109,12 +110,14 @@ class LineActions:
             sync_rescan_button(self._row_buttons.get(row.volume_id), row, self._busy)
 
     def _row_for(self, volume_id: Optional[int]) -> Any:
+        """The `VolumeRow` on screen for `volume_id`, or None."""
         for row in self._rows:
             if row.volume_id == volume_id:
                 return row
         return None
 
     def _row_menu(self, point: Any) -> None:
+        """Right-click on a line: Rescan and Copy hardware ID, through `open_menu`."""
         item = self.tree.itemAt(point)
         value = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
         row = self._row_for(int(value) if value is not None else None)

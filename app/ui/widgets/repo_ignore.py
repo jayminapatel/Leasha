@@ -82,6 +82,7 @@ def ignore_repository(view: Any, name: str, *,
         return
 
     def done(record: Any) -> None:
+        """UI thread: the forget is written. Offer Undo on the note and refresh the list."""
         note = undo_note(view)
         count = len((record or {}).get("file_ids") or ())
         note.setText(
@@ -90,6 +91,8 @@ def ignore_repository(view: Any, name: str, *,
             f"<a href='undo'>Undo</a> · <a href='dismiss'>Dismiss</a>")
         try:
             note.linkActivated.disconnect()
+        # `disconnect()` with nothing connected raises TypeError under PySide6;
+        # the first note has no handler yet, and that is fine.
         except TypeError:
             pass
         note.linkActivated.connect(
@@ -104,6 +107,7 @@ def ignore_repository(view: Any, name: str, *,
 
 
 def _undo(view: Any, record: Any) -> None:
+    """Put the repository back from the record, on a worker, and refresh."""
     note = undo_note(view)
     note.setVisible(False)
     if not record:

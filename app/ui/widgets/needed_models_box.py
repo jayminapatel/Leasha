@@ -127,9 +127,11 @@ class _Line:
             column.addWidget(label)
 
     def widgets(self) -> tuple[QWidget, ...]:
+        """The four grid cells, in column order."""
         return (self.text, self.size, self.status, self.button)
 
     def show_as_stop(self, stop: bool) -> None:
+        """The line's button reads Stop while its model downloads, Download otherwise."""
         self.button.setText(_STOP if stop else _DOWNLOAD)
         self.button.setToolTip(NEEDED_STOP_TIP if stop else NEEDED_DOWNLOAD_TIP)
         self.button.setAccessibleName(
@@ -256,10 +258,12 @@ class NeededModelsBox(QGroupBox):
         self._show()
 
     def _look_failed(self, error: Any) -> None:
+        """UI thread: the catalogue could not be read; the summary says so."""
         self._looking = False
         self.summary.setText(needed_list_failed(error))
 
     def _build_lines(self, models: Iterable[Any]) -> None:
+        """Rebuild the grid for a new list of models. Old lines are `deleteLater`d."""
         for line in self._lines.values():
             for widget in line.widgets():
                 self._grid.removeWidget(widget)
@@ -282,6 +286,7 @@ class NeededModelsBox(QGroupBox):
     # -- drawing --------------------------------------------------------------------
 
     def _status_of(self, key: str) -> str:
+        """One model's status words, in priority order: downloading, failed, here, blocked ..."""
         if self._busy and key == self._current:
             return self._progress.get(key, NEEDED_STARTING)
         if key in self._failed:
@@ -297,6 +302,7 @@ class NeededModelsBox(QGroupBox):
         return NEEDED_MISSING
 
     def _show(self) -> None:
+        """Redraw every line and the Download all button from the box's state."""
         for key, line in self._lines.items():
             line.status.setText(self._status_of(key))
             if key in self._failed:
@@ -384,6 +390,7 @@ class NeededModelsBox(QGroupBox):
         done = 0
 
         def tell(signal: Any, *args: Any) -> None:
+            """Worker thread: emit through the relay; a box already gone stops the run."""
             try:
                 signal.emit(*args)
             except RuntimeError:                # the box has gone; stop quietly
@@ -406,6 +413,7 @@ class NeededModelsBox(QGroupBox):
         return done
 
     def _started(self, key: str) -> None:
+        """UI thread, via the relay: the run moved on to `key`."""
         if not self._busy:
             return
         self._current = key
@@ -413,6 +421,7 @@ class NeededModelsBox(QGroupBox):
         self._show()
 
     def _said(self, key: str, line: str) -> None:
+        """UI thread, via the relay: a progress line for the model downloading now."""
         if self._busy and key == self._current and not self._stop.is_set():
             self._progress[key] = needed_progress_words(line)
             line_widgets = self._lines.get(key)
@@ -420,6 +429,7 @@ class NeededModelsBox(QGroupBox):
                 line_widgets.status.setText(self._progress[key])
 
     def _ended(self, key: str, result: str) -> None:
+        """UI thread, via the relay: one model finished or stopped."""
         self._progress.pop(key, None)
         if result == model_fetch.STOPPED:
             self._stopped.add(key)
@@ -429,6 +439,7 @@ class NeededModelsBox(QGroupBox):
         self._show()
 
     def _failed_one(self, key: str, error: Any) -> None:
+        """UI thread, via the relay: one model failed; the run carries on."""
         self._progress.pop(key, None)
         self._failed[key] = needed_failed_words(error)
         self._failed_tips[key] = needed_failed_tip(error)
@@ -444,6 +455,7 @@ class NeededModelsBox(QGroupBox):
             self.download_all.setEnabled(False)
 
     def _run_over(self) -> None:
+        """UI thread: the run's worker finished; look again at what is here."""
         if self._busy and self._stop.is_set() and self._current:
             if self._current not in self._failed and not self._present.get(self._current):
                 self._stopped.add(self._current)

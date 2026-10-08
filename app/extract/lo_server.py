@@ -51,6 +51,9 @@ _NO_WINDOW = 0x08000000
 #: command line; over the API the filter is named, so the table is here.
 FILTERS = {
     "pptx": ("Impress MS PowerPoint 2007 XML", ""),
+    # CSV options are LibreOffice's positional token string: field separator 44
+    # (comma), text delimiter 34 (double quote), character set 76 (UTF-8), and
+    # export from line 1.
     "csv": ("Text - txt - csv (StarCalc)", "44,34,76,1"),
     "txt": ("Text (encoded)", "UTF8"),
     "docx": ("MS Word 2007 XML", ""),
@@ -77,6 +80,10 @@ def _quiet() -> None:
 
 
 def _start_soffice(soffice: str, profile_url: str, pipe: str) -> subprocess.Popen:
+    # `--norestore` so a crash does not bring up document recovery on the next
+    # start; `--nodefault` so no empty document is opened; `--nolockcheck` so a
+    # stale lock in the persistent profile does not pop a dialog; `--invisible`
+    # and `--nologo` because nothing here must ever reach a screen.
     return subprocess.Popen(
         [soffice, f"-env:UserInstallation={profile_url}",
          "--headless", "--invisible", "--nologo", "--norestore", "--nodefault",
@@ -105,6 +112,10 @@ def _connect(pipe: str, child: subprocess.Popen, give_up_s: float = 90.0):
                 "com.sun.star.frame.Desktop", context)
         except Exception as exc:                          # noqa: BLE001 - not up yet
             last = exc
+            # The bridge refuses until soffice has bound the pipe; polling a few
+            # times a second keeps start-up fast without spinning. `give_up_s`
+            # stays under the parent's START_TIMEOUT_S so the parent sees this
+            # process exit with a reason rather than its own bare timeout.
             time.sleep(0.15)
     raise RuntimeError(f"soffice did not accept a connection: {last}")
 
@@ -253,6 +264,12 @@ def _watch_stdin(requests: "queue.Queue[str]", child: subprocess.Popen) -> None:
 
 
 def main(argv: list[str]) -> int:
+    """Start soffice, answer requests until `{"quit": true}` or the parent dies.
+
+    Exit codes: 0 asked to quit, 2 soffice never accepted a connection, 3
+    soffice exited mid-session, 4 the UNO bridge was lost (the parent starts a
+    fresh session for 3 and 4). Every answer is one JSON line on stdout.
+    """
     _quiet()
     soffice, profile_url = argv[1], argv[2]
     pipe = f"leasha_{os.getpid()}_{uuid.uuid4().hex[:8]}"

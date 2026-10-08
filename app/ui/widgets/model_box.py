@@ -258,6 +258,7 @@ class ModelBox(QGroupBox):
             return []
 
     def _loaded(self) -> None:
+        """The probe worker is done, however it ended: Refresh may be pressed again."""
         self._loading = False
         self.refresh_button.setEnabled(True)
 
@@ -358,6 +359,9 @@ class ModelBox(QGroupBox):
     # -- changing --------------------------------------------------------------
 
     def _on_model_chosen(self, _index: int) -> None:
+        """A model picked: give it a budget that fits, switch the feature on if it
+        was off, and emit. Quiet during `load`, which blocks the signal.
+        """
         chosen = str(self.model.currentData() or "")
         if not chosen or chosen == self._configured:
             return
@@ -433,6 +437,7 @@ class ModelBox(QGroupBox):
             client, timeout_s=float(budget), enabled=True).translate(TEST_SENTENCE)
 
     def _show_test(self, result: Any) -> None:
+        """UI thread: the Test worker's result, in one sentence with the time it took."""
         seconds = getattr(result, "elapsed_s", 0.0)
         if getattr(result, "changed", False):
             self.status.setText(

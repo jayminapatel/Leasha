@@ -87,6 +87,7 @@ class OfflineMediaView(LineActions, QWidget):
     error = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
+        """Build the list and the three buttons. UI thread; `refresh` reads on a worker."""
         super().__init__(parent)
         self._store = store
         self._rows: list[VolumeRow] = []
@@ -237,6 +238,7 @@ class OfflineMediaView(LineActions, QWidget):
     # -- selection --------------------------------------------------------
 
     def _selected_volume_id(self) -> Optional[int]:
+        """The selected source's id, or None."""
         items = self.tree.selectedItems()
         if not items:
             return None
@@ -244,6 +246,7 @@ class OfflineMediaView(LineActions, QWidget):
         return int(value) if value is not None else None
 
     def _selected_row(self) -> Optional[VolumeRow]:
+        """The selected source's `VolumeRow`, or None."""
         volume_id = self._selected_volume_id()
         if volume_id is None:
             return None
@@ -253,6 +256,7 @@ class OfflineMediaView(LineActions, QWidget):
         return None
 
     def _sync_buttons(self) -> None:
+        """Rescan only for an online source, Delete for any; refresh the row buttons."""
         row = self._selected_row()
         self.rescan.setEnabled(row is not None and row.status_code == "ONLINE")
         self.delete.setEnabled(row is not None)
@@ -266,6 +270,7 @@ class OfflineMediaView(LineActions, QWidget):
     # (A line's own Rescan, its menu and "Copy hardware ID" are `LineActions`.)
 
     def _choose_and_scan(self) -> None:
+        """Scan a drive: pick a folder, name it, then emit `scan_requested`."""
         folder = QFileDialog.getExistingDirectory(self, "Choose a drive or folder to catalogue")
         if not folder:
             return
@@ -275,11 +280,13 @@ class OfflineMediaView(LineActions, QWidget):
         self.scan_requested.emit(folder, dialog.chosen_name(), dialog.chosen_description())
 
     def _rescan_selected(self) -> None:
+        """Emit `rescan_requested` for an online selected source."""
         row = self._selected_row()
         if row is not None and row.status_code == "ONLINE":
             self.rescan_requested.emit(row.volume_id)
 
     def _delete_selected(self) -> None:
+        """Confirm, then emit `delete_requested` for the selected source."""
         row = self._selected_row()
         if row is None:
             return

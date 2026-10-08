@@ -55,6 +55,7 @@ class FolderWatchControl(QObject):
     _event = Signal(str, dict)
 
     def __init__(self, window: Any) -> None:
+        """Build the two timers; the process starts in `apply`."""
         super().__init__(window)
         self._w = window
         self._child: Any = None
@@ -126,6 +127,7 @@ class FolderWatchControl(QObject):
     # -- the process -----------------------------------------------------------------
 
     def _roots(self) -> list[str]:
+        """The folders to watch, from the Settings page's own list; [] without one."""
         view = getattr(self._w, "settings_view", None)
         read = getattr(view, "current_roots", None)
         if read is None:
@@ -159,6 +161,7 @@ class FolderWatchControl(QObject):
                 kind, {**data, "_process": number}))
 
     def _stop_child(self) -> None:
+        """End the current process, if any, without waiting."""
         child, self._child = self._child, None
         if child is not None:
             child.stop()
@@ -166,6 +169,9 @@ class FolderWatchControl(QObject):
     # -- what it reports ----------------------------------------------------------------
 
     def _on_event(self, kind: str, data: dict) -> None:
+        """UI thread (via `_event`): a word from the process - restart it if it ended
+        unasked, show its sentence, refresh the counts after an update.
+        """
         if data.get("_process") != self._generation or self._child is None:
             return                               # from a process since replaced or stopped
         if kind == "ended":
@@ -188,6 +194,7 @@ class FolderWatchControl(QObject):
             self._refresh_counts()
 
     def _status(self, text: str) -> None:
+        """Put one sentence under the switch, if the Indexing page exists."""
         view = getattr(self._w, "indexing_view", None)
         box = getattr(view, "schedule_box", None)
         if box is not None:

@@ -34,7 +34,11 @@ MODEL_KEY = "ui:interpret_model"
 
 
 class InterpretModels(QObject):
+    """Interpret's model menu on the Search page. A `QObject` parented to the
+    window; every list and load runs on a worker.
+    """
     def __init__(self, window: Any, menu: Any, translator: Any) -> None:
+        """Hold the menu, the translator and Settings' client; nothing runs yet."""
         super().__init__(window)
         self._w = window
         self.menu = menu
@@ -107,6 +111,7 @@ class InterpretModels(QObject):
                                         ollama=full or runner == "ollama")
 
     def _listed(self, result: tuple) -> None:
+        """UI thread: show the options and apply a remembered pick if it is still there."""
         saved, menu = result
         options = list(menu.get("options") or [])
         values = {str(o.value) for o in options}
@@ -144,6 +149,9 @@ class InterpretModels(QObject):
             self._hand_over(self._default)
 
     def _apply(self, value: str) -> None:
+        """Use `value` from the next press: build its client on a worker, loading it
+        ahead only when Interpret is on and it fits in memory.
+        """
         self._choice = value
         self._token += 1
         if not value:
@@ -164,6 +172,7 @@ class InterpretModels(QObject):
         run(QThreadPool.globalInstance(), worker)
 
     def _built(self, token: int, client: Any) -> None:
+        """UI thread: the client landed; ignored if another pick came first."""
         if token != self._token:
             return                                        # picked again meanwhile
         self._hand_over(client if client is not None else self._default)

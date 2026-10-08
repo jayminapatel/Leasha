@@ -198,6 +198,13 @@ class CadExtractor:
         return path.suffix.lower() in self.extensions
 
     def extract(self, path: Path) -> Iterable[Document]:
+        """The drawing's text, one segment per layout, or a name-only document.
+
+        Never raises for a drawing ezdxf rejects and never yields nothing: a
+        geometry-only or unreadable file still comes back as its name plus an
+        `ERR_NO_TEXT_LAYER` warning, so a search by drawing number finds it.
+        Reads only; nothing is written beside the file.
+        """
         try:
             import ezdxf                          # noqa: PLC0415 - lazy by design
             from ezdxf.lldxf.const import DXFError

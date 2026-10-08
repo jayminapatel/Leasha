@@ -400,6 +400,7 @@ class Document:
     mail: Optional[dict] = None
 
     def as_dict(self) -> dict:
+        """`SearchResult.as_dict` of the best passage, plus the document's own fields."""
         found = self.best.as_dict()
         found.update(rank=self.rank, matches=self.matches, status=self.status)
         if self.mail:
@@ -472,6 +473,7 @@ class SearchRun:
 
     @property
     def applied(self) -> tuple:
+        """The plain-English filters read from the line, as the response carries them."""
         return tuple(getattr(self.response, "applied", ()) or ())
 
     @property

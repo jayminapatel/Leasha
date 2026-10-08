@@ -1,4 +1,10 @@
-"""Control: the same Interpret sentences and JSON request through Ollama's qwen2.5:1.5b."""
+"""Control: the same Interpret sentences and JSON request through Ollama's qwen2.5:1.5b.
+
+Layer: tooling, not app code. A measurement run by hand beside
+`measure_onnx_chat.py`, so the two chat engines are compared on identical
+prompts; it needs Ollama running with the model pulled, and prints what it
+got rather than asserting anything.
+"""
 import json
 import sys
 from pathlib import Path
