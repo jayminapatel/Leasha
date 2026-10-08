@@ -335,9 +335,13 @@ def test_partial_promotes_to_indexed_once_embedded(tmp_path):
             "ordinal": 0, "text": "Barnsley Dairy", "page": None,
             "char_start": 0, "char_end": 14}])
 
+        # Dated note, 2026-10-08: with "Make text searchable first" on, the
+        # repair parks these for the run's model thread instead of embedding
+        # them here, so this direct call is the classic mode's. The text-first
+        # promotion is `test_text_first.py`'s stop-and-resume test.
         pipeline = Pipeline(
             store, NullVectors(), _tiny_embedder(),
-            PipelineConfig(walk=WalkConfig(roots=[]), workers=1),
+            PipelineConfig(walk=WalkConfig(roots=[]), workers=1, two_phase=False),
         )
         from app.index.pipeline import IndexStats
 

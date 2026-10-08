@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.111 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 7.113 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -109,6 +109,32 @@ tasks (the runner, model downloads, the installer build), `docs/VSCODE.md`, and
 `Leasha.pyproj` regenerated for the five new files. Owner decisions still open: the `doctor` fix texts that tell a
 person to create `.env` by hand; `search` exiting 1 on no results; `LOG_PATH` differing
 between `install.ps1` and the Inno installer.
+
+**2026-10-08 - words before meaning, spreadsheets by their words, results before the
+reranker; v1.0.0 tagged on the commit that carries this entry.** Measured first, with
+nothing else running: the owner's 15-hour run spent 54,555 s embedding and 1,568 s writing,
+so "waiting for the index writer" was the readers waiting on the meaning model. More threads
+do not help (4 to 8 is +6%, 12 is slower) and the Iris Xe is slower than the processor for
+the meaning model. `INDEX_TWO_PHASE` had been read by nothing; it now parks batches the
+model is too busy for (`Pipeline._hand_over_or_park`) - every passage searchable by its
+words after 7.5 s instead of 123.2 s on a 1,559-passage run. An unchanged PARTIAL file is
+not read again. **Found and fixed:** the start-of-run repair cut a file across batches and
+each batch deleted that file's vectors (`SqliteStore.unembedded_by_file`); 96 passages in 2
+files on the owner's index were flagged embedded with no vector and were reset to
+`embedded = 0` (ids in the session's scratch folder). 6,123 passages wait for the next run.
+Spreadsheets are keyword-only unless `INDEX_SPREADSHEET_MEANING` (52% of the owner's
+passages; `embedded = 2`). The Search tab draws rows before the reranker and redraws in
+place. `.env` no longer pins `RERANK_MODEL` (it was bge-reranker-base, 2,675 ms a search;
+MiniLM is 818 ms); the reranker stays on the graphics card (576 ms against 1,109 ms on the
+processor, same top 10). **Found:** building an ONNX session holds the GIL (8.8 s of a
+9.0 s build), and Interpret's in-process model was warmed at start-up - a 6.7 s frozen
+window at every start, now loaded on first use (`translate.warm_at_startup`); `ort.llm` logs
+what each load was for. **Still open:** two ~0.6 s start-up lags, and the Mail list filled
+cell by cell on the window thread (`mail_view._show`). Two load-only flakes seen:
+`test_file_watch.py::test_a_timed_out_file_is_settled_and_not_read_again` (3/3 alone) and a
+psutil `open_files` access violation inside `test_pipeline_bench.py` (passes alone).
+
+*Note, 2026-10-08 (later): since this entry, v1.0.0 is tagged (annotated, on 40b191e) and `Leasha-Setup-1.0.0.exe` is built and in `Leasha\Releases\1.0.0\` (SHA256 CBB8CEE5B4CC75ABA7B709DA9260BAB0BD1191E2008815103B5C412ADB426ED3), by the "Index writer" thread after its own work was in. insightface loading in the frozen build is still not verified - that needs an install.*
 
 **2026-10-08 - every model downloadable, one at a time or all; branded installer.** The
 single list is `app/core/model_catalogue.py` (keys search, rerank, pictures, photo-tags,

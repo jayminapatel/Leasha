@@ -156,7 +156,10 @@ def semantic_search_warnings(
     if not sqlite_stats:
         return []
 
-    chunks = int(sqlite_stats.get("chunks_total", 0))
+    # 2026-10-08: passages kept by their words only on purpose (spreadsheets,
+    # "Find spreadsheets by meaning" off) are not missing a vector.
+    chunks = max(0, int(sqlite_stats.get("chunks_total", 0))
+                 - int(sqlite_stats.get("chunks_keyword_only", 0) or 0))
     embedded = int(sqlite_stats.get("chunks_embedded", 0))
     rows = int((vector_stats or {}).get("rows", 0))
     if chunks == 0:

@@ -32,8 +32,8 @@ from PySide6.QtWidgets import (
 
 from app.core.branding import window_title
 from app.core.logging import logger
-from app.llm.engines import text_model
-from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator
+from app.llm.engines import engine_of, text_model
+from app.search.translate import TRANSLATE_TIMEOUT_S, QueryTranslator, warm_at_startup
 from app.ui.later import later
 from app.ui.code_view import CodeView
 from app.ui.controllers.chat_controller import ChatController
@@ -322,7 +322,16 @@ class MainWindow(QMainWindow):
         # somebody having asked for the feature in a previous session. A new
         # install loads nothing and contacts nothing - see `_warm_translator`
         # for why the first press otherwise pays 8.2s against a 5s budget.
-        translator.just_enabled = interpret_on
+        #
+        # 2026-10-08: **and only when the model is Ollama's.** The model inside
+        # Leasha (the default since 2026-09-29) loads in this process, and
+        # building its session holds Python's lock for the whole load -
+        # measured 8.8 s of a 9.0 s build with no other thread able to run - so
+        # this warm froze the window for 6.7 s at every start (reproduced, and
+        # named by `ort.llm`'s "was loaded for" line). The owner's decision for
+        # Chat (2.2a, 2026-10-04) applies: it loads when first used. The 45 s
+        # Interpret budget (`TRANSLATE_TIMEOUT_S`) already covers that load.
+        translator.just_enabled = warm_at_startup(interpret_on, engine_of(settings))
         self.search_view = SearchView(engine, translator)
         self.search_view.result_opened.connect(self._open_result)
         self._lend_open_context()   # 2026-10-04: the one open route, for every page

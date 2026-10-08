@@ -137,6 +137,8 @@ PHASE_WORDS: dict[str, str] = {
     # 2026-10-04: Florence-2 tags, moved to the end of a run.
     "photo_tags": "Describing the photos that have no text in them…",
     "picture_text": "Reading any text in the pictures, last of all…",
+    # 2026-10-08: text first - every file is findable by its words already.
+    "meaning": "Words are searchable now. Working out what they mean…",
     "tidying": "Tidying up the index…",
     "vector_index": "Organising the index so searches stay quick…",
     "word_index": "Tidying the word index so searches stay quick…",
@@ -516,8 +518,19 @@ def index_summary(
     # have a vector, and a partly-embedded corpus is findable by exact words
     # only - silently. This is the number that was invisible for weeks while
     # 154 of 3,355 passages were embedded and search quietly did half its job.
+    # 2026-10-08: passages kept by their words only on purpose ("Find
+    # spreadsheets by meaning" off) are not a gap, so they are not counted
+    # against the vectors - and are said once, on a line of their own.
+    keyword_only = int(stats.get("chunks_keyword_only", 0) or 0)
+    if keyword_only:
+        out.append(StatRow(
+            "Spreadsheet passages, by words only",
+            f"{keyword_only:,}",
+            note="Find spreadsheets by meaning is off in Indexing settings.",
+        ))
+    chunks = max(0, chunks - keyword_only)
     if chunks:
-        covered = rows_in_vectors / chunks
+        covered = min(1.0, rows_in_vectors / chunks)
         out.append(StatRow(
             "Meaning-based search covers",
             f"{covered:.0%}",

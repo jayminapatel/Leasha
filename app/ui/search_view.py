@@ -27,6 +27,7 @@ from app.ui.presenter import (
     IDLE_DEBOUNCE_MS, TYPING_DEBOUNCE_MS, Tier, federated_summary, notice_register_for,
     result_view_state, search_options, search_shape, tier_for,
 )
+from app.ui.presenter.search import draws_answer
 from app.ui.widgets.history_pass import run_history_pass
 from app.ui.widgets.interpret import interpret_into
 from app.ui.widgets.result_table import offer_filters, redraw_with_details
@@ -66,7 +67,6 @@ class SearchView(QWidget):
     interpreted = Signal(object)
 
     def __init__(self, engine: Any, translator: Any = None, parent: QWidget | None = None) -> None:
-        """Build the bar, the results pane and the two timers. UI thread, no store."""
         super().__init__(parent)
         self._engine = engine
         self._translator = translator
@@ -75,6 +75,9 @@ class SearchView(QWidget):
         self._pool = QThreadPool.globalInstance()
         self._generation = 0
         self._shown_generation = -1
+        #: 2026-10-08: the last generation whose *finished* answer was drawn, so
+        #: an early (not yet reranked) answer can never replace it.
+        self._finished_generation = -1
         self._shown_query = ""          # order 0q S8: the stable-update anchor
         #: Whether this session has ever drawn a result. Until it has, an empty
         #: answer is genuinely empty and should say so; afterwards, blanking a
@@ -180,7 +183,6 @@ class SearchView(QWidget):
         select_scope(self.scope, value)
 
     def _view_changed(self, prefs: Any) -> None:
-        """The View button changed the preferences: apply them and tell the window."""
         self.results.set_view_preferences(prefs)
         self._apply_preview(prefs)
         self.view_preferences_changed.emit(prefs)
@@ -270,6 +272,9 @@ class SearchView(QWidget):
             self._engine, query, tier=tier, generation=self._generation, **options
         )
         arm_skeleton(self.results)                 # §6d: bars if this takes >300ms
+        # 2026-10-08, the owner: the rows at once, before the reranker has
+        # ordered them, then redrawn in place - see `SearchWorker._rerank_follows`.
+        worker.signals.progress.connect(lambda payload: self._on_results(payload, early=True))
         worker.signals.finished.connect(self._on_results)
         # **The notice bar, not a modal.** This fires per debounced keystroke,
         # so a transiently locked database - which is exactly what an index run
@@ -312,17 +317,17 @@ class SearchView(QWidget):
         self.notices.show_notices([error])
         self.status.setText("")
 
-    def _on_results(self, payload: Any) -> None:
-        """UI thread: a search landed - dropped if stale, else notices, rows and status
-        are drawn and the subtitles and marks fetched on a worker.
-        """
+    def _on_results(self, payload: Any, *, early: bool = False) -> None:
         generation, response = payload
 
         # Stale: the person has typed since this was dispatched. Showing it would
-        # replace newer results with older ones.
-        if generation < self._shown_generation:
-            return
+        # replace newer results with older ones. 2026-10-08: nor may an early
+        # answer replace its own search's finished one - see `draws_answer`.
+        shown, finished = self._shown_generation, self._finished_generation
+        if not draws_answer(generation, shown, finished, early=early): return
         self._shown_generation = generation
+        # 2026-10-08: remembered only for a finished answer.
+        self._finished_generation = self._finished_generation if early else generation
 
         self._last_search_id = response.search_id
         # **The window's half of "nothing fails silently".** The engine decides
@@ -332,14 +337,17 @@ class SearchView(QWidget):
             response, self.input.text(),
             interpret_enabled=self.interpret_button.isVisible())
         self.notices.show_notices(notices)
-        # Offers for the filters the sentence contains arrive from a worker and
-        # join the bar - see `presenter.filter_offers`. Only if still current.
-        offer_filters(self, notices, generation, response)
         self._shown_anything = self._shown_anything or bool(response.results)
         self.status.setText(status)
-        # The shape of the search, never its text - see `debug_recorder.py`.
-        self.searched.emit(search_shape(
-            response, query_len=len(self.input.text()), scope=self.current_scope()))
+        # 2026-10-08: both once per search - from the finished answer, not the
+        # early one drawn before the reranker had ordered the rows.
+        if not early:
+            # Offers for the filters the sentence contains arrive from a worker and
+            # join the bar - see `presenter.filter_offers`. Only if still current.
+            offer_filters(self, notices, generation, response)
+            # The shape of the search, never its text - see `debug_recorder.py`.
+            self.searched.emit(search_shape(
+                response, query_len=len(self.input.text()), scope=self.current_scope()))
 
         if not response.results:
             # **Keep what is on screen.** Mail feels better than this tab

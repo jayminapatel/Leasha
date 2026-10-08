@@ -391,6 +391,11 @@ class Settings(BaseModel):
     #: (`app/index/read_process.py`) rather than on threads that share one
     #: interpreter lock. Off by default until measured on the owner's machine.
     index_read_processes: bool = False
+    #: 2026-10-08, the owner. Give spreadsheet passages a vector as well as
+    #: words. Off: spreadsheets are found by their words only - on the owner's
+    #: index they were 52% of all passages (xlsx, xls, xlsm, csv), so half of
+    #: every run's embedding time went on rows of cells.
+    index_spreadsheet_meaning: bool = False
     #: Work order 0z lane B (`app/index/file_watch.py`). Seconds one text or
     #: code file may take to read before it is skipped (`ERR_FILE_TIMEOUT`);
     #: PDFs, Office files and other documents get ten times this. 0 is no
@@ -570,6 +575,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_ORDER",
     "INDEX_SEPARATE_PROCESS",
     "INDEX_READ_PROCESSES",
+    "INDEX_SPREADSHEET_MEANING",
     "INDEX_FILE_TIME_LIMIT_S",
     "INDEX_STALL_LIMIT_S",
     "INDEX_WATCH_FOLDERS",
@@ -784,6 +790,9 @@ def load_settings(
             index_read_processes=_as_bool(
                 "INDEX_READ_PROCESSES",
                 values.get("INDEX_READ_PROCESSES", "false")),
+            index_spreadsheet_meaning=_as_bool(
+                "INDEX_SPREADSHEET_MEANING",
+                values.get("INDEX_SPREADSHEET_MEANING", "false")),
             index_file_time_limit_s=max(0, _as_int(
                 "INDEX_FILE_TIME_LIMIT_S",
                 values.get("INDEX_FILE_TIME_LIMIT_S", "120"))),

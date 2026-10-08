@@ -126,11 +126,13 @@ def _corpus(tmp_path: Path, *, archive: bool) -> Path:
     return root
 
 
-def _run(db: Path, root: Path, vectors: RecordingVectors, model: Model):
+def _run(db: Path, root: Path, vectors: RecordingVectors, model: Model,
+         *, two_phase: bool = True):
     with SqliteStore(db) as store:
         config = PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
                                 embed_batch=1000,      # one batch: nothing flushes early
-                                limits=ResourceLimits(pause_on_battery=False, cpu_percent=0))
+                                limits=ResourceLimits(pause_on_battery=False, cpu_percent=0),
+                                two_phase=two_phase)
         pipeline = Pipeline(store, vectors, model.embedder(), config)
         model.pipeline = pipeline
         stats = pipeline.run()
@@ -183,17 +185,24 @@ def test_a_stop_that_never_comes_embeds_everything_in_smaller_calls(tmp_path) ->
 # --- what a cut batch must not claim ------------------------------------------
 
 def test_an_archive_cut_by_a_stop_gets_no_completion_marker(tmp_path) -> None:
-    """The marker says "read in full, do not open again"; here it would be a lie."""
+    """The marker says "read in full, do not open again"; here it would be a lie.
+
+    Dated note, 2026-10-08: true of the classic mode, where the marker waits for
+    the vectors, so the test runs with "Make text searchable first" off. With it
+    on, the archive *was* read in full - every message's text is committed - and
+    the passages the stop cut short are filled by the next run without opening
+    the archive again: `test_text_first.py`.
+    """
     db, root = tmp_path / "i.db", _corpus(tmp_path, archive=True)
     vectors = RecordingVectors()
-    _run(db, root, vectors, Model(stop_after_calls=1))
+    _run(db, root, vectors, Model(stop_after_calls=1), two_phase=False)
     assert ResumableArchive.opened == 1
 
-    _run(db, root, vectors, Model())                              # must read it again
+    _run(db, root, vectors, Model(), two_phase=False)             # must read it again
     assert ResumableArchive.opened == 2, "the cut archive was treated as finished"
     assert len(vectors.rows) == FILES
 
-    _run(db, root, vectors, Model())                              # and now it is settled
+    _run(db, root, vectors, Model(), two_phase=False)             # and now it is settled
     assert ResumableArchive.opened == 2
 
 

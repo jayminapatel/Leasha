@@ -1002,6 +1002,7 @@
     <Compile Include="tests\unit\test_result_groups.py" />
     <Compile Include="tests\unit\test_result_table.py" />
     <Compile Include="tests\unit\test_result_tools_similar_dispatch.py" />
+    <Compile Include="tests\unit\test_results_before_rerank.py" />
     <Compile Include="tests\unit\test_results_liveness.py" />
     <Compile Include="tests\unit\test_results_view.py" />
     <Compile Include="tests\unit\test_reverse_image_acceptance.py" />
@@ -1053,6 +1054,7 @@
     <Compile Include="tests\unit\test_splash.py" />
     <Compile Include="tests\unit\test_splash_handoff.py" />
     <Compile Include="tests\unit\test_spreadsheet_preview.py" />
+    <Compile Include="tests\unit\test_spreadsheets_by_words.py" />
     <Compile Include="tests\unit\test_sqlite_bounded_connection.py" />
     <Compile Include="tests\unit\test_stages.py" />
     <Compile Include="tests\unit\test_staging.py" />
@@ -1070,6 +1072,7 @@
     <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_table_sorting.py" />
+    <Compile Include="tests\unit\test_text_first.py" />
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />

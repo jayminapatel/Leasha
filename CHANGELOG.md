@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.84 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 4.86 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -54,6 +54,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   functions now say what they are for and why they are the way they are.
 
 ## [1.0.0] - 2026-10-08
+
+### Words first, for real; spreadsheets by their words; results before the reranker (2026-10-08)
+
+- **Files no longer wait for the meaning model before they can be found by their words.**
+  "Make text searchable first" was switched on and did nothing: once the model was busy,
+  every reader stopped at "Waiting for the index writer" and the whole run read at the
+  model's pace. On the owner's 15-hour run the model took 54,555 seconds and writing
+  1,568. Now the run reads and writes at full speed, and the model works through what it
+  missed behind it, then finishes in a last stretch that says so. A run stopped part-way
+  loses nothing: the next one carries on giving meaning to what is left, without reading
+  those files again.
+- **Spreadsheets are found by the words and numbers in them, and no longer slow indexing
+  down.** They were over half of all passages on the owner's index. *Find spreadsheets by
+  meaning* (Indexing › Tuning) puts them back; switching it on gives them meaning on the
+  next run without reading a single spreadsheet again.
+- **With Rerank on, results appear as soon as they are found** and settle into the more
+  precise order a moment later, in place. Measured on the owner's index: the search itself
+  153 ms, the reranker another 818 ms.
+- **The window no longer freezes for several seconds as it opens when Interpret is on.**
+  Interpret's model was loaded at start-up, and loading the model inside Leasha holds the
+  whole window still while it happens (6.7 s, reproduced). It now loads the first time
+  Interpret is used, inside the time Interpret already allows for it. Ollama's model is
+  still warmed at start-up: it runs elsewhere and costs the window nothing.
+- **A long file whose vectors were being filled in could keep only the last few.** The
+  repair at the start of a run cut a file's passages across batches, and each batch first
+  deleted that file's vectors. 96 passages in 2 files were left that way on the owner's
+  index.
 
 ### Every model, downloaded when you choose, and an installer in Leasha's colours (2026-10-08)
 

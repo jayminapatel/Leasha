@@ -554,6 +554,18 @@ class SearchWorker(QRunnable):
             # not, so a chip is never carried over from another search.
             from app.search.run import search_once
 
+            if self._rerank_follows():
+                # 2026-10-08, the owner: results at once, then the better
+                # order. Measured on the owner's index (15 queries x 3): the
+                # search itself 153 ms median, the reranker another 818 ms
+                # with MiniLM and 2,675 ms with bge-reranker-base. So the
+                # list is drawn from the search alone, and redrawn in place
+                # when the reranked answer lands - same generation, same
+                # query, so the view keeps the scroll (`keep_scroll`). Left
+                # out of the search log: it is one search, not two.
+                first = dict(self._options, rerank=False, record=False)
+                early = search_once(self._engine, self._query, tier=self._tier, **first)
+                _emit(self.signals, "progress", (self.generation, early))
             response = search_once(self._engine, self._query, tier=self._tier,
                                    **self._options)
             _emit(self.signals, "finished", (self.generation, response))
@@ -569,6 +581,18 @@ class SearchWorker(QRunnable):
             _emit(self.signals, "failed", error)
         finally:
             _emit(self.signals, "done")
+
+    def _rerank_follows(self) -> bool:
+        """Will this search be reranked? Then the unreranked rows go first.
+
+        Only the full tier asks for a reranker, and only a reranker that is on
+        and loaded will run - otherwise the first pass would be the whole
+        search done twice for nothing.
+        """
+        if self._tier == "interim" or not self._options.get("rerank"):
+            return False
+        reranker = getattr(self._engine, "reranker", None)
+        return bool(getattr(reranker, "available", False))
 
 
 class IndexWorker(QRunnable):

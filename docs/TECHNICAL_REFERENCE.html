@@ -309,7 +309,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
   <li><b>Extract</b> (<code>app/extract/base.py</code> <code>REGISTRY</code>, loaded lazily). Each reader is a library first; external converters only where no library exists (<code>config/extractors.toml</code>).</li>
   <li><b>Chunk</b> (<code>chunker.py</code>): about 512 tokens with 64 overlap, preferring paragraph then sentence boundaries.</li>
   <li><b>Write</b> SQLite in groups of up to 256 documents or 0.1 s, checkpointing every 50 files or 2 s.</li>
-  <li><b>Embed</b> on the feeder thread: FastEmbed on ONNX Runtime, L2-normalised, batched (<code>EMBED_BATCH</code>), repeated text embedded once (<code>EMBED_DEDUP</code>). The device comes from <code>EMBED_DEVICE</code> (auto, cpu, gpu). With <code>INDEX_TWO_PHASE</code> on, a file is <code>PARTIAL</code> (keyword-searchable) until its vectors land, then <code>INDEXED</code>.</li>
+  <li><b>Embed</b> on the feeder thread: FastEmbed on ONNX Runtime, L2-normalised, batched (<code>EMBED_BATCH</code>), repeated text embedded once (<code>EMBED_DEDUP</code>). The device comes from <code>EMBED_DEVICE</code> (auto, cpu, gpu). With <code>INDEX_TWO_PHASE</code> on, a file is <code>PARTIAL</code> (keyword-searchable) until its vectors land, then <code>INDEXED</code>, and reading never waits for the model: a batch the model is too busy to take is parked as chunk ids (the text stays in SQLite), and the model works through the parked batches whenever it is free, then in a last "meaning" phase at the end of the run. An unchanged <code>PARTIAL</code> file is not read again; every run starts by parking the passages still at <code>embedded = 0</code>, whole files per batch (<code>unembedded_by_file</code>). Embedding is the run's cost: on the owner's 15-hour run it was 54,555 s against 1,568 s of SQLite writes, at about 8 passages a second on the processor (4 threads; 8 threads gained 6%, the Iris Xe graphics card was slower). Spreadsheet types (<code>KEYWORD_ONLY_EXTS</code>: xlsx, xlsm, xlsb, xls, ods, csv, tsv) are found by their words only unless <code>INDEX_SPREADSHEET_MEANING</code> is on: their passages are written with <code>embedded = 2</code>, the file is <code>INDEXED</code> at once, and coverage figures leave them out.</li>
 </ol>
 <p><b>Resumability.</b> The <code>files</code> table is the mechanism: a re-walk costs one <code>stat()</code> per unchanged file. mbox resumes per message, PST per folder (persisted every 30 s), transcripts through a journal. The <code>index_state</code> cursor is progress reporting only.</p>
 <h3 id="formats">Formats</h3>
@@ -385,10 +385,11 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td>FTS5 BM25 top 100</td><td>&lt;60 ms</td><td>not recorded</td></tr>
 <tr><td>LanceDB ANN top 100</td><td>&lt;80 ms</td><td>not recorded</td></tr>
 <tr><td>RRF fusion</td><td>&lt;5 ms</td><td>0.14 ms</td></tr>
-<tr><td>Rerank top 30</td><td>&lt;200 ms</td><td>not recorded</td></tr>
-<tr><td><b>Warm search, rerank on</b></td><td><b>&lt;300 ms</b></td><td>measured at small scale only</td></tr>
+<tr><td>Retrieve (query embedding, BM25 and ANN in parallel)</td><td></td><td>142 ms median, 455 ms p95</td></tr>
+<tr><td>Rerank top 30</td><td>&lt;200 ms</td><td>818 ms median, 1,960 ms p95 (MiniLM-L-6); 2,675 ms median (bge-reranker-base)</td></tr>
+<tr><td><b>Warm search, rerank on</b></td><td><b>&lt;300 ms</b></td><td>1,021 ms median, 2,155 ms p95 (MiniLM-L-6); 153 ms median with rerank off</td></tr>
 <tr><td>Interim tier</td><td>&lt;40 ms</td><td>not recorded</td></tr></table>
-<p class="small muted">From <code>BUILD_SPEC_V2.md</code>, which owns the per-stage budget. A figure not measured is shown as not recorded, not estimated.</p>
+<p class="small muted">From <code>BUILD_SPEC_V2.md</code>, which owns the per-stage budget. A figure not measured is shown as not recorded, not estimated. The retrieve, rerank and warm-search figures were measured on 8 October 2026 on the owner's index (386,665 passages, 380,542 vectors) on an i7-1365U, nothing else running: 15 queries, 3 times each, models loaded first, result cache off. Because the reranker is most of a search, the Search tab draws the rows as soon as the search itself returns and redraws them in place when the reranked order lands (<code>SearchWorker._rerank_follows</code>); that first pass is not logged as a search.</p>
 
 <h2 id="chat"><span class="num">8</span>Chat and the local models</h2>
 <ul>
@@ -456,6 +457,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>INDEX_OCR_PASS</code> / <code>INDEX_OCR_MODE</code></td><td>with-run / both</td><td></td></tr>
 <tr><td><code>INDEX_ORDER</code></td><td>newest</td><td>newest, found</td></tr>
 <tr><td><code>INDEX_SEPARATE_PROCESS</code> / <code>INDEX_READ_PROCESSES</code></td><td>false / false</td><td></td></tr>
+<tr><td><code>INDEX_SPREADSHEET_MEANING</code></td><td>false</td><td>spreadsheets by their words only when off</td></tr>
 <tr><td><code>INDEX_FILE_TIME_LIMIT_S</code> / <code>INDEX_STALL_LIMIT_S</code></td><td>120 / 600</td><td>documents get 10× the file limit</td></tr>
 <tr><td><code>INDEX_NAME_ONLY</code></td><td>true</td><td>a row for every file</td></tr>
 <tr><td><code>ARCHIVE_RECHECK_DAYS</code> / <code>ARCHIVE_READ_INSIDE</code> / <code>ARCHIVE_MAX_MB</code></td><td>30 / true / 100</td><td></td></tr>
