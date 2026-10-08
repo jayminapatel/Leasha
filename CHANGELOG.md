@@ -19,6 +19,24 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [1.0.0] - 2026-10-08
 
+### Every model, downloaded when you choose, and an installer in Leasha's colours (2026-10-08)
+
+- **Settings, Models & AI, now starts with "Models Leasha uses":** every model Leasha
+  needs, what stops working without it, its size, whether it is on this computer, and its
+  own Download button (Stop while it runs). **Download all** fetches whatever is missing,
+  one after another, and a line says what is left.
+- **The installer lists the same models, each with a box and its size,** under one box
+  that ticks them all. Meaning search and best results first are ticked, as before; the
+  larger ones are not. `leasha-cli models list` and `models download <name>|all` do the
+  same from the command line.
+- **Downloading models during the install works.** The installer ran the download before
+  it had written Leasha's settings file, so on a new computer it found no settings and
+  downloaded nothing - in 0.3.5 too. The settings file is now written first.
+- **People in photos works in an installed copy.** The library it needs was left out of
+  the build, so faces could never be found there.
+- **The installer shows Leasha's own pictures:** the indigo panel with the logo on the first
+  and last pages, and the mark at the top of the others, sharp at every display scaling.
+
 ### A quick search you can move, a tidier Chat, and text you can read when it is selected (2026-10-08)
 
 - **Quick search (Ctrl+Alt+L) can be moved and resized, and opens where you left it.** It

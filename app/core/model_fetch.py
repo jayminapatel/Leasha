@@ -42,6 +42,19 @@ in the Hugging Face cache and the next Download carries on from it. Progress is
 the growth of the folder against the model's published size, the same
 outside-in measure `embedder._DownloadProgressWatcher` already uses, because
 neither library forwards a progress hook this far.
+
+**2026-10-08, the owner: every model the system needs can be downloaded, one by
+one or all at once, in Settings and in the installer** (`model_catalogue.py`
+lists them). Two more file-based kinds, fetched the same way:
+
+* ``image`` - CLIP's picture half (`CLIP_IMAGE_MODEL`), loaded by fastembed's
+  `ImageEmbedding(model_name, cache_dir=MODEL_CACHE)` in
+  `app/index/clip_embedder.py`. Its text half is an ``embed``: `app/search/vector.py`
+  loads it with `TextEmbedding` through `Embedder`, into the same folder.
+* ``faces`` - insightface's `buffalo_l` pack, which `FaceAnalysis(name=...)` in
+  `app/extract/face_detect.py` reads from `~/.insightface/models/buffalo_l`
+  (insightface's own default folder; `MODEL_CACHE` is not where it looks). Only
+  when insightface is installed: without it the pack is no use to anybody.
 """
 
 from __future__ import annotations
@@ -58,10 +71,11 @@ from app.core.errors import AppErrorException, make_error
 
 __all__ = [
     "KINDS", "APPROX_MB", "present", "fetch", "target_dir", "child_code",
-    "STOPPED", "DONE", "fetch_at_install",
+    "STOPPED", "DONE", "fetch_at_install", "faces_root", "faces_installed",
+    "FACE_PACK_FILES", "FACES_NEED_INSIGHTFACE",
 ]
 
-KINDS = ("ollama", "embed", "rerank", "speech", "onnx")
+KINDS = ("ollama", "embed", "rerank", "speech", "onnx", "image", "faces")
 
 #: What `fetch` returns.
 DONE = "done"
@@ -93,7 +107,28 @@ APPROX_MB: dict[str, int] = {
     "medium": 1530,
     "large-v3-turbo": 1620,
     "large-v3": 3090,
+    # 2026-10-08: fastembed 0.8.0's `size_in_GB` for CLIP's two halves, and the
+    # size of insightface's `buffalo_l.zip` (288,621,354 bytes, measured on the
+    # owner's laptop).
+    "Qdrant/clip-ViT-B-32-vision": 340,
+    "Qdrant/clip-ViT-B-32-text": 250,
+    "buffalo_l": 275,
 }
+
+#: The files of an insightface pack that face detection cannot do without:
+#: the detector and the recogniser `face_detect` uses. A pack folder without
+#: them is an unfinished download, not a model.
+FACE_PACK_FILES: dict[str, tuple[str, ...]] = {
+    "buffalo_l": ("det_10g.onnx", "w600k_r50.onnx"),
+}
+
+#: What to do when faces are asked for and insightface is not installed.
+FACES_NEED_INSIGHTFACE = (
+    "Recognising people in photos needs the insightface package. Running Leasha "
+    "from source: venv\\Scripts\\python.exe -m pip install insightface, then "
+    "download again. An installed copy of Leasha has it only if it was built "
+    "with it. Everything else works without it."
+)
 
 #: How often a child download is looked at, in seconds.
 _POLL_S = 0.5
@@ -105,6 +140,19 @@ _CHILD_CODE = {
               "TextEmbedding(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
     "rerank": ("import sys; from fastembed.rerank.cross_encoder import TextCrossEncoder; "
                "TextCrossEncoder(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
+    # 2026-10-08: CLIP's picture half, as `ClipImageEmbedder` builds it.
+    "image": ("import sys; from fastembed import ImageEmbedding; "
+              "ImageEmbedding(model_name=sys.argv[1], cache_dir=sys.argv[2])"),
+    # 2026-10-08: insightface's pack. `ensure_available` returns at once when
+    # the pack's folder exists, even empty, so a download that stopped partway
+    # through is fetched again (argv[3] == "1"); then `FaceAnalysis` loads it,
+    # on the processor - a pack that will not load is a failed download, said
+    # now rather than on the first photo.
+    "faces": ("import sys; from insightface.utils.storage import download; "
+              "download('models', sys.argv[1], force=sys.argv[3] == '1', root=sys.argv[2]); "
+              "from insightface.app import FaceAnalysis; "
+              "FaceAnalysis(name=sys.argv[1], root=sys.argv[2], "
+              "providers=['CPUExecutionProvider']).prepare(ctx_id=-1, det_size=(640, 640))"),
     # "speech" had its own faster-whisper program here until 2026-09-30; speech has
     # fetched the ONNX export through "onnx" since 2026-09-29 (`child_code` and the
     # download both map it), so that program was never run and was removed.
@@ -146,13 +194,44 @@ def child_code(kind: str) -> str:
     return _CHILD_CODE["onnx" if kind == "speech" else kind]
 
 
+def faces_root() -> Path:
+    """insightface's own folder, `~/.insightface` - where `FaceAnalysis(name=...)`
+    in `face_detect` looks, since it is given no `root`."""
+    return Path(os.path.expanduser("~/.insightface"))
+
+
+def faces_installed() -> bool:
+    """Is insightface importable here? Never raises; loads nothing (the same
+    check as `face_detect.available`)."""
+    try:
+        import importlib.util
+
+        return importlib.util.find_spec("insightface") is not None
+    except Exception:                              # noqa: BLE001
+        return False
+
+
+def _face_pack_complete(name: str, root: Path) -> bool:
+    folder = root / "models" / name
+    wanted = FACE_PACK_FILES.get(name)
+    try:
+        if wanted:
+            return all((folder / file).is_file() for file in wanted)
+        return folder.is_dir() and any(folder.glob("*.onnx"))
+    except OSError:
+        return False
+
+
 def target_dir(kind: str, model_cache: Any) -> Optional[Path]:
     r"""The folder the application loads this kind of model from, or None.
 
     `MODEL_CACHE` for fastembed's two, `MODEL_CACHE\whisper` for speech -
     exactly what `Embedder.from_settings`, `Reranker.from_settings` and
-    `MediaBox.load` hand their loaders.
+    `MediaBox.load` hand their loaders. Faces: insightface's own folder,
+    whatever `MODEL_CACHE` says (`faces_root`).
     """
+    if kind == "faces":
+        return faces_root()
     if not model_cache:
         return None
     root = Path(str(model_cache))
@@ -180,6 +259,8 @@ def _fastembed_source(kind: str, name: str) -> Optional[str]:
     try:
         if kind == "embed":
             from fastembed import TextEmbedding as loader
+        elif kind == "image":
+            from fastembed import ImageEmbedding as loader
         else:
             from fastembed.rerank.cross_encoder import TextCrossEncoder as loader
         for entry in loader.list_supported_models():
@@ -210,6 +291,8 @@ def present(kind: str, name: str, *, model_cache: Any = None,
         folder = target_dir(kind, model_cache)
         if folder is None or not folder.is_dir():
             return False
+        if kind == "faces":
+            return faces_installed() and _face_pack_complete(name, folder)
         if kind == "speech":
             from app.extract.transcribe import model_present
 
@@ -268,7 +351,11 @@ def _no_window_flags() -> int:
 
 def _child_args(kind: str, name: str, folder: Path) -> list[str]:
     """What the child program gets after `-c code`: always the name and the folder;
-    for `onnx` and `speech`, the repository instead of the name, and the files."""
+    for `onnx` and `speech`, the repository instead of the name, and the files;
+    for `faces`, whether to fetch the pack again over an unfinished one."""
+    if kind == "faces":
+        unfinished = (folder / "models" / name).is_dir() and not _face_pack_complete(name, folder)
+        return [name, str(folder), "1" if unfinished else "0"]
     if kind not in ("onnx", "speech"):
         return [name, str(folder)]
     import json
@@ -399,6 +486,11 @@ def fetch(kind: str, name: str, *, model_cache: Any = None, client: Any = None,
         raise AppErrorException(make_error(
             "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
             details=f"{name!r} is not a speech model size Leasha offers"))
+    if kind == "faces" and not faces_installed():
+        raise AppErrorException(make_error(
+            "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
+            details="faces need the insightface package, which is not installed here",
+            suggestion=FACES_NEED_INSIGHTFACE))
     if kind == "onnx" and _onnx_model(name) is None:
         raise AppErrorException(make_error(
             "ERR_MODEL_DOWNLOAD", "core.model_fetch", model=name,
@@ -423,6 +515,10 @@ def fetch_at_install(settings: Any = None, *, say: Callable[[str], None] = print
     the box in the installer, which is what makes this a download somebody
     asked for (this module's rule). **A failure is said and never fails the
     install** (acceptance A3): Settings can download either model later.
+
+    2026-10-08: the installer no longer calls this; it runs `leasha-cli.exe
+    models download <key>` once per model ticked (`model_catalogue`). Kept, with
+    its behaviour, for anything that still calls it.
     """
     fetcher = fetcher or fetch
     is_present = is_present or present

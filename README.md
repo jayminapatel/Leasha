@@ -87,9 +87,13 @@ supported.
 4. **Where to keep the index** - the one question. The default is
    `%LOCALAPPDATA%\Leasha\Data`. It warns if the drive has less than 300 GB free; a large
    index is about half the size of what it reads.
-5. Leave **Download the search models now** ticked (about 200 MB, the only time Leasha needs
-   the internet). Tick **Also read older Office files** to install LibreOffice through
-   winget, for `.doc`, `.ppt` and similar.
+5. **Download models now** lists every model Leasha uses, each with its size: meaning search
+   and best results first (ticked, about 150 MB together), picture search, photo tags and
+   captions, speech in recordings, Chat and Interpret, and people in photos. Tick the top
+   box for all of them (about 4 GB). This is the only time Leasha needs the internet; any
+   left out can be downloaded later under Settings, Models & AI, or with
+   `leasha-cli models download all`. Tick **Also read older Office files** to install
+   LibreOffice through winget, for `.doc`, `.ppt` and similar.
 6. On the last page, **Check the installation** opens a window listing each check; it should
    end with READY.
 

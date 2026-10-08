@@ -145,6 +145,9 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Name the people in your photos…": ("users", "secondary"),
     # Beside every model drop-down (widgets/model_download.py, 2026-09-29).
     "Download": ("file-down", "secondary"),
+    # 2026-10-08: Models Leasha uses (widgets/needed_models_box.py) - every
+    # missing model, one after another.
+    "Download all": ("file-down", "secondary"),
     # The Models box (widgets/model_manager.py, order 1c, 2026-09-30). They were
     # added without entries here, which test_button_system caught on 2026-09-30.
     # "Remove copies nothing uses" shows its size, so it is matched in PREFIXES.

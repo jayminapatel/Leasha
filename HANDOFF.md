@@ -63,6 +63,18 @@ line, no traceback and no window.
 
 ## 3. Current state
 
+**2026-10-08 - every model downloadable, one at a time or all; branded installer.** The
+single list is `app/core/model_catalogue.py` (keys search, rerank, pictures, photo-tags,
+speech, chat, faces); `model_fetch` gained the `image` (CLIP) and `faces` (insightface
+buffalo_l) kinds; `app/cli/models.py` is `models list|download`; the installer has one child
+task per model under `models`; Settings has `widgets/needed_models_box.py`. **Found:** the
+installer's model step ran before `.env` existed, so it never downloaded anything on a new
+install (0.3.5 too) - `WriteSettingsFile` now runs first (`BeforeInstall`). insightface is
+now collected into the build. Pictures: `packaging/make_installer_art.py` writes
+`packaging/art/`. **The installer is not built yet and v1.0.0 is not tagged** - on the
+owner's word, until another thread has committed its work. Not checked: a real download of
+the CLIP and faces kinds, and the new installer pages on screen.
+
 **2026-10-08 - release 1.0.0, on the owner's word.** `VERSION` 1.0.0, tagged `v1.0.0`.
 **Declared before its own milestone was checked:** `docs/VERSIONING.md` defines 1.0.0 as the
 24-hour soak passed, force-kill recovery verified and a cold start under 5s - none has been

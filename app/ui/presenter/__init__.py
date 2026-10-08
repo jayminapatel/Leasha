@@ -39,6 +39,7 @@ The package is split by domain; this file re-exports every name so that
   live_progress  each reader's place inside a file, and the heartbeat
   settings    Settings-page text and suggested folders
   mail_archives  the Mail archives box in Settings: each .pst, read again
+  needed_models  the Models Leasha uses box: each model, Download, Download all
   offline     catalogued drives and online-only files
 
 Anything that reads a store, the disk or a subprocess lives in `app.ui.tasks`
@@ -338,6 +339,28 @@ from app.ui.presenter.mail_archives import (
     clearing_archive_message,
     archive_cleared_message,
     archive_choice_saved_message,
+)
+from app.ui.presenter.needed_models import (
+    NEEDED_MODELS_TITLE,
+    NEEDED_MODELS_INTRO,
+    NEEDED_PRESENT,
+    NEEDED_MISSING,
+    NEEDED_LOOKING,
+    NEEDED_STARTING,
+    NEEDED_STOPPING,
+    NEEDED_STOPPED,
+    NEEDED_NO_LIBRARY,
+    NEEDED_DOWNLOAD_TIP,
+    NEEDED_DOWNLOAD_ALL_TIP,
+    NEEDED_STOP_TIP,
+    NEEDED_STOP_ALL_TIP,
+    needed_size_words,
+    needed_progress_words,
+    needed_reason,
+    needed_failed_words,
+    needed_failed_tip,
+    needed_summary,
+    needed_list_failed,
 )
 from app.ui.presenter.snippets import (
     SNIPPET_CHARS,

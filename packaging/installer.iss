@@ -34,6 +34,9 @@ UninstallDisplayIcon={app}\Leasha.exe
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+; The Leasha pictures, made by make_installer_art.py at each display scaling (2026-10-08).
+WizardImageFile=art\wizard-100.png,art\wizard-125.png,art\wizard-150.png,art\wizard-175.png,art\wizard-200.png,art\wizard-250.png
+WizardSmallImageFile=art\small-100.png,art\small-125.png,art\small-150.png,art\small-175.png,art\small-200.png,art\small-250.png
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.19045
@@ -52,13 +55,35 @@ Name: "{autodesktop}\Leasha"; Filename: "{app}\Leasha.exe"; Tasks: desktopicon
 [Tasks]
 Name: "desktopicon"; Description: "Put Leasha on the desktop"; Flags: unchecked
 ; Section 4.2 step 4: the models, so the first search works offline. Never fails
-; the install (acceptance A3) - Settings can download them later.
-Name: "models"; Description: "Download the search models now (about 200 MB; needs the internet this once)"
+; the install (acceptance A3) - Settings, Models can download them later.
+; 2026-10-08 (owner): one box per model Leasha needs, in the order and with the
+; names of app/core/model_catalogue.py (Inno allows no "-" in a task name, so
+; photo-tags is models\photo_tags); ticking the parent ticks them all.
+; tests/unit/test_installer_script.py holds the two to each other.
+Name: "models"; Description: "Download models now (needs the internet this once)"
+Name: "models\search"; Description: "Meaning search: finds files by what they mean (about 67 MB)"
+Name: "models\rerank"; Description: "Best results first: puts the closest matches first (about 80 MB)"
+Name: "models\pictures"; Description: "Picture search: finds pictures from a description (about 590 MB)"; Flags: unchecked
+Name: "models\photo_tags"; Description: "Photo tags and captions: tags and a caption for each photo (about 1.0 GB)"; Flags: unchecked
+Name: "models\speech"; Description: "Speech in recordings: makes speech in audio and video searchable (about 291 MB)"; Flags: unchecked
+Name: "models\chat"; Description: "Chat and Interpret: answers questions about your files (about 1.7 GB)"; Flags: unchecked
+Name: "models\faces"; Description: "People in photos: finds faces so people can be named (about 275 MB). Only used when 'Recognise people in photos on this computer' is on"; Flags: unchecked
 ; Section 5: off by default, and never blocks - winget may be absent or refused.
 Name: "libreoffice"; Description: "Also read .doc, .ppt and other older Office files (installs LibreOffice, about 400 MB, through winget)"; Flags: unchecked
 
 [Run]
-Filename: "{app}\leasha-cli.exe"; Parameters: "-c ""from app.core.model_fetch import fetch_at_install as f; raise SystemExit(f())"""; StatusMsg: "Downloading the search models..."; Flags: waituntilterminated; Tasks: models
+; One line per model ticked, each writing the settings file first if it is not
+; there yet (WriteSettingsFile in [Code]). Inno does not look at a program's
+; exit code (checked 2026-10-08), so a model that does not download never
+; fails the install; it shows as missing in Settings, Models, which can
+; download it later.
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download search"; StatusMsg: "Downloading the meaning search model (about 67 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\search
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download rerank"; StatusMsg: "Downloading the model that puts the best results first (about 80 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\rerank
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download pictures"; StatusMsg: "Downloading the picture search model (about 590 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\pictures
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download photo-tags"; StatusMsg: "Downloading the photo tags and captions model (about 1.0 GB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\photo_tags
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download speech"; StatusMsg: "Downloading the speech model (about 291 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\speech
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download chat"; StatusMsg: "Downloading the Chat and Interpret model (about 1.7 GB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\chat
+Filename: "{app}\leasha-cli.exe"; Parameters: "models download faces"; StatusMsg: "Downloading the model that finds people in photos (about 275 MB)..."; Flags: waituntilterminated runhidden; BeforeInstall: WriteSettingsFile; Tasks: models\faces
 Filename: "{cmd}"; Parameters: "/c winget install --id TheDocumentFoundation.LibreOffice -e --silent --accept-package-agreements --accept-source-agreements"; StatusMsg: "Installing LibreOffice through winget..."; Flags: waituntilterminated; Tasks: libreoffice
 ; Section 4.2 step 6 and acceptance A8: the health check, in a window that stays open.
 Filename: "{cmd}"; Parameters: "/k """"{app}\leasha-cli.exe"" ""{app}\_internal\doctor.py"" --quick"""; Description: "Check the installation (a window lists each check)"; Flags: postinstall skipifsilent
@@ -113,12 +138,18 @@ begin
   end;
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+{ 2026-10-08: written before the first model download as well as at
+  ssPostInstall. Inno runs the [Run] entries before CurStepChanged(ssPostInstall)
+  (checked with a probe installer that day), so the downloads started with no
+  settings file: Leasha could not say where its model folder was, and on a new
+  install nothing was downloaded. Each model line in [Run] calls this first
+  (BeforeInstall); once the file is there it does nothing. }
+procedure WriteSettingsFile();
 var
   Data: String;
   Lines: TArrayOfString;
 begin
-  if (CurStep = ssPostInstall) and not FileExists(EnvFile()) then begin
+  if not FileExists(EnvFile()) then begin
     Data := DataPage.Values[0];
     ForceDirectories(Data);
     { Only where things live. Every other setting keeps Leasha's own default
@@ -132,4 +163,10 @@ begin
     Lines[4] := '';
     SaveStringsToUTF8File(EnvFile(), Lines, False);
   end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then
+    WriteSettingsFile();
 end;

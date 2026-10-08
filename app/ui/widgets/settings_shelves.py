@@ -154,6 +154,16 @@ class SettingsShelves:
         from app.ui.widgets.model_manager import ModelManagerBox
 
         self.model_manager = ModelManagerBox(settings)
+        # 2026-10-08, the owner: every model Leasha needs, each with its own
+        # Download, and Download all. First on Models & AI. Each list looks
+        # again when the other has fetched or removed a model.
+        from app.ui.widgets.needed_models_box import NeededModelsBox
+
+        self.needed_models = NeededModelsBox(settings)
+        self.needed_models.models_changed.connect(self.model_manager.refresh)
+        self.model_manager.models_changed.connect(self.needed_models.refresh)
+        self.model_manager.download.finished.connect(
+            lambda _n, _r: self.needed_models.refresh())
 
         self.storage_box = StorageBox(settings)
         self.data_path = self.storage_box.data_path
@@ -314,7 +324,8 @@ class SettingsShelves:
                                       self.mail_archives, behaviour, self.file_types)),
             (CATEGORY_SEARCH, (self.search_box, self.search_behaviour,
                                self.editor_box, privacy)),
-            (CATEGORY_MODELS, (self.model_manager, self.models, self.photo_people_box,
+            (CATEGORY_MODELS, (self.needed_models, self.model_manager, self.models,
+                               self.photo_people_box,
                                self.chat_box, self.media_box, self.mcp_box)),
             (CATEGORY_APPEARANCE, (self.window_box,)),
         )

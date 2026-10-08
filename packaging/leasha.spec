@@ -51,7 +51,9 @@ for package in ("lancedb", "onnxruntime", "fastembed", "rapidocr_onnxruntime",
     hiddenimports += h
 
 # Optional packages: in the build when this machine has them, as on the owner's.
-for package in ("av", "pypff", "reverse_geocoder"):
+# insightface (2026-10-08): the faces model is downloadable from the installer and
+# Settings now, and without the library in the build it could never be used.
+for package in ("av", "pypff", "reverse_geocoder", "insightface"):
     try:
         __import__(package)
     except Exception:

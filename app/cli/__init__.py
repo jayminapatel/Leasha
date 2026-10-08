@@ -17,6 +17,9 @@ the layer that delivers them, rather than pretending or crashing.
     python -m app.cli extract "D:\\Docs" --limit 200
     python -m app.cli extract "D:\\Docs" --json > extraction.json
 
+    python -m app.cli models list                 # every model Leasha needs
+    python -m app.cli models download all         # or: models download search rerank
+
 `--json` and `--env` work either side of the subcommand: argparse would normally
 demand them first, which is not the order anyone types.
 
@@ -51,6 +54,7 @@ from app.cli.extract import add_convert_parser, add_extract_parser
 from app.cli.formats import add_formats_parser
 from app.cli.index import add_index_parser, add_reembed_parser
 from app.cli.media import add_media_parser
+from app.cli.models import add_models_parser
 from app.cli.photos import add_photos_parser
 from app.cli.mcp_server import add_mcp_parser
 from app.cli.maintenance import (
@@ -101,6 +105,7 @@ from app.cli.index import (  # noqa: F401
     cmd_reembed,
 )
 from app.cli.media import cmd_media  # noqa: F401
+from app.cli.models import cmd_models  # noqa: F401
 from app.cli.photos import cmd_photos  # noqa: F401
 from app.cli.maintenance import (  # noqa: F401
     cmd_diagnose,
@@ -189,6 +194,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_photos_parser(sub, common)
     add_search_parser(sub, common)
     add_mcp_parser(sub, common)
+    add_models_parser(sub, common)
 
     return parser
 

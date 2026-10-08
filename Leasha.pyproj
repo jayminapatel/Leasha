@@ -74,6 +74,7 @@
     <Folder Include="docs" />
     <Folder Include="docs\mockups" />
     <Folder Include="packaging" />
+    <Folder Include="packaging\art" />
     <Folder Include="scripts" />
     <Folder Include="tests" />
     <Folder Include="tests\fixtures" />
@@ -138,6 +139,7 @@
     <Compile Include="app\cli\maintenance.py" />
     <Compile Include="app\cli\mcp_server.py" />
     <Compile Include="app\cli\media.py" />
+    <Compile Include="app\cli\models.py" />
     <Compile Include="app\cli\offline_media.py" />
     <Compile Include="app\cli\ollama.py" />
     <Compile Include="app\cli\photos.py" />
@@ -166,6 +168,7 @@
     <Compile Include="app\core\logging.py" />
     <Compile Include="app\core\measured.py" />
     <Compile Include="app\core\media_open.py" />
+    <Compile Include="app\core\model_catalogue.py" />
     <Compile Include="app\core\model_devices.py" />
     <Compile Include="app\core\model_fetch.py" />
     <Compile Include="app\core\osbridge\__init__.py" />
@@ -405,6 +408,7 @@
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\mail.py" />
     <Compile Include="app\ui\presenter\mail_archives.py" />
+    <Compile Include="app\ui\presenter\needed_models.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
     <Compile Include="app\ui\presenter\photos.py" />
@@ -514,6 +518,7 @@
     <Compile Include="app\ui\widgets\model_download.py" />
     <Compile Include="app\ui\widgets\model_manager.py" />
     <Compile Include="app\ui\widgets\model_picker.py" />
+    <Compile Include="app\ui\widgets\needed_models_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
     <Compile Include="app\ui\widgets\number_field.py" />
@@ -582,6 +587,7 @@
     <Compile Include="archive\tools\measure_onnx_photo.py" />
     <Compile Include="doctor.py" />
     <Compile Include="packaging\leasha_entry.py" />
+    <Compile Include="packaging\make_installer_art.py" />
     <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
     <Compile Include="scripts\run_suite.py" />
@@ -862,6 +868,7 @@
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_mini_search_box.py" />
+    <Compile Include="tests\unit\test_model_catalogue.py" />
     <Compile Include="tests\unit\test_model_choice.py" />
     <Compile Include="tests\unit\test_model_devices.py" />
     <Compile Include="tests\unit\test_model_dropdowns.py" />
@@ -869,6 +876,7 @@
     <Compile Include="tests\unit\test_name_of.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
+    <Compile Include="tests\unit\test_needed_models_box.py" />
     <Compile Include="tests\unit\test_nightly.py" />
     <Compile Include="tests\unit\test_nightly_scale.py" />
     <Compile Include="tests\unit\test_no_application_stylesheet.py" />
@@ -1323,6 +1331,18 @@
     <Content Include="docs\adding-a-file-type.md" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
+    <Content Include="packaging\art\small-100.png" />
+    <Content Include="packaging\art\small-125.png" />
+    <Content Include="packaging\art\small-150.png" />
+    <Content Include="packaging\art\small-175.png" />
+    <Content Include="packaging\art\small-200.png" />
+    <Content Include="packaging\art\small-250.png" />
+    <Content Include="packaging\art\wizard-100.png" />
+    <Content Include="packaging\art\wizard-125.png" />
+    <Content Include="packaging\art\wizard-150.png" />
+    <Content Include="packaging\art\wizard-175.png" />
+    <Content Include="packaging\art\wizard-200.png" />
+    <Content Include="packaging\art\wizard-250.png" />
     <Content Include="packaging\build.ps1" />
     <Content Include="packaging\requirements-build.txt" />
     <Content Include="pyproject.toml" />
