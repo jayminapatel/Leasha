@@ -132,3 +132,14 @@ def test_the_index_command_and_the_reader_helper_install_it() -> None:
         read_process.main)
     assert 'catch_native_crashes(log_dir, "window"' in inspect.getsource(
         app_main._catch_native_crashes)
+
+
+def test_the_logs_readme_names_every_crash_file() -> None:
+    """`logs/README.txt` is regenerated from `LOG_SUBDIRS` at every start, so a
+    hand edit of the file is overwritten (it was, on 2026-10-09): the names
+    live in the template, and every crash file the guard can write is there."""
+    from app.core.logging import LOG_SUBDIRS
+
+    for name in crash_guard.CRASH_FILES.values():
+        assert name in LOG_SUBDIRS["crash"], name
+    assert "cli-crash.log" in LOG_SUBDIRS["crash"]
