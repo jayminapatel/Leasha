@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.116 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
+**Doc version:** 7.117 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,17 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, morning - 1.0.2 built and published.** `Leasha-Setup-1.0.2.exe` (328 MB) built
+from tag `v1.0.2` (`472b044`) with `packaginguild.ps1 -Release` under Windows PowerShell
+5.1; SHA256 `22B6277F96548C35379AC74ACF3BEEB87392F21AE4387BAE0324DC942B751ECC`, the same on
+the build copy, the Google Drive copy (`Leasha\Releases.0.2\`) and its `.sha256`. **The
+first GitHub release**, on the owner's word and with `gh` signed in as `jayminapatel`:
+https://github.com/jayminapatel/Leasha/releases/tag/v1.0.2, the installer and its checksum as
+assets, marked latest, notes from the CHANGELOG section. The README's install step points
+there. Note: `build.ps1` writes the `.sha256` only beside the Drive copy, not in
+`build\installer\`; a release from a machine without the Drive folder would have to make its
+own. Still the owner's: install it over 1.0.1 and let Check the installation say READY.
 
 **2026-10-08, late - release 1.0.2: the indexer never ends on one document.** The owner
 started a run on the 1.0.1 code and it died after 618 s: `FAT_KPI_V1 0.doc` carried a lone
