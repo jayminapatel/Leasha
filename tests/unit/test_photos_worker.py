@@ -81,3 +81,33 @@ def test_the_window_thread_does_no_narrowing_or_counting_on_a_search() -> None:
     drawn = inspect.getsource(photos_view.PhotosView._drawn)
     for call in ("narrow(", "in_scope(", "sort_rows("):
         assert call not in drawn
+
+
+def test_the_library_reads_descriptions_without_scanning_every_chunk(tmp_path) -> None:
+    """2026-10-09: the label lookup scanned all 6.5 million chunks on every Photos
+    load (247 s on the owner's index). It must still mark the described pictures,
+    and must reach the chunks through their file-id index."""
+    from PIL import Image
+
+    from app.storage.sqlite_store import SqliteStore
+
+    with SqliteStore(tmp_path / "index.db") as store:
+        paths = []
+        for n in range(2):
+            path = tmp_path / f"p{n}.jpg"
+            Image.new("RGB", (8, 8), (n * 100, 0, 0)).save(path)
+            store.upsert_file(path=str(path), size_bytes=path.stat().st_size,
+                              mtime_ns=path.stat().st_mtime_ns, source_kind="file")
+            paths.append(str(path))
+        first = store.conn.execute("SELECT id FROM files WHERE path = ?", (paths[0],)).fetchone()[0]
+        store.add_caption_chunk(first, "a red square", label=SqliteStore.PHOTO_DESCRIPTION_LABEL)
+
+        rows = {r.path: r for r in store.photo_library(["jpg"])}
+        assert rows[paths[0]].described is True
+        assert rows[paths[1]].described is False
+
+        plan = " ".join(str(r[3]) for r in store.conn.execute(
+            "EXPLAIN QUERY PLAN SELECT c.file_id, c.label FROM files f CROSS JOIN chunks c "
+            "WHERE c.file_id = f.id AND f.ext IN (?) AND c.label IN (?, ?)",
+            ["jpg", SqliteStore.PHOTO_DESCRIPTION_LABEL, SqliteStore.PHOTO_TEXT_LABEL]))
+        assert "SCAN c" not in plan, plan

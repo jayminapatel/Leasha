@@ -4446,9 +4446,13 @@ class SqliteStore:
                 if name and name not in people.setdefault(file_id, []):
                     people[file_id].append(name)
             labels: dict[int, set[str]] = {}
+            # Index-driven: `files` outer, `chunks` through idx_chunks_file_ord. The
+            # plain JOIN with `c.label IN` scanned all 6.5 million chunks on every
+            # Photos load - 247 s on the owner's index, 2026-10-09. Same rows, same
+            # predicate; CROSS JOIN is what keeps the planner from scanning `chunks`.
             for file_id, label in self.conn.execute(
-                    f"SELECT c.file_id, c.label FROM files f JOIN chunks c ON c.file_id = f.id "
-                    f"WHERE f.ext IN ({marks}) AND c.label IN (?, ?)",
+                    f"SELECT c.file_id, c.label FROM files f CROSS JOIN chunks c "
+                    f"WHERE c.file_id = f.id AND f.ext IN ({marks}) AND c.label IN (?, ?)",
                     [*cleaned, self.PHOTO_DESCRIPTION_LABEL, self.PHOTO_TEXT_LABEL]):
                 labels.setdefault(file_id, set()).add(label)
             scanned = {int(r[0]) for r in self.conn.execute(

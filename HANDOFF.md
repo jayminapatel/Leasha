@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.126 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.127 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, late - correction: the 350 s library read was the cause, and it is fixed.** The restarted window (pid 32952) was still not responding after the worker change. A stack sample of it, taken while hung, put the window's own thread in the grid's paint, and ten seconds of profile showed the background library read busy beside it. The library read was a full scan of the 6.5 million-row `chunks` table: its `c.label IN (...)` filter has no index, and the statement is run on every Photos load. Planner output and a timed run on the owner's index: 247 s for a plain scan of the labels. No chunk carries either photo label in this index, so the statement returns nothing here, but it still costs the scan. Rewritten (`files CROSS JOIN chunks`, reached through `idx_chunks_file_ord`), same rows: the full library read is now 5.4 s on the owner's 46,286 pictures, not 350 s; `test_photos_worker.py` holds the result and the plan. Uncommitted at the time of writing; the window must be restarted to load it. The paint-path observation stands as a symptom, not a separate cause.
 
 **2026-10-09, night - the window stopped answering while the Photos tab was open.** The window was not responding with 4 GB and 1,100 s of CPU. The Photos tab narrowed, sorted and counted its 46,000 pictures on the window's own thread after every search and every read, and the library itself took 350 s to read during a run. Measured on the owner's library: facets 0.76 s, narrowing 0.55 s, the counts 0.19 s, before the grid was redrawn. Fixed by moving narrowing, sorting, the counts and the side-list facets onto workers (`_arrange`, `_library`); the window draws only (`_drawn`); a newer search makes an older answer stale. Found by the Photos tests in the same pass, and fixed: the Photo Tagger's face-crop callback reached a deleted list when its page closed and raised in the Qt event loop; it now goes through `when_done`. Not yet: the 350 s library read itself, which runs in a worker during an index run and was not changed; the window itself still needs a restart to load this. The hung window was still open when this was written.
 

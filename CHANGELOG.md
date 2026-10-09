@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.94 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.95 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+- **The Photos tab loads its library in seconds, not minutes.** Each load scanned every chunk of the index looking for photo descriptions, which slowed the whole window while an index run was going. The same answer now comes through the file index: 5.4 s on a 46,000-picture library, down from 350 s.
 
 ### The Photos tab keeps answering while it filters a large library (2026-10-09)
 
