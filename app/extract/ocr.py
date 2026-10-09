@@ -33,7 +33,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
-from app.core.errors import raise_error
+from app.core.errors import AppErrorException, raise_error
 from app.core.format_health import Requirement
 from app.core.gpu_serialize import (
     gpu_exclusive,
@@ -137,7 +137,7 @@ class OcrResult:
 
     __slots__ = (
         "text", "lines", "elapsed_s", "mean_confidence", "engine_missing",
-        "checked_no_text",
+        "checked_no_text", "error",
     )
 
     def __init__(
@@ -148,7 +148,13 @@ class OcrResult:
         mean_confidence: float = 0.0,
         engine_missing: bool = False,
         checked_no_text: bool = False,
+        error: Any = None,
     ) -> None:
+        #: Order `pictures-process-isolation` (2026-10-09): the helper process
+        #: that reads text in pictures ended on this picture - an `AppError`
+        #: (`ERR_OCR_PROCESS_ENDED`), for the caller to record. Never set by an
+        #: in-process read, which answers empty or `engine_missing` as before.
+        self.error = error
         #: **The difference between "nothing to read" and "nothing read it".**
         #: An empty result means a blank image; this means the engine never
         #: ran, and the two must not share a skip code - one is a fact about
@@ -191,6 +197,26 @@ _engine_attempts = 0
 #: the behaviour somebody who never touched the control would get, rather than
 #: a third one nobody chose.
 _device = "auto"
+
+#: Order `pictures-process-isolation` (2026-10-09). When set, `ocr_image` hands
+#: every real picture to this callable and the engine is never loaded in this
+#: process: in the index process it is the text-in-pictures helper
+#: (`app.index.ocr_process.OcrProcess.ocr`); in a reader child it is the relay
+#: to the parent (`read_process._serve`), which asks the same helper. The
+#: pipeline installs it for a run and clears it after; a test's injected
+#: `engine` bypasses it.
+_engine_process: Callable[[Any], OcrResult] | None = None
+
+
+def set_engine_process(fn: Callable[[Any], OcrResult] | None) -> None:
+    """Install (or clear, with None) where this process sends its pictures."""
+    global _engine_process
+    _engine_process = fn
+
+
+def engine_process() -> Callable[[Any], OcrResult] | None:
+    """Where this process sends its pictures, or None when it reads them itself."""
+    return _engine_process
 
 
 def configure_device(device: str) -> None:
@@ -463,6 +489,12 @@ def ocr_image(
     from app.extract import progress
 
     with progress.stage(progress.STAGE_OCR):
+        helper = _engine_process
+        if engine is None and helper is not None and isinstance(source, (Path, bytes)):
+            # Order `pictures-process-isolation`: read elsewhere; this process
+            # never loads the engine. Only a real picture goes - the fake
+            # sources the tests below drive the `engine` seam with stay here.
+            return helper(source)
         return _ocr_image_now(source, engine=engine, min_confidence=min_confidence)
 
 
@@ -701,6 +733,10 @@ class OcrExtractor:
             return
 
         result = ocr_image(path)
+        if result.error is not None:
+            # Order `pictures-process-isolation`: the helper died on this
+            # picture. Recorded with its code, as a reader child's death is.
+            raise AppErrorException(result.error)
         if result.engine_missing:
             # **`ERR_OCR_UNAVAILABLE`, never `ERR_NO_TEXT_LAYER`.** The engine
             # could not run, so nothing was read and nothing is known about

@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.13 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.15 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -153,7 +153,10 @@ logs\
   app\           Everything the app did, one file per day. Start here.
   errors\        Errors only, one JSON object per line.
   install\       Installer transcripts, one per run.
-  crash\         Unhandled crash reports.
+  crash\         Crash reports: crash.log (the window), index-crash.log (the indexing
+                 process), cli-crash.log (any other command), reader-crash.log (the
+                 reader helpers), ocr-crash.log (the text-in-pictures helper) - the
+                 Python stack of the thread a native fault was on.
   diagnostics\   The zips produced by 'diagnose'.
 ```
 
@@ -336,8 +339,10 @@ than all or nothing.
 |---|---|
 | "Keyword results only - meaning-based search returned nothing" in a window left open for hours | Fixed on 2026-10-01: a window opened before an index run created the vector table answered keyword-only until restarted. Update; on an older copy, restart Leasha |
 | An attachment you expect is not found by its contents | Indexing › What gets read › Email attachments decides. The default reads Office, PDF, text, CSV and HTML; pictures are kept by name only. Attachments indexed before 2026-10-01 keep what they had until their archive is read again |
-| `ERR_INDEX_PROCESS_ENDED` | "Index in a separate process" is on and the child process stopped. Start again; the run carries on where it left off. `logs\index-process-stderr.log` holds what it printed |
-| A file shows **Failed** with `ERR_FILE_CRASHED_READER` | The indexing process died while reading it - a fault inside a reading library, which no guard in Leasha can catch - and the next run recorded the file instead of reading it again. Everything else carried on. The file is probably damaged: open it in its usual program; if it opens, move it out or use **Read again**. Windows keeps the crash itself under Event Viewer > Application as an APPCRASH of `pythonw.exe` naming the library |
+| `ERR_INDEX_PROCESS_ENDED` | "Index in a separate process" is on and the child process stopped. Start again; the run carries on where it left off. `logs\index-process-stderr.log` holds what it printed, and `logs\crash\index-crash.log` names the function a native fault was in - the file the message names is the one that thread was reading, which with four readers is often not the file at fault |
+| A file shows **Failed** with `ERR_FILE_CRASHED_READER` | The indexing process died while reading it - a fault inside a reading library, which no guard in Leasha can catch - and the next run recorded the file instead of reading it again. Everything else carried on. The file is probably damaged: open it in its usual program; if it opens, move it out or use **Read again**. Windows keeps the crash itself under Event Viewer > Application as an APPCRASH of `pythonw.exe` naming the library, and `logs\crash\index-crash.log` names the function that was running |
+| A video or recording inside a zip, or attached to an email, shows `ERR_MEDIA_SWITCHED_OFF` | Its switch is off (Settings › Models & AI › **Read videos on this computer**, or **Write down what is said in recordings**), so it is found by its name only, as a video in a folder is. Switch it on and run indexing again to read what is in it. Until 2026-10-09 such a member was read anyway, keyframes and all, on a run that had asked for none of it |
+| A picture, a scanned PDF or a video shows `ERR_OCR_PROCESS_ENDED`, or a run's warnings count it | Since 2026-10-09 the model that reads text in pictures runs in a helper process of its own (with Indexing > Tuning > **Read files in separate processes**, on by default), and that helper stopped on this picture - a fault inside the model runtime, most likely. It cost that one picture: a fresh helper read the next, and the run carried on. On the text pass the file is recorded with this code; at the end of a run a picture is left waiting and tried again at the next run's end. `logs\crash\ocr-crash.log` names the function the helper was in |
 | A file, or a member inside a zip, shows `ERR_READER_PROCESS_ENDED` | Its reader ran in a helper process (Indexing > Tuning > **Read files in separate processes**, on by default) and that process died on it - a fault inside a reading library, most likely. It cost that one file or member; a fresh helper read the next one and the run carried on. The file is probably damaged; a changed file is read again |
 | "the graphics card failed ... done again on the processor" in a run | DirectML reported a device error (for example `887A0005`). The batch is redone on the processor, so nothing is lost. If it repeats, set Indexing › Tuning › Run models on to **Processor** |
 | A folder cannot be renamed or moved | "Index files as soon as they are saved" is on (Indexing › Schedule). Switch it off first |

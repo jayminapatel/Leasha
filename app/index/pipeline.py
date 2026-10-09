@@ -1925,6 +1925,13 @@ class Pipeline:
         _media.configure(
             self.config.media,
             pacer=self._media_pace, should_stop=self._stop.is_set)
+        # Order `pictures-process-isolation` (2026-10-09): the text-in-pictures
+        # model runs in a helper process for the run when reader processes are
+        # on (D2: one switch). Every `ocr_image` in this process - the pictures
+        # pass, a scanned page a reader child relays, a keyframe - goes to it,
+        # and the engine is never loaded here. One helper (D1): OCR was already
+        # one-at-a-time on the graphics card behind `gpu_exclusive`.
+        self._install_ocr_helper()
         # 2026-10-04, the owner: "the same code should run". The PST reader
         # chosen in Settings, read from this run's own index, here - the one
         # place every run passes through. Before, only the window's process
@@ -2162,6 +2169,7 @@ class Pipeline:
         if not light:
             self._drain_photo_tags(stats, on_progress)
             self._drain_picture_text(stats, on_progress)
+        self._close_ocr_helper()                 # the last OCR of the run was just above
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -4475,6 +4483,38 @@ class Pipeline:
                 resume_key=resume_key,
             )
 
+    def _install_ocr_helper(self) -> None:
+        """Order `pictures-process-isolation` (2026-10-09): one helper process
+        reads the text in every picture of this run (`app.index.ocr_process`),
+        installed as `ocr.set_engine_process`. Only when reader processes are
+        on - one switch for "a fault never ends the run". Never raises: a
+        helper that cannot start costs the protection, not the run."""
+        from app.extract import ocr as _ocr
+
+        self._close_ocr_helper()
+        if not getattr(self.config, "read_processes", False):
+            return
+        try:
+            from app.index.ocr_process import OcrProcess
+
+            helper = OcrProcess(
+                low_priority=bool(self.config.resolved_limits().low_priority))
+        except Exception as exc:                 # protection, not the job
+            self._log.warning("the text-in-pictures helper could not be set up: {}. "
+                              "Pictures are read in this process.", exc)
+            return
+        self._ocr_helper = helper
+        _ocr.set_engine_process(helper.ocr)
+
+    def _close_ocr_helper(self) -> None:
+        """End the run's helper, if any, and read pictures here again."""
+        from app.extract import ocr as _ocr
+
+        helper, self._ocr_helper = getattr(self, "_ocr_helper", None), None
+        _ocr.set_engine_process(None)
+        if helper is not None:
+            helper.close()
+
     def _member_reader_for(self, reader: Any) -> Callable[[Path], Iterator[Any]]:
         """The function the archive reader calls for one extracted member, on
         this thread (order `reader-process-isolation`, 2026-10-09).
@@ -6153,6 +6193,14 @@ class Pipeline:
                             if real is None:
                                 continue         # its archive would not open: next run
                             text = ocr_image(real)
+                        if getattr(text, "error", None) is not None:
+                            # Order `pictures-process-isolation`: the helper died
+                            # on this picture. Not settled as "no text": it waits
+                            # for the next run's end, and the run says so.
+                            self._log.warning("{}", text.error.render())
+                            stats.warned_by_code[text.error.code] = (
+                                stats.warned_by_code.get(text.error.code, 0) + 1)
+                            continue
                         if not text.empty and not text.engine_missing:
                             self.store.add_caption_chunk(
                                 file_id, text.text, label="Text read from the image")

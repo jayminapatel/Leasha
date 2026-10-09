@@ -84,6 +84,7 @@ from typing import Any, Callable, Iterable, Iterator, Optional, Sequence
 
 import numpy as np
 
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.ort import hub
 from app.ort.generate import Decoder, LogitsRule, generate, greedy, suppress
@@ -501,7 +502,7 @@ class OnnxWhisperEngine:
     def __init__(self, *, encoder: Any, decoder: Any, tokenizer: Any, tokens: WhisperTokens,
                  config: dict, n_mels: int = 80,
                  audio_reader: Callable[[str], np.ndarray] = decode_audio,
-                 name: str = "whisper") -> None:
+                 name: str = "whisper", encoder_on_gpu: bool = False) -> None:
         self.language = ""
         self.name = name
         #: Held for the whole of one `transcribe()`. `self.language` and the
@@ -512,6 +513,9 @@ class OnnxWhisperEngine:
         #: holds `self.lock` per image for the same reason.
         self.lock = threading.Lock()
         self._encoder = encoder
+        #: 2026-10-09: the encoder may be on the graphics card (the decoder
+        #: never is); its run takes the process-wide gate (`gpu_serialize`).
+        self._encoder_on_gpu = bool(encoder_on_gpu)
         # 8 heads and d_model 512 are whisper-base's values - the fallback only
         # for a config.json missing the fields; every real export states them.
         heads = int(config.get("decoder_attention_heads") or 8)
@@ -571,13 +575,15 @@ class OnnxWhisperEngine:
         _log.info("speech model {} ready ({} mel bins, encoder on {}, decoder on {})",
                   spec.key, n_mels, encoder.choice.device, decoder.choice.device)
         return cls(encoder=encoder.session, decoder=decoder.session, tokenizer=tokenizer,
-                   tokens=tokens, config=config, n_mels=n_mels, name=spec.key)
+                   tokens=tokens, config=config, n_mels=n_mels, name=spec.key,
+                   encoder_on_gpu=encoder.on_gpu)
 
     # -- one window --------------------------------------------------------
 
     def _encode(self, features: np.ndarray) -> np.ndarray:
         feeds = {self._encoder_input: features[None].astype(self._encoder_dtype)}
-        return self._encoder.run([self._encoder_output], feeds)[0]
+        with gpu_exclusive(self._encoder_on_gpu):
+            return self._encoder.run([self._encoder_output], feeds)[0]
 
     def _step(self, hidden: np.ndarray) -> Callable[[list[int], int], np.ndarray]:
         def step(new_ids: list[int], _position: int) -> np.ndarray:

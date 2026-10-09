@@ -1,6 +1,6 @@
 # Work order (One thread): the index process never dies on a file - PDF and archive members read in a reader process
 
-**Doc version:** 1.0 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/index/read_process.py`, `app/index/pipeline.py`, `app/extract/pdf.py`,
 `app/extract/archive.py`, the settings registry)
 **Status:** SHIPPED 2026-10-09, the same session. RELEASED by the owner 2026-10-09 ("write the work order for the reader process
@@ -55,6 +55,10 @@ What was checked before writing this, so nobody re-derives it:
       can be switched off; `.env` values already written keep their meaning.
       *Acceptance:* a fresh `.env` with no `INDEX_READ_PROCESSES` line resolves to reader
       processes on; `INDEX_READ_PROCESSES=false` still turns them off.
+> **2026-10-09, later (order `pictures-process-isolation`, register 1g):** "never OCRs" now means
+> "never loads the engine". When the parent has installed its relay, the child renders a scanned page
+> and asks the parent for its text over the pipe; without a relay it declines exactly as below.
+> Which pass it is travels in the request's seventh field.
 > **2026-10-09:** built. `base.in_reader_process()`/`set_reader_process()`; `read_process.main` sets it;
 > `_ocr_pages` and `_ocr_specific_pages` decline in a child; `PdfExtractor` is on the list. A child
 > reading a blank PDF raises `ERR_NO_TEXT_LAYER` and never touches OCR (`test_reader_process_isolation.py`).
@@ -105,6 +109,10 @@ What was checked before writing this, so nobody re-derives it:
       `ERR_READER_PROCESS_ENDED` naming it, `stats.indexed` and the archive's row are right.
 
 ## 3. What this order does not do
+
+> **2026-10-09, later:** done by order `pictures-process-isolation` (register 1g): the page is rendered
+> in the reader child and its text read by a helper process of its own; nothing native of the
+> picture stack runs in the parent during a run.
 
 - **Rendering scanned pages for OCR still happens in the parent** (the pictures pass, PyMuPDF
   `get_pixmap`). That half is the one native exposure left after this order. Phase 2, not

@@ -1005,6 +1005,32 @@ def test_switched_off_a_video_is_found_by_name_and_no_tool_ever_starts(tmp_path,
     assert stats.indexed == 1                           # the text file only
 
 
+@pytest.mark.parametrize("make, label", [
+    (make_video, "Read videos on this computer"),
+    (make_wav, "Write down what is said in recordings"),
+])
+def test_switched_off_a_video_inside_a_zip_is_found_by_name_and_no_tool_ever_starts(
+        tmp_path, tools, make, label):
+    """2026-10-09. The walker never offers a switched-off video, but a zip
+    member (and a mail attachment) reaches the registry by extension alone and
+    was read anyway - keyframes, OCR on the graphics card, Florence - on the
+    owner's text-only run, and the index process died inside ONNX Runtime
+    doing it. Off means off here too: the member keeps its name row, the
+    reason names the switch, and no tool starts."""
+    import zipfile
+
+    inner = make(tmp_path)
+    packed = tmp_path / "pack.zip"
+    with zipfile.ZipFile(packed, "w") as archive:
+        archive.write(inner, inner.name)
+    (document,) = list(extract(packed))                 # no media settings at all
+    assert tools.calls == []                            # no probe, no keyframes
+    assert document.meta["contents_read"] is False
+    assert [w.code for w in document.warnings] == ["ERR_MEDIA_SWITCHED_OFF"]
+    assert label in document.warnings[0].render()
+    assert inner.name in document.text
+
+
 def test_each_switch_admits_only_its_own_extensions(tmp_path):
     media.configure(media.MediaConfig(video_enabled=True))
     walked = WalkConfig(roots=[]).resolved_extensions()

@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.91 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.93 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,32 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A video inside a zip stays unread when video reading is off; a crash now leaves its stack (2026-10-09)
+
+- **A video or recording inside a zip, or attached to an email, is no longer read while its
+  switch is off.** Videos in folders were already left alone when "Read videos on this
+  computer" was off, but one inside a zip was read anyway - split into pictures, each read for
+  its text on the graphics card, described when it had none - on a run that had asked for none
+  of it. The indexing process died inside the model runtime doing exactly that. Now the member
+  is found by its name, with the reason beside it (`ERR_MEDIA_SWITCHED_OFF`, naming the switch),
+  and nothing starts. Naming a file on the `media` command still reads it.
+- **When the indexing process dies inside a library, `logs\crash\index-crash.log` now names the
+  function it was in.** Two crashes in one day - the PDF library overnight, the model runtime at
+  midday - left no trace in Leasha's own logs; only the window had a crash handler. The indexing
+  process and the reader helpers (`reader-crash.log`) now have the same one.
+- **The model that reads text in pictures runs in a helper process of its own, so a fault in it
+  costs one picture and the run goes on.** The indexing process died at midday inside that model's
+  runtime. Now, with "Read files in separate processes" on (the default), the pictures pass, a
+  scanned page and a video's frames are all read by a helper the main process never loads the
+  model into; a picture it stops on is recorded with `ERR_OCR_PROCESS_ENDED`, and a fresh helper
+  reads the next. A scanned PDF read by a reader helper now has its pages rendered there and their
+  text asked of the main process, so no part of the picture stack runs in the indexing process.
+  Measured on 131 photographs on the graphics card: no slower than before.
+- **Photo tags, faces, picture search and speech take their turn on the graphics card.** Each
+  had a lock of its own, which kept two callers of that model apart but let it run beside the
+  text reader's graphics-card session on another thread. They now use the same one-at-a-time
+  gate the text reader, the meaning model and the reranker already shared.
 
 ## [1.0.3] - 2026-10-09
 

@@ -211,10 +211,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     # for, and by the time `_load` raises it is too late to start one.
     # `log_dir_for` answers "which folder" without validating anything, so a
     # broken `.env` still gets logged rather than losing its own evidence.
-    run = start_run(log_dir_for(Path(args.env) if getattr(args, "env", None)
-                                else None),
-                    getattr(args, "command", "cli"),
+    log_dir = log_dir_for(Path(args.env) if getattr(args, "env", None) else None)
+    run = start_run(log_dir, getattr(args, "command", "cli"),
                     argv=list(argv) if argv is not None else sys.argv[1:])
+    # 2026-10-09: a native fault in this process - PyMuPDF overnight, ONNX
+    # Runtime at midday, neither catchable in Python - leaves the Python stack
+    # of the thread it was on in `logs/crash/index-crash.log` for the index
+    # command and `cli-crash.log` for any other (`app.core.crash_guard`). Here,
+    # at the real entry, and not inside `cmd_index`: the handler keeps its file
+    # open for the life of the process, and a test that calls a command
+    # in-process must not pin a file in pytest's temp folder.
+    from app.core.crash_guard import catch_native_crashes
+
+    catch_native_crashes(log_dir, "index" if getattr(args, "command", "") == "index" else "cli")
 
     code = EXIT_ERROR
     try:

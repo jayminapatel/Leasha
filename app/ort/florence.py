@@ -34,6 +34,7 @@ from typing import Any, Optional
 
 import numpy as np
 
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.ort import hub
 from app.ort.generate import Decoder, force_first, generate, no_repeat_ngram
@@ -158,8 +159,22 @@ class OnnxFlorence:
         entry, folder = found
         return cls(folder, model=entry.model(), device=device)
 
+    # 2026-10-09: every graph that may be on the graphics card runs inside the
+    # process-wide gate (`gpu_serialize.gpu_exclusive`), as OCR, the embedder
+    # and the reranker do - per call, nothing wider. This engine had only its
+    # own `self.lock`, which keeps two callers of *this* model apart and says
+    # nothing about OCR's DirectML session on another reader thread. The
+    # decoder is on the processor and is not gated.
+
     def _embed(self, ids: list[int]) -> np.ndarray:
-        return self.embed.session.run(None, {"input_ids": np.array([ids], dtype=np.int64)})[0]
+        with gpu_exclusive(self.embed.on_gpu):
+            return self.embed.session.run(None, {"input_ids": np.array([ids], dtype=np.int64)})[0]
+
+    def _encode(self, joined: np.ndarray, mask: np.ndarray) -> np.ndarray:
+        """The text encoder over the image features and the prompt."""
+        with gpu_exclusive(self.encoder.on_gpu):
+            return self.encoder.session.run(None, {"inputs_embeds": joined,
+                                                   "attention_mask": mask})[0]
 
     def encode_image(self, pixels: np.ndarray) -> np.ndarray:
         """The vision tower's features for one image - the costly part of a task.
@@ -167,7 +182,8 @@ class OnnxFlorence:
         2026-10-05, measured on the owner's photos on the processor: 6.2-8.3 s of
         each 10-12 s task. `caption_and_tags` ran it twice for the same picture;
         it now runs once and both tasks read the result."""
-        return self.vision.session.run(None, {"pixel_values": pixels})[0]
+        with gpu_exclusive(self.vision.on_gpu):
+            return self.vision.session.run(None, {"pixel_values": pixels})[0]
 
     def run_task(self, pixels: np.ndarray, task: str, *, max_new_tokens: int = 128,
                  image: Optional[np.ndarray] = None) -> str:
@@ -179,8 +195,7 @@ class OnnxFlorence:
             image = self.encode_image(pixels)
         joined = np.concatenate([image, self._embed(prompt_ids)], axis=1)
         mask = np.ones(joined.shape[:2], dtype=np.int64)
-        encoded = self.encoder.session.run(None, {"inputs_embeds": joined,
-                                                  "attention_mask": mask})[0]
+        encoded = self._encode(joined, mask)
         self.decoder.reset()
 
         def step(new_ids: list[int], _position: int) -> np.ndarray:

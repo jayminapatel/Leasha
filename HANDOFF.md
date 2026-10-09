@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.121 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.124 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,82 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, afternoon - the index process died again, inside ONNX Runtime this time; one bug
+fixed, one gap closed, one handler installed.** The owner's 10:11 run (1.0.3 code, reader
+processes on, `--skip-ocr`) ended at 12:25:25: APPCRASH of `pythonw.exe`, access violation
+`0xC0000005` in `onnxruntime_pybind11_state.pyd` (dump `%LOCALAPPDATA%\CrashDumps\pythonw.exe.13664.dmp`).
+The window said `ERR_INDEX_PROCESS_ENDED` "while reading SATORP Volume 2 -Technical Proposal
+3.0.docx" - the file *a* thread was reading, not the one at fault. Diagnosed from the dump with a
+pure-Python minidump scan (no debugger on the laptop): the faulting thread was reader thread
+39460, inside DirectML (`DirectML.dll`, Intel `igd12um64xel.dll`) with OpenCV on its stack - OCR -
+and its in-hand note named `...\SATORP-PreContract\...\iDeliver\full demo steps all 10.zip`, whose
+only member is a 6.7 MB 2011 `.wmv`; reader thread 22356 held the identical zip from
+`SATORP-IRIS`. The per-frame journals in `D:\Leasha\Data\transcripts` show both had OCR'd
+keyframes 0-12 by 12:25:04. **Why a video was read at all with "Read videos on this computer"
+off:** the walker honours the switch (`media.disabled_extensions`) but a zip member and a mail
+attachment reach the registry by extension alone, and `VideoExtractor.extract` never looked at it
+- keyframes, OCR of each on the graphics card, Florence for a textless frame, on a text-only run.
+That is also why the OCR engine (11:47:45) and Florence (11:48:37, graphics card) loaded mid-run.
+Fixed: both media extractors refuse with the new `ERR_MEDIA_SWITCHED_OFF` (names the switch; the
+member keeps its name row); `test_media.py`. **The fault itself did not reproduce:** the same video
+through `app.cli media` (OCR on the graphics card, single-threaded) read every frame in 85 s. At
+the instant of the crash no other thread was inside DirectML (the dump), the gate was held, the
+embedding thread was on the processor: an intermittent native fault in ONNX Runtime 1.24.4's
+DirectML path on the Intel Iris Xe (driver 32.0.101.7088; the Application log also holds two
+`LiveKernelEvent 141` graphics resets today, 06:03 and 09:46, neither at the crash). Not fixable
+from Python; the protection is isolation (phase 2 of order 1e, pictures through the reader
+process) or OCR on the processor - the owner's call, not taken here. **Found while diagnosing,
+fixed:** (a) neither the index process nor the reader helpers had a fault handler, so both of
+today's crashes left no Python stack - `app/core/crash_guard.py` installs the window's one in
+each (`logs/crash/index-crash.log`, `reader-crash.log`; the window keeps `crash.log`);
+`test_crash_guard.py` faults a real child and reads the function name back. (b) Florence, faces,
+CLIP and Whisper ran their graphics-card graphs outside `gpu_serialize.gpu_exclusive` - only OCR,
+the embedder and the reranker took it, and `device_test.json` puts faces, photo tags and OCR on
+the card here - now gated per call; `test_gpu_gate_pictures.py`. **Seen, not acted on:**
+`media.read_frame` OCRs keyframes through `ocr.ocr_image` whatever `--skip-ocr` says (moot while
+the switch is off); a third window APPCRASH in `pyside6.abi3.dll` at 08:38, this one with a stack
+in `crash.log` ending in `main._exit_fast`. **Trap left behind:** the two zips' in-hand notes are
+still in `D:\Leasha\Data\fts\in-hand\` (`22356.txt`, `39460.txt`; `32508.txt` is empty - that
+thread was between files), so the next Start records both zips FAILED with
+`ERR_FILE_CRASHED_READER` although neither was at fault; Read again clears it, or delete the notes
+before pressing Start. Nothing committed; the owner decides.
+
+**2026-10-09, later - the owner: "do recommended and delete".** Done, all three: text-in-pictures runs on the
+processor on this laptop (`DEVICE_OCR=cpu`, written through `env_writer.write_env`; the control is
+Indexing › Tuning › **Text in pictures runs on**, marked restart - restart Leasha before the next Start so
+the window shows it and does not write `auto` back over it from an open Tuning page); the three in-hand
+notes are deleted, so the next Start reads both zips normally; and the work order for phase 2 is written
+and released - `docs/WORKORDER-pictures-process-isolation.md`, register row 1g: scanned PDF pages rendered
+in the reader child, the OCR model in a process of its own, a fault costing the picture. Not started; its
+D1 (one OCR process, recommended) and D2 (no new switch, recommended) are the owner's. Still nothing committed.
+
+**2026-10-09, evening - order 1g built and shipped (owner: "do recomended but dont loose performance do all
+and commit").** D1 one helper, D2 the existing switch. `app/index/ocr_process.py`: the text-in-pictures model
+runs in a helper process the pipeline starts after `media.configure` and closes after the pictures pass,
+installed as `ocr.set_engine_process`; `ocr_image` hands every real picture to it and loads nothing in the
+index process; answers are matched by sequence so four reader threads keep pictures in flight, and the
+helper reads four side by side on the processor (its own gate serialises them on the card). A reader
+child renders a scanned page where it always did and asks the parent for its text over the same pipe
+(`read_process._serve(relay_ocr=True)`, the request's seventh field carries the pass), so 1e §1b's
+"never OCRs" now means "never loads the engine". A helper that dies costs the picture:
+`ERR_OCR_PROCESS_ENDED` on the text pass, left waiting on the pictures pass; a hung one is ended after
+`REQUEST_LIMIT_S` (600 s); the helper has `logs/crash/ocr-crash.log`. **Measured** on
+`D:\Data\_Media\PhotosMaster\2008` (131 photographs, four threads, the graphics card): 259.5 s through
+the helper against 261.2 s in-process, zero faults and zero unsettled either way, one helper for the
+set - so `DEVICE_OCR` is back to auto (the card) on this laptop and nothing was lost. **Trap met while
+building:** a fresh child whose first picture arrived on a pool thread hung for ever importing numpy's C
+extension while its main thread blocked reading the pipe (found with `faulthandler.dump_traceback_later`);
+the child now warms numpy, Pillow, OpenCV and the engine on its main thread before saying ready
+(`_warm`, 2.0 s). **Second trap:** installing the relay inside `_serve` left it installed for tests that
+drive `_serve` in-process, and the next in-process `ocr_image` waited on a pipe nobody answered -
+only the real child installs it (`relay_ocr=True`). Tests: `test_ocr_process_isolation.py` (a real helper,
+a stand-in child that dies with a picture in hand, a real reader child relaying a scanned page, the
+switch). **Third trap, found when two suites ran at once:** the index handler, installed inside `cmd_index`,
+kept `index-crash.log` open for the life of the process, so a test calling the command in-process pinned a
+file in pytest's temp folder and the next session could not clean it. It is installed at the CLI's real
+entry (`app.cli.main`; `cli-crash.log` for any other command) and `cmd_index` opens nothing. Committed by
+the owner's instruction.
 
 **2026-10-09, late morning - 1.0.3 built and published.** `Leasha-Setup-1.0.3.exe` (328 MB) built
 from tag `v1.0.3` (`e76a1b4`) with `packaging\build.ps1 -Release` under Windows PowerShell 5.1

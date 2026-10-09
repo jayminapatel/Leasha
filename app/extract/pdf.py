@@ -33,7 +33,7 @@ import os
 from pathlib import Path
 from typing import Iterable
 
-from app.core.errors import make_error, raise_error
+from app.core.errors import AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract.base import (
@@ -316,6 +316,27 @@ def _pictures_held() -> bool:
         return False
 
 
+def _can_ask_parent() -> bool:
+    """Order `pictures-process-isolation` (2026-10-09): in a reader child, a
+    scanned page is rendered here and its text asked of the parent, when the
+    parent installed its relay (`ocr.engine_process`). Without one the child
+    never OCRs, as order 1e §1b said - it never loads the engine either way."""
+    try:
+        from app.extract.ocr import engine_process
+
+        return engine_process() is not None
+    except Exception:                                # never blocks a read
+        return False
+
+
+def _helper_died(result: object) -> None:
+    """The helper that reads text in pictures ended on this page: the PDF is
+    recorded with that, not read as blank. Order `pictures-process-isolation`."""
+    error = getattr(result, "error", None)
+    if error is not None:
+        raise AppErrorException(error)
+
+
 def _ocr_specific_pages(
     document: object, path: Path, builder: object, pages: list[int],
 ) -> tuple[list[int], float]:
@@ -340,7 +361,7 @@ def _ocr_specific_pages(
     like `_ocr_pages`.
     """
     limit = _pdf_ocr_pages()
-    if limit <= 0 or in_reader_process():
+    if limit <= 0 or (in_reader_process() and not _can_ask_parent()):
         # In a reader process the OCR models stay with the indexer (order
         # `reader-process-isolation`, 2026-10-09): the pages are left in the
         # "pages without text" warning, as when the budget is 0.
@@ -364,6 +385,7 @@ def _ocr_specific_pages(
             continue
 
         result = ocr_image(image)
+        _helper_died(result)                    # 2026-10-09: see _ocr_pages
         text = normalise_whitespace(getattr(result, "text", "") or "")
         if len(text) >= MIN_PAGE_CHARS:
             builder.add(text, page=number)                       # type: ignore[attr-defined]
@@ -386,7 +408,7 @@ def _ocr_pages(document: object, path: Path, builder: object) -> object:
     if limit <= 0:
         return None
 
-    if _pictures_held() or in_reader_process():
+    if _pictures_held() or (in_reader_process() and not _can_ask_parent()):
         # The text-first pass. Declining here gives the caller its ordinary
         # `ERR_NO_TEXT_LAYER`, and that row is exactly the queue the pictures
         # pass reads its scanned PDFs from (`Pipeline._is_deferred`).
@@ -422,6 +444,7 @@ def _ocr_pages(document: object, path: Path, builder: object) -> object:
             continue
 
         result = ocr_image(image)
+        _helper_died(result)                    # 2026-10-09: the one raise here, on purpose
         text = normalise_whitespace(getattr(result, "text", "") or "")
         if len(text) >= MIN_PAGE_CHARS:
             builder.add(text, page=number + 1)                # type: ignore[attr-defined]

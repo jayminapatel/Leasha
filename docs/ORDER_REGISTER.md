@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.61 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.63 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -78,6 +78,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1d | `offline-drives-on-a-mac` | Offline drives on a Mac - a scanned drive is found again when it is plugged in | **RELEASED** *(owner, 2026-10-05)* | **12 / 3** | Drafted, released and built 2026-10-05. A Mac remembers a scanned drive by its volume UUID and offers Rescan when it is plugged in (`osbridge/volumes.py`). Proven on GitHub's Mac against real APFS, Mac OS Extended, exFAT and FAT32 images, mounted and remounted; whole suite there 13,051 passed. **Open, all needing a real Mac and a real stick:** 1b, 4a (`MAC_VERIFICATION.md` 5.3a-5.3g) and the user-guide half of 4b |
 | 1e | `reader-process-isolation` | The index process never dies on a file - PDF and archive members read in a reader process | **SHIPPED** *(2026-10-09, the session that wrote it; owner: "write the work order for the reader process isolation and do it")* | 6 / 0 | Follows the 2026-10-09 overnight crash (APPCRASH in `mupdfcpp64.dll`); the in-hand notes of 1.0.3 are the floor, this is the ceiling |
 | 1f | `suite-speed` | The suite runs in the time its slowest third needs, and a change runs only the tests that can see it | **SHIPPED** *(2026-10-09, the session that wrote it; owner: "can the full suite test be optimised ... Do it, make it efficient and comprehensive")* | 9 / 0 | Measured first (17/23/22-minute thirds on 2026-10-08): per-file durations recorded, parts balanced by cost, a part killed after an hour, `--affected` by import graph and test text, `--quick`. Nothing marked `slow` by hand; `--audit-markers` lists the candidates for the owner |
+| 1g | `pictures-process-isolation` | Pictures never kill the index process - scanned pages rendered in the reader child, OCR in a process of its own | **SHIPPED** *(2026-10-09, the session that wrote it; owner: "do recomended but dont loose performance do all and commit")* | **7 / 0** | Phase 2 of 1e. Follows the 2026-10-09 12:25 crash (APPCRASH in `onnxruntime_pybind11_state.pyd`: OCR on DirectML in a reader thread). D1 one helper, D2 the existing switch, both the owner's. Measured on 131 photographs on the graphics card: 259.5 s through the helper against 261.2 s in-process, zero faults either way; `DEVICE_OCR` back to auto on the owner's laptop |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

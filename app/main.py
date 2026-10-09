@@ -148,36 +148,15 @@ def _catch_native_crashes(log_dir: "Any") -> None:
     """
     global _CRASH_FILE
 
-    import faulthandler
+    # 2026-10-09: the body moved to `app.core.crash_guard`, so the indexing
+    # process and the reader helpers install the same handler - neither had
+    # one, and the two native crashes of 2026-10-09 (PyMuPDF overnight, ONNX
+    # Runtime at midday, both in the indexing process) left no Python stack
+    # at all. The window keeps `crash.log` and its rule that a console, when
+    # there is one, is where the report goes (`also_stderr`).
+    from app.core.crash_guard import catch_native_crashes
 
-    # **The file first, and that ordering is the whole fix.** This used to call
-    # `faulthandler.enable()` for the console before opening the file. Under
-    # `pythonw.exe` - which is how the shortcut, the installer and every real
-    # run start Leasha - `sys.stderr` is None, and `enable()` with no argument
-    # raises `RuntimeError: sys.stderr is None`. The blanket `except` below
-    # swallowed it and the *file* handler, three lines later, was never
-    # installed. So the diagnostic that exists precisely for the crash with no
-    # console was disabled by the absence of a console. Two hard deaths on
-    # 2026-08-27 left `logs/` with no crash.log in it at all - not an empty one,
-    # none, because the `open()` never ran either.
-    try:
-        crash_dir = Path(log_dir) / "crash"
-        crash_dir.mkdir(parents=True, exist_ok=True)
-        _CRASH_FILE = open(crash_dir / "crash.log", "a", buffering=1,
-                           encoding="utf-8")
-        faulthandler.enable(file=_CRASH_FILE, all_threads=False)
-    except Exception:                            # noqa: BLE001
-        # A diagnostic that prevents start-up is worse than no diagnostic.
-        pass
-
-    # stderr as well, when there is one. Additive: `enable()` replaces the
-    # destination, so this runs second and only when it can succeed.
-    try:
-        if sys.stderr is not None:
-            faulthandler.enable(all_threads=False)
-    except Exception:                            # noqa: BLE001
-        pass
-
+    _CRASH_FILE = catch_native_crashes(log_dir, "window", also_stderr=True)
 
 def _log_every_unhandled_exception() -> None:
     r"""Write down the exception PyQt is about to kill the process over.

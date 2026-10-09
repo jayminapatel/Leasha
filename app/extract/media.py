@@ -49,7 +49,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
-from app.core.errors import AppError, AppErrorException, make_error
+from app.core.errors import AppError, AppErrorException, make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
 from app.extract import media_tools, transcribe
@@ -92,6 +92,16 @@ KEYFRAME_DIR_PREFIX = "leasha-keyframes-"
 
 #: A keyframe folder older than this belongs to a run that died.
 STALE_KEYFRAME_HOURS = 6
+
+
+def _switch_label(key: str, fallback: str) -> str:
+    """The switch's label in Settings, for ERR_MEDIA_SWITCHED_OFF. Never raises."""
+    try:
+        from app.core import settings_registry
+
+        return str(settings_registry.by_key(key).label)
+    except Exception:                              # a label, not the refusal
+        return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -527,6 +537,19 @@ class VideoExtractor(_MediaBase):
         itself is only read.
         """
         cfg = current()
+        # 2026-10-09: off means off on every route. The walker leaves a
+        # switched-off video out (`disabled_extensions`), but a member of a
+        # zip or a mail attachment arrives here by extension alone, and this
+        # read it anyway - keyframes, OCR on the graphics card, Florence - on a
+        # run that had asked for none of it (the owner's text-only run of that
+        # morning, which died inside ONNX Runtime doing exactly that). Refused
+        # here, so the archive and the mail readers record the name and the
+        # reason as for any member they cannot read. `app.cli media` turns the
+        # switch on for the file it is given, so naming a file still reads it.
+        if not cfg.video_enabled:
+            raise_error("ERR_MEDIA_SWITCHED_OFF", "extract.media", path=str(path),
+                        setting=_switch_label("VIDEO_INDEXING_ENABLED",
+                                              "Read videos on this computer"))
         info = media_tools.probe(path)             # missing tool / unreadable -> raises
         place = _place_for(info)
 
@@ -645,6 +668,10 @@ class AudioExtractor(_MediaBase):
         none. `ERR_MEDIA_INTERRUPTED` on Stop. Reads only.
         """
         cfg = current()
+        if not cfg.audio_enabled:                  # 2026-10-09: see VideoExtractor.extract
+            raise_error("ERR_MEDIA_SWITCHED_OFF", "extract.media", path=str(path),
+                        setting=_switch_label("AUDIO_TRANSCRIPTION_ENABLED",
+                                              "Write down what is said in recordings"))
         info: Optional[media_tools.MediaInfo] = None
         try:
             info = media_tools.probe(path)

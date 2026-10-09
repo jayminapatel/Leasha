@@ -446,9 +446,17 @@ class ReaderProcess:
         sequence = self._sequence
         finished = False
         try:
+            # Order `pictures-process-isolation` (2026-10-09): a seventh field,
+            # which pass this is (`reading.current().images`), so the child
+            # holds a scanned PDF on the text pass and reads it on the images
+            # pass exactly as the thread would. A six-field request still
+            # means "read everything", as a five-field one still means chunks.
+            from app.extract import reading as _reading
+
             try:
                 _write(proc.stdin, ("read", sequence, str(path), int(resume_from),
-                                    resume_extra, "raw" if raw else "chunks"))
+                                    resume_extra, "raw" if raw else "chunks",
+                                    _reading.current().images))
             except (OSError, ValueError):
                 raise self._ended(path)
             while True:
@@ -464,6 +472,21 @@ class ReaderProcess:
                     yield RemoteDocument(key, source_kind, meta, tuple(warnings)), chunks
                 elif kind == "rawdoc":
                     yield message[1]
+                elif kind == "ocr":
+                    # Order `pictures-process-isolation`: the child rendered a
+                    # scanned page and asks for its text. This thread answers
+                    # through `ocr_image` - the run's helper process when it
+                    # has one - so the child never loads the engine.
+                    from app.extract.ocr import OcrResult, ocr_image
+
+                    try:
+                        answer = ocr_image(message[1])
+                    except Exception:              # never raises; belt and braces
+                        answer = OcrResult()
+                    try:
+                        _write(proc.stdin, ("ocr-result", answer))
+                    except (OSError, ValueError):
+                        raise self._ended(path) from None
                 elif kind == "end":
                     finished = True
                     error, failure = message[1], message[2]
@@ -571,7 +594,7 @@ class _FrameSender(threading.Thread):
                     return
 
 
-def _serve(inbound: Any, outbound: Any) -> None:
+def _serve(inbound: Any, outbound: Any, *, relay_ocr: bool = False) -> None:
     """The child's loop: say "ready", then for each `("read", ...)` request
     stream `("doc", ...)` frames and one `("end", error, failure)`.
 
@@ -582,7 +605,9 @@ def _serve(inbound: Any, outbound: Any) -> None:
     records as `ERR_READER_PROCESS_ENDED`.
     """
     from app.extract import chunk_document, extract
+    from app.extract import ocr as ocr_module
     from app.extract import progress as reader_progress
+    from app.extract import reading as reading_module
 
     # One writer at a time on the pipe: the frame sender thread and this loop
     # both send, and two interleaved frames would corrupt the stream.
@@ -591,6 +616,23 @@ def _serve(inbound: Any, outbound: Any) -> None:
     def send(message: Any) -> None:
         with lock:
             _write(outbound, message)
+
+    def relay(source: Any) -> Any:
+        """Order `pictures-process-isolation` (2026-10-09): a scanned page this
+        child rendered, read by the parent's helper. The answer is the next
+        frame on the inbound pipe - nothing else is read while a file is
+        being read, so it is the parent's `("ocr-result", ...)`."""
+        payload = str(source) if isinstance(source, Path) else source
+        send(("ocr", payload))
+        reply = _read(inbound)
+        if reply is None or reply[0] != "ocr-result":
+            raise RuntimeError("the parent went while a page's text was being read")
+        return reply[1]
+
+    if relay_ocr:
+        # Only the real child (`main`): a test that drives `_serve` in-process
+        # must not leave this installed for the next in-process `ocr_image`.
+        ocr_module.set_engine_process(relay)
 
     stack: list[Any] = []
     reader_progress.attach(stack)
@@ -623,24 +665,28 @@ def _serve(inbound: Any, outbound: Any) -> None:
         # A five-field request from an older parent still means "chunks".
         _, sequence, path, resume_from, resume_extra = request[:5]
         mode = request[5] if len(request) > 5 else "chunks"
+        # Order `pictures-process-isolation`: which pass this is; a six-field
+        # request from an older parent means "read everything", as before.
+        images = request[6] if len(request) > 6 else reading_module.IMAGES_READ
         error = failure = None
         sender.begin(sequence)
         try:
-            for document in extract(Path(path), resume_from=resume_from,
-                                    resume_extra=resume_extra):
-                if mode == "raw":
-                    # The whole `Document`, pickled: both ends are this
-                    # application, and nothing but the child writes the pipe.
-                    send(("rawdoc", document))
-                    continue
-                chunks = [
-                    {"ordinal": ordinal, "text": chunk.text, "page": chunk.page,
-                     "char_start": chunk.char_start, "char_end": chunk.char_end,
-                     "label": chunk.label}
-                    for ordinal, chunk in enumerate(chunk_document(document))
-                ]
-                send(("doc", document.key, document.source_kind, document.meta,
-                      list(document.warnings), chunks))
+            with reading_module.reading(images=images):
+                for document in extract(Path(path), resume_from=resume_from,
+                                        resume_extra=resume_extra):
+                    if mode == "raw":
+                        # The whole `Document`, pickled: both ends are this
+                        # application, and nothing but the child writes the pipe.
+                        send(("rawdoc", document))
+                        continue
+                    chunks = [
+                        {"ordinal": ordinal, "text": chunk.text, "page": chunk.page,
+                         "char_start": chunk.char_start, "char_end": chunk.char_end,
+                         "label": chunk.label}
+                        for ordinal, chunk in enumerate(chunk_document(document))
+                    ]
+                    send(("doc", document.key, document.source_kind, document.meta,
+                          list(document.warnings), chunks))
         except AppErrorException as exc:
             error = exc.error
         except Exception as exc:                       # noqa: BLE001 - reported to the parent
@@ -675,10 +721,17 @@ def main(argv: Optional[list[str]] = None) -> int:
     try:
         # Order `reader-process-isolation` (2026-10-09): the readers may ask
         # which process they are in. The PDF reader does, and never OCRs here.
+        # 2026-10-09: a native fault in a reader child leaves the Python stack
+        # of its thread in `logs/crash/reader-crash.log` (`app.core.
+        # crash_guard`), as the window and the index process do. `log_dir_for`
+        # reads `.env` without validating it and never raises.
+        from app.core.config import log_dir_for
+        from app.core.crash_guard import catch_native_crashes
         from app.extract.base import set_reader_process
 
+        catch_native_crashes(log_dir_for(), "reader")
         set_reader_process(True)
-        _serve(sys.stdin.buffer, outbound)
+        _serve(sys.stdin.buffer, outbound, relay_ocr=True)
     except (BrokenPipeError, OSError):
         return 0                                       # the parent went first
     return 0

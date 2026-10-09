@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 
 log = logger.bind(component="extract.face_detect")
@@ -55,6 +56,9 @@ _engine: Any = None
 _engine_lock = threading.Lock()
 _engine_failed = False
 _engine_attempts = 0
+#: Whether the loaded pack runs on the graphics card (2026-10-09): read by
+#: `detect_faces` for the process-wide gate, as `ocr._engine_is_gpu` is.
+_engine_is_gpu = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,7 +105,7 @@ def _load() -> Optional[Any]:
     """The `FaceAnalysis` app, loaded and prepared once. `None` when it
     cannot be - absent package, no model pack downloaded and no network to
     fetch one, or a corrupted cache. Every case degrades the same way."""
-    global _engine, _engine_failed, _engine_attempts
+    global _engine, _engine_failed, _engine_attempts, _engine_is_gpu
 
     if _engine is not None or _engine_failed:
         return _engine
@@ -124,6 +128,7 @@ def _load() -> Optional[Any]:
             try:
                 app = FaceAnalysis(name=MODEL_PACK, providers=list(choice.providers))
                 app.prepare(ctx_id=0 if choice.is_gpu else -1, det_size=DET_SIZE)
+                on_gpu = bool(choice.is_gpu)
             except Exception as exc:                # noqa: BLE001 - the processor, then
                 if not choice.is_gpu:
                     raise
@@ -131,6 +136,8 @@ def _load() -> Optional[Any]:
                             "using the processor", exc)
                 app = FaceAnalysis(name=MODEL_PACK, providers=["CPUExecutionProvider"])
                 app.prepare(ctx_id=-1, det_size=DET_SIZE)   # -1: CPU
+                on_gpu = False
+            _engine_is_gpu = on_gpu
             _engine = app
             log.info("face detection model loaded in {:.1f}s ({})",
                      time.monotonic() - started, MODEL_PACK)
@@ -219,7 +226,11 @@ def detect_faces(path: Path, *, data: Optional[bytes] = None) -> list[FaceDetect
         image = _bytes_bgr(data, np) if data is not None else _read_bgr(path, cv2, np)
         if image is None:
             return []
-        faces = app.get(image)
+        # 2026-10-09: the pack's sessions run on the graphics card when the
+        # device test chose it (`device_test.json`: faces on the card on the
+        # owner's laptop), so they take the process-wide gate as OCR does.
+        with gpu_exclusive(_engine_is_gpu):
+            faces = app.get(image)
     except Exception as exc:                        # noqa: BLE001 - one image, not the run
         log.debug("face detection failed on {}: {}: {}",
                   path.name, type(exc).__name__, exc)

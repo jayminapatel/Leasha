@@ -155,6 +155,7 @@
     <Compile Include="app\core\code_types.py" />
     <Compile Include="app\core\compute_profile.py" />
     <Compile Include="app\core\config.py" />
+    <Compile Include="app\core\crash_guard.py" />
     <Compile Include="app\core\deeplink.py" />
     <Compile Include="app\core\diagnostics.py" />
     <Compile Include="app\core\env_writer.py" />
@@ -273,6 +274,7 @@
     <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\live_progress.py" />
     <Compile Include="app\index\media_backlog.py" />
+    <Compile Include="app\index\ocr_process.py" />
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\photo_metadata.py" />
@@ -714,6 +716,7 @@
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
     <Compile Include="tests\unit\test_coverage.py" />
+    <Compile Include="tests\unit\test_crash_guard.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_date_forms_every_box.py" />
@@ -801,6 +804,7 @@
     <Compile Include="tests\unit\test_gitsearch.py" />
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
+    <Compile Include="tests\unit\test_gpu_gate_pictures.py" />
     <Compile Include="tests\unit\test_gpu_lock_wiring.py" />
     <Compile Include="tests\unit\test_gpu_regression_notice.py" />
     <Compile Include="tests\unit\test_gpu_serialize.py" />
@@ -898,6 +902,7 @@
     <Compile Include="tests\unit\test_ocr.py" />
     <Compile Include="tests\unit\test_ocr_ladder.py" />
     <Compile Include="tests\unit\test_ocr_passes.py" />
+    <Compile Include="tests\unit\test_ocr_process_isolation.py" />
     <Compile Include="tests\unit\test_ocr_strategy.py" />
     <Compile Include="tests\unit\test_odf.py" />
     <Compile Include="tests\unit\test_offer_recent_switch.py" />
@@ -1338,6 +1343,7 @@
     <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
+    <Content Include="docs\WORKORDER-pictures-process-isolation.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />
     <Content Include="docs\WORKORDER-reader-process-isolation.md" />
     <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />

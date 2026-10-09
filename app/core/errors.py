@@ -334,6 +334,23 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.SKIP_CONTINUE,
     ),
+    # 2026-10-09. The walker never offers a video or recording whose switch is
+    # off (`media.disabled_extensions`), but a member of a zip and a mail
+    # attachment reach the extractor registry by extension alone, and the
+    # extractor read them anyway: the owner's text-only run of 2026-10-09 split
+    # a 2011 demo video inside a zip into keyframes and OCR'd each on the
+    # graphics card, with "Read videos on this computer" off, and the index
+    # process died inside ONNX Runtime doing it. Now the extractor itself
+    # refuses, so off means off on every route; the member keeps its name row.
+    "ERR_MEDIA_SWITCHED_OFF": _Spec(
+        message="'{path}' was not read: '{setting}' is switched off.",
+        suggestion=(
+            "Nothing is wrong - the file is still found by its name. To read what is in "
+            "it, switch on '{setting}' under Settings > Models & AI, then run indexing "
+            "again."
+        ),
+        action_type=ActionType.SKIP_CONTINUE,
+    ),
     # **A queue, not a failure** - the same shape as ERR_OCR_HELD, and in
     # `Pipeline.DEFERRED_SKIP_CODES` for the same reason: a run that was stopped
     # part-way through a two-hour recording has not settled anything about it.
@@ -584,6 +601,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
             "Everything else carried on and is indexed. The file may be damaged: "
             "try opening it in its usual program. If it opens and has changed, "
             "the next run reads it again."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
+    # Order `pictures-process-isolation` (2026-10-09). The text-in-pictures
+    # model runs in a helper process (`app/index/ocr_process.py`); a native
+    # fault in it - ONNX Runtime on DirectML, the 12:25 crash of that day -
+    # now ends the helper, not the run. The picture it had in hand is recorded
+    # with this on the text pass; the pictures pass leaves it waiting for the
+    # next run's end. A fresh helper reads the next picture.
+    "ERR_OCR_PROCESS_ENDED": _Spec(
+        message="Reading the text in '{path}' stopped unexpectedly, so it was skipped.",
+        suggestion=(
+            "Everything else carried on and is indexed: the helper that reads text in "
+            "pictures was started again for the next one. The picture may be damaged; "
+            "if it opens in its usual program and has changed, the next run reads it again."
         ),
         action_type=ActionType.USER_RETRY,
     ),

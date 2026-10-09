@@ -46,6 +46,7 @@ from typing import Callable, Iterable, Iterator, Optional, Sequence, Union
 
 from app.core.model_devices import device_for as _device_for
 from app.core.errors import AppErrorException, make_error
+from app.core.gpu_serialize import gpu_exclusive
 from app.core.logging import logger
 from app.index import backends
 
@@ -267,7 +268,10 @@ class ClipImageEmbedder:
 
         encoder = self._ensure_encoder()
         try:
-            raw = list(encoder(paths))
+            # 2026-10-09: inside the process-wide graphics-card gate when the
+            # model is on the card (`gpu_serialize`), as the text embedder is.
+            with gpu_exclusive(bool(self.choice is not None and self.choice.is_gpu)):
+                raw = list(encoder(paths))
         except AppErrorException:
             raise
         except Exception as exc:               # noqa: BLE001 - boundary
