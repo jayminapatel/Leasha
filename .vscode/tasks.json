@@ -67,6 +67,24 @@
       "presentation": { "reveal": "always", "panel": "dedicated" }
     },
     {
+      "label": "Run the tests affected by your changes",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["scripts/run_suite.py", "--affected", "-j", "3"],
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
+      "label": "Quick check (no Qt, no slow tests)",
+      "type": "shell",
+      "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",
+      "args": ["scripts/run_suite.py", "--quick", "-j", "3"],
+      "group": "test",
+      "problemMatcher": [],
+      "presentation": { "reveal": "always", "panel": "dedicated" }
+    },
+    {
       "label": "Run acceptance tests for the current layer",
       "type": "shell",
       "command": "${workspaceFolder}\\venv\\Scripts\\python.exe",

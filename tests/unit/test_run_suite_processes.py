@@ -104,14 +104,16 @@ def test_a_crashed_part_can_name_the_file_it_died_in(tmp_path, monkeypatch, caps
     seen = []
 
     class Died:
-        def __init__(self, command, cwd, stdout, stderr):
+        def __init__(self, command, cwd, stdout, stderr, **kwargs):
             seen.append(command)
             stdout.write("tests/unit/test_first.py::test_one PASSED [ 50%]\n"
                          "tests/unit/test_crash.py::test_boom ")
             stdout.flush()
 
-        def wait(self):
+        def wait(self, timeout=None):
             return 0xC0000005
+
+        poll = wait
 
     monkeypatch.setattr(subprocess, "Popen", Died)
     monkeypatch.setattr(run_suite, "find_files", lambda explicit: ["tests/unit/test_x.py"])
@@ -144,13 +146,15 @@ def _part_that_writes(log_text: str, exit_code: int):
     seen = []
 
     class Part:
-        def __init__(self, command, cwd, stdout, stderr):
+        def __init__(self, command, cwd, stdout, stderr, **kwargs):
             seen.append(command)
             stdout.write(log_text)
             stdout.flush()
 
-        def wait(self):
+        def wait(self, timeout=None):
             return exit_code
+
+        poll = wait
 
     return Part, seen
 

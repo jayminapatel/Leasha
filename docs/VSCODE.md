@@ -1,6 +1,6 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.4 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 1.5 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.1
 
 ## Opening it
 
@@ -55,7 +55,9 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 | Diagnose (bundle for troubleshooting) | Builds a support bundle (`app.cli diagnose`) into `logs\diagnostics\` |
 | Doctor / Doctor (quick) | Environment verification; `--quick` skips model loading |
 | Run all tests | The whole suite in one pytest process |
-| Run the whole suite (3 processes, the project's runner) | `scripts/run_suite.py -j 3`: the suite split over three processes, each with its own temp folder, a crashed or timed-out process reported as such, and an exit code that is red when any part failed or errored. This is what a release and a hand-off run |
+| Run the whole suite (3 processes, the project's runner) | `scripts/run_suite.py -j 3`: the suite split over three processes by measured cost, each with its own temp folder, a crashed, hung or timed-out process reported as such, and an exit code that is red when any part failed or errored. This is what a release and a hand-off run |
+| Run the tests affected by your changes | `scripts/run_suite.py --affected -j 3`: only the test files that can see what is uncommitted (through the import graph and the tests' own text), plus the load-bearing tests; the whole suite when most of it can see the change. It prints what it chose and why. Minutes for a leaf change; not a gate |
+| Quick check (no Qt, no slow tests) | `scripts/run_suite.py --quick -j 3`: the suite without `gui`, `slow` and `qt` tests. A sanity pass before the real run; not a gate |
 | Run acceptance tests for the current layer | Just `tests/integration` |
 | Parse-check PowerShell scripts | Real parser plus the encoding audit |
 | Install dev tools | pytest, ruff, mypy |
@@ -67,7 +69,9 @@ Or in a terminal: `venv\Scripts\python.exe -m pip install -r requirements-dev.tx
 `Ctrl+Shift+P` -> **Tasks: Run Test Task** runs the suite. Before committing, prefer
 **Run the whole suite (3 processes, the project's runner)**: on a machine with less than
 about 10 GB free a single process holding Qt, onnxruntime and LanceDB can fault rather than
-raise, and the runner is what says so.
+raise, and the runner is what says so. While working, **Run the tests affected by your
+changes** (`--affected`) is the inner loop and **Quick check** (`--quick`) the sanity pass;
+the whole suite is still what a release and a hand-off run.
 
 **Debugging** (`F5`, then pick a configuration): `CLI: stats`, `CLI: stats (json)`,
 `CLI: doctor`, `CLI: index (Layer 3)`, `CLI: search (Layer 4)`, `App: desktop shell (Layer 5)`,
