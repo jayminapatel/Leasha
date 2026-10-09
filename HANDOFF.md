@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.128 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.129 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,24 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, night, later - Describe and picture search are in the host too (owner: "take the other models into the helper").**
+Two other models loaded inside the window after it was shown, each holding Python's lock for its load: Florence-2 on the first
+Describe (12 s in the index log) and the CLIP text tower on the first picture search. Neither had loaded in today's window logs,
+because the owner had not used them, so they were found from the code. Hosted by `app/ort/hosted.py` (`HostedFlorence`,
+`HostedEmbedder`: small adapters naming the few calls the host will forward, `HOSTED_METHODS`), reached through
+`app/llm/remote_models.py` (`RemoteFlorence`, `RemoteEmbedder`). `florence_tagger.describe` and `tag_image` check a hook
+(`set_engine_process`) set only by the window; `engines.clip_text_embedder` hands the window's search engine the proxy and every
+other caller the plain `Embedder`. **Two hosts, not one:** `engines.model_host("chat")` and `("vision")`, because a host's own lock is
+held for the whole of any load in it, and a Describe must not hold up a chat reply. The CLIP download notice still reaches the
+notices bar: the host sends `progress` frames and `RemoteEmbedder._on_progress` receives them. Describe keeps its promise never to
+raise: a dead host is `None`, "nothing could be described". `ERR_MODEL_HOST_ENDED` now reads "A model that Leasha runs stopped while
+working". **Measured with the real models:** Describe of a real photo 30.8 s end to end (host start, Florence-2 load, caption) and the
+window side's longest pause 0.061 s; the picture-search encoder 4.0 s (load plus two queries), longest pause 0.032 s, vectors 512
+wide and unit length. **Still in the window and not covered:** the meaning model and the reranker, loaded during start-up before the
+window is shown (a pause there is the splash, not a freeze), and the 1.2 s and 1.0 s stalls of this morning's log, whose cause is not
+identified. Whether a model rebuilt after a Settings change (device) reloads mid-session was not checked: those settings are marked
+restart. Uncommitted when written.
 
 **2026-10-09, night - the chat model runs in a host process (owner: "option 1").** The "Not responding" label was real: the
 window log of the restarted session shows 53 stalls, four over a second, the longest 14.2 s, and that one is the chat model

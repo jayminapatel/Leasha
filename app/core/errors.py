@@ -199,10 +199,10 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     # library, or the process being closed - the reply in flight is lost and the
     # next question starts a new one.
     "ERR_MODEL_HOST_ENDED": _Spec(
-        message="The chat model stopped while answering, so this answer was lost. "
-                "Search still works normally.",
+        message="A model that Leasha runs stopped while working, so this one result was "
+                "lost. Search still works normally.",
         suggestion=(
-            "Ask again: the model starts afresh and takes a moment to load. If it "
+            "Try again: the model starts afresh and takes a moment to load. If it "
             "keeps happening, `logs/crash/model-host-crash.log` names the function it "
             "stopped in, or switch the chat engine to Ollama in Settings, Models."
         ),

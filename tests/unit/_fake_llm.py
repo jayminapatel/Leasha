@@ -68,3 +68,48 @@ class FakeLLM:
 
     def chat_stream(self, messages: Any, **kwargs: Any) -> Any:
         yield from self.stream(messages[-1]["content"], **kwargs)
+
+
+class FakeEmbedder:
+    """Stands in for `app.ort.hosted.HostedEmbedder`."""
+
+    HOSTED_METHODS = frozenset({"embed", "warm_up"})
+
+    def __init__(self, kind: str = "clip-text", env_file: str = "") -> None:
+        self.progress_sink: Any = None
+
+    def embed(self, texts: Any) -> Any:
+        import numpy as np
+
+        if self.progress_sink is not None:
+            self.progress_sink(10.0)
+            self.progress_sink(100.0)
+        if list(texts) == ["spin"]:
+            end = time.perf_counter() + 1.0
+            while time.perf_counter() < end:     # pure Python: holds the lock
+                pass
+        return np.array([[float(len(text)), 1.0] for text in texts])
+
+    def warm_up(self) -> None:
+        return None
+
+
+class FakeFlorence:
+    """Stands in for `app.ort.hosted.HostedFlorence`."""
+
+    HOSTED_METHODS = frozenset({"describe", "tag_image"})
+
+    def __init__(self) -> None:
+        self.progress_sink: Any = None
+
+    def describe(self, path: str) -> Any:
+        if path == "die":
+            os._exit(3)
+        if path == "spin":
+            end = time.perf_counter() + 1.0
+            while time.perf_counter() < end:     # pure Python: holds the lock
+                pass
+        return f"described:{path}"
+
+    def tag_image(self, path: str) -> Any:
+        return None

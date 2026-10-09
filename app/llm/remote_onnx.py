@@ -46,7 +46,7 @@ from app.core.logging import logger
 
 log = logger.bind(component="llm.remote_onnx")
 
-__all__ = ["ModelHost", "RemoteOnnxLLM", "START_LIMIT_S"]
+__all__ = ["START_LIMIT_S", "ModelHost", "RemoteOnnxLLM"]
 
 #: Seconds the host may take to say it is ready (imports only; no model loads
 #: before the first question).
@@ -141,10 +141,8 @@ class ModelHost:
     @staticmethod
     def _kill(proc: Any) -> None:
         for step in (lambda: proc.kill(), lambda: proc.wait(timeout=3.0)):
-            try:
+            with contextlib.suppress(Exception):
                 step()
-            except Exception:
-                pass
 
     def kill(self) -> None:
         """End the host now (tests, and a stuck reply). The next call starts another."""
@@ -170,10 +168,8 @@ class ModelHost:
                 if waiting is not None:
                     waiting.put(message)
         code = None
-        try:
+        with contextlib.suppress(Exception):
             code = proc.wait(timeout=2.0)
-        except Exception:
-            pass
         with self._lock:
             lost = list(self._pending.values())
             if self._proc is proc:
@@ -188,8 +184,10 @@ class ModelHost:
     # -- clients and requests --------------------------------------------------
 
     def register(self, spec: tuple) -> int:
-        """Make a client here; `spec` is `(cache_dir, model, device, timeout, keep_resident)`.
-        Sent to the host now when it runs, and replayed whenever one starts."""
+        """Make a client here. `spec` is `("llm", cache_dir, model, device, timeout,
+        keep_resident)` for a chat model or `("obj", factory, args, kwargs)` for any
+        other hosted object. Sent to the host now when it runs, and replayed
+        whenever one starts."""
         with self._lock:
             iid = next(self._iids)
             self._instances[iid] = spec
@@ -202,10 +200,43 @@ class ModelHost:
         with self._lock:
             self._instances[iid] = spec
 
+    def register_object(self, factory: str, args: tuple = (), kwargs: Optional[dict] = None) -> int:
+        """Make a hosted object (`app/ort/hosted.py`) here; `factory` is `module:attribute`."""
+        return self.register(("obj", factory, tuple(args), dict(kwargs or {})))
+
     def _send_new(self, iid: int, spec: tuple) -> None:
-        cache_dir, model, device, timeout, keep = spec
+        if spec[0] == "obj":
+            _, factory, args, kwargs = spec
+            self.send(("obj", iid, factory, args, kwargs))
+            return
+        _, cache_dir, model, device, timeout, keep = spec
         self.send(("new", iid, self.factory, str(cache_dir) if cache_dir else "", model,
                    device, timeout, keep))
+
+    def call_object(self, iid: int, method: str, args: tuple = (),
+                    kwargs: Optional[dict] = None, *,
+                    progress: Optional[Callable[[Any], None]] = None) -> Any:
+        """One call on a hosted object, waited for. A model download's progress
+        reaches `progress`. Raises the error the host sent, or `ERR_MODEL_HOST_ENDED`."""
+        rid, answers = self.request("call", iid, method, tuple(args), kwargs or {}, False, "")
+        try:
+            while True:
+                item = answers.get()
+                kind = item[0]
+                if kind == "progress":
+                    if progress is not None:
+                        try:
+                            progress(item[2])
+                        except Exception:                    # a notice must never break the call
+                            log.debug("a progress callback failed")
+                elif kind == "result":
+                    return item[2]
+                elif kind == "error":
+                    raise AppErrorException(item[2])
+                elif kind == "lost":
+                    raise _ended(f"the model process ended (exit code {item[2]})")
+        finally:
+            self.forget(rid)
 
     def send(self, message: tuple) -> None:
         proc = self._proc
@@ -268,7 +299,7 @@ class RemoteOnnxLLM:
         self._iid = host.register(self._spec())
 
     def _spec(self) -> tuple:
-        return (self.cache_dir, self._named, self.device, self.timeout, self._keep)
+        return ("llm", self.cache_dir, self._named, self.device, self.timeout, self._keep)
 
     # -- which model -------------------------------------------------------------
 

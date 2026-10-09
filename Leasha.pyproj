@@ -301,6 +301,7 @@
     <Compile Include="app\llm\engines.py" />
     <Compile Include="app\llm\models.py" />
     <Compile Include="app\llm\ollama.py" />
+    <Compile Include="app\llm\remote_models.py" />
     <Compile Include="app\llm\remote_onnx.py" />
     <Compile Include="app\main.py" />
     <Compile Include="app\ort\__init__.py" />
@@ -308,6 +309,7 @@
     <Compile Include="app\ort\discover.py" />
     <Compile Include="app\ort\florence.py" />
     <Compile Include="app\ort\generate.py" />
+    <Compile Include="app\ort\hosted.py" />
     <Compile Include="app\ort\hub.py" />
     <Compile Include="app\ort\inventory.py" />
     <Compile Include="app\ort\llm.py" />

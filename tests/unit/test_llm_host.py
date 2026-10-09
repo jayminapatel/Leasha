@@ -18,9 +18,12 @@ import pytest
 
 from app.core.errors import AppErrorException
 from app.llm import engines
+from app.llm.remote_models import RemoteEmbedder, RemoteFlorence
 from app.llm.remote_onnx import ModelHost, RemoteOnnxLLM
 
 FAKE = "tests.unit._fake_llm:FakeLLM"
+FAKE_EMBEDDER = "tests.unit._fake_llm:FakeEmbedder"
+FAKE_FLORENCE = "tests.unit._fake_llm:FakeFlorence"
 
 
 @pytest.fixture
@@ -151,3 +154,82 @@ def test_only_the_window_asks_for_the_host():
         engines.reset_shared()
     assert type(engines.text_model(settings)).__name__ == "OnnxLLM"
     engines.reset_shared()
+
+
+# --- the other models the window used to load itself ---------------------------------
+
+
+def test_the_picture_search_encoder_returns_vectors_and_its_download_progress(host):
+    encoder = RemoteEmbedder(host, factory=FAKE_EMBEDDER)
+    percents = []
+    encoder._on_progress = percents.append
+    vectors = encoder.embed(["a cat", "dog"])
+    assert vectors.shape == (2, 2) and vectors[0][0] == 5.0
+    assert percents == [10.0, 100.0], "the download notice reached the window"
+    encoder.warm_up()
+
+
+def test_describe_returns_the_caption_and_never_raises_when_the_host_dies(host):
+    florence = RemoteFlorence(host, factory=FAKE_FLORENCE)
+    assert florence.describe("a.jpg") == "described:a.jpg"
+    assert florence.tag_image("a.jpg") is None
+    assert florence.describe("die") is None            # the host ended: the local object's "nothing"
+    assert florence.describe("b.jpg") == "described:b.jpg"
+    assert host.started == 2
+
+
+def test_the_window_keeps_running_while_a_vision_model_holds_the_hosts_lock(host):
+    florence = RemoteFlorence(host, factory=FAKE_FLORENCE)
+    florence.describe("warm")
+    gaps: list[float] = []
+    stop = threading.Event()
+
+    def ticker():
+        last = time.perf_counter()
+        while not stop.is_set():
+            time.sleep(0.01)
+            now = time.perf_counter()
+            gaps.append(now - last)
+            last = now
+
+    threading.Thread(target=ticker, daemon=True).start()
+    time.sleep(0.2)
+    gaps.clear()
+    started = time.perf_counter()
+    florence.describe("spin")
+    took = time.perf_counter() - started
+    stop.set()
+    assert took >= 0.9 and max(gaps) < 0.3, (took, max(gaps))
+
+
+def test_the_window_installs_the_proxies_and_nothing_else_does():
+    from app.extract import florence_tagger
+
+    settings = SimpleNamespace(chat_engine="onnx", model_cache="", embed_device="auto")
+    try:
+        engines.use_model_host(True)
+        assert type(florence_tagger._remote).__name__ == "RemoteFlorence"
+        assert type(engines.clip_text_embedder(settings)).__name__ == "RemoteEmbedder"
+        assert engines.model_host("chat") is not engines.model_host("vision"),             "a vision load must never share a lock with a chat reply"
+    finally:
+        engines.use_model_host(False)
+    assert florence_tagger._remote is None
+    assert type(engines.clip_text_embedder(settings)).__name__ == "Embedder"
+
+
+def test_a_hosted_florence_is_reached_through_the_taggers_own_entry_points(tmp_path):
+    from app.extract import florence_tagger
+
+    class Stub:
+        def describe(self, path):
+            return f"stub:{path.name}"
+
+        def tag_image(self, path):
+            return "tagged"
+
+    florence_tagger.set_engine_process(Stub())
+    try:
+        assert florence_tagger.describe(tmp_path / "x.jpg") == "stub:x.jpg"
+        assert florence_tagger.tag_image(tmp_path / "x.jpg") == "tagged"
+    finally:
+        florence_tagger.set_engine_process(None)

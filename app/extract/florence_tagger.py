@@ -177,8 +177,22 @@ def deferred() -> bool:
     return _deferred
 
 
+#: 2026-10-09. In the window the model runs in a host process of its own (loading
+#: Florence-2 took 12 s with Python's lock held, and the window with it): this is its
+#: proxy, installed by `app.llm.engines.use_model_host`. None everywhere else.
+_remote: Any = None
+
+
+def set_engine_process(proxy: Any) -> None:
+    """Send `describe` and `tag_image` to `proxy` (the host's), or stop (None)."""
+    global _remote
+    _remote = proxy
+
+
 def tag_image(path: Path) -> Optional[FlorenceResult]:
     """Caption + tags for one photo-class image. Never raises."""
+    if _remote is not None:
+        return _remote.tag_image(path)
     engine = _load()
     if engine is None:
         return None
@@ -214,6 +228,8 @@ def tag_image(path: Path) -> Optional[FlorenceResult]:
 def describe(path: Path) -> Optional[str]:
     """A paragraph about one picture - Describe, when the chat engine is ONNX.
     Never raises; `None` when the model is absent or the image unreadable."""
+    if _remote is not None:
+        return _remote.describe(path)
     engine = _load()
     if engine is None:
         return None

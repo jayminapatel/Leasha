@@ -711,7 +711,7 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # on the first search that reaches `vector.search_images`. The
             # startup budget (work order 0r) has room for one eager load
             # (the meaning model above), not two.
-            clip_text_embedder = vector.clip_text_embedder_from_settings(settings)
+            clip_text_embedder = _engines.clip_text_embedder(settings)
 
             log.info("startup: building the search engine")
             engine = SearchEngine(

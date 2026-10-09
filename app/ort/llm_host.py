@@ -21,6 +21,7 @@ per-process, and this is the one process that holds a model.
 **The protocol** (frames as `app/core/pipewire.py`):
 
     window -> host    ("new", iid, factory, cache_dir, model, device, timeout, keep_resident)
+                      ("obj", iid, factory, args, kwargs)  any other hosted object (`app/ort/hosted.py`)
                       ("set", iid, name, value)            only `keep_resident`
                       ("call", rid, iid, method, args, kwargs, has_stop, model)
                       ("stream", rid, iid, method, args, kwargs, has_stop, model)
@@ -29,6 +30,7 @@ per-process, and this is the one process that holds a model.
     host -> window    ("ready", pid)                       once, imports done
                       ("result", rid, value)               a call's answer
                       ("piece", rid, text)                 a stream's next text
+                      ("progress", rid, percent)           a model download, for the notices bar
                       ("end", rid)                         the stream is finished
                       ("error", rid, AppError)             the call or stream failed
 
@@ -117,11 +119,14 @@ def serve(inbound: Any, outbound: Any) -> None:
     def run_call(rid: int, iid: int, method: str, args: tuple, kwargs: dict,
                  has_stop: bool, model: str) -> None:
         try:
-            if method not in CALLS:
+            client = client_of(iid)
+            # A hosted object names the calls it allows; the chat model has `CALLS`.
+            if method not in getattr(client, "HOSTED_METHODS", CALLS):
                 raise AppErrorException(make_error(
                     "ERR_LOCAL_MODEL_FAILED", "ort.llm_host",
-                    details=f"the chat model process does not run '{method}'"))
-            client = client_of(iid)
+                    details=f"the model process does not run '{method}'"))
+            if hasattr(client, "progress_sink"):
+                client.progress_sink = lambda value, r=rid: send(("progress", r, value))
             if model:
                 client.set_model(model)          # the choice travels with the request
             value = getattr(client, method)(*args, **keyword(kwargs, rid, has_stop))
@@ -170,6 +175,12 @@ def serve(inbound: Any, outbound: Any) -> None:
                 clients[iid] = client
             except Exception as exc:                       # reported when first used
                 log.warning("could not build client {}: {}", iid, exc)
+        elif kind == "obj":
+            _, iid, factory, args, kwargs = request
+            try:
+                clients[iid] = _build(factory)(*args, **kwargs)
+            except Exception as exc:                       # reported when first used
+                log.warning("could not build object {}: {}", iid, exc)
         elif kind == "set":
             _, iid, name, value = request
             if name in SETTABLE and iid in clients:

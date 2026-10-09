@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 __all__ = ["ONNX", "OLLAMA", "engine_of", "text_model", "vision_model", "reset_shared",
-           "chat_key", "ollama_context"]
+           "chat_key", "ollama_context", "use_model_host", "model_host", "clip_text_embedder"]
 
 ONNX = "onnx"
 OLLAMA = "ollama"
@@ -40,40 +40,76 @@ _chosen: dict[tuple, Any] = {}
 # loaded), so it is never contended for long.
 _shared_lock = threading.Lock()
 
-#: 2026-10-09. The window turns this on (`use_model_host`): the ONNX chat model then
-#: runs in a host process of its own, because building its session holds Python's
-#: lock for the whole load (20 s measured) and froze the window. Everything else -
-#: the command line, the indexer, tests - keeps the model in the calling process,
-#: where nothing is waiting on a window and a second process would be a cost.
+#: 2026-10-09. The window turns this on (`use_model_host`): the models that would
+#: otherwise load inside it - the ONNX chat model, Florence-2 for Describe, the
+#: picture-search text encoder - run in host processes of their own, because
+#: building an ONNX Runtime session holds Python's lock for the whole load (20 s
+#: measured) and froze the window. Everything else - the command line, the
+#: indexer, tests - keeps the model in the calling process, where nothing is
+#: waiting on a window and a second process would be a cost.
 _host_enabled = False
 _host_env: Optional[Path] = None
-_host: Any = None
+_hosts: dict[str, Any] = {}
 _host_lock = threading.Lock()
+
+#: One host per kind of model. A host's own lock is held for the whole of any model
+#: load in it, so a Describe loading Florence-2 must not share a process with a chat
+#: reply that is being written.
+CHAT_HOST = "chat"
+VISION_HOST = "vision"
+
+
+def model_host(name: str = CHAT_HOST) -> Any:
+    """The host process of that kind, made on first use (no process starts until
+    a model in it is first asked for something)."""
+    from app.llm.remote_onnx import ModelHost
+
+    with _host_lock:
+        host = _hosts.get(name)
+        if host is None:
+            host = _hosts[name] = ModelHost(env_file=_host_env)
+        return host
 
 
 def use_model_host(enabled: bool = True, env_file: Optional[Path] = None) -> None:
-    """Run the ONNX chat model in a host process (the window), or in this one."""
-    global _host_enabled, _host_env, _host
+    """Run the window's models in host processes, or in the calling process."""
+    global _host_enabled, _host_env
     with _host_lock:
         _host_enabled = bool(enabled)
         _host_env = Path(env_file) if env_file else None
-        retired, _host = (None, _host) if enabled else (_host, None)
-    if retired is not None:
-        retired.close()
+        retired = list(_hosts.values())
+        _hosts.clear()
+    for host in retired:
+        host.close()
+    from app.extract import florence_tagger
+
+    if enabled:
+        from app.llm.remote_models import RemoteFlorence
+
+        florence_tagger.set_engine_process(RemoteFlorence(model_host(VISION_HOST)))
+    else:
+        florence_tagger.set_engine_process(None)
+
+
+def clip_text_embedder(settings: Any) -> Any:
+    """The picture-search text encoder: a proxy to the vision host in the window,
+    the plain `Embedder` anywhere else."""
+    if _host_enabled:
+        from app.llm.remote_models import RemoteEmbedder
+
+        return RemoteEmbedder(model_host(VISION_HOST), _host_env)
+    from app.search import vector
+
+    return vector.clip_text_embedder_from_settings(settings)
 
 
 def _new_onnx(cache: Any, model: str, device: str, timeout: float) -> Any:
     """A chat client: a proxy to the host process when the window asked for one."""
-    global _host
     if _host_enabled:
-        from app.llm.remote_onnx import ModelHost, RemoteOnnxLLM
+        from app.llm.remote_onnx import RemoteOnnxLLM
 
-        with _host_lock:
-            if _host is None:
-                _host = ModelHost(env_file=_host_env)
-            host = _host
-        return RemoteOnnxLLM(host, Path(cache) if cache else None, model, device=device,
-                             timeout=timeout)
+        return RemoteOnnxLLM(model_host(CHAT_HOST), Path(cache) if cache else None, model,
+                             device=device, timeout=timeout)
     from app.ort.llm import OnnxLLM
 
     return OnnxLLM(Path(cache) if cache else None, model, device=device, timeout=timeout)
