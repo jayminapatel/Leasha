@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 1.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.

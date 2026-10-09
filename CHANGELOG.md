@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.88 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 4.89 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,6 +17,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-10-08
+
+### One document can no longer end an index run (2026-10-08)
+
+- **An index run no longer stops on a document it cannot write.** Ten minutes into a run on
+  the owner's machine, one old Word document carried a stray half of a character that the
+  index refused, and the whole run ended with "an unexpected error occurred". Now the
+  other documents being written alongside it are kept, the document is tried once more on
+  its own, and if it still cannot be written it is recorded as skipped with the reason,
+  like a damaged file. The run carries on either way. If even that record cannot be
+  written, the failure is logged in full and the file is read again next time.
+- **The stray character itself is mended before it reaches the index**: a character split
+  in two is put back together, a half with no partner becomes the standard replacement
+  mark. Nothing unencodable reaches the index any more, from any reader.
+
 ### The GitHub front page made presentable (2026-10-08)
 
 - **`README.md` restructured for a visitor, not a maintainer.** Logo, one-line pitch, CI,
@@ -26,6 +41,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   non-negotiables, targets, the document index) moved under *Developing*, unchanged.
 - **`docs/images/`** holds six screenshots lifted from the user guide for the README;
   the guide itself still embeds its own copies.
+
+### Docs
+
+- `HANDOFF.md` 7.116, `CHANGELOG.md` 4.89, `docs/PROJECT_INSTRUCTIONS.md` 1.8 (applies to
+  1.0.2); `README.md` 4.1: the install step points at the GitHub Releases page, with the
+  Google Drive folder as the owner's own archive.
 
 ## [1.0.1] - 2026-10-08
 

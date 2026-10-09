@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.114 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 7.116 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,73 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-08, late - release 1.0.2: the indexer never ends on one document.** The owner
+started a run on the 1.0.1 code and it died after 618 s: `FAT_KPI_V1 0.doc` carried a lone
+UTF-16 surrogate (a pair split across two pieces of the piece table, which `doc.py` decodes
+one piece at a time), `replace_chunks` handed it to SQLite, Python's UTF-8 encoder refused it,
+and the `UnicodeEncodeError` came out of `_consume` and ended the run as `ERR_UNEXPECTED` -
+non-negotiable 3 broken by the write path, which had no per-document guard where the readers
+had one. Two fixes, both tested (`test_one_unwritable_document.py`): `SqliteStore.utf8_safe`
+mends text at the store boundary (a split pair becomes the character, a stray half U+FFFD;
+ordinary text pays one `encode`), and `_consume` catches any exception from a document's write
+or skip (`_group_failed`): the open write group is rolled back whole and its queued passages
+dropped from `pending_vectors` (no vector for a passage SQLite no longer has), the group's
+other documents are written again each in its own transaction, the failing one is retried
+once on its own, and only a second failure is recorded as a skip with the reason
+(`_record_skip_or_log`; if even that row fails it is logged in full and the file keeps its
+status). The first version left the group's other documents rolled back for "next run" -
+`test_write_groups` showed a finished run had quietly lost nine messages of an archive the
+next run then considered done, which is why the replay exists. The owner's words, which bind: "the indexer
+should never crash, also the program should always handle the errors". Also in this release:
+the README front page from the "GitHub project page polish" thread (`9477f19`). **The
+installer now lives in two places** (owner, relayed by that thread): the GitHub Releases page
+of `jayminapatel/Leasha`, which the README's install step now points at, and the owner's own
+archive in `Leasha\Releases\<version>\` on Google Drive, where `build.ps1 -Release` puts it.
+Publishing the GitHub release needs `gh auth login` on this laptop (it was not signed in) or
+an upload through the browser; the notes come from the CHANGELOG section. **To finish
+on the owner's machine:** restart the run from the window; the resume cursor is intact.
+**Seen while testing:** `test_text_first.py::test_a_stop_while_meaning_catches_up_loses_nothing_and_embeds_nothing_twice`
+failed once under load beside nine heavy files and passed three times alone - the load flake
+the entry two below already names. **Worse, the release gate itself hung:** the third full
+run of the night stopped inside `test_pipeline_bench.py` at 00:38 with 317 threads alive and
+no output for seven hours, while a Leasha window started at 23:41 was indexing on the same
+machine; pytest-timeout (thread method) could not interrupt it, so the hang was in native
+code (UNCONFIRMED: ONNX or DirectML contention with the window's run, or the psutil access
+violation the entry below records). Killed by hand; `run_suite.py` reported it as a crashed
+process and a red exit, as the 2026-10-08 fix intends. The 16 files it never reached and the
+bench file alone then passed, so every test file passed on the released tree. Not fixed:
+a bench test that can hang the gate needs a hard process-level time limit, and the runner
+could give each part one.
+
+**2026-10-08, late - the GitHub front page, for visitors (owner: "make it professional so
+it attracts visitors").** The repository `jayminapatel/Leasha` is public and had 0 stars, no
+description, no topics and a README that opened on a doc-version line. Three things changed,
+two of them outside git. (1) `README.md` 3.8 -> 4.0 (`9477f19`): the logo lockup, a one-line
+pitch, badges (CI from `ci.yml`, version from the newest tag, licence, Windows, Python 3.12,
+offline), a jump bar, a "Why Leasha" list, the Search page as a hero picture and four pages in
+a gallery, a "Built on" table and a licence section; macOS and Linux install steps fold into
+`<details>`; the maintainer material (layout, non-negotiables, targets, the document index)
+moved under *Developing* with its text unchanged. The six pictures are in `docs/images/`,
+lifted from the base64 copies inside `docs/USER_GUIDE.html` (`tools/guide_pictures.py` still
+owns the guide's own); the Chat and Photos grabs were left out because the demonstration
+store shows an empty chat and placeholder pictures. CHANGELOG 4.88 records it under
+Unreleased. (2) **The About box on github.com**, saved through the owner's logged-in browser
+on the owner's yes: the description "Search everything on your PC by describing it in plain
+English. Files, Outlook mail, photos and code. One process, 100% offline, nothing leaves your
+machine." and fifteen topics (desktop-search, local-search, semantic-search, hybrid-search,
+full-text-search, offline, privacy, windows, python, pyside6, sqlite-fts5, lancedb,
+onnxruntime, outlook, local-ai). (3) **The social preview card**, `assets/social-preview.png`
+(`1fdbfc1`; 1280x640, the lockup, the pitch and the Search page, drawn with Pillow from the
+lockup and `docs/images/search-results.png`), uploaded under Settings > Social preview and
+confirmed from the page's `og:image` tag. **Neither (2) nor (3) is in git**: a fresh fork or
+a renamed repository has to set both again by hand, and the card is regenerated only by
+redrawing it, there is no script in the tree. The GitHub Releases ask went to the 1.0.2
+thread (the entry above); `gh` on this laptop was not signed in, so the About box and the
+card went through the browser rather than the API. Verified on the live page after each
+push: the badges render (CI passing, version v1.0.1 at the time), the hero picture loads,
+the About box shows the description and topics. The README's install step still said Google
+Drive when this thread closed; the 1.0.2 thread reworded it to point at Releases (README 4.1).
 
 **2026-10-08, night - release 1.0.1 (owner: "finish all off and release the installer").**
 `VERSION` 1.0.1, tagged `v1.0.1` on `a5a2edb`; `Leasha-Setup-1.0.1.exe` (328 MB) built from

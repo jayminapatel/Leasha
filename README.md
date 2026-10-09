@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.0 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 4.1 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -137,8 +137,11 @@ supported.
 
 ### Windows - the installer (most people)
 
-1. Run `Leasha-Setup-<version>.exe`. Builds are kept in the `Leasha\Releases\<version>`
-   folder on Google Drive, each with a `.sha256` file to check it against.
+1. Download `Leasha-Setup-<version>.exe` from the project's
+   [GitHub Releases page](https://github.com/jayminapatel/Leasha/releases) and run it. Every
+   release carries a `.sha256` file to check the download against. (The
+   `Leasha\Releases\<version>` folder on Google Drive is the owner's own archive of the
+   same builds.)
 2. Windows says it protected your PC, because the installer is not signed. Choose
    **More info**, then **Run anyway**.
 3. No administrator rights are needed: it installs for your account, in
