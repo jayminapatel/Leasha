@@ -3,7 +3,7 @@
 
     Run from a NORMAL PowerShell window (admin not required):
 
-        cd D:\SearchProject
+        cd D:\Local\GitHub\Leasha
         .\install.ps1
 
     The project is installed into the folder THIS SCRIPT lives in. It never
@@ -275,7 +275,7 @@ if (-not $ProjectPath) {
     if ($PSScriptRoot) {
         $ProjectPath = $PSScriptRoot
     } else {
-        throw "Cannot determine the script location. Re-run with -ProjectPath ""D:\SearchProject""."
+        throw "Cannot determine the script location. Re-run with -ProjectPath ""D:\Local\GitHub\Leasha""."
     }
 }
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path

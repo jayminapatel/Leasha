@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.8 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.3
+**Doc version:** 1.9 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -18,7 +18,7 @@ briefing. Read `BUILD_SPEC_V2.md` for the layer you are about to build.
 4. Verify before changing anything:
 
 ```powershell
-cd D:\SearchProject
+cd D:\Local\GitHub\Leasha
 venv\Scripts\python.exe doctor.py
 venv\Scripts\python.exe -m pytest tests -q
 ```

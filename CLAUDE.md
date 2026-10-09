@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.4 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.5 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -73,7 +73,7 @@ folders, commands and apps only while the desktop app is open.
 | What | Lives in | Travels by |
 |---|---|---|
 | Code, docs, work orders | GitHub `jayminapatel/Leasha`, branch `main` - the only master | a cloud session clones and pushes; the laptop runs `git pull` |
-| Laptop working copy + venv | `D:\Local\GitHub\SearchProject` (moved out of Google Drive 2026-09-30) | git only - never Drive sync |
+| Laptop working copy + venv | `D:\Local\GitHub\Leasha` (moved out of Google Drive 2026-09-30) | git only - never Drive sync |
 | The owner's index and models | `D:\Leasha\Data` | never synced, never in git |
 | Release builds | Google Drive `Leasha\Releases\<version>\` (on the laptop `D:\Local\GDrive\Leasha\Releases\`), outside the repo | Drive sync brings them to the laptop |
 
@@ -81,7 +81,7 @@ folders, commands and apps only while the desktop app is open.
 the real Windows window, Outlook/PST, DirectML, Smart App Control, the owner's data.
 A red Windows-only test there proves nothing; mark such claims *UNVERIFIED on
 Windows*, or run them on the laptop through the desktop app
-(`D:\Local\GitHub\SearchProject\venv\Scripts\python.exe`) while it is open. Never write into the laptop working copy
+(`D:\Local\GitHub\Leasha\venv\Scripts\python.exe`) while it is open. Never write into the laptop working copy
 through Drive; push to GitHub and pull.
 
 ## Close-out

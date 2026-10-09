@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.15 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 1.16 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -11,11 +11,11 @@ When anything goes wrong, in the window: Settings › Storage & maintenance › 
 bundle…**. Or from a terminal:
 
 ```powershell
-cd D:\Local\GitHub\SearchProject
+cd D:\Local\GitHub\Leasha
 venv\Scripts\python.exe -m app.cli diagnose
 ```
 
-`D:\Local\GitHub\SearchProject` here, and elsewhere in this file, is the folder Leasha runs
+`D:\Local\GitHub\Leasha` here, and elsewhere in this file, is the folder Leasha runs
 from source in on the owner's laptop; use your own. A copy put in by the installer has no
 `venv`: in its install folder, `.\leasha-cli.exe diagnose` does the same (`leasha-cli.exe`
 runs any `app.cli` command).
@@ -42,7 +42,7 @@ running when you type `ls`. The `.\` says "yes, I mean this one, here".
 To stop needing it:
 
 ```powershell
-cd D:\Local\GitHub\SearchProject
+cd D:\Local\GitHub\Leasha
 .\add-to-path.ps1
 ```
 
@@ -211,7 +211,7 @@ venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 ### `No module named app`
 
 You are running the wrong Python, or from the wrong folder. Both of these must be true: you
-are in the Leasha folder (`D:\Local\GitHub\SearchProject` on the owner's laptop), and you are using `venv\Scripts\python.exe` rather than a plain
+are in the Leasha folder (`D:\Local\GitHub\Leasha` on the owner's laptop), and you are using `venv\Scripts\python.exe` rather than a plain
 `python`.
 
 ### The installer produces no output at all

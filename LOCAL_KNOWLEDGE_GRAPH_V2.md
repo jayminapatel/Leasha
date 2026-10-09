@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.13 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 2.14 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -148,11 +148,11 @@ drive from the app). Everything else runs unattended and `doctor.py` runs automa
 Use the wrapper - it is the reliable entry point:
 
 ```
-cd D:\Local\GitHub\SearchProject
+cd D:\Local\GitHub\Leasha
 run-install.cmd
 ```
 
-`D:\Local\GitHub\SearchProject` is the owner's clone; use the folder yours is in.
+`D:\Local\GitHub\Leasha` is the owner's clone; use the folder yours is in.
 
 `run-install.cmd` bypasses the execution policy for one process (so a Restricted or
 AllSigned machine policy cannot block it), parse-checks the scripts with the real
@@ -242,7 +242,7 @@ Design rules the script follows (and the app must follow too):
 `doctor.py` runs automatically at the end of the installer. To re-check at any time:
 
 ```powershell
-cd D:\Local\GitHub\SearchProject
+cd D:\Local\GitHub\Leasha
 venv\Scripts\python.exe doctor.py
 venv\Scripts\python.exe doctor.py --quick    # skip model loading
 venv\Scripts\python.exe doctor.py --json     # machine-readable, for the Settings panel

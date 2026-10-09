@@ -6,9 +6,9 @@
   // graph was removed and the scope narrowed to search. Two stale names in one
   // line is how a folder ends up called something nobody recognises.
   //
-  // The folder on disk is still D:\SearchProject, deliberately: the venv has
-  // that path baked into pip.exe, activate.bat and every console script, so
-  // moving it means rebuilding the environment for no functional gain.
+  // The folder on disk is D:\Local\GitHub\Leasha since 2026-10-09 (it was
+  // SearchProject; the venv's baked-in paths were regenerated in place by
+  // scripts/rename_fixup.py, see HANDOFF section 2).
   "folders": [
     {
       "name": "Leasha",

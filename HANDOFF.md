@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.124 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.125 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -30,6 +30,13 @@ processes and was five points of failure before a single search ran.
 
 ## 2. Where everything lives
 
+> **2026-10-09 - the folder is `D:\Local\GitHub\Leasha`.** Renamed from `SearchProject` on the
+> owner's instruction, after the stale second clone of that name was deleted. The venv was not
+> rebuilt: `scripts/rename_fixup.py` rewrote `.env`, the activate scripts and `pyvenv.cfg`,
+> regenerated every launcher with pip's script maker, and repointed the Start Menu shortcuts,
+> the workspace file and the documents below. Read `D:\SearchProject` and
+> `D:\Local\GitHub\SearchProject` in older notes as this path.
+>
 > **2026-09-30 - the owner's laptop moved.** The working copy is now
 > `D:\Local\GitHub\SearchProject`, a fresh clone of GitHub `main` outside Google Drive
 > (it was `D:\Local\GDrive\SearchProject`, synced by Drive). Read `D:\SearchProject` in
@@ -44,10 +51,10 @@ processes and was five points of failure before a single search ran.
 
 | What | Where |
 |---|---|
-| Code, docs, venv | `D:\SearchProject` |
+| Code, docs, venv | `D:\Local\GitHub\Leasha` |
 | The index (vectors, FTS, cache, models) | `D:\Leasha\Data` - set by `DATA_PATH` in `.env` |
-| Machine-specific config | `D:\SearchProject\.env` - **gitignored**, written by the installer |
-| Logs and diagnostics | `D:\SearchProject\logs\` - gitignored contents, tracked structure |
+| Machine-specific config | `D:\Local\GitHub\Leasha\.env` - **gitignored**, written by the installer |
+| Logs and diagnostics | `D:\Local\GitHub\Leasha\logs\` - gitignored contents, tracked structure |
 
 **The index is never inside the project folder**, and nothing in it is original data. It is
 entirely rebuildable from your documents, so deleting it is always safe.

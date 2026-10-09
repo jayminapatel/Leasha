@@ -1,13 +1,13 @@
 # Working on this project in VS Code
 
-**Doc version:** 1.5 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.1
+**Doc version:** 1.6 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.1
 
 ## Opening it
 
-Either open the folder of your clone of GitHub `main` (`D:\Local\GitHub\SearchProject` on the
+Either open the folder of your clone of GitHub `main` (`D:\Local\GitHub\Leasha` on the
 owner's laptop), or double-click **`Leasha.code-workspace`**.
 
-The folder on disk is still `SearchProject`; the workspace presents it as **Leasha**, which is
+The folder on disk is `Leasha` too (renamed 2026-10-09); the workspace presents it as **Leasha**, which is
 the application's name. Renaming the folder would mean rebuilding the venv - `pip.exe`,
 `activate.bat` and every console script have the absolute path compiled into them - for no
 functional gain.
