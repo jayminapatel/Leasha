@@ -5,9 +5,7 @@ Log folders
   errors       Errors only, one JSON object per line. Machine-readable.
   runs         One file per command or window session, with its settings and result.
   install      Installer transcripts, one per run.
-  crash        Crash reports: crash.log (the window), index-crash.log (the indexing
-               process), cli-crash.log (any other command), reader-crash.log (the
-               reader helpers), ocr-crash.log (the text-in-pictures helper).
+  crash        Unhandled crash reports.
   diagnostics  Diagnostic bundles produced by 'app.cli diagnose'.
 
 If something goes wrong, run this and send the resulting zip:
