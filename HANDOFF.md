@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.117 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.2
+**Doc version:** 7.118 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.2
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -73,6 +73,10 @@ assets, marked latest, notes from the CHANGELOG section. The README's install st
 there. Note: `build.ps1` writes the `.sha256` only beside the Drive copy, not in
 `build\installer\`; a release from a machine without the Drive folder would have to make its
 own. Still the owner's: install it over 1.0.1 and let Check the installation say READY.
+*2026-10-09, later: on the owner's word the older installers were deleted - the Drive folders
+0.3.4, 0.3.5, 1.0.0 and 1.0.1 and the local build copies of 0.3.5 and 1.0.1 - so `Releases`
+holds 1.0.2 only; an earlier version is rebuilt from its tag. The user guide's install step
+now points at GitHub Releases rather than naming a version.*
 
 **2026-10-08, late - release 1.0.2: the indexer never ends on one document.** The owner
 started a run on the 1.0.1 code and it died after 618 s: `FAT_KPI_V1 0.doc` carried a lone
