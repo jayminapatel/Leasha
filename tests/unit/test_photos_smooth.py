@@ -480,3 +480,24 @@ def test_a_tick_repaints_a_run_of_fading_tiles_once(qapp, monkeypatch):
 
     assert photo_browser.fade_runs([5, 3, 4, 9, 10, 10, 20]) == [(3, 5), (9, 10), (20, 20)]
     assert photo_browser.fade_runs([]) == []
+
+
+def test_a_landed_thumbnail_waits_for_the_tick_that_repaints_it(qapp, monkeypatch):
+    """A thumbnail that lands sends no repaint of its own: the fade tick repaints
+    everything that landed meanwhile, in one change per run."""
+    import time
+
+    from app.ui.widgets import photo_browser
+
+    names = [f"q{n}.jpg" for n in range(200)]
+    model = photo_browser.PhotoModel(_Thumbs())
+    model.set_rows(_rows(names))
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    emitted = []
+    model.dataChanged.connect(lambda first, last, *_a: emitted.append((first.row(), last.row())))
+    for name in names:
+        model._thumb_ready(name)
+    assert emitted == [], "nothing is repainted until the tick"
+    model._fade_step()
+    assert emitted == [(0, 199)], emitted

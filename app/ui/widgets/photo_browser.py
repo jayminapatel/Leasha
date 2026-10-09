@@ -252,14 +252,14 @@ class PhotoModel(QAbstractTableModel):
         self.layoutChanged.emit()
 
     def _thumb_ready(self, path: str) -> None:
-        """A thumbnail landed: start its fade-in and repaint its cell."""
+        """A thumbnail landed: start its fade-in. Its cell is repainted by the next
+        fade tick, together with the others that landed meanwhile - one repaint per
+        run of tiles, not one per thumbnail (2026-10-09)."""
         number = self._index.get(path)
         if number is not None:
             self._arrived[path] = time.monotonic()
             if not self._fading.isActive():
                 self._fading.start()
-            cell = self.index(number, 0)
-            self.dataChanged.emit(cell, cell, [Qt.ItemDataRole.DecorationRole])
 
 
 def fade_runs(numbers) -> list[tuple[int, int]]:
