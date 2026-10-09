@@ -139,9 +139,13 @@ def test_messages_arriving_back_to_back_share_transactions(tmp_path):
 
 def test_a_failure_part_way_through_a_group_keeps_nothing_half_written(tmp_path):
     """The 40th message's passages fail to write, after its file row was
-    written in the same (shared) transaction. The run ends on the error; the
-    group is rolled back whole; and the next run finishes the job with nothing
-    lost and nothing embedded twice (`RecordingVectors.add` asserts that)."""
+    written in the same (shared) transaction. The group is rolled back whole;
+    the group's other messages are written again each on their own, the failing
+    one is retried once on its own and succeeds, and **the run goes on**
+    (2026-10-08: it used to end on the error, which was non-negotiable 3 broken -
+    the owner's ten-minute run died on one `.doc`); and the next run finds
+    nothing to do, with nothing lost and nothing embedded twice
+    (`RecordingVectors.add` asserts that)."""
     db, root = tmp_path / "i.db", _corpus(tmp_path, archive=True)
     vectors = RecordingVectors()
 
@@ -157,15 +161,21 @@ def test_a_failure_part_way_through_a_group_keeps_nothing_half_written(tmp_path)
 
         store.replace_chunks = replace_chunks
 
-    with pytest.raises(RuntimeError, match="disk said no"):
-        _run(db, root, vectors, Model(), wrap_store=fail_on_the_fortieth)
+    stats, _counts, _unembedded, _begins = _run(
+        db, root, vectors, Model(), wrap_store=fail_on_the_fortieth)
+    # The store said no once; the group was put back and the document retried
+    # on its own, so nothing was skipped and nothing was lost.
+    assert stats.skipped == 0 and stats.indexed == FILES, (
+        "a store that refuses once is retried, not the end of the run")
 
     with SqliteStore(db) as store:
         orphans = store.conn.execute(
             "SELECT COUNT(*) FROM files f WHERE f.source_kind <> 'archive' "
             # 2026-10-04: not a name the scan listed before reading (PENDING,
             # `store.add_waiting_files`) - a placeholder, not a committed read.
-            "AND f.status <> 'PENDING' "
+            # 2026-10-08: nor the skipped message's own row, which is FAILED
+            # with the reason and has no passages by design.
+            "AND f.status NOT IN ('PENDING', 'FAILED') "
             "AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = f.id)").fetchone()[0]
     assert orphans == 0, "a message row was committed without its passages"
 

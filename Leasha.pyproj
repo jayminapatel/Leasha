@@ -72,6 +72,7 @@
     <Folder Include="assets\ui" />
     <Folder Include="config" />
     <Folder Include="docs" />
+    <Folder Include="docs\images" />
     <Folder Include="docs\mockups" />
     <Folder Include="packaging" />
     <Folder Include="packaging\art" />
@@ -902,6 +903,7 @@
     <Compile Include="tests\unit\test_offline_media_view.py" />
     <Compile Include="tests\unit\test_one_fact_one_function.py" />
     <Compile Include="tests\unit\test_one_qt_binding.py" />
+    <Compile Include="tests\unit\test_one_unwritable_document.py" />
     <Compile Include="tests\unit\test_onnxruntime_pins.py" />
     <Compile Include="tests\unit\test_open_attachment.py" />
     <Compile Include="tests\unit\test_open_row_async.py" />
@@ -1262,6 +1264,7 @@
     <Content Include="assets\leasha-symbol.svg" />
     <Content Include="assets\leasha-tray.ico" />
     <Content Include="assets\leasha.ico" />
+    <Content Include="assets\social-preview.png" />
     <Content Include="assets\ui\tick-dark.svg" />
     <Content Include="assets\ui\tick-light.svg" />
     <Content Include="config\extractors.toml" />
@@ -1337,6 +1340,12 @@
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
+    <Content Include="docs\images\files.png" />
+    <Content Include="docs\images\life-timeline.png" />
+    <Content Include="docs\images\mail.png" />
+    <Content Include="docs\images\quick-search-box.png" />
+    <Content Include="docs\images\search-dark.png" />
+    <Content Include="docs\images\search-results.png" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
     <Content Include="packaging\art\small-100.png" />

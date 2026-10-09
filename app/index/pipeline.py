@@ -4565,6 +4565,11 @@ class Pipeline:
         # embedded - the batch the feeder thread is handed, as `_write_one`
         # returns them.
         pending_vectors: list[tuple[int, int, str]] = []
+        #: See `_group_failed`: where `pending_vectors` stood when the open
+        #: write group began, and the documents written into it so far. Reset
+        #: whenever a group opens.
+        group_start: Optional[int] = None
+        group_items: list[tuple[str, _Extracted]] = []
         # 0x 5d: this thread does the writing, so its connection gets a page
         # cache sized to the database - see `SqliteStore.size_write_cache` for
         # why that is what kept writes slowing down as the index grew. Asked
@@ -4732,23 +4737,62 @@ class Pipeline:
                     self._persist_at_folder_boundary(pending_vectors)
                 continue
 
+            # Where `pending_vectors` stood when the open write group began, and
+            # which documents the group holds - set whenever a group is about to
+            # open, from either branch. If a document's write fails, the group is
+            # rolled back whole and `_group_failed` puts it back: the other
+            # documents are written again, each in its own transaction, the
+            # failing one is retried once on its own, and only then is it
+            # recorded as skipped (2026-10-08).
+            if getattr(self, "_write_group", None) is None:
+                group_start = len(pending_vectors)
+                group_items = []
+
             if item.error is not None:
-                self._begin_write_group()
-                self._record_skip(item)
-                self._end_grouped_document()
+                try:
+                    self._begin_write_group()
+                    self._record_skip(item)
+                    self._end_grouped_document()
+                    group_items.append(("skip", item))
+                except Exception as exc:         # noqa: BLE001 - one document, never the run
+                    # The skip path runs picture work too (CLIP, pHash, faces)
+                    # and writes the row; the same guard as the write path
+                    # below, for the same reason (2026-10-08).
+                    item, group_items, _written = self._group_failed(
+                        "skip", item, exc, pending_vectors, group_start, group_items)
                 stats.skipped += 1
                 stats.skipped_by_code[item.error.code] = (
                     stats.skipped_by_code.get(item.error.code, 0) + 1
                 )
             else:
                 stats.stage = STAGE_WRITING      # 0x 3a
-                with self._clock.stage("write"):
-                    self._begin_write_group()
-                    pending_vectors.extend(self._write_one(item))
-                    self._end_grouped_document(timed=False)
+                written = True
+                try:
+                    with self._clock.stage("write"):
+                        self._begin_write_group()
+                        pending_vectors.extend(self._write_one(item))
+                        self._end_grouped_document(timed=False)
+                    group_items.append(("write", item))
+                except Exception as exc:         # noqa: BLE001 - one document, never the run
+                    # 2026-10-08, the owner's run: a `.doc` whose text held a
+                    # lone UTF-16 surrogate reached `replace_chunks`, SQLite
+                    # refused it, and the exception ended a ten-minute run with
+                    # "an unexpected error occurred". Non-negotiable 3: one bad
+                    # file never halts the run. The group is put back, this
+                    # document is retried once on its own and, if it fails
+                    # again, recorded as skipped with the reason, like a corrupt
+                    # file. The run goes on either way.
+                    item, group_items, written = self._group_failed(
+                        "write", item, exc, pending_vectors, group_start, group_items)
+                if written:
+                    stats.indexed += 1
+                    stats.chunks += len(item.chunks)
+                else:
+                    stats.skipped += 1
+                    stats.skipped_by_code[item.error.code] = (
+                        stats.skipped_by_code.get(item.error.code, 0) + 1
+                    )
                 stats.stage = ""
-                stats.indexed += 1
-                stats.chunks += len(item.chunks)
 
             # Work order 202626270509, item 1b. A skip or a write both settle
             # this message's fate for the run - recorded as a skip, or handed
@@ -6579,6 +6623,92 @@ class Pipeline:
             return
         with self._clock.stage("write"):
             group.__exit__(None, None, None)
+
+    def _group_failed(self, kind: str, item: "_Extracted", exc: BaseException,
+                      pending_vectors: list, group_start: Optional[int],
+                      group_items: list) -> tuple["_Extracted", list, bool]:
+        """A document's write (or skip) raised inside the shared write group.
+        Put the group back, retry the document once, and only then give up on it.
+
+        The group is rolled back whole (`_abandon_write_group`) - the store's own
+        rule, a nested `batch()` cannot roll back one document's part - and the
+        passages it had queued for embedding are dropped from `pending_vectors`,
+        so no vector is ever written for a passage SQLite no longer has
+        (non-negotiable 6). Then, in order:
+
+        1. the other documents the group held are written again, each in its
+           own transaction, so nothing already read is lost or read twice - the
+           first version of this guard left them rolled back and "read again
+           next run", and a test showed a finished run had quietly lost nine
+           messages of an archive the next run then considered done;
+        2. the failing document is tried once more on its own - a store that
+           said no mid-group (a busy disk, a lock) often says yes a moment
+           later, and a document that is simply unwritable fails again at once;
+        3. if it fails again it is recorded as skipped with the reason
+           (`_record_skip_or_log`): on the Files tab as failed, the run going on.
+
+        Returns `(item, group_items, written)`: the item as it now stands (with
+        an `AppError` if it was skipped), the new group's contents (empty - every
+        document above committed on its own), and whether the document was
+        written after all.
+        """
+        self._abandon_write_group()
+        if group_start is not None and len(pending_vectors) > group_start:
+            del pending_vectors[group_start:]
+        where = str(item.key or item.candidate.path)
+        self._log.warning(
+            "could not {} {}: {} - the {} other document(s) of its write group are "
+            "written again, then it is retried on its own", kind, where, exc, len(group_items))
+
+        for prior_kind, prior in group_items:
+            try:
+                self._begin_write_group()
+                if prior_kind == "write":
+                    pending_vectors.extend(self._write_one(prior))
+                else:
+                    self._record_skip(prior)
+                self._commit_write_group(timed=False)
+            except Exception as again:           # noqa: BLE001 - one document, never the run
+                self._abandon_write_group()
+                self._log.error("could not write {} again either - recorded as skipped: {}",
+                                prior.candidate.path, again)
+                self._record_skip_or_log(replace(
+                    prior, chunks=[],
+                    error=to_app_error(again, "index.write",
+                                       path=str(prior.key or prior.candidate.path))))
+
+        if kind == "write":
+            try:
+                self._begin_write_group()
+                pending_vectors.extend(self._write_one(item))
+                self._commit_write_group(timed=False)
+                self._log.info("written on the second attempt: {}", where)
+                return item, [], True
+            except Exception as again:           # noqa: BLE001 - the retry is allowed to fail
+                self._abandon_write_group()
+                exc = again
+
+        failed = replace(item, error=to_app_error(exc, "index.write", path=where), chunks=[])
+        self._log.error("could not write {} - recorded as skipped, the run goes on: {}",
+                        where, exc)
+        self._record_skip_or_log(failed)
+        return failed, [], False
+
+    def _record_skip_or_log(self, item: "_Extracted") -> None:
+        """Record a document as skipped after its first write attempt raised.
+        **Never raises.** If even the skip row cannot be written, the group is
+        rolled back and the failure logged in full; the file keeps the status
+        it had and is read again next run - which is what a crash would have
+        cost, without the crash. The indexer never ends on one document."""
+        try:
+            self._begin_write_group()
+            self._record_skip(item)
+            self._end_grouped_document()
+        except Exception as exc:                 # noqa: BLE001 - the run goes on regardless
+            self._abandon_write_group()
+            self._log.error(
+                "could not even record {} as skipped - it keeps its old status and is "
+                "read again next run: {}", item.candidate.path, exc)
 
     def _abandon_write_group(self) -> None:
         """Roll back a shared transaction left open by an error. Never raises.

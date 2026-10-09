@@ -37,6 +37,27 @@ from app.storage.like import contains as like_contains, has_wildcard, like_escap
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.identifiers import symbol_tokens
+
+
+def utf8_safe(text: Any) -> Any:
+    """`text` with any lone UTF-16 surrogate made encodable, else `text` itself.
+
+    SQLite stores UTF-8, and Python's encoder refuses a lone surrogate
+    (`U+D800`-`U+DFFF` on its own). One reached `replace_chunks` on
+    2026-10-08 from a `.doc` whose text was decoded piece by piece, splitting
+    a surrogate pair across two pieces - and the `UnicodeEncodeError` ended
+    the owner's ten-minute index run. The store is the authority, so nothing
+    unencodable may reach it: a split pair is put back together (the emoji it
+    was), a half with no partner becomes U+FFFD, and ordinary text - the fast
+    path, one `encode` - comes back untouched. Not a `str`: returned as is.
+    """
+    if not isinstance(text, str):
+        return text
+    try:
+        text.encode("utf-8")
+        return text
+    except UnicodeEncodeError:
+        return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 from app.core.logging import logger
 from app.core.row_facts import is_mail_attachment, listed_files_sql  # noqa: F401 - re-exported
 from app.storage.migrations import (
@@ -3760,7 +3781,11 @@ class SqliteStore:
                 self._switch_triggers(conn, state, on=False)
             ids: list[int] = []
             for ordinal, chunk in enumerate(chunks):
-                symbols = symbol_tokens(chunk["text"])
+                # `utf8_safe`: a lone surrogate in the text is a crashed run
+                # otherwise (2026-10-08). The cleaned text is what the symbols,
+                # the row and the deferred FTS write all see.
+                text = utf8_safe(chunk["text"])
+                symbols = symbol_tokens(text)
                 cursor = conn.execute(
                     """
                     INSERT INTO chunks (file_id, ordinal, text, symbols,
@@ -3771,7 +3796,7 @@ class SqliteStore:
                     (
                         file_id,
                         chunk.get("ordinal", ordinal),
-                        chunk["text"],
+                        text,
                         # camelCase split forms, so `password` finds
                         # `ResetPasswordHandler`. Empty for prose - see
                         # app/core/identifiers.py for why this is not the
@@ -3783,13 +3808,13 @@ class SqliteStore:
                         # Adoptions §6a: `Q3!A14`, or None for the great
                         # majority of documents that have no interior address
                         # anybody could act on.
-                        chunk.get("label"),
+                        utf8_safe(chunk.get("label")),
                     ),
                 )
                 ids.append(int(cursor.lastrowid))
                 if state is not None:
                     # What `chunks_ai` would have been handed for this row.
-                    state.chunks.append((ids[-1], chunk["text"], symbols))
+                    state.chunks.append((ids[-1], text, symbols))
             if state is not None and ids:
                 state.chunk_files.add(file_id)
                 if len(state.chunks) >= FTS_DEFER_MAX_ROWS:
