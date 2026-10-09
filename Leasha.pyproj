@@ -188,6 +188,7 @@
     <Compile Include="app\core\osbridge\startmenu.py" />
     <Compile Include="app\core\osbridge\stdio.py" />
     <Compile Include="app\core\osbridge\volumes.py" />
+    <Compile Include="app\core\pipewire.py" />
     <Compile Include="app\core\priority.py" />
     <Compile Include="app\core\row_facts.py" />
     <Compile Include="app\core\run_lock.py" />
@@ -300,6 +301,7 @@
     <Compile Include="app\llm\engines.py" />
     <Compile Include="app\llm\models.py" />
     <Compile Include="app\llm\ollama.py" />
+    <Compile Include="app\llm\remote_onnx.py" />
     <Compile Include="app\main.py" />
     <Compile Include="app\ort\__init__.py" />
     <Compile Include="app\ort\catalogue.py" />
@@ -309,6 +311,7 @@
     <Compile Include="app\ort\hub.py" />
     <Compile Include="app\ort\inventory.py" />
     <Compile Include="app\ort\llm.py" />
+    <Compile Include="app\ort\llm_host.py" />
     <Compile Include="app\ort\session.py" />
     <Compile Include="app\ort\whisper.py" />
     <Compile Include="app\reports\__init__.py" />
@@ -620,6 +623,7 @@
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
     <Compile Include="tests\private_locks.py" />
     <Compile Include="tests\unit\__init__.py" />
+    <Compile Include="tests\unit\_fake_llm.py" />
     <Compile Include="tests\unit\chat_env.py" />
     <Compile Include="tests\unit\chat_fakes.py" />
     <Compile Include="tests\unit\close_scenario_child.py" />
@@ -858,6 +862,7 @@
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
     <Compile Include="tests\unit\test_list_chips_qt.py" />
     <Compile Include="tests\unit\test_live_progress.py" />
+    <Compile Include="tests\unit\test_llm_host.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
     <Compile Include="tests\unit\test_log_window.py" />
     <Compile Include="tests\unit\test_logs_and_skip_detail.py" />
@@ -950,6 +955,7 @@
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
     <Compile Include="tests\unit\test_photos_page.py" />
     <Compile Include="tests\unit\test_photos_smooth.py" />
+    <Compile Include="tests\unit\test_photos_worker.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
     <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />

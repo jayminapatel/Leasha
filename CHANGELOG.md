@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.95 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.96 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Loading the chat model no longer freezes the window (2026-10-09)
+
+- **The window keeps answering while the chat model loads, and Windows no longer labels it "Not responding".** Loading the
+  chat model took the whole window with it for fourteen to twenty seconds, because the program that runs the model cannot share
+  its attention while it builds one. The model now runs in a helper of its own, started by the first question that needs it;
+  the window stays usable throughout, and the longest pause it saw while the model loaded in a test was a twentieth of a second.
+  If the helper ever stops while answering, that one answer is lost with a plain message, and the next question starts a new one.
 
 - **The Photos tab loads its library in seconds, not minutes.** Each load scanned every chunk of the index looking for photo descriptions, which slowed the whole window while an index run was going. The same answer now comes through the file index: 5.4 s on a 46,000-picture library, down from 350 s.
 

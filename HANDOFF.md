@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.127 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.128 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,28 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, night - the chat model runs in a host process (owner: "option 1").** The "Not responding" label was real: the
+window log of the restarted session shows 53 stalls, four over a second, the longest 14.2 s, and that one is the chat model
+loading (`qwen2.5-1.5b-instruct-q4 loaded in 14.2s`, warmed by `chat_controller._warm_body`). Measured the cause: an ONNX Runtime
+session build holds Python's lock for the whole load - a ticker on another thread stopped for 20.1 s while a 1 GB model loaded
+on a background thread. The code had known (a 2026-10-08 note in `ort/llm.py` and `shell.py`, "loads when first used", accepted as
+a cost); the owner chose to remove it. **Built:** `app/ort/llm_host.py` (the host: the real `OnnxLLM` unchanged, one instance per
+client, a thread per request, frames over `app/core/pipewire.py`), `app/llm/remote_onnx.py` (`RemoteOnnxLLM`, `OnnxLLM`'s methods
+with the model in the host; `ModelHost` starts it on first use and again after a death), and `engines.use_model_host`, which only
+the window turns on (`app/main.py`) - the command line, the indexer and the tests keep the model in the calling process. Questions
+that only read the disk (`has_model`, `available_models`, `serving`, `serves`, `health` ...) are answered in the window from a
+never-loaded local copy, so they never wait on a host busy loading; the model a caller named travels with each request so a pick
+cannot arrive after the question; Stop crosses the pipe as a message, checked on every pass (a first version only checked it when
+no text was arriving, and a fast stream never saw it - the stop test found that). **Measured with the real model:** host start plus
+load 22.1 s, and the longest pause on the window's side of the pipe 0.046 s, where it was 14 to 20 s; `test_llm_host.py` holds it
+with a fake model (round trips, streaming, Stop, an error, two replies at once, a host that dies and is replaced, and the window
+thread ticking while the host spins holding its own lock). New error `ERR_MODEL_HOST_ENDED`; new crash file
+`logs/crash/model-host-crash.log`. **Not covered, and would freeze the same way:** any other model first loaded in the window after it
+is shown - the picture-search text encoder (CLIP), Describe's Florence-2, and the 1.2 s and 1.0 s stalls in the same log whose cause
+is not identified. The shape is the same host; each is its own piece of work. **Trap:** `test_photos_worker.py` and this build's new
+files were missing from `Leasha.pyproj`; the project-file test caught it. Run `scripts/regen_vs_project.py` after `git add` of any
+new file. Uncommitted when written.
 
 **2026-10-09, late - correction: the 350 s library read was the cause, and it is fixed.** The restarted window (pid 32952) was still not responding after the worker change. A stack sample of it, taken while hung, put the window's own thread in the grid's paint, and ten seconds of profile showed the background library read busy beside it. The library read was a full scan of the 6.5 million-row `chunks` table: its `c.label IN (...)` filter has no index, and the statement is run on every Photos load. Planner output and a timed run on the owner's index: 247 s for a plain scan of the labels. No chunk carries either photo label in this index, so the statement returns nothing here, but it still costs the scan. Rewritten (`files CROSS JOIN chunks`, reached through `idx_chunks_file_ord`), same rows: the full library read is now 5.4 s on the owner's 46,286 pictures, not 350 s; `test_photos_worker.py` holds the result and the plan. Uncommitted at the time of writing; the window must be restarted to load it. The paint-path observation stands as a symptom, not a separate cause.
 

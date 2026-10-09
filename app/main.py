@@ -577,6 +577,14 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
 
     _ocr.configure_device(device_for(settings, "ocr"))  # 2026-10-04: per model (`model_devices`)
 
+    # 2026-10-09: the chat model runs in a host process of its own in the window.
+    # Loading it holds Python's lock for the whole load (20 s measured), which froze
+    # the window and made Windows label it "Not responding". Nothing starts here:
+    # the host is started by the first question that needs the model.
+    from app.llm import engines as _engines
+
+    _engines.use_model_host(True, getattr(settings, "env_file", None))
+
     # **A breadcrumb before each stage that can block.**
     #
     # A window that would not open left a run log ending after the settings

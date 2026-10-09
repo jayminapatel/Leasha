@@ -40,6 +40,44 @@ _chosen: dict[tuple, Any] = {}
 # loaded), so it is never contended for long.
 _shared_lock = threading.Lock()
 
+#: 2026-10-09. The window turns this on (`use_model_host`): the ONNX chat model then
+#: runs in a host process of its own, because building its session holds Python's
+#: lock for the whole load (20 s measured) and froze the window. Everything else -
+#: the command line, the indexer, tests - keeps the model in the calling process,
+#: where nothing is waiting on a window and a second process would be a cost.
+_host_enabled = False
+_host_env: Optional[Path] = None
+_host: Any = None
+_host_lock = threading.Lock()
+
+
+def use_model_host(enabled: bool = True, env_file: Optional[Path] = None) -> None:
+    """Run the ONNX chat model in a host process (the window), or in this one."""
+    global _host_enabled, _host_env, _host
+    with _host_lock:
+        _host_enabled = bool(enabled)
+        _host_env = Path(env_file) if env_file else None
+        retired, _host = (None, _host) if enabled else (_host, None)
+    if retired is not None:
+        retired.close()
+
+
+def _new_onnx(cache: Any, model: str, device: str, timeout: float) -> Any:
+    """A chat client: a proxy to the host process when the window asked for one."""
+    global _host
+    if _host_enabled:
+        from app.llm.remote_onnx import ModelHost, RemoteOnnxLLM
+
+        with _host_lock:
+            if _host is None:
+                _host = ModelHost(env_file=_host_env)
+            host = _host
+        return RemoteOnnxLLM(host, Path(cache) if cache else None, model, device=device,
+                             timeout=timeout)
+    from app.ort.llm import OnnxLLM
+
+    return OnnxLLM(Path(cache) if cache else None, model, device=device, timeout=timeout)
+
 
 def engine_of(settings: Any) -> str:
     """`onnx` unless the settings say `ollama` - the registry default."""
@@ -67,8 +105,6 @@ def chat_key(name: str) -> str:
 
 
 def _shared_onnx(settings: Any, timeout: Optional[float], onnx_model: str = "") -> Any:
-    from app.ort.llm import OnnxLLM
-
     cache = getattr(settings, "model_cache", None)
     device = str(getattr(settings, "embed_device", "auto") or "auto")
     key = (str(cache or ""), device)
@@ -76,8 +112,7 @@ def _shared_onnx(settings: Any, timeout: Optional[float], onnx_model: str = "") 
     with _shared_lock:
         client = _shared.get(key)
         if client is None:
-            client = OnnxLLM(Path(cache) if cache else None, device=device,
-                             timeout=float(timeout or 120.0))
+            client = _new_onnx(cache, "", device, float(timeout or 120.0))
             client.keep_resident = True          # Settings' model is unloaded last
             _shared[key] = client
         if not chosen:
@@ -88,8 +123,7 @@ def _shared_onnx(settings: Any, timeout: Optional[float], onnx_model: str = "") 
             return client
         picked = _chosen.get(key + (chosen,))
         if picked is None:
-            picked = OnnxLLM(Path(cache) if cache else None, chosen, device=device,
-                             timeout=float(timeout or 120.0))
+            picked = _new_onnx(cache, chosen, device, float(timeout or 120.0))
             _chosen[key + (chosen,)] = picked
         return picked
 

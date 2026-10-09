@@ -27,6 +27,7 @@ report can be attributed:
     logs/crash/cli-crash.log        any other command (`app.cli ...`)
     logs/crash/reader-crash.log     the reader helpers (`app.index.read_process`)
     logs/crash/ocr-crash.log        the text-in-pictures helper (`app.index.ocr_process`)
+    logs/crash/model-host-crash.log the chat model's host (`app.ort.llm_host`)
 
 **`all_threads=False`, always.** With `True` the handler was the crash
 (2026-10-02): Windows' own dialogs raise and handle exceptions on threads of
@@ -63,6 +64,7 @@ CRASH_FILES: dict[str, str] = {
     "index": "index-crash.log",
     "reader": "reader-crash.log",
     "ocr": "ocr-crash.log",
+    "model-host": "model-host-crash.log",
 }
 
 #: Kept alive for the process lifetime. `faulthandler` writes to the file

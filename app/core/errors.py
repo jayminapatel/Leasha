@@ -193,6 +193,21 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # 2026-10-09. The chat model runs in a host process of its own so that loading
+    # it (20 s holding Python's lock) cannot freeze the window
+    # (`app/ort/llm_host.py`). When that process ends - a fault in the model
+    # library, or the process being closed - the reply in flight is lost and the
+    # next question starts a new one.
+    "ERR_MODEL_HOST_ENDED": _Spec(
+        message="The chat model stopped while answering, so this answer was lost. "
+                "Search still works normally.",
+        suggestion=(
+            "Ask again: the model starts afresh and takes a moment to load. If it "
+            "keeps happening, `logs/crash/model-host-crash.log` names the function it "
+            "stopped in, or switch the chat engine to Ollama in Settings, Models."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     "ERR_LOCAL_MODEL_TIMEOUT": _Spec(
         message="The chat model did not finish within {timeout_s}s. Search still works normally.",
         suggestion=(

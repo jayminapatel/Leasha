@@ -87,7 +87,8 @@ LOG_SUBDIRS = {
     # 2026-10-09: one file per kind of process (`app.core.crash_guard`).
     "crash": "Crash reports: crash.log (the window), index-crash.log (the indexing "
              "process), cli-crash.log (any other command), reader-crash.log (the "
-             "reader helpers), ocr-crash.log (the text-in-pictures helper).",
+             "reader helpers), ocr-crash.log (the text-in-pictures helper), model-host-crash.log "
+             "(the chat model's host).",
     "diagnostics": "Diagnostic bundles produced by 'app.cli diagnose'.",
 }
 
