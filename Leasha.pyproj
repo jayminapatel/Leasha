@@ -594,6 +594,7 @@
     <Compile Include="packaging\make_installer_art.py" />
     <Compile Include="scripts\pst_field_test.py" />
     <Compile Include="scripts\regen_vs_project.py" />
+    <Compile Include="scripts\rename_fixup.py" />
     <Compile Include="scripts\run_suite.py" />
     <Compile Include="scripts\stage.py" />
     <Compile Include="scripts\suite_affected.py" />
