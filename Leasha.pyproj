@@ -594,6 +594,8 @@
     <Compile Include="scripts\regen_vs_project.py" />
     <Compile Include="scripts\run_suite.py" />
     <Compile Include="scripts\stage.py" />
+    <Compile Include="scripts\suite_affected.py" />
+    <Compile Include="scripts\suite_durations.py" />
     <Compile Include="suggest.py" />
     <Compile Include="tests\__init__.py" />
     <Compile Include="tests\conftest.py" />
@@ -770,6 +772,7 @@
     <Compile Include="tests\unit\test_file_watch.py" />
     <Compile Include="tests\unit\test_filename_match.py" />
     <Compile Include="tests\unit\test_filename_search.py" />
+    <Compile Include="tests\unit\test_files_left_in_hand.py" />
     <Compile Include="tests\unit\test_filter_offers.py" />
     <Compile Include="tests\unit\test_filter_wildcards.py" />
     <Compile Include="tests\unit\test_filters_properties.py" />
@@ -979,6 +982,7 @@
     <Compile Include="tests\unit\test_read_order_ui.py" />
     <Compile Include="tests\unit\test_read_process.py" />
     <Compile Include="tests\unit\test_readable_selection.py" />
+    <Compile Include="tests\unit\test_reader_process_isolation.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />
@@ -1070,6 +1074,7 @@
     <Compile Include="tests\unit\test_stop_run_off_ui_thread.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_suite_ignores_the_battery.py" />
+    <Compile Include="tests\unit\test_suite_speed.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
@@ -1334,9 +1339,11 @@
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
     <Content Include="docs\WORKORDER-pst-resilience.md" />
+    <Content Include="docs\WORKORDER-reader-process-isolation.md" />
     <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
+    <Content Include="docs\WORKORDER-suite-speed.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />

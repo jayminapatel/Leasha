@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.89 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
+**Doc version:** 4.91 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,43 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+## [1.0.3] - 2026-10-09
+
+### A file that crashes the indexer costs one restart, not every restart (2026-10-09)
+
+- **The next run no longer walks back into the file that killed the last one.** Overnight,
+  the indexing process died six and a half hours in: a fault inside the PDF reading library
+  on a PDF inside a zip, the kind of crash that happens below Leasha and that nothing in
+  Leasha can catch. The window stayed up and said to press Start - and Start would have read
+  the same file and died the same way, every time. Now each reader writes down the file it
+  has in hand before opening it; a note still there when the next run starts names the file
+  the process died on, which is recorded as **Failed** with the reason and left out until it
+  changes or you choose **Read again**. Everything else carries on as before.
+
+- **A file that faults its reading library no longer takes the indexer down at all.** "Read files
+  in separate processes" is now on unless you turn it off, PDFs are read there too (their scanned
+  pages are still read by the main program, in the pictures pass), and a file inside a zip goes
+  to the same helper. A fault inside a reading library now costs that one file or zip member,
+  recorded with the reason, and a fresh helper reads the next one. Work order
+  `reader-process-isolation`.
+
+### For developers: the test suite finishes in the time its slowest part needs (2026-10-09)
+
+- **The suite runner measures what each test file costs and shares the files out by it**, so
+  its parts finish together rather than the run waiting on the slowest alphabetical third.
+  A part that hangs in native code is killed after an hour and reported, red. `--affected`
+  runs only the test files that can see a change and says what it chose and why; `--quick`
+  skips the Qt and slow tests for a sanity pass. Neither is the release gate, which stays the
+  whole suite. Work order `suite-speed`.
+
+### Docs
+
+- `HANDOFF.md` 7.119, `CHANGELOG.md` 4.90, `docs/TROUBLESHOOTING.md` 1.13 (the two new codes in its
+  table), `docs/PROJECT_INSTRUCTIONS.md` applies to 1.0.3, the user guide's Tuning line,
+  `docs/ORDER_REGISTER.md` 1.61, the new orders `docs/WORKORDER-reader-process-isolation.md`
+  and `docs/WORKORDER-suite-speed.md`, `scripts/README.md` 1.3 and `docs/VSCODE.md` 1.5 (the
+  runner and its two new tasks).
 
 ## [1.0.2] - 2026-10-08
 

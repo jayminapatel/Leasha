@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.59 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.61 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -76,6 +76,8 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1b | `onnx-everywhere-2026-09-29` | Every model inside Leasha on ONNX Runtime, Chat switchable to Ollama | **ACTIVE** *(owner, 2026-09-29)* | 9 / 1 | "all should be onnx by default ... for chat it should be configurable to use ollama or onnx ... any decisions make them". Smart App Control blocked torch on the owner's laptop. Photo tags (Florence-2) and speech (Whisper) run on ONNX Runtime and are measured on the real models; the chat model is built and unit-tested, and waits for its 1.5 GB download (slow link) to be measured. Branch `feat/onnx-everywhere` |
 | 1c | `model-manager-2026-09-30` | Manage the ONNX models - a catalogue, a Models box, removal, updates | **SHIPPED** *(2026-09-30)* | 10 / 0 | "a mechanism to manage onnx models ... tested models as defaults ... a button to update local list from hugging face". Catalogue as data (pinned revisions, sha256, verified records, descriptions), the Hugging Face list (220 models, shipped copy plus a refresh button), Delete / Use this / Use recommended / Remove unused, four chat formats. This laptop 7.2 GB -> 3.7 GB (unused copies to the Recycle Bin). Branch `feat/onnx-everywhere` |
 | 1d | `offline-drives-on-a-mac` | Offline drives on a Mac - a scanned drive is found again when it is plugged in | **RELEASED** *(owner, 2026-10-05)* | **12 / 3** | Drafted, released and built 2026-10-05. A Mac remembers a scanned drive by its volume UUID and offers Rescan when it is plugged in (`osbridge/volumes.py`). Proven on GitHub's Mac against real APFS, Mac OS Extended, exFAT and FAT32 images, mounted and remounted; whole suite there 13,051 passed. **Open, all needing a real Mac and a real stick:** 1b, 4a (`MAC_VERIFICATION.md` 5.3a-5.3g) and the user-guide half of 4b |
+| 1e | `reader-process-isolation` | The index process never dies on a file - PDF and archive members read in a reader process | **SHIPPED** *(2026-10-09, the session that wrote it; owner: "write the work order for the reader process isolation and do it")* | 6 / 0 | Follows the 2026-10-09 overnight crash (APPCRASH in `mupdfcpp64.dll`); the in-hand notes of 1.0.3 are the floor, this is the ceiling |
+| 1f | `suite-speed` | The suite runs in the time its slowest third needs, and a change runs only the tests that can see it | **SHIPPED** *(2026-10-09, the session that wrote it; owner: "can the full suite test be optimised ... Do it, make it efficient and comprehensive")* | 9 / 0 | Measured first (17/23/22-minute thirds on 2026-10-08): per-file durations recorded, parts balanced by cost, a part killed after an hour, `--affected` by import graph and test text, `--quick`. Nothing marked `slow` by hand; `--audit-markers` lists the candidates for the owner |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.118 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.2
+**Doc version:** 7.120 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,91 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, morning - release 1.0.3: a file the indexer died on is never read again.**
+The owner's overnight run (started 23:42 on the 1.0.2 code) ended at 06:18 after 6.5 hours: Windows'
+Application log records an APPCRASH of `pythonw.exe`, access violation `0xC0000005` in
+`mupdfcpp64.dll` (PyMuPDF), while reading PDFs inside zips (`leasha-zip-*` members, the same
+brochure five times in 15 s); the dump is `%LOCALAPPDATA%\CrashDumps\pythonw.exe.6884.dmp`. The
+window did its part - stayed up, `ERR_INDEX_PROCESS_ENDED` with "press Start" - but the error
+named no file and the next Start would have read the same PDF and died again. **Why nothing
+caught it:** a native fault cannot be caught in Python, and PDF is read in the index process -
+`PdfExtractor` is not on `read_process.PROCESS_READERS` because its OCR half needs the models, and
+a zip member is read by the zip reader in-process whatever the reader. **Fix (`Pipeline._note_in_hand`,
+`_clear_in_hand`, `_skip_files_left_in_hand`; `ERR_FILE_CRASHED_READER`; `test_files_left_in_hand.py`):**
+each reader thread writes the file it has in hand to `<fts folder>\in-hand\<thread>.txt` before
+reading and removes it after; a note still there at the next run's start is recorded as FAILED with
+the reason and the file is left out until it changes or Read again. A damaged file now costs one
+restart, once. **The real fix followed in the same release** (owner: "write the work order for the reader
+process isolation and do it"; `docs/WORKORDER-reader-process-isolation.md`, SHIPPED): reader
+processes are on by default (`INDEX_READ_PROCESSES`, `config`, `run_setup`), `PdfExtractor` is on
+`PROCESS_READERS` and never OCRs inside a child (`base.in_reader_process`, set by
+`read_process.main`; `pdf._ocr_pages`/`_ocr_specific_pages` decline, the pictures pass reads the
+rows back in the parent), and archive members go to the thread's reader process through
+`archive.set_member_reader` / `Pipeline._member_reader_for` and the new raw-document mode of the
+protocol (`ReaderProcess.read_raw`; a sixth request field, older five-field requests still mean
+chunks). A member that kills the child costs that member, recorded by name with
+`ERR_READER_PROCESS_ENDED` (`test_reader_process_isolation.py`, with a real child killed
+mid-archive). **Left in the parent, deliberately:** rendering scanned pages for OCR (PyMuPDF
+`get_pixmap` in the pictures pass) - the one native exposure left; phase 2 would send pixmaps
+over the pipe. Mail attachments are read from bytes in memory by the message reader and were
+not changed. **Also in the logs, not acted on:** two APPCRASHes of the window itself last night (22:26
+and 22:32, access violation in `pyside6.abi3.dll`), and four LibreOffice `soffice.bin` dumps
+between 02:38 and 05:42 that the converter route handled as `ERR_CONVERTER_FAILED`. Owner's
+question answered in conversation: a quick corruption pre-check can catch truncation and wrong
+headers but not the malformed object that faults a parser; isolation is the protection.
+**The release gate found one thing the new default broke:** three tests in
+`test_timed_out_retry.py` simulate a slow reader with a monkeypatch on `pipeline.extract` in the
+test process, which a reader process cannot see - with reader processes on, `slow.txt` read in
+a child in no time and nothing timed out. They now pin `INDEX_READ_PROCESSES=false` in their
+`.env` (a dated note says why); any test that patches a reader in-process and runs through
+`run_setup` needs the same.
+
+**2026-10-09, morning - the suite runner measures, balances and selects (order `suite-speed`,
+SHIPPED).** Owner: "can the full suite test be optimised so it runs faster and tests only
+relevant parts ... Do it, make it efficient and comprehensive". Measured first, from the
+runner's own logs: the three alphabetical thirds finished at 17, 23 and 22 minutes on the
+night of 2026-10-08 (wall time 23), and 35 and 47 minutes with an index run going. Built
+(`docs/WORKORDER-suite-speed.md`): **(1)** `scripts/suite_durations.py`, a pytest plugin each
+part loads, records what every test file cost and which tests over a second lack the `slow`
+mark; the runner merges the parts into `logs/suite/durations.json` (git-ignored, this
+machine's numbers). **(2)** `split_balanced` places files longest-first into the emptiest
+part (totals within one file of each other); a file never measured counts as the median;
+no measurements yet means the old contiguous split, so a fresh clone is unchanged. **(3)**
+`--part-timeout` (an hour) kills a part and its process tree (`taskkill /T`) and reports
+**TIMED OUT**, red - the 7-hour hang in `test_pipeline_bench.py` on 2026-10-08 cannot recur.
+**(4)** `--affected [REF]` (`scripts/suite_affected.py`): the test files that can see a
+change, through the `ast`-read import graph of `app/` (reverse closure, relative imports
+resolved), the imports and dotted `app.` strings in each test's text, and any test whose text
+names a changed file; the §0 load-bearing tests, docs, hand-off, project-file and layering
+tests always run; the shared fixtures, `pyproject.toml` or the requirements changing, or an
+affected set over six files in ten, means the whole suite, and the runner says why.
+**Measured on this repository:** `app/ui/search_view.py` -> 46 of 523 files;
+`docs/TROUBLESHOOTING.md` -> 13; `app/index/read_process.py` -> 308; `app/extract/archive.py`
+or `app/core/*` -> the whole suite (442 and 484 of 523 can see it). That is the truth about
+the coupling, not a flaw in the mapping: a backend change runs most of the suite, and the
+balanced split is the lever there. **(5)** `--quick` deselects `gui`, `slow` and `qt`
+(repeating the project's own `-m`, which a second `-m` would replace); `--audit-markers`
+lists the slowest files and the unmarked slow tests. **Not done, and said so:** xdist (one
+process per worker defeats the crash isolation), testmon (coverage traces miss the reader
+subprocesses and Qt), marking tests `slow` by hand (the owner decides, with the numbers from
+the first measured run in front of them: `run_suite.py --audit-markers`). Tests:
+`tests/unit/test_suite_speed.py` (32, including a real process tree killed and a real pytest
+run with the plugin). The two VS Code tasks are **Run the tests affected by your changes**
+and **Quick check (no Qt, no slow tests)**. **The 1.0.3 release gate ran twice:** the old runner over the application changes (13,000+
+passed; the three `test_timed_out_retry.py` failures above, fixed), then the new runner over
+the finished tree, which is also the first measured run - contiguous split still, parts of
+18:25, 24:24 and 22:54, wall 24:46; 523 files, 62 minutes of test time measured in all, so a
+balanced three-way split has about 21 minutes per part to aim at. The three heaviest files are
+`test_index_tuning_acceptance.py` (369 s), `test_speed_work.py` (252 s) and `test_diagnostics.py`
+(206 s); 439 tests take over a second without the `slow` mark (`run_suite.py --audit-markers`
+lists them - the owner's decision, not made here). **Two failures in that run, both load
+flakes, not regressions:** `test_completions_sidecar.py::test_it_answers_inside_the_budget`
+(a cold suggest took 379 ms against a 300 ms budget with three parts running) and
+`test_ui_redesign_scenarios.py::test_the_search_page_start_to_finish_with_the_keyboard_alone`
+(a keyboard scenario, 4 rows where more were expected); both files pass alone (80 passed) and
+both passed in the first gate on the same application code. Add them to the known load flakes
+beside `test_text_first.py` when reading a red run.
 
 **2026-10-09, morning - 1.0.2 built and published.** `Leasha-Setup-1.0.2.exe` (328 MB) built
 from tag `v1.0.2` (`472b044`) with `packaging\build.ps1 -Release` under Windows PowerShell

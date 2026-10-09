@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.12 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 1.13 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -337,6 +337,8 @@ than all or nothing.
 | "Keyword results only - meaning-based search returned nothing" in a window left open for hours | Fixed on 2026-10-01: a window opened before an index run created the vector table answered keyword-only until restarted. Update; on an older copy, restart Leasha |
 | An attachment you expect is not found by its contents | Indexing › What gets read › Email attachments decides. The default reads Office, PDF, text, CSV and HTML; pictures are kept by name only. Attachments indexed before 2026-10-01 keep what they had until their archive is read again |
 | `ERR_INDEX_PROCESS_ENDED` | "Index in a separate process" is on and the child process stopped. Start again; the run carries on where it left off. `logs\index-process-stderr.log` holds what it printed |
+| A file shows **Failed** with `ERR_FILE_CRASHED_READER` | The indexing process died while reading it - a fault inside a reading library, which no guard in Leasha can catch - and the next run recorded the file instead of reading it again. Everything else carried on. The file is probably damaged: open it in its usual program; if it opens, move it out or use **Read again**. Windows keeps the crash itself under Event Viewer > Application as an APPCRASH of `pythonw.exe` naming the library |
+| A file, or a member inside a zip, shows `ERR_READER_PROCESS_ENDED` | Its reader ran in a helper process (Indexing > Tuning > **Read files in separate processes**, on by default) and that process died on it - a fault inside a reading library, most likely. It cost that one file or member; a fresh helper read the next one and the run carried on. The file is probably damaged; a changed file is read again |
 | "the graphics card failed ... done again on the processor" in a run | DirectML reported a device error (for example `887A0005`). The batch is redone on the processor, so nothing is lost. If it repeats, set Indexing › Tuning › Run models on to **Processor** |
 | A folder cannot be renamed or moved | "Index files as soon as they are saved" is on (Indexing › Schedule). Switch it off first |
 | Files show **TimedOut** | They took longer than their time limit. Indexing › Status › Timed-out files › **Retry with a longer time limit**, or `leasha index --retry-timed-out` |
