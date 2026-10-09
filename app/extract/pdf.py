@@ -36,7 +36,9 @@ from typing import Iterable
 from app.core.errors import make_error, raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
-from app.extract.base import Document, DocumentBuilder, normalise_whitespace, register
+from app.extract.base import (
+    Document, DocumentBuilder, in_reader_process, normalise_whitespace, register,
+)
 
 __all__ = ["PdfExtractor", "PDF_OCR_PAGES_VAR", "OCR_RENDER_DPI"]
 
@@ -338,7 +340,10 @@ def _ocr_specific_pages(
     like `_ocr_pages`.
     """
     limit = _pdf_ocr_pages()
-    if limit <= 0:
+    if limit <= 0 or in_reader_process():
+        # In a reader process the OCR models stay with the indexer (order
+        # `reader-process-isolation`, 2026-10-09): the pages are left in the
+        # "pages without text" warning, as when the budget is 0.
         return [], 0.0
 
     from app.extract.ocr import available, ocr_image
@@ -381,10 +386,15 @@ def _ocr_pages(document: object, path: Path, builder: object) -> object:
     if limit <= 0:
         return None
 
-    if _pictures_held():
+    if _pictures_held() or in_reader_process():
         # The text-first pass. Declining here gives the caller its ordinary
         # `ERR_NO_TEXT_LAYER`, and that row is exactly the queue the pictures
         # pass reads its scanned PDFs from (`Pipeline._is_deferred`).
+        #
+        # And a reader process (order `reader-process-isolation`, 2026-10-09):
+        # the OCR models, their memory and the GPU lock belong to the indexer,
+        # so a child declines for the same reason, with the same result - the
+        # pictures pass, in the parent, reads the row back.
         return None
 
     from app.extract.ocr import available, ocr_image

@@ -587,6 +587,24 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # 2026-10-09, the owner's overnight run. The whole indexing process died
+    # with an access violation inside the PDF library (`mupdfcpp64.dll`) on a
+    # PDF inside a zip - a native fault no Python guard can catch, and PDFs
+    # are read in-process (the OCR half needs the models). Each reader thread
+    # now writes down the file it has in hand (`Pipeline._note_in_hand`); a
+    # note still there when the next run starts names the file the process
+    # died on, and that file is recorded with this code instead of being read
+    # again and killing the next run too. Fatal, so the row is FAILED and
+    # settled; a changed file, or Read again, reads it once more.
+    "ERR_FILE_CRASHED_READER": _Spec(
+        message="The indexing process stopped while reading '{path}', so it is left out.",
+        suggestion=(
+            "Everything else was kept and the run carried on without this file. "
+            "It is probably damaged: try opening it in its usual program. If it opens, "
+            "move it out of the indexed folders or use Read again to try it once more."
+        ),
+        action_type=ActionType.USER_RETRY,
+    ),
     # 2026-09-30. A reader process (`app/index/read_process.py`) that did not
     # say it was ready within its own start-up limit, or ended before it did.
     # No file is named because none was involved - nothing had been sent to

@@ -46,9 +46,10 @@ that is how a 20GB zip becomes 20GB of temp files on the index drive.
 
 from __future__ import annotations
 
+import threading
 import zipfile
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from app.core.errors import AppError, AppErrorException, make_error
 from app.core.logging import logger
@@ -368,17 +369,45 @@ def _member(archive: Any, entry: Any, path: Path, key: str,
         yield from _read_one(temp, path, member_key)
 
 
+#: Order `reader-process-isolation` (2026-10-09). **Per thread**: the callable
+#: that reads one member file, installed by the indexing pipeline when the
+#: thread has a reader process (`Pipeline._member_reader_for`) and cleared
+#: when it ends. None means "read it here", which is what every caller outside
+#: a run - the CLI's `extract`, the tests - still gets. Layer 2 never imports
+#: Layer 3: the pipeline hands in a function.
+_member_readers = threading.local()
+
+
+def set_member_reader(reader: Optional[Callable[[Path], Iterator[Document]]]) -> None:
+    """Install (or clear, with None) this thread's member reader."""
+    _member_readers.reader = reader
+
+
+def member_reader() -> Optional[Callable[[Path], Iterator[Document]]]:
+    """This thread's member reader, or None to read members on the thread."""
+    return getattr(_member_readers, "reader", None)
+
+
 def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Document]:
     """Run the ordinary extractor over one member. Never raises.
 
     **Reuses the registry rather than reimplementing anything.** An archive
     reader with its own idea of how to read a `.docx` is a second, worse copy of
     Layer 2 that drifts from the first the moment either is fixed.
+
+    Through the thread's member reader when one is installed (order
+    `reader-process-isolation`): the member is then read in the thread's
+    reader process, and a member that kills that process costs this member -
+    `ERR_READER_PROCESS_ENDED`, recorded by name below like any other reader
+    error - never the indexer. The owner's overnight run of 2026-10-08/09 died
+    on exactly such a member, a PDF inside a zip.
     """
     from app.extract.base import extract
 
+    read = member_reader() or extract
+
     try:
-        for document in extract(temp):
+        for document in read(temp):
             yield Document(
                 path=archive_path,
                 text=document.text,

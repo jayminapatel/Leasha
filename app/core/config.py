@@ -390,7 +390,13 @@ class Settings(BaseModel):
     #: Work order 0x §5b. Read files in a process per extraction thread
     #: (`app/index/read_process.py`) rather than on threads that share one
     #: interpreter lock. Off by default until measured on the owner's machine.
-    index_read_processes: bool = False
+    #:
+    #: **On by default since 2026-10-09** (order `reader-process-isolation`):
+    #: the owner's overnight run died with a native fault in the PDF library,
+    #: and a reader process is the only thing that turns that into one skipped
+    #: file. The cost is one more Python process per reader thread while a run
+    #: is going; the control stays, so it can still be switched off.
+    index_read_processes: bool = True
     #: 2026-10-08, the owner. Give spreadsheet passages a vector as well as
     #: words. Off: spreadsheets are found by their words only - on the owner's
     #: index they were 52% of all passages (xlsx, xls, xlsm, csv), so half of
@@ -789,7 +795,7 @@ def load_settings(
                 values.get("INDEX_SEPARATE_PROCESS", "false")),
             index_read_processes=_as_bool(
                 "INDEX_READ_PROCESSES",
-                values.get("INDEX_READ_PROCESSES", "false")),
+                values.get("INDEX_READ_PROCESSES", "true")),
             index_spreadsheet_meaning=_as_bool(
                 "INDEX_SPREADSHEET_MEANING",
                 values.get("INDEX_SPREADSHEET_MEANING", "false")),

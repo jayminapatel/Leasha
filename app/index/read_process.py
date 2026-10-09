@@ -90,6 +90,13 @@ __all__ = [
 #: everything else not listed. Each can join once it is shown to carry no
 #: process-wide state.
 PROCESS_READERS = frozenset({
+    # Order `reader-process-isolation` (2026-10-09): PDF joins the list. Its
+    # text layer is pure PyMuPDF parsing, which is exactly what faulted inside
+    # `mupdfcpp64.dll` and ended the owner's overnight run; its OCR half
+    # declines in a child (`pdf._ocr_pages`, `in_reader_process`), so the
+    # models stay with the indexer and the pictures pass reads scanned rows
+    # back in the parent as it always did.
+    "PdfExtractor",
     "PlainTextExtractor",
     "DocxExtractor",
     "XlsxExtractor",
@@ -394,11 +401,26 @@ class ReaderProcess:
 
     # -- reading -------------------------------------------------------------
 
+    def read_raw(self, path: Path, *, frames: Optional[list[Any]] = None) -> Iterator[Any]:
+        """Each `Document` of `path` whole - text and segments, not passages.
+
+        Order `reader-process-isolation` (2026-10-09): what the archive reader
+        asks for one member, because it re-wraps the document with the
+        archive's own path and the pipeline chunks it afterwards. Everything
+        else - the sequence numbers, the frames, the kill, the error on a dead
+        child - is `read()`'s.
+        """
+        for document in self.read(path, frames=frames, raw=True):
+            yield document
+
     def read(self, path: Path, *, resume_from: int = 0,
              resume_extra: Optional[dict[str, Any]] = None,
-             frames: Optional[list[Any]] = None,
-             ) -> Iterator[tuple[RemoteDocument, list[dict[str, Any]]]]:
+             frames: Optional[list[Any]] = None, raw: bool = False,
+             ) -> Iterator[Any]:
         r"""Each document of `path` with its passages, as the child reads them.
+
+        `raw=True` (see `read_raw`) yields the `Document` itself instead of
+        `(RemoteDocument, chunks)`.
 
         Raises `AppErrorException` exactly where `extract()` would (the
         child's reader raised it), or with `ERR_READER_PROCESS_ENDED` when the
@@ -426,7 +448,7 @@ class ReaderProcess:
         try:
             try:
                 _write(proc.stdin, ("read", sequence, str(path), int(resume_from),
-                                    resume_extra))
+                                    resume_extra, "raw" if raw else "chunks"))
             except (OSError, ValueError):
                 raise self._ended(path)
             while True:
@@ -440,6 +462,8 @@ class ReaderProcess:
                 elif kind == "doc":
                     _, key, source_kind, meta, warnings, chunks = message
                     yield RemoteDocument(key, source_kind, meta, tuple(warnings)), chunks
+                elif kind == "rawdoc":
+                    yield message[1]
                 elif kind == "end":
                     finished = True
                     error, failure = message[1], message[2]
@@ -592,12 +616,23 @@ def _serve(inbound: Any, outbound: Any) -> None:
         request = _read(inbound)
         if request is None or request[0] == "quit":
             return
-        _, sequence, path, resume_from, resume_extra = request
+        # Order `reader-process-isolation` (2026-10-09): a sixth field, the
+        # mode. "chunks" is what the pipeline wants for a whole file; "raw" is
+        # what the archive reader wants for a member - the document itself,
+        # text and segments, which it re-wraps and the pipeline chunks later.
+        # A five-field request from an older parent still means "chunks".
+        _, sequence, path, resume_from, resume_extra = request[:5]
+        mode = request[5] if len(request) > 5 else "chunks"
         error = failure = None
         sender.begin(sequence)
         try:
             for document in extract(Path(path), resume_from=resume_from,
                                     resume_extra=resume_extra):
+                if mode == "raw":
+                    # The whole `Document`, pickled: both ends are this
+                    # application, and nothing but the child writes the pipe.
+                    send(("rawdoc", document))
+                    continue
                 chunks = [
                     {"ordinal": ordinal, "text": chunk.text, "page": chunk.page,
                      "char_start": chunk.char_start, "char_end": chunk.char_end,
@@ -638,6 +673,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         except Exception:                              # noqa: BLE001 - politeness, not correctness
             pass
     try:
+        # Order `reader-process-isolation` (2026-10-09): the readers may ask
+        # which process they are in. The PDF reader does, and never OCRs here.
+        from app.extract.base import set_reader_process
+
+        set_reader_process(True)
         _serve(sys.stdin.buffer, outbound)
     except (BrokenPipeError, OSError):
         return 0                                       # the parent went first

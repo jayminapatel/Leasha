@@ -86,8 +86,14 @@ def test_every_listed_reader_is_a_registered_reader() -> None:
 
 
 def test_readers_with_process_wide_state_stay_on_the_thread(tmp_path: Path) -> None:
-    """OCR, converters and the zip reader (which hands members to any reader)."""
-    for name in ("scan.png", "report.pdf", "old.doc", "backup.zip"):
+    """OCR, converters and the zip reader (which hands members to any reader).
+
+    2026-10-09 (order `reader-process-isolation`): `report.pdf` left this list.
+    The PDF reader's text half is pure PyMuPDF parsing - the very library that
+    faulted and ended the owner's overnight run - and its OCR half declines
+    inside a child (`pdf._ocr_pages`), so PDF is now read in the reader process
+    and `test_reader_process_isolation.py` holds that."""
+    for name in ("scan.png", "old.doc", "backup.zip"):
         path = tmp_path / name
         path.write_bytes(b"x")
         if extractor_for(path) is not None:

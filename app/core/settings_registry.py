@@ -445,12 +445,15 @@ SETTINGS: tuple[Setting, ...] = (
     ),
     Setting(
         key="INDEX_READ_PROCESSES", label="Read files in separate processes",
-        kind="bool", default=False, group="Tuning", surface="indexing.tuning",
-        help="Reads documents and mail in helper processes, one per reader, so "
-             "they use more of the computer's cores at once and indexing "
-             "finishes sooner. Uses more memory while a run is going. A file "
-             "that makes its reader fail is skipped without stopping the run. "
-             "Takes effect from the next Start.",
+        # On by default since 2026-10-09 (order `reader-process-isolation`): a
+        # native fault in a reading library ended the owner's overnight run, and
+        # a reader process is what makes that one skipped file instead.
+        kind="bool", default=True, group="Tuning", surface="indexing.tuning",
+        help="Reads documents, PDFs and mail in helper processes, one per reader, "
+             "so a file that makes its reader fail - even a fault inside a reading "
+             "library - is skipped and the run is not stopped. They also use more "
+             "of the computer's cores at once. Costs about 100-200 MB of memory per "
+             "reader while a run is going. Takes effect from the next Start.",
     ),
     Setting(
         key="INDEX_SPREADSHEET_MEANING", label="Find spreadsheets by meaning",

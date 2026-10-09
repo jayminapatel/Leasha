@@ -478,10 +478,17 @@ def _cli(capsys, *argv):
 @pytest.fixture()
 def cli_env(temp_env: Path) -> Path:
     """`temp_env` with a 1 s limit for text (the smallest a setting can hold)
-    and nothing that would pause a run on a busy test machine."""
+    and nothing that would pause a run on a busy test machine.
+
+    2026-10-09: reader processes are on by default (order
+    `reader-process-isolation`), and the slow reader these tests use is a
+    monkeypatch on `pipeline.extract` in *this* process, which a child cannot
+    see - with them on, `slow.txt` read in a child in no time and nothing
+    timed out. These tests are about the retry, so they read in-process."""
     with temp_env.open("a", encoding="utf-8") as handle:
         handle.write("\nINDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n"
-                     "INDEX_CPU_PERCENT=0\nMIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n")
+                     "INDEX_CPU_PERCENT=0\nMIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n"
+                     "INDEX_READ_PROCESSES=false\n")
     return temp_env
 
 
@@ -630,7 +637,10 @@ def test_a_retry_through_the_indexing_process(tmp_path) -> None:
         f"DATA_PATH={(tmp_path / 'data').as_posix()}\n"
         f"LOG_PATH={(tmp_path / 'logs').as_posix()}\n"
         "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\nINDEX_CPU_PERCENT=0\n"
-        "INDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n", encoding="utf-8")
+        "INDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n"
+        # 2026-10-09: the slow reader below is patched into the indexing child
+        # by `-c`; a reader process of its own would not have it (see `cli_env`).
+        "INDEX_READ_PROCESSES=false\n", encoding="utf-8")
     locks = tmp_path / "locks"
     locks.mkdir()
     opened = tmp_path / "opened.txt"

@@ -66,6 +66,7 @@ from app.core.logging import logger
 from app.extract import chunk_document, extract
 from app.extract import progress as reader_progress
 from app.extract import reading as reader_reading
+from app.extract.archive import set_member_reader
 from app.extract.base import change_marker, extractor_for, reads_externally
 from app.core.priority import lower_this_thread
 from app.core.osbridge.pathnames import path_key
@@ -1862,6 +1863,8 @@ class Pipeline:
         `request_stop` / `pause` from any thread.
         """
         stats = IndexStats(ocr_mode=self.config.ocr_mode)
+        # 2026-10-09: a file the previous run died on is recorded, not read again.
+        self._skip_files_left_in_hand(stats)
         if self.activity_into is not None:
             stats.activity = self.activity_into
         self._stats_ref = stats          # workers announce the file they are on
@@ -3589,6 +3592,9 @@ class Pipeline:
                     low_priority=bool(self.config.resolved_limits().low_priority))
                 reader.start()
                 self._worker_slots().reader = reader
+                # Order `reader-process-isolation` (2026-10-09): the archive
+                # reader on this thread hands each member to the same child.
+                set_member_reader(self._member_reader_for(reader))
             # 0z lane B: this thread's file watch - the time limits and Force
             # skip. Asked for with `getattr` like the board above: a pipeline a
             # test built without `run()` has no watchdog, and reads unwatched.
@@ -3616,6 +3622,7 @@ class Pipeline:
                 reader_progress.detach()
             self._worker_slots().slot = None
             reader = getattr(self._worker_slots(), "reader", None)
+            set_member_reader(None)
             if reader is not None:
                 self._worker_slots().reader = None
                 reader.close()
@@ -3714,6 +3721,7 @@ class Pipeline:
             if watch is not None:
                 watch.begin(candidate, digest, limit_kind(candidate.path),
                             self._time_limit_factor(candidate))
+            self._note_in_hand(candidate.path)
             stream = None
             #: 0z lane B: set when the watchdog gave up on this thread and
             #: started another in its place - this one leaves after this file.
@@ -3819,6 +3827,7 @@ class Pipeline:
                         pass
                 if watch is not None:
                     watch.end()
+                self._clear_in_hand()
                 self._stats_ref.current = ""
                 self._stats_ref.current_item = 0
                 if slot is not None:
@@ -3980,6 +3989,7 @@ class Pipeline:
             reader.wait_ready(cancelled=self._stop.is_set)
         except AppErrorException as exc:
             slots.reader = None
+            set_member_reader(None)              # members are read on the thread from here on
             watch = getattr(slots, "watch", None)
             if watch is not None:
                 watch.reader = None
@@ -4464,6 +4474,26 @@ class Pipeline:
                 first_of_file=False, file_marker=True,
                 resume_key=resume_key,
             )
+
+    def _member_reader_for(self, reader: Any) -> Callable[[Path], Iterator[Any]]:
+        """The function the archive reader calls for one extracted member, on
+        this thread (order `reader-process-isolation`, 2026-10-09).
+
+        A member whose reader is on `PROCESS_READERS` is read in the thread's
+        reader process, whole (`read_raw`), so a PDF inside a zip - the file
+        the owner's overnight run died on - can at worst take the child. Any
+        other member is read on the thread exactly as before. The reader is
+        looked up each time, because the thread may have let it go
+        (`_reader_ready` on a start-up failure); then members are read here.
+        """
+        def read(temp: Path) -> Iterator[Any]:
+            current = getattr(self._worker_slots(), "reader", None)
+            if current is not None and reads_in_process(temp):
+                yield from current.read_raw(temp)
+                return
+            yield from extract(temp)
+
+        return read
 
     def _read_documents(
         self, candidate: Candidate, resume_from: int,
@@ -6623,6 +6653,81 @@ class Pipeline:
             return
         with self._clock.stage("write"):
             group.__exit__(None, None, None)
+
+    # -- the file in hand: surviving a native crash ----------------------------
+    #
+    # 2026-10-09, the owner's overnight run: the indexing process died with an
+    # access violation inside the PDF library on a PDF inside a zip. No Python
+    # guard can catch a native fault, and the window said only "press Start":
+    # the next run would have walked into the same file. So every reader thread
+    # writes the file it has in hand to a small note beside the database before
+    # reading it, and removes the note after. A note still there when a run
+    # starts is a file the previous process died on; it is recorded as
+    # `ERR_FILE_CRASHED_READER` and never read again while unchanged.
+    IN_HAND_DIR = "in-hand"
+
+    def _in_hand_dir(self) -> Optional[Path]:
+        """The notes' folder, beside the database. None for a store without one
+        (a test's stand-in), which switches the notes off rather than failing."""
+        db_path = getattr(self.store, "db_path", None)
+        if not db_path:
+            return None
+        return Path(db_path).parent / self.IN_HAND_DIR
+
+    def _note_in_hand(self, path: Any) -> None:
+        """This thread is about to read `path`. Never raises: a note that cannot
+        be written costs the protection, not the file."""
+        folder = self._in_hand_dir()
+        if folder is None:
+            return
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            (folder / f"{threading.get_ident()}.txt").write_text(str(path), encoding="utf-8")
+        except Exception as exc:                 # noqa: BLE001 - a note, not the read
+            self._log.debug("could not note the file in hand: {}", exc)
+
+    def _clear_in_hand(self) -> None:
+        """This thread finished its file, however it finished. Never raises."""
+        folder = self._in_hand_dir()
+        if folder is None:
+            return
+        try:
+            (folder / f"{threading.get_ident()}.txt").unlink(missing_ok=True)
+        except Exception as exc:                 # noqa: BLE001 - a note, not the read
+            self._log.debug("could not clear the file in hand: {}", exc)
+
+    def _skip_files_left_in_hand(self, stats: IndexStats) -> None:
+        """Start of a run: every note left behind names a file the previous
+        process died on. Record each as failed, with the reason, and remove
+        the note. Never raises - a run must start whatever is in this folder."""
+        folder = self._in_hand_dir()
+        if folder is None or not folder.is_dir():
+            return
+        for note in sorted(folder.glob("*.txt")):
+            try:
+                path = Path(note.read_text(encoding="utf-8").strip())
+                note.unlink(missing_ok=True)
+                if not str(path):
+                    continue
+                error = make_error("ERR_FILE_CRASHED_READER", "index.pipeline", path=str(path))
+                try:
+                    stat = path.stat()
+                    size, mtime_ns = int(stat.st_size), int(stat.st_mtime_ns)
+                except OSError:
+                    size, mtime_ns = 0, 0          # gone or unreadable: still recorded
+                with self.store.batch():
+                    file_id = self.store.upsert_file(
+                        str(path), size_bytes=size, mtime_ns=mtime_ns,
+                        ext=path.suffix.lower() or None, parent_dir=str(path.parent),
+                        status=FileStatus.FAILED)
+                    self.store.mark_skipped(file_id, error)
+                stats.skipped += 1
+                stats.skipped_by_code[error.code] = stats.skipped_by_code.get(error.code, 0) + 1
+                self._log.error(
+                    "the previous indexing process died while reading {} - recorded as "
+                    "failed and left out of this run", path)
+            except Exception as exc:             # noqa: BLE001 - the run starts regardless
+                self._log.warning("could not act on the note {}: {}", note.name, exc)
 
     def _group_failed(self, kind: str, item: "_Extracted", exc: BaseException,
                       pending_vectors: list, group_start: Optional[int],

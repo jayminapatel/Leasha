@@ -494,7 +494,8 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         bulk_fts=str(setting("index_bulk_fts", "auto")),
         # 0x §5b: "Read files in separate processes". The window's child
         # indexer runs through here too, so it honours the same switch.
-        read_processes=bool(setting("index_read_processes", False)),
+        # On by default since 2026-10-09 (order `reader-process-isolation`).
+        read_processes=bool(setting("index_read_processes", True)),
         # 0z lane B: the time limits, from the same settings - the window's
         # child indexer runs through here, so it honours them too.
         file_time_limit_s=int(setting("index_file_time_limit_s", 120)),

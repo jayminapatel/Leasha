@@ -614,6 +614,26 @@ def supported_names() -> frozenset[str]:
     return frozenset(NAME_REGISTRY)
 
 
+#: Work order `reader-process-isolation` (2026-10-09). True inside a reader
+#: process (`app/index/read_process.py` sets it in the child before serving),
+#: so a Layer 2 reader can know its role without importing Layer 3. The PDF
+#: reader asks it: in a child it never OCRs, because the OCR models, their
+#: memory and the GPU lock belong to the parent.
+_READER_PROCESS = False
+
+
+def in_reader_process() -> bool:
+    """Is this code running inside a reader process rather than the indexer?"""
+    return _READER_PROCESS
+
+
+def set_reader_process(flag: bool) -> None:
+    """Declare this process a reader process (or not). Called once by the child's
+    `main`; tests use it to stand in a child without starting one."""
+    global _READER_PROCESS
+    _READER_PROCESS = bool(flag)
+
+
 def reads_externally(path: Path) -> bool:
     """True if this file is read through another application, not by its bytes.
 
