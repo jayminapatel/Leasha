@@ -457,3 +457,26 @@ def test_people_are_round(qapp, store, tmp_path):
     image = _items(page)[0].icon().pixmap(64).toImage()
     assert image.pixelColor(1, 1).alpha() == 0, "the corner should be clear - a circle"
     assert image.pixelColor(32, 32).alpha() == 255
+
+
+def test_a_tick_repaints_a_run_of_fading_tiles_once(qapp, monkeypatch):
+    """2026-10-09: a tick sent one change per fading tile, and a few hundred
+    arriving together stalled the window. Neighbouring tiles now share one."""
+    import time
+
+    from app.ui.widgets import photo_browser
+
+    names = [f"p{n}.jpg" for n in range(300)]
+    model = photo_browser.PhotoModel(_Thumbs())
+    model.set_rows(_rows(names))
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    for name in names:
+        model._arrived[name] = clock[0]          # all arrived in this tick
+    emitted = []
+    model.dataChanged.connect(lambda first, last, *_a: emitted.append((first.row(), last.row())))
+    model._fade_step()
+    assert emitted == [(0, 299)], emitted       # one change for the whole run
+
+    assert photo_browser.fade_runs([5, 3, 4, 9, 10, 10, 20]) == [(3, 5), (9, 10), (20, 20)]
+    assert photo_browser.fade_runs([]) == []

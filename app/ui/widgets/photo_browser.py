@@ -114,15 +114,23 @@ class PhotoModel(QAbstractTableModel):
 
     def _fade_step(self) -> None:
         """Repaint every tile still fading in, then forget the finished ones -
-        after their last repaint, so it lands at full strength."""
+        after their last repaint, so it lands at full strength.
+
+        **One repaint per run of neighbouring tiles, not one per tile.** 2026-10-09:
+        with a few hundred thumbnails arriving together, each tick sent a separate
+        change for every one of them, and the window stalled for about half a second.
+        """
         now = time.monotonic()
+        numbers = []
         for path in list(self._arrived):
             number = self._index.get(path)
             if number is not None:
-                cell = self.index(number, 0)
-                self.dataChanged.emit(cell, cell, [Qt.ItemDataRole.DecorationRole])
+                numbers.append(number)
             if (now - self._arrived[path]) * 1000 >= FADE_MS:
                 del self._arrived[path]
+        for first, last in fade_runs(numbers):
+            self.dataChanged.emit(self.index(first, 0), self.index(last, 0),
+                                  [Qt.ItemDataRole.DecorationRole])
         if not self._arrived:
             self._fading.stop()
 
@@ -252,6 +260,21 @@ class PhotoModel(QAbstractTableModel):
                 self._fading.start()
             cell = self.index(number, 0)
             self.dataChanged.emit(cell, cell, [Qt.ItemDataRole.DecorationRole])
+
+
+def fade_runs(numbers) -> list[tuple[int, int]]:
+    """`(first, last)` for each run of consecutive row numbers, in order.
+
+    One repaint covers a run, so a tick costs one change per run of tiles that
+    are fading together rather than one per tile. Repeats are ignored.
+    """
+    runs: list[list[int]] = []
+    for number in sorted(set(numbers)):
+        if runs and number == runs[-1][1] + 1:
+            runs[-1][1] = number
+        else:
+            runs.append([number, number])
+    return [(first, last) for first, last in runs]
 
 
 class _FadeDelegate(QStyledItemDelegate):
