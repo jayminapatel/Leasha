@@ -43,13 +43,24 @@ __all__ = ["PhotosView"]
 DEBOUNCE_MS = 220
 
 
-def _library(store: Any) -> tuple[list, int]:
-    """Every picture, and how many faces wait for a Yes or No. **Worker.**"""
+def _library(store: Any) -> tuple[list, int, dict]:
+    """Every picture, how many faces wait for a Yes or No, and the side list's
+    counts. **Worker.** The counts were taken on the window's thread until
+    2026-10-09, over 46,000 pictures, on every read of the tab."""
     from app.extract.ocr import OcrExtractor
 
     rows = store.photo_library(OcrExtractor.extensions)
     waiting = sum(count for _p, _n, count in store.suggestion_counts())
-    return rows, waiting
+    return rows, waiting, facets(rows)
+
+
+def _arrange(rows: list, parsed: Any, words: str, sort_key: str) -> tuple[list, str, int, int]:
+    """The pictures the box lets through, in the order asked, with the order
+    and the two counts the summary line shows. **Worker.** Until 2026-10-09 the
+    window's thread did this on every search, and stopped answering."""
+    shown = narrow(rows, parsed, words)
+    order = getattr(parsed, "sort", "") or sort_key
+    return sort_rows(shown, order), order, len(shown), in_scope(rows, parsed)
 
 
 def _read(store: Any, text: str, reading: dict) -> tuple:
@@ -149,9 +160,9 @@ class PhotosView(QWidget):
         run(self._pool, worker)
 
     def _library_ready(self, result: Any) -> None:
-        rows, waiting = result
+        rows, waiting, counts = result
         self._all = list(rows)
-        self.sidebar.fill(facets(self._all), waiting)
+        self.sidebar.fill(counts, waiting)
         self._run()
 
     def _typed(self, text: str) -> None:
@@ -178,12 +189,31 @@ class PhotosView(QWidget):
         self._show(applied)
 
     def _show(self, applied: Any = ()) -> None:
-        """Narrow the library in memory, sort it and draw it with its summary."""
-        shown = narrow(self._all, self._parsed, self._words)
-        order = getattr(self._parsed, "sort", "") or self.sort_key
-        self.browser.set_rows(sort_rows(shown, order), dated=order in ("newest", "oldest"))
-        show_page(self, applied, summary(len(shown), in_scope(self._all, self._parsed),
-                                         len(self.browser.selected_rows())))
+        """Narrow and sort the library on a worker, then draw it with its summary.
+
+        **2026-10-09:** this used to narrow, sort and count 46,000 pictures on
+        the window's own thread after every search, and the window stopped
+        answering. Only the drawing is here now. A newer request makes an older
+        answer stale, and `_drawn` drops it.
+        """
+        from app.ui.later import when_done
+        from app.ui.workers import CallableWorker, run
+
+        self._arranging = getattr(self, "_arranging", 0) + 1
+        arranging = self._arranging
+        worker = CallableWorker(_arrange, self._all, self._parsed, self._words, self.sort_key,
+                                component="ui.photos")
+        when_done(self, worker,
+                  finished=lambda result, a=arranging: self._drawn(result, applied, a),
+                  failed=self.error.emit)
+        run(self._pool, worker)
+
+    def _drawn(self, result: Any, applied: Any, arranging: int) -> None:
+        if arranging != getattr(self, "_arranging", 0):
+            return
+        shown, order, shown_count, scope = result
+        self.browser.set_rows(shown, dated=order in ("newest", "oldest"))
+        show_page(self, applied, summary(shown_count, scope, len(self.browser.selected_rows())))
 
     # -- the choices -----------------------------------------------------------------
 

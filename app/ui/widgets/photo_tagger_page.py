@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.core.logging import logger
+from app.ui.later import when_done
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
                                        remembered, round_pixmap)
@@ -509,10 +510,12 @@ class PhotoTaggerPage(QWidget):
             worker = CallableWorker(
                 cached_face_crop, sample.path, sample.bbox, self._faces_dir,
                 component="ui.photo_tagger")
-            worker.signals.finished.connect(
-                lambda image, p=pile.id, k=key: self._crop_ready(p, k, image))
+            # `when_done`, not a bare connect: a crop that finishes after this page
+            # has been closed used to reach `_list` on a deleted widget and raise in
+            # the Qt event loop (2026-10-09, found by the Photos tests).
+            when_done(self, worker,
+                      finished=lambda image, p=pile.id, k=key: self._crop_ready(p, k, image))
             # A face that will not cut keeps its blank tile; the worker logged why.
-            worker.signals.failed.connect(lambda _error: None)
             run(self._pool, worker)
 
     def _crop_ready(self, pile_id: int, key: str, image: Any) -> None:
@@ -1065,7 +1068,6 @@ class _ManageFacesDialog(QDialog):
 
     def _load(self) -> None:
         """Read the faces and the named people on workers; the list clears meanwhile."""
-        from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
         # Where the person was in the grid, so a move or a split does not
@@ -1086,7 +1088,6 @@ class _ManageFacesDialog(QDialog):
         """UI thread: one tile per face, from memory when seen before, else a worker
         cuts it (`cached_face_crop`) and `_show` paints it.
         """
-        from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
         faces = list(faces or [])
@@ -1146,7 +1147,6 @@ class _ManageFacesDialog(QDialog):
 
     def _apply(self, work: Any, failure: str) -> None:
         """Run a store write on a worker, re-read on success, warn plainly on failure."""
-        from app.ui.later import when_done
         from app.ui.workers import CallableWorker, run
 
         worker = CallableWorker(work, component="ui.photo_tagger.manage")

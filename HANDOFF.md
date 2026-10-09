@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.125 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.126 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, night - the window stopped answering while the Photos tab was open.** The window was not responding with 4 GB and 1,100 s of CPU. The Photos tab narrowed, sorted and counted its 46,000 pictures on the window's own thread after every search and every read, and the library itself took 350 s to read during a run. Measured on the owner's library: facets 0.76 s, narrowing 0.55 s, the counts 0.19 s, before the grid was redrawn. Fixed by moving narrowing, sorting, the counts and the side-list facets onto workers (`_arrange`, `_library`); the window draws only (`_drawn`); a newer search makes an older answer stale. Found by the Photos tests in the same pass, and fixed: the Photo Tagger's face-crop callback reached a deleted list when its page closed and raised in the Qt event loop; it now goes through `when_done`. Not yet: the 350 s library read itself, which runs in a worker during an index run and was not changed; the window itself still needs a restart to load this. The hung window was still open when this was written.
 
 **2026-10-09, afternoon - the index process died again, inside ONNX Runtime this time; one bug
 fixed, one gap closed, one handler installed.** The owner's 10:11 run (1.0.3 code, reader

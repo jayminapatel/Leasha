@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.93 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.94 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The Photos tab keeps answering while it filters a large library (2026-10-09)
+
+- **Typing in the Photos box no longer freezes the window.** With tens of thousands of pictures, the window narrowed, sorted and counted the whole library each time it had a result, and stopped responding for seconds at a time. Now that work runs in the background and the window only draws the answer, and a search that was overtaken by a newer one is dropped.
+- **Closing the Photo Tagger while a face is still being cut no longer raises an error.** A late result reached a page that was already gone.
 
 ### A video inside a zip stays unread when video reading is off; a crash now leaves its stack (2026-10-09)
 
