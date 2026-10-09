@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.120 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.121 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -62,6 +62,19 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-09, late morning - 1.0.3 built and published.** `Leasha-Setup-1.0.3.exe` (328 MB) built
+from tag `v1.0.3` (`e76a1b4`) with `packaging\build.ps1 -Release` under Windows PowerShell 5.1
+(Inno Setup compile 355 s); SHA256 `B8454A176FA6155014A27F142E05B65BD2C347AB4295FA095836FCF248EE9C0E`,
+the same on the build copy, the Google Drive copy (`Leasha\Releases\1.0.3\`) and its `.sha256`.
+GitHub release https://github.com/jayminapatel/Leasha/releases/tag/v1.0.3, the installer and its
+checksum as assets, marked latest, notes from the CHANGELOG section. Still the owner's: install
+it over 1.0.2 and let Check the installation say READY; then an index run with reader processes
+on (the default now) - the first real test of the isolation on the owner's data. Trap met while
+releasing: the Bash tool collapses backslashes in a `-File .\packaging\build.ps1` argument to
+`.packagingbuild.ps1`; start the build from PowerShell. Not committed, not mine:
+`.vscode/settings.json` gained a `python-envs.pythonProjects` block written by the VS Code Python
+Environments extension.
 
 **2026-10-09, morning - release 1.0.3: a file the indexer died on is never read again.**
 The owner's overnight run (started 23:42 on the 1.0.2 code) ended at 06:18 after 6.5 hours: Windows'
