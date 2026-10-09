@@ -64,9 +64,9 @@ line, no traceback and no window.
 ## 3. Current state
 
 **2026-10-09, morning - 1.0.2 built and published.** `Leasha-Setup-1.0.2.exe` (328 MB) built
-from tag `v1.0.2` (`472b044`) with `packaginguild.ps1 -Release` under Windows PowerShell
+from tag `v1.0.2` (`472b044`) with `packaging\build.ps1 -Release` under Windows PowerShell
 5.1; SHA256 `22B6277F96548C35379AC74ACF3BEEB87392F21AE4387BAE0324DC942B751ECC`, the same on
-the build copy, the Google Drive copy (`Leasha\Releases.0.2\`) and its `.sha256`. **The
+the build copy, the Google Drive copy (`Leasha\Releases\1.0.2\`) and its `.sha256`. **The
 first GitHub release**, on the owner's word and with `gh` signed in as `jayminapatel`:
 https://github.com/jayminapatel/Leasha/releases/tag/v1.0.2, the installer and its checksum as
 assets, marked latest, notes from the CHANGELOG section. The README's install step points
