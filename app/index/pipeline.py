@@ -1598,6 +1598,9 @@ class Pipeline:
         #: 2026-10-10, review P4: text-vector deletes waiting for the open
         #: group to commit - see `_delete_vectors_once_committed`.
         self._vector_deletes: list[int] = []
+        #: The same, for single passages a re-read dropped (`_write_one`'s
+        #: kept-rows branch): `_delete_chunk_vectors_once_committed`.
+        self._chunk_vector_deletes: list[int] = []
         #: Video and audio extensions, looked up once per run rather than
         #: once per document. See `_media_work_ahead`.
         self._media_exts: Optional[frozenset[str]] = None
@@ -7361,11 +7364,38 @@ class Pipeline:
             waiting = self._vector_deletes = []
         waiting.append(int(file_id))
 
+    def _delete_chunk_vectors_once_committed(self, chunk_ids: list[int]) -> None:
+        """`_delete_vectors_once_committed` for single passages, by chunk id.
+
+        2026-10-10, merging the review's branches: a re-read that kept most of
+        a file's passages (`SqliteStore.replace_chunks`) and dropped a few
+        deletes those few vectors by id - and did so at once, inside the open
+        write group, which is the fault P4 removed for whole files. A rolled
+        back group brings the dropped rows back with `embedded = 1`, so their
+        vectors must still be there. Same rule, same place: after the commit.
+        """
+        by_chunk = getattr(self.vectors, "delete_by_chunk_ids", None)
+        if not chunk_ids or by_chunk is None:         # None: a test double only
+            return
+        if getattr(self, "_write_group", None) is None:
+            by_chunk(list(chunk_ids))
+            return
+        waiting = getattr(self, "_chunk_vector_deletes", None)
+        if waiting is None:
+            waiting = self._chunk_vector_deletes = []
+        waiting.extend(int(c) for c in chunk_ids)
+
     def _take_vector_deletes(self) -> list[int]:
         """The ids `_delete_vectors_once_committed` held for the group, and
-        none left behind. `getattr`: a pipeline built without `__init__`."""
+        none left behind. `getattr`: a pipeline built without `__init__`.
+
+        2026-10-10: the passage ids `_delete_chunk_vectors_once_committed`
+        held are taken with them, onto `_taken_chunk_deletes`, so a commit
+        runs both and an abandoned group drops both."""
         waiting = getattr(self, "_vector_deletes", None) or []
         self._vector_deletes = []
+        self._taken_chunk_deletes = getattr(self, "_chunk_vector_deletes", None) or []
+        self._chunk_vector_deletes = []
         return waiting
 
     def _run_vector_deletes(self, file_ids: list[int]) -> None:
@@ -7378,6 +7408,15 @@ class Pipeline:
         it looks the passage up, and the next write of the file deletes it -
         the cost is accuracy for a while, never a wrong answer kept for good.
         """
+        chunk_ids = getattr(self, "_taken_chunk_deletes", None) or []
+        self._taken_chunk_deletes = []
+        if chunk_ids:
+            try:
+                self.vectors.delete_by_chunk_ids(list(dict.fromkeys(chunk_ids)))
+            except Exception as exc:             # noqa: BLE001 - see the docstring
+                self._log.warning(
+                    "could not delete the vectors of {} passage(s) a re-read "
+                    "dropped: {}", len(chunk_ids), exc)
         if not file_ids:
             return
         try:
@@ -7569,6 +7608,7 @@ class Pipeline:
         # rolled back, so their old passages - and the vectors that go with
         # them - stay. See `_delete_vectors_once_committed`.
         self._take_vector_deletes()
+        self._taken_chunk_deletes = []           # the passages' rows come back too
         failure = RuntimeError("index run ended with a write group still open")
         try:
             group.__exit__(RuntimeError, failure, None)
@@ -8038,9 +8078,10 @@ class Pipeline:
             # deleted, nothing written) are removed here, by id. The kept ones
             # are this file's whole current set, so at no instant is it without
             # its vectors.
-            by_chunk = getattr(self.vectors, "delete_by_chunk_ids", None)
-            if removed and by_chunk is not None:     # None: a test double only
-                by_chunk(removed)
+            # Once the rows commit, never before: see
+            # `_delete_chunk_vectors_once_committed`.
+            if removed:
+                self._delete_chunk_vectors_once_committed(list(removed))
             return []
 
         wanted = set(to_embed)

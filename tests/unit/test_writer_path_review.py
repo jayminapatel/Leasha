@@ -375,3 +375,50 @@ def test_with_no_group_open_the_delete_runs_at_once(tmp_path):
         pipeline = _pipeline(store, [letter.parent], vectors)
         pipeline._write_one(_emptied(letter))
     assert vectors.count() == 0
+
+
+# 2026-10-10, merging the review's branches: the passages a re-read dropped
+# (`replace_chunks` kept the rest) lose their vectors after the commit too.
+
+class _ChunkVectors(_Vectors):
+    def __init__(self) -> None:
+        super().__init__()
+        self.chunk_deletes: list[list[int]] = []
+
+    def delete_by_chunk_ids(self, chunk_ids) -> None:
+        self.chunk_deletes.append([int(c) for c in chunk_ids])
+
+
+class _Group:
+    def __exit__(self, *_exc) -> bool:
+        return False
+
+
+def _bare(vectors) -> Pipeline:
+    built = Pipeline.__new__(Pipeline)
+    built.vectors = vectors
+    built._log = __import__("app.core.logging", fromlist=["logger"]).logger
+    return built
+
+
+def test_dropped_passages_keep_their_vectors_when_the_group_rolls_back():
+    vectors = _ChunkVectors()
+    pipeline = _bare(vectors)
+    pipeline._write_group = _Group()
+    pipeline._delete_chunk_vectors_once_committed([7, 8])
+    assert vectors.chunk_deletes == [], "no LanceDB delete inside the open group"
+    pipeline._abandon_write_group()
+    pipeline._run_vector_deletes([])            # a later commit must not run them
+    assert vectors.chunk_deletes == []
+
+
+def test_dropped_passages_lose_their_vectors_once_the_group_commits():
+    vectors = _ChunkVectors()
+    pipeline = _bare(vectors)
+    pipeline._write_group = _Group()
+    pipeline._delete_chunk_vectors_once_committed([7, 8])
+    pipeline._commit_write_group(timed=False)
+    assert vectors.chunk_deletes == [[7, 8]]
+    pipeline._write_group = None
+    pipeline._delete_chunk_vectors_once_committed([9])
+    assert vectors.chunk_deletes == [[7, 8], [9]], "no group: at once"
