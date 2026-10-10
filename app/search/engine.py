@@ -764,6 +764,17 @@ class SearchEngine:
         #: cache off for a test, and that must not also switch this off and
         #: double the retrieval it exists to remove.
         self._candidates = _LockedLruCache(CANDIDATE_ENTRIES)
+        #: Work order 1h §5b (2026-10-10). The query's meaning vector, text
+        #: and CLIP, once per model and sentence - see `vector.
+        #: QueryVectorCache`. Used by every pass `_retrieve` makes, so §2b's
+        #: relax loop and Chat's widening rounds (which reach this engine
+        #: through `search`, `app/chat/engine.py::_search`) embed a repeated
+        #: sentence once. Not keyed on the index generation and never needs
+        #: to be: a query's vector depends on the model and the words, not on
+        #: anything indexed. Used whatever `use_cache` says for the same
+        #: reason - `use_cache=False` asks for results computed from the index
+        #: as it is now, and a sentence's vector is the same either way.
+        self._query_vectors = vector.QueryVectorCache()
 
     @property
     def closed(self) -> bool:
@@ -1517,6 +1528,7 @@ class SearchEngine:
         vector_future = self._pool.submit(
             vector.search, self.vectors, self.embedder, parsed,
             allowed_file_ids=allowed, problems=vector_problems,
+            query_vectors=self._query_vectors,
         )
         # Work order 0h §1c: the CLIP image lane, submitted alongside the
         # other two rather than after them - `self._pool` carries a worker
@@ -1535,6 +1547,7 @@ class SearchEngine:
                 # which gate the same way for the same reason.
                 on_progress=(self._clip_download_progress
                              if self.status_callback is not None else None),
+                query_vectors=self._query_vectors,
             )
         # **Bounded, because the pool has one worker per retriever and no
         # queue deep enough to hide a wedge.** A hung LanceDB scan or a
