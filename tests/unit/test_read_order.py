@@ -586,3 +586,69 @@ def test_a_moved_date_with_new_contents_is_read_again_with_its_new_hash(
     assert reads == ["c-mid.txt"]
     assert stats.unchanged == len(ages) - 1
     assert record.content_hash == content_hash(target)
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-10, review item W4: a moved date is hashed by the readers
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("order", ["newest", "found"])
+def test_a_moved_date_is_hashed_by_a_reader_not_the_walker(tmp_path: Path,
+                                                           monkeypatch, order) -> None:
+    """A `robocopy` restore moves every date and changes no byte. The hash
+    that proves it was taken on the one walker thread, file after file; now
+    each reader hashes the file it was given, and a match is counted
+    unchanged and never read."""
+    import threading
+
+    from app.index import walker
+
+    root = tmp_path / "corpus"
+    ages = _corpus(root)
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root, read_order=order).run()
+        moved = sorted(ages)[:6]
+        _move_dates(root, moved)
+
+        hashed_on: list[tuple[str, str]] = []
+        real_hash = walker.content_hash
+
+        def spy(path):
+            hashed_on.append((Path(path).relative_to(root).as_posix(),
+                              threading.current_thread().name))
+            return real_hash(path)
+
+        monkeypatch.setattr(walker, "content_hash", spy)
+        reads: list[str] = []
+        again = _pipeline(store, root, read_order=order)
+        _record_reads(again, root, reads)
+        stats = again.run()
+    assert sorted(name for name, _thread in hashed_on) == sorted(moved), (
+        "each moved file hashed once")
+    assert all(thread != "walker" for _name, thread in hashed_on), hashed_on
+    assert reads == [], "a matching hash is not read"
+    assert stats.unchanged == len(ages)
+    assert stats.indexed == 0
+
+
+def test_a_reader_that_cannot_hash_the_file_reports_it_as_before(tmp_path: Path,
+                                                                 monkeypatch) -> None:
+    """A deferred hash that fails (the file is locked) is "changed, no hash",
+    as `has_changed` answered: the reader then records the lock."""
+    from app.index import walker
+    from app.index.pipeline import UNCHANGED, HashDeferred
+
+    root = tmp_path / "corpus"
+    _corpus(root)
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, root)
+        candidate = Candidate(path=root / "a-old.txt", size_bytes=1, mtime_ns=1)
+        real_hash = walker.content_hash
+        assert pipeline._check_deferred_hash(
+            candidate, HashDeferred(real_hash(candidate.path))) is UNCHANGED
+
+        def locked(path):
+            raise PermissionError(13, "in use", str(path))
+
+        monkeypatch.setattr(walker, "content_hash", locked)
+        assert pipeline._check_deferred_hash(candidate, HashDeferred("x")) is None

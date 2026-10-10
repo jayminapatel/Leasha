@@ -2585,7 +2585,15 @@ class Pipeline:
                 # change check, and a hash is a full read: the scan would read
                 # the whole corpus before the first file could be searched. The
                 # hash is taken when the file's turn comes - `_read_in_order`.
-                decision = self._classify(candidate, hash_now=not ordered)
+                #
+                # *2026-10-10 (W4):* by the reader that takes the file, in both
+                # orders. A file whose date moved and whose hash is known comes
+                # back as a `HashDeferred`, and the reader hashes it
+                # (`_extract_worker_loop`) - a mass date change (a `robocopy`
+                # restore, a cloud sync) is hashed by every reader at once
+                # instead of one file at a time on this thread, as a new file
+                # already was (2026-10-04).
+                decision = self._classify(candidate, hash_now=False)
                 if decision is UNCHANGED:
                     self._count_unchanged(stats)
                     continue
@@ -2691,11 +2699,8 @@ class Pipeline:
             # asked again - `_classify` was being run twice for every file
             # that needed reading, the row lookup and an archive's header read
             # with it. The only thing the scan held back is a hash, and only
-            # where it said so (`HashDeferred`).
-            if isinstance(decision, HashDeferred):
-                decision = self._check_deferred_hash(candidate, decision, stats)
-                if decision is UNCHANGED:
-                    continue
+            # where it said so (`HashDeferred`) - which goes on to the reader
+            # as it stands (W4): the reader takes that hash.
             sequence += 1
             if not self._queue_work(
                     work, (candidate.priority, sequence, candidate, decision)):
@@ -3784,6 +3789,14 @@ class Pipeline:
                         candidate=candidate, content_hash=None, name_only=True))
                 work.task_done()
                 continue
+            if isinstance(digest, HashDeferred):
+                # 2026-10-10 (W4): the hash the scan held back, taken here in
+                # parallel. Before `_extract_stream`, so a file found unchanged
+                # is not a finished read of a container (`_after_container`).
+                digest = self._check_deferred_hash(candidate, digest)
+                if digest is UNCHANGED:
+                    work.task_done()
+                    continue
             self._stats_ref.current = candidate.path.name
             self._stats_ref.current_since = time.monotonic()
             self._stats_ref.current_item = 0
