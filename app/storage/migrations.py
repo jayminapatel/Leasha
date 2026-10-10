@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 35
+CURRENT_VERSION = 36
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -370,7 +370,9 @@ CONTENT_TRIGGERS: tuple[str, ...] = (
       INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
       VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
     END""",
-    """CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE ON messages BEGIN
+    # Schema v36 (storage review S1, 2026-10-10): only an UPDATE that names a
+    # column the header index holds. See `_v36_index_upkeep`.
+    """CREATE TRIGGER IF NOT EXISTS messages_au AFTER UPDATE OF subject, sender, recipients ON messages BEGIN
       INSERT INTO messages_fts(messages_fts, rowid, subject, sender, recipients)
       VALUES('delete', old.file_id, old.subject, old.sender, old.recipients);
       INSERT INTO messages_fts(rowid, subject, sender, recipients)
@@ -1691,6 +1693,36 @@ def _v35_message_read_stamp(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE messages ADD COLUMN read_stamp TEXT")
 
 
+def _v36_index_upkeep(conn: sqlite3.Connection) -> None:
+    r"""Index upkeep from the 2026-10-10 storage review.
+
+    **S1 - the mail-header index follows only its own columns.** `messages_au`
+    fired on *any* UPDATE of a `messages` row - the fault v28 fixed for
+    `chunks_au`. Since v35 the commonest UPDATE is `set_read_stamps`, one
+    `UPDATE messages SET read_stamp = ?` for every message of an archive read
+    to its end, and each told `messages_fts` to delete the row and add it again:
+    the same subject, sender and recipients, a trigram index's worth of work per
+    message and a delete marker left behind until a merge. Now the trigger fires
+    only for `UPDATE OF subject, sender, recipients`. `set_message`'s upsert
+    names all three in its `DO UPDATE SET`, so a header that does change is
+    mirrored exactly as before. Only a trigger is replaced: instant.
+
+    Replaced only where it exists. Where trigram was unavailable there is no
+    `messages_fts` and no mail trigger, and creating one would make every
+    message insert fail. A bulk run that dropped the triggers and died
+    (`fts_dirty`) has none either; `check_and_rebuild_fts_if_dirty` puts back
+    the new definition from `CONTENT_TRIGGERS`. Idempotent.
+    """
+    had = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'messages_au'"
+    ).fetchone() is not None
+    if had:
+        conn.execute("DROP TRIGGER IF EXISTS messages_au")
+        for statement in CONTENT_TRIGGERS:
+            if "messages_au" in statement:
+                conn.execute(statement)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -1726,6 +1758,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     33: _v33_outlook_attachment_sizes_and_skip_index,
     34: _v34_face_declines,
     35: _v35_message_read_stamp,
+    36: _v36_index_upkeep,
 }
 
 #: Released migrations that open and close transactions of their own -

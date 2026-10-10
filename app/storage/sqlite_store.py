@@ -5028,6 +5028,11 @@ class SqliteStore:
                             "SELECT 1 FROM messages WHERE file_id = ?", (file_id,)
                         ).fetchone() is not None):
                     # Already has a row: `messages_au` must see this update.
+                    # 2026-10-10 (schema v36): it still does. The trigger now
+                    # fires only for `UPDATE OF subject, sender, recipients`,
+                    # and the upsert below names all three in `DO UPDATE SET`
+                    # - SQLite fires an `UPDATE OF` trigger for a column the
+                    # SET names, whether or not its value changed.
                     self._finish_deferred(conn)
                     state = None
                 else:
