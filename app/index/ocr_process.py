@@ -401,12 +401,35 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:                           # - "auto" then
         log.debug("the helper could not read the OCR device setting: {}", exc)
 
+    _size_engine()
     _warm()
     try:
         _serve(sys.stdin.buffer, outbound)
     except (BrokenPipeError, OSError):
         return 0                                       # the parent went first
     return 0
+
+
+def _size_engine() -> None:
+    """Tell OCR it is called from `HELPER_THREADS` threads at once. Before
+    `_warm`, which is what loads the engine. Never raises.
+
+    2026-10-10, work order model-sequencing item 1d. This helper calls its one
+    engine from a pool of `HELPER_THREADS` threads, and an onnxruntime
+    session's intra-op pool is shared by every call on it while each calling
+    thread works inside its own call too - so the engine's thread count is
+    sized for that (`envelope.picture_model_threads`'s `callers`), rather than
+    four pictures each asking for a pool the size of the machine. The count
+    itself comes from the envelope's Auto answers on this machine: a helper
+    cannot see the run's resolved numbers without resolving a run of its own,
+    which would test the hardware a second time.
+    """
+    try:
+        from app.extract import ocr
+
+        ocr.configure_callers(HELPER_THREADS)
+    except Exception as exc:                           # - the library's own count then
+        log.debug("the helper could not size the OCR engine's threads: {}", exc)
 
 
 def _warm() -> None:

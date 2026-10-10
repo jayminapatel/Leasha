@@ -43,6 +43,7 @@ __all__ = [
     "capacity",
     "index_workers",
     "onnx_threads",
+    "picture_model_threads",
     "embed_batch",
     "embed_batch_from_rates",
     "index_memory_mb",
@@ -243,6 +244,67 @@ def onnx_threads(profile: Any, workers: Optional[int] = None) -> Bounds:
         f"about {spare:.1f} core(s) are left once {count} worker(s) are "
         f"running; threads beyond that contend rather than help",
     )
+
+
+def picture_model_threads(profile: Any, *, workers: Optional[int] = None,
+                          meaning_threads: Optional[int] = None,
+                          callers: int = 1) -> Optional[int]:
+    r"""Intra-op threads for one picture model's ONNX session - CLIP, the face
+    pack, the three OCR sessions. None when this machine cannot be described,
+    and the caller then leaves the library's own default, as before.
+
+    **2026-10-10, work order model-sequencing item 1d.** The meaning model's
+    session was sized by `onnx_threads` above and every picture model was left
+    at onnxruntime's default, which is one thread per physical core. On the
+    owner's 2P+8E laptop (12 logical processors) that is ten threads for CLIP
+    and ten for faces, on the `pictures` worker, while the four extraction
+    workers and the meaning model's four threads are running too - 18 or more
+    asked of a processor that has 12. Nothing here is a new number: every
+    term is one this file already derives.
+
+    **What is left of the processor, after what the run already asked for.**
+    The logical processors (the yardstick `oversubscription_warning` uses),
+    less the extraction workers (`index_workers`, or the run's own count),
+    less the meaning model's threads (`onnx_threads`, or the run's own) -
+    because during reading the picture worker runs beside both of them. Never
+    more than the meaning model's own number, which is this file's answer to
+    "how many threads one inference session can use here"; never fewer than
+    one. On the owner's laptop: 12 - 4 - 4 = 4.
+
+    **`callers` - threads that call one session at the same time.** An
+    onnxruntime session has one intra-op pool, shared by every `Run` on it,
+    and each calling thread works inside its own call as well (the pool is
+    `intra_op_num_threads - 1` threads plus the caller). The OCR helper
+    process calls its one engine from `HELPER_THREADS` threads at once, so
+    each extra caller is one thread already busy, and is taken off. On the
+    owner's laptop: 4 - 3 = 1, i.e. four pictures read side by side on four
+    threads, where they were on forty.
+
+    **A judgement to be measured, not a measurement.** The order's own
+    acceptance is a before-and-after picture run on an idle laptop
+    (`pipeline_bench`); fewer threads per session could, in principle, make
+    the pictures pass slower while making the machine as a whole faster.
+    That run is owed, and this docstring says so until it has happened.
+
+    `workers` and `meaning_threads` are the run's resolved numbers when the
+    caller has them (`index/resolve.py`); left None, the envelope's own Auto
+    answers stand - which is what Defaults mode resolves to anyway, and the
+    only answer a separate process (the OCR helper) can reach without
+    resolving a run of its own.
+    """
+    physical = int(getattr(profile, "physical_cores", 0) or 0)
+    logical = int(getattr(profile, "logical_processors", 0) or 0)
+    if not (physical or logical):
+        # The same rule `resolve_for_run` keeps: a machine nothing is known
+        # about is not a machine with one core, and answering "1" for it
+        # would be a guess dressed as a bound.
+        return None
+    count = int(workers) if workers is not None else index_workers(profile).auto
+    meaning = onnx_threads(profile, count)
+    asked = int(meaning_threads) if meaning_threads else meaning.auto
+    left = (logical or physical) - max(0, count) - max(0, asked)
+    budget = max(1, min(meaning.auto, left))
+    return max(1, budget - (max(1, int(callers or 1)) - 1))
 
 
 def embed_batch(profile: Any) -> Bounds:
