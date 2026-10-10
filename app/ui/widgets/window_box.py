@@ -29,7 +29,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox, QVBoxLayout, QWidget,
 )
 
 __all__ = ["WindowBox"]
@@ -45,6 +45,8 @@ class WindowBox(QGroupBox):
     theme_changed = Signal(str)
     #: UI Redesign (202626160950 §5c): animate panels, off by default.
     motion_changed = Signal(bool)
+    #: The body text size in pixels (2026-10-10). Applied at once, no restart.
+    text_size_changed = Signal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Window", parent)
@@ -80,8 +82,31 @@ class WindowBox(QGroupBox):
                 str(self.theme.currentData() or "system"))
         )
 
+        # **Window state, like the theme beside it** (`ui:text_size`): an Appearance choice,
+        # not an `.env` key. Everything - labels, text boxes, lists - is a multiple of this
+        # one size, so it is the whole app's text and it changes the moment it is set.
+        from app.ui import theme as _theme
+        from app.ui.widgets.number_field import fit
+
+        low, high = _theme.TEXT_PX_RANGE
+        self.text_size = QSpinBox()
+        self.text_size.setObjectName("UI_TEXT_SIZE")
+        self.text_size.setAccessibleName("Text size")
+        self.text_size.setRange(low, high)
+        self.text_size.setSuffix(" px")
+        self.text_size.setKeyboardTracking(False)
+        self.text_size.setValue(_theme.DEFAULT_TEXT_PX)
+        self.text_size.setToolTip(
+            "How big the normal text is, everywhere in Leasha: labels, text boxes, lists "
+            f"and answers. {_theme.DEFAULT_TEXT_PX} px is the default. The change applies "
+            "at once - no restart. Headings and small print follow it."
+        )
+        fit(self.text_size, default=_theme.DEFAULT_TEXT_PX)
+        self.text_size.valueChanged.connect(self.text_size_changed.emit)
+
         appearance = QFormLayout()
         appearance.addRow("Appearance", self.theme)
+        appearance.addRow("Text size", self.text_size)
 
         # §5c. **Off by default**, and the only perceivable motion the redesign
         # adds (the preview pane sliding open) is gated on it - the standing
@@ -104,7 +129,8 @@ class WindowBox(QGroupBox):
         layout.addWidget(self.motion)
 
     def load(self, minimise: bool, close: bool,
-             theme: Optional[Any] = None, motion: Optional[bool] = None) -> None:
+             theme: Optional[Any] = None, motion: Optional[bool] = None,
+             text_size: Optional[int] = None) -> None:
         """Show the stored preferences without emitting on the way in."""
         for box, value in ((self.minimise_to_tray, minimise),
                            (self.close_to_tray, close)):
@@ -117,6 +143,10 @@ class WindowBox(QGroupBox):
             self.motion.blockSignals(True)
             self.motion.setChecked(bool(motion))
             self.motion.blockSignals(False)
+        if text_size is not None:
+            self.text_size.blockSignals(True)
+            self.text_size.setValue(int(text_size))
+            self.text_size.blockSignals(False)
 
     def set_theme(self, preference: Any) -> None:
         """Show a stored theme choice without emitting."""

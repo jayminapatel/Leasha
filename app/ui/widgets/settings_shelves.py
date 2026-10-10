@@ -180,6 +180,8 @@ class SettingsShelves:
         self.theme = self.window_box.theme
         self.window_box.changed.connect(self.tray_changed)
         self.window_box.theme_changed.connect(self.theme_changed)
+        self.window_box.text_size_changed.connect(self.text_size_changed)
+        self.text_size = self.window_box.text_size
 
         self.activity = self.debug_pane = DebugPane()
         self.file_types = FileTypesEditor(settings)

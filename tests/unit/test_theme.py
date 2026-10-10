@@ -237,20 +237,21 @@ def test_no_font_size_is_measured_in_pixels():
     assert not re.findall(r"font-size:\s*\d+px", stylesheet("light", base_pt=9.0))
 
 
-def test_the_default_machine_sees_the_design_it_always_saw():
+def test_the_default_machine_sees_the_body_text_at_the_system_size():
     r"""**The multipliers are derived, not chosen.**
 
     At 96 DPI one point is 4/3 of a pixel and the Windows default font is 9pt,
-    which is 12px. The existing 12/13/15px scale is therefore 1.0, 1.083 and
-    1.25 times the system font - so at 9pt these come back as the same sizes
-    the window has always drawn.
+    which is 12px. Body text is 12px by default (owner, 2026-10-10), so it comes
+    back as exactly the system font; small, large and display are fixed
+    multiples of it: 11.1px, 13.8px and 24px.
     """
     from app.ui.theme import font_sizes
 
     found = font_sizes(9.0)
-    assert found["small"] == "9.0pt"                     # 12px
-    assert found["body"] == "9.8pt"                      # 13px
-    assert found["large"] == "11.2pt"                    # 15px
+    assert found["small"] == "8.3pt"                     # 11.1px
+    assert found["body"] == "9.0pt"                      # 12px
+    assert found["large"] == "10.4pt"                    # 13.8px
+    assert found["display"] == "18.0pt"                  # 24px
 
 
 def test_turning_the_system_text_up_turns_the_window_up():
@@ -290,4 +291,4 @@ def test_the_sheet_still_builds_with_no_application(monkeypatch):
     import app.ui.theme as theme
 
     monkeypatch.setattr(theme, "base_point_size", lambda: 9.0)
-    assert "font-size: 9.8pt" in theme.stylesheet("dark")
+    assert "font-size: 9.0pt" in theme.stylesheet("dark")

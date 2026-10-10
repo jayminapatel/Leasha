@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.99 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.102 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Text size: 12px everywhere, and you choose it (2026-10-10)
+
+- **The normal text is 12px, down from 13px, and the same size everywhere.** Labels, drop-downs, number fields, buttons, lists,
+  answers, the chat message box and now every text box. Text boxes had been 15px - the Ollama address, the shortcut, the web
+  search address and key, the style note, the dialogs' name boxes - because a rule meant for the Search box covered all of them.
+  The Search box is still the one larger input. Small print is 11px, the Search box 14px, the one headline 24px.
+- **Settings > Appearance has a Text size**, 10 to 20 pixels, 12 by default. It changes the whole app at once - no restart -
+  and is remembered. Every size is a multiple of it, so the hierarchy stays when it moves.
 
 ### Settings you cannot get wrong, and an engine switch that applies at once (2026-10-10)
 

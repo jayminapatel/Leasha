@@ -303,7 +303,7 @@ def test_an_existing_bom_is_not_propagated(tmp_path: Path) -> None:
 def test_write_leaves_no_temp_files(tmp_path: Path) -> None:
     """A 100GB run must not litter, and neither must a settings save."""
     env = tmp_path / ".env"
-    for value in range(5):
+    for value in range(1, 6):
         write_env(env, {"MIN_FREE_GB": value})
     assert sorted(p.name for p in tmp_path.iterdir()) == [".env"]
 

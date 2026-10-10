@@ -1096,6 +1096,7 @@
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_table_sorting.py" />
     <Compile Include="tests\unit\test_text_first.py" />
+    <Compile Include="tests\unit\test_text_sizes.py" />
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />

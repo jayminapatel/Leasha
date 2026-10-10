@@ -157,6 +157,10 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # -- Settings › Storage & maintenance ------------------------------------
     "Move or change index location…": ("move", "secondary"),
     "Change the meaning model…": ("brain", "secondary"),
+    # The models folder (widgets/storage_box.py, 2026-10-10). Added without entries
+    # here and caught by test_button_system.
+    "Change models folder…": ("folder-open", "secondary"),
+    "Keep them with the index": ("rotate-ccw", "secondary"),
     "Open in its own window": ("external-link", "secondary"),
     "Copy": ("copy", "secondary"),
     "Run doctor": ("stethoscope", "secondary"),

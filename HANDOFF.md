@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.134 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.137 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,17 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-10, last - body text is 12px and chosen in Settings, live (owner: "whole app body and make it configurable and the change should be live").**
+Measured first: `theme.py`'s base `QLineEdit` rule said `{large}` for every single-line box (14.9px against 13.1px for everything else, the chat message box
+included), though its comment says only the search box is large. Now: `theme.SCALE` is relative to body (small 12/13, body 1, large 15/13, display 26/13);
+the body size is `theme.text_size()` (default 12, range `TEXT_PX_RANGE` 10-20, `set_text_size` clamps); `font_sizes()` multiplies the system font by size/12. Chosen in
+Settings > Appearance (`WindowBox.text_size`, objectName `UI_TEXT_SIZE`), stored as window state `ui:text_size` beside `ui:theme` (not an `.env` key - Appearance
+precedent), read in `MainWindow.__init__` before the first stylesheet, applied by `SettingsController._text_size_changed` -> `_apply_theme()`, i.e. a new stylesheet on the
+live window. `#searchBox` carries `{large}` itself; the mini search's field and the chat answer blocks (`chat_markdown._colours` carries the size so they re-draw)
+follow it. Tests: `test_text_sizes.py` (both themes, every input in six Settings boxes, the size's range and live restyle), `test_theme.py` updated to the new scale.
+**Not seen:** the running window at other sizes - rows, truncation and the results list were not looked at by eye; the per-table "text size" preference
+(`view_options.apply_font`, in points, overrides the theme for tables and trees) is untouched and still wins where it is set. Uncommitted when written.
 
 **2026-10-10, later - settings made mistake-proof, and the engine switch is live (owner: "critically look at the settings pages ... mistake proof").**
 Found by probing, not by reading: (1) `OLLAMA_URL=localhost:11434` typed in Settings was written and `load_settings` then refused to start - fixed by

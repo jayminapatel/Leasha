@@ -199,9 +199,10 @@ PALETTES: dict[str, dict[str, str]] = {
 _TEMPLATE = """
 /* **One type scale, and a dense one.** Sizes were chosen per-widget - 13, 15,
    12, 11, 10 - which is five sizes doing the work of three and no relationship
-   between them. 12/13/15 now: 12 for secondary and metadata, 13 for body, 15
-   for the two headlines that earn it. A tool somebody keeps open all day wants
-   more on screen, not larger letters. */
+   between them. Four steps now, all multiples of one chosen body size (12px by
+   default, Settings > Appearance): small for secondary and metadata, body,
+   large for the search box, display for the one headline that earns it. A tool
+   somebody keeps open all day wants more on screen, not larger letters. */
 QWidget {{ background: {window}; color: {text}; font-size: {body}; }}
 /* **Text draws on whatever is behind it.** The rule above gives every widget the
    window colour, labels and check boxes included, so on a card (a group box, the
@@ -213,10 +214,16 @@ QLabel, QCheckBox, QRadioButton {{ background: transparent; }}
 
 /* **The search box is the one control that should feel large.** Everything
    else tightens; this stays roomy because it is where every session starts and
-   because a cramped input invites cramped queries. */
+   because a cramped input invites cramped queries.
+
+   **Every other text box is body size** (2026-10-10). This rule used to say
+   `large` for every QLineEdit, which made the address, shortcut and key boxes
+   in Settings 15px beside 13px labels, drop-downs and number fields - and
+   larger than the chat message box, a QPlainTextEdit at 13px. `#searchBox`
+   below carries the large size itself. */
 QLineEdit {{
     background: {surface}; border: 1px solid {border}; border-radius: {radius_input};
-    padding: 7px 10px; font-size: {large}; selection-background-color: {accent};
+    padding: 7px 10px; font-size: {body}; selection-background-color: {accent};
     selection-color: {selection_text};
 }}
 QLineEdit:hover {{ border-color: {border_strong}; }}
@@ -233,7 +240,7 @@ QTextEdit, QPlainTextEdit, QTextBrowser {{
    keeps the rule above. */
 #searchBox {{
     border: 1px solid {border_strong}; border-radius: {radius_box};
-    padding: 9px 14px;
+    padding: 9px 14px; font-size: {large};
 }}
 #searchBox:focus {{ border: 2px solid {focus_ring}; padding: 8px 13px; }}
 /* The same box in its opening state, centred and roomy. */
@@ -893,15 +900,46 @@ def theme_colours() -> dict[str, str]:
 #: review left partial.
 #:
 #: **The multipliers are derived, not chosen.** At 96 DPI one point is 4/3 of
-#: a pixel and the Windows default font is 9pt, which is 12px. The existing
-#: scale of 12/13/15px is therefore 1.0, 1.083 and 1.25 times the system font
-#: - so on a default machine these reproduce today's window exactly, and on a
-#: machine with larger text they grow with it.
-SCALE: dict = {"small": 1.0, "body": 13.0 / 12.0, "large": 15.0 / 12.0,
+#: a pixel and the Windows default font is 9pt, which is 12px - so the body text
+#: size a person chooses, in pixels, is a multiple of the system font: 12px is
+#: 1.0 times it. On a machine with larger text everything grows with it.
+#:
+#: **Body is the one size that is chosen** (2026-10-10, owner: body text 12px,
+#: configurable, no restart). The other steps are fixed multiples of it, so
+#: changing it moves the whole scale together: at the default of 12px that is
+#: small 11.1px, body 12px, large 13.8px (the search box) and display 24px.
+#: It used to be 12/13/15/26 with body at 13.
+SCALE: dict = {"small": 12.0 / 13.0, "body": 1.0, "large": 15.0 / 13.0,
                # One more step (202626160950 §1e), for the single headline
-               # on the empty Search page and nothing else. 26px at the
-               # default machine; it follows "Make text bigger" like the rest.
-               "display": 26.0 / 12.0}
+               # on the empty Search page and nothing else. It follows the
+               # text size and "Make text bigger" like the rest.
+               "display": 26.0 / 13.0}
+
+#: The body text size in pixels, and the range a person may choose. 12 is the
+#: default; below 10 the small step is unreadable, above 20 the rows no longer
+#: fit the panes they were laid out for.
+DEFAULT_TEXT_PX = 12
+TEXT_PX_RANGE = (10, 20)
+_text_px = DEFAULT_TEXT_PX
+
+
+def text_size() -> int:
+    """The body text size in pixels the next stylesheet will use."""
+    return _text_px
+
+
+def set_text_size(px: object) -> int:
+    """Choose the body text size (pixels). Clamped to `TEXT_PX_RANGE`; anything that is
+    not a number is the default. Returns the size now in force. **Does not restyle** -
+    the caller builds a new stylesheet and sets it, which is what makes the change live."""
+    global _text_px
+    try:
+        value = int(px)
+    except (TypeError, ValueError):
+        value = DEFAULT_TEXT_PX
+    _text_px = max(TEXT_PX_RANGE[0], min(TEXT_PX_RANGE[1], value))
+    return _text_px
+
 
 #: **Corner radii, as a scale rather than a number per rule.** The redesign
 #: (202626160950 §1a) uses four: inputs keep the 5px they had, controls and
@@ -963,9 +1001,11 @@ def base_point_size() -> float:
 
 
 def font_sizes(base: Optional[float] = None) -> dict:
-    """`{small, body, large}` as `pt` strings for the sheet."""
+    """`{small, body, large, display}` as `pt` strings for the sheet: the system font,
+    times the chosen body size over 12, times each step's multiple of body."""
     point = float(base if base and base > 0 else base_point_size())
-    return {name: f"{round(point * factor, 1)}pt"
+    body = point * (_text_px / DEFAULT_TEXT_PX)
+    return {name: f"{round(body * factor, 1)}pt"
             for name, factor in SCALE.items()}
 
 
