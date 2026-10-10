@@ -1712,7 +1712,27 @@ def _v36_index_upkeep(conn: sqlite3.Connection) -> None:
     message insert fail. A bulk run that dropped the triggers and died
     (`fts_dirty`) has none either; `check_and_rebuild_fts_if_dirty` puts back
     the new definition from `CONTENT_TRIGGERS`. Idempotent.
+
+    **S4 - the keyword-only passages are counted from an index.**
+    `keyword_only_count` (`WHERE embedded = 2`, called by `stats()` and
+    `vector_coverage()`) read the whole `chunks` table, every passage's text
+    with it - 6.5 million rows on the owner's index. A partial index holds only
+    the keyword-only rows, so the count reads those and nothing else, and the
+    planner chooses it (`SCAN chunks USING COVERING INDEX
+    idx_chunks_keyword_only`, pinned in `test_keyword_only_index.py`).
+    Measured 2026-10-10 on this laptop, synthetic store, 120-word passages,
+    10% keyword-only, warm cache: 200k passages 430.6 -> 0.3 ms, 1M passages
+    1,536 -> 2.1 ms (median of 7). `file_id` is the column so that
+    `reset_keyword_only` and any per-file question about them can use it too.
+
+    **The one cost is building it**, once, here: a single read of `chunks`.
+    1.9 s for the 1M-passage store above, so roughly 12 s at 6.5M on the same
+    disk and text length - longer for longer passages (UNVERIFIED on the
+    owner's index). `IF NOT EXISTS`, so idempotent.
     """
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_chunks_keyword_only "
+        "ON chunks(file_id) WHERE embedded = 2")
     had = conn.execute(
         "SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = 'messages_au'"
     ).fetchone() is not None

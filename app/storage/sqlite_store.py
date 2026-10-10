@@ -6574,6 +6574,10 @@ class SqliteStore:
 
     def keyword_only_count(self) -> int:
         """Passages found by their words only, on purpose. See `KEYWORD_ONLY`."""
+        # 2026-10-10 (schema v36): answered from the partial index
+        # `idx_chunks_keyword_only`, not a scan of every passage and its text.
+        # The `WHERE` must stay `embedded = 2` written exactly so: the planner
+        # uses a partial index only for a term that matches its own.
         return int(self.conn.execute(
             f"SELECT COUNT(*) AS n FROM chunks WHERE embedded = {self.KEYWORD_ONLY}"
         ).fetchone()["n"])
