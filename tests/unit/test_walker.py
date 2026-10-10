@@ -141,21 +141,83 @@ def test_excluded_directories_are_not_descended_into(tmp_path: Path, monkeypatch
         (tmp_path / "node_modules" / f"pkg{i}").mkdir(parents=True)
         (tmp_path / "node_modules" / f"pkg{i}" / "readme.txt").write_text("noise")
 
+    # *2026-10-10 (W3):* the walk lists folders with `os.scandir` itself now
+    # (`walker._scan_tree`), so the folders visited are counted there. Counting
+    # `os.walk`, as this did, would pass on a walker that never called it.
+    from app.index import walker as module
+
     visited: list[str] = []
-    real_walk = os.walk
+    real_scandir = module.os.scandir
 
-    def counting_walk(*args, **kwargs):
-        for entry in real_walk(*args, **kwargs):
-            visited.append(entry[0])
-            yield entry
+    def counting_scandir(path=".", *args, **kwargs):
+        visited.append(str(path))
+        return real_scandir(path, *args, **kwargs)
 
-    monkeypatch.setattr(os, "walk", counting_walk)
+    monkeypatch.setattr(module.os, "scandir", counting_scandir)
 
     found = names(walk(WalkConfig(roots=[tmp_path], extensions=TEXT)))
     assert found == {"keep.txt"}
     assert not any("pkg" in directory for directory in visited), (
         "node_modules subtree was descended into; exclusions must prune, not filter"
     )
+    assert visited, "the walk lists folders through os.scandir"
+
+
+def test_the_walk_takes_each_file_s_facts_from_the_listing(tmp_path: Path, monkeypatch) -> None:
+    """2026-10-10, review item W3. `os.walk` threw away the `DirEntry` facts
+    its own `os.scandir` had fetched, and the walk then `stat`ed every file a
+    second time - on Windows the listing already holds size, date and the
+    attribute bits. One file, one listing; no `Path.stat` per file. And the
+    facts are the same ones a `stat` gives."""
+    import pathlib
+
+    for index in range(30):
+        target = tmp_path / f"folder{index % 3}" / f"note{index}.txt"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x" * (index + 1), encoding="utf-8")
+        os.utime(target, ns=(1_700_000_000_000_000_000 + index, 1_700_000_000_000_000_000 + index))
+
+    statted: list[str] = []
+    real_stat = pathlib.Path.stat
+
+    def counting_stat(self, *args, **kwargs):
+        statted.append(str(self))
+        return real_stat(self, *args, **kwargs)
+
+    monkeypatch.setattr(pathlib.Path, "stat", counting_stat)
+    found = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT)))
+    monkeypatch.undo()
+
+    assert len(found) == 30
+    per_file = [path for path in statted if path.endswith(".txt")]
+    assert per_file == [], f"{len(per_file)} files were stat'ed a second time"
+    for candidate in found:
+        truth = os.stat(candidate.path)
+        assert candidate.size_bytes == truth.st_size
+        assert candidate.mtime_ns == truth.st_mtime_ns
+        assert candidate.attributes == getattr(truth, "st_file_attributes", None)
+
+
+def test_a_file_root_is_still_stat_ed_and_walked(tmp_path: Path) -> None:
+    """W3 kept the one case with no listing: a root that is one file."""
+    target = make_tree(tmp_path, {"only.txt": "hello"}) / "only.txt"
+    found = list(walk(WalkConfig(roots=[target], extensions=TEXT)))
+    assert [c.path.name for c in found] == ["only.txt"]
+    assert found[0].size_bytes == 5
+
+
+def test_a_linked_folder_is_not_entered_unless_asked(tmp_path: Path) -> None:
+    """`os.walk(followlinks=False)` listed a symlinked folder and did not
+    enter it; the scandir walk (W3) must do the same."""
+    real = make_tree(tmp_path / "real", {"inside.txt": "x"})
+    corpus = make_tree(tmp_path / "corpus", {"top.txt": "x"})
+    try:
+        os.symlink(real, corpus / "link", target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("this account cannot make symbolic links")
+    assert names(walk(WalkConfig(roots=[corpus], extensions=TEXT))) == {"top.txt"}
+    followed = WalkConfig(roots=[corpus], extensions=TEXT, follow_symlinks=True)
+    assert names(walk(followed)) == {"top.txt", "inside.txt"}
 
 
 def test_office_lock_files_are_skipped(tmp_path: Path) -> None:
@@ -795,3 +857,98 @@ def test_an_icloud_file_that_is_not_downloaded_is_a_placeholder(tmp_path: Path) 
     assert candidate(attributes=FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS).is_cloud_placeholder
     assert not candidate().is_cloud_placeholder
     assert not candidate(flags=0x1).is_cloud_placeholder, "another flag is not iCloud"
+
+
+def test_the_compiled_exclusion_globs_decide_what_fnmatch_decided() -> None:
+    """2026-10-10 (W3): the globs are one compiled pattern now, because
+    `fnmatch` per glob per file was half the walk's time. Same answers, both
+    letter cases, every default glob and a few awkward ones."""
+    import fnmatch
+
+    from app.index.walker import _matches_any
+
+    globs = [*DEFAULT_EXCLUDE_GLOBS, "[ab]*.log", "*.TMP", "?x?", "report[!0-9]*"]
+    samples = ["~$draft.docx", "Thumbs.db", "desktop.ini", "a1.log", "B2.LOG",
+               "c.log", "notes.tmp", "Notes.TMP", "axe", "ax", "report7.pdf",
+               "reportA.pdf", "plain.txt", ".DS_Store", "x.swp", "back~"]
+    for name in samples:
+        expected = any(fnmatch.fnmatch(name.lower(), glob.lower()) for glob in globs)
+        assert _matches_any(name, globs) is expected, name
+    assert _matches_any("anything", []) is False
+
+
+# --- 2026-10-10, review item W1: the folders marked first, walked first -----
+
+def _first_then_rest(config: WalkConfig) -> tuple[list[Candidate], list[Candidate]]:
+    from app.index.walker import walk_first
+
+    seen: set[str] = set()
+    entered: set[str] = set()
+    first = list(walk_first(config, seen, entered))
+    rest = list(walk(config, seen, skip_dirs=frozenset(entered)))
+    return first, rest
+
+
+def test_walking_the_marked_folders_first_yields_exactly_the_same_files(tmp_path: Path) -> None:
+    make_tree(tmp_path, {
+        "a.txt": "x", "Projects/Current/one.txt": "xx", "Projects/Current/deep/two.txt": "xxx",
+        "Projects/old.txt": "x", "Archive/2019/three.txt": "x", "Archive/four.txt": "x",
+    })
+    plain = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT,
+                                 priority_roots=[tmp_path / "Projects" / "Current",
+                                                 tmp_path / "Archive"])))
+    # Typed in another letter case: on Windows the walk must still produce the
+    # disk's own spelling, because a file's path text is its row's key.
+    marked = ([Path(str(tmp_path / "projects" / "current")), tmp_path / "Archive"]
+              if os.name == "nt" else [tmp_path / "Projects" / "Current", tmp_path / "Archive"])
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT, priority_roots=marked)
+    first, rest = _first_then_rest(config)
+
+    assert sorted(str(c.path) for c in first + rest) == sorted(str(c.path) for c in plain)
+    assert {str(c.path): c for c in first + rest} == {str(c.path): c for c in plain}
+    assert [c.priority for c in first] == sorted(c.priority for c in first)
+    assert {c.path.name for c in first} == {"one.txt", "two.txt", "three.txt", "four.txt"}
+    assert all(c.priority == 100 for c in rest)
+
+
+def test_a_marked_folder_the_walk_would_not_enter_is_not_walked_first(tmp_path: Path) -> None:
+    make_tree(tmp_path, {"node_modules/pkg/readme.txt": "x", "keep.txt": "x",
+                         "elsewhere.txt": "x"})
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT,
+                        priority_roots=[tmp_path / "node_modules" / "pkg",
+                                        tmp_path / "not-there",
+                                        tmp_path.parent / "outside-every-root"])
+    first, rest = _first_then_rest(config)
+    assert first == []
+    assert names(rest) == {"keep.txt", "elsewhere.txt"}
+
+
+def test_a_marked_file_and_nested_marked_folders(tmp_path: Path) -> None:
+    make_tree(tmp_path, {"A/one.txt": "x", "A/B/two.txt": "x", "A/B/C/three.txt": "x",
+                         "loose.txt": "x", "z.txt": "x"})
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT,
+                        priority_roots=[tmp_path / "A" / "B", tmp_path / "A",
+                                        tmp_path / "A" / "B" / "C", tmp_path / "loose.txt"])
+    first, rest = _first_then_rest(config)
+    by_name = {c.path.name: c.priority for c in first}
+    assert by_name == {"two.txt": 0, "three.txt": 0, "one.txt": 1, "loose.txt": 3}
+    assert names(rest) == {"z.txt"}
+    assert len(first) == len({c.path for c in first}), "nothing yielded twice"
+
+
+def test_a_marked_folder_inside_a_repository_is_attributed(tmp_path: Path) -> None:
+    """The repository is noticed on the way down to the marked folder, before
+    any of its files is yielded - as the full walk notices it on its way past."""
+    marker = "." + "git"
+    make_tree(tmp_path, {"code/app/src/main.txt": "x", f"code/app/{marker}/HEAD": "ref"})
+    sink: dict[str, str] = {}
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT, repo_sink=sink,
+                        priority_roots=[tmp_path / "code" / "app" / "src"])
+    from app.index.walker import walk_first
+
+    found = []
+    for candidate in walk_first(config, set(), set()):
+        found.append(candidate.path.name)
+        assert str(tmp_path / "code" / "app") in sink
+    assert found == ["main.txt"]
+    assert sink[str(tmp_path / "code" / "app")] == "work"

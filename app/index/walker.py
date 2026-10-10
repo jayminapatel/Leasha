@@ -32,9 +32,11 @@ before anything opens the file, and it must not cost a second `stat()` per file.
 from __future__ import annotations
 
 import fnmatch
+import functools
 import hashlib
 import json
 import os
+import re
 import stat as stat_module
 import time
 from dataclasses import dataclass, field, replace
@@ -50,8 +52,11 @@ __all__ = [
     "WalkConfig",
     "RECENT_EDIT_WINDOW_S",
     "walk",
+    "walk_first",
+    "first_subtrees",
     "content_hash",
     "has_changed",
+    "HashDeferred",
     "PathRules",
     "enclosing_repo",
     "repo_kind_at",
@@ -435,9 +440,28 @@ def own_paths(settings: object) -> frozenset[str]:
 
 def _matches_any(name: str, globs: Iterable[str]) -> bool:
     """Does `name` match any exclusion glob? Case-folded on both sides, because
-    the patterns are written once and Windows names arrive in any case."""
-    lowered = name.lower()
-    return any(fnmatch.fnmatch(lowered, pattern.lower()) for pattern in globs)
+    the patterns are written once and Windows names arrive in any case.
+
+    **One compiled pattern for the whole list** (2026-10-10, measured under
+    W3). `fnmatch.fnmatch` per glob per name was 6.5s of a 14s profiled walk of
+    50,000 files on this laptop: ten globs, each call running `normcase` twice,
+    and on Windows `normcase` is a `LCMapStringEx` call. The answer is the same
+    one: `fnmatch` on Windows is `fnmatchcase(normcase(name),
+    normcase(pattern))`, where `normcase` lower-cases and turns `/` into a backslash,
+    and a listed name never holds a separator - so `translate(pattern.lower())`
+    matched against `name.lower()` decides exactly what it decided.
+    """
+    pattern = _compiled_globs(tuple(globs))
+    return pattern is not None and pattern.match(name.lower()) is not None
+
+
+@functools.lru_cache(maxsize=64)
+def _compiled_globs(globs: tuple[str, ...]) -> Optional["re.Pattern[str]"]:
+    """`globs` as one regular expression, built once per distinct list."""
+    if not globs:
+        return None
+    return re.compile("|".join(
+        f"(?:{fnmatch.translate(str(pattern).lower())})" for pattern in globs))
 
 
 #: How much of a `.git` *file* to read. It holds one short `gitdir:` line; a
@@ -566,7 +590,99 @@ JUNCTION_SKIPPED = "directory junction (not followed)"
 FOLDER_UNLISTABLE = "folder could not be listed"
 
 
-def _prune_junctions(config: WalkConfig, directory: str, subdirectories: list[str]) -> None:
+def _scan_tree(config: WalkConfig, top: str
+               ) -> Iterator[tuple[str, list[str], list[os.DirEntry], dict[str, os.DirEntry]]]:
+    """`os.walk(top, topdown=True)`, rebuilt on `os.scandir`, keeping the entries.
+
+    **Why not `os.walk`** (2026-10-10, review item W3). `os.walk` lists each
+    folder with `os.scandir` and then hands back bare *names*, so the walk below
+    paid a second `path.stat()` per file for facts the listing had already
+    fetched: on Windows `FindFirstFile`/`FindNextFile` return the size, the
+    modified time and the attribute bits (the cloud-placeholder test reads
+    those) for every entry, and `DirEntry.stat()` gives them back without a
+    system call. The same goes for the junction test, which was one more
+    `lstat` per folder (`Path.is_junction()`) and is free on a `DirEntry`.
+
+    **What a `DirEntry` stat does not have, and why that is fine here.** On
+    Windows its `st_ino`, `st_dev` and `st_nlink` are zero. Nothing the walk
+    builds uses them - a `Candidate` carries size, `mtime_ns`, attributes and
+    flags only, and an Offline Media volume is identified by the caller
+    (`volume_roots`), never from `st_dev`. A reparse point (a symlink, a
+    junction, a OneDrive placeholder) is not served from the listing at all:
+    Python's `DirEntry.stat()` makes the real `os.stat` call for those, so a
+    cloud file is described exactly as before. Checked on this laptop
+    (Windows 11, NTFS, 2026-10-10): a file grown and re-dated through one
+    hard link showed the new size and date through its other name in the
+    listing too, and so did a file still held open for writing.
+
+    Yields `(directory, subdirectory names, file entries, {name: entry} for
+    the subdirectories)`. The caller prunes the names in place, exactly as
+    with `os.walk`, and only the names left are entered - in listing order,
+    depth first, as `os.walk` does. A folder that cannot be listed is counted
+    (`_record_unlistable`) and passed over, also as `os.walk`'s `onerror` was:
+    one whose listing fails part-way is not yielded at all. A folder that is a
+    symlink is listed but not entered unless `follow_symlinks` is on - the
+    junction rule is the caller's, in `_prune_junctions`.
+
+    `os.scandir` is looked up on the module's `os` each time, so a test can
+    stand in for it.
+    """
+    stack = [top]
+    while stack:
+        directory = stack.pop()
+        try:
+            scanner = os.scandir(directory)
+        except OSError as exc:
+            _record_unlistable(config, exc)
+            continue
+        subdirectories: list[str] = []
+        folders: dict[str, os.DirEntry] = {}
+        files: list[os.DirEntry] = []
+        broken = False
+        with scanner:
+            while True:
+                try:
+                    entry = next(scanner)
+                except StopIteration:
+                    break
+                except OSError as exc:
+                    _record_unlistable(config, exc)
+                    broken = True
+                    break
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    is_dir = False
+                if is_dir:
+                    subdirectories.append(entry.name)
+                    folders[entry.name] = entry
+                else:
+                    files.append(entry)
+        if broken:
+            continue
+        yield directory, subdirectories, files, folders
+        for name in reversed(subdirectories):
+            path = os.path.join(directory, name)
+            if not config.follow_symlinks:
+                entry = folders.get(name)
+                try:
+                    linked = (entry.is_symlink() if entry is not None
+                              else os.path.islink(path))
+                except OSError:
+                    linked = False
+                if linked:
+                    continue
+            stack.append(path)
+
+
+def _entry_name(entry: "os.DirEntry | str") -> str:
+    """A listed file's name, from a `DirEntry` or the bare name a file root
+    is walked as."""
+    return entry if isinstance(entry, str) else entry.name
+
+
+def _prune_junctions(config: WalkConfig, directory: str, subdirectories: list[str],
+                     entries: Optional[dict[str, os.DirEntry]] = None) -> None:
     """Drop Windows directory junctions from the folders about to be walked.
 
     `os.walk(followlinks=False)` still descends into a junction, because a
@@ -577,11 +693,17 @@ def _prune_junctions(config: WalkConfig, directory: str, subdirectories: list[st
     laptop, bounded only by the 260-character limit. Found in review 2026-10-08.
     Counted in `stat_failures`, not silent: a tree somebody linked in and
     expected to be read deserves a line saying it was not.
+
+    `entries` (2026-10-10, W3): the listing's own `DirEntry`s, whose
+    `is_junction()` answers from the data the listing already fetched; a name
+    without one is asked of the disk, as before.
     """
     kept = []
     for name in subdirectories:
         try:
-            if Path(directory, name).is_junction():
+            entry = entries.get(name) if entries is not None else None
+            if (entry.is_junction() if entry is not None
+                    else Path(directory, name).is_junction()):
                 config.stat_failures[JUNCTION_SKIPPED] = (
                     config.stat_failures.get(JUNCTION_SKIPPED, 0) + 1)
                 continue
@@ -648,7 +770,10 @@ def dump_cloud_content_roots(roots: Iterable[str]) -> str:
         sorted({str(root).rstrip("\\/").lower() for root in roots}))
 
 
-def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candidate]:
+def walk(config: WalkConfig, seen: Optional[set[str]] = None, *,
+         skip_dirs: frozenset[str] = frozenset(),
+         subtrees: Optional[Sequence[tuple[Path, Path]]] = None,
+         entered: Optional[set[str]] = None) -> Iterator[Candidate]:
     """Yield every indexable file under `config.roots`.
 
     Lazy by design: a 100GB tree must start producing work immediately rather
@@ -669,6 +794,16 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
     Passing one set in answers it once. Callers that do not care keep their own
     private set by omitting the argument, so `walk(config)` behaves exactly as
     it always did.
+
+    **`skip_dirs` and `subtrees`** (2026-10-10, review item W1) are how the
+    folders marked "Index this folder first" are walked ahead of the rest -
+    see `walk_first`, which is the only caller of `subtrees`. `subtrees` is
+    `(root, folder)` pairs: each folder is walked, in order, as the part of
+    its root's walk it is - the root's volume, its cloud opt-in, its
+    relative paths - and only if the root's own walk would have reached it.
+    `skip_dirs` is folders (by `path_key`) not entered, because `walk_first`
+    has walked them already; their files are in `seen` either way. `entered`
+    is filled, once the walk is over, with the `subtrees` folders walked.
     """
     if seen is None:
         seen = set()
@@ -702,8 +837,12 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
         | (STREAMED_ARCHIVE_EXTENSIONS & extensions)
     )
 
-    for root in config.roots:
-        root = Path(root)
+    plan = ([(Path(root), Path(start)) for root, start in subtrees]
+            if subtrees is not None else [(Path(root), None) for root in config.roots])
+    #: Folders already walked by this call (`subtrees`), not walked again.
+    walked: set[str] = set(skip_dirs)
+
+    for root, start in plan:
         root_volume_id = config.volume_roots.get(volume_root_key(root))
         if not root.exists():
             # **Recorded, not merely skipped.** See `root_problems`: this
@@ -726,6 +865,21 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
         # case, and the keys stay exactly as they always were.
         case_sensitive(root)
 
+        if start is not None:
+            # W1: one folder of this root, ahead of the rest of it.
+            resolved = _resolve_subtree(config, root, start, blocked)
+            if resolved is None:
+                continue
+            folder, is_file = resolved
+            key = path_key(folder)
+            if _inside_any(key, walked):
+                continue
+            walked.add(key)
+            steps: Iterable = ([(os.path.dirname(folder), [], [os.path.basename(folder)], None)]
+                               if is_file else _scan_tree(config, folder))
+        elif walked and _inside_any(path_key(os.fspath(root)), walked):
+            continue                     # the whole root was walked first
+
         # **A root may be one file** (2026-10-03, the owner: the list of
         # folders to index should take a file too - one archive out of a
         # folder of them). It is walked as a listing of its own folder that
@@ -733,17 +887,20 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
         # table, the size ceiling, name-only, placeholders - applies to it
         # exactly as it would had it been met inside a folder. A file root
         # that does not exist is "not found" above, like a folder.
-        if root.is_file():
-            steps: Iterable = [(str(root.parent), [], [root.name])]
+        if start is not None:
+            pass                         # `steps` set above
+        elif root.is_file():
+            # A bare name, not a `DirEntry`: the one file is `stat`ed below.
+            steps = [(str(root.parent), [], [root.name], None)]
         else:
-            # `onerror`: without it a folder that cannot be listed (permission
-            # denied, a path over 260 characters, an ACL-protected junction)
-            # vanished with no count anywhere - `stat_failures` counted files
-            # only. Found in review 2026-10-08.
-            steps = os.walk(root, topdown=True, followlinks=config.follow_symlinks,
-                            onerror=lambda exc: _record_unlistable(config, exc))
+            # A folder that cannot be listed (permission denied, a path over
+            # 260 characters, an ACL-protected junction) is counted, not
+            # dropped - `stat_failures` counted files only until the review of
+            # 2026-10-08. `_scan_tree` (2026-10-10, W3) is `os.walk` keeping
+            # the listing's entries, so a file is not `stat`ed a second time.
+            steps = _scan_tree(config, os.fspath(root))
 
-        for directory, subdirectories, filenames in steps:
+        for directory, subdirectories, entries, folders in steps:
             # **Detection happens here, and the position is load-bearing.**
             #
             # Before the prune, because `.git` is in `DEFAULT_EXCLUDE_DIRS` and
@@ -759,7 +916,8 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
             # flakiness and gets blamed on the pipeline. `test_repos_
             # acceptance.py::T3` is that case.
             if config.repo_sink is not None:
-                kind = _detect_repo(directory, subdirectories, filenames)
+                kind = _detect_repo(directory, subdirectories,
+                                    [_entry_name(entry) for entry in entries])
                 if kind is not None:
                     config.repo_sink.setdefault(str(Path(directory)), kind)
 
@@ -787,9 +945,15 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 )
             ]
             if not config.follow_symlinks:
-                _prune_junctions(config, directory, subdirectories)
+                _prune_junctions(config, directory, subdirectories, folders)
+            if walked:
+                # W1: walked already, by `walk_first` or earlier in this call.
+                subdirectories[:] = [
+                    name for name in subdirectories
+                    if path_key(os.path.join(directory, name)) not in walked]
 
-            for filename in filenames:
+            for entry in entries:
+                filename = _entry_name(entry)
                 if _matches_any(filename, config.exclude_globs):
                     continue
 
@@ -810,7 +974,10 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                     continue
 
                 try:
-                    stat = path.stat()
+                    # The listing's own facts where it has them (W3, 2026-10-10:
+                    # see `_scan_tree`); a real `stat` for a file root, and -
+                    # inside `DirEntry.stat()` itself - for any reparse point.
+                    stat = path.stat() if isinstance(entry, str) else entry.stat()
                 except OSError as exc:
                     # **Counted, because this is how a file becomes invisible.**
                     #
@@ -913,6 +1080,147 @@ def walk(config: WalkConfig, seen: Optional[set[str]] = None) -> Iterator[Candid
                 seen.add(key)
                 yield candidate
 
+    if entered is not None:
+        entered.update(walked - skip_dirs)
+
+
+def first_subtrees(config: WalkConfig) -> list[tuple[Path, Path]]:
+    """`(root, folder)` for each folder marked "Index this folder first", in
+    its order, paired with the first root whose walk reaches it. A folder
+    under no root is left out: no walk would ever reach it.
+
+    The same containment test as `_priority_for` - lower-cased, at a folder
+    boundary - so a folder walked first is exactly a folder whose files get
+    its priority.
+    """
+    out: list[tuple[Path, Path]] = []
+    for folder in config.priority_roots:
+        text = str(folder).rstrip("\\/").lower()
+        for root in config.roots:
+            prefix = str(root).rstrip("\\/").lower()
+            if text == prefix or (text.startswith(prefix)
+                                  and text[len(prefix):len(prefix) + 1] in ("\\", "/")):
+                out.append((Path(root), Path(folder)))
+                break
+    return out
+
+
+def walk_first(config: WalkConfig, seen: Optional[set[str]] = None,
+               entered: Optional[set[str]] = None) -> Iterator[Candidate]:
+    """The files of the folders marked "Index this folder first", before the
+    rest of the walk - 2026-10-10, review item W1.
+
+    **Why.** The "newest" order sorts the whole work list, so nothing could be
+    read until the walk ended: 538 seconds of idle readers on the owner's
+    137,803 files (2026-10-10). But the marked folders sort first whatever
+    else the walk finds - their priority is 0, 1, ... against 100 for every
+    other file - so once *they* have been walked, their order is final, and
+    they can be read while the rest is walked. Walking them first is what
+    makes that point come early instead of wherever the walk happened to meet
+    them.
+
+    Every file is the one `walk` would have yielded - same path text, same
+    facts, same rules: each folder is entered from its root (`_resolve_subtree`
+    asks every folder on the way down what `walk`'s prune would), so a marked
+    folder inside `node_modules`, behind a junction or under an excluded path
+    is not walked here either. The repository a folder sits in is noticed on
+    the way down, so its files are attributed as they would have been.
+
+    `entered` is filled with the folders walked (by `path_key`), for the rest
+    of the walk to pass over (`walk(..., skip_dirs=...)`); `seen` is shared as
+    in `walk`, and a file found here is never yielded again.
+    """
+    if entered is None:
+        entered = set()
+    entered.clear()
+    plan = first_subtrees(config)
+    if not plan:
+        return
+    yield from walk(config, seen, subtrees=plan, entered=entered)
+
+
+def _inside_any(key: str, folders: set[str]) -> bool:
+    """Is the folder `key` one of `folders`, or inside one? Both by `path_key`."""
+    if key in folders:
+        return True
+    return any(key.startswith(folder.rstrip("\\/") + separator)
+               for folder in folders for separator in ("\\", "/"))
+
+
+def _resolve_subtree(config: WalkConfig, root: Path, folder: Path,
+                     blocked: frozenset[str]) -> Optional[tuple[str, bool]]:
+    r"""The path text `walk` over `root` would give `folder`, and whether it
+    is a file - or None when that walk would never reach it.
+
+    **The names come from the disk, not from the setting.** A folder marked
+    first is typed or picked as `c:\users\me\docs`; the walk of `C:\Users\me`
+    meets it as `C:\Users\me\Docs`, and a file's path text is its row's key.
+    Walked under the setting's spelling, every file in it would look new and
+    be indexed a second time. So each step down is found in its parent's
+    listing (by `path_key`, so letter case counts exactly where the disk says
+    it does), and the path is built from what the walk itself would have
+    joined.
+
+    Each folder on the way is asked what `walk`'s prune asks - an excluded
+    path, an excluded name (unless forced in), a junction or a symbolic link
+    when links are not followed - and the repository rule is applied to each
+    folder listed, as `walk` would on its way past.
+    """
+    text = str(folder).rstrip("\\/")
+    prefix = str(root).rstrip("\\/")
+    current = os.fspath(root)
+    if text.lower() == prefix.lower():
+        return current, os.path.isfile(current)
+    parts = [part for part in re.split(r"[\\/]", text[len(prefix):]) if part]
+    if not parts:
+        return None
+    for index, part in enumerate(parts):
+        try:
+            with os.scandir(current) as listing:
+                entries = list(listing)
+        except OSError:
+            return None
+        if config.repo_sink is not None:
+            subdirectories, filenames = [], []
+            for entry in entries:
+                try:
+                    is_dir = entry.is_dir()
+                except OSError:
+                    is_dir = False
+                (subdirectories if is_dir else filenames).append(entry.name)
+            kind = _detect_repo(current, subdirectories, filenames)
+            if kind is not None:
+                config.repo_sink.setdefault(str(Path(current)), kind)
+        wanted = path_key(os.path.join(current, part))
+        match = next((entry for entry in entries if entry.name == part), None)
+        if match is None:
+            match = next((entry for entry in entries
+                          if path_key(os.path.join(current, entry.name)) == wanted), None)
+        if match is None:
+            return None
+        child = os.path.join(current, match.name)
+        try:
+            is_dir = match.is_dir()
+        except OSError:
+            is_dir = False
+        if not is_dir:
+            # A file marked first: reachable only as the last step.
+            return (child, True) if index == len(parts) - 1 else None
+        if str(Path(child)).lower() in blocked:
+            return None
+        if not (str(Path(child)) in config.force_include
+                or (match.name not in config.exclude_dirs
+                    and not _matches_any(match.name, config.exclude_globs))):
+            return None
+        if not config.follow_symlinks:
+            try:
+                if match.is_junction() or match.is_symlink():
+                    return None
+            except OSError:
+                return None
+        current = child
+    return current, False
+
 
 def volume_root_key(root: Path | str) -> str:
     r"""The key `WalkConfig.volume_roots` is filled and read by: the mount
@@ -945,6 +1253,27 @@ def _modified_recently(candidate: Candidate, *, now: Optional[float] = None) -> 
     """True if the file was written within the timestamp resolution window."""
     current = now if now is not None else time.time()
     return (current - candidate.mtime_ns / 1_000_000_000) < RECENT_EDIT_WINDOW_S
+
+
+@dataclass(frozen=True)
+class HashDeferred:
+    """The change check's answer when the one question left is a hash.
+
+    2026-10-10, review items W2 and W4. The cheap tier has said "moved" -
+    the date or size differs from the row, or the file was touched within
+    `RECENT_EDIT_WINDOW_S` - for a file that was read before and has a
+    `known_hash`. Everything else about the decision is settled: if the bytes
+    hash to `known_hash` the file is unchanged (the `robocopy` restore case),
+    and otherwise it is changed and the fresh hash is its digest.
+
+    Handed on instead of hashing on the spot, so the hash - a full read - is
+    taken where reading belongs, and the row lookup that led here is not
+    repeated just to take it (`Pipeline._classify` with `hash_now=False`).
+    Not a `str`, on purpose: a deferred hash mistaken for a digest would be
+    stored on the row as the file's hash after its contents had moved.
+    """
+
+    known_hash: str
 
 
 def has_changed(
