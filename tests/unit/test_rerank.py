@@ -212,3 +212,16 @@ def test_the_rebuild_after_a_transient_failure_is_on_the_processor(monkeypatch) 
     assert built[1] is None, "the rebuild must take the plain CPU constructor path"
     assert ranker.choice is not None and not ranker.choice.is_gpu
     assert ranker._failures == 0, "a rebuild that works clears the debt"
+
+
+def test_a_loaded_reranker_switched_off_reorders_nothing():
+    """2026-10-10: `_ensure_scorer` returned a scorer already loaded before it
+    looked at the switch, so `rerank()` went on reordering with Rerank off."""
+    from app.search.rerank import Reranker
+
+    ranker = Reranker("m", enabled=True)
+    ranker._scorer = lambda query, passages: [float(len(p)) for p in passages]  # noqa: SLF001
+    hits = [{"text": "a"}, {"text": "ccc"}]
+    assert [h["text"] for h in ranker.rerank("q", hits)] == ["ccc", "a"]
+    ranker.enabled = False
+    assert ranker.rerank("q", hits) == hits

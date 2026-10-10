@@ -173,9 +173,14 @@ class RemoteReranker(Reranker):
                           "device": self.device})
 
     def _ensure_scorer(self) -> Optional[Any]:
+        # 2026-10-10: the switch first. A scorer already loaded was handed
+        # back with the Rerank switch off, so `rerank()` kept reordering;
+        # callers that ask `available` first hid it.
+        if not self.enabled:
+            return None
         if self._scorer is not None:
             return self._scorer
-        if self._unavailable or not self.enabled:
+        if self._unavailable:
             return None
         with self._lock:
             if self._scorer is not None:

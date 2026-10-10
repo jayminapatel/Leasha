@@ -111,21 +111,29 @@ def test_the_answer_reranks_once_over_what_was_already_retrieved(env):
     assert turn.debug["reranked"] is True
 
 
+def _body(shown: str) -> str:
+    """2026-10-10: `prompts.parse_sources` gives each source's name line with
+    its passage; the window is the passage, so the name is left out here."""
+    return shown.split("\n", 1)[1] if "\n" in shown else ""
+
+
 def test_the_prompt_holds_windows_not_whole_passages(env):
-    reranker = _FakeReranker(window_chars=160)
+    # 2026-10-10: 100, not 160 - no passage in the fixture is longer than 160,
+    # so at 160 nothing was cut and the precondition below failed.
+    reranker = _FakeReranker(window_chars=100)
     engine, _search, llm = _engine(env, reranker)
     ask(engine, QUESTION)
 
     retrieved = reranker.calls[0][1]
-    assert any(len(text) > 160 for text in retrieved), \
+    assert any(len(text) > 100 for text in retrieved), \
         "precondition: a retrieved chunk longer than the window, or the cut proves nothing"
-    shown = prompts.parse_sources(_archive_system(llm))
+    shown = {n: _body(text) for n, text in prompts.parse_sources(_archive_system(llm)).items()}
     assert shown
     for passage in shown.values():
-        assert len(passage.strip()) <= 160
+        assert len(passage.strip()) <= 100
         assert any(_flat(passage) in _flat(text) for text in retrieved)   # a slice, verbatim
     assert not any(_flat(passage) == _flat(text) for passage in shown.values()
-                   for text in retrieved if len(text) > 160)
+                   for text in retrieved if len(text) > 100)
 
 
 def test_the_cited_file_names_are_kept_and_the_verifier_still_checks(env):
@@ -175,13 +183,13 @@ def test_a_reranker_that_fails_keeps_the_fused_order_and_still_answers(env):
 
 
 def test_reranking_switched_off_is_not_called_but_the_window_still_applies(env):
-    reranker = _FakeReranker(window_chars=160, available=False)
+    reranker = _FakeReranker(window_chars=100, available=False)
     engine, _search, llm = _engine(env, reranker)
     ask(engine, QUESTION)
 
     assert reranker.calls == []
     for passage in prompts.parse_sources(_archive_system(llm)).values():
-        assert len(passage.strip()) <= 160
+        assert len(_body(passage).strip()) <= 100
 
 
 def test_without_any_reranker_the_passage_is_the_default_window(env):

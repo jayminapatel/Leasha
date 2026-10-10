@@ -1964,9 +1964,14 @@ class SearchEngine:
     def _wants_rerank(self, override: Optional[bool]) -> bool:
         if self.reranker is None:
             return False
+        # 2026-10-10 (1h 5a): asked on every first pass now, to decide whether
+        # a reranked pass could follow - so a reranker without `available`
+        # (a stand-in, an older object) is "not available" rather than an
+        # AttributeError that fails the search.
+        available = bool(getattr(self.reranker, "available", False))
         if override is not None:
-            return override and self.reranker.available
-        return self.reranker.available
+            return bool(override) and available
+        return available
 
     def _cache_key(self, raw: str, parsed: ParsedQuery, rerank: bool, limit: int) -> str:
         """Includes the index generation, so a write invalidates everything.
