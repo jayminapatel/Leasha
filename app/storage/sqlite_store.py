@@ -1548,7 +1548,16 @@ class SqliteStore:
 
         with self._write_lock:
             conn = self.conn
-            conn.execute("BEGIN IMMEDIATE")
+            # 2026-10-10, storage review S3: through `_begin_write`, as `write()`
+            # already was. A bare `BEGIN IMMEDIATE` here asked for the write lock
+            # once, and when another process (an index run beside the window)
+            # held it past `busy_timeout` the batch failed with a bare
+            # `sqlite3.OperationalError: database is locked` - the "this is a
+            # bug" report `_begin_write` was written to end. Now the same second
+            # wait and the same `ERR_DB_BUSY` that says what to do. Nothing of the
+            # batch's own state is set until the lock is held, so a refusal
+            # leaves this thread exactly as it was.
+            self._begin_write(conn)
             self._local.batch_depth = 1
             # 0x 5d: this transaction has not moved the generation yet. See
             # `_bump_generation`.
