@@ -563,6 +563,16 @@ class SearchWorker(QRunnable):
                 # when the reranked answer lands - same generation, same
                 # query, so the view keeps the scroll (`keep_scroll`). Left
                 # out of the search log: it is one search, not two.
+                #
+                # 2026-10-10, work order 1h §5a: and retrieved once, not
+                # twice. The second call below misses the result cache (the
+                # rerank flag is rightly in its key), and used to run keyword
+                # search, the meaning vector, the picture lane and fusion all
+                # over again. The engine now keeps this first pass's fused
+                # candidates (`SearchEngine._candidates`), and the reranked
+                # call reranks those. Nothing changes here: both calls must
+                # still carry the same options, the scope and the policy above
+                # all, because those are in the key that pairs them.
                 first = dict(self._options, rerank=False, record=False)
                 early = search_once(self._engine, self._query, tier=self._tier, **first)
                 _emit(self.signals, "progress", (self.generation, early))

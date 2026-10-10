@@ -27,7 +27,9 @@ actually use, so every write to them is guarded.
 
 from __future__ import annotations
 
+import copy
 import json
+import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -115,6 +117,45 @@ class _LruCache:
         return len(self._entries)
 
 
+#: Work order 1h §5a (2026-10-10). How many first passes' fused candidates
+#: are kept for the reranked pass that follows them. The window asks for one
+#: search at a time and the reranked pass follows its first pass within a
+#: second, so eight is generous: it only has to outlive a burst of typing in
+#: which a newer search's first pass lands before an older one's rerank.
+CANDIDATE_ENTRIES = 8
+
+
+class _LockedLruCache(_LruCache):
+    """`_LruCache` behind a lock, for an entry written and read on two threads.
+
+    Work order 1h §5a (2026-10-10). The result cache above can go without one
+    because the worst a race does there is evict an entry twice. The
+    candidates kept for a reranked pass are written by one `SearchWorker` and
+    read by the next, which the window's thread pool may run side by side, and
+    `OrderedDict.move_to_end` racing a `popitem` can raise `KeyError` out of a
+    search. A lock costs nanoseconds against a search that costs hundreds of
+    milliseconds, so this one takes it.
+    """
+
+    __slots__ = ("_lock",)
+
+    def __init__(self, limit: int = CACHE_ENTRIES) -> None:
+        super().__init__(limit)
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> Any:
+        with self._lock:
+            return super().get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        with self._lock:
+            super().set(key, value)
+
+    def clear(self) -> None:
+        with self._lock:
+            super().clear()
+
+
 def _fold(values: Any) -> tuple:
     """Lowercase a tuple of strings for the cache key. See `_cache_key`."""
     return tuple(str(value).lower() for value in (values or ()))
@@ -141,6 +182,32 @@ def _result_chunk_id(hit: dict[str, Any]) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return int(hit.get("file_id", 0) or 0)
+
+
+def _copy_gathered(gathered: "_Gathered") -> "_Gathered":
+    """A copy of a fused list deep enough that reordering it cannot reach back.
+
+    Work order 1h §5a (2026-10-10). The rows are dicts that the reranker
+    (`rerank_score`), `filename_match.blend` (`rrf_score`, written back on
+    purpose) and `recency.blend` write into, and `source_ranks` is a dict
+    inside each row. A shallow copy would let the first pass's reorders leak
+    into the list the reranked pass reorders, so its filename boost would be
+    applied twice and the reranked order would differ from what a fresh
+    retrieval gives. Fifty rows - `FUSED_LIMIT` - so a deep copy costs well
+    under a millisecond. The three per-retriever lists are only counted and
+    tested for emptiness afterwards, never written, so they are shared.
+
+    A row carrying something `deepcopy` refuses (nothing does today - every
+    retriever returns plain `dict(row)`s) falls back to copying each row and
+    the dicts directly inside it, which covers every field the reorders
+    write, rather than failing the search over a copy.
+    """
+    try:
+        fused = copy.deepcopy(gathered.fused)
+    except Exception:                           # noqa: BLE001 - a copy is not worth a search
+        fused = [{name: (dict(value) if isinstance(value, dict) else value)
+                  for name, value in row.items()} for row in gathered.fused]
+    return replace(gathered, fused=fused)
 
 
 def _wait(future: Any, half: str, problems: list[str]) -> list:
@@ -401,6 +468,45 @@ class _Retrieved:
     #: Not distinguishable from here which of those it was; `image_problems`
     #: (see `_retrieve`) is what tells a real failure from an empty result.
     image_hits: list
+    #: Work order 1h §5a (2026-10-10). This pass's fused list as it stood
+    #: before the reranker and the reorders after it touched it - a private
+    #: copy - or `None` unless `_retrieve` was asked to keep one. What a
+    #: reranked pass of the same search reranks instead of retrieving again.
+    gathered: Optional["_Gathered"] = None
+
+
+@dataclass(frozen=True)
+class _Gathered:
+    """What the retrievers and fusion produced, before anything reordered it.
+
+    Work order 1h §5a (2026-10-10). `_retrieve` was one method that
+    retrieved, fused, reranked and re-sorted, so the only way to rerank a
+    list was to retrieve it again - which is exactly what the window's second,
+    reranked pass did (see `SearchEngine.search`). Split at fusion, so the
+    half after it can run on a list that was gathered earlier.
+    """
+
+    fused: list
+    keyword_hits: list
+    vector_hits: list
+    image_hits: list
+
+
+@dataclass(frozen=True)
+class _Candidates:
+    """One first pass, kept so the reranked pass that follows can skip retrieval.
+
+    Work order 1h §5a (2026-10-10). Everything the first pass decided before
+    it fused - the spelling it corrected to, the relaxation it fell back on,
+    the query that actually ran - so the reranked pass answers the same
+    question rather than re-deciding it, and the reranked list is the first
+    list reordered, never a second list that happens to look like it.
+    """
+
+    parsed: ParsedQuery
+    spelling: Any
+    relaxed: Any
+    gathered: _Gathered
 
 
 @dataclass
@@ -645,6 +751,19 @@ class SearchEngine:
         #: The index generation the wildcard cache was filled against. See
         #: `_expand_wildcards`.
         self._wildcard_generation: int = -1
+        #: Work order 1h §5a (2026-10-10). A first, not-yet-reranked pass's
+        #: fused candidates, keyed like the result cache but without the
+        #: rerank flag, for the reranked pass of the same search to rerank.
+        #: The window runs every reranked search twice - results at once,
+        #: then the better order (`SearchWorker`) - and the second call used
+        #: to miss the result cache, because the rerank flag is rightly in its
+        #: key, and so ran keyword search, the meaning vector, the picture
+        #: lane and fusion all over again only to rerank a list the first
+        #: call already had. Its own small locked cache rather than a second
+        #: kind of entry in `self.cache`: `cache=False` switches the result
+        #: cache off for a test, and that must not also switch this off and
+        #: double the retrieval it exists to remove.
+        self._candidates = _LockedLruCache(CANDIDATE_ENTRIES)
 
     @property
     def closed(self) -> bool:
@@ -843,37 +962,75 @@ class SearchEngine:
                 cached.elapsed_ms = (time.perf_counter() - started) * 1000
                 return cached
 
-        # §2a. **Before retrieval, not after** - so the corrected word is
-        # searched *for*, rather than searched for a second time. Asking the
-        # index which words it has never seen is one indexed lookup each, and
-        # it is a question this method already asks lower down; asked here it
-        # buys the correction as well as the notice.
-        parsed, spelling = self._correct_spelling(parsed, policy)
-
         vector_problems: list[str] = []
         #: Work order 0h §1c. Kept separate from `vector_problems` - see
         #: `NOTICE_NO_IMAGES`'s docstring for why sharing one list between
         #: two independently-failing lanes would be the bug this file
         #: already fixed once for `NOTICE_NO_VECTORS`, reintroduced.
         image_problems: list[str] = []
-        retrieved = self._retrieve(parsed, raw, limit, want_rerank,
-                                   timings, vector_problems, policy,
-                                   image_problems)
 
-        # §2b. **A second pass, and only where the alternative is an empty
-        # page.** `relax.candidates` is empty for the ordinary
-        # nothing-matched-anything query, so this costs one attribute read on
-        # every search that found something and every search there is nothing
-        # to relax towards.
+        # Work order 1h §5a (2026-10-10). **The reranked pass reranks the
+        # first pass's list; it does not retrieve again.** Keyed on the parse
+        # as typed (before the spelling step, exactly as the result cache
+        # is), without the rerank flag, and with the surface's policy -
+        # spelling, relaxation and the recency nudge all read the policy, so
+        # two surfaces asking the same words are two different first passes.
+        # The index generation is in the key, so a write between the two
+        # passes makes the reranked pass retrieve afresh rather than rerank
+        # rows that may no longer exist. `use_cache=False` means "compute
+        # this from the index", and is honoured here too.
+        candidates_key = self._candidates_key(raw, parsed, limit, policy)
+        reuse = None
+        if use_cache and want_rerank and candidates_key is not None:
+            reuse = self._candidates_get(candidates_key)
+        # Kept only when a reranked pass could follow (a reranker that is on
+        # and loaded) and this pass is not that one - Chat, the command line
+        # and every surface with the reranker off pay nothing for this.
+        keep = (use_cache and not want_rerank and candidates_key is not None
+                and self._wants_rerank(True))
+
         relaxed = None
-        if policy.relax_on_empty and not retrieved.results:
-            for candidate in relax.candidates(parsed):
-                again = self._retrieve(candidate.query, raw, limit,
-                                       want_rerank, timings, vector_problems,
-                                       policy, image_problems)
-                if again.results:
-                    parsed, retrieved, relaxed = candidate.query, again, candidate
-                    break
+        if reuse is not None:
+            # The first pass already corrected the spelling, chose any
+            # relaxation and recorded no problem (`_candidates_set` refuses a
+            # degraded pass, so a timed-out half is retried rather than
+            # reranked). What is left is the half of `_retrieve` after fusion,
+            # on a private copy so the kept entry stays as it was gathered.
+            parsed, spelling, relaxed = reuse.parsed, reuse.spelling, reuse.relaxed
+            retrieved = self._finish(_copy_gathered(reuse.gathered), parsed, raw,
+                                     want_rerank, timings, policy)
+        else:
+            # §2a. **Before retrieval, not after** - so the corrected word is
+            # searched *for*, rather than searched for a second time. Asking
+            # the index which words it has never seen is one indexed lookup
+            # each, and it is a question this method already asks lower down;
+            # asked here it buys the correction as well as the notice.
+            parsed, spelling = self._correct_spelling(parsed, policy)
+
+            retrieved = self._retrieve(parsed, raw, limit, want_rerank,
+                                       timings, vector_problems, policy,
+                                       image_problems, keep_candidates=keep)
+
+            # §2b. **A second pass, and only where the alternative is an
+            # empty page.** `relax.candidates` is empty for the ordinary
+            # nothing-matched-anything query, so this costs one attribute
+            # read on every search that found something and every search
+            # there is nothing to relax towards.
+            if policy.relax_on_empty and not retrieved.results:
+                for candidate in relax.candidates(parsed):
+                    again = self._retrieve(candidate.query, raw, limit,
+                                           want_rerank, timings, vector_problems,
+                                           policy, image_problems,
+                                           keep_candidates=keep)
+                    if again.results:
+                        parsed, retrieved, relaxed = candidate.query, again, candidate
+                        break
+
+            if keep and retrieved.gathered is not None \
+                    and not vector_problems and not image_problems:
+                self._candidates_set(candidates_key, _Candidates(
+                    parsed=parsed, spelling=spelling, relaxed=relaxed,
+                    gathered=retrieved.gathered))
 
         keyword_hits, vector_hits = retrieved.keyword_hits, retrieved.vector_hits
         image_hits = retrieved.image_hits
@@ -1308,8 +1465,16 @@ class SearchEngine:
     def _retrieve(self, parsed: ParsedQuery, raw: str, limit: int,
                   want_rerank: bool, timings: dict, vector_problems: list,
                   policy: Optional[SearchPolicy] = None,
-                  image_problems: Optional[list] = None) -> "_Retrieved":
+                  image_problems: Optional[list] = None, *,
+                  keep_candidates: bool = False) -> "_Retrieved":
         r"""Both retrievers, fused, reranked, sorted — for one query.
+
+        Work order 1h §5a (2026-10-10): `_gather` then `_finish`, the split
+        falling at fusion so a reranked pass can run the second half alone on
+        a list the first pass gathered (see `search`). `keep_candidates`
+        returns a private copy of that list on `_Retrieved.gathered`, taken
+        before `_finish` reorders it - the reranker, `filename_match.blend`
+        and `recency.blend` all write into the rows they are handed.
 
         **A method rather than a block because §2b runs it twice.** Relaxation
         is "try the same pipeline with one instruction removed", and a second
@@ -1324,6 +1489,21 @@ class SearchEngine:
         pattern for the third lane, kept separate from `vector_problems` -
         see `NOTICE_NO_IMAGES`'s docstring for why the two must not share one
         list.
+        """
+        gathered = self._gather(parsed, limit, timings, vector_problems,
+                                image_problems)
+        kept = _copy_gathered(gathered) if keep_candidates else None
+        retrieved = self._finish(gathered, parsed, raw, want_rerank, timings, policy)
+        return replace(retrieved, gathered=kept) if kept is not None else retrieved
+
+    def _gather(self, parsed: ParsedQuery, limit: int, timings: dict,
+                vector_problems: list,
+                image_problems: Optional[list] = None) -> _Gathered:
+        r"""The retrievers and fusion: the half of `_retrieve` a rerank never needs.
+
+        Work order 1h §5a (2026-10-10). Nothing here reads the reranker, the
+        policy or the raw text, which is what makes its output reusable by a
+        reranked pass of the same parsed query.
         """
         mark = time.perf_counter()
         # **The eligible files, without listing them when there are too many.**
@@ -1413,7 +1593,21 @@ class SearchEngine:
         )
         timings["fuse"] = timings.get("fuse", 0.0) + (
             time.perf_counter() - mark) * 1000
+        return _Gathered(fused=fused, keyword_hits=keyword_hits,
+                         vector_hits=vector_hits, image_hits=image_hits)
 
+    def _finish(self, gathered: _Gathered, parsed: ParsedQuery, raw: str,
+                want_rerank: bool, timings: dict,
+                policy: Optional[SearchPolicy] = None) -> "_Retrieved":
+        r"""Rerank and reorder a fused list: the half of `_retrieve` after fusion.
+
+        Work order 1h §5a (2026-10-10). Owns `gathered.fused` - it reorders
+        it and the rows in it - so a caller that needs the list again hands
+        in a copy (`_copy_gathered`).
+        """
+        fused = gathered.fused
+        keyword_hits, vector_hits = gathered.keyword_hits, gathered.vector_hits
+        image_hits = gathered.image_hits
         reranked = False
         if want_rerank and fused:
             mark = time.perf_counter()
@@ -1774,6 +1968,36 @@ class SearchEngine:
             repr(_fold(parsed.not_only)),
             parsed.scope, "r" if rerank else "-", model, str(limit),
         ])
+
+    def _candidates_key(self, raw: str, parsed: ParsedQuery, limit: int,
+                        policy: SearchPolicy) -> Optional[str]:
+        """The key a first pass's candidates are kept under, or None for none.
+
+        Work order 1h §5a (2026-10-10). `_cache_key` with the rerank flag off -
+        so a first pass and its reranked pass share it - plus the policy, which
+        the result cache leaves out but which decides the spelling step, the
+        relaxation and the recency nudge the kept candidates already went
+        through. None while the store is closing (`_cache_key` answers
+        "closed" for every query then, and a key every query shares is not a
+        key).
+        """
+        key = self._cache_key(raw, parsed, False, limit)
+        if key == "closed":
+            return None
+        return key + "|" + repr(policy)
+
+    def _candidates_get(self, key: str) -> Optional[_Candidates]:
+        try:
+            return self._candidates.get(key)
+        except Exception as exc:        # noqa: BLE001 - a miss retrieves afresh
+            _log.debug("candidate cache read failed: {}", exc)
+            return None
+
+    def _candidates_set(self, key: str, candidates: _Candidates) -> None:
+        try:
+            self._candidates.set(key, candidates)
+        except Exception as exc:        # noqa: BLE001
+            _log.debug("candidate cache write failed: {}", exc)
 
     def _cache_get(self, key: str) -> Optional[SearchResponse]:
         try:
