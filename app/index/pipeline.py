@@ -7933,13 +7933,14 @@ class Pipeline:
         # embedded that are not in this batch; everything else of the file is
         # deleted - the gone passages' vectors, and any old copy of one about to
         # be written. With nothing kept (a first index, a file wholly changed,
-        # `reembed --all`) it is the old whole-file delete. A vector store
-        # without the method (a test double) gets the old call.
+        # `reembed --all`) it is the old whole-file delete. A vector store or
+        # a store without the method (a test double) gets the old call.
         files = list(dict.fromkeys(fid for _c, fid, _t in pending))
         except_kept = getattr(self.vectors, "delete_by_file_ids_except", None)
+        embedded_ids = getattr(self.store, "embedded_chunk_ids", None)
         keep: set[int] = set()
-        if except_kept is not None:
-            keep = self.store.embedded_chunk_ids(files)
+        if except_kept is not None and embedded_ids is not None:
+            keep = set(embedded_ids(files))
             keep.difference_update(cid for cid, _f, _t in pending)
         if keep:
             except_kept(files, keep)
