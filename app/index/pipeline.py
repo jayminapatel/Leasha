@@ -278,16 +278,6 @@ from app.index.run_setup import OCR_MODES  # noqa: E402, F401 - re-exported
 #: noticed.
 FTS_OPTIMIZE_AFTER_CHUNKS = 10_000
 
-#: 2026-10-10, review P5. Files a run must have found, on an index holding no
-#: passages, before `bulk_fts="auto"` bulk-loads the word index - see
-#: `Pipeline._maybe_bulk_fts_auto`. Below it a first run is short enough that
-#: keeping the word index searchable while it runs is worth more than the
-#: saving, which on a small run is seconds (the deferred writes of
-#: `SqliteStore._deferred` measured about 1 s per 1,000 messages, 2026-09-30).
-#: A judgement, not a measurement: a timed first run over a real corpus, bulk
-#: against row by row, is the evidence that would move it.
-BULK_FTS_AUTO_MIN_FILES = 20_000
-
 #: The window the reported throughput covers, in seconds.
 #:
 #: **A rate averaged since the start is useless on a run of days.** After
@@ -2508,22 +2498,6 @@ class Pipeline:
         §6f: if bulk mode is enabled, restores FTS triggers after a bulk insert.
         """
         wanted = str(self.config.bulk_fts or "auto").lower()
-        # Restore FTS triggers if they were suspended during bulk insert.
-        # 2026-10-10, review P5: **first, whatever the mode and the count.** It
-        # sat below the two returns, so a run that dropped them and then wrote
-        # fewer than `FTS_OPTIMIZE_AFTER_CHUNKS` passages - stopped early, or
-        # `auto` (`_maybe_bulk_fts_auto`) on a large walk of mostly unreadable
-        # files - left them off and the word index missing what it wrote until
-        # the next run's start repaired it.
-        if getattr(self, "_suspended_fts_triggers", None):
-            started = time.perf_counter()
-            if self.store.restore_fts_triggers(self._suspended_fts_triggers):
-                self._log.info(
-                    "restored FTS content triggers after bulk insert ({:.1f}s)",
-                    time.perf_counter() - started)
-                # Clear the dirty flag now that triggers are restored
-                self.store.set_state("fts_dirty", "")
-            self._suspended_fts_triggers = []
         # §6f. `on` merges whatever the run wrote; `auto` merges only when the
         # run was big enough for the merge to earn its minutes; `off` leaves the
         # segments alone.
@@ -2532,6 +2506,16 @@ class Pipeline:
             return
         if wanted != "on" and stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
             return
+
+        # Restore FTS triggers if they were suspended during bulk insert
+        if self._suspended_fts_triggers:
+            started = time.perf_counter()
+            if self.store.restore_fts_triggers(self._suspended_fts_triggers):
+                self._log.info(
+                    "restored FTS content triggers after bulk insert ({:.1f}s)",
+                    time.perf_counter() - started)
+                # Clear the dirty flag now that triggers are restored
+                self.store.set_state("fts_dirty", "")
 
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
@@ -4626,67 +4610,28 @@ class Pipeline:
         wanted = str(self.config.bulk_fts or "auto").lower()
         if wanted == "off":
             return
-        # "on" drops them now; "auto" is decided on the first document instead
-        # (`_maybe_bulk_fts_auto`), once the run knows how big it is.
+        # Cannot predict the final chunk count before the run, so for "auto"
+        # mode we drop triggers only after we see the first batch. For "on"
+        # mode we drop them immediately.
+        # Note: For now, we're conservative and only drop for "on" mode.
+        # A more aggressive strategy would check pending work in auto mode.
+        #
+        # 2026-10-10 (indexing review P5): kept, on the measurement. A rule
+        # for "auto" was written (bulk on an empty index of 20,000+ files) and
+        # withdrawn the same day. The owner's 15-hour run spent 1,568 s
+        # writing against 54,555 s giving passages meaning (HANDOFF
+        # 2026-10-08), so keeping the word index row by row costs a few
+        # percent of a run at most - while bulk mode leaves *nothing*
+        # searchable by its words until the run ends, which with words before
+        # meaning is days after the last file was read. On this hardware no
+        # run is "big enough to be worth it", which is what "auto" promises.
         if wanted != "on":
             return
-        self._suspend_fts_triggers()
-
-    def _suspend_fts_triggers(self) -> None:
-        """Drop the keyword-index triggers for this run; `_optimise_keyword_index`
-        puts them back and rebuilds. A store that cannot drop them returns []
-        and the run writes the index row by row, as `off` does."""
         self._suspended_fts_triggers = self.store.drop_fts_triggers()
         if self._suspended_fts_triggers:
             self._log.info(
                 "dropped FTS content triggers for bulk insert mode"
             )
-
-    def _maybe_bulk_fts_auto(self, stats: IndexStats) -> bool:
-        r"""`bulk_fts="auto"`: bulk-load the word index when that is cheaper.
-
-        2026-10-10, review P5. The setting's help says "Automatic uses it only
-        when the run is big enough to be worth it", and "auto" did nothing at
-        all - it behaved exactly as "off". What a bulk load costs decides the
-        rule: the triggers come back with a `'rebuild'` of **the whole index**
-        (`SqliteStore.restore_fts_triggers`), not of what the run wrote. So it
-        saves time only when the index holds nothing before the run - a first
-        run, or the first run after a reset - and then the rebuild is the run's
-        own rows and nothing else; on an index that already holds a corpus, an
-        incremental run would pay a rebuild of everything to save the cost of a
-        few rows. And it costs the person keyword search until the run ends,
-        which is only worth paying when the run is long - hence the size floor.
-
-        **Asked once, on the first document the consumer takes**, before
-        anything is written, because that is the first moment the size is
-        known: in the "newest" order the scan has finished
-        (`stats.walk_complete`) before any file is queued, and `stats.seen` is
-        every file the run found. In the "found" order files are read while the
-        walk is still listing them, the size is unknown, and "auto" stays off -
-        the conservative answer, and what it always did.
-
-        Returns whether the triggers were dropped. Never raises: a question
-        that cannot be answered leaves the index written row by row.
-        """
-        if str(self.config.bulk_fts or "auto").lower() != "auto":
-            return False
-        if getattr(self, "_suspended_fts_triggers", None):
-            return False
-        if not stats.walk_complete or stats.seen < BULK_FTS_AUTO_MIN_FILES:
-            return False
-        try:
-            holds_passages = self.store.conn.execute(
-                "SELECT 1 FROM chunks LIMIT 1").fetchone() is not None
-        except Exception as exc:                 # noqa: BLE001 - see the docstring
-            self._log.debug("could not tell whether the index is empty: {}", exc)
-            return False
-        if holds_passages:
-            return False
-        self._log.info(
-            "an empty index and {:,} file(s) to look at: the word index is built "
-            "once at the end of this run (bulk load, 'auto')", stats.seen)
-        self._suspend_fts_triggers()
-        return bool(self._suspended_fts_triggers)
 
     def _consume(
         self,
@@ -4736,7 +4681,6 @@ class Pipeline:
         # §6f: Drop FTS triggers if bulk mode is enabled, before processing
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
-        bulk_decided = False
         # 2026-10-10, review P1: photos' models off this thread - see the
         # notes above `PICTURE_QUEUE_SIZE`. Finished below, where reading ends.
         self._start_picture_work()
@@ -4826,12 +4770,6 @@ class Pipeline:
             if item is _STOP:
                 finished += 1
                 continue
-
-            if not bulk_decided:
-                # 2026-10-10, review P5: the first document, before anything of
-                # it is written - see `_maybe_bulk_fts_auto`.
-                bulk_decided = True
-                self._maybe_bulk_fts_auto(stats)
 
             # The window's own timer says it is late: let it catch up first.
             self._yield_to_ui()
