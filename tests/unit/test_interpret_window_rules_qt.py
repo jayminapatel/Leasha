@@ -74,3 +74,17 @@ def test_pdfs_from_last_year_is_read_by_the_rules_and_the_model_is_asked_for_les
     for prompt in client.prompts:
         sentence = prompt.rsplit("Sentence:", 1)[-1]
         assert "pdfs" not in sentence and "last year" not in sentence
+
+
+def test_the_evaluate_command_gives_its_translators_the_index():
+    """2026-10-10 (order 1h 3d): `app.cli evaluate --interpret` built its
+    `QueryTranslator` without the store, so the rules-first step never ran there
+    and the run measured something no person gets. Read from the source: both
+    of its translators are given the store."""
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[2] / "app" / "cli" / "evaluate.py").read_text(
+        encoding="utf-8")
+    built = source.count("QueryTranslator(")
+    assert built == 2 and source.count("store=store)") >= 2, (
+        "every QueryTranslator in evaluate.py is given the store")

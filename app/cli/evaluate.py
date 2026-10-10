@@ -105,8 +105,11 @@ def cmd_evaluate(args: argparse.Namespace) -> int:
             from app.llm.ollama import OllamaClient
             from app.search.translate import QueryTranslator
 
+            # 2026-10-10 (order 1h 3d): with the index, as the window's is, so
+            # the rules read dates and types first and only the leftover words
+            # go to the model - the run measures what a person gets.
             translator = QueryTranslator(
-                OllamaClient(settings.ollama_url, settings.ollama_model)
+                OllamaClient(settings.ollama_url, settings.ollama_model), store=store
             )
             if not translator.available():
                 print("Ollama is not answering, so --interpret would measure nothing.")
@@ -271,7 +274,7 @@ def _evaluate_builtin(args: argparse.Namespace, evaluate: Any) -> int:
 
             interpret_settings = _load(args)
             translator = QueryTranslator(OllamaClient(
-                interpret_settings.ollama_url, interpret_settings.ollama_model))
+                interpret_settings.ollama_url, interpret_settings.ollama_model), store=store)
             if not translator.available():
                 print("Ollama is not answering, so --interpret would measure nothing.")
                 print(r"  Check it: venv\Scripts\python.exe -m app.cli ollama")
