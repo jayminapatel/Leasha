@@ -27,6 +27,8 @@ import time
 import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import groupby
+from operator import itemgetter
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -4123,7 +4125,9 @@ class SqliteStore:
             last_id = batch[-1].id
             yield batch
 
-    def unembedded_by_file(self, batch_size: int = 256) -> list[list[tuple[int, int]]]:
+    def unembedded_by_file(
+        self, batch_size: int = 256, first_folders: Sequence[str] = (),
+    ) -> list[list[tuple[int, int]]]:
         r"""Chunks awaiting a vector, as `(chunk_id, file_id)` batches of **whole files**.
 
         2026-10-08. `iter_unembedded` cuts batches by chunk id, so one file's
@@ -4137,23 +4141,105 @@ class SqliteStore:
         out, and more when its last file is long - a file is never cut. One
         sorted read of two integers per passage, not of the text: the caller
         fetches text with `chunk_texts` one batch at a time.
+
+        **Newest file first** (2026-10-10, storage review S2). The order was
+        `file_id, id` - oldest stored first - while a run reads files newest
+        first (`app.index.read_order`). With a backlog of days (5.9 million
+        passages measured on the owner's index) the files a person is most
+        likely to search for got their vectors last. Now files in the order a
+        run reads them: those under `first_folders` first, in the order given
+        (the run's `--first` folders), then by modified time, newest first;
+        `file_id` breaks ties so the order is the same every time. Passages
+        within a file stay in id order, and a file is still never split.
+
+        `first_folders` matches as `walker._priority_for` does - the folder
+        itself or anything under it at a separator, so `C:\Docs` does not take
+        `C:\Docs2` - without regard to the case of A-Z. Storage cannot import
+        the walker (it is the layer below), so the rule is repeated here.
+
+        Measured 2026-10-10 on this laptop, synthetic stores with 120-word
+        passages, 60% awaiting a vector, CPU shared with four other jobs (so
+        each figure is a range over two runs of a median of 3): 120k waiting
+        passages, 0.37-0.66 s before, 0.49-0.57 s now; 600k, 3.42-4.36 s
+        before, 3.28-4.27 s now; two first folders add nothing measurable
+        beyond the noise. No slower: the time is reading each passage's row for
+        its `file_id` (`idx_chunks_pending` holds only the id), which both
+        versions pay; the file's date is one primary-key lookup per passage,
+        and the sort is per file, in Python. Sorting the passages in SQL
+        instead (`ORDER BY f.mtime_ns DESC, ...`) was slower (0.59 s against
+        0.37 s at 120k): a temporary B-tree of every passage. A covering index
+        `chunks(file_id) WHERE embedded = 0` would take the 600k case to about
+        1.8 s, at the price of a second index written for every passage and a
+        full read of `chunks` to build it - not taken for a read made once at
+        the start of a run that then embeds for hours. Plan, pinned in
+        `test_backlog_order.py`: `SEARCH c USING INDEX idx_chunks_pending`,
+        then `SEARCH f USING INTEGER PRIMARY KEY`, no temporary B-tree.
         """
-        rows = self.conn.execute(
-            "SELECT id, file_id FROM chunks WHERE embedded = 0 ORDER BY file_id, id"
-        ).fetchall()
+        groups: dict[int, list[tuple[int, int]]] = {}
+        modified: dict[int, int] = {}
+        # Plain tuples, not `sqlite3.Row`, and `fetchall()` rather than a loop
+        # over the cursor: `_GuardedCursor.__next__` takes its guard once per
+        # row, which profiled at half this method's time over 120k rows.
+        cursor = self.conn.cursor()
+        cursor.row_factory = None
+        rows = cursor.execute(
+            # LEFT: a passage whose file row is missing (foreign keys off in a
+            # repair or a test) is still handed back, as it always was - last,
+            # with no date.
+            "SELECT c.id, c.file_id, f.mtime_ns FROM chunks c "
+            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0").fetchall()
+        # Rows arrive in passage-id order, and one file's passages are written
+        # together (`replace_chunks`), so they come as runs: grouped a run at a
+        # time rather than a row at a time. A file met again later (its
+        # passages not contiguous) is joined to its first run and re-sorted.
+        for file_id, run in groupby(rows, key=itemgetter(1)):
+            run_rows = list(run)
+            pairs = [(row[0], file_id) for row in run_rows]
+            found = groups.get(file_id)
+            if found is None:
+                groups[file_id] = pairs
+                modified[file_id] = int(run_rows[0][2] or 0)
+            else:
+                found.extend(pairs)
+                found.sort()
+        rank = self._first_folder_ranks(groups, first_folders)
+        unranked = len(tuple(first_folders))         # after every first folder
+        order = sorted(groups, key=lambda f: (rank.get(f, unranked), -modified[f], f))
         batches: list[list[tuple[int, int]]] = []
         batch: list[tuple[int, int]] = []
-        current: Optional[int] = None
-        for row in rows:
-            file_id = int(row["file_id"])
-            if file_id != current and len(batch) >= batch_size:
+        for file_id in order:
+            if batch and len(batch) >= batch_size:
                 batches.append(batch)
                 batch = []
-            current = file_id
-            batch.append((int(row["id"]), file_id))
+            batch.extend(groups[file_id])
         if batch:
             batches.append(batch)
         return batches
+
+    def _first_folder_ranks(self, file_ids: Iterable[int],
+                            first_folders: Sequence[str]) -> dict[int, int]:
+        """`{file_id: position of the first folder it is under}` for the files
+        under any of `first_folders`; others are absent. One lookup of paths
+        per 500 files, and none at all when no folder is given."""
+        prefixes = [str(folder or "").strip().rstrip("\\/").lower()
+                    for folder in first_folders]
+        prefixes = [p for p in prefixes if p]
+        if not prefixes:
+            return {}
+        ids = [int(f) for f in file_ids]
+        ranks: dict[int, int] = {}
+        for start in range(0, len(ids), 500):
+            part = ids[start:start + 500]
+            marks = ",".join("?" * len(part))
+            for file_id, path in self.conn.execute(
+                    f"SELECT id, path FROM files WHERE id IN ({marks})", part):
+                text = str(path).lower()
+                for position, prefix in enumerate(prefixes):
+                    if text == prefix or (text.startswith(prefix)
+                                          and text[len(prefix):len(prefix) + 1] in ("\\", "/")):
+                        ranks[int(file_id)] = position
+                        break
+        return ranks
 
     def chunk_texts(self, chunk_ids: Iterable[int]) -> dict[int, str]:
         """`{chunk_id: text}` for the given chunks that still await a vector.
