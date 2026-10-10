@@ -6709,6 +6709,10 @@ class Pipeline:
             return
         tagged = 0
         announced = False
+        # 2026-10-10, work order model-sequencing item 4c: a near-identical
+        # photo (same folder, same minute, pHash under the threshold) borrows
+        # the description Florence wrote for its sibling - see `photo_reuse`.
+        reuse = self._description_reuse()
         try:
             for batch in self.store.iter_untagged_photos(OcrExtractor.extensions):
                 if self._interrupted:
@@ -6719,9 +6723,17 @@ class Pipeline:
                 if not announced:
                     self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
                     announced = True
+                reuse.prepare([file_id for file_id, _path in batch])
                 for file_id, path in batch:
                     if self._interrupted:
                         break
+                    if self._copy_sibling_description(reuse, file_id):
+                        self.store.mark_indexed(file_id)
+                        tagged += 1
+                        stats.current = Path(path).name
+                        if on_progress is not None:
+                            on_progress(stats)
+                        continue
                     with self._picture_file(path) as real:
                         if real is None:
                             continue             # its archive would not open: next run
@@ -6734,6 +6746,7 @@ class Pipeline:
                         tag_line = "Tags: " + ", ".join(result.tags)
                         body = body + chr(10) + tag_line if body else tag_line
                     self.store.add_caption_chunk(file_id, body, label="AI description")
+                    reuse.remember(file_id, body)
                     self.store.mark_indexed(file_id)
                     tagged += 1
                     stats.current = Path(path).name
@@ -6745,6 +6758,38 @@ class Pipeline:
         if tagged:
             self._log.info("described {} photo(s) with no text in them", tagged)
             self._drain_unembedded(stats, at_run_end=True)
+        if reuse.copied:
+            self._log.info("{} of them copied a near-identical photo's description "
+                           "instead of asking Florence-2", reuse.copied)
+
+    def _description_reuse(self) -> Any:
+        """This drain's near-identical check (item 4c, 2026-10-10). Built on the
+        store's own connection, so it sees what the drain has just written."""
+        from app.index.photo_reuse import DescriptionReuse
+
+        return DescriptionReuse(self.store.conn)
+
+    def _copy_sibling_description(self, reuse: Any, file_id: int) -> bool:
+        r"""Give `file_id` its near-identical sibling's description, marked as a
+        copy, and say True - or False, and Florence describes it as before.
+
+        2026-10-10, work order model-sequencing item 4c. The copy is the same
+        "AI description" passage the original has (the label the search
+        filters and the Photos page read), and `photo_reuse` records which
+        photo it came from in `index_state`, so it can be found and redone.
+        Never raises: a failure here costs one Florence call, not the photo.
+        """
+        try:
+            found = reuse.sibling(file_id)
+            if found is None:
+                return False
+            source_id, body = found
+            self.store.add_caption_chunk(file_id, body, label="AI description")
+            reuse.mark(self.store, file_id, source_id)
+            return True
+        except Exception as exc:                  # noqa: BLE001 - Florence then
+            self._log.debug("photo {} is described by Florence-2 after all: {}", file_id, exc)
+            return False
 
     def _drain_picture_text(
         self, stats: IndexStats,
@@ -6782,6 +6827,7 @@ class Pipeline:
 
         try:
             tagging = florence_tagger.available()
+            reuse = self._description_reuse()    # 2026-10-10, item 4c - as `_drain_photo_tags`
             announced = False
             for batch in self.store.iter_pictures_waiting(
                     OcrExtractor.extensions, code="ERR_PICTURE_TEXT_LATER",
@@ -6791,9 +6837,18 @@ class Pipeline:
                 if not announced:
                     self._announce_phase(stats, on_progress, PHASE_PHOTO_TAGS)
                     announced = True
+                reuse.prepare([file_id for file_id, _path in batch])
                 for file_id, path in batch:
                     if self._interrupted:
                         return
+                    if tagging and self._copy_sibling_description(reuse, file_id):
+                        found += 1
+                        stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
+                        self.store.note_picture_described(file_id)
+                        stats.current = Path(path).name
+                        if on_progress is not None:
+                            on_progress(stats)
+                        continue
                     with self._picture_file(path) as real:
                         if real is None:
                             continue             # its archive would not open: next run
@@ -6804,6 +6859,7 @@ class Pipeline:
                             tag_line = "Tags: " + ", ".join(result.tags)
                             body = body + chr(10) + tag_line if body else tag_line
                         self.store.add_caption_chunk(file_id, body, label="AI description")
+                        reuse.remember(file_id, body)
                         found += 1
                         stats.chunks = int(getattr(stats, "chunks", 0) or 0) + 1
                     self.store.note_picture_described(file_id)

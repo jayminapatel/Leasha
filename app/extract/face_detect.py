@@ -101,6 +101,71 @@ def _choice() -> Any:
         return backends.choose(None, backends.CPU)
 
 
+def _threads() -> Optional[int]:
+    """Intra-op threads for each of the pack's ONNX sessions, or None to leave
+    onnxruntime's default (one per physical core).
+
+    2026-10-10, work order model-sequencing item 1d. Faces run on the
+    `pictures` worker beside the extraction workers and the meaning model, so
+    the count comes from the same envelope as the meaning model's
+    (`envelope.picture_model_threads`). A machine the envelope cannot describe
+    answers None and the pack is built exactly as before. Never raises.
+    """
+    try:
+        from app.core.compute_profile import detect
+        from app.core.envelope import picture_model_threads
+
+        return picture_model_threads(detect())
+    except Exception as exc:                        # noqa: BLE001 - a tuning, not the job
+        log.debug("faces keep onnxruntime's own thread count: {}", exc)
+        return None
+
+
+def _session_kwargs() -> dict:
+    """`{"sess_options": ...}` for `FaceAnalysis`, or `{}` when no count was
+    decided.
+
+    2026-10-10, item 1d: **the session-options route.** insightface builds its
+    sessions inside `model_zoo` and has no thread argument of its own, but
+    `FaceAnalysis(**kwargs)` hands its keyword arguments to
+    `model_zoo.get_model`, which passes `sess_options` to every
+    `InferenceSession` it builds (insightface 2.0's `_session_kwargs`; 0.7's
+    router passes its keywords through unchanged). One `SessionOptions` with
+    only `intra_op_num_threads` set is onnxruntime's default plus that one
+    field - the same session as before in every other respect.
+    """
+    threads = _threads()
+    if not threads:
+        return {}
+    try:
+        import onnxruntime
+
+        options = onnxruntime.SessionOptions()
+        options.intra_op_num_threads = int(threads)
+    except Exception as exc:                        # noqa: BLE001 - never costs the faces
+        log.debug("faces keep onnxruntime's own thread count: {}", exc)
+        return {}
+    return {"sess_options": options}
+
+
+def session_threads() -> list[int]:
+    """`intra_op_num_threads` as each of the loaded pack's sessions holds it,
+    read back from onnxruntime (item 1d's acceptance, 2026-10-10). Empty
+    before the pack loads. insightface keeps each model's session at
+    `FaceAnalysis.models[task].session`."""
+    app = _engine
+    found: list[int] = []
+    for model in (getattr(app, "models", None) or {}).values():
+        options = getattr(getattr(model, "session", None), "get_session_options", None)
+        if options is None:
+            continue
+        try:
+            found.append(int(options().intra_op_num_threads))
+        except Exception:                           # noqa: BLE001 - a diagnostic
+            continue
+    return found
+
+
 def _load() -> Optional[Any]:
     """The `FaceAnalysis` app, loaded and prepared once. `None` when it
     cannot be - absent package, no model pack downloaded and no network to
@@ -125,8 +190,11 @@ def _load() -> Optional[Any]:
             # processor (`ctx_id=-1`). A graphics card that will not build it
             # falls back to the processor here, as every other model does.
             choice = _choice()
+            # 2026-10-10, item 1d: the thread count, when the envelope could say.
+            extra = _session_kwargs()
             try:
-                app = FaceAnalysis(name=MODEL_PACK, providers=list(choice.providers))
+                app = FaceAnalysis(name=MODEL_PACK, providers=list(choice.providers),
+                                   **extra)
                 app.prepare(ctx_id=0 if choice.is_gpu else -1, det_size=DET_SIZE)
                 on_gpu = bool(choice.is_gpu)
             except Exception as exc:                # noqa: BLE001 - the processor, then
@@ -134,7 +202,8 @@ def _load() -> Optional[Any]:
                     raise
                 log.warning("faces would not load on the graphics card ({}); "
                             "using the processor", exc)
-                app = FaceAnalysis(name=MODEL_PACK, providers=["CPUExecutionProvider"])
+                app = FaceAnalysis(name=MODEL_PACK, providers=["CPUExecutionProvider"],
+                                   **extra)
                 app.prepare(ctx_id=-1, det_size=DET_SIZE)   # -1: CPU
                 on_gpu = False
             _engine_is_gpu = on_gpu

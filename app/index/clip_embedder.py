@@ -116,6 +116,7 @@ class ClipImageEmbedder:
         device: str = backends.AUTO,
         profile: Optional[object] = None,
         problems: Optional[list] = None,
+        threads: Optional[int] = None,
     ) -> None:
         if batch_size < 1:
             raise ValueError(f"batch_size must be at least 1, got {batch_size}")
@@ -136,6 +137,20 @@ class ClipImageEmbedder:
         self.device = str(device or backends.AUTO)
         self._profile = profile
         self._problems = problems
+        #: Intra-op threads asked of the ONNX session. **2026-10-10, work order
+        #: model-sequencing item 1d.** `None` (the default) derives it from the
+        #: same envelope as the meaning model when the model loads
+        #: (`envelope.picture_model_threads`): this model runs on the `pictures`
+        #: worker beside the extraction workers and the meaning model, and left
+        #: alone onnxruntime gave it one thread per physical core - ten on the
+        #: owner's laptop, on a processor the rest of the run already filled.
+        #: `0` leaves the library's default on purpose; a positive number is
+        #: used as it is. `self.threads` is what was actually asked for once
+        #: loaded (`None` = the library's default), and `session_threads()`
+        #: reads back what the session itself holds.
+        self._threads_wanted = threads
+        self.threads: Optional[int] = None
+        self._model: Optional[object] = None
         #: Set once the model loads. `None` until then, so nothing reports a
         #: provider that has not yet been proven to work.
         self.choice: Optional[backends.Choice] = None
@@ -206,18 +221,24 @@ class ClipImageEmbedder:
             )) from exc
 
         wanted = backends.choose(self._resolved_profile(), self.device)
+        self.threads = self._decide_threads()
 
         def build(providers: tuple) -> object:
+            extra: dict = {}
+            if self.threads:
+                # 2026-10-10, item 1d: **only when the envelope could say**,
+                # never a number of our own - see `_decide_threads`.
+                extra["threads"] = self.threads
             if providers == (backends.CPU_PROVIDER,):
-                # **The CPU path is byte-for-byte what it was.** Passing a
-                # providers list that means "the default" would still be
-                # a new argument to somebody else's constructor on every
-                # machine that has no GPU at all.
+                # **The CPU path is what it was, plus the thread count when
+                # there is one.** Passing a providers list that means "the
+                # default" would still be a new argument to somebody else's
+                # constructor on every machine that has no GPU at all.
                 return ImageEmbedding(model_name=self.model_name,
-                                      cache_dir=self.cache_dir)
+                                      cache_dir=self.cache_dir, **extra)
             return ImageEmbedding(model_name=self.model_name,
                                    cache_dir=self.cache_dir,
-                                   providers=list(providers))
+                                   providers=list(providers), **extra)
 
         try:
             model, self.choice = backends.with_fallback(
@@ -232,11 +253,49 @@ class ClipImageEmbedder:
             self._problems.append(wanted.why)
 
         backends.record_provider("image model", self.choice)
+        self._model = model
         # 2026-10-05: a decoded picture passes through as it is (`fastembed`
         # takes one) - the pipeline's batches are upright pictures, not paths.
         self._encoder = lambda paths: model.embed(
             [p if hasattr(p, "convert") else str(p) for p in paths])
         return self._encoder
+
+    def _decide_threads(self) -> Optional[int]:
+        """The intra-op thread count to ask for, or None for the library's own.
+
+        2026-10-10, work order model-sequencing item 1d. Derived, never
+        invented: `envelope.picture_model_threads` on this machine's profile -
+        the logical processors less the extraction workers and the meaning
+        model, the same envelope the meaning model's own count comes from. A
+        profile the envelope cannot describe (no cores counted) answers None,
+        and the session is built exactly as it was before this existed. Never
+        raises: a thread count is a tuning, not a reason to fail to load.
+        """
+        if self._threads_wanted is not None:
+            wanted = int(self._threads_wanted)
+            return wanted if wanted > 0 else None
+        try:
+            from app.core.envelope import picture_model_threads
+
+            return picture_model_threads(self._resolved_profile())
+        except Exception as exc:                   # noqa: BLE001 - a tuning
+            _log.debug("the image model keeps its own thread count: {}", exc)
+            return None
+
+    def session_threads(self) -> Optional[int]:
+        """`intra_op_num_threads` as the loaded ONNX session holds it, or None
+        before the model loads (or for an injected encoder, which has no
+        session). 2026-10-10, item 1d: the order's acceptance is that this is
+        *read back* from the session, not inferred from what was passed in -
+        fastembed keeps its session at `ImageEmbedding.model.model`."""
+        inner = getattr(getattr(self._model, "model", None), "model", None)
+        options = getattr(inner, "get_session_options", None)
+        if options is None:
+            return None
+        try:
+            return int(options().intra_op_num_threads)
+        except Exception:                          # noqa: BLE001 - a diagnostic
+            return None
 
     def _resolved_profile(self) -> object:
         """The profile to decide against - the given one, or this machine's.

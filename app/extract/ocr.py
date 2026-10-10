@@ -198,6 +198,76 @@ _engine_attempts = 0
 #: a third one nobody chose.
 _device = "auto"
 
+#: Threads that call the one engine at the same time, in this process.
+#:
+#: **2026-10-10, work order model-sequencing item 1d.** `1` everywhere except
+#: the text-in-pictures helper (`app.index.ocr_process`), which reads
+#: `HELPER_THREADS` pictures side by side through this one engine and says so
+#: with `configure_callers` before the engine loads. An onnxruntime session's
+#: intra-op pool is shared by every call on it and each calling thread works
+#: inside its own call too, so `envelope.picture_model_threads` takes the extra
+#: callers off the session's own count. In the index process the callers are
+#: the extraction workers, which that function already charges, so `1` is right
+#: there.
+_callers = 1
+
+
+def configure_callers(count: int) -> None:
+    """Tell OCR how many threads call its engine at once (item 1d, 2026-10-10).
+
+    Takes effect on the next engine load, as `configure_device` does, for the
+    same reason: rebuilding three ONNX sessions mid-run to honour it would cost
+    more than it saves."""
+    global _callers
+    try:
+        _callers = max(1, int(count))
+    except (TypeError, ValueError):
+        _callers = 1
+
+
+def _threads() -> Optional[int]:
+    """Intra-op threads for each of the engine's three sessions, or None to
+    leave RapidOCR's own default (onnxruntime's: one per physical core).
+
+    2026-10-10, work order model-sequencing item 1d. From the same envelope as
+    the meaning model (`envelope.picture_model_threads`): what the processor
+    has left after the extraction workers and the meaning model, less the
+    helper's extra callers. A machine the envelope cannot describe answers
+    None and the engine is built exactly as before. Never raises: a thread
+    count is a tuning, not a reason to have no OCR.
+    """
+    try:
+        from app.core.envelope import picture_model_threads
+
+        return picture_model_threads(_profile(), callers=_callers)
+    except Exception as exc:                     # noqa: BLE001 - a tuning, not the job
+        log.debug("OCR keeps its own thread count: {}", exc)
+        return None
+
+
+def session_threads() -> list[int]:
+    """`intra_op_num_threads` as each loaded session holds it - detect,
+    classify, recognise - read back from onnxruntime, not from what was asked.
+    Empty before the engine loads, or for an engine with no sessions (a test's
+    fake). 2026-10-10, item 1d's acceptance: the count is *read back*. RapidOCR
+    1.4.4 wraps each onnxruntime session in an `OrtInferSession`, held at
+    `text_det.infer` and `text_cls.infer` but at `text_rec.session`; the
+    onnxruntime session is that wrapper's own `.session`."""
+    engine = _engine
+    found: list[int] = []
+    for part in ("text_det", "text_cls", "text_rec"):
+        stage = getattr(engine, part, None)
+        wrapper = getattr(stage, "infer", None) or getattr(stage, "session", None)
+        session = getattr(wrapper, "session", None)
+        options = getattr(session, "get_session_options", None)
+        if options is None:
+            continue
+        try:
+            found.append(int(options().intra_op_num_threads))
+        except Exception:                        # noqa: BLE001 - a diagnostic
+            continue
+    return found
+
 #: Order `pictures-process-isolation` (2026-10-09). When set, `ocr_image` hands
 #: every real picture to this callable and the engine is never loaded in this
 #: process: in the index process it is the text-in-pictures helper
@@ -290,13 +360,23 @@ def _load_engine() -> Any:
             # for the graphics card and lets the library refuse it. That is one
             # more fallback than `with_fallback` would give, not one fewer.
             choice = backends.choose(_profile(), _device)
+            options: dict = ({"det_use_dml": True, "cls_use_dml": True,
+                              "rec_use_dml": True} if choice.is_gpu else {})
+            # 2026-10-10, work order model-sequencing item 1d: RapidOCR's
+            # `Global.intra_op_num_threads`, which it copies to all three
+            # sessions (`UpdateParameters.update_global_to_module`, pinned
+            # 1.4.4; it ignores a value above `os.cpu_count()`). **Only when
+            # the envelope could say** - a machine it cannot describe gets no
+            # new argument, exactly as before.
+            threads = _threads()
+            if threads:
+                options["intra_op_num_threads"] = threads
             # **Only the three sessions' construction, gated on what was
             # asked for.** A second subsystem building its own ONNX/DirectML
             # session at the same moment is the access-violation in
             # `logs/crash/crash.log` (2026-09-07); see `gpu_serialize`.
             with gpu_exclusive(choice.is_gpu):
-                _engine = RapidOCR(**({"det_use_dml": True, "cls_use_dml": True,
-                                       "rec_use_dml": True} if choice.is_gpu else {}))
+                _engine = RapidOCR(**options)
             _engine_is_gpu = choice.is_gpu
             # A fresh engine deserves its own first warning if it later hits
             # transient GPU trouble - see `_warned_transient_gpu` above.
