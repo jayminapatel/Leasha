@@ -134,8 +134,10 @@ from app.index.walker import (
     WalkConfig,
     enclosing_repo,
     has_changed,
+    first_subtrees,
     repo_kind_at,
     walk,
+    walk_first,
 )
 from app.storage.filters import MAIL_KINDS
 from app.storage.sqlite_store import ChunkRecord, FileStatus, SqliteStore
@@ -1154,6 +1156,68 @@ def _candidate_parent_dir(candidate: "Candidate") -> str:
 
 
 _STOP = object()
+
+#: 2026-10-10 (W1): yielded once by `_candidates(mark_first_band=True)`, between
+#: the files of the folders marked "Index this folder first" and the rest of
+#: the walk. Never queued; `_produce` acts on it and moves on.
+_FIRST_BAND_END = object()
+
+
+class _BandFeed:
+    """The folders marked "first", sorted, going onto the work queue while the
+    rest of the walk goes on - 2026-10-10, review item W1.
+
+    **Never waits during the walk** (`offer`). The queue is bounded, and a
+    walker blocked on a full queue would hold the scan of the whole corpus
+    behind the reading of the marked folders - the opposite of the point. So
+    each `offer` puts what fits and returns, and the walk calls it again with
+    the next file it finds. Once the walk is over, `drain` puts the rest,
+    waiting for room as `_read_in_order` does, before anything else is queued.
+
+    Sequence numbers run on from here into `_read_in_order`, so no two queue
+    entries ever share `(priority, sequence)` - a ledger re-queue has priority
+    0 too, and a tie there would make the queue compare two `Candidate`s.
+    """
+
+    def __init__(self, entries: Iterator[tuple[Candidate, Any]]) -> None:
+        self._entries = entries
+        self._pending: Optional[tuple] = None
+        self.sequence = 0
+        self.queued = 0
+        self.done = False
+
+    def _next(self) -> bool:
+        if self._pending is None:
+            entry = next(self._entries, None)
+            if entry is None:
+                self.done = True
+                return False
+            candidate, decision = entry
+            self.sequence += 1
+            self._pending = (candidate.priority, self.sequence, candidate, decision)
+        return True
+
+    def offer(self, work: queue.PriorityQueue) -> None:
+        """Put as many as fit, without waiting."""
+        while not self.done and not work.full() and self._next():
+            try:
+                work.put_nowait(self._pending)
+            except queue.Full:
+                return
+            self._pending = None
+            self.queued += 1
+
+    def drain(self, pipeline: "Pipeline", work: queue.PriorityQueue,
+              stats: IndexStats) -> bool:
+        """Put the rest, waiting for room. False if the run stopped."""
+        while self._next():
+            if pipeline._stop.is_set() or not pipeline._governor_allows(stats):
+                return False
+            if not pipeline._queue_work(work, self._pending):
+                return False
+            self._pending = None
+            self.queued += 1
+        return True
 
 #: How far the consumer may run ahead of the feeder thread, in whole batches
 #: waiting in the handoff queue. One: the feeder is always working on a batch
@@ -2531,6 +2595,11 @@ class Pipeline:
         `found` streams each file into the queue as the walk finds it. `newest`
         walks to the end first, keeping only what needs reading, then sorts
         that list and queues it in order - `_read_in_order`.
+
+        *2026-10-10 (W1):* except the folders marked "Index this folder
+        first", which are walked before everything else, sorted on their own
+        and read while the rest is walked (`_BandFeed`) - they sort first
+        whatever the rest of the walk finds, so nothing about the order moves.
         """
         from app.index.archives import files_under
 
@@ -2540,6 +2609,19 @@ class Pipeline:
         roots = list(self.config.walk.roots)
         ordered = normalise_order(self.config.read_order) == ORDER_NEWEST
         worklist = WorkList(self._spill_dir()) if ordered else None
+        #: 2026-10-10, review item W1. In the "newest" order nothing was read
+        #: until the whole walk had ended - 538 seconds of idle readers on the
+        #: owner's 137,803 files that morning. The folders marked "Index this
+        #: folder first" sort ahead of every other file whatever the walk
+        #: finds later (priority 0, 1, ... against 100), so they are walked
+        #: first, sorted on their own, and read while the rest is walked
+        #: (`_BandFeed`). Their order and the order of everything after them
+        #: are exactly what one sorted list gave. A run given its files (the
+        #: folder watch) has no walk to go ahead of.
+        band = (WorkList(self._spill_dir())
+                if ordered and self.config.candidate_source is None
+                and first_subtrees(self.config.walk) else None)
+        feed: Optional[_BandFeed] = None
         #: 2026-10-04, the owner: "file list comes up first". The names of the
         #: files the scan finds to read, written in batches as it goes
         #: (`store.add_waiting_files`), so the Files page lists them before
@@ -2549,10 +2631,23 @@ class Pipeline:
         halted = False
         next_ask = 0.0
         try:
-            for candidate in self._candidates():
+            for candidate in self._candidates(mark_first_band=band is not None):
                 if self._stop.is_set():
                     halted = True
                     break
+                if candidate is _FIRST_BAND_END:
+                    # The marked folders are walked: their names first, as
+                    # every name is listed before its file is read, then their
+                    # sorted order starts going onto the queue.
+                    self._write_waiting(waiting)
+                    feed = _BandFeed(band.sorted())
+                    self._log.info(
+                        "the folders marked first are walked: {:,} file(s) to read "
+                        "first, read while the rest is scanned", len(band))
+                    feed.offer(work)
+                    continue
+                if feed is not None and not feed.done:
+                    feed.offer(work)
                 # `_candidates` and the walker have already recorded this path
                 # in the same set - see M17. Kept as a no-op `add` rather than
                 # removed, because `_produce` is also called with a private set
@@ -2599,7 +2694,9 @@ class Pipeline:
                     continue
 
                 if worklist is not None:
-                    worklist.add(candidate, decision)
+                    # Into the marked folders' own list while they are walked.
+                    (band if band is not None and feed is None
+                     else worklist).add(candidate, decision)
                     waiting.append(_waiting_row(candidate))
                     if len(waiting) >= WAITING_BATCH:
                         self._write_waiting(waiting)
@@ -2612,7 +2709,7 @@ class Pipeline:
                 self._queue_work(work, (candidate.priority, sequence, candidate, decision))
             self._write_waiting(waiting)
             if worklist is not None and not halted and not self._stop.is_set():
-                sequence = self._read_in_order(work, stats, worklist)
+                sequence = self._read_in_order(work, stats, worklist, band=feed)
         except Exception as exc:                # noqa: BLE001 - a walker crash must not hang the run
             # Loud, and recorded in the stats. The silent version of this cost a
             # whole run: it logged one line nobody saw and reported success.
@@ -2625,6 +2722,8 @@ class Pipeline:
         finally:
             if worklist is not None:
                 worklist.close()
+            if band is not None:
+                band.close()
             # **`seen` only becomes a real total here.** Until the walk ends it
             # is "what has been found so far", and because the work queue is
             # bounded the walker can never run more than a queue-length ahead of
@@ -2660,7 +2759,7 @@ class Pipeline:
         waiting.clear()
 
     def _read_in_order(self, work: queue.PriorityQueue, stats: IndexStats,
-                       worklist: WorkList) -> int:
+                       worklist: WorkList, *, band: Optional[_BandFeed] = None) -> int:
         """The scan is over: sort what it found and queue it. Returns the last
         sequence number used, for the stop markers after it.
 
@@ -2675,6 +2774,11 @@ class Pipeline:
         decision is carried here, and where all it lacked was the hash it says
         so (`HashDeferred`); only that hash is taken (`_check_deferred_hash`).
         A file never seen is hashed by its reader, as since 2026-10-04.
+
+        *2026-10-10 (W1):* `band` is the folders marked "first", already going
+        onto the queue while the walk went on; whatever of it is not queued yet
+        is queued here, before anything from `worklist`, and the sequence
+        numbers carry on from it.
         """
         stats.walk_complete = True
         self._clock.add_worker("walk", time.perf_counter() - self._run_started_pc)
@@ -2688,6 +2792,11 @@ class Pipeline:
         stats.phase = PHASE_READING
         stats.activity.record(KIND_PHASE, PHASE_READING)
         sequence = 0
+        if band is not None:
+            finished = band.drain(self, work, stats)
+            sequence = band.sequence
+            if not finished:
+                return sequence
         if first is None:
             return sequence
         for candidate, decision in itertools.chain((first,), entries):
@@ -3182,7 +3291,7 @@ class Pipeline:
             except Exception as exc:      # detection may never fail a run
                 self._log.warning("could not record repository {}: {}", root, exc)
 
-    def _candidates(self) -> Iterator[Candidate]:
+    def _candidates(self, *, mark_first_band: bool = False) -> Iterator[Any]:
         """Every file this run looks at, in the order the walker thread sees it.
 
         The walk of `config.walk.roots` first, then the files read back from
@@ -3237,7 +3346,18 @@ class Pipeline:
         # prune pass reads it at the end.
         seen = self._seen_paths
 
-        yield from walk(self.config.walk, seen)
+        if mark_first_band:
+            # 2026-10-10 (W1): the folders marked "first" are walked before the
+            # rest, and `_FIRST_BAND_END` says where they stop, so `_produce`
+            # can start reading them while the rest is walked. The rest of the
+            # walk passes over the folders already walked (`entered`); their
+            # files are in `seen` whatever happens.
+            entered: set[str] = set()
+            yield from walk_first(self.config.walk, seen, entered)
+            yield _FIRST_BAND_END
+            yield from walk(self.config.walk, seen, skip_dirs=frozenset(entered))
+        else:
+            yield from walk(self.config.walk, seen)
 
         for candidate in (*retry, *scanned):
             # `path_key`, the walker's own key (order 0x 7b) - see

@@ -875,3 +875,80 @@ def test_the_compiled_exclusion_globs_decide_what_fnmatch_decided() -> None:
         expected = any(fnmatch.fnmatch(name.lower(), glob.lower()) for glob in globs)
         assert _matches_any(name, globs) is expected, name
     assert _matches_any("anything", []) is False
+
+
+# --- 2026-10-10, review item W1: the folders marked first, walked first -----
+
+def _first_then_rest(config: WalkConfig) -> tuple[list[Candidate], list[Candidate]]:
+    from app.index.walker import walk_first
+
+    seen: set[str] = set()
+    entered: set[str] = set()
+    first = list(walk_first(config, seen, entered))
+    rest = list(walk(config, seen, skip_dirs=frozenset(entered)))
+    return first, rest
+
+
+def test_walking_the_marked_folders_first_yields_exactly_the_same_files(tmp_path: Path) -> None:
+    make_tree(tmp_path, {
+        "a.txt": "x", "Projects/Current/one.txt": "xx", "Projects/Current/deep/two.txt": "xxx",
+        "Projects/old.txt": "x", "Archive/2019/three.txt": "x", "Archive/four.txt": "x",
+    })
+    plain = list(walk(WalkConfig(roots=[tmp_path], extensions=TEXT,
+                                 priority_roots=[tmp_path / "Projects" / "Current",
+                                                 tmp_path / "Archive"])))
+    # Typed in another letter case: on Windows the walk must still produce the
+    # disk's own spelling, because a file's path text is its row's key.
+    marked = ([Path(str(tmp_path / "projects" / "current")), tmp_path / "Archive"]
+              if os.name == "nt" else [tmp_path / "Projects" / "Current", tmp_path / "Archive"])
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT, priority_roots=marked)
+    first, rest = _first_then_rest(config)
+
+    assert sorted(str(c.path) for c in first + rest) == sorted(str(c.path) for c in plain)
+    assert {str(c.path): c for c in first + rest} == {str(c.path): c for c in plain}
+    assert [c.priority for c in first] == sorted(c.priority for c in first)
+    assert {c.path.name for c in first} == {"one.txt", "two.txt", "three.txt", "four.txt"}
+    assert all(c.priority == 100 for c in rest)
+
+
+def test_a_marked_folder_the_walk_would_not_enter_is_not_walked_first(tmp_path: Path) -> None:
+    make_tree(tmp_path, {"node_modules/pkg/readme.txt": "x", "keep.txt": "x",
+                         "elsewhere.txt": "x"})
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT,
+                        priority_roots=[tmp_path / "node_modules" / "pkg",
+                                        tmp_path / "not-there",
+                                        tmp_path.parent / "outside-every-root"])
+    first, rest = _first_then_rest(config)
+    assert first == []
+    assert names(rest) == {"keep.txt", "elsewhere.txt"}
+
+
+def test_a_marked_file_and_nested_marked_folders(tmp_path: Path) -> None:
+    make_tree(tmp_path, {"A/one.txt": "x", "A/B/two.txt": "x", "A/B/C/three.txt": "x",
+                         "loose.txt": "x", "z.txt": "x"})
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT,
+                        priority_roots=[tmp_path / "A" / "B", tmp_path / "A",
+                                        tmp_path / "A" / "B" / "C", tmp_path / "loose.txt"])
+    first, rest = _first_then_rest(config)
+    by_name = {c.path.name: c.priority for c in first}
+    assert by_name == {"two.txt": 0, "three.txt": 0, "one.txt": 1, "loose.txt": 3}
+    assert names(rest) == {"z.txt"}
+    assert len(first) == len({c.path for c in first}), "nothing yielded twice"
+
+
+def test_a_marked_folder_inside_a_repository_is_attributed(tmp_path: Path) -> None:
+    """The repository is noticed on the way down to the marked folder, before
+    any of its files is yielded - as the full walk notices it on its way past."""
+    marker = "." + "git"
+    make_tree(tmp_path, {"code/app/src/main.txt": "x", f"code/app/{marker}/HEAD": "ref"})
+    sink: dict[str, str] = {}
+    config = WalkConfig(roots=[tmp_path], extensions=TEXT, repo_sink=sink,
+                        priority_roots=[tmp_path / "code" / "app" / "src"])
+    from app.index.walker import walk_first
+
+    found = []
+    for candidate in walk_first(config, set(), set()):
+        found.append(candidate.path.name)
+        assert str(tmp_path / "code" / "app") in sink
+    assert found == ["main.txt"]
+    assert sink[str(tmp_path / "code" / "app")] == "work"
