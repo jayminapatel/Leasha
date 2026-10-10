@@ -649,6 +649,9 @@
     <Compile Include="tests\unit\test_attachments_on_files_tab.py" />
     <Compile Include="tests\unit\test_autotune.py" />
     <Compile Include="tests\unit\test_backends.py" />
+    <Compile Include="tests\unit\test_backlog_first_folders.py" />
+    <Compile Include="tests\unit\test_backlog_order.py" />
+    <Compile Include="tests\unit\test_batch_write_lock.py" />
     <Compile Include="tests\unit\test_between_dates.py" />
     <Compile Include="tests\unit\test_brand_colours.py" />
     <Compile Include="tests\unit\test_button_system.py" />
@@ -800,6 +803,7 @@
     <Compile Include="tests\unit\test_formats.py" />
     <Compile Include="tests\unit\test_fts_bulk_recovery.py" />
     <Compile Include="tests\unit\test_fts_deferred_writes.py" />
+    <Compile Include="tests\unit\test_fts_merge_in_steps.py" />
     <Compile Include="tests\unit\test_fts_planner_statistics.py" />
     <Compile Include="tests\unit\test_fusion.py" />
     <Compile Include="tests\unit\test_generation_bump.py" />
@@ -854,6 +858,7 @@
     <Compile Include="tests\unit\test_junctions.py" />
     <Compile Include="tests\unit\test_junk_images.py" />
     <Compile Include="tests\unit\test_jvm_and_warnings.py" />
+    <Compile Include="tests\unit\test_keyword_only_index.py" />
     <Compile Include="tests\unit\test_late_labels.py" />
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
@@ -886,6 +891,8 @@
     <Compile Include="tests\unit\test_media_open.py" />
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
+    <Compile Include="tests\unit\test_media_tail_end.py" />
+    <Compile Include="tests\unit\test_message_index_trigger.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_mini_search_box.py" />
     <Compile Include="tests\unit\test_model_catalogue.py" />
@@ -956,6 +963,7 @@
     <Compile Include="tests\unit\test_photo_tagger_wording.py" />
     <Compile Include="tests\unit\test_photo_tags.py" />
     <Compile Include="tests\unit\test_photo_tags_at_run_end.py" />
+    <Compile Include="tests\unit\test_photos_beside_meaning.py" />
     <Compile Include="tests\unit\test_photos_page.py" />
     <Compile Include="tests\unit\test_photos_smooth.py" />
     <Compile Include="tests\unit\test_photos_worker.py" />
@@ -1086,6 +1094,7 @@
     <Compile Include="tests\unit\test_startup_import_order.py" />
     <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_status_two_columns.py" />
+    <Compile Include="tests\unit\test_stop_finishes_the_batch.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_stop_run_off_ui_thread.py" />
     <Compile Include="tests\unit\test_storage_code_review.py" />
@@ -1128,11 +1137,13 @@
     <Compile Include="tests\unit\test_ui_review_0x9.py" />
     <Compile Include="tests\unit\test_ui_review_polish.py" />
     <Compile Include="tests\unit\test_ui_stays_responsive.py" />
+    <Compile Include="tests\unit\test_unchanged_passages_keep_vectors.py" />
     <Compile Include="tests\unit\test_unexpected_skip_is_logged.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
     <Compile Include="tests\unit\test_vector_compaction.py" />
     <Compile Include="tests\unit\test_vector_drop_locked.py" />
     <Compile Include="tests\unit\test_vector_filters.py" />
+    <Compile Include="tests\unit\test_vector_index_state.py" />
     <Compile Include="tests\unit\test_vector_store_deferred.py" />
     <Compile Include="tests\unit\test_view_menu_follows_the_tab.py" />
     <Compile Include="tests\unit\test_view_options.py" />
@@ -1141,6 +1152,7 @@
     <Compile Include="tests\unit\test_vision_caption.py" />
     <Compile Include="tests\unit\test_volume_picker.py" />
     <Compile Include="tests\unit\test_vs_project.py" />
+    <Compile Include="tests\unit\test_wal_checkpoint.py" />
     <Compile Include="tests\unit\test_walker.py" />
     <Compile Include="tests\unit\test_walker_sees_every_tier.py" />
     <Compile Include="tests\unit\test_what_gets_read_qt.py" />
@@ -1156,6 +1168,7 @@
     <Compile Include="tests\unit\test_worker_signal_owner.py" />
     <Compile Include="tests\unit\test_write_batching.py" />
     <Compile Include="tests\unit\test_write_groups.py" />
+    <Compile Include="tests\unit\test_writer_path_review.py" />
     <Compile Include="tests\unit\timeline_env.py" />
     <Compile Include="tools\__init__.py" />
     <Compile Include="tools\extract_speed.py" />

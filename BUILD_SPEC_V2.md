@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.17 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 2.18 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -374,10 +374,15 @@ done once, treat Layer 2 as code-complete but not signed off.
   and happens before anything could open the file.
 - `pipeline.py` — **[BUILT]** bounded producer/consumer:
   - walker → work queue (bounded, for backpressure)
-  - N extraction workers (CPU count − 1)
-  - one embedding worker, batching 64 chunks per `embed()` call — **not parallelised on
-    purpose**: ONNX already uses every core inside one call, so several would contend
-  - one writer (SQLite writes are serialised; LanceDB appends in batches of 1000)
+  - N extraction workers (half the cores, at most 4; `--full-speed` CPU count − 1), which
+    also take the hash of a file whose date moved, so the walker thread never reads a file
+  - one embedding worker (the feeder), batching 64-256 chunks per `embed()` call by memory —
+    **not parallelised on purpose**: ONNX already uses every core inside one call, so
+    several would contend
+  - one writer (SQLite writes are serialised, in groups of up to 256 documents; LanceDB
+    appends one embed batch at a time)
+  - one picture worker while reading lasts: a photo's CLIP vector, pHash, faces and video
+    frames, so a text document is never written behind a photo
   - cursor committed to `index_state` every N files, so a crash costs seconds, not hours.
     **Resumability is the `files` table, not the cursor**: a restart re-walks and skips what is
     already `INDEXED` for the cost of a `stat()`. That is more robust than a saved offset, which

@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.14 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 2.15 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -126,7 +126,7 @@ was a native crash).
 Built since: folder watching (`app.cli watch`, a child process started from the Indexing page,
 off by default); the Indexing page *What gets read*, with `MAIL_ATTACHMENTS` deciding what is read
 from an email attachment; the Chat tab (`app/chat`); and local models on ONNX Runtime
-(`app/ort`). The schema is at `CURRENT_VERSION = 34`. `docs/TECHNICAL_REFERENCE.html` describes
+(`app/ort`). The schema is at `CURRENT_VERSION = 36`. `docs/TECHNICAL_REFERENCE.html` describes
 the architecture as it stands; where it and this document disagree on an authority question, this
 document wins and should be corrected.
 

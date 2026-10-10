@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.99 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.100 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,33 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Indexing spends the model's time on what is new, and reads sooner (2026-10-10)
+
+- **A file read again keeps the passages whose words did not change, and their meaning.** A document saved again with
+  the same words, or "Read again", used to send every passage back to the meaning model, which is most of a run's time.
+  Only new or changed passages go now: a forced re-read of 500 unchanged documents went from 3,389 passages to none.
+- **Mail archives that Outlook has opened are no longer read through again** just because their messages were waiting
+  for meaning. Messages already in the index are passed over by their read stamp.
+- **A file's meaning could be lost** when a run filled in only some of its passages: the other passages' vectors were
+  deleted. Fixed.
+- **Meaning goes to your "read first" folders, then your newest files, first**, when a run starts with passages still
+  waiting. It went to the oldest first.
+- **Reading starts before the whole drive has been walked** when folders are marked "read first": they are walked first
+  and read straight away (first file in under a second on a 50,000-file test tree, from 27 s).
+- **Walking is about twice as fast**, and a folder restored from a backup, with new dates and the same contents, is
+  checked once rather than at every run.
+- **Photos no longer hold up text.** Their picture search, faces and duplicate check run beside the writer, so the
+  documents read after a photo become searchable without waiting for it.
+- **Photo descriptions and picture text can run while the meaning model catches up**, when they use the graphics card
+  and the meaning model uses the processor.
+- **Stopping or closing is quicker:** a stopped run no longer rebuilds the vector index or merges the word index on its
+  way out, and a batch that is nearly done is finished rather than thrown away.
+- **The window is not held up by index upkeep:** the word index is merged in short steps, the database's log is kept
+  small, and counting keyword-only passages is instant (an index is built once when the index is first opened).
+- **Clean-ups:** a deleted picture's picture-search entry is removed with it; mail read stamps no longer rewrite the
+  mail index; an index build that failed is retried, and said in the log.
+- Schema 36.
 
 ### Settings you cannot get wrong, and an engine switch that applies at once (2026-10-10)
 
