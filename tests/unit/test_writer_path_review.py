@@ -117,6 +117,34 @@ def ocr_reads(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# P2. The gate before the hash
+# ---------------------------------------------------------------------------
+
+def test_a_picture_the_text_pass_holds_is_not_hashed(tmp_path, monkeypatch):
+    from app.index import walker
+
+    root = tmp_path / "docs"
+    photo = _png(root / "held.png")
+    letter = _write(root / "a.txt", "pump station")
+    hashed: list[str] = []
+    real = walker.content_hash
+
+    def spy(path, **kwargs):
+        hashed.append(Path(path).name)
+        return real(path, **kwargs)
+
+    monkeypatch.setattr(walker, "content_hash", spy)
+    with SqliteStore(tmp_path / "index.db") as store:
+        stats = _pipeline(store, [root], ocr_mode="text").run()
+        held = store.get_file(str(photo))
+        read = store.get_file(str(letter))
+    assert stats.skipped_by_code.get("ERR_OCR_HELD") == 1
+    assert hashed == ["a.txt"], "only the file that is read is hashed"
+    assert held.status == FileStatus.SKIPPED and held.content_hash is None
+    assert read.content_hash
+
+
+# ---------------------------------------------------------------------------
 # P3. Both vector stores on a delete
 # ---------------------------------------------------------------------------
 

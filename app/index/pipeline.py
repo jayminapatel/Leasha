@@ -4231,6 +4231,25 @@ class Pipeline:
         is visible, an interrupted run keeps what it read, and a search result
         names the email rather than the archive it came from.
         """
+        # 2026-10-10, review P2: **the gate before the hash, not after it.** A
+        # new file's blake2b is a read of every byte, and it was taken here
+        # first - so a video the gate defers to the tail (`ERR_MEDIA_BACKLOG`)
+        # or a picture or film a text pass holds (`ERR_OCR_HELD`,
+        # `ERR_MEDIA_HELD`) was read end to end, gigabytes for a film, only to
+        # be put aside unread. What that digest bought on the held row: the
+        # next run's `robocopy` check (`walker.has_changed` compares it when the
+        # date moves) and the Space report's duplicates, both of which a row
+        # with no hash answers correctly - the first says "changed", and a
+        # changed held file is held again at the cost of one row write, which is
+        # less than the read it replaces; the second leaves the file out until
+        # the pass that reads it hashes it, which is the same run's tail or its
+        # images pass. A digest `_classify` already took (a known row whose
+        # date moved) is passed on unchanged, as before.
+        held = self._ocr_gate(candidate)
+        if held is not None:
+            yield _Extracted(candidate, digest, error=held)
+            return
+
         if digest is None and not reads_externally(candidate.path):
             try:
                 # Through the walker module, where the change check's own hash
@@ -4241,11 +4260,6 @@ class Pipeline:
                 yield _Extracted(candidate, None, error=to_app_error(
                     exc, "index.pipeline", code="ERR_FILE_LOCKED", path=str(candidate.path)))
                 return
-
-        held = self._ocr_gate(candidate)
-        if held is not None:
-            yield _Extracted(candidate, digest, error=held)
-            return
 
         # Work order 0w §2a. After the gate, not before it: a video the gate
         # queues for the tail is not being read now, and a line saying it was
