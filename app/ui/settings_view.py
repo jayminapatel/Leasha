@@ -85,6 +85,10 @@ class SettingsView(SettingsShelves, QWidget):
     #: The meaning-model flow. Same shape and the same reason: it invalidates
     #: every vector, so it states the cost and confirms rather than applying.
     rebuild_vectors_requested = Signal()
+    #: The models folder: a folder picker, then a note that the models already
+    #: downloaded stay where they are. Set in `.env`, applied on the next start.
+    model_cache_requested = Signal()
+    model_cache_reset_requested = Signal()
     rerank_toggled = Signal(bool)
 
     cloud_toggled = Signal(bool)

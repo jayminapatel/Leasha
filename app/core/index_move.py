@@ -202,12 +202,48 @@ def _same_volume(a: Path, b: Path) -> bool:
     return os.path.splitdrive(str(a))[0].lower() == os.path.splitdrive(str(b))[0].lower()
 
 
-def plan_move(source: Path, destination: Path, action: str) -> MoveReport:
+def models_stay_put(source: Path, model_cache: Optional[Path]) -> bool:
+    """True when the models folder was chosen in Settings, away from the index.
+
+    Such a folder is not part of the index: it is downloads, rebuilt on demand,
+    and somebody who sent it to another drive meant that. So a move leaves it
+    where it is and keeps its `.env` line. The default - the models inside the
+    index folder - is not a choice and moves with the index as before.
+    """
+    if model_cache is None or not str(model_cache).strip():
+        return False
+    try:
+        return Path(model_cache).resolve() != (Path(source) / "models").resolve()
+    except OSError:
+        # Cannot tell where it is: leave it alone rather than move something
+        # somebody may have put on purpose.
+        return True
+
+
+def _pinned_model_cache(env_file: Path) -> Optional[Path]:
+    """The `MODEL_CACHE` value in `.env`, or None. Never raises."""
+    try:
+        text = Path(env_file).read_text(encoding="utf-8-sig")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        key, sep, value = line.strip().partition("=")
+        if sep and key.strip() == "MODEL_CACHE" and value.strip().strip('"\'').strip():
+            return Path(value.strip().strip('"\''))
+    return None
+
+
+def plan_move(
+    source: Path, destination: Path, action: str, *, keep_models: bool = False,
+) -> MoveReport:
     """What `perform_move` would do, without touching anything.
 
     Raises `ERR_CONFIG_INVALID` for a request that cannot be honoured, so the
     caller finds out before any file has been touched rather than half way
     through.
+
+    `keep_models` means the models folder is a separate choice (see
+    `models_stay_put`): its subdirectory is not moved and its `.env` line is kept.
     """
     source = Path(source)
     destination = Path(destination)
@@ -258,7 +294,10 @@ def plan_move(source: Path, destination: Path, action: str) -> MoveReport:
     present: tuple[str, ...] = ()
     size = 0
     if action == MOVE:
-        present = tuple(name for name in INDEX_SUBDIRS if (source / name).is_dir())
+        present = tuple(
+            name for name in INDEX_SUBDIRS
+            if (source / name).is_dir() and not (keep_models and name == "models")
+        )
         if not present:
             raise_error(
                 "ERR_CONFIG_INVALID", "core.index_move",
@@ -274,9 +313,14 @@ def plan_move(source: Path, destination: Path, action: str) -> MoveReport:
         moved=present,
         bytes_moved=size,
         same_volume=_same_volume(source, destination),
-        env_keys_removed=DERIVED_KEYS,
+        env_keys_removed=_keys_removed(keep_models),
         performed=False,
     )
+
+
+def _keys_removed(keep_models: bool) -> tuple[str, ...]:
+    """The derived keys a move removes from `.env`; MODEL_CACHE only if not kept."""
+    return tuple(key for key in DERIVED_KEYS if not (keep_models and key == "MODEL_CACHE"))
 
 
 def perform_move(
@@ -294,7 +338,8 @@ def perform_move(
     been lost. Writing `.env` first and then failing is the case that orphans an
     index, which is the bug this module was written to fix.
     """
-    plan = plan_move(source, destination, action)
+    keep = models_stay_put(source, _pinned_model_cache(env_file))
+    plan = plan_move(source, destination, action, keep_models=keep)
     say = on_progress or (lambda message: None)
 
     if action == MOVE:
@@ -312,7 +357,7 @@ def perform_move(
     # rewritten.** Removing makes them derive from DATA_PATH, so this is the
     # last time anybody has to think about them. See the module docstring.
     values: dict[str, object] = {"DATA_PATH": str(destination)}
-    for key in DERIVED_KEYS:
+    for key in _keys_removed(keep):
         values[key] = None
     apply_values(Path(env_file), values)
     say(f"Configuration updated: DATA_PATH={destination}")
@@ -327,7 +372,7 @@ def perform_move(
         moved=plan.moved,
         bytes_moved=plan.bytes_moved,
         same_volume=plan.same_volume,
-        env_keys_removed=DERIVED_KEYS,
+        env_keys_removed=_keys_removed(keep),
         performed=True,
     )
 

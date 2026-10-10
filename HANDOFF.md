@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.132 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.133 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,16 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-10 - the models folder is a setting of its own (owner: "separate model settings").** `MODEL_CACHE` was derived
+from `DATA_PATH` and had no control, so the models could only move with the index. Now Storage has a Models folder row
+(`app/ui/widgets/storage_box.py`, objectName `MODEL_CACHE`) with change and reset buttons; the controller writes the key
+through `apply_values` and it takes effect after a restart. Models already downloaded are not moved. `MODEL_CACHE` left
+`NOT_SETTINGS` in `tests/unit/test_settings_registry.py` and joined the registry as a path with `DERIVED_PATHS` exempting it
+from `protected()`, because removing it falls back to the models folder inside the index. `index_move` now keeps a models
+folder chosen elsewhere (`models_stay_put`, `keep_models` in `plan_move`), so a move neither moves that folder nor removes
+its line. Tests: `tests/unit/test_models_folder.py`. **Not verified:** the two Qt buttons' folder dialog and confirmation
+were not clicked through; the storage box was built offscreen and its signals checked. Uncommitted when written.
 
 **2026-10-10 - the Claude Desktop entry is removed by Claude Desktop itself (3.1), and Gemini CLI is a fifth local program (3.2).** Evidence: Claude Desktop had been running since 01:58; Leasha's Connect wrote the entry at 07:28:02; at 07:38:13 Claude Desktop wrote its MCP tool-toggles file and, one second later, `claude_desktop_config.json` with no Leasha entry. The likely cause is that it saved the copy it loaded at start-up. Not proven here. Fix: after a Connect, Leasha says so when Claude Desktop was already running (`started_before`), and the box re-reads the states every five seconds. The owner must quit and start Claude Desktop after Connect. Gemini CLI: `~/.gemini/settings.json`, `httpUrl` with a header; Gemini CLI is not installed on this computer, so that shape is UNVERIFIED. Uncommitted when written.
 

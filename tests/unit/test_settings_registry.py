@@ -41,7 +41,6 @@ NOT_SETTINGS: dict[str, str] = {
     "VECTOR_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
     "FTS_DB": "derived from DATA_PATH; splitting the index across drives silently breaks it",
     "CACHE_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
-    "MODEL_CACHE": "derived from DATA_PATH; splitting the index across drives silently breaks it",
     "STATE_PATH": "derived from DATA_PATH; splitting the index across drives silently breaks it",
     "PROJECT_PATH": "where the application itself lives; not a preference",
     "LOG_PATH": "where the application itself logs; not a preference",

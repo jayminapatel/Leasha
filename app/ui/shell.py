@@ -887,6 +887,8 @@ class MainWindow(QMainWindow):
                 chat_ctl.attach_settings()
             self.settings_view.move_index_requested.connect(self._change_index_location)
             self.settings_view.rebuild_vectors_requested.connect(self._change_meaning_model)
+            self.settings_view.model_cache_requested.connect(self._change_model_cache)
+            self.settings_view.model_cache_reset_requested.connect(self._reset_model_cache)
             self.settings_view.error.connect(self._show_error)
             self.settings_view.file_types.changes_saved.connect(self._file_types_saved)
             self.settings_view.environment.set_recording_status(
@@ -1044,6 +1046,12 @@ class MainWindow(QMainWindow):
 
     def _change_meaning_model(self) -> None:
         self.settings_ctl._change_meaning_model()
+
+    def _change_model_cache(self) -> None:
+        self.settings_ctl._change_model_cache()
+
+    def _reset_model_cache(self) -> None:
+        self.settings_ctl._reset_model_cache()
 
     def _chunk_count(self) -> int:
         return self.settings_ctl._chunk_count()

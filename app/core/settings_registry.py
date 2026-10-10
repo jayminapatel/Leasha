@@ -958,6 +958,14 @@ SETTINGS: tuple[Setting, ...] = (
              "flow offers move, use existing, or start new.",
     ),
     Setting(
+        key="MODEL_CACHE", label="Models folder", kind="path", default="",
+        group="Storage", surface="settings.storage", restart=True,
+        help="Where the downloaded models are kept: the meaning model, the "
+             "reranker, the photo describer and the chat model. Empty keeps them "
+             "in the index folder. Changing it does not move the models already "
+             "downloaded - the new folder is filled as each model is needed.",
+    ),
+    Setting(
         key="REQUIRED_FREE_GB", label="Free space needed to index", kind="int",
         default=300, group="Tuning", surface="indexing.tuning",
         minimum=1, maximum=10000, unit="GB",
@@ -1042,17 +1050,26 @@ LOCATION_KEYS: frozenset[str] = frozenset({
 })
 
 
+#: Path settings with no default that do fall back to something. Removing the
+#: line is an operation, not a loss: `MODEL_CACHE` goes back to the models folder
+#: inside the index. It is in `SETTINGS` (so it can be shown and changed) and
+#: must not be guarded like `DATA_PATH`, which has nothing to fall back to.
+DERIVED_PATHS: frozenset[str] = frozenset({"MODEL_CACHE"})
+
+
 def protected() -> frozenset[str]:
     """Keys nothing may remove from `.env`. See the note above.
 
     Two sources, deliberately. The registry contributes anything `destructive`
-    or any path with no usable default; `LOCATION_KEYS` contributes the ones
-    that never reached the registry at all. A key belongs here when removing it
-    leaves nothing to fall back to.
+    or any path with no usable default (other than `DERIVED_PATHS`);
+    `LOCATION_KEYS` contributes the ones that never reached the registry at all.
+    A key belongs here when removing it leaves nothing to fall back to.
     """
     from_registry = frozenset(
         setting.key for setting in SETTINGS
-        if setting.destructive or (setting.kind == "path" and not setting.default)
+        if setting.destructive or (
+            setting.kind == "path" and not setting.default
+            and setting.key not in DERIVED_PATHS)
     )
     return from_registry | LOCATION_KEYS
 

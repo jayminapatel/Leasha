@@ -150,16 +150,17 @@ class SettingsController(QObject):
         # On the ordered state-write pool (2026-10-08 review): `plan_move`
         # walks the index folder and `write_pending` writes a file, and both
         # ran on the UI thread. The field is updated once the plan is written.
-        from app.core.index_move import plan_move, write_pending
+        from app.core.index_move import models_stay_put, plan_move, write_pending
         from app.ui.state_writes import start
 
         data_path = Path(self._w._settings.data_path)
         project_path = Path(self._w._settings.project_path)
         destination, action = choice.destination, choice.action
+        keep_models = models_stay_put(data_path, Path(self._w._settings.model_cache))
 
         def record() -> None:
             """Worker body: plan the move and write the pending decision."""
-            plan_move(data_path, destination, action)
+            plan_move(data_path, destination, action, keep_models=keep_models)
             write_pending(project_path, action, destination)
 
         start(CallableWorker(record, component="ui.settings.move"), owner=self._w,
@@ -235,6 +236,64 @@ class SettingsController(QObject):
                   "EMBED_MODEL": chosen_model,
                   "EMBED_DIM": str(chosen_dim),
               }, component="ui.settings.env"),
+              owner=self._w, on_saved=saved, on_failed=self._w._show_error)
+
+    def _change_model_cache(self) -> None:
+        """Choose a folder for the models, say what happens to the ones already
+        downloaded, then record it in `.env` for the next start.
+
+        **Nothing is copied.** The models already downloaded stay where they
+        are: copying several gigabytes of model files from the Settings page
+        would be a second long operation with its own failure modes, and the app
+        fetches anything missing into the new folder on its own. Stated in the
+        confirmation so nobody is surprised by the download.
+        """
+        from PySide6.QtWidgets import QFileDialog, QMessageBox
+
+        current = str(self._w._settings.model_cache)
+        chosen = QFileDialog.getExistingDirectory(
+            self._w, "Folder for the downloaded models", current)
+        if not chosen:
+            return
+        if Path(chosen).resolve() == Path(current).resolve():
+            self._w.notify("The models are already kept in that folder.", 6_000)
+            return
+
+        answer = QMessageBox.question(
+            self._w, "Models folder",
+            f"Leasha will keep its models in:\n{chosen}\n\n"
+            "The models already downloaded are not moved. From the next start, "
+            "Leasha downloads any model it needs into that folder. That needs an "
+            "internet connection and can take a few minutes.\n\n"
+            "The index is not affected.\n\nChange it now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        self._save_model_cache(
+            chosen, "Saved. Restart Leasha to use the new models folder.")
+
+    def _reset_model_cache(self) -> None:
+        """Remove the models-folder setting, so the models sit in the index folder."""
+        self._save_model_cache(
+            None, "Saved. Restart Leasha to keep the models with the index.")
+
+    def _save_model_cache(self, value: "str | None", message: str) -> None:
+        """Write `MODEL_CACHE` (or remove it on None), then show the new folder."""
+        from app.core.env_writer import apply_values
+        from app.ui.state_writes import start
+
+        shown = value or str(self._w._settings.data_path / "models")
+
+        def saved() -> None:
+            """UI thread: the file holds the new folder; show it and say so."""
+            self._w.settings_view.model_cache.setText(shown)
+            self._w.notify(message, 12_000)
+
+        start(CallableWorker(apply_values, Path(self._w._settings.env_file),
+                             {"MODEL_CACHE": value}, component="ui.settings.env"),
               owner=self._w, on_saved=saved, on_failed=self._w._show_error)
 
     def _chunk_count(self) -> int:

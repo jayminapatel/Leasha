@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.97 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.98 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The models folder can be kept somewhere else (2026-10-10)
+
+- **Settings has a Models folder of its own.** Storage now shows where the downloaded models are kept, with
+  "Change models folder…" to choose another folder and "Keep them with the index" to put them back. Before, the models
+  lived inside the index folder, so the only way to move them was to move the whole index.
+- **Models already downloaded are not moved.** The new folder is filled as each model is needed, after a restart. The
+  confirmation says so, with the internet and time it will need.
+- **Moving the index leaves a chosen models folder alone.** Only the default models folder (inside the index) moves with
+  the index; a folder chosen in Settings keeps its place and its line in `.env`.
+- Setting `MODEL_CACHE` in `.env` by hand works as before; the Settings control writes the same key.
 
 ### Loading the chat model no longer freezes the window (2026-10-09)
 

@@ -169,6 +169,9 @@ class SettingsShelves:
         self.data_path = self.storage_box.data_path
         self.storage_box.move_index_requested.connect(self.move_index_requested)
         self.storage_box.rebuild_vectors_requested.connect(self.rebuild_vectors_requested)
+        self.storage_box.model_cache_requested.connect(self.model_cache_requested)
+        self.storage_box.model_cache_reset_requested.connect(self.model_cache_reset_requested)
+        self.model_cache = self.storage_box.model_cache
         self.storage_box.changed.connect(self.settings_changed)
 
         self.window_box = WindowBox()

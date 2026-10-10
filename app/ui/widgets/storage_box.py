@@ -38,6 +38,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QFormLayout,
     QGroupBox,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -55,6 +56,8 @@ class StorageBox(QGroupBox):
 
     move_index_requested = Signal()
     rebuild_vectors_requested = Signal()
+    model_cache_requested = Signal()
+    model_cache_reset_requested = Signal()
     #: `{registry key: value}`. Nothing here emits it today - both remaining
     #: settings persist through their flow - and it is kept because the panel
     #: is connected to the writer, so a control added here is wired the moment
@@ -81,6 +84,34 @@ class StorageBox(QGroupBox):
         )
         self.move_index.clicked.connect(
             lambda _c=False: self.move_index_requested.emit()
+        )
+
+        self.model_cache = QLineEdit(str(getattr(settings, "model_cache", "")))
+        self.model_cache.setAccessibleName("Models folder")
+        self.model_cache.setObjectName("MODEL_CACHE")
+        self.model_cache.setReadOnly(True)
+        self.model_cache.setToolTip(
+            "Where the downloaded models are kept. Changing it does not move the "
+            "models already downloaded; the new folder is filled as each model is "
+            "needed, after you restart Leasha."
+        )
+
+        self.change_model_cache = QPushButton("Change models folder…")
+        self.change_model_cache.setObjectName("change-model-cache")
+        self.change_model_cache.setToolTip(
+            "Keep the downloaded models somewhere other than the index folder."
+        )
+        self.change_model_cache.clicked.connect(
+            lambda _c=False: self.model_cache_requested.emit()
+        )
+
+        self.reset_model_cache = QPushButton("Keep them with the index")
+        self.reset_model_cache.setObjectName("reset-model-cache")
+        self.reset_model_cache.setToolTip(
+            "Put the models back in the index folder, after you restart Leasha."
+        )
+        self.reset_model_cache.clicked.connect(
+            lambda _c=False: self.model_cache_reset_requested.emit()
         )
 
         self.embed_model = QLineEdit(str(getattr(settings, "embed_model", "")))
@@ -132,9 +163,16 @@ class StorageBox(QGroupBox):
         self.cloud_content_cap.valueChanged.connect(
             lambda value: self.changed.emit({"CLOUD_CONTENT_CAP_MB": value}))
 
+        models_buttons = QHBoxLayout()
+        models_buttons.addWidget(self.change_model_cache)
+        models_buttons.addWidget(self.reset_model_cache)
+        models_buttons.addStretch(1)
+
         form = QFormLayout()
         form.addRow("Index location", self.data_path)
         form.addRow("", self.move_index)
+        form.addRow("Models folder", self.model_cache)
+        form.addRow("", models_buttons)
         form.addRow("Meaning model", self.embed_model)
         form.addRow("", self.rebuild_vectors)
         form.addRow("Cloud content download limit", self.cloud_content_cap)
