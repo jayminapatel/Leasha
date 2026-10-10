@@ -130,6 +130,7 @@ from app.index.stages import WAITING, StageClock
 from app.index import walker as _walker_module
 from app.index.walker import (
     Candidate,
+    HashDeferred,
     WalkConfig,
     enclosing_repo,
     has_changed,
@@ -2586,7 +2587,7 @@ class Pipeline:
                 # hash is taken when the file's turn comes - `_read_in_order`.
                 decision = self._classify(candidate, hash_now=not ordered)
                 if decision is UNCHANGED:
-                    stats.unchanged += 1
+                    self._count_unchanged(stats)
                     continue
 
                 if worklist is not None:
@@ -2661,6 +2662,11 @@ class Pipeline:
         is the check that finds a `robocopy` restore unchanged, which is then
         counted as unchanged and not read. `verify_hash` off means the scan's
         answer was already final.
+
+        *2026-10-10 (W2):* not by asking `_classify` again any more. The scan's
+        decision is carried here, and where all it lacked was the hash it says
+        so (`HashDeferred`); only that hash is taken (`_check_deferred_hash`).
+        A file never seen is hashed by its reader, as since 2026-10-04.
         """
         stats.walk_complete = True
         self._clock.add_worker("walk", time.perf_counter() - self._run_started_pc)
@@ -2681,10 +2687,14 @@ class Pipeline:
                 break
             if not self._governor_allows(stats):
                 break
-            if self.config.verify_hash:
-                decision = self._classify(candidate)
+            # *2026-10-10 (W2):* the scan's answer is carried here whole, not
+            # asked again - `_classify` was being run twice for every file
+            # that needed reading, the row lookup and an archive's header read
+            # with it. The only thing the scan held back is a hash, and only
+            # where it said so (`HashDeferred`).
+            if isinstance(decision, HashDeferred):
+                decision = self._check_deferred_hash(candidate, decision, stats)
                 if decision is UNCHANGED:
-                    stats.unchanged += 1
                     continue
             sequence += 1
             if not self._queue_work(
@@ -3331,6 +3341,36 @@ class Pipeline:
                             priority=0,          # retried first: they are few and cheap
                             retry=True)          # settled row, deliberately reopened
 
+    def _check_deferred_hash(self, candidate: Candidate, deferred: HashDeferred,
+                             stats: Optional[IndexStats] = None) -> Any:
+        """Take the hash `_classify` held back. `UNCHANGED` - counted - when the
+        bytes still hash to the row's; otherwise the fresh hash, to read the
+        file with.
+
+        2026-10-10, review item W2. **Never raises**, like `_classify`: a file
+        that cannot be read just now is None ("changed, no hash"), which is what
+        `has_changed` answered for it, and the reader then tries it and records
+        the lock properly. Through the walker module, so a spy on
+        `walker.content_hash` sees this hash as it saw the old one.
+        """
+        try:
+            fresh = _walker_module.content_hash(candidate.path)
+        except OSError:
+            return None
+        if fresh == deferred.known_hash:
+            self._count_unchanged(stats if stats is not None else self._stats_ref)
+            return UNCHANGED
+        return fresh
+
+    def _count_unchanged(self, stats: IndexStats) -> None:
+        """One more file found unchanged, under a lock: since 2026-10-10 (W4)
+        the readers count the ones a deferred hash settles, while the walker
+        thread counts the rest - and `+=` on a shared attribute is a read and a
+        write, which two threads can interleave."""
+        lock = self.__dict__.setdefault("_unchanged_lock", threading.Lock())
+        with lock:
+            stats.unchanged += 1
+
     def _classify(self, candidate: Candidate, *, hash_now: bool = True) -> Optional[str]:
         """`UNCHANGED` to skip the file; otherwise its content hash, or None.
 
@@ -3426,7 +3466,14 @@ class Pipeline:
         # none was hashed - `test_the_scan_does_not_hash_new_files` said so.
         # The file is asked about as if never seen, which is what it is.
         known = record if record is not None and record.status != FileStatus.PENDING else None
+        #: 2026-10-10 (W2): kept apart from `known`, which the marker block
+        #: below re-uses for the marker it compares.
+        known_hash = known.content_hash if known is not None else None
         try:
+            # Would `has_changed` hash this file if allowed to? The question
+            # `hash_now=False` hands on as a `HashDeferred` instead (below).
+            would_hash = (self.config.verify_hash and known is not None
+                          and not reads_externally(candidate.path))
             changed, digest = has_changed(
                 candidate,
                 known_mtime_ns=known.mtime_ns if known else None,
@@ -3442,9 +3489,7 @@ class Pipeline:
                 # read it again; the reader hashes it now (`_read_stream`), in
                 # parallel. A file with a known hash is still hashed here when
                 # its date moved - the `robocopy` restore check.
-                verify_hash=(self.config.verify_hash and hash_now
-                             and known is not None
-                             and not reads_externally(candidate.path)),
+                verify_hash=would_hash and hash_now,
             )
         except Exception as exc:            # noqa: BLE001 - see the docstring
             self._log.warning(
@@ -3520,6 +3565,24 @@ class Pipeline:
                 and record.status in (FileStatus.INDEXED, FileStatus.PARTIAL)
                 and not getattr(candidate, "retry", False)):
             return UNCHANGED
+
+        # **The one question left is the hash** (2026-10-10, review item W2).
+        # The scan of the "newest" order asked with `hash_now=False`, and its
+        # turn came later: `_read_in_order` used to ask this whole method
+        # again - the row lookup, the archive marker read - only to take the
+        # hash `hash_now` had held back. Everything but the hash is decided
+        # here and now: a read row with a known hash whose date or size moved
+        # (or that was touched just now) is unchanged if its bytes still hash
+        # to that, and changed otherwise. So that answer is handed on as it
+        # stands, and whoever takes the hash needs nothing else. An archive's
+        # marker has already decided it above (`marker`), and `--force` and a
+        # deliberate re-queue read the file whatever the hash says - none of
+        # those is deferred.
+        if (changed and not hash_now and would_hash and known_hash
+                and marker is None and record is not None
+                and record.status in (FileStatus.INDEXED, FileStatus.PARTIAL)
+                and not getattr(candidate, "retry", False)):
+            return HashDeferred(known_hash)
 
         # **A skip is settled while the file has not moved, and this was H1.**
         #

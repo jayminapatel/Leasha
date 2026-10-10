@@ -52,7 +52,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Iterable, Iterator, Optional
 
-from app.index.walker import Candidate
+from app.index.walker import Candidate, HashDeferred
 
 __all__ = [
     "ORDER_NEWEST",
@@ -224,7 +224,7 @@ class WorkList:
             if not rows:
                 return
             for row in rows:
-                yield _candidate_from(row), (row[-2] if row[-1] else None)
+                yield _candidate_from(row), _decision_from(row[-2], row[-1])
 
     def close(self) -> None:
         """Drop the list and delete the spill file and its sidecars. Safe to
@@ -299,16 +299,35 @@ class WorkList:
         self._db.execute("COMMIT")
 
 
+#: `has_decision` values in the spill file. A deferred hash (2026-10-10, W2)
+#: has a value of its own: written as its bare `known_hash` under 1 it would
+#: come back as a digest - the old hash, stored on the row after the contents
+#: moved.
+_NO_DECISION, _DECISION, _DEFERRED_HASH = 0, 1, 2
+
+
 def _row(key: tuple[int, int, int, int], candidate: Candidate, decision: Any) -> tuple:
-    # `decision` is None ("changed, no hash"), "" ("could not tell, read it")
-    # or a hash. None and "" mean different things downstream, so whether
-    # there is one travels in its own column rather than as a NULL.
+    # `decision` is None ("changed, no hash"), "" ("could not tell, read it"),
+    # a hash, or a `HashDeferred`. None and "" mean different things
+    # downstream, so whether there is one travels in its own column rather
+    # than as a NULL.
+    if isinstance(decision, HashDeferred):
+        stored, kind = decision.known_hash, _DEFERRED_HASH
+    elif decision is None:
+        stored, kind = None, _NO_DECISION
+    else:
+        stored, kind = str(decision), _DECISION
     return (*key, str(candidate.path), candidate.size_bytes, candidate.mtime_ns,
             candidate.priority, candidate.volume_id, candidate.relative_path,
             candidate.attributes, candidate.flags, int(bool(candidate.readable)),
-            int(bool(candidate.retry)),
-            None if decision is None else str(decision),
-            0 if decision is None else 1)
+            int(bool(candidate.retry)), stored, kind)
+
+
+def _decision_from(stored: Any, kind: Any) -> Any:
+    """The decision back from its two spill columns - the reverse of `_row`."""
+    if kind == _DEFERRED_HASH:
+        return HashDeferred(str(stored))
+    return stored if kind else None
 
 
 def _candidate_from(row: tuple) -> Candidate:

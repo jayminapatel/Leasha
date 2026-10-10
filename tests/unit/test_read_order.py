@@ -499,3 +499,90 @@ def test_listing_names_never_touches_a_row_already_there(tmp_path: Path) -> None
         record = store.get_file("C:/a/report.txt")
         assert (record.id, record.status, record.size_bytes) == (kept, "INDEXED", 5)
         assert store.get_file("C:/a/new.txt").status == "PENDING"
+
+
+# ---------------------------------------------------------------------------
+# 2026-10-10, review item W2: the scan's decision is carried to the file's turn
+# ---------------------------------------------------------------------------
+
+def test_a_deferred_hash_survives_the_spill_file(tmp_path: Path) -> None:
+    """Written as a bare string it would come back as a digest - the old hash,
+    stored on the row after the contents moved."""
+    from app.index.walker import HashDeferred
+
+    with WorkList(tmp_path, spill_at=1) as work:
+        work.add(_candidate("a.txt", days_ago=1, size=1), HashDeferred("abc"))
+        work.add(_candidate("b.txt", days_ago=1, size=2), "abc")
+        assert work.spilled
+        got = [d for _c, d in work.sorted()]
+    assert got == [HashDeferred("abc"), "abc"]
+    assert not isinstance(got[0], str)
+
+
+def _count_row_lookups(store) -> list[str]:
+    asked: list[str] = []
+    real = store.get_file
+
+    def get_file(key):
+        asked.append(str(key))
+        return real(key)
+
+    store.get_file = get_file
+    return asked
+
+
+def _move_dates(root: Path, names: list[str], *, by_ns: int = 10 * DAY_NS) -> None:
+    for name in names:
+        stat = (root / name).stat()
+        os.utime(root / name, ns=(stat.st_atime_ns, stat.st_mtime_ns + by_ns))
+
+
+def test_each_file_s_row_is_looked_up_once_not_twice(tmp_path: Path) -> None:
+    """The scan asked `_classify` with the hash held back, and the file's turn
+    asked it all again - a second `get_file`, and a `.pst` header read, for
+    every file to be read. Now once each, on the first run and on a rerun
+    where dates moved."""
+    root = tmp_path / "corpus"
+    ages = _corpus(root)
+    with SqliteStore(tmp_path / "index.db") as store:
+        asked = _count_row_lookups(store)
+        stats = _pipeline(store, root).run()
+        assert stats.indexed == len(ages)
+        file_keys = [key for key in asked if key.endswith(".txt")]
+        assert sorted(file_keys) == sorted(str(root / name) for name in ages), (
+            "one row lookup per file")
+
+        moved = ["b-new.txt", "chosen/x-old.txt", "i-year.txt"]
+        _move_dates(root, moved)
+        asked.clear()
+        again = _pipeline(store, root).run()
+        file_keys = [key for key in asked if key.endswith(".txt")]
+        assert len(file_keys) == len(set(file_keys)) == len(ages)
+    assert again.indexed == 0
+    assert again.unchanged == len(ages)
+
+
+def test_a_moved_date_with_new_contents_is_read_again_with_its_new_hash(
+        tmp_path: Path) -> None:
+    """The deferred hash decides both ways: same bytes are unchanged, other
+    bytes of the same size are read - and the row gets the *new* hash."""
+    from app.index.walker import content_hash
+
+    root = tmp_path / "corpus"
+    ages = _corpus(root)
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root).run()
+        target = root / "c-mid.txt"
+        body = target.read_text(encoding="utf-8")
+        stamp = target.stat().st_mtime_ns
+        target.write_text(body.replace("pump", "pipe"), encoding="utf-8")
+        os.utime(target, ns=(stamp, stamp + DAY_NS))
+        _move_dates(root, ["a-old.txt"])
+        reads: list[str] = []
+        again = _pipeline(store, root)
+        _record_reads(again, root, reads)
+        stats = again.run()
+        record = store.get_file(str(target))
+    assert reads == ["c-mid.txt"]
+    assert stats.unchanged == len(ages) - 1
+    assert record.content_hash == content_hash(target)

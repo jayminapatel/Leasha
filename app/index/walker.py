@@ -54,6 +54,7 @@ __all__ = [
     "walk",
     "content_hash",
     "has_changed",
+    "HashDeferred",
     "PathRules",
     "enclosing_repo",
     "repo_kind_at",
@@ -1070,6 +1071,27 @@ def _modified_recently(candidate: Candidate, *, now: Optional[float] = None) -> 
     """True if the file was written within the timestamp resolution window."""
     current = now if now is not None else time.time()
     return (current - candidate.mtime_ns / 1_000_000_000) < RECENT_EDIT_WINDOW_S
+
+
+@dataclass(frozen=True)
+class HashDeferred:
+    """The change check's answer when the one question left is a hash.
+
+    2026-10-10, review items W2 and W4. The cheap tier has said "moved" -
+    the date or size differs from the row, or the file was touched within
+    `RECENT_EDIT_WINDOW_S` - for a file that was read before and has a
+    `known_hash`. Everything else about the decision is settled: if the bytes
+    hash to `known_hash` the file is unchanged (the `robocopy` restore case),
+    and otherwise it is changed and the fresh hash is its digest.
+
+    Handed on instead of hashing on the spot, so the hash - a full read - is
+    taken where reading belongs, and the row lookup that led here is not
+    repeated just to take it (`Pipeline._classify` with `hash_now=False`).
+    Not a `str`, on purpose: a deferred hash mistaken for a digest would be
+    stored on the row as the file's hash after its contents had moved.
+    """
+
+    known_hash: str
 
 
 def has_changed(
