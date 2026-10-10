@@ -237,7 +237,7 @@ def said(retry: RetryTimedOut, found: RetryPlan) -> str:
 def _retry_pipeline_class() -> type:
     """The `Pipeline` subclass for a retry, built on demand for the same reason
     `media_backlog._backlog_pipeline_class` is: `pipeline` imports this module."""
-    from app.index.pipeline import Pipeline
+    from app.index.pipeline import _FIRST_BAND_END, Pipeline
 
     class RetryPipeline(Pipeline):
         """`Pipeline` whose candidates are one group of timed-out files."""
@@ -277,7 +277,25 @@ def _retry_pipeline_class() -> type:
             stats.add_notice(sentence)
             self._log.info("{}", sentence)
 
-        def _candidates(self) -> Iterator[Candidate]:
+        def _candidates(self, *, mark_first_band: bool = False) -> Iterator[Candidate]:
+            # 2026-10-10: the `mark_first_band` keyword. Review item W1
+            # (e773e41) made `Pipeline._produce` call
+            # `self._candidates(mark_first_band=...)` - always with the keyword,
+            # `False` when no band applies - so the "Index this folder first"
+            # folders can be read while the rest is walked. This override still
+            # took no arguments, so every retry died in the walker thread with a
+            # TypeError, logged as "walker stopped early: ERR_UNEXPECTED", and
+            # read nothing: the seven tests in test_timed_out_retry.py went red
+            # ("assert [] == ['slow.txt']").
+            #
+            # A retry has no walk and runs in the "found" order, so `_produce`
+            # does not ask it for a band and the flag is False. Should it ever
+            # arrive True, `_produce` files every candidate into the band's own
+            # list until it sees `_FIRST_BAND_END` and reads that list only
+            # after the marker - so the flag is honoured, not ignored: the
+            # marker first ("the band is empty"), then the group as before.
+            if mark_first_band:
+                yield _FIRST_BAND_END
             seen = self._seen_paths
             for candidate in self._retry_plan.candidates:
                 key = path_key(candidate.path)

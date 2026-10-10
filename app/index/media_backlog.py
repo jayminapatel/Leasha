@@ -125,7 +125,7 @@ def queued_candidates(store: Any, *, limit: Optional[int] = None) -> Iterator[Ca
 def _backlog_pipeline_class() -> type:
     """The `Pipeline` subclass for the tail, built on demand: `pipeline`
     imports this module, so importing `Pipeline` at the top would be a cycle."""
-    from app.index.pipeline import Pipeline
+    from app.index.pipeline import _FIRST_BAND_END, Pipeline
 
     class BacklogPipeline(Pipeline):
         """`Pipeline` with its candidates taken from the ledger, not from a walk."""
@@ -138,7 +138,25 @@ def _backlog_pipeline_class() -> type:
             super().__init__(*args, **kwargs)
             self._queued = queued
 
-        def _candidates(self) -> Iterator[Candidate]:
+        def _candidates(self, *, mark_first_band: bool = False) -> Iterator[Candidate]:
+            # 2026-10-10: the `mark_first_band` keyword. Review item W1
+            # (e773e41) made `Pipeline._produce` call
+            # `self._candidates(mark_first_band=...)` with the keyword on every
+            # run, and this override took no arguments - a TypeError in the
+            # walker thread, logged as "walker stopped early: ERR_UNEXPECTED",
+            # and none of the queue read. The same fault broke the timed-out
+            # retry (tests/unit/test_timed_out_retry.py).
+            #
+            # The tail's candidates come from the ledger, not a walk, so there
+            # are no marked folders to go ahead of. But when the flag is True
+            # `_produce` files every candidate into the band's own list until
+            # it sees `_FIRST_BAND_END`, and only reads that list once the
+            # marker has come - so a flag merely ignored would strand the whole
+            # queue unread. Yielding the marker first says "the band is empty":
+            # every queued file then goes through the ordinary sorted list,
+            # exactly as before W1.
+            if mark_first_band:
+                yield _FIRST_BAND_END
             seen = self._seen_paths
             for candidate in self._queued:
                 # The same key the walker and the clean-up pass use (order 0x

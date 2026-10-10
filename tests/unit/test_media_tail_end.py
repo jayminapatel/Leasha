@@ -237,3 +237,37 @@ def test_faces_the_tail_left_are_grouped_by_the_outer_run(tmp_path, monkeypatch)
         _faces_since_cluster=2, _announce_phase=lambda *a: None)
     media_backlog.drain(outer, module.IndexStats())
     assert outer._faces_since_cluster == 5
+
+
+# 2026-10-10: review item W1 (e773e41) made `Pipeline._produce` call
+# `self._candidates(mark_first_band=...)` on every run. The media tail's and the
+# timed-out retry's overrides took no arguments, so each died in the walker
+# thread with a TypeError ("walker stopped early: ERR_UNEXPECTED") and read
+# nothing - caught only by the retry's own end-to-end tests, never for the tail,
+# whose tests here do not run its walker. These pin the contract for both: the
+# keyword is accepted, False yields the ledger's files as before, and True
+# yields `_FIRST_BAND_END` first, because `_produce` holds every candidate in
+# the band's own list until that marker arrives - an override that ignored the
+# flag would strand its whole queue unread.
+def _ledger_subclasses():
+    from app.index import media_backlog, timed_out_retry
+
+    def tail(queued):
+        return SimpleNamespace(_seen_paths=set(), _queued=queued)
+
+    def retry(queued):
+        return SimpleNamespace(_seen_paths=set(),
+                               _retry_plan=SimpleNamespace(candidates=queued))
+
+    return [(media_backlog._backlog_pipeline_class(), tail),
+            (timed_out_retry._retry_pipeline_class(), retry)]
+
+
+@pytest.mark.parametrize("index", [0, 1], ids=["media_tail", "timed_out_retry"])
+@pytest.mark.parametrize("first_band", [False, True])
+def test_a_ledger_run_takes_the_producers_first_band_keyword(tmp_path, index, first_band):
+    cls, fake_self = _ledger_subclasses()[index]
+    queued = [SimpleNamespace(path=tmp_path / name) for name in ("a.mp4", "b.mp4")]
+    got = list(cls._candidates(fake_self(queued), mark_first_band=first_band))
+    expected = ([module._FIRST_BAND_END] if first_band else []) + queued
+    assert got == expected
