@@ -70,10 +70,11 @@ def _pipeline(store):
     built._stop.set()                  # as it is at every run's end
     built._interrupted = False         # nobody pressed Stop
     built.governor = SimpleNamespace(
-        wait_while_throttled=lambda should_stop: SimpleNamespace(action="go"))
+        wait_while_throttled=lambda should_stop: SimpleNamespace(action="go"),
+        paused_seconds=0.0, pauses=0, paused=False, pause_reason="")
     built._log = __import__("app.core.logging", fromlist=["logger"]).logger
     built._announce_phase = lambda stats, on_progress, phase: None
-    built._drain_unembedded = lambda stats: None
+    built._drain_unembedded = lambda stats, **_how: None
     return built
 
 
@@ -107,3 +108,29 @@ def test_the_run_end_tags_them_and_stops_asking_about_the_rest(store, monkeypatc
     asked.clear()
     built._drain_photo_tags(stats)               # the next run
     assert asked == [], "neither is offered again"
+
+
+def test_the_run_end_gives_its_descriptions_meaning_in_the_same_run(store, monkeypatch):
+    """2026-10-10, found reviewing the model sequencing: with "Make text searchable
+    first" on (the default), the run-end steps parked their new passages for a
+    feeder the teardown had already stopped, so a description waited for the next
+    run for its vector. Both steps now embed them where they are."""
+    import collections
+
+    photo = _no_text_photo(store, "dog.jpg")
+    monkeypatch.setattr(florence_tagger, "available", lambda: True)
+    monkeypatch.setattr(florence_tagger, "tag_image", lambda path: florence_tagger.FlorenceResult(
+        caption="A dog on a beach", tags=["dog"], elapsed_s=1.0))
+    built = _pipeline(store)
+    del built._drain_unembedded                  # the real one, this time
+    built.config = SimpleNamespace(two_phase=True, embed_batch=8)
+    built._parked = collections.deque()
+    built._stats_ref = SimpleNamespace(embed_batches=0)
+    embedded = []
+    built._embed_pending = lambda pending: embedded.extend(fid for _cid, fid, _t in pending)
+    stats = SimpleNamespace(enrichment_counts={}, current="", embed_batch=0)
+
+    built._drain_photo_tags(stats)
+
+    assert embedded == [photo], "the description has its vector before the run ends"
+    assert not built._parked, "nothing is left for a feeder that is gone"

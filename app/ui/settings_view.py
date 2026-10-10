@@ -99,6 +99,8 @@ class SettingsView(SettingsShelves, QWidget):
     #: anybody looking for one. The name is unchanged, so the window's
     #: handler did not have to move with it.
     theme_changed = Signal(str)
+    #: The body text size in pixels, applied at once (`WindowBox.text_size`).
+    text_size_changed = Signal(int)
     #: `{registry key: value}` from any panel whose controls write `.env`.
     settings_changed = Signal(dict)
     history_cleared = Signal(int)

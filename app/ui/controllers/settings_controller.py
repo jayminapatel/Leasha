@@ -546,6 +546,17 @@ class SettingsController(QObject):
         save_state(self._w._store, "ui:theme", preference, component="ui.settings")
         self._w._apply_theme()
 
+    def _text_size_changed(self, px: int) -> None:
+        """The body text size was changed (2026-10-10): remember it (a queued write) and
+        restyle the whole window now - no restart. Every size in the sheet is a multiple
+        of this one, so a new stylesheet is the whole change."""
+        from app.ui import theme
+
+        size = theme.set_text_size(px)
+        self._w._text_size = size
+        save_state(self._w._store, "ui:text_size", str(size), component="ui.settings")
+        self._w._apply_theme()
+
     def _refresh_link_scheme(self) -> None:
         r"""Read whether `leasha://` is registered, off the UI thread.
 

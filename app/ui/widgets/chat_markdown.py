@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from app.ui.theme import RADIUS, font_sizes, theme_colours
+from app.ui.theme import RADIUS, font_sizes, text_size, theme_colours
 
 __all__ = [
     "AnswerBody", "render_markdown_html", "strip_markers", "split_segments",
@@ -451,7 +451,9 @@ def _pt(font: QFont) -> float:
 
 
 def _colours() -> dict[str, str]:
-    return theme_colours()
+    """The palette, plus the body text size as a pseudo-token (2026-10-10): the sizes the
+    blocks are drawn at are made from it, so a change in either re-draws them."""
+    return {**theme_colours(), "text_px": str(text_size())}
 
 
 # ---------------------------------------------------------------------------

@@ -443,7 +443,7 @@ class MiniSearch(CardWindow):
             _log.debug("no window sheet for the mini search: {}", exc)
             base = ""
         sizes = theme.font_sizes()
-        sizes["field"] = f"{round(theme.base_point_size() * 1.6, 1)}pt"
+        sizes["field"] = f"{round(float(sizes['body'][:-2]) * 1.6, 1)}pt"
         self.setStyleSheet(base + _SHEET.format(**colours, **sizes))
         self.set_shadow_strength(scheme == "dark")
         self._delegate.retint(colours)

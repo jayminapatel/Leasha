@@ -81,7 +81,7 @@ def _pipeline(store):
         wait_while_throttled=lambda should_stop: SimpleNamespace(action="go"))
     built._log = __import__("app.core.logging", fromlist=["logger"]).logger
     built._announce_phase = lambda stats, on_progress, phase: None
-    built._drain_unembedded = lambda stats: None
+    built._drain_unembedded = lambda stats, **_how: None
     return built
 
 

@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.100 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 4.103 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -43,6 +43,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Clean-ups:** a deleted picture's picture-search entry is removed with it; mail read stamps no longer rewrite the
   mail index; an index build that failed is retried, and said in the log.
 - Schema 36.
+
+### One turn on the graphics card for every Leasha process, and a check for empty vectors (2026-10-10)
+
+- **The index process, the text-in-pictures helper and the model host now take turns on the graphics card.**
+  Each had its own lock, so two of them could use the card at once - the cause of an earlier crash. If the graphics
+  driver fails in one, all of them move to the processor for the rest of the session.
+- **Reading videos and recordings no longer switches off the text-in-pictures helper.** After a run with videos,
+  text in pictures was read inside the index process again, and photos were described twice.
+- **`reembed --check` counts passages whose vector is empty**, and `reembed --bad` embeds those files again.
+  Indexes built on an Intel graphics card before 30 September 2026 could hold them.
+
+### Photo descriptions are found by meaning in the run that made them (2026-10-10)
+
+- **A described photo and the text read from a picture are now given their meaning before the run ends.** With "Make text
+  searchable first" on, they were found by their words at once but by meaning only after the next index run.
+
+### Text size: 12px everywhere, and you choose it (2026-10-10)
+
+- **The normal text is 12px, down from 13px, and the same size everywhere.** Labels, drop-downs, number fields, buttons, lists,
+  answers, the chat message box and now every text box. Text boxes had been 15px - the Ollama address, the shortcut, the web
+  search address and key, the style note, the dialogs' name boxes - because a rule meant for the Search box covered all of them.
+  The Search box is still the one larger input. Small print is 11px, the Search box 14px, the one headline 24px.
+- **Settings > Appearance has a Text size**, 10 to 20 pixels, 12 by default. It changes the whole app at once - no restart -
+  and is remembered. Every size is a multiple of it, so the hierarchy stays when it moves.
 
 ### Settings you cannot get wrong, and an engine switch that applies at once (2026-10-10)
 

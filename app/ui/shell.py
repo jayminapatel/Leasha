@@ -271,6 +271,10 @@ class MainWindow(QMainWindow):
         # each system colour change, and a database read on the UI thread is
         # exactly what this session's freeze turned out to be.
         self._theme_preference = self._read_state("ui:theme", "system")
+        # The body text size (2026-10-10), read before the first stylesheet is built.
+        from app.ui import theme as _text_theme
+
+        self._text_size = _text_theme.set_text_size(self._read_state("ui:text_size", ""))
         self._theme_hooked = False
         #: The index's document count as last painted by the Indexing page's
         #: totals worker; the rail pill shows it when nothing is running
@@ -858,6 +862,7 @@ class MainWindow(QMainWindow):
             self.indexing_view.tuning.coverage_changed.connect(self._limits_changed)
             self.indexing_view.tuning.benchmark_requested.connect(self._benchmark_models)
             self.settings_view.theme_changed.connect(self._theme_changed)
+            self.settings_view.text_size_changed.connect(self._text_size_changed)
             self.settings_view.open_photo_tagger_requested.connect(self._open_photo_tagger)
             self.settings_view.environment.links_toggled.connect(self._links_toggled)
             # **Moved here with the Settings page it reports to**: the sentence saying
@@ -915,7 +920,8 @@ class MainWindow(QMainWindow):
             self.settings_view.window_box.load(
                 self._read_state("ui:tray_minimise", "") == "on",
                 self._read_state("ui:tray_close", "") == "on",
-                theme=self._theme_preference, motion=self._motion)
+                theme=self._theme_preference, motion=self._motion,
+                text_size=self._text_size)
             self.settings_view.window_box.motion_changed.connect(self._motion_changed)
             self.settings_view.tray_changed.connect(self._tray_changed)
 
@@ -1079,6 +1085,9 @@ class MainWindow(QMainWindow):
 
     def _theme_changed(self, preference: str) -> None:
         self.settings_ctl._theme_changed(preference)
+
+    def _text_size_changed(self, px: int) -> None:
+        self.settings_ctl._text_size_changed(px)
 
     def _refresh_link_scheme(self) -> None:
         self.settings_ctl._refresh_link_scheme()

@@ -64,7 +64,7 @@ __all__ = [
     "find_converter_on_windows", "find_editor_on_windows", "find_player_on_windows",
     "find_on_macos",
     "find_converter_on_macos", "find_editor_on_macos", "find_player_on_macos",
-    "git_program",
+    "git_program", "claude_desktop_process",
 ]
 
 
@@ -454,3 +454,14 @@ def git_program() -> str:
                     continue
     _git_program_found = found
     return found
+
+
+def claude_desktop_process() -> str:
+    """The name Claude Desktop's own process runs under, as `psutil` reports it.
+
+    Moved here 2026-10-10 from `mcp_controller.py`, which named `claude.exe`
+    outside this package (`test_no_windows_only_call_outside_osbridge`). On a Mac
+    the app bundle's executable is `Claude` (UNCONFIRMED on macOS: the bundle was
+    not looked at on a real Mac).
+    """
+    return "claude.exe" if is_windows() else "Claude"

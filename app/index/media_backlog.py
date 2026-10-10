@@ -159,6 +159,27 @@ def _backlog_pipeline_class() -> type:
             # announcing them again would read as the whole run starting over.
             return None
 
+        # 2026-10-10, order 1h item 1c. The outer run's text-in-pictures helper
+        # is still installed while this runs (the outer closes it after its own
+        # picture text). Installing one here first *cleared* the outer's hook
+        # (`_install_ocr_helper` closes before it opens), started a second helper
+        # process, and its close left the hook empty - so the outer's run-end OCR
+        # was read inside the index process, the fault the helper exists to keep
+        # out. The keyframes use the outer's helper; the outer owns it.
+        def _install_ocr_helper(self) -> None:
+            return None
+
+        def _close_ocr_helper(self) -> None:
+            return None
+
+        # The outer run describes photos and reads picture text straight after
+        # this returns; doing both here as well loaded Florence and OCR twice.
+        def _drain_photo_tags(self, stats: Any, on_progress: Any = None) -> None:
+            return None
+
+        def _drain_picture_text(self, stats: Any, on_progress: Any = None) -> None:
+            return None
+
     return BacklogPipeline
 
 
