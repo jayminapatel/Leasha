@@ -2376,7 +2376,31 @@ class Pipeline:
             stats.activity.record(
                 KIND_FINISHED,
                 "stopped" if (self._interrupted or stats.stopped_early) else "")
+        if finishing:
+            self._checkpoint_wal()
         return stats
+
+    def _checkpoint_wal(self) -> None:
+        r"""Fold the write-ahead log back into the database, last thing in a run.
+
+        2026-10-10. A run of days writes gigabytes through the WAL, and SQLite
+        only checkpoints it in passing; whatever is left stays beside the
+        database until something asks. `SqliteStore.checkpoint_wal` asks
+        (TRUNCATE, PASSIVE when a reader is in the way) and never raises.
+        Last, after every write the run makes, so nothing follows it into the
+        log. Not after a few files from the folder watch, which may come every
+        few seconds, nor from the media tail's run, whose outer run does it.
+
+        `getattr` until that method is on the store in this branch's base:
+        a store without it skips the step, which is what happened before.
+        """
+        checkpoint = getattr(self.store, "checkpoint_wal", None)
+        if checkpoint is None:
+            return
+        try:
+            checkpoint()
+        except Exception as exc:                  # noqa: BLE001 - housekeeping, not the run
+            self._log.debug("the write-ahead log was not checkpointed: {}", exc)
 
     def _report_gpu_regression(self, stats: IndexStats) -> None:
         r"""Work order 202626130120 (0t) section 6, the one case that fires.

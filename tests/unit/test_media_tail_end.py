@@ -1,5 +1,5 @@
 r"""The media tail's own run leaves the end of the run to the run that
-started it.
+started it; an ordinary run ends with a WAL checkpoint.
 
 Layer: L3
 
@@ -10,6 +10,9 @@ Layer: L3
   the outer run's end-of-run work - the photo passes, the forced vector
   rewrite, the word-index merge, the completions file, the `last_run` record -
   a moment before the outer run did all of it again.
+* An ordinary run ends by folding its write-ahead log back into the database
+  (`SqliteStore.checkpoint_wal`); a folder-watch run and the media tail's run
+  do not.
 """
 
 from __future__ import annotations
@@ -143,6 +146,7 @@ def _spied_run(tmp_path: Path, monkeypatch, *, cls=Pipeline, light: bool = False
         monkeypatch.setattr(cls, name, lambda self, *a, _n=name, **k: count(_n)())
     vectors = Vectors()
     with SqliteStore(tmp_path / "index.db") as store:
+        store.checkpoint_wal = count("checkpoint_wal")
         store.optimize_fts = lambda: count("optimize_fts")() or True
         real_set_state = store.set_state
 
@@ -165,7 +169,7 @@ def _spied_run(tmp_path: Path, monkeypatch, *, cls=Pipeline, light: bool = False
 def test_an_ordinary_run_does_its_end_once_each(tmp_path, monkeypatch):
     calls, _p = _spied_run(tmp_path, monkeypatch)
     for name in ("_drain_photo_tags", "_drain_picture_text", "_write_completions",
-                 "optimize_fts", "last_run", "last_run_stats",
+                 "checkpoint_wal", "optimize_fts", "last_run", "last_run_stats",
                  "create_index", "compact_forced"):
         assert calls.get(name) == 1, (name, calls)
 
@@ -181,9 +185,27 @@ def test_the_media_tails_run_leaves_the_end_to_the_run_that_started_it(tmp_path,
 
     calls, _p = _spied_run(tmp_path, monkeypatch, cls=Tail)
     for name in ("_drain_photo_tags", "_drain_picture_text", "_write_completions",
-                 "optimize_fts", "last_run", "last_run_stats",
+                 "checkpoint_wal", "optimize_fts", "last_run", "last_run_stats",
                  "create_index", "compact_forced", "compact"):
         assert name not in calls, (name, calls)
+
+
+def test_a_folder_watch_run_does_not_checkpoint(tmp_path, monkeypatch):
+    calls, _p = _spied_run(tmp_path, monkeypatch, light=True)
+    assert "checkpoint_wal" not in calls
+
+
+def test_the_checkpoint_is_optional_and_never_fatal(tmp_path):
+    built = Pipeline.__new__(Pipeline)
+    built._log = __import__("app.core.logging", fromlist=["logger"]).logger
+    built.store = SimpleNamespace()                       # a store without it
+    built._checkpoint_wal()
+
+    def boom():
+        raise RuntimeError("locked")
+
+    built.store = SimpleNamespace(checkpoint_wal=boom)
+    built._checkpoint_wal()                               # logged, not raised
 
 
 def test_faces_the_tail_left_are_grouped_by_the_outer_run(tmp_path, monkeypatch):
