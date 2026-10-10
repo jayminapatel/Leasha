@@ -385,3 +385,42 @@ def test_a_forced_run_passes_over_no_message_by_its_read_stamp(
     _index(db, fake_archive, force=True)
     assert len(calls) == 1
     assert not calls[0]["known_stamps"], "a forced run was told what not to read"
+
+
+def test_a_message_waiting_for_its_vectors_is_still_passed_over_by_its_stamp(
+        tmp_path, fake_archive, monkeypatch) -> None:
+    """2026-10-10. A text-first run (`index_two_phase`) leaves every message
+    PARTIAL until the meaning step reaches it - on the owner's index, millions
+    of passages behind. `known_read_stamps` asked for INDEXED only, so while
+    that backlog lasted no message had a stamp to hand the reader, and an
+    archive whose header Outlook moved was read again in full - bodies and
+    attachments - only for every message to be found unchanged by its text.
+    PARTIAL counts as read everywhere else (`_classify`, `_already_current`)."""
+    import os
+    import time
+
+    from tests.unit.test_pst_libpff import install_fake
+
+    db = tmp_path / "index.db"
+    archive = fake_archive / "2007.pst"
+    install_fake(monkeypatch, _stamped_tree()["root"])
+    _index(db, fake_archive)
+    with SqliteStore(db) as store:
+        with store.write() as conn:
+            changed = conn.execute(
+                "UPDATE files SET status = 'PARTIAL' WHERE id IN "
+                "(SELECT file_id FROM messages WHERE store_path = ?)",
+                (str(archive),)).rowcount
+        assert changed, "no message rows to make PARTIAL"
+        assert store.known_read_stamps(str(archive)), \
+            "a PARTIAL message lost its stamp"
+
+    # Outlook mounts it: the date moves, nothing else.
+    later = time.time() - 1800
+    os.utime(archive, (later, later))
+    tree = _stamped_tree()
+    install_fake(monkeypatch, tree["root"])
+    calls = _spy_on_the_reader(monkeypatch)
+    _index(db, fake_archive)
+    assert len(calls) == 1, "the archive was not read again, so this proves nothing"
+    assert calls[0]["known_stamps"], "the reader was told nothing to pass over"

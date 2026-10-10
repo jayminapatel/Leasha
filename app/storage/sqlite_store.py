@@ -3850,11 +3850,61 @@ class SqliteStore:
 
     # -- chunks --------------------------------------------------------------
 
-    def replace_chunks(self, file_id: int, chunks: Sequence[dict[str, Any]]) -> list[int]:
-        """Replace every chunk of one file. Returns the new chunk ids.
+    class ChunkIds(list):
+        """What `replace_chunks` returns: the file's chunk ids, one per passage
+        handed in and in that order - a plain `list[int]` to every caller that
+        only ever wanted that - plus the two things the indexer needs to embed
+        only what is new (2026-10-10, see `replace_chunks`).
+
+        `to_embed` - the ids among them that have no vector: every passage
+        that was inserted, and any kept one whose `embedded` is not 1 (still
+        waiting from an earlier run, or keyword-only until now). In the same
+        order as the list.
+
+        `removed` - the ids of the passages this file had and no longer has.
+        Their rows are gone; their vectors, if any, are the caller's to remove.
+        """
+
+        __slots__ = ("to_embed", "removed")
+
+        def __init__(self, ids: Iterable[int] = (), *, to_embed: Iterable[int] = (),
+                     removed: Iterable[int] = ()) -> None:
+            super().__init__(ids)
+            self.to_embed: list[int] = list(to_embed)
+            self.removed: list[int] = list(removed)
+
+    def replace_chunks(self, file_id: int, chunks: Sequence[dict[str, Any]]) -> "SqliteStore.ChunkIds":
+        """Make `chunks` the whole of one file's passages. Returns their ids.
 
         Replacing rather than appending keeps re-indexing a changed file
         idempotent, and the triggers keep chunks_fts in step automatically.
+
+        **2026-10-10: a passage whose text is unchanged keeps its row.** This
+        deleted every passage of the file and inserted them all again, with new
+        ids and `embedded = 0` - so a document re-read for any reason (a `.docx`
+        saved again with the same words, a forced "Read again", a date that
+        moved with nothing else) sent every one of its passages back to the
+        meaning model, which is about 97% of a run at 5-13 passages a second on
+        the owner's processor. Identical text gives an identical vector
+        (`Pipeline._embed_texts` says the same of its de-duplication), so the
+        vector already written is the one the model would write again.
+
+        Now the old rows are matched to the new passages **by text** - in order,
+        so two identical passages pair with two old ones and never both with
+        the first. A matched row keeps its id, its `embedded` flag and its
+        keyword-index row; its ordinal, offsets, page and label are rewritten
+        if they moved, which no keyword-index trigger watches (`chunks_au` is
+        `UPDATE OF text, symbols` since schema 28), so moving it costs the
+        index nothing. Only rows with no match are deleted, and only passages
+        with no match are inserted. A paragraph added in the middle shifts the
+        ordinals of everything after it; `idx_chunks_file_ord` is UNIQUE, so a
+        kept row that moves is parked at a negative ordinal (`-1 - id`, unique
+        because ids are) before any row takes its final one.
+
+        The returned list is still one id per passage handed in, in order -
+        every caller that used it as that is unchanged. `to_embed` and
+        `removed` (`ChunkIds`) are what the indexer needs to queue only the new
+        passages and to remove only the vectors of the gone ones.
 
         **2026-09-30: inside a `batch()`, a file with no passages yet has its
         keyword-index rows written at the end of the batch** rather than one
@@ -3862,32 +3912,89 @@ class SqliteStore:
         difference between a flat cost and one that rises with the index. A
         file that already has passages (a changed document, a forced re-read)
         takes the path it always took: the waiting rows are written, the
-        triggers go back on, and the DELETE and the INSERTs below are mirrored
-        by them.
+        triggers go back on, and the DELETEs, UPDATEs and INSERTs below are
+        mirrored by them.
         """
         with self.write(deferring=True) as conn:
             state = self._deferred()
-            if state is not None and (
-                file_id in state.chunk_files
-                or conn.execute(
-                    "SELECT 1 FROM chunks WHERE file_id = ? LIMIT 1", (file_id,)
-                ).fetchone() is not None
-            ):
+            # One indexed read either way: this used to be a `SELECT 1` (in a
+            # batch) or the `DELETE` itself (outside one). For a file never
+            # read before it finds nothing, at the same cost.
+            old_rows = conn.execute(
+                "SELECT id, ordinal, text, symbols, char_start, char_end, page, "
+                "label, embedded FROM chunks WHERE file_id = ? ORDER BY ordinal",
+                (file_id,),
+            ).fetchall()
+            if state is not None and (old_rows or file_id in state.chunk_files):
                 state = None
             if state is None:
-                # Not a new file, or nothing may wait: exactly as before.
+                # Not a new file, or nothing may wait: the triggers mirror
+                # every statement below.
                 self._finish_deferred(conn)
-                conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
             elif chunks:
                 # New: there is nothing to delete, and no trigger to fire.
                 self._switch_triggers(conn, state, on=False)
-            ids: list[int] = []
+
+            # Old rows by their text, in ordinal order, so the n-th copy of a
+            # repeated passage pairs with the n-th old one.
+            by_text: dict[str, list[Any]] = {}
+            for row in old_rows:
+                by_text.setdefault(row["text"], []).append(row)
+            plan: list[tuple[Optional[Any], str, str, dict[str, Any], Any]] = []
             for ordinal, chunk in enumerate(chunks):
                 # `utf8_safe`: a lone surrogate in the text is a crashed run
                 # otherwise (2026-10-08). The cleaned text is what the symbols,
-                # the row and the deferred FTS write all see.
+                # the row and the deferred FTS write all see - and what is
+                # compared with the stored text, which was cleaned the same way.
                 text = utf8_safe(chunk["text"])
+                # camelCase split forms, so `password` finds
+                # `ResetPasswordHandler`. Empty for prose - see
+                # app/core/identifiers.py for why this is not the whole text
+                # again.
                 symbols = symbol_tokens(text)
+                same = by_text.get(text)
+                row = same.pop(0) if same else None
+                plan.append((row, text, symbols, chunk, chunk.get("ordinal", ordinal)))
+
+            kept = {int(row["id"]) for row, *_rest in plan if row is not None}
+            removed = [int(row["id"]) for row in old_rows if int(row["id"]) not in kept]
+            if removed:
+                conn.executemany("DELETE FROM chunks WHERE id = ?", [(i,) for i in removed])
+            # Kept rows that change ordinal step aside first - see the docstring.
+            moving = [row for row, _t, _s, _c, ordinal in plan
+                      if row is not None and row["ordinal"] != ordinal]
+            if moving:
+                conn.executemany(
+                    "UPDATE chunks SET ordinal = ? WHERE id = ?",
+                    [(-1 - int(row["id"]), int(row["id"])) for row in moving])
+
+            ids: list[int] = []
+            to_embed: list[int] = []
+            for row, text, symbols, chunk, ordinal in plan:
+                # Adoptions §6a: `Q3!A14`, or None for the great majority of
+                # documents that have no interior address anybody could act on.
+                label = utf8_safe(chunk.get("label"))
+                place = (ordinal, chunk.get("char_start"), chunk.get("char_end"),
+                         chunk.get("page"), label)
+                if row is not None:
+                    chunk_id = int(row["id"])
+                    # `row` was read before the step aside, so a kept row that
+                    # moved always differs here and always gets its ordinal.
+                    if place != (row["ordinal"], row["char_start"], row["char_end"],
+                                 row["page"], row["label"]):
+                        conn.execute(
+                            "UPDATE chunks SET ordinal = ?, char_start = ?, char_end = ?, "
+                            "page = ?, label = ? WHERE id = ?", (*place, chunk_id))
+                    if row["symbols"] != symbols:
+                        # The split rule changed since this row was written: the
+                        # keyword index follows (`chunks_au`); the vector, which
+                        # is of the text alone, does not need to.
+                        conn.execute("UPDATE chunks SET symbols = ? WHERE id = ?",
+                                     (symbols, chunk_id))
+                    ids.append(chunk_id)
+                    if int(row["embedded"] or 0) != 1:
+                        to_embed.append(chunk_id)
+                    continue
                 cursor = conn.execute(
                     """
                     INSERT INTO chunks (file_id, ordinal, text, symbols,
@@ -3895,25 +4002,10 @@ class SqliteStore:
                                         embedded)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
                     """,
-                    (
-                        file_id,
-                        chunk.get("ordinal", ordinal),
-                        text,
-                        # camelCase split forms, so `password` finds
-                        # `ResetPasswordHandler`. Empty for prose - see
-                        # app/core/identifiers.py for why this is not the
-                        # whole text again.
-                        symbols,
-                        chunk.get("char_start"),
-                        chunk.get("char_end"),
-                        chunk.get("page"),
-                        # Adoptions §6a: `Q3!A14`, or None for the great
-                        # majority of documents that have no interior address
-                        # anybody could act on.
-                        utf8_safe(chunk.get("label")),
-                    ),
+                    (file_id, ordinal, text, symbols, *place[1:]),
                 )
                 ids.append(int(cursor.lastrowid))
+                to_embed.append(ids[-1])
                 if state is not None:
                     # What `chunks_ai` would have been handed for this row.
                     state.chunks.append((ids[-1], text, symbols))
@@ -3922,7 +4014,24 @@ class SqliteStore:
                 if len(state.chunks) >= FTS_DEFER_MAX_ROWS:
                     self._index_deferred(conn, state)
             self._bump_generation(conn)
-        return ids
+        return SqliteStore.ChunkIds(ids, to_embed=to_embed, removed=removed)
+
+    def embedded_chunk_ids(self, file_ids: Iterable[int]) -> set[int]:
+        """The ids of these files' passages that have a vector (`embedded = 1`).
+
+        2026-10-10, for `Pipeline._embed_pending`: since `replace_chunks` keeps
+        an unchanged passage's row, a file's vectors are no longer all replaced
+        at once, and the delete before the add must spare these. One indexed
+        query per few hundred files (`idx_chunks_file_ord` leads on file_id).
+        """
+        wanted = sorted({int(file_id) for file_id in file_ids})
+        out: set[int] = set()
+        for start in range(0, len(wanted), 900):
+            part = wanted[start:start + 900]
+            out.update(int(row[0]) for row in self.conn.execute(
+                f"SELECT id FROM chunks WHERE embedded = 1 AND file_id IN "
+                f"({','.join('?' * len(part))})", part))
+        return out
 
     def has_ai_caption(self, file_id: int, *, label: str = "AI caption") -> bool:
         """Has a vision-model caption already been fetched for this file?
@@ -5229,12 +5338,21 @@ class SqliteStore:
 
     def known_read_stamps(self, store_path: str) -> dict[str, str]:
         """`{entry_id: read_stamp}` for the indexed messages of one archive
-        that were read to the end before. Schema 35; see its migration."""
+        that were read to the end before. Schema 35; see its migration.
+
+        **PARTIAL counts as read** (2026-10-10), as it does in
+        `Pipeline._classify` and `_already_current` since 2026-10-08: its
+        passages are written whole and only its vectors are missing, which the
+        run's start fills (`_drain_unembedded`) without reading anything. Left
+        out, every message of a text-first run (`index_two_phase`) - all of
+        them, while the meaning backlog lasts - lost its stamp, and an archive
+        whose header Outlook moved was read again in full, body and
+        attachments, only for each message to be found unchanged by its text."""
         rows = self.conn.execute(
             "SELECT m.entry_id, m.read_stamp FROM messages m "
             "JOIN files f ON f.id = m.file_id "
             "WHERE m.store_path = ? AND m.read_stamp IS NOT NULL "
-            "AND m.entry_id IS NOT NULL AND f.status = 'INDEXED'",
+            "AND m.entry_id IS NOT NULL AND f.status IN ('INDEXED', 'PARTIAL')",
             (str(store_path),)).fetchall()
         return {str(row["entry_id"]): str(row["read_stamp"]) for row in rows}
 

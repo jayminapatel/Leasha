@@ -117,6 +117,16 @@ def _corpus(root: Path, files: int = 3) -> Path:
     return root
 
 
+def _reword(root: Path) -> None:
+    """Give every document new words. 2026-10-10: a forced re-read of the
+    same words no longer sends a passage to the model - `replace_chunks`
+    keeps its row and its vector - so a test about what a re-embedding does
+    has to change the text to get one."""
+    for path in sorted(root.glob("doc*.txt")):
+        path.write_text(path.read_text(encoding="utf-8").replace("northern", "southern"),
+                        encoding="utf-8")
+
+
 def _run(store, root, vectors, embedder, **config):
     pipeline = Pipeline(
         store, vectors, embedder,
@@ -150,6 +160,7 @@ def test_a_failed_run_does_not_leave_less_coverage_than_it_found(tmp_path):
             raise AppErrorException(make_error(
                 "ERR_MODEL_LOAD", "index.embedder", details="deliberate"))
 
+        _reword(root)
         with pytest.raises(AppErrorException):
             _run(store, root, vectors, _embedder(on_embed=explode), force=True)
 
@@ -165,6 +176,7 @@ def test_the_delete_happens_in_the_flush_immediately_before_the_add(tmp_path):
     with SqliteStore(tmp_path / "index.db") as store:
         _run(store, root, vectors, _embedder())
         vectors.calls.clear()
+        _reword(root)
         _run(store, root, vectors, _embedder(), force=True)
 
     kinds = [kind for kind, _ids in vectors.calls]
