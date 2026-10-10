@@ -837,6 +837,34 @@ class VectorStore:
                 return [float(value) for value in found]
         return None
 
+    def bad_vectors(self, batch_size: int = 8192) -> list[tuple[int, int]]:
+        r"""`(chunk_id, file_id)` of every row whose vector is empty or not a number.
+
+        2026-10-10, order 1h item 2a. Before 2026-09-30, DirectML embedding on the
+        owner's Iris Xe returned all-zero vectors without raising, and they were
+        written and flagged embedded - a passage nobody can find by meaning, and
+        nothing that would ever notice. A full scan in batches (`batch_size` rows
+        at a time, never the whole table in memory); reads only.
+        """
+        import numpy as np
+
+        self._open_if_created_since()
+        if self._table is None:
+            return []
+        found: list[tuple[int, int]] = []
+        query = self._table.search().select(["chunk_id", "file_id", "vector"]).limit(None)
+        for batch in query.to_batches(batch_size):
+            column = batch.column("vector")
+            values = np.asarray(column.values.to_numpy(zero_copy_only=False),
+                                dtype=np.float32).reshape(len(column), -1)
+            bad = ~np.isfinite(values).all(axis=1) | (np.abs(values).sum(axis=1) < 1e-6)
+            if bad.any():
+                chunk_ids = batch.column("chunk_id").to_pylist()
+                file_ids = batch.column("file_id").to_pylist()
+                found.extend((int(chunk_ids[i]), int(file_ids[i]))
+                             for i in np.flatnonzero(bad))
+        return found
+
     def count(self) -> int:
         """Rows in the table: a scan, so not for the write path (see `add`).
         0 when there is no table yet or LanceDB cannot count it."""

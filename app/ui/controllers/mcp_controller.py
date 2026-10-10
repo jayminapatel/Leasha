@@ -23,6 +23,7 @@ from typing import Any
 from PySide6.QtCore import QObject, QThreadPool, QTimer
 
 from app.core.logging import logger
+from app.core.osbridge.programs import claude_desktop_process
 from app.serve.clients import started_before
 from app.ui.workers import CallableWorker, run
 
@@ -198,7 +199,7 @@ class McpController(QObject):
             self._w.notify(f"Leasha is {verb} {program.name}. {program.note}", 8_000)
             # 3.1 (2026-10-10): Claude Desktop saves its own settings. One started before
             # this Connect holds an older copy, and its next save can drop Leasha's entry.
-            if join and program.key == "claude-desktop" and started_before("claude.exe", started):
+            if join and program.key == "claude-desktop" and started_before(claude_desktop_process(), started):
                 self._w.notify("Claude Desktop was already running. Quit it and start it again, "
                                "or it can drop Leasha's entry the next time it saves its settings.",
                                20_000)

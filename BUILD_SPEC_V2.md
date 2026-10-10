@@ -1,6 +1,6 @@
 # Local Knowledge Graph V2 — Layer-by-Layer Build Spec
 
-**Doc version:** 2.17 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 2.18 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 Companion to `LOCAL_KNOWLEDGE_GRAPH_V2.md`. That document defines the architecture and
 the environment; this one defines **what gets built, in what order, and how each layer
@@ -790,8 +790,8 @@ searches and opens, so the option remains open if evidence ever justifies it.
 | FTS5 BM25 top-100 | <60ms | — | `search/keyword.py` |
 | LanceDB ANN top-100 | <80ms | — | `search/vector.py` |
 | RRF fusion | <5ms | **0.14ms** | `search/fusion.py` |
-| Cross-encoder rerank top-30 | <200ms | — | `search/rerank.py` |
-| **Total warm, rerank on** | **<300ms** | — | `search/engine.py` |
+| Cross-encoder rerank top-30 | <200ms | **576ms** card, 1,109ms processor (2026-10-08, owner's laptop) - not met | `search/rerank.py` |
+| **Total warm, rerank on** | **<300ms** | **991-3,342ms**; rerank off 177-976ms (2026-10-09, owner's index, five queries) - not met | `search/engine.py` |
 | Model load (once per session) | <2s | — | startup warm-up thread |
 | *Interim tier (typing): parse + BM25 top-20* | *<40ms* | — | `search/engine.py` |
 

@@ -5547,7 +5547,7 @@ class Pipeline:
             except Exception as exc:              # noqa: BLE001 - a repair, not the job
                 self._log.warning("enrichment backlog kind {!r} failed: {}", kind, exc)
 
-    def _drain_unembedded(self, stats: IndexStats) -> None:
+    def _drain_unembedded(self, stats: IndexStats, *, at_run_end: bool = False) -> None:
         r"""Embed chunks a previous run committed and never vectorised.
 
         **The hole had no route out.** Chunks are written first and vectorised a
@@ -5573,7 +5573,17 @@ class Pipeline:
             self._log.warning("could not check for unembedded chunks: {}", exc)
             return
 
-        if self._text_first():
+        # 2026-10-10: `at_run_end` from the run's end steps (`_drain_photo_tags`,
+        # `_drain_picture_text`). By then the feeder is stopped and nothing takes
+        # a parked batch, and `_stop` is set to unwind the threads - so their
+        # descriptions and picture text waited for the next run for their
+        # meaning, though both promise it before this run ends. There they are
+        # embedded here and answer to a real Stop (`_interrupted`) only, as the
+        # steps that call them do.
+        def halted() -> bool:
+            return self._interrupted if at_run_end else self._stop.is_set()
+
+        if not at_run_end and self._text_first():
             # 2026-10-08. **Parked, not embedded here.** Filling these first
             # held every new file back behind them - after a stopped run with
             # hours of meaning still to do, the next run read nothing for
@@ -5608,7 +5618,7 @@ class Pipeline:
         filled = 0
         try:
             for batch in batches:
-                if self._stop.is_set():
+                if halted():
                     break
                 # Work order 0i section 2b: this repair respects the same
                 # battery/CPU pacing an ordinary run does, at the same
@@ -5619,7 +5629,7 @@ class Pipeline:
                 # governor and ran the fan flat out would be the opposite
                 # of that promise.
                 verdict = self.governor.wait_while_throttled(
-                    should_stop=self._stop.is_set)
+                    should_stop=halted)
                 stats.paused_seconds = self.governor.paused_seconds
                 stats.pauses = self.governor.pauses
                 stats.paused = self.governor.paused
@@ -6109,7 +6119,7 @@ class Pipeline:
         stats.enrichment_counts["photo_tags"] = tagged
         if tagged:
             self._log.info("described {} photo(s) with no text in them", tagged)
-            self._drain_unembedded(stats)
+            self._drain_unembedded(stats, at_run_end=True)
 
     def _drain_picture_text(
         self, stats: IndexStats,
@@ -6220,7 +6230,7 @@ class Pipeline:
             stats.enrichment_counts["picture_text"] = found
             if found:
                 self._log.info("described or read {} picture(s) at the end of the run", found)
-                self._drain_unembedded(stats)
+                self._drain_unembedded(stats, at_run_end=True)
 
     def _maybe_detect_faces(self, candidate: Candidate, file_id: int) -> None:
         r"""Section 1a's own images-pass face step. Switch-gated, always.

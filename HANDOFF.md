@@ -70,6 +70,30 @@ line, no traceback and no window.
 
 ## 3. Current state
 
+**2026-10-10, later - order 1h released ("do the recomended") and its sections 1-2 built: 1a, 1b, 1c, 2a; 1d open.**
+(1a) `gpu_serialize.gpu_exclusive` also takes a file lock (`osbridge/filelock.py`, `leasha-gpu.lock` in the temp folder or `LEASHA_GPU_LOCK_DIR`) so the
+indexer, the OCR helper and the vision host never use the card at once; a wait past 120 s goes on without it and warns once (a departure from the item's
+"raise", noted on it). (1b) The driver-failed latch is a file named after `LEASHA_GPU_SESSION`, inherited by children, so one process's fault moves all to the
+processor. (1c) **Confirmed bug, fixed:** the video tail's own `Pipeline` cleared the outer OCR helper hook, started a second helper and left the hook empty, so
+the run-end OCR ran in the index process; it also described photos twice. `BacklogPipeline` now leaves both to the outer run. (2a) `reembed --check` (read-only,
+no run lock) and `reembed --bad` (whole files). **The owner's index:** `.env` points at `D:\LeashaIndex\Data`; it and `D:\Leasha\Data` both hold a new index
+created this morning with no vectors, so the 386,665-passage index the review measured is gone from this laptop and there is nothing pre-2026-09-30 to check.
+**Also fixed in passing:** `test_no_windows_only_call_outside_osbridge` was red on `main` - `mcp_controller.py` named `claude.exe`; now
+`osbridge.programs.claude_desktop_process()` (the Mac name `Claude` is UNCONFIRMED). (1d) thread caps for CLIP, OCR and faces need an idle-laptop measurement.
+**Not checked:** the lock with the real window, helper and host running together - only with test child processes. Uncommitted when written.
+
+**2026-10-10, review - the model strategy (owner: "critically look at our ai model choices strategy ... quality, performance and stability is key"), one bug fixed, order 1h drafted.**
+Read from the code and the numbers already measured; no model changes recommended. **Fixed:** with text-first on (the default), the run-end photo descriptions and picture text
+(`_drain_photo_tags`, `_drain_picture_text`) were parked for a feeder the teardown had already stopped, and the unparked path checked `_stop`, set at every run's end - so both
+waited for the next run for their vectors, though their docstrings promise them before this one ends. `_drain_unembedded(at_run_end=True)` embeds them there and answers to a
+real Stop (`_interrupted`) only; `test_photo_tags_at_run_end.py::test_the_run_end_gives_its_descriptions_meaning_in_the_same_run` fails without it; the 8 affected test files,
+81 tests, pass (run with a private `--basetemp`: another process held `.pytest_tmp`). **Drafted, not released:** `docs/WORKORDER-model-sequencing.md` (register 1h) - a
+graphics-card lock across the indexer, OCR helper and vision host (today one lock per process, the 2026-09-07 crash class); an empty-vector check of indexes built on the
+card before 2026-09-30; Chat sources cut to reranked windows; OCR before Florence for text-bearing pictures, routed by the stored CLIP vector, and burst copies reusing a
+caption; one retrieval per search with rerank on; embedding less. **Owner's decision in it:** D4, the int8 meaning model (1.85x, top-5 overlap 76%). **Corrected in place:**
+`LOCAL_KNOWLEDGE_GRAPH_V2.md` (Ollama model, measured search and rerank times) and `BUILD_SPEC_V2.md`'s budget table. **Not verified:** the review's report that the media
+backlog clears the OCR helper hook (item 1c), and the Chat prompt-reading estimate (item 3a). Uncommitted when written.
+
 **2026-10-10, last - body text is 12px and chosen in Settings, live (owner: "whole app body and make it configurable and the change should be live").**
 Measured first: `theme.py`'s base `QLineEdit` rule said `{large}` for every single-line box (14.9px against 13.1px for everything else, the chat message box
 included), though its comment says only the search box is large. Now: `theme.SCALE` is relative to body (small 12/13, body 1, large 15/13, display 26/13);

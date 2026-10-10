@@ -44,10 +44,14 @@ classifier and the latch are read at the same moment the gate is.
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 import threading
+import time
 from contextlib import contextmanager
-from typing import Iterator
+from pathlib import Path
+from typing import IO, Any, Iterator, Optional
 
 __all__ = [
     "gpu_exclusive",
@@ -166,6 +170,72 @@ def is_transient_gpu_error(exc: BaseException) -> bool:
 #: wins, which is acceptable. A lock would guard against nothing here.
 _GPU_UNRELIABLE_REASON: str = ""
 
+# ---------------------------------------------------------------------------
+# Across processes (order 1h section 1, 2026-10-10)
+# ---------------------------------------------------------------------------
+#
+# **Why.** Since 2026-10-09 Leasha's graphics-card work runs in three processes:
+# the indexer (meaning model, CLIP, faces), the OCR helper (`ocr_process.py`) and
+# the vision host (Florence, the CLIP text tower). `_GPU_LOCK` and the latch above
+# are per process, so two DirectML sessions could run at once again - the crash
+# this file was written for - and a driver fault seen by the OCR helper left the
+# indexer asking the same suspect driver. Both now reach every process of one
+# Leasha session: the gate through a file lock (`osbridge.filelock`, released by
+# the operating system if its holder dies), the latch through a small file.
+#
+# **Every hand-off to another process happens before the gate is taken**
+# (`ocr.ocr_image` sends to the helper first; the window's Florence and CLIP calls
+# go to the host, which takes the gate itself), so no process holds the file lock
+# while it waits on another that needs it.
+
+#: Inherited by every process the first one starts (the index child copies
+#: `os.environ`; the helpers and hosts inherit it), so they share one latch file.
+#: A Leasha started separately - a second command line - has its own.
+SESSION_ENV = "LEASHA_GPU_SESSION"
+#: Where the lock and latch files live. Tests point it at a folder of their own.
+DIR_ENV = "LEASHA_GPU_LOCK_DIR"
+#: How long a process waits for another's turn on the card before it goes on
+#: without the cross-process gate (warned once). The longest single hold measured
+#: is a Florence-2 session build, about 12 s; this is ten times that. Waiting for
+#: ever would turn a stuck driver call in one process into a hang in all three.
+MACHINE_WAIT_S = 120.0
+
+os.environ.setdefault(SESSION_ENV, f"{os.getpid()}-{int(time.time())}")
+
+_machine_handle: Optional[IO[Any]] = None
+_machine_broken = False          # this file system cannot lock: thread lock only
+_machine_warned = False
+
+
+def _lock_dir() -> Path:
+    return Path(os.environ.get(DIR_ENV) or tempfile.gettempdir())
+
+
+def _latch_path() -> Path:
+    session = re.sub(r"[^0-9A-Za-z_-]", "_", os.environ.get(SESSION_ENV, "none"))
+    return _lock_dir() / f"leasha-gpu-unreliable-{session}.txt"
+
+
+def _share_latch(reason: str) -> None:
+    """Write the latch for the other processes of this session. Never raises."""
+    try:
+        path = _latch_path()
+        if not path.exists():
+            path.write_text(reason, encoding="utf-8")
+        cutoff = time.time() - 2 * 86_400       # old sessions' files, tidied in passing
+        for old in path.parent.glob("leasha-gpu-unreliable-*.txt"):
+            if old != path and old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _read_shared_latch() -> str:
+    try:
+        return _latch_path().read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
 
 def mark_gpu_unreliable(reason: str) -> None:
     """Record that the graphics driver failed this session, so every later
@@ -192,18 +262,41 @@ def mark_gpu_unreliable(reason: str) -> None:
     text = str(reason or "").strip() or "the graphics driver failed"
     if not _GPU_UNRELIABLE_REASON:
         _GPU_UNRELIABLE_REASON = text
+        _share_latch(text)
 
 
 def gpu_unreliable() -> str:
     """Why the graphics driver is not to be used again this session, or
-    `""` while nothing has gone wrong."""
+    `""` while nothing has gone wrong.
+
+    2026-10-10: also what another process of this session recorded - a fault
+    the OCR helper saw moves the indexer and the vision host to the processor
+    too. Read from the file only until this process has a reason of its own.
+    """
+    global _GPU_UNRELIABLE_REASON
+    if not _GPU_UNRELIABLE_REASON:
+        shared = _read_shared_latch()
+        if shared:
+            _GPU_UNRELIABLE_REASON = shared
     return _GPU_UNRELIABLE_REASON
 
 
 def _reset_for_tests() -> None:
     """Clear the latch. Tests only - the process never clears it itself."""
-    global _GPU_UNRELIABLE_REASON
+    global _GPU_UNRELIABLE_REASON, _machine_handle, _machine_broken, _machine_warned
     _GPU_UNRELIABLE_REASON = ""
+    try:
+        _latch_path().unlink(missing_ok=True)
+    except OSError:
+        pass
+    if _machine_handle is not None:
+        try:
+            _machine_handle.close()
+        except OSError:
+            pass
+    _machine_handle = None
+    _machine_broken = False
+    _machine_warned = False
 
 #: The one process-wide gate. A plain `Lock`, not an `RLock`: every call path
 #: into this file was read before choosing — `embedder._ensure_encoder`,
@@ -239,4 +332,59 @@ def gpu_exclusive(active: bool) -> Iterator[None]:
         yield
         return
     with _GPU_LOCK:
-        yield
+        held = _take_machine_lock()
+        try:
+            yield
+        finally:
+            if held is not None:
+                from app.core.osbridge.filelock import unlock
+
+                unlock(held)
+
+
+def _machine_lock_handle() -> Optional[IO[Any]]:
+    """The open lock file, opened once per process; `None` if it cannot be."""
+    global _machine_handle, _machine_broken
+    if _machine_handle is None and not _machine_broken:
+        try:
+            path = _lock_dir() / "leasha-gpu.lock"
+            _machine_handle = open(path, "a+b")     # noqa: SIM115 - held for the process
+        except OSError:
+            _machine_broken = True
+    return _machine_handle
+
+
+def _take_machine_lock() -> Optional[IO[Any]]:
+    """Wait for this computer's graphics-card turn; the handle to unlock, or `None`.
+
+    Called with `_GPU_LOCK` held, so one thread of this process uses the handle at
+    a time. `None` means "go on with the thread lock only", as before 2026-10-10:
+    a file system that cannot lock, or another process holding the card for
+    longer than `MACHINE_WAIT_S`.
+    """
+    global _machine_broken, _machine_warned
+    handle = _machine_lock_handle()
+    if handle is None:
+        return None
+    from app.core.osbridge.filelock import try_lock
+
+    deadline = time.monotonic() + MACHINE_WAIT_S
+    pause = 0.005
+    while True:
+        try:
+            if try_lock(handle):
+                return handle
+        except OSError:
+            _machine_broken = True
+            return None
+        if time.monotonic() >= deadline:
+            if not _machine_warned:
+                _machine_warned = True
+                from app.core.logging import logger
+
+                logger.warning(
+                    "another Leasha process has held the graphics card for over {:.0f} s; "
+                    "going on without waiting for it", MACHINE_WAIT_S)
+            return None
+        time.sleep(pause)
+        pause = min(pause * 2, 0.05)

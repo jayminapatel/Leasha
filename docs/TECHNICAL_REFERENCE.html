@@ -602,8 +602,8 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
              [--live-only] [--quiet]</code></pre>
 <p>Default roots are the saved folders less those marked Archive. Writes only while applying a batch, under the run lock; does not prune.</p>
 <h4>reembed</h4>
-<pre><code>leasha reembed [--all] [--quiet]</code></pre>
-<p>Rebuilds vectors from <code>chunks</code> in batches of 256; <code>--all</code> drops every vector first. No document is re-read.</p>
+<pre><code>leasha reembed [--all | --check | --bad] [--quiet]</code></pre>
+<p>Rebuilds vectors from <code>chunks</code> in batches of 256; <code>--all</code> drops every vector first. No document is re-read. <code>--check</code> counts vectors that are all zeros (what DirectML on an Iris Xe wrote before 30 September 2026) and changes nothing; it takes no run lock. <code>--bad</code> deletes the vectors of every file that has one and embeds those whole files again.</p>
 <h4>extract</h4>
 <pre><code>leasha extract [--mailbox] [--chunks] [--text] [--full] [--out PATH] [--limit N]
                [--include-cloud] [paths ...]</code></pre>

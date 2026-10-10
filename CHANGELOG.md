@@ -17,6 +17,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### One turn on the graphics card for every Leasha process, and a check for empty vectors (2026-10-10)
+
+- **The index process, the text-in-pictures helper and the model host now take turns on the graphics card.**
+  Each had its own lock, so two of them could use the card at once - the cause of an earlier crash. If the graphics
+  driver fails in one, all of them move to the processor for the rest of the session.
+- **Reading videos and recordings no longer switches off the text-in-pictures helper.** After a run with videos,
+  text in pictures was read inside the index process again, and photos were described twice.
+- **`reembed --check` counts passages whose vector is empty**, and `reembed --bad` embeds those files again.
+  Indexes built on an Intel graphics card before 30 September 2026 could hold them.
+
+### Photo descriptions are found by meaning in the run that made them (2026-10-10)
+
+- **A described photo and the text read from a picture are now given their meaning before the run ends.** With "Make text
+  searchable first" on, they were found by their words at once but by meaning only after the next index run.
+
 ### Text size: 12px everywhere, and you choose it (2026-10-10)
 
 - **The normal text is 12px, down from 13px, and the same size everywhere.** Labels, drop-downs, number fields, buttons, lists,

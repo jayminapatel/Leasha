@@ -4923,6 +4923,26 @@ class SqliteStore:
             cursor = conn.execute("UPDATE chunks SET embedded = 0 WHERE embedded = 1")
             return int(cursor.rowcount)
 
+    def mark_files_unembedded(self, file_ids: Iterable[int]) -> int:
+        """Put every embedded passage of these files back in the queue. Returns how many.
+
+        Whole files, never single passages: the pipeline replaces a file's
+        vectors with `delete_by_file_ids` before it adds the new ones
+        (`unembedded_by_file`), so a file half-queued would lose the vectors of
+        its other half. For `app.cli reembed --bad` (order 1h item 2a).
+        """
+        ids = sorted({int(i) for i in file_ids})
+        changed = 0
+        with self.write() as conn:
+            for start in range(0, len(ids), 500):
+                part = ids[start:start + 500]
+                marks = ",".join("?" * len(part))
+                cursor = conn.execute(
+                    f"UPDATE chunks SET embedded = 0 WHERE embedded = 1 AND file_id IN ({marks})",
+                    part)
+                changed += int(cursor.rowcount)
+        return changed
+
     def mark_embedded(self, chunk_ids: Iterable[int]) -> None:
         """These chunks now have a vector. One transaction for the batch.
 

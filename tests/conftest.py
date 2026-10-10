@@ -192,6 +192,15 @@ def _pin_ocr_to_the_processor() -> Iterator[None]:
     yield
 
 
+#: 2026-10-10, order 1h §1: the graphics-card gate and latch now reach across
+#: processes through files. A test run gets a folder of its own, so it never waits
+#: on - or holds up - a Leasha running on the same computer, and never reads its latch.
+if not os.environ.get("LEASHA_GPU_LOCK_DIR"):
+    import tempfile as _tempfile
+
+    os.environ["LEASHA_GPU_LOCK_DIR"] = _tempfile.mkdtemp(prefix="leasha-gpu-tests-")
+
+
 @pytest.fixture(autouse=True)
 def _clear_gpu_unreliable_latch() -> Iterator[None]:
     """`app.core.gpu_serialize.mark_gpu_unreliable` is a process-wide latch

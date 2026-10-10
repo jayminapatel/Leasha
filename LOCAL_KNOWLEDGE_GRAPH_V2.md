@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.14 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 2.15 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -175,7 +175,7 @@ run launched from `C:\Windows\system32` created the project there and then could
 | `-OnError Ask` | **Default.** On failure, prompts **[R]etry / [C]ontinue / [A]bort**. |
 | `-OnError Continue` | Unattended: log the failure and carry on. |
 | `-OnError Abort` | Unattended: stop at the first failure. |
-| `-SkipOptional` | Skip the rerank model, Ollama and mistral. |
+| `-SkipOptional` | Skip the rerank model, Ollama and its `qwen2.5:1.5b`. |
 | `-RequiredFreeGB 300` | Free-space threshold on the index drive. |
 | `-Preflight` | Run only the cheap checks and stop. Nothing is installed or downloaded. |
 
@@ -268,7 +268,7 @@ model is the one in force:
 |---|---|---|---|
 | BAAI/bge-small-en-v1.5 | ~130MB | Embeddings (in-process ONNX, 384-dim) | Yes |
 | Xenova/ms-marco-MiniLM-L-6-v2 | small | Result reranking (Settings toggle). The default since the 9.2x measurement; `BAAI/bge-reranker-base` scored the same and was slower | Optional |
-| mistral (via Ollama) | ~4.1GB | Chat, Interpret and Describe, only when `CHAT_ENGINE=ollama`; Leasha's own default Ollama model is `qwen2.5:1.5b` | Optional |
+| qwen2.5:1.5b (via Ollama, `OLLAMA_MODEL`) | ~1GB | Chat, Interpret and Describe, only when `CHAT_ENGINE=ollama` | Optional |
 
 By default Chat, Interpret and Describe do not use Ollama: the chat model (Qwen 2.5 1.5B),
 photo tags (Florence-2) and speech (Whisper) run on ONNX Runtime inside Leasha (`app/ort`,
@@ -471,9 +471,9 @@ indexer at it.
 
 | Metric | V1 claim | V2 target | Basis |
 |---|---|---|---|
-| Warm search | "<500ms cached" | **<300ms** | FTS5 BM25 + LanceDB ANN in parallel, RRF fusion, no LLM in hot path |
+| Warm search | "<500ms cached" | **<300ms** - not met | FTS5 BM25 + LanceDB ANN in parallel, RRF fusion, no LLM in hot path. Measured 2026-10-09 on the owner's index (216,149 files, 386,665 passages), no rerank: 177, 238, 664 and 976 ms warm, 1,959 ms for the first query of the session |
 | First search after launch | "<2s cold" | **<3s** | ONNX model load ~1–2s once per session |
-| Rerank | Mistral 7B (impossible <2s on CPU) | Cross-encoder top-30, ~100–300ms, **optional toggle** | ms-marco-MiniLM-L-6-v2 ONNX (bge-reranker-base measured 9.2x slower for the same scores) |
+| Rerank | Mistral 7B (impossible <2s on CPU) | Cross-encoder top-30, **optional toggle, off by default** | ms-marco-MiniLM-L-6-v2 ONNX (bge-reranker-base measured 9.2x slower for the same scores). Measured 2026-10-08: 576 ms on the graphics card, 1,109 ms on the processor, 818 ms median; the list is drawn without it and re-ordered in place when it lands |
 | Initial index, 100GB | "30–50h GPU / 80–150h CPU" | **Days on CPU — set expectations in UI**; prioritised folders first, background, resumable | bge-small ~384-dim helps; PyMuPDF removes the parse bottleneck |
 | RAM | 16–32GB | **8GB min, 16GB comfortable** | No Postgres/Redis/Qdrant resident |
 | Disk | 200GB free | **300GB free on the index drive** (the threshold Leasha, `install.ps1`, `doctor.py` and the Windows installer all check), excluding the corpus itself | vectors + FTS + cache + models ≈ 50% of corpus size; the threshold leaves room above that |

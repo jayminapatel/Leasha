@@ -178,6 +178,7 @@
     <Compile Include="app\core\osbridge\_platform.py" />
     <Compile Include="app\core\osbridge\cloudfs.py" />
     <Compile Include="app\core\osbridge\dirwatch.py" />
+    <Compile Include="app\core\osbridge\filelock.py" />
     <Compile Include="app\core\osbridge\frontwindow.py" />
     <Compile Include="app\core\osbridge\launch.py" />
     <Compile Include="app\core\osbridge\outlook.py" />
@@ -812,6 +813,7 @@
     <Compile Include="tests\unit\test_gitsearch_reading.py" />
     <Compile Include="tests\unit\test_governor_settles.py" />
     <Compile Include="tests\unit\test_gpu_gate_pictures.py" />
+    <Compile Include="tests\unit\test_gpu_lock_across_processes.py" />
     <Compile Include="tests\unit\test_gpu_lock_wiring.py" />
     <Compile Include="tests\unit\test_gpu_regression_notice.py" />
     <Compile Include="tests\unit\test_gpu_serialize.py" />
@@ -883,6 +885,7 @@
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_mcp_server.py" />
     <Compile Include="tests\unit\test_media.py" />
+    <Compile Include="tests\unit\test_media_backlog_ocr_helper.py" />
     <Compile Include="tests\unit\test_media_open.py" />
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
@@ -999,6 +1002,7 @@
     <Compile Include="tests\unit\test_readable_selection.py" />
     <Compile Include="tests\unit\test_reader_process_isolation.py" />
     <Compile Include="tests\unit\test_recency.py" />
+    <Compile Include="tests\unit\test_reembed_bad_vectors.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />
     <Compile Include="tests\unit\test_repo_attribution.py" />
@@ -1350,6 +1354,7 @@
     <Content Include="docs\WORKORDER-libraries-before-converters.md" />
     <Content Include="docs\WORKORDER-local-verify-2026-09-29.md" />
     <Content Include="docs\WORKORDER-model-manager-2026-09-30.md" />
+    <Content Include="docs\WORKORDER-model-sequencing.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
     <Content Include="docs\WORKORDER-offline-drives-on-a-mac.md" />
     <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />

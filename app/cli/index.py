@@ -21,6 +21,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 from app.cli._common import EXIT_ERROR, EXIT_OK, _load, _report, _saved_roots
 from app.cli._progress import ProgressLine, _console_sink
@@ -1061,6 +1062,13 @@ def cmd_reembed(args: argparse.Namespace) -> int:
     settings = _load(args)
     setup_logging(settings.log_path)
 
+    if getattr(args, "check", False):
+        # Reads only, so no run lock: it may run beside an open window or a run.
+        with VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors:
+            if _report_bad_vectors(vectors):
+                print(r"  To embed them again: venv\Scripts\python.exe -m app.cli reembed --bad")
+        return EXIT_OK
+
     # A writer, so it takes the run lock - `reembed` and `index` must exclude
     # each other as firmly as two `index` runs do.
     with SqliteStore(settings.fts_db) as store, \
@@ -1080,6 +1088,17 @@ def cmd_reembed(args: argparse.Namespace) -> int:
             print(f"Clearing the vector store and re-embedding all {total:,} passages.")
             vectors.drop()
             store.mark_all_unembedded()
+        elif getattr(args, "bad", False):
+            # Order 1h item 2a (2026-10-10): vectors written empty by the graphics
+            # card before 2026-09-30. Their files' vectors are deleted and their
+            # passages queued again - whole files, as the pipeline needs.
+            files = _report_bad_vectors(vectors)
+            if not files:
+                return EXIT_OK
+            vectors.delete_by_file_ids(files)
+            queued = store.mark_files_unembedded(files)
+            print(f"  {queued:,} passage(s) of those files will be embedded again now.")
+            stats = store.stats()
 
         # **Say what is about to happen, before the silence starts.**
         #
@@ -1309,11 +1328,24 @@ def add_timed_out_parser(sub: argparse._SubParsersAction,
     p_timed.set_defaults(func=cmd_timed_out)
 
 
+def _report_bad_vectors(vectors: Any) -> list[int]:
+    """Say how many vectors are empty; the files they belong to."""
+    bad = vectors.bad_vectors()
+    files = sorted({file_id for _chunk, file_id in bad})
+    print(f"{len(bad):,} passage(s) in {len(files):,} file(s) have an empty vector "
+          f"(of {vectors.count():,} vectors).")
+    return files
+
+
 def add_reembed_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
     p_reembed = sub.add_parser(
         "reembed", parents=[common],
         help="rebuild the vector store from SQLite - no documents are re-read")
     p_reembed.add_argument("--all", action="store_true",
                            help="drop every vector and start over, not just the missing ones")
+    p_reembed.add_argument("--check", action="store_true",
+                           help="count vectors that are empty or not numbers, and change nothing")
+    p_reembed.add_argument("--bad", action="store_true",
+                           help="embed again every file that has an empty vector")
     p_reembed.add_argument("--quiet", action="store_true", help="no progress lines")
     p_reembed.set_defaults(func=cmd_reembed)
