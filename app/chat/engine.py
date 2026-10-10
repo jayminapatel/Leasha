@@ -601,6 +601,61 @@ class ChatEngine:
         return self.search_engine.search(query, limit=limit, rerank=False, use_cache=True,
                                          policy=CHAT_POLICY)
 
+    def _rerank_sources(self, question: str, results: list, terms: Sequence[str],
+                        debug: dict) -> tuple[list, int]:
+        """`(results in the reranker's order, characters of passage per source)`.
+
+        2026-10-10, work order model-sequencing 3b. `_search` keeps `rerank=False`
+        for the reason given there - a cross-encoder pass per *round* multiplies the
+        wait. But the answer itself was then built from fused order and from passages
+        cut only to their share of the budget (about 960 characters each at six
+        sources), and reading that prompt is the cost of a Chat answer: at about 33
+        tokens a second, the order of a minute before the first word. So the reranker
+        runs **once, here, after the loop**, over every candidate the rounds already
+        gathered, and `build_sources` then takes the best documents of that order.
+        No search is run again; what is reordered is what is in hand.
+
+        The window is the reranker's own (`Reranker.window_chars`, the setting
+        `rerank_window_chars`, 600 by default) rather than a new Chat setting: it is
+        the span the cross-encoder judged, so the model reads what was ranked, and a
+        setting of its own would be a new label for no measured need. It applies even
+        when reranking is off or fails - the fused order is kept, the passages are
+        still cut - because the shorter prompt is most of the gain either way.
+
+        **Never fails an answer.** `Reranker.rerank` already returns the fused order
+        on any failure of its own; anything else (a host process gone, an object
+        without the method) is caught here and the fused order is kept.
+        """
+        from app.search.window import RERANK_WINDOW_CHARS
+
+        reranker = getattr(self.search_engine, "reranker", None)
+        width = RERANK_WINDOW_CHARS
+        try:
+            width = int(getattr(reranker, "window_chars", 0) or 0) or RERANK_WINDOW_CHARS
+        except (TypeError, ValueError):
+            width = RERANK_WINDOW_CHARS
+        debug["passage_chars"] = width
+        debug["reranked"] = False
+        if (reranker is None or len(results) < 2 or not hasattr(reranker, "rerank")
+                or not bool(getattr(reranker, "available", True))):
+            return results, width
+        # The reranker works on dicts (the search pipeline's rows); the chat's
+        # results are `SearchResult`-shaped objects. Each goes in as its text and
+        # its index, and comes back out as the object itself, so nothing about a
+        # result - its chunk, page, file name - is rebuilt or lost on the way.
+        rows = [{"text": str(getattr(r, "text", "") or ""), "_at": i}
+                for i, r in enumerate(results)]
+        try:
+            ranked = reranker.rerank(question, rows, terms=list(terms or ()) or None)
+            order = [int(row["_at"]) for row in ranked]
+        except Exception as exc:                        # noqa: BLE001 - precision is optional
+            log.debug("chat: the sources were not reranked ({})", exc)
+            return results, width
+        if sorted(order) != list(range(len(results))):
+            return results, width                       # a reply that lost or doubled a row
+        debug["reranked"] = True
+        return [results[i] for i in order], width
+
     def _shelf_ids(self, history: Sequence[ChatTurn]) -> list[int]:
         """Documents the conversation has touched (its receipts), plus pinned,
         minus excluded - **exactly what the shelf shows**."""
@@ -1053,10 +1108,15 @@ class ChatEngine:
         window = self._window_of(llm) if has_model else 4096
 
         results = sorted(retrieval.results, key=lambda r: getattr(r, "rank", 0))
+        # 2026-10-10, work order model-sequencing 3b: the sources are the reranker's
+        # best of the candidates the loop already retrieved - one rerank call here,
+        # over what is in hand, never a second retrieval - and each is cut to the
+        # reranker's own window around the question's words. See `_rerank_sources`.
+        results, passage_chars = self._rerank_sources(route.question, results, plan.terms, debug)
         sources = build_sources(
             results, plan.terms, max_sources=self.cfg.max_sources,
             window_tokens=int(window * 0.55), question=route.question,
-            metas=self._metas(results))
+            metas=self._metas(results), passage_chars=passage_chars)
         debug["sources"] = [s.name for s in sources]
         debug["models"] = {r: getattr(self._role(r), "model", "") for r in ("router", "planner", "answerer")}
         if not sources:

@@ -89,6 +89,15 @@ BACKGROUND_MODELS = True
 #: staring at a disabled box for that long is a Stop that does not work.
 STOP_GRACE_MS = 4000
 
+#: 2026-10-10, work order model-sequencing 3c: how long the model must have been idle
+#: after a reply before the conversation's title is asked of it. The title used to be
+#: asked the instant the first answer finished, on a worker of its own - so a second
+#: question typed straight away queued behind it for the model (one ONNX model, one
+#: lock; or Ollama serving one request at a time) and the person waited for a name
+#: they had not asked for. A pause long enough for a follow-up already being typed
+#: to be sent; the title then waits for that answer too (`_title_when_idle`).
+TITLE_IDLE_MS = 1500
+
 
 class _Bridge(QObject):
     """Carries `(question token, event)` from the worker thread to this one."""
@@ -199,6 +208,9 @@ class ChatController(QObject):
         self._default_value = ""
         #: A list that came back while a question ran, shown once it has finished.
         self._deferred_list: Optional[tuple] = None
+        #: 2026-10-10 (3c): a title waiting for the model to be idle -
+        #: `(session, engine, question, answer)`, or `None`. See `_title_when_idle`.
+        self._title_pending: Optional[tuple] = None
 
     # -- construction ---------------------------------------------------------
     def build(self) -> ChatView:
@@ -967,6 +979,8 @@ class ChatController(QObject):
             self.view.end_answer()
             self.view.focus()
         self._maybe_title(self.session)
+        if self._title_pending is not None:      # 3c: a title that waited for this answer
+            later(self, TITLE_IDLE_MS, self._title_when_idle)
         if self._rebuild_after:                  # a model was picked while it answered
             self._rebuild_after = False
             self._drop_engine()
@@ -995,14 +1009,49 @@ class ChatController(QObject):
                 or not getattr(self.engine, "title", None):
             return
         session.auto_titled = True                # asked for once, whatever comes back
-        worker = CallableWorker(self.engine.title, users[0].text, plain_answer_text(last.text),
-                                component="ui.chat")
+        # 2026-10-10, work order model-sequencing 3c: not asked now. Asked once the
+        # model has been idle for `TITLE_IDLE_MS` - and if a question is being
+        # answered by then, after that one - so the title never stands in front of
+        # the person's next question for the model's lock. The engine is the one that
+        # answered; a later rebuild (a pick, a Settings change) does not lose it.
+        self._title_pending = (session, self.engine, users[0].text, plain_answer_text(last.text))
+        later(self, TITLE_IDLE_MS, self._title_when_idle)
+
+    def _title_when_idle(self) -> None:
+        """UI thread: ask for the waiting title if the model is idle; otherwise leave it
+        waiting - `_finished_asking` calls this again when the answer in flight is done.
+
+        2026-10-10 (3c). "Idle" here is what this controller can see: no question in
+        flight on this tab. The worker is started only from this thread, so a
+        question cannot slip in between the check and the start; a question asked
+        *while* the title is being written still waits for those few tokens (the
+        title is capped at 16), which is the short wait this trades the long one for.
+        """
+        pending = self._title_pending
+        if pending is None or self._closing:
+            return
+        if self._ask is not None:
+            return                                # a question has the model; after it
+        self._title_pending = None
+        session, engine, question, answer = pending
+        if session is not self.session and session not in self.sessions:
+            # Deleted while the title waited: naming it now would save it again
+            # (`_titled` persists), bringing back a conversation the person removed.
+            return
+        titler = getattr(engine, "title", None)
+        if titler is None:
+            return
+        worker = CallableWorker(titler, question, answer, component="ui.chat")
         worker.signals.finished.connect(lambda title, s=session: self._titled(s, title))
         worker.signals.failed.connect(lambda _e: None)
         run(QThreadPool.globalInstance(), worker)
 
     def _titled(self, session: ChatSession, title: Any) -> None:
         """UI thread: the fast model's title landed; a rename made meanwhile wins."""
+        if session is not self.session and session not in self.sessions:
+            # 2026-10-10: deleted while the title was being written. `_persist` would
+            # put it back in the list and save it again - the delete undone.
+            return
         title = " ".join(str(title or "").split())
         if not title or session.titled:
             self._persist(session)                # keeps `auto_titled`, so it is not asked again

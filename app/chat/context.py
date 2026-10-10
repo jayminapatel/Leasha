@@ -239,12 +239,23 @@ def build_sources(
     metas: Optional[dict[int, dict]] = None,
     first_number: int = 1,
     chunks_per_file: int = 2,
+    passage_chars: Optional[int] = None,
 ) -> list[Source]:
     """Numbered sources from ranked search results, best document first.
 
     `results` are `SearchResult`-shaped (`chunk_id`, `file_id`, `path`, `text`,
     `page`, `label`, `rank`). One `Source` per file, up to `chunks_per_file` of
     its chunks; the model is shown a window of the best one.
+
+    `passage_chars`, when given, caps each window below its share of the budget.
+    2026-10-10, work order model-sequencing 3b: the share alone came to about 960
+    characters a source at six sources (an 8k window x 0.55, capped at
+    `CONTEXT_TOKEN_CAP`), so most chunks reached the prompt nearly whole and reading
+    the prompt was most of the wait before the first word. The answer path now passes
+    the reranker's own window (`rerank_window_chars`, 600 by default) - the span the
+    cross-encoder judged relevant is the span the model reads. Only the *passage* is
+    cut: `pieces` stay whole, so the verifier and every receipt still check against
+    the stored text, never against the window.
     """
     metas = metas or {}
     order: list[int] = []
@@ -260,6 +271,8 @@ def build_sources(
             by_file[key].append(result)
 
     _total, per_source = budget_chars(window_tokens, question, sources=len(order) or 1)
+    if passage_chars:
+        per_source = min(per_source, max(1, int(passage_chars)))
     sources: list[Source] = []
     for offset, key in enumerate(order):
         chunk_results = by_file[key]

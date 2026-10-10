@@ -320,6 +320,14 @@ class MainWindow(QMainWindow):
             self._ollama,
             timeout_s=float(budget) if budget.isdigit() else TRANSLATE_TIMEOUT_S,
             enabled=interpret_on,
+            # 2026-10-10, work order model-sequencing 3d: the index, so the rules
+            # run first (`translate_rules.read`: real senders, real file types,
+            # dates) and only the words they leave go to the model. Without it the
+            # window handed the model the whole sentence every time - "pdfs from
+            # last year" paid a model call for a type and a date the rules read
+            # exactly. Nothing is read here: the rules query the store inside
+            # `translate`, which `run_interpretation` calls on a worker.
+            store=store,
         )
         self._translator = translator
         # **Warmed at startup only when it was already switched on**, which is
