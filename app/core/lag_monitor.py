@@ -97,6 +97,9 @@ class LagMonitor:
         self._reported_for = 0.0
         self._last_dump = -DUMP_INTERVAL_S
         self._last_note = -NOTE_INTERVAL_S
+        #: 2026-10-10: when the watcher last ran, and how late that run was - see `check`.
+        self._last_check: Optional[float] = None
+        self._watcher_gap_s = 0.0
         self.stalls = 0
         self.worst_s = 0.0
         self._stop = threading.Event()
@@ -167,6 +170,14 @@ class LagMonitor:
         minute is one dump, not one every 100 ms.
         """
         now = self._clock()
+        # 2026-10-10, A5: how long since this watcher last ran. It is meant to
+        # run every beat interval; when it could not - the 1309 ms stall at
+        # 09:42:43 that day was reported at 1309 ms, not at ~300 ms, by a watcher
+        # that checks every 50 ms - the whole interpreter was held, not only the
+        # window, and the report says so (see `_describe`).
+        previous = self._last_check
+        self._last_check = now
+        self._watcher_gap_s = 0.0 if previous is None else max(0.0, now - previous - self._beat_s)
         overdue = (now - self._last_beat) - self._beat_s
         if overdue < self._stall_s:
             return None
@@ -191,8 +202,43 @@ class LagMonitor:
                  if ui is not None else "(no frame)")
         others = ", ".join(sorted(
             names.get(ident, str(ident)) for ident in frames if ident != self._ui_id))
-        return (f"the window has not responded for {overdue * 1000:.0f} ms - "
-                f"it is executing:\n{where}\nother threads: {others}")
+        report = (f"the window has not responded for {overdue * 1000:.0f} ms - "
+                  f"it is executing:\n{where}\nother threads: {others}")
+        # 2026-10-10, A5: what the first report could not tell apart. Of the
+        # stalls over a second in the logs of 2026-10-10 (00:57:13 1215 ms and
+        # 00:57:17 1216 ms in logs/app/app_2026-10-10.log; 07:24:49 606 ms and
+        # 09:42:43 1309 ms in logs/runs/run-20261010-072434-window.log and
+        # run-20261010-094227-window.log) the window's innermost Python line was
+        # `application.exec()` - Qt's own code, or a call from Qt waiting for the
+        # interpreter lock before its first Python line - and the other threads
+        # were named only. Two things are now added, each cheap: one line per
+        # other thread saying where it is (whichever is inside a long call that
+        # keeps the lock is the one the window waits for), and a note when the
+        # watcher itself was held up, which means the whole interpreter was.
+        lines = []
+        for ident, frame in frames.items():
+            if ident in (self._ui_id, threading.get_ident()):
+                continue
+            try:
+                code = frame.f_code
+                lines.append(f"  {names.get(ident, str(ident))}: {code.co_filename}:"
+                             f"{frame.f_lineno} in {code.co_name}")
+            except Exception:                                   # noqa: BLE001 - a hint only
+                continue
+        # `_run_window` (app/main.py) is the frame that calls `application.exec()`:
+        # when it is the innermost one, no Python code of Leasha's is running there.
+        if ui is not None and ui.f_code.co_name == "_run_window":
+            report += ("\nthe window is in Qt's own code, not in a line of Leasha's "
+                       "(painting, layout, or a call from Qt waiting for the interpreter)")
+        if lines:
+            report += "\nwhere the other threads are:\n" + "\n".join(sorted(lines))
+        gap = self._watcher_gap_s
+        if gap >= self._stall_s:
+            report += (f"\nthis watcher itself could not run for {gap * 1000:.0f} ms before "
+                       "this report: the whole interpreter was held (a thread inside a call "
+                       "that keeps the interpreter lock, or the process paused), so the "
+                       "window's line above is where it resumed, not necessarily the cause")
+        return report
 
     def _describe_again(self, overdue: float) -> Optional[str]:
         """A stall still going as it passes 2, 5 and 10 seconds: every thread.

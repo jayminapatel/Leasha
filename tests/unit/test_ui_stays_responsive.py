@@ -130,6 +130,56 @@ def test_stack_dumps_are_rate_limited_across_stalls():
     assert monitor.check() is not None
 
 
+def test_the_first_report_says_where_every_other_thread_is():
+    """2026-10-10, A5: four stalls over half a second that day were reported with the
+    window inside `application.exec()` and the other threads named only - nothing to
+    say which of them held the interpreter. Each is now placed, one line apiece."""
+    monitor, clock = _monitor()
+    started, release = threading.Event(), threading.Event()
+
+    def _parked_somewhere_recognisable():
+        started.set()
+        release.wait(5)
+
+    other = threading.Thread(target=_parked_somewhere_recognisable, name="the-suspect")
+    other.start()
+    try:
+        started.wait(5)
+        clock.advance(0.05 + 1.0)
+        report = monitor.check()
+    finally:
+        release.set()
+        other.join(5)
+    assert report is not None
+    assert "where the other threads are:" in report
+    assert "the-suspect:" in report
+    assert "other threads:" in report, "the names line is kept as it was"
+
+
+def test_a_watcher_that_was_itself_held_up_says_so():
+    """2026-10-10, A5: the 1309 ms stall at 09:42:43 was reported at 1309 ms by a
+    watcher that checks every 50 ms - it could not run either, so the whole
+    interpreter was held. The report must say that, not only where the window is."""
+    monitor, clock = _monitor()
+    clock.advance(0.05)
+    assert monitor.check() is None               # a watcher pass, on time
+    clock.advance(0.05 + 1.2)                    # no beat, and no watcher pass either
+    report = monitor.check()
+    assert report is not None
+    assert "this watcher itself could not run for" in report
+
+
+def test_a_watcher_on_time_does_not_claim_it_was_held_up():
+    monitor, clock = _monitor()
+    for _ in range(30):                          # a stall the watcher saw growing
+        clock.advance(0.05)
+        report = monitor.check()
+        if report is not None:
+            break
+    assert report is not None
+    assert "this watcher itself could not run" not in report
+
+
 def test_percentiles_are_over_the_beats_seen():
     monitor, clock = _monitor()
     for _ in range(99):

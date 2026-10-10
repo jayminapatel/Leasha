@@ -30,6 +30,7 @@ Lives in Leasha's own data folder, never beside the photos (rule 10).
 
 from __future__ import annotations
 
+import functools
 import hashlib
 import os
 import struct
@@ -63,8 +64,15 @@ TINY_SAVE_EVERY = 200
 _PACK_MAGIC = b"LTP1"
 
 
+@functools.lru_cache(maxsize=8192)
 def cache_name(path: str, size: int, mtime_ns: int) -> str:
-    """The on-disk name for one photo's thumbnail: a hash of path, size and mtime."""
+    """The on-disk name for one photo's thumbnail: a hash of path, size and mtime.
+
+    2026-10-10, A5: remembered. `ThumbLoader.tiny` asks for it on every paint of
+    a tile still waiting for its picture (`photo_browser._FadeDelegate`), which
+    is every frame of a scroll - a SHA-1 per tile per frame for an answer that
+    never changes. A pure function of its three arguments, so a cache cannot
+    give a wrong answer; 8,192 names is a few screensful more than `KEEP`."""
     key = f"{path}|{int(size)}|{int(mtime_ns)}".encode("utf-8", "replace")
     return hashlib.sha1(key).hexdigest() + ".jpg"
 

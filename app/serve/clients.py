@@ -132,14 +132,30 @@ def http_entry(style: str, url: str, key: str) -> dict:
 
 def started_before(process_name: str, when: float) -> bool:
     """Whether a process called `process_name` was already running at `when` (epoch
-    seconds). Never raises: an unknown answer is False, and nothing is said."""
+    seconds). Never raises: an unknown answer is False, and nothing is said.
+
+    **Worker thread** - it walks every process on the computer.
+
+    2026-10-10, A5: only the *name* is asked of every process; the start time
+    is asked only of a process with the right name. On Windows psutil answers
+    `create_time` through `proc_info`, which opens each process in turn - the
+    stack the lag monitor caught on the interface thread at 08:56:20 that day
+    (731 ms, `logs/runs/run-20261010-085501-window.log`) was inside exactly
+    that call, for a computer's worth of processes, to find one program. The
+    caller has also been moved to a worker (`McpController.connect_program`).
+    """
     try:
         import psutil
 
-        for proc in psutil.process_iter(["name", "create_time"]):
-            if (proc.info.get("name") or "").lower() == process_name.lower() \
-                    and float(proc.info.get("create_time") or 0) < when:
-                return True
+        wanted = process_name.lower()
+        for proc in psutil.process_iter(["name"]):
+            if (proc.info.get("name") or "").lower() != wanted:
+                continue
+            try:
+                if float(proc.create_time() or 0) < when:
+                    return True
+            except Exception:                          # noqa: BLE001 - gone, or not ours to ask
+                continue
     except Exception:                                  # noqa: BLE001 - a hint, not a verdict
         return False
     return False
