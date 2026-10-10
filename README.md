@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.1 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.2
+**Doc version:** 4.2 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -316,8 +316,8 @@ venv\Scripts\python.exe -m pytest tests -q
 venv\Scripts\python.exe -m app.cli stats
 ```
 
-Never run two test runs at once in one copy (they share `.pytest_tmp`); pass `--basetemp`
-to the second. `tools\grab_ui.py` renders every page of the real window to PNG, and
+Two test runs can share one copy: each takes its own folder under `.pytest_tmp`
+(`run-<process id>`, removed after a green run), unless `--basetemp` names one. `tools\grab_ui.py` renders every page of the real window to PNG, and
 `tools\guide_pictures.py` retakes the user guide's pictures against the demonstration store
 and puts them into the guide (`--list` names them; `--all` takes the lot).
 

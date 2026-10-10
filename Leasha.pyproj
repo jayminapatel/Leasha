@@ -280,6 +280,7 @@
     <Compile Include="app\index\offline_media.py" />
     <Compile Include="app\index\phash.py" />
     <Compile Include="app\index\photo_metadata.py" />
+    <Compile Include="app\index\photo_reuse.py" />
     <Compile Include="app\index\pipeline.py" />
     <Compile Include="app\index\pipeline_bench.py" />
     <Compile Include="app\index\quantize_model.py" />
@@ -607,6 +608,7 @@
     <Compile Include="scripts\suite_durations.py" />
     <Compile Include="suggest.py" />
     <Compile Include="tests\__init__.py" />
+    <Compile Include="tests\basetemp.py" />
     <Compile Include="tests\conftest.py" />
     <Compile Include="tests\fixtures\chat_eval.py" />
     <Compile Include="tests\fixtures\evaluation.py" />
@@ -652,6 +654,7 @@
     <Compile Include="tests\unit\test_backends.py" />
     <Compile Include="tests\unit\test_backlog_first_folders.py" />
     <Compile Include="tests\unit\test_backlog_order.py" />
+    <Compile Include="tests\unit\test_basetemp.py" />
     <Compile Include="tests\unit\test_batch_write_lock.py" />
     <Compile Include="tests\unit\test_between_dates.py" />
     <Compile Include="tests\unit\test_brand_colours.py" />
@@ -680,6 +683,7 @@
     <Compile Include="tests\unit\test_chat_sessions.py" />
     <Compile Include="tests\unit\test_chat_sessions_store.py" />
     <Compile Include="tests\unit\test_chat_side_panel.py" />
+    <Compile Include="tests\unit\test_chat_sources_rerank.py" />
     <Compile Include="tests\unit\test_chat_tab.py" />
     <Compile Include="tests\unit\test_chat_tab_qt.py" />
     <Compile Include="tests\unit\test_chat_text.py" />
@@ -736,6 +740,7 @@
     <Compile Include="tests\unit\test_debug_recorder.py" />
     <Compile Include="tests\unit\test_deeplink.py" />
     <Compile Include="tests\unit\test_definitions.py" />
+    <Compile Include="tests\unit\test_describe_follows_engine.py" />
     <Compile Include="tests\unit\test_diagnostics.py" />
     <Compile Include="tests\unit\test_diagrams.py" />
     <Compile Include="tests\unit\test_distinct_values.py" />
@@ -856,6 +861,7 @@
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_installer_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
+    <Compile Include="tests\unit\test_interpret_window_rules_qt.py" />
     <Compile Include="tests\unit\test_interrupted_runs.py" />
     <Compile Include="tests\unit\test_junctions.py" />
     <Compile Include="tests\unit\test_junk_images.py" />
@@ -959,6 +965,7 @@
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />
     <Compile Include="tests\unit\test_phash_pipeline.py" />
+    <Compile Include="tests\unit\test_photo_description_reuse.py" />
     <Compile Include="tests\unit\test_photo_indexing_speed.py" />
     <Compile Include="tests\unit\test_photo_metadata_write.py" />
     <Compile Include="tests\unit\test_photo_tagger.py" />
@@ -970,6 +977,8 @@
     <Compile Include="tests\unit\test_photos_page.py" />
     <Compile Include="tests\unit\test_photos_smooth.py" />
     <Compile Include="tests\unit\test_photos_worker.py" />
+    <Compile Include="tests\unit\test_picture_lane_skipped_when_empty.py" />
+    <Compile Include="tests\unit\test_picture_model_threads.py" />
     <Compile Include="tests\unit\test_picture_status.py" />
     <Compile Include="tests\unit\test_pictures_faces_then_text.py" />
     <Compile Include="tests\unit\test_pinned.py" />
@@ -1002,6 +1011,7 @@
     <Compile Include="tests\unit\test_quantize_model.py" />
     <Compile Include="tests\unit\test_query.py" />
     <Compile Include="tests\unit\test_query_plans.py" />
+    <Compile Include="tests\unit\test_query_vector_cache.py" />
     <Compile Include="tests\unit\test_quoting.py" />
     <Compile Include="tests\unit\test_raw_extractor.py" />
     <Compile Include="tests\unit\test_read_order.py" />
@@ -1025,6 +1035,7 @@
     <Compile Include="tests\unit\test_reports_timeline.py" />
     <Compile Include="tests\unit\test_rerank.py" />
     <Compile Include="tests\unit\test_rerank_off_by_default.py" />
+    <Compile Include="tests\unit\test_rerank_reuses_candidates.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
     <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
     <Compile Include="tests\unit\test_resolve_gpu_regression.py" />

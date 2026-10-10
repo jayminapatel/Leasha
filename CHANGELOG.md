@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.103 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 4.104 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Search and Chat do less twice, and the window stays free while models load (2026-10-10)
+
+- **A reranked search no longer searches twice.** The better order is worked out from the results already found.
+- **A query is turned into meaning once**, however many times a search or a Chat answer asks for it.
+- **An index with no pictures never starts the picture-search model** on the first search.
+- **Chat reads the best passages, and only the part around your words**, so its answer starts sooner; the check
+  against your files still reads the whole passage.
+- **A conversation's title is written when Chat is idle**, never ahead of your next question; a conversation deleted
+  while its title was waiting no longer comes back.
+- **Interpret reads dates and file types itself** in the window, and only the rest goes to the model.
+- **Describe follows the Chat engine switch at once**, in pop-outs already open too; it kept the engine Leasha
+  started with.
+- **The meaning model and the reranker load outside the window**, as Chat and Describe already did, so a slow load
+  cannot freeze it. Leasha closes all its model processes when it exits.
+- **Photo models use only the processor threads the run leaves them**, and a burst of near-identical photos is
+  described once.
+- **Two pauses in the window are gone:** after connecting an AI program, and after each page of Files results.
+  Waiting photo tiles are cheaper to draw.
 
 ### Indexing spends the model's time on what is new, and reads sooner (2026-10-10)
 

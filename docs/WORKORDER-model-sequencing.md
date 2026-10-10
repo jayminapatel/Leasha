@@ -1,6 +1,6 @@
 # Work order (One thread): the models run where they pay, in the order that pays, and the graphics card is one lock across processes
 
-**Doc version:** 1.1 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/core/gpu_serialize.py`, `app/index/pipeline.py`, `app/index/media_backlog.py`,
 `app/extract/ocr.py`, `app/extract/chunker.py`, `app/search/engine.py`, `app/search/vector.py`,
 `app/search/translate.py`, `app/ui/workers.py`, `app/ui/shell.py`, `app/chat/engine.py`, `app/chat/context.py`,
@@ -98,6 +98,7 @@ too, so a driver fault seen in one does not move the others to the processor.
 > `intra_op_num_threads`; insightface builds its sessions inside `model_zoo` and needs a session-options
 > route). The counts themselves are a measurement on an idle laptop with a real picture run, before and
 > after; a guessed number could slow the run it is meant to help. Left for that measurement.
+> **2026-10-10, built; measurement owed.** `envelope.picture_model_threads`: logical processors less the extraction workers less the meaning model's threads, never above the meaning model's own count, one off for each extra caller of a session; no profile, library default. Applied to CLIP (`threads=`), RapidOCR (`intra_op_num_threads`, all three sessions; the helper's four callers taken off) and insightface (`sess_options` through `FaceAnalysis` to `model_zoo`). On the owner's laptop: 4 for CLIP and faces, 1 per OCR session (today 10 each). `test_picture_model_threads.py`, written, not run. The idle-laptop `pipeline_bench` before/after is owed before this is ticked.
 - [ ] **1d** Thread counts are set for CLIP (`clip_embedder.py`), RapidOCR (`ocr.py`) and insightface
       (`face_detect.py`) from the same envelope as the meaning model, so the run does not ask for more
       threads than the processor has.
@@ -134,14 +135,17 @@ answer reads whole passages, where the result list already cuts a 600-character 
 
 - [ ] **3a** Measure first: time to first word and total time for ten real questions on the owner's laptop,
       with the prompt size in tokens logged for each. Written into this item.
+> **2026-10-10, built; 3a's measurement owed.** Premise partly wrong: Chat cut each passage to its share already (~960 characters at six sources). Now `ChatEngine._rerank_sources` makes one rerank call over the candidates already gathered (no second retrieval), and `build_sources(passage_chars=)` gives the model a `RERANK_WINDOW_CHARS` window (600) while the verifier and citations keep the whole passage. `test_chat_sources_rerank.py`, written, not run.
 - [ ] **3b** The answer's sources are the reranker's best four to six of the candidates already retrieved
       (one rerank call, no second retrieval), each cut to a window around the query terms
       (`rerank.rerank_window_chars` or a Chat setting of its own), the file name kept.
       *Acceptance:* the same ten questions: time to first word falls; the verifier's pass rate
       (`CHAT_VERIFY_STRICTNESS`) and the cited files are recorded beside it and do not fall.
+> **2026-10-10, built.** `chat_controller._title_when_idle` (`TITLE_IDLE_MS` 1500): the title starts only when no question is in progress. Found with it: a conversation deleted while its title waited was saved back by `_titled`; fixed. Tests in `test_chat_tab_qt.py`, written, not run.
 - [ ] **3c** The conversation title is taken after the reply has finished and only when the model is idle,
       so it never sits in front of the next question behind the model's lock.
       *Acceptance:* a test with a fake model asks a second question at once and it starts before the title.
+> **2026-10-10, built.** Premise partly wrong: the command line did not pass a store either. The window's `QueryTranslator` and both of `app.cli evaluate`'s are given the store now. `test_interpret_window_rules_qt.py`, written, not run.
 - [ ] **3d** Interpret in the window gets the store, so the rules-first step (`translate.py`, only the
       leftover words go to the model) runs there as it does on the command line.
       *Acceptance:* a window-built `QueryTranslator` resolves "pdfs from last year" with the dates and type
@@ -161,11 +165,13 @@ the perceptual hash is computed and never used, so every shot of a burst pays fo
       Florence only when OCR finds nothing - the keyframe order. A photograph keeps today's order.
       *Acceptance:* on 4a's set, the routing agrees with the hand labels at a rate written here; Florence
       calls fall; no picture loses text it had before.
+> **2026-10-10, built; threshold and share owed.** `app/index/photo_reuse.py` `DescriptionReuse`: same folder, EXIF shot times within 60 s (a guessed date never counts), pHash within `REUSE_PHASH_DISTANCE = 8` bits (a judgement: half of search folding's 16) - the copy is marked by `index_state` `description_copied_from:<id>`, and only photos Florence itself described are copied from. Wired where photos are described today (`_drain_picture_text`) as well as `_drain_photo_tags`. `test_photo_description_reuse.py`, written, not run.
 - [ ] **4c** A near-duplicate (pHash distance under a threshold, same folder, taken within a minute) reuses
       its sibling's description instead of calling Florence; the reuse is marked so it can be redone.
       *Acceptance:* on a burst in the fixture set, Florence runs once; the threshold and the share of the
       owner's library it skips are written here.
-- [ ] **4d** CLIP and faces move off the consumer thread during the text pass (to the run's end, or a worker
+> **2026-10-10, built by the indexing review (P1).** A photo's CLIP, pHash, faces and video frames run on a `pictures` thread while reading lasts; on a fixture of 120 letters and 30 photos at 200 ms each, the last letter was committed at 2.9 s instead of 7.0 s, and every picture is still embedded by the run's end (`test_writer_path_review.py`).
+- [x] **4d** CLIP and faces move off the consumer thread during the text pass (to the run's end, or a worker
       of their own), so "text first" is not held up by pictures.
       *Acceptance:* on a mixed fixture run, the time until every text file is searchable by its words falls;
       picture search still finds every picture by the end of the run.
@@ -179,12 +185,15 @@ run again only to rerank a list the first call already had. The query's meaning 
 picture lane runs on every search, including on an index with no pictures, and the first search starts the
 vision host (about 4 s).
 
+> **2026-10-10, built; the 15-query check owed.** `SearchEngine._retrieve` is split at fusion (`_gather`, `_finish`); the first pass keeps its fused list in a small LRU and the reranked pass runs only `_finish` on a copy. It retrieves again after a write, a degraded first pass, or `use_cache=False`. `test_rerank_reuses_candidates.py`, written, not run.
 - [ ] **5a** The rerank pass reranks the first pass's fused list; it does not retrieve again.
       *Acceptance:* a test counts retriever calls: one per search with rerank on; the order of results is
       the same as today's on the 15-query evaluation set.
+> **2026-10-10, built; warm times owed.** `vector.QueryVectorCache` (64 entries, locked), keyed by the embedder's identity and the query with its spaces collapsed (case kept); failures never kept. Chat's widening rounds reach it through `SearchEngine.search`. `test_query_vector_cache.py`, written, not run.
 - [ ] **5b** A small LRU of query vectors (text and CLIP) keyed by the model and the normalised query, used by
       the relax loop and by Chat's widening rounds.
       *Acceptance:* the relax loop embeds a repeated query once (test); warm search times re-measured.
+> **2026-10-10, built.** `SearchEngine._search_pictures` returns nothing before the encoder is touched when the picture table is empty; the count is kept per index generation, and an empty answer is asked again after 30 s (the last photos of a run can land without a generation bump). `test_picture_lane_skipped_when_empty.py`, written, not run.
 - [ ] **5c** The picture lane is skipped when the picture table is empty, and the vision host is not started
       for it.
       *Acceptance:* on an index with no pictures the first search does not start the vision host (test).
