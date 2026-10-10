@@ -114,6 +114,16 @@ PROGRAMS: tuple[Program, ...] = (
     # 3.2 (2026-10-10). Gemini CLI reads ~/.gemini/settings.json; a remote server is
     # given as `httpUrl` with headers. Not installed on the owner's laptop when this was
     # written, so the shape is UNVERIFIED until it is connected to a real Gemini CLI.
+    #
+    # 2026-10-10, A7: the shape is CONFIRMED against Gemini CLI's own documentation,
+    # https://github.com/google-gemini/gemini-cli/blob/main/docs/tools/mcp-server.md
+    # (read that day): servers live under `mcpServers` in `settings.json`, user scope
+    # `~/.gemini/settings.json`; `httpUrl` is the streamable-HTTP endpoint (which is
+    # what Leasha's /mcp serves - `url` there would mean SSE, the wrong transport);
+    # `headers` is an object of header name to string, and the documentation's own
+    # example is `"Authorization": "Bearer your-api-token"`. What is still unverified
+    # is a real Gemini CLI reading it on this computer - which is what the note shown
+    # under the name says, so the note is left as it is.
     Program("gemini", "Gemini CLI", r"~\.gemini\settings.json", "mcpServers", "gemini",
             "Restart Gemini CLI after connecting. Shape per its documentation (UNVERIFIED "
             "on this computer)."),
