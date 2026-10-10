@@ -2108,6 +2108,11 @@ class Pipeline:
             # half-written document must not be committed - so the whole
             # group is rolled back. See `_abandon_write_group`.
             self._abandon_write_group()
+            # 2026-10-10, review P1: a consumer that raised left the picture
+            # worker running; it finishes what it was handed and is joined
+            # before anything below tears the run down. A no-op otherwise -
+            # `_consume` finished it where reading ended.
+            self._finish_picture_work()
             # 0x 5d: and give back the page cache `_consume` asked for.
             self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
@@ -4666,6 +4671,9 @@ class Pipeline:
         # §6f: Drop FTS triggers if bulk mode is enabled, before processing
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
+        # 2026-10-10, review P1: photos' models off this thread - see the
+        # notes above `PICTURE_QUEUE_SIZE`. Finished below, where reading ends.
+        self._start_picture_work()
 
         # 2026-09-29. The walker moves the run from scanning to reading
         # (`_read_in_order`), but only this thread reports progress - so it
@@ -4898,7 +4906,10 @@ class Pipeline:
                 # 0w 3b: an archive moved on to its next folder. See there.
                 self._persist_at_folder_boundary(pending_vectors)
 
-            if len(self._pending_images) >= self.config.embed_batch:
+            if (not self._picture_worker_takes()
+                    and len(self._pending_images) >= self.config.embed_batch):
+                # 2026-10-10, review P1: the picture worker keeps this
+                # threshold itself (`_picture_loop`) while it runs.
                 # Work order 0h, H7 pattern: flushed in a batch on its own
                 # threshold - reusing `embed_batch` rather than a new config
                 # knob - never one Lance write per photo. Independent of the
@@ -4960,6 +4971,11 @@ class Pipeline:
         # while the feeder thread is still writing the last batch, and an
         # embed failure here must still end the run the way it always has.
         # `_feed_sync` waits for the feeder and re-raises whatever it caught.
+        #
+        # 2026-10-10, review P1: **reading ends here**, so the picture worker
+        # finishes first - every photo handed over done and flushed, the thread
+        # joined - and nothing after this line meets it running.
+        self._finish_picture_work()
         self._flush_pending_images()
         if self._text_first():
             # 2026-10-08: the last of the text is committed and searchable;
@@ -7006,6 +7022,202 @@ class Pipeline:
         path = candidate.path
         return path.suffix.lower() in self._media_exts or reads_by_ocr(path)
 
+    # -- the picture worker (2026-10-10, review P1) ---------------------------
+    #
+    # **Why a thread of its own.** `_write_one` and `_record_skip` ran a photo's
+    # models - CLIP, the perceptual hash, a face scan of about 0.9 s, a video's
+    # keyframes, and face grouping every `FACE_CLUSTER_EVERY` faces - on the
+    # consumer, the one thread that writes. Every text document queued behind a
+    # photo in `results` waited for them: on a folder of mixed photos and
+    # documents the letters became searchable at the photos' pace. Now the
+    # consumer writes the photo's row, hands `(candidate, file_id, meta)` to this
+    # worker through a bounded queue, and takes the next document.
+    #
+    # **One thread, not a pool.** The steps of one photo share one decode
+    # (`app.extract.picture`, two pictures kept) and must run back to back to
+    # use it; the CLIP batch (`_pending_pictures`) and the pending lists are
+    # this thread's alone while it runs, so nothing in them needs a lock; and
+    # the GPU is serialised anyway (`app.core.gpu_serialize`), so a second
+    # thread would mostly queue on it. A measured gain is what would justify a
+    # pool.
+    #
+    # **What is kept, guarantee by guarantee:**
+    #
+    # * *None of it holds the write lock.* The consumer still commits its write
+    #   group before the hand-off (the 0x 5d rule), and this thread never opens
+    #   one: its store writes (`add_face`, `set_phashes`, the face grouping) are
+    #   each the store's own short transaction, serialised with the consumer's
+    #   by `SqliteStore._write_lock` - and `SqliteStore` gives every thread its
+    #   own connection, so this one reads only committed rows. **The consumer
+    #   never waits on this thread while holding a group**: it commits before
+    #   every hand-off and before every flush it asks for, or the two would
+    #   deadlock on the write lock.
+    # * *Errors stay per capability.* Each step is called on its own guard
+    #   (`_picture_steps`), so a store failure inside one - which used to reach
+    #   `_group_failed` - costs that capability for that photo, logged.
+    # * *The flush order.* While this thread runs, `_flush_pending_images` is
+    #   done here: the consumer's call queues a flush behind every photo handed
+    #   over before it and waits for it, so an archive's marker and a resume
+    #   cursor are still written after its pictures' vectors (M6), and the
+    #   vectors are still deleted then added in one batch.
+    # * *Stop and pause.* A held run holds this thread between photos; a stop
+    #   lets it finish the photos already handed over (their rows are written,
+    #   and a settled photo is not read again to get them), at most
+    #   `PICTURE_QUEUE_SIZE` of them.
+    # * *Drained before the tail.* `_finish_picture_work` hands over the last
+    #   flush, waits for the queue to empty and joins the thread - called where
+    #   `_consume` stops reading, and again in `run()`'s teardown for a consumer
+    #   that raised. After it, every picture step runs inline, as before.
+    # * *Counts.* The same steps run, so the same `warned_by_code` and
+    #   `enrichment_counts` are written; the stage clock is lock-protected.
+
+    #: Photos handed over and not yet done. Small on purpose: it bounds what a
+    #: stop waits for and what a crash can lose (rows written, vectors not),
+    #: and a queue that is full simply makes the consumer wait, as it always did.
+    PICTURE_QUEUE_SIZE = 16
+
+    def _picture_lane_configured(self) -> bool:
+        """Is any picture model switched on? With none, every step returns at
+        its first line and a thread would carry nothing."""
+        return (getattr(self, "image_embedder", None) is not None
+                or getattr(self, "phash_computer", None) is not None
+                or bool(getattr(self.config, "people_recognition_enabled", False)))
+
+    def _start_picture_work(self) -> None:
+        """Start the picture worker for this run's reading. Consumer thread."""
+        if getattr(self, "_picture_thread", None) is not None:
+            return
+        if not self._picture_lane_configured():
+            return
+        self._picture_queue: "queue.Queue[Any]" = queue.Queue(maxsize=self.PICTURE_QUEUE_SIZE)
+        thread = threading.Thread(target=self._background(self._picture_loop),
+                                  name="pictures", daemon=True)
+        self._picture_thread = thread
+        thread.start()
+
+    def _on_picture_thread(self) -> bool:
+        thread = getattr(self, "_picture_thread", None)
+        return thread is not None and threading.current_thread() is thread
+
+    def _picture_worker_takes(self) -> bool:
+        """True when a call on this thread should go to the worker."""
+        thread = getattr(self, "_picture_thread", None)
+        return (thread is not None and thread.is_alive()
+                and threading.current_thread() is not thread)
+
+    def _picture_put(self, job: Any) -> bool:
+        """Hand `job` over, waiting while the queue is full. False if the worker
+        has died, so the caller does the work itself rather than wait for ever."""
+        thread = self._picture_thread
+        while True:
+            try:
+                self._picture_queue.put(job, timeout=0.5)
+                return True
+            except queue.Full:
+                if thread is None or not thread.is_alive():
+                    return False
+
+    def _hand_to_pictures(self, candidate: Candidate, file_id: int,
+                          meta: Optional[dict[str, Any]], *, video: bool) -> bool:
+        """Queue this file's picture steps for the worker. False when there is
+        no worker (outside `_consume`, or no picture model on), and the caller
+        runs them inline, exactly as before."""
+        if not self._picture_worker_takes():
+            return False
+        if not self._media_work_ahead(candidate):
+            return True                     # every step would return at once
+        # Never wait on the worker holding the write lock - see the notes above.
+        self._commit_write_group(timed=False)
+        return self._picture_put(("steps" if video else "photo", candidate, file_id, meta))
+
+    def _picture_steps(self, candidate: Candidate, file_id: int,
+                       meta: Optional[dict[str, Any]], *, video: bool = True) -> None:
+        """A file's picture steps, in their old order, each on its own guard."""
+        steps: list[tuple[str, Callable[[], None]]] = [
+            ("picture search", lambda: self._maybe_embed_image(candidate, file_id)),
+            ("duplicate fingerprint", lambda: self._maybe_compute_phash(candidate, file_id)),
+            ("face scan", lambda: self._maybe_detect_faces(candidate, file_id)),
+        ]
+        if video:
+            steps.append(("video pictures",
+                          lambda: self._maybe_embed_video(candidate, file_id, meta)))
+        for name, step in steps:
+            try:
+                step()
+            except Exception as exc:            # noqa: BLE001 - one capability, one photo
+                self._log.warning(
+                    "the {} step failed for {}: {}. The file stays indexed; only "
+                    "that step is missing for it.", name, candidate.path, exc)
+
+    def _picture_loop(self) -> None:
+        """The worker: take jobs until told to finish. Never raises."""
+        work = self._picture_queue
+        while True:
+            job = work.get()
+            try:
+                kind = job[0]
+                if kind == "finish":
+                    self._flush_pending_images()
+                    return
+                if kind == "flush":
+                    try:
+                        self._flush_pending_images()
+                    finally:
+                        job[1].set()
+                    continue
+                # A held run holds this thread too, between photos; a stop does
+                # not drop what was handed over - see the notes above.
+                while self._person_paused() and not self._stop.is_set():
+                    time.sleep(HOLD_POLL_S)
+                _kind, candidate, file_id, meta = job
+                self._picture_steps(candidate, file_id, meta,
+                                    video=kind == "steps")
+                if len(self._pending_images) >= self.config.embed_batch:
+                    self._flush_pending_images()
+            except Exception as exc:            # noqa: BLE001 - the worker never dies
+                self._log.error("the picture worker could not finish a job: {}", exc)
+                if job[0] == "flush":
+                    job[1].set()
+            finally:
+                work.task_done()
+
+    def _flush_pictures_on_worker(self) -> bool:
+        """Consumer side of `_flush_pending_images` while the worker runs: queue
+        a flush behind every photo handed over, and wait for it. False when there
+        is no worker to ask, and the caller flushes inline."""
+        if not self._picture_worker_takes():
+            return False
+        self._commit_write_group()
+        done = threading.Event()
+        if not self._picture_put(("flush", done)):
+            return False
+        thread = self._picture_thread
+        while not done.wait(0.5):
+            if not thread.is_alive():
+                return False
+        return True
+
+    def _finish_picture_work(self) -> None:
+        r"""Every photo handed over done, flushed, and the worker joined.
+
+        **The one call the end of reading needs** (2026-10-10, review P1): from
+        here on, post-passes, the prune and the ANN build may run, and they must
+        find every picture vector, hash and face of what was read. Called by
+        `_consume` where it stops reading, and by `run()`'s teardown for a
+        consumer that raised; safe to call twice, and a no-op with no worker.
+        Consumer thread; never raises.
+        """
+        thread = getattr(self, "_picture_thread", None)
+        if thread is None:
+            return
+        try:
+            self._commit_write_group()
+        except Exception as exc:                # noqa: BLE001 - teardown
+            self._log.warning("could not commit before the pictures finished: {}", exc)
+        if thread.is_alive() and self._picture_put(("finish",)):
+            thread.join()
+        self._picture_thread = None
+
     def _write_one(self, item: _Extracted) -> list[tuple[int, int, list[float]]]:
         """Chunks and vectors first, INDEXED last.
 
@@ -7134,26 +7346,30 @@ class Pipeline:
         # open across it would block every other writer for no reason - the
         # same argument `_embed_pending`'s comment makes for the LanceDB
         # delete below.
-        if self._media_work_ahead(candidate):
-            # 0x 5d: the four steps below can be real work - a picture's
-            # vector, its hash, its faces, a video's frames - and none of it
-            # may run holding the write lock. This document's rows commit now,
-            # with any written before it.
-            self._commit_write_group(timed=False)   # inside the write clock already
-        self._maybe_embed_image(candidate, file_id)
-        # Work order 0h §2a. Independent of the CLIP call just above - see
-        # `_maybe_compute_phash`'s docstring for why a pHash is computed and
-        # gated on its own rather than folded into `_maybe_embed_image`.
-        self._maybe_compute_phash(candidate, file_id)
-        # Work order 0j section 1a. Independent of both calls above, same
-        # reasoning `_maybe_compute_phash` already gives for its own
-        # independence from `_maybe_embed_image`: face detection, CLIP and
-        # pHash are three unrelated capabilities and a failure in one must
-        # never cost either of the others.
-        self._maybe_detect_faces(candidate, file_id)
-        # Work order 202626270515. Last, and it always releases the video's
-        # temporary pictures - see `_maybe_embed_video`.
-        self._maybe_embed_video(candidate, file_id, item.meta)
+        # 2026-10-10, review P1: and while the picture worker runs, not on this
+        # thread at all - the four steps below go to it, and the next document
+        # is written at once. See the notes above `PICTURE_QUEUE_SIZE`.
+        if not self._hand_to_pictures(candidate, file_id, item.meta, video=True):
+            if self._media_work_ahead(candidate):
+                # 0x 5d: the four steps below can be real work - a picture's
+                # vector, its hash, its faces, a video's frames - and none of it
+                # may run holding the write lock. This document's rows commit now,
+                # with any written before it.
+                self._commit_write_group(timed=False)   # inside the write clock already
+            self._maybe_embed_image(candidate, file_id)
+            # Work order 0h §2a. Independent of the CLIP call just above - see
+            # `_maybe_compute_phash`'s docstring for why a pHash is computed and
+            # gated on its own rather than folded into `_maybe_embed_image`.
+            self._maybe_compute_phash(candidate, file_id)
+            # Work order 0j section 1a. Independent of both calls above, same
+            # reasoning `_maybe_compute_phash` already gives for its own
+            # independence from `_maybe_embed_image`: face detection, CLIP and
+            # pHash are three unrelated capabilities and a failure in one must
+            # never cost either of the others.
+            self._maybe_detect_faces(candidate, file_id)
+            # Work order 202626270515. Last, and it always releases the video's
+            # temporary pictures - see `_maybe_embed_video`.
+            self._maybe_embed_video(candidate, file_id, item.meta)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
@@ -7696,10 +7912,18 @@ class Pipeline:
         raised - those photos stay searchable by every route except CLIP
         similarity, and nothing here can fail the run those images belong to.
         """
-        if self._pending_images or self._pending_phashes:
+        # 2026-10-10, review P1: while the picture worker runs, the pending
+        # lists are its own and so is this flush - the consumer's call waits
+        # for it there (`_flush_pictures_on_worker`), behind every photo handed
+        # over before it.
+        if self._flush_pictures_on_worker():
+            return
+        if (self._pending_images or self._pending_phashes) and not self._on_picture_thread():
             # 0x 5d: a LanceDB write is slow next to a SQLite statement, so
             # the consumer's shared transaction is committed rather than held
-            # open across it - the same rule `store.batch()` states.
+            # open across it - the same rule `store.batch()` states. (Never
+            # from the picture worker: the group is the consumer's, and the
+            # worker holds none.)
             self._commit_write_group()
         self._embed_pending_pictures()
         self._flush_pending_phashes()
@@ -8097,6 +8321,10 @@ class Pipeline:
             # finds no text in them - did not. CLIP, pHash and a 0.9 s face
             # scan then ran inside the consumer's open transaction, and every
             # queued UI write waited on it. The same commit, for the same reason.
+            # 2026-10-10, review P1: and with the picture worker running, the
+            # steps go to it (after the same commit) - see `_hand_to_pictures`.
+            if self._hand_to_pictures(candidate, file_id, None, video=False):
+                return
             if self._media_work_ahead(candidate):
                 self._commit_write_group(timed=False)
             self._maybe_embed_image(candidate, file_id)

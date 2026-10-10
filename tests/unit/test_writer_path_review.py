@@ -117,6 +117,127 @@ def ocr_reads(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# P1. The picture worker
+# ---------------------------------------------------------------------------
+
+class _SlowPhash:
+    """A picture model that takes `seconds` a photo and says on which thread."""
+
+    def __init__(self, seconds: float = 0.0, *, fail: bool = False) -> None:
+        self.seconds = seconds
+        self.fail = fail
+        self.threads: list[str] = []
+        self.finished: list[float] = []
+
+    def compute(self, _picture) -> str:
+        self.threads.append(threading.current_thread().name)
+        time.sleep(self.seconds)
+        self.finished.append(time.monotonic())
+        if self.fail:
+            raise RuntimeError("simulated pHash failure")
+        return "00ff00ff00ff00ff"
+
+
+def _mixed(root: Path, photos: int, letters: int) -> None:
+    for index in range(photos):
+        _png(root / f"a{index:02d}.png")              # read first: "found" order is by name
+    for index in range(letters):
+        _write(root / f"z{index:02d}.txt", f"pump station letter {index}")
+
+
+def _timed_letters(pipeline: Pipeline) -> list[float]:
+    """When each text document's write returned, on the consumer."""
+    written: list[float] = []
+    real = pipeline._write_one
+
+    def spy(item):
+        out = real(item)
+        if item.candidate.path.suffix == ".txt":
+            written.append(time.monotonic())
+        return out
+
+    pipeline._write_one = spy
+    return written
+
+
+def test_picture_models_run_on_the_worker_not_the_consumer(tmp_path, ocr_reads):
+    root = tmp_path / "docs"
+    _mixed(root, photos=3, letters=2)
+    phash = _SlowPhash()
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, [root], phash_computer=phash, read_order="found")
+        stats = pipeline.run()
+        hashed = [record.phash for record in store.iter_files()
+                  if record.path.endswith(".png")]
+    assert stats.indexed + stats.skipped == 5
+    assert phash.threads == ["pictures"] * 3, phash.threads
+    assert hashed == ["00ff00ff00ff00ff"] * 3, "every photo's hash still written"
+    assert pipeline._picture_thread is None, "joined where reading ended"
+    assert pipeline._pending_phashes == {} and pipeline._pending_images == []
+    assert not [t for t in threading.enumerate() if t.name == "pictures"]
+
+
+def test_the_letters_behind_a_slow_photo_are_written_before_its_model_finishes(
+        tmp_path, ocr_reads):
+    """The review's complaint, as an outcome: six photos at 0.2 s each ahead
+    of four letters. Inline, the last letter waited for all six; now it is
+    written while the worker is still on the photos."""
+    root = tmp_path / "docs"
+    _mixed(root, photos=6, letters=4)
+    phash = _SlowPhash(0.2)
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, [root], phash_computer=phash, read_order="found")
+        letters = _timed_letters(pipeline)
+        pipeline.run()
+    assert len(letters) == 4 and len(phash.finished) == 6
+    assert max(letters) < max(phash.finished), (
+        "the last letter waited for every photo's model")
+
+
+def test_one_failing_picture_step_costs_only_itself(tmp_path, ocr_reads, monkeypatch):
+    root = tmp_path / "docs"
+    _png(root / "a.png")
+    faces: list[int] = []
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, [root], phash_computer=_SlowPhash(fail=True),
+                             read_order="found", people_recognition_enabled=True)
+        monkeypatch.setattr(pipeline, "_maybe_detect_faces",
+                            lambda candidate, file_id: faces.append(file_id))
+        stats = pipeline.run()
+    assert stats.indexed + stats.skipped == 1
+    assert len(faces) == 1, "the face step still ran after the hash step failed"
+
+
+def test_a_flush_asked_for_by_the_consumer_waits_for_the_photos_before_it(tmp_path):
+    """M6: an archive's marker or a resume cursor comes after the pictures
+    handed over before it - so the consumer's flush is done behind them."""
+    photo = _png(tmp_path / "p.png")
+    phash = _SlowPhash(0.3)
+    with SqliteStore(tmp_path / "index.db") as store:
+        file_id = store.upsert_file(str(photo), size_bytes=1, mtime_ns=OLD_NS,
+                                    status=FileStatus.PENDING, ext="png")
+        pipeline = _pipeline(store, [tmp_path], phash_computer=phash)
+        pipeline._stats_ref = IndexStats()
+        pipeline._start_picture_work()
+        candidate = Candidate(path=photo, size_bytes=1, mtime_ns=OLD_NS)
+        assert pipeline._hand_to_pictures(candidate, file_id, None, video=False)
+        pipeline._flush_pending_images()
+        assert store.get_file(str(photo)).phash == "00ff00ff00ff00ff"
+        pipeline._finish_picture_work()
+        pipeline._finish_picture_work()                  # twice is harmless
+    assert pipeline._picture_thread is None
+
+
+def test_no_picture_model_means_no_worker_and_the_old_inline_path(tmp_path):
+    with SqliteStore(tmp_path / "index.db") as store:
+        pipeline = _pipeline(store, [tmp_path])
+        pipeline._start_picture_work()
+        assert getattr(pipeline, "_picture_thread", None) is None
+        candidate = Candidate(path=tmp_path / "p.png", size_bytes=1, mtime_ns=1)
+        assert pipeline._hand_to_pictures(candidate, 1, None, video=False) is False
+
+
+# ---------------------------------------------------------------------------
 # P2. The gate before the hash
 # ---------------------------------------------------------------------------
 
