@@ -107,9 +107,21 @@ class ModelHost:
         with self._lock:
             if not self.alive:
                 here = Path(__file__).resolve().parents[2]
-                proc = self._proc = self._popen(
-                    self._argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL, cwd=str(here), close_fds=True)
+                # 2026-10-10: a process that cannot even be started (the Python
+                # missing, blocked by Smart App Control, out of handles) raised
+                # the bare `OSError` out of here, and every caller is written
+                # for this host's own error. The chat engine happened to catch
+                # anything; the search engine's warm-up catches only
+                # `AppErrorException` for the meaning model, so an `OSError`
+                # skipped the reranker's warm-up behind it. One error, whatever
+                # went wrong: the host is not there.
+                try:
+                    proc = self._proc = self._popen(
+                        self._argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                        stderr=subprocess.DEVNULL, cwd=str(here), close_fds=True)
+                except (OSError, ValueError) as exc:
+                    raise _ended("the model process could not be started "
+                                 f"({type(exc).__name__}: {exc})") from exc
                 ready = self._ready = threading.Event()
                 self.started += 1
                 threading.Thread(target=self._listen, args=(proc, ready),
