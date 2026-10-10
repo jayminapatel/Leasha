@@ -5147,12 +5147,21 @@ class SqliteStore:
 
     def known_read_stamps(self, store_path: str) -> dict[str, str]:
         """`{entry_id: read_stamp}` for the indexed messages of one archive
-        that were read to the end before. Schema 35; see its migration."""
+        that were read to the end before. Schema 35; see its migration.
+
+        **PARTIAL counts as read** (2026-10-10), as it does in
+        `Pipeline._classify` and `_already_current` since 2026-10-08: its
+        passages are written whole and only its vectors are missing, which the
+        run's start fills (`_drain_unembedded`) without reading anything. Left
+        out, every message of a text-first run (`index_two_phase`) - all of
+        them, while the meaning backlog lasts - lost its stamp, and an archive
+        whose header Outlook moved was read again in full, body and
+        attachments, only for each message to be found unchanged by its text."""
         rows = self.conn.execute(
             "SELECT m.entry_id, m.read_stamp FROM messages m "
             "JOIN files f ON f.id = m.file_id "
             "WHERE m.store_path = ? AND m.read_stamp IS NOT NULL "
-            "AND m.entry_id IS NOT NULL AND f.status = 'INDEXED'",
+            "AND m.entry_id IS NOT NULL AND f.status IN ('INDEXED', 'PARTIAL')",
             (str(store_path),)).fetchall()
         return {str(row["entry_id"]): str(row["read_stamp"]) for row in rows}
 
