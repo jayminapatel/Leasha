@@ -1169,6 +1169,21 @@ _FEEDER_QUEUE_SIZE = 1
 #: batches that take half a minute: nothing waits on it.
 _PARKED_POLL_S = 0.1
 
+#: 2026-10-10. How long a stop may wait for the meaning model to finish the
+#: batch it is in the middle of, so the batch's vectors are written instead of
+#: thrown away. Measured from the moment the embedder first sees the stop, and
+#: shared by every batch after it, so a stop never costs more than this plus
+#: the one model call already running (`CPU_INFER_BATCH` passages, a few
+#: seconds). A batch the measured pace says will not finish inside it is cut
+#: exactly as before. Seen on 2026-10-10 07:03: closing the window cut "0 of
+#: 480 passages embedded" 1.4 s after the stop - a 480-passage batch on the
+#: processor is 40-90 s, far past any bound a closing window can give, so
+#: this changes nothing there; it keeps the batch that was nearly done.
+#: Fixed, not a setting (non-negotiable 11): the window gives a closing run
+#: 30 s (`MainWindow.INDEX_SHUTDOWN_GRACE_MS`) and the run's own tail needs a
+#: few of them; nobody has a reason to trade those seconds differently.
+STOP_FINISH_BATCH_S = 10.0
+
 #: §6g. How dominant `waiting` must be, as a share of the critical path,
 #: before another extraction worker is worth starting. The same threshold
 #: `stages.advice()` uses for "this run is extraction-bound" - one number,
@@ -1322,6 +1337,11 @@ def say_unexpected_skip(log: Any, path: Any, error: Any) -> bool:
         return True
     except Exception:                            # noqa: BLE001 - see the docstring
         return False
+
+
+def _chars(texts: list[str]) -> int:
+    """A batch's size in characters, every passage counted as at least one."""
+    return sum(max(1, len(text)) for text in texts)
 
 
 class Pipeline:
@@ -1911,6 +1931,10 @@ class Pipeline:
         self._stop.clear()
         self._interrupted = False
         self._embed_abandoned = False
+        # 2026-10-10: a second run starts afresh - no stop seen, nothing
+        # embedded at the run's end yet.
+        self._stop_seen_at = None
+        self._tail_embedding = False
         # A pause belongs to the run it was asked for. A second run on the
         # same `Pipeline` starts moving, and a person who wants it held asks
         # again - a run that sat still for a reason nobody can see is the
@@ -2165,6 +2189,11 @@ class Pipeline:
         # guarded on it straight afterwards, over the same store, so doing them
         # here too was each of them twice - see `app/index/media_backlog.py`.
         finishing = not light and not self.outer_run_finishes
+        # 2026-10-10: the feeder has gone and every thread has been told to
+        # unwind, so `_stop` is set for good. Anything embedded from here on
+        # is a pass's own new passages, and only the person's Stop may cut it
+        # (`_stopping_for_embed`), not the flag the teardown set.
+        self._tail_embedding = True
         if not light:
             self._drain_media_backlog(stats, on_progress)
         # 2026-10-04: faces found this run are grouped now, not at the start of
@@ -2296,10 +2325,17 @@ class Pipeline:
         # (Also when the readers end, and at each resume-cursor write - see
         # `_save_run_books`; anything the media backlog added is written here.)
         self._save_run_books()
-        # 2026-10-10: the media tail's run leaves the table's index build and
-        # its forced rewrite to the run that started it, which does both a
-        # moment later over the same table.
-        tidy_vectors = not self.outer_run_finishes
+        # 2026-10-10, the owner's close at 07:03:02: the run had stopped its
+        # batch 1.4 s after the stop and reached this phase at 07:03:03.6, and
+        # was still in it at 07:03:37 when the window ended the process ("did
+        # not stop within 5s"). Nothing else was logged in between, and this
+        # phase is the table's index build and a forced rewrite of the whole
+        # vector table. **A stopped run leaves both to the next run**, which
+        # does them at its own end: a table left fragmented or without its
+        # newest index rows is slower to search, never wrong, and a stop is
+        # somebody waiting for the run to end. The media tail's run leaves
+        # them to the run that started it, which does them a moment later.
+        tidy_vectors = not self._interrupted and not self.outer_run_finishes
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
         if tidy_vectors:
             self.vectors.maybe_create_index()
@@ -2319,9 +2355,9 @@ class Pipeline:
                 self.image_vectors.maybe_create_index()
                 self.image_vectors.maybe_compact(force=not light)
         self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
-        # 2026-10-10: the merge rewrites the whole word index, so the media
-        # tail's run leaves it to the outer run, as the vector work above.
-        # Triggers a bulk load suspended are put back regardless - without
+        # 2026-10-10: the merge rewrites the whole word index, so it is left by
+        # a stopped run and by the media tail's run, as the vector work above
+        # is. Triggers a bulk load suspended are put back regardless - without
         # them nothing written after this run is in keyword search at all.
         self._optimise_keyword_index(stats, merge=tidy_vectors)
         if finishing:
@@ -2529,9 +2565,9 @@ class Pipeline:
                 # Clear the dirty flag now that triggers are restored
                 self.store.set_state("fts_dirty", "")
 
-        # 2026-10-10: `merge=False` - the media tail's run - puts the triggers
-        # back above and leaves the merge to the outer run, which reads this
-        # run's chunks in its count.
+        # 2026-10-10: `merge=False` - a stopped run, or the media tail's run -
+        # puts the triggers back above and leaves the merge to the next run
+        # (or to the outer one, which reads this run's chunks in its count).
         if not merge:
             return
         optimise = getattr(self.store, "optimize_fts", None)
@@ -7790,7 +7826,7 @@ class Pipeline:
         # identical (`Embedder.groups_by_length` - not the smaller model file);
         # never when a stop is already waiting, so the run's final flush keeps
         # its leading files exactly as before.
-        if (size < len(texts) and not self._stop.is_set()
+        if (size < len(texts) and not self._stopping_for_embed()
                 and getattr(self.embedder, "groups_by_length", False)):
             order = length_order(texts)
             if order is not None:
@@ -7798,6 +7834,8 @@ class Pipeline:
                 if grouped is not None:
                     return grouped
         out: list = []
+        # 2026-10-10: what `_stop_cuts_embedding` measures this batch's pace by.
+        began, done_chars, total_chars = time.monotonic(), 0, _chars(texts)
         for start in range(0, len(texts), size):
             # **The first slice always runs**, unless an earlier batch was already
             # abandoned. A stop keeps "everything gathered so far" up to one model
@@ -7806,9 +7844,16 @@ class Pipeline:
             # run had just finished (`test_stopping_does_not_lose_completed_work`).
             # Once a batch has been cut, the rest are dropped without a call, so a
             # stop still costs one call in flight plus at most this one.
-            if self._stop.is_set() and (start > 0 or self._embed_abandoned):
+            # 2026-10-10: and a later slice runs too while the batch can still
+            # finish inside `STOP_FINISH_BATCH_S` - see `_stop_cuts_embedding`.
+            if start == 0:
+                if self._embed_abandoned and self._stopping_for_embed():
+                    break
+            elif self._stop_cuts_embedding(began, done_chars, total_chars):
                 break
-            out.extend(self.embedder.embed_all(texts[start:start + size]))
+            part = texts[start:start + size]
+            out.extend(self.embedder.embed_all(part))
+            done_chars += _chars(part)
         return out
 
     def _embed_grouped(self, texts: list[str], order: list[int],
@@ -7832,11 +7877,16 @@ class Pipeline:
         its own order, where the count check that already exists catches it.
         """
         found: list = [None] * len(texts)
+        # 2026-10-10: shortest first, so the pace is measured in characters -
+        # passages counted would make the long ones at the end look quick.
+        began, done_chars, total_chars = time.monotonic(), 0, _chars(texts)
         for start in range(0, len(order), size):
-            if self._stop.is_set() and start > 0:
+            if start > 0 and self._stop_cuts_embedding(began, done_chars, total_chars):
                 break
             part = order[start:start + size]
-            vectors = list(self.embedder.embed_all([texts[index] for index in part]))
+            chosen = [texts[index] for index in part]
+            vectors = list(self.embedder.embed_all(chosen))
+            done_chars += _chars(chosen)
             if len(vectors) != len(part):
                 self._log.warning(
                     "the model returned {} vectors for {} passages; not grouping "
@@ -7845,6 +7895,47 @@ class Pipeline:
             for index, vector in zip(part, vectors):
                 found[index] = vector
         return found
+
+    def _stopping_for_embed(self) -> bool:
+        """Is a stop asking the embedding in hand to end?
+
+        The stop flag - except at the end of a run, after its teardown
+        (`_tail_embedding`), where only the photo passes' own new passages are
+        embedded: the teardown sets that flag to unwind the run's threads, so
+        there only the person's Stop counts.
+        """
+        if getattr(self, "_tail_embedding", False):
+            return bool(self._interrupted)
+        return self._stop.is_set()
+
+    def _stop_cuts_embedding(self, began: float, done_chars: int,
+                             total_chars: int) -> bool:
+        r"""Should a stop cut this batch here, between two model calls?
+
+        2026-10-10, the owner's close at 07:03: "stopped mid-batch: 0 of 480
+        passages embedded and written" - every vector the batch had made so
+        far was thrown away. **A batch that can finish soon now finishes**:
+        `began` is when this batch started, `done_chars` how much of it the
+        model has done, `total_chars` all of it; at that pace, if the rest is
+        done before `STOP_FINISH_BATCH_S` after the stop was first seen, it
+        goes on and its files are written whole. Otherwise it is cut exactly
+        as before. The allowance is shared by every batch after the stop, so
+        the run's final flush cannot add a second one, and a batch already cut
+        (`_embed_abandoned`) means every later one is cut at once.
+        """
+        if not self._stopping_for_embed():
+            return False
+        if self._embed_abandoned:
+            return True
+        now = time.monotonic()
+        seen = getattr(self, "_stop_seen_at", None)
+        if seen is None:
+            seen = self._stop_seen_at = now
+        deadline = seen + STOP_FINISH_BATCH_S
+        if now >= deadline or done_chars <= 0:
+            return True
+        rest = (now - began) * (total_chars - done_chars) / done_chars
+        return now + rest > deadline
 
     @staticmethod
     def _whole_file_prefix(pending: list[tuple[int, int, str]], done: int) -> int:
