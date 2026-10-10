@@ -149,7 +149,7 @@ class SearchBehaviourBox(QGroupBox):
         self.mini_search.setToolTip(
             "Press the shortcut in any application and a small search box "
             "appears. Type, press Enter, and the document opens.")
-        self.mini_search.stateChanged.connect(lambda _s: self._emit())
+        self.mini_search.stateChanged.connect(lambda _s: (self._sync_mini(), self._emit()))
         form.addRow(self.mini_search)
 
         self.mini_hotkey = QLineEdit()
@@ -283,6 +283,14 @@ class SearchBehaviourBox(QGroupBox):
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)
+        self._sync_mini()
+
+    def _sync_mini(self) -> None:
+        """The shortcut's combination and pre-fill are greyed out while the shortcut is
+        switched off (2026-10-10)."""
+        on = self.mini_search.isChecked()
+        self.mini_hotkey.setEnabled(on)
+        self.mini_prefill.setEnabled(on)
 
     def values(self) -> dict:
         """`{registry key: value}` for the writer.

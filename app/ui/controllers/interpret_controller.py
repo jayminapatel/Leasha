@@ -139,6 +139,19 @@ class InterpretModels(QObject):
             self.forget()
             self._asked = self._full = False              # listed again: the default moved
 
+    def engine_changed(self, client: Any) -> None:
+        """Settings changed `CHAT_ENGINE` (2026-10-10): `client` is now the one Settings
+        builds. A model picked under the other engine is dropped, the translator takes
+        the new client, and the list is made again the next time the menu opens."""
+        self._default = client
+        self._token += 1                                  # a client still being built is dropped
+        if self._choice:
+            self._choice = ""
+            save_state(self._w._store, MODEL_KEY, "", component="ui.translate")
+        self._asked = self._full = False
+        self._options = []
+        self._hand_over(client)
+
     def forget(self) -> None:
         """Settings chose Interpret's model: that wins, and the pick is cleared."""
         self._token += 1                                  # a client still being built is dropped

@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.133 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.134 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,18 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-10, later - settings made mistake-proof, and the engine switch is live (owner: "critically look at the settings pages ... mistake proof").**
+Found by probing, not by reading: (1) `OLLAMA_URL=localhost:11434` typed in Settings was written and `load_settings` then refused to start - fixed by
+`settings_registry.problem_with` / `normalise_url`, asked by `env_writer.write_env` before it writes (refused value: `ERR_CONFIG_INVALID`, file untouched), and by the
+Ollama and SearXNG address boxes completing/refusing on edit; (2) eighteen restart-only settings said nothing when saved - `_apply_written_settings` now names them
+(the rerank model keeps its own line); (3) the engine choice (`CHAT_ENGINE`) applied to Chat at once but not to Interpret or the Settings Ollama box, which kept the
+start-up engine - `_apply_engine_change` swaps the window's frozen `Settings`, the translator's client, `InterpretModels.engine_changed` and `ModelBox.set_engine`, and
+`CHAT_ENGINE` is no longer `restart=True`. `ModelBox` now has per-engine enablement (`_sync_enabled`), its title and switch wording follow the engine
+(`TITLES`, `SWITCH_LABELS`; the Ollama wording is the released one, unchanged), and with the model inside Leasha it never asks Ollama. `text_model(..., engine=)` builds for a
+named engine. Probe of every value a control can produce: all accepted at start-up (`test_settings_mistakes.py`). Controls that depend on a switch now grey out with it (`MediaBox._sync_dependents`, `ChatBox._sync_web`, `SearchBehaviourBox._sync_mini`). **Not done, for the owner:** the Interpret switch
+is still stored as window state (`ui:ollama_enabled`), not in `.env`; whether Describe should follow the engine live was not exercised; nothing was clicked through in the
+running window. Uncommitted when written.
 
 **2026-10-10 - the models folder is a setting of its own (owner: "separate model settings").** `MODEL_CACHE` was derived
 from `DATA_PATH` and had no control, so the models could only move with the index. Now Storage has a Models folder row

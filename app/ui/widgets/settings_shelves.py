@@ -195,7 +195,7 @@ class SettingsShelves:
         # The address lives in the panel that can test it. Re-exposed because
         # `_make_client` reads it to build a client against what is typed now.
         self.ollama_url = self.models.url
-        self.ollama_url.setText(str(getattr(settings, "ollama_url", "")))
+        self.models.set_url(str(getattr(settings, "ollama_url", "")))
         self.models.url_changed.connect(
             lambda url: self.settings_changed.emit({"OLLAMA_URL": url}))
 
@@ -250,7 +250,10 @@ class SettingsShelves:
         from app.llm.engines import text_model
 
         url = self.ollama_url.text().strip() or self._settings.ollama_url
-        return text_model(self._settings, self._settings.ollama_model, url=url)
+        # The engine the box shows, not the one the window started with: it can change
+        # while the window runs (2026-10-10).
+        return text_model(self._settings, self._settings.ollama_model, url=url,
+                          engine=self.models.engine)
 
     # -- the two labels that need the store -----------------------------------
 

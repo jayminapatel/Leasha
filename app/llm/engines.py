@@ -201,9 +201,16 @@ def ollama_context(settings: Any) -> int:
         return 8192
 
 
+def _engine_for(settings: Any, engine: Optional[str]) -> str:
+    """`engine` when one is named (the live choice), else what `settings` holds."""
+    if engine:
+        return OLLAMA if str(engine).strip().lower() == OLLAMA else ONNX
+    return engine_of(settings)
+
+
 def text_model(settings: Any, model: str = "", *, timeout: Optional[float] = None,
                url: Optional[str] = None, onnx_model: str = "",
-               num_ctx: Optional[int] = None) -> Any:
+               num_ctx: Optional[int] = None, engine: Optional[str] = None) -> Any:
     """The client Interpret and Chat talk to. `model` is an Ollama name; the ONNX
     engine ignores names it does not know and uses its own chat model.
 
@@ -212,8 +219,11 @@ def text_model(settings: Any, model: str = "", *, timeout: Optional[float] = Non
     the catalogue, so a caller passing it is on a worker.
 
     `num_ctx` (2026-10-04, code review) is the window an Ollama client sends on every
-    call; by default `ollama_context(settings)`, the one Chat uses."""
-    if engine_of(settings) == ONNX:
+    call; by default `ollama_context(settings)`, the one Chat uses.
+
+    `engine` (2026-10-10) is the engine to build for, when the caller knows a newer one
+    than `settings` holds: Settings can change `CHAT_ENGINE` while the window runs."""
+    if _engine_for(settings, engine) == ONNX:
         return _shared_onnx(settings, timeout, onnx_model)
     from app.llm.ollama import OllamaClient
 

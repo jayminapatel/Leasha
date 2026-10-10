@@ -46,8 +46,10 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import QThreadPool, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-    QSpinBox, QVBoxLayout, QWidget,
+    QSpinBox, QToolTip, QVBoxLayout, QWidget,
 )
+
+from app.core.settings_registry import URL_KEYS, normalise_url
 
 from app.chat.roles import InstalledModels, ram_line, resolve_roles
 from app.core import envelope
@@ -63,6 +65,7 @@ PREFIX = "CHAT_"
 
 #: The keys of the always-visible web section.
 WEB_PREFIX = "CHAT_WEB_"
+WEB_SWITCH_KEY = "CHAT_WEB_ENABLED"
 
 WEB_INTRO = ("Off, Chat stays entirely on this computer. On, it can also look things up on the "
              "web - always after searching your files, and only when the Web switch in the Chat "
@@ -118,6 +121,8 @@ class ChatBox(QGroupBox):
                  probe: Optional[Callable[[str], InstalledModels]] = None) -> None:
         super().__init__("Chat", parent)
         self.controls: dict[str, QWidget] = {}
+        #: The web address last accepted for each address box (2026-10-10).
+        self._saved: dict[str, str] = {}
         #: What asks Ollama what is installed. A test hands one in; otherwise
         #: `app.chat.llm.probe_installed`. Looked up when used, so a test may also
         #: replace the module's own.
@@ -221,6 +226,10 @@ class ChatBox(QGroupBox):
         if isinstance(engine, QComboBox):
             engine.currentIndexChanged.connect(
                 lambda _i, c=engine: self._set_engine(str(c.currentData() or "onnx")))
+        web_switch = self.controls.get(WEB_SWITCH_KEY)
+        if isinstance(web_switch, QCheckBox):
+            web_switch.toggled.connect(lambda _on: self._sync_web())
+        self._sync_web()
         self._add_describe()
         self.roles.finish()
         self._found = bool(found)
@@ -312,9 +321,39 @@ class ChatBox(QGroupBox):
         return {key: self._read(control) for key, control in self.controls.items()}
 
     def _emit(self, key: str) -> None:
+        if key in URL_KEYS and not self._url_accepted(key):
+            return
         self.changed.emit({key: self._read(self.controls[key])})
         if key in ROLE_KEYS:
             self._show_memory()
+
+    def _sync_web(self) -> None:
+        """The web options are greyed out while Chat may not use the web (2026-10-10):
+        a provider and a key that nothing will use should not look live."""
+        switch = self.controls.get(WEB_SWITCH_KEY)
+        on = bool(switch.isChecked()) if isinstance(switch, QCheckBox) else True
+        for key, control in self.controls.items():
+            if key.startswith(WEB_PREFIX) and key != WEB_SWITCH_KEY:
+                control.setEnabled(on)
+
+    def _url_accepted(self, key: str) -> bool:
+        """A web address box was edited (2026-10-10): `host:port` becomes `http://host:port`,
+        and what is still not an address is not saved - it shows why where the box is and
+        goes back to the address it had. False when nothing should be saved."""
+        control = self.controls[key]
+        typed = str(self._read(control))
+        fixed, problem = normalise_url(typed)
+        if problem:
+            control.setText(self._saved.get(key, ""))
+            QToolTip.showText(control.mapToGlobal(control.rect().bottomLeft()),
+                              f"{problem}. The address was not changed.", control)
+            return False
+        if fixed != typed:
+            control.setText(fixed)
+        if fixed == self._saved.get(key, ""):
+            return False
+        self._saved[key] = fixed
+        return True
 
     def _emit_describe(self) -> None:
         if self._describe is not None:
@@ -498,12 +537,15 @@ class ChatBox(QGroupBox):
                     control.setCurrentIndex(index if index >= 0 else 0)
                 else:
                     control.setText(str(value or ""))
+                    if setting.key in URL_KEYS:
+                        self._saved[setting.key] = str(value or "").strip()
             # A stored value the control cannot hold (text in an int box) is left
             # at the control's own default rather than failing the whole load.
             except (TypeError, ValueError):
                 pass
             finally:
                 control.blockSignals(False)
+        self._sync_web()
         if self._describe is not None:
             self._describe.populate(
                 self._installed, str(getattr(settings, "ollama_vision_model", "") or ""))

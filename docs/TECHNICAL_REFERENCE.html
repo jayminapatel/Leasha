@@ -395,7 +395,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <ul>
   <li><b>Router</b> (<code>app/chat/router.py</code>): rules first, a small model only when the rules cannot decide. Classes: LOOKUP, AGGREGATE (an SQL count), SYNTHESIS, FIND (the answer is the result list), ABSENCE, FOLLOWUP, CHAT (social turns only). A general question still searches first. A sentence that names a value written in a document (<code>VALUE_NOUNS</code>, and phrases such as "passport number", "sort code", "expiry date") is LOOKUP whatever verb it opens with ("find the passport number"), read and quoted rather than listed; "find my passport" names a document and stays FIND.</li>
   <li><b>Engine</b> (<code>engine.py</code>): route, plan, search (at most 3 rounds), assess, answer. The answer streams; <code>reconcile.py</code> and <code>verify.py</code> drop unsupported claims (strictness 70 by default). Quotes must be verbatim; numbers, dates and names are checked exactly. With no model, counts, finds and absence questions still work.</li>
-  <li><b>Engine choice</b> (<code>app/llm/engines.py</code>): <code>CHAT_ENGINE=onnx</code> (default; <code>app/ort/llm.py::OnnxLLM</code>, one per process) or <code>ollama</code>. The same choice covers Chat, Interpret and Describe.</li>
+  <li><b>Engine choice</b> (<code>app/llm/engines.py</code>): <code>CHAT_ENGINE=onnx</code> (default; <code>app/ort/llm.py::OnnxLLM</code>, one per process) or <code>ollama</code>. The same choice covers Chat, Interpret and Describe, and a change in Settings applies at once (<code>settings_controller._apply_engine_change</code>).</li>
   <li><b>Web</b> (<code>web.py</code>): <code>CHAT_WEB_ENABLED</code> is off by default. Local retrieval runs first; only a sanitised keyword query of ten words or fewer leaves the machine; SSRF guard, three redirects, 1 MB cap; ask-first and show-query on.</li>
 </ul>
 <h3 id="mcp">The index for other AI programs (MCP)</h3>
@@ -466,7 +466,7 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>INDEX_JUNK_IMAGE_FILTER</code></td><td>true</td><td>no effect now that email pictures are name-only</td></tr>
 <tr><td><code>MIN_FREE_GB</code> / <code>REQUIRED_FREE_GB</code></td><td>5 / 300</td><td></td></tr></table></details>
 <details><summary>Models</summary><table class="wrap"><tr><th>Key</th><th>Default</th><th>Notes</th></tr>
-<tr><td><code>CHAT_ENGINE</code> (R)</td><td>onnx</td><td>onnx, ollama</td></tr>
+<tr><td><code>CHAT_ENGINE</code></td><td>onnx</td><td>onnx, ollama (applies at once)</td></tr>
 <tr><td><code>OLLAMA_URL</code> / <code>OLLAMA_MODEL</code> / <code>OLLAMA_VISION_MODEL</code></td><td>http://127.0.0.1:11434 / qwen2.5:1.5b / llava</td><td></td></tr>
 <tr><td><code>CHAT_MODEL</code>, <code>CHAT_ROUTER_MODEL</code>, <code>CHAT_PLANNER_MODEL</code></td><td>""</td><td>Manual tuning only</td></tr>
 <tr><td><code>CHAT_MAX_ROUNDS</code> / <code>CHAT_VERIFY_STRICTNESS</code> / <code>CHAT_CONTEXT_TOKENS</code></td><td>3 / 70 / 8192</td><td></td></tr>

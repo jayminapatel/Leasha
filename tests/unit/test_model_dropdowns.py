@@ -494,3 +494,116 @@ def test_photo_model_look_again_and_download_are_on_one_line(qapp):
     field = _laid_out(qapp, VisionModelField(combo, saved="llava"))
     assert _row_of(field.download.download, field) == _row_of(field.look_again, field)
     field.close()
+
+
+# -- the Interpret box follows the chat engine (2026-10-10) --------------------------------
+
+def _box(qapp, factory=None):
+    from app.ui.widgets.model_box import ModelBox
+
+    return ModelBox(client_factory=factory or (lambda: SimpleNamespace(
+        available_models=lambda: ["llama3:latest"])))
+
+
+def test_with_the_model_inside_leasha_refresh_never_asks_ollama(qapp):
+    """It used to ask, throw the answer away, and leave "Asking Ollama which models are
+    installed..." on screen for ever. With nothing to ask, nothing is asked."""
+    asked = []
+    box = _box(qapp, lambda: asked.append(1) or SimpleNamespace(available_models=lambda: []))
+    box.set_engine("onnx")
+    box.load("", 45, enabled=True)
+    box.refresh()
+    assert asked == []
+    assert "Asking Ollama" not in box.status.text()
+    assert "model inside Leasha" in box.status.text()
+    assert not box.refresh_button.isEnabled() and not box.model.isEnabled()
+    assert box.timeout.isEnabled() and box.test_button.isEnabled() and box.download.isEnabled()
+
+
+def test_with_ollama_the_ollama_controls_follow_the_switch(qapp):
+    box = _box(qapp)
+    box.set_engine("ollama")
+    box.load("llama3:latest", 30, enabled=False)
+    for widget in (box.model, box.refresh_button, box.test_button, box.timeout):
+        assert not widget.isEnabled()
+    assert box.url.isEnabled(), "the address is Chat's too, so it is never greyed out"
+    box.enabled.setChecked(True)
+    assert _wait(qapp, lambda: not box._loading)
+    for widget in (box.model, box.refresh_button, box.test_button, box.timeout):
+        assert widget.isEnabled()
+    assert box.model.findData("llama3:latest") >= 0, "Ollama's models are listed"
+
+
+def test_the_box_words_itself_for_the_engine_and_the_released_wording_comes_back(qapp):
+    from app.ui.widgets.model_box import SWITCH_LABELS, TITLES
+
+    box = _box(qapp)
+    assert box.title() == "Ollama — AI query interpretation (optional)"
+    assert box.enabled.text() == "Use Ollama to turn sentences into search queries"
+    box.set_engine("onnx")
+    assert "Ollama" not in box.title() and "Ollama" not in box.enabled.text()
+    assert box.title() == TITLES["onnx"] and box.enabled.text() == SWITCH_LABELS["onnx"]
+    box.set_engine("ollama")
+    assert box.title() == "Ollama — AI query interpretation (optional)"
+    assert box.enabled.text() == "Use Ollama to turn sentences into search queries"
+
+
+class _LiveSettings:
+    """A stand-in for the frozen `Settings`: `model_copy` makes a changed copy."""
+
+    def __init__(self, **fields):
+        self.__dict__.update(dict(chat_engine="onnx", ollama_url="http://127.0.0.1:1",
+                                  ollama_model="qwen2.5:1.5b", model_cache=None,
+                                  embed_device="auto"), **fields)
+
+    def model_copy(self, update):
+        return _LiveSettings(**{**self.__dict__, **update})
+
+
+def _window(qapp, enabled=False):
+    from app.search.translate import QueryTranslator
+
+    notes: list[str] = []
+    box = _box(qapp)
+    box.set_engine("onnx")
+    window = SimpleNamespace(
+        _settings=_LiveSettings(), _translator=QueryTranslator(None, enabled=enabled),
+        _read_state=lambda key, default="": "", _warm_translator=lambda: None,
+        notify=lambda message, ms=0: notes.append(message), interpret_ctl=None)
+    window.settings_view = SimpleNamespace(_settings=window._settings, models=box)
+    return window, box, notes
+
+
+def test_changing_the_engine_applies_without_a_restart(qapp):
+    """Chat re-read `.env` on its own. The window's frozen settings, the translator's
+    client and the Settings box did not, so Interpret stayed on the old engine."""
+    from app.llm import engines
+    from app.ui.controllers.settings_controller import _apply_engine_change
+
+    window, box, notes = _window(qapp, enabled=True)
+    try:
+        _apply_engine_change(window, "ollama")
+        assert window._settings.chat_engine == "ollama"
+        assert window.settings_view._settings is window._settings, "Settings' own copy moved too"
+        assert type(window._translator.client).__name__ == "OllamaClient"
+        assert window._translator.client is window._ollama
+        assert box.engine == "ollama" and box.url.isEnabled()
+        assert box.model.isEnabled(), "Interpret was on, so its Ollama controls are on"
+        assert "now run on Ollama" in notes[-1]
+
+        _apply_engine_change(window, "onnx")
+        assert window._settings.chat_engine == "onnx"
+        assert type(window._translator.client).__name__ == "OnnxLLM"
+        assert box.engine == "onnx" and not box.refresh_button.isEnabled()
+        assert "model inside Leasha" in notes[-1]
+    finally:
+        engines.reset_shared()
+
+
+def test_an_engine_change_that_cannot_apply_live_still_says_what_to_do(qapp):
+    from app.ui.controllers.settings_controller import _apply_engine_change
+
+    notes: list[str] = []
+    window = SimpleNamespace(_settings=object(), notify=lambda message, ms=0: notes.append(message))
+    _apply_engine_change(window, "ollama")                 # no model_copy: cannot be applied
+    assert notes and "Restart Leasha" in notes[-1]

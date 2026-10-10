@@ -148,6 +148,18 @@ def write_env(path: Path, values: Mapping[str, object]) -> Path:
             details=str(exc),
         )) from exc
 
+    # **Refused before anything is written** (2026-10-10): a value the app could not
+    # start with, or that the control would not have produced, leaves `.env` untouched.
+    from app.core.settings_registry import problem_with
+
+    for key, value in values.items():
+        problem = problem_with(key, value)
+        if problem:
+            raise AppErrorException(make_error(
+                "ERR_CONFIG_INVALID", "core.env_writer", key=key, reason=problem,
+                suggestion="Nothing was saved. Correct the value and try again.",
+            ))
+
     content = render(existing, values)
 
     # The temp file must share a directory with the target: os.replace is only

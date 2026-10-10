@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.98 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 4.99 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,26 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Settings you cannot get wrong, and an engine switch that applies at once (2026-10-10)
+
+- **A typo in a setting can no longer stop Leasha opening.** Typing `localhost:11434` in the Ollama address was saved, and
+  the next start refused it with a configuration error. Settings now refuse a value the app could not start with, or that its
+  control would not offer, before anything is written, and say why; `.env` is left as it was. Both address boxes (Ollama,
+  and web search's SearXNG) complete a bare `host:port` to `http://host:port` and put back the earlier address if what was
+  typed is not one.
+- **Saving a setting that only applies at the next start now says so.** Eighteen settings are like that; only the rerank
+  model said so when it was saved. The message names each setting and says to restart Leasha.
+- **Options that only matter while their switch is on are greyed out while it is off:** the video picture spacing and cap
+  (with Video indexing), the speech model and its Download (with Audio transcription), Chat's web options (with "Let Chat look
+  things up on the web"), and the shortcut's combination and pre-fill (with "Search from anywhere with a shortcut").
+- **Switching Chat, Interpret and Describe between Ollama and the model inside Leasha applies at once, with no restart.**
+  Chat already did. Interpret, and the Ollama box in Settings, kept the engine the window started with, so after choosing
+  Ollama the model list never appeared and Refresh did nothing.
+- **The Ollama box follows the engine.** With Ollama chosen its address, model list, Refresh, Test and Download work. With
+  the model inside Leasha it no longer asks Ollama anything, says what Interpret is using, and words its title and switch
+  for that engine; the Ollama wording is unchanged when Ollama is chosen. "Asking Ollama which models are installed..." no
+  longer stays on screen for ever.
 
 ### The models folder can be kept somewhere else (2026-10-10)
 

@@ -1139,3 +1139,78 @@ def _apply_written_settings(window: Any, values: dict) -> None:
         window.notify(
             "Saved. The rerank model is loaded at startup, so it changes "
             "the next time the app opens.", 8_000)
+
+    if "CHAT_ENGINE" in values:
+        _apply_engine_change(window, values["CHAT_ENGINE"])
+
+    # 2026-10-10. Eighteen settings only take effect at the next start, and a change that
+    # looks applied and is not is the worst kind. Only the rerank model said so when it
+    # was saved; the rest relied on a line in a tooltip.
+    from app.core.settings_registry import by_key
+
+    waiting = [setting.label for setting in (by_key(key) for key in values)
+               if setting is not None and setting.restart and setting.key != "RERANK_MODEL"]
+    if waiting:
+        window.notify("Saved. Restart Leasha to apply: " + ", ".join(waiting) + ".", 12_000)
+
+
+def _apply_engine_change(window: Any, value: Any) -> None:
+    r"""UI thread: `CHAT_ENGINE` was saved - Ollama or the model inside Leasha. Apply it now.
+
+    **No restart (owner, 2026-10-10).** Chat already rebuilt itself on the next question,
+    because it re-reads `.env`. Three things did not, and were fixed here:
+
+    * the window's `Settings` is frozen and still said the old engine, so every
+      caller that reads it - the Interpret box's Refresh, Test and Download among them -
+      went on talking to the old engine;
+    * the translator held the client built at start-up, for the old engine;
+    * the Settings box was built for the old engine, so with Ollama chosen its Ollama
+      controls stayed off and its list was never asked for.
+
+    Never raises: failing to apply it live must not undo a saved setting.
+    """
+    from app.core.logging import logger
+    from app.llm import engines
+
+    engine = "ollama" if str(value or "").strip().lower() == "ollama" else "onnx"
+    try:
+        fresh = window._settings.model_copy(update={"chat_engine": engine})
+        window._settings = fresh
+        view = getattr(window, "settings_view", None)
+        if view is not None:
+            view._settings = fresh
+
+        translator = getattr(window, "_translator", None)
+        if translator is None:
+            return
+        model = window._read_state("ui:ollama_model", "") or fresh.ollama_model
+        client = engines.text_model(fresh, model)
+        window._ollama = client
+        picker = getattr(window, "interpret_ctl", None)
+        if picker is not None:
+            picker.engine_changed(client)
+        else:
+            translator.client = client
+            translator.reconfigure()
+
+        models = getattr(view, "models", None)
+        if models is not None:
+            models.set_engine(engine, getattr(fresh, "model_cache", None))
+            if engine == "ollama":
+                models.load(model, int(translator.timeout_s), enabled=bool(translator.enabled))
+
+        from app.search.translate import warm_at_startup
+
+        translator.just_enabled = warm_at_startup(translator.enabled, engine)
+        window._warm_translator()
+        if engine == "ollama":
+            # The model inside Leasha is of no use now: let its memory go, off the window.
+            run(QThreadPool.globalInstance(),
+                CallableWorker(engines.reset_shared, component="ui.settings.engine"))
+        window.notify(
+            "Chat, Interpret and Describe now run on Ollama." if engine == "ollama"
+            else "Chat, Interpret and Describe now run on the model inside Leasha.", 8_000)
+    except Exception as exc:                          # noqa: BLE001 - saved is saved
+        logger.bind(component="ui.settings").warning(
+            "the engine change was saved but could not be applied live: {}", exc)
+        window.notify("Saved. Restart Leasha to apply the engine change.", 8_000)

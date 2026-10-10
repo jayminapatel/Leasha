@@ -1057,6 +1057,7 @@
     <Compile Include="tests\unit\test_setting_defaults.py" />
     <Compile Include="tests\unit\test_settings_are_used.py" />
     <Compile Include="tests\unit\test_settings_layout.py" />
+    <Compile Include="tests\unit\test_settings_mistakes.py" />
     <Compile Include="tests\unit\test_settings_reachable.py" />
     <Compile Include="tests\unit\test_settings_registry.py" />
     <Compile Include="tests\unit\test_settings_writes.py" />

@@ -57,6 +57,17 @@ from app.ui.workers import CallableWorker, run
 __all__ = ["ModelBox", "TEST_SENTENCE"]
 
 
+#: What the box and its switch say for each engine (2026-10-10). The Ollama wording is
+#: the released one and is unchanged; the other says what is true with the model inside
+#: Leasha, where nothing here is Ollama's.
+TITLES = {"ollama": "Ollama — AI query interpretation (optional)",
+          "onnx": "AI query interpretation (optional)"}
+SWITCH_LABELS = {"ollama": "Use Ollama to turn sentences into search queries",
+                 "onnx": "Use the model inside Leasha to turn sentences into search queries"}
+OFF_NOTE = ("Switched off. Search works normally without it; tick the box to "
+            "have sentences rewritten as queries.")
+
+
 class ModelBox(QGroupBox):
     """The Interpret model, its budget, and a button that proves both."""
 
@@ -76,7 +87,7 @@ class ModelBox(QGroupBox):
         # local model turn sentences into queries". Every word of that is
         # accurate and none of it is the word somebody scanning the page has in
         # mind. Naming the thing beats describing it.
-        super().__init__("Ollama — AI query interpretation (optional)", parent)
+        super().__init__(TITLES["ollama"], parent)
         #: Called with no arguments to get a fresh OllamaClient. A factory
         #: rather than a client, so the box can build one against whatever URL
         #: and model are current without owning that knowledge.
@@ -89,8 +100,7 @@ class ModelBox(QGroupBox):
         # Ollama at all. Off by default means nobody is shown a button that
         # cannot work, and nothing probes a service that is not there - which
         # matters for an app whose promise is that it is entirely local.
-        self.enabled = QCheckBox(
-            "Use Ollama to turn sentences into search queries")
+        self.enabled = QCheckBox(SWITCH_LABELS["ollama"])
         self.enabled.setToolTip(
             "Adds an Interpret button beside the search box.\n\n"
             "It rewrites 'emails from chris about a licence' as\n"
@@ -151,8 +161,10 @@ class ModelBox(QGroupBox):
             "nothing else.\n\n"
             "Use Refresh or Test after changing it."
         )
-        self.url.editingFinished.connect(
-            lambda: self.url_changed.emit(self.url.text().strip()))
+        #: The address last accepted: what an unusable edit goes back to, and what an
+        #: unchanged one is compared with, so nothing is saved twice.
+        self._saved_url = ""
+        self.url.editingFinished.connect(self._url_edited)
 
         self.status = QLabel("")
         self.status.setWordWrap(True)
@@ -210,18 +222,17 @@ class ModelBox(QGroupBox):
         if enabled:
             self.refresh()
         else:
-            self.status.setText(
-                "Switched off. Search works normally without it; tick the box to "
-                "have sentences rewritten as queries."
-            )
+            self.status.setText(OFF_NOTE)
 
     def _on_toggled(self, on: bool) -> None:
         """Turning it on is what triggers the first probe."""
         self._sync_enabled()
         if on:
             self.refresh()
-        else:
+        elif self._engine == "ollama":
             self.status.setText("Switched off. Nothing will contact Ollama.")
+        else:
+            self.status.setText(OFF_NOTE)
         self._emit()
 
     def _sync_enabled(self) -> None:
@@ -232,12 +243,22 @@ class ModelBox(QGroupBox):
         somebody knows what turning it on would give them.
         """
         on = self.enabled.isChecked()
-        for widget in (self.model, self.timeout, self.refresh_button, self.test_button,
-                       self.download):
+        ollama = self._engine == "ollama"
+        # The model inside Leasha is the one model, so there is nothing to choose or
+        # to ask Ollama about; the budget, Test and Download still apply to it.
+        # The address is not here at all: Chat uses it too, so it stays editable.
+        self.model.setEnabled(on and ollama)
+        self.refresh_button.setEnabled(on and ollama and not self._loading)
+        for widget in (self.timeout, self.test_button, self.download):
             widget.setEnabled(on)
 
     def refresh(self) -> None:
         """Ask Ollama for its model list, off the UI thread."""
+        if self._engine == "onnx":
+            # Nothing to ask: Interpret uses the model inside Leasha. Asking Ollama
+            # here left "Asking Ollama..." on screen for ever (2026-10-10).
+            self._show_models([])
+            return
         if self._loading:
             return
         self._loading = True
@@ -260,7 +281,39 @@ class ModelBox(QGroupBox):
     def _loaded(self) -> None:
         """The probe worker is done, however it ended: Refresh may be pressed again."""
         self._loading = False
-        self.refresh_button.setEnabled(True)
+        self._sync_enabled()
+
+    def set_url(self, text: str) -> None:
+        """Show the saved address. It is the one an unusable edit goes back to."""
+        self._saved_url = str(text or "").strip()
+        self.url.setText(self._saved_url)
+
+    def _url_edited(self) -> None:
+        """The address was edited and focus left the box (2026-10-10).
+
+        A bare `localhost:11434` becomes `http://localhost:11434`. Anything that is still
+        not an address is not saved - the app refuses to start on one - so the box says
+        why and shows the address it had.
+        """
+        from app.core.settings_registry import normalise_url
+
+        typed = self.url.text().strip()
+        fixed, problem = normalise_url(typed)
+        if problem:
+            self.status.setText(f"{problem}. The address was not changed.")
+            self.url.setText(self._saved_url)
+            return
+        if fixed != typed:
+            self.url.setText(fixed)
+        if fixed == self._saved_url:
+            return
+        self._saved_url = fixed
+        self.url_changed.emit(fixed)
+
+    @property
+    def engine(self) -> str:
+        """`onnx` (the model inside Leasha) or `ollama`: what this box is showing."""
+        return self._engine
 
     def set_engine(self, engine: str, model_cache: Any = None) -> None:
         """Which engine Interpret uses (`CHAT_ENGINE`). With the model inside
@@ -271,8 +324,11 @@ class ModelBox(QGroupBox):
         self._engine = "ollama" if engine == "ollama" else "onnx"
         onnx = self._engine == "onnx"
         self._form.setRowVisible(self.url, not onnx)
+        self.setTitle(TITLES[self._engine])
+        self.enabled.setText(SWITCH_LABELS[self._engine])
         self.download.kind = "onnx" if onnx else "ollama"
         self.download.set_model_cache(model_cache)
+        self._sync_enabled()
         if onnx:
             self._configured = hub.QWEN_1_5B.key
             self.download.set_offers([])
@@ -290,6 +346,13 @@ class ModelBox(QGroupBox):
                 self.model.clear()
                 self.model.addItem(hub.QWEN_1_5B.label, hub.QWEN_1_5B.key)
                 self.model.setCurrentIndex(0)
+            # 2026-10-10: the Ollama list arrives here too, and is not used while
+            # the engine is the model inside Leasha. Saying nothing left "Asking
+            # Ollama which models are installed..." on screen for ever.
+            self.status.setText(
+                "Interpret uses the model inside Leasha. To use Ollama's models, set "
+                "Chat, Interpret and Describe run on to ollama in the Chat section."
+                if self.enabled.isChecked() else OFF_NOTE)
             return
         names = [str(name) for name in (installed or [])]
         selected, note = choose(self._configured, names)
@@ -406,7 +469,7 @@ class ModelBox(QGroupBox):
         worker.signals.finished.connect(self._show_test)
         worker.signals.failed.connect(
             lambda error: self.status.setText(f"[{error.code}] {error.message}"))
-        worker.signals.done.connect(lambda: self.test_button.setEnabled(True))
+        worker.signals.done.connect(self._sync_enabled)
         run(QThreadPool.globalInstance(), worker)
 
     def _translate(self, model: str, budget: int) -> Any:

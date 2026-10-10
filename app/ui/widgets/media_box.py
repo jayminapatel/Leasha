@@ -185,8 +185,8 @@ class MediaBox(QGroupBox):
 
         if settings is not None:
             self.load(settings)
-        self.video.toggled.connect(lambda _on: self._emit())
-        self.audio.toggled.connect(lambda _on: self._emit())
+        self.video.toggled.connect(lambda _on: (self._sync_dependents(), self._emit()))
+        self.audio.toggled.connect(lambda _on: (self._sync_dependents(), self._emit()))
         self.model.currentIndexChanged.connect(lambda _i: self._on_model())
         self.interval.editingFinished.connect(self._emit)
         self.cap.editingFinished.connect(self._emit)
@@ -240,8 +240,17 @@ class MediaBox(QGroupBox):
         self.speech_note.setText(speech_sentence(transcribe.available()))
         # Without the package there is nothing that could load a speech model,
         # and the note above already says how to install it.
-        self.download.setEnabled(transcribe.available())
+        self._sync_dependents()
         self._on_model(emit=False)
+
+    def _sync_dependents(self) -> None:
+        """What only matters while its switch is on is greyed out while it is off
+        (2026-10-10), so no control looks live that nothing would obey."""
+        video, audio = self.video.isChecked(), self.audio.isChecked()
+        self.interval.setEnabled(video)
+        self.cap.setEnabled(video)
+        self.model.setEnabled(audio)
+        self.download.setEnabled(audio and transcribe.available())
 
     def _on_model(self, emit: bool = True) -> None:
         """The speech model changed: redraw its sentence and point Download at it."""

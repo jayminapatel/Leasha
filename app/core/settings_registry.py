@@ -25,8 +25,10 @@ user never does.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 __all__ = [
     "Setting",
@@ -703,7 +705,6 @@ SETTINGS: tuple[Setting, ...] = (
         key="CHAT_ENGINE", label="Chat, Interpret and Describe run on",
         kind="choice", default="onnx", group="Models", surface="settings.models",
         choices=("onnx", "ollama"),
-        restart=True,
         help="Inside Leasha: the chat model runs in this application, with nothing "
              "else to install - download it once in this section. Ollama: a separate "
              "program you install and run, with its own choice of models. Search "
@@ -1078,3 +1079,81 @@ def resettable() -> tuple[Setting, ...]:
     """Everything a "restore defaults" may legitimately unpin."""
     guarded = protected()
     return tuple(setting for setting in SETTINGS if setting.key not in guarded)
+
+
+# --- what may be written (2026-10-10) ------------------------------------------------------
+#
+# `config.load_settings` refuses to start on a value it cannot use, so one typo saved from
+# Settings - `localhost:11434` in the Ollama address - meant the next start failed with a
+# configuration error. Nothing in the window stopped it being written. `problem_with` is
+# asked by `env_writer` before anything is written, so a value that would stop the app
+# starting, or that is outside what the control allows, is refused with a sentence and the
+# file is left as it was.
+
+#: Keys whose value is a web address.
+URL_KEYS = frozenset({"OLLAMA_URL", "CHAT_WEB_SEARXNG_URL"})
+
+_BARE_ADDRESS = re.compile(r"[A-Za-z0-9.\-]+(:\d{1,5})?(/\S*)?")
+_TIME_OF_DAY = re.compile(r"(?:[01]?\d|2[0-3]):[0-5]\d")
+
+
+def normalise_url(text: str) -> tuple[str, str]:
+    """`(address, problem)` for something typed into an address box.
+
+    A bare `host` or `host:port` gets `http://` in front, which is what somebody typing
+    `localhost:11434` meant. Anything else must already be an `http://` or `https://`
+    address with a host. Empty is allowed (the default applies); `problem` is `""` when
+    the address is fine.
+    """
+    value = (text or "").strip()
+    if not value:
+        return "", ""
+    if "://" not in value and _BARE_ADDRESS.fullmatch(value):
+        value = "http://" + value
+    try:
+        parts = urlsplit(value)
+        port = parts.port
+    except ValueError:
+        return value, "The port must be a number up to 65535."
+    if (parts.scheme not in ("http", "https") or not parts.hostname
+            or any(character.isspace() for character in value)):
+        return value, "Type the address in full, for example http://127.0.0.1:11434"
+    if port is not None and port == 0:
+        return value, "The port must be a number up to 65535."
+    return value, ""
+
+
+def problem_with(key: str, value: object) -> str:
+    """Why `value` may not be written for `key`, in a sentence - or `""` if it may.
+
+    `None` (remove the line) is always allowed. A key with no entry here is not judged.
+    Booleans are not judged either: `env_writer` writes them as `true`/`false` itself.
+    """
+    if value is None:
+        return ""
+    setting = by_key(key)
+    if setting is None:
+        return ""
+    text = str(value).strip()
+    if setting.kind == "int":
+        try:
+            number = int(text)
+        except ValueError:
+            return f"{setting.label} must be a whole number."
+        if setting.minimum is not None and number < setting.minimum:
+            return f"{setting.label} must be at least {setting.minimum}."
+        if setting.maximum is not None and number > setting.maximum:
+            return f"{setting.label} must be at most {setting.maximum}."
+        return ""
+    if setting.kind == "choice" and setting.choices and text not in setting.choices:
+        return f"{setting.label} must be one of {', '.join(setting.choices)}."
+    if key in URL_KEYS:
+        fixed, problem = normalise_url(text)
+        if problem:
+            return problem
+        if fixed != text:
+            return f"Write the address as {fixed}"
+        return ""
+    if key == "INDEX_DAILY_AT" and not _TIME_OF_DAY.fullmatch(text):
+        return "Use 24-hour HH:MM, for example 02:00 or 18:30."
+    return ""
