@@ -27,7 +27,9 @@ actually use, so every write to them is guarded.
 
 from __future__ import annotations
 
+import copy
 import json
+import threading
 import time
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
@@ -115,6 +117,56 @@ class _LruCache:
         return len(self._entries)
 
 
+#: Work order 1h §5c (2026-10-10). How long "the picture table is empty" is
+#: believed without asking again, when the index generation has not moved.
+#: The generation is what normally refreshes it, but the indexer writes a
+#: photo's vector to LanceDB after committing its SQLite rows
+#: (`Pipeline._flush_pending_images` commits first, on purpose), so the last
+#: photos of a run can land without a later bump. Thirty seconds bounds how
+#: long a first photo can go unsearched; an answer of "there are pictures" is
+#: kept for the whole generation, since being wrong that way costs only a
+#: lane that finds nothing.
+PICTURE_RECHECK_S = 30.0
+
+#: Work order 1h §5a (2026-10-10). How many first passes' fused candidates
+#: are kept for the reranked pass that follows them. The window asks for one
+#: search at a time and the reranked pass follows its first pass within a
+#: second, so eight is generous: it only has to outlive a burst of typing in
+#: which a newer search's first pass lands before an older one's rerank.
+CANDIDATE_ENTRIES = 8
+
+
+class _LockedLruCache(_LruCache):
+    """`_LruCache` behind a lock, for an entry written and read on two threads.
+
+    Work order 1h §5a (2026-10-10). The result cache above can go without one
+    because the worst a race does there is evict an entry twice. The
+    candidates kept for a reranked pass are written by one `SearchWorker` and
+    read by the next, which the window's thread pool may run side by side, and
+    `OrderedDict.move_to_end` racing a `popitem` can raise `KeyError` out of a
+    search. A lock costs nanoseconds against a search that costs hundreds of
+    milliseconds, so this one takes it.
+    """
+
+    __slots__ = ("_lock",)
+
+    def __init__(self, limit: int = CACHE_ENTRIES) -> None:
+        super().__init__(limit)
+        self._lock = threading.Lock()
+
+    def get(self, key: str) -> Any:
+        with self._lock:
+            return super().get(key)
+
+    def set(self, key: str, value: Any) -> None:
+        with self._lock:
+            super().set(key, value)
+
+    def clear(self) -> None:
+        with self._lock:
+            super().clear()
+
+
 def _fold(values: Any) -> tuple:
     """Lowercase a tuple of strings for the cache key. See `_cache_key`."""
     return tuple(str(value).lower() for value in (values or ()))
@@ -141,6 +193,32 @@ def _result_chunk_id(hit: dict[str, Any]) -> int:
         return int(raw)
     except (TypeError, ValueError):
         return int(hit.get("file_id", 0) or 0)
+
+
+def _copy_gathered(gathered: "_Gathered") -> "_Gathered":
+    """A copy of a fused list deep enough that reordering it cannot reach back.
+
+    Work order 1h §5a (2026-10-10). The rows are dicts that the reranker
+    (`rerank_score`), `filename_match.blend` (`rrf_score`, written back on
+    purpose) and `recency.blend` write into, and `source_ranks` is a dict
+    inside each row. A shallow copy would let the first pass's reorders leak
+    into the list the reranked pass reorders, so its filename boost would be
+    applied twice and the reranked order would differ from what a fresh
+    retrieval gives. Fifty rows - `FUSED_LIMIT` - so a deep copy costs well
+    under a millisecond. The three per-retriever lists are only counted and
+    tested for emptiness afterwards, never written, so they are shared.
+
+    A row carrying something `deepcopy` refuses (nothing does today - every
+    retriever returns plain `dict(row)`s) falls back to copying each row and
+    the dicts directly inside it, which covers every field the reorders
+    write, rather than failing the search over a copy.
+    """
+    try:
+        fused = copy.deepcopy(gathered.fused)
+    except Exception:                           # noqa: BLE001 - a copy is not worth a search
+        fused = [{name: (dict(value) if isinstance(value, dict) else value)
+                  for name, value in row.items()} for row in gathered.fused]
+    return replace(gathered, fused=fused)
 
 
 def _wait(future: Any, half: str, problems: list[str]) -> list:
@@ -401,6 +479,45 @@ class _Retrieved:
     #: Not distinguishable from here which of those it was; `image_problems`
     #: (see `_retrieve`) is what tells a real failure from an empty result.
     image_hits: list
+    #: Work order 1h §5a (2026-10-10). This pass's fused list as it stood
+    #: before the reranker and the reorders after it touched it - a private
+    #: copy - or `None` unless `_retrieve` was asked to keep one. What a
+    #: reranked pass of the same search reranks instead of retrieving again.
+    gathered: Optional["_Gathered"] = None
+
+
+@dataclass(frozen=True)
+class _Gathered:
+    """What the retrievers and fusion produced, before anything reordered it.
+
+    Work order 1h §5a (2026-10-10). `_retrieve` was one method that
+    retrieved, fused, reranked and re-sorted, so the only way to rerank a
+    list was to retrieve it again - which is exactly what the window's second,
+    reranked pass did (see `SearchEngine.search`). Split at fusion, so the
+    half after it can run on a list that was gathered earlier.
+    """
+
+    fused: list
+    keyword_hits: list
+    vector_hits: list
+    image_hits: list
+
+
+@dataclass(frozen=True)
+class _Candidates:
+    """One first pass, kept so the reranked pass that follows can skip retrieval.
+
+    Work order 1h §5a (2026-10-10). Everything the first pass decided before
+    it fused - the spelling it corrected to, the relaxation it fell back on,
+    the query that actually ran - so the reranked pass answers the same
+    question rather than re-deciding it, and the reranked list is the first
+    list reordered, never a second list that happens to look like it.
+    """
+
+    parsed: ParsedQuery
+    spelling: Any
+    relaxed: Any
+    gathered: _Gathered
 
 
 @dataclass
@@ -645,6 +762,36 @@ class SearchEngine:
         #: The index generation the wildcard cache was filled against. See
         #: `_expand_wildcards`.
         self._wildcard_generation: int = -1
+        #: Work order 1h §5a (2026-10-10). A first, not-yet-reranked pass's
+        #: fused candidates, keyed like the result cache but without the
+        #: rerank flag, for the reranked pass of the same search to rerank.
+        #: The window runs every reranked search twice - results at once,
+        #: then the better order (`SearchWorker`) - and the second call used
+        #: to miss the result cache, because the rerank flag is rightly in its
+        #: key, and so ran keyword search, the meaning vector, the picture
+        #: lane and fusion all over again only to rerank a list the first
+        #: call already had. Its own small locked cache rather than a second
+        #: kind of entry in `self.cache`: `cache=False` switches the result
+        #: cache off for a test, and that must not also switch this off and
+        #: double the retrieval it exists to remove.
+        self._candidates = _LockedLruCache(CANDIDATE_ENTRIES)
+        #: Work order 1h §5b (2026-10-10). The query's meaning vector, text
+        #: and CLIP, once per model and sentence - see `vector.
+        #: QueryVectorCache`. Used by every pass `_retrieve` makes, so §2b's
+        #: relax loop and Chat's widening rounds (which reach this engine
+        #: through `search`, `app/chat/engine.py::_search`) embed a repeated
+        #: sentence once. Not keyed on the index generation and never needs
+        #: to be: a query's vector depends on the model and the words, not on
+        #: anything indexed. Used whatever `use_cache` says for the same
+        #: reason - `use_cache=False` asks for results computed from the index
+        #: as it is now, and a sentence's vector is the same either way.
+        self._query_vectors = vector.QueryVectorCache()
+        #: Work order 1h §5c (2026-10-10). Whether the picture table holds
+        #: anything, as `(generation, rows, checked_at)`, or None before the
+        #: first search asks. See `_pictures_present`. Locked because the
+        #: picture lane asks from a pool thread and two searches can overlap.
+        self._pictures_known: Optional[tuple[int, int, float]] = None
+        self._pictures_lock = threading.Lock()
 
     @property
     def closed(self) -> bool:
@@ -843,37 +990,75 @@ class SearchEngine:
                 cached.elapsed_ms = (time.perf_counter() - started) * 1000
                 return cached
 
-        # §2a. **Before retrieval, not after** - so the corrected word is
-        # searched *for*, rather than searched for a second time. Asking the
-        # index which words it has never seen is one indexed lookup each, and
-        # it is a question this method already asks lower down; asked here it
-        # buys the correction as well as the notice.
-        parsed, spelling = self._correct_spelling(parsed, policy)
-
         vector_problems: list[str] = []
         #: Work order 0h §1c. Kept separate from `vector_problems` - see
         #: `NOTICE_NO_IMAGES`'s docstring for why sharing one list between
         #: two independently-failing lanes would be the bug this file
         #: already fixed once for `NOTICE_NO_VECTORS`, reintroduced.
         image_problems: list[str] = []
-        retrieved = self._retrieve(parsed, raw, limit, want_rerank,
-                                   timings, vector_problems, policy,
-                                   image_problems)
 
-        # §2b. **A second pass, and only where the alternative is an empty
-        # page.** `relax.candidates` is empty for the ordinary
-        # nothing-matched-anything query, so this costs one attribute read on
-        # every search that found something and every search there is nothing
-        # to relax towards.
+        # Work order 1h §5a (2026-10-10). **The reranked pass reranks the
+        # first pass's list; it does not retrieve again.** Keyed on the parse
+        # as typed (before the spelling step, exactly as the result cache
+        # is), without the rerank flag, and with the surface's policy -
+        # spelling, relaxation and the recency nudge all read the policy, so
+        # two surfaces asking the same words are two different first passes.
+        # The index generation is in the key, so a write between the two
+        # passes makes the reranked pass retrieve afresh rather than rerank
+        # rows that may no longer exist. `use_cache=False` means "compute
+        # this from the index", and is honoured here too.
+        candidates_key = self._candidates_key(raw, parsed, limit, policy)
+        reuse = None
+        if use_cache and want_rerank and candidates_key is not None:
+            reuse = self._candidates_get(candidates_key)
+        # Kept only when a reranked pass could follow (a reranker that is on
+        # and loaded) and this pass is not that one - Chat, the command line
+        # and every surface with the reranker off pay nothing for this.
+        keep = (use_cache and not want_rerank and candidates_key is not None
+                and self._wants_rerank(True))
+
         relaxed = None
-        if policy.relax_on_empty and not retrieved.results:
-            for candidate in relax.candidates(parsed):
-                again = self._retrieve(candidate.query, raw, limit,
-                                       want_rerank, timings, vector_problems,
-                                       policy, image_problems)
-                if again.results:
-                    parsed, retrieved, relaxed = candidate.query, again, candidate
-                    break
+        if reuse is not None:
+            # The first pass already corrected the spelling, chose any
+            # relaxation and recorded no problem (`_candidates_set` refuses a
+            # degraded pass, so a timed-out half is retried rather than
+            # reranked). What is left is the half of `_retrieve` after fusion,
+            # on a private copy so the kept entry stays as it was gathered.
+            parsed, spelling, relaxed = reuse.parsed, reuse.spelling, reuse.relaxed
+            retrieved = self._finish(_copy_gathered(reuse.gathered), parsed, raw,
+                                     want_rerank, timings, policy)
+        else:
+            # §2a. **Before retrieval, not after** - so the corrected word is
+            # searched *for*, rather than searched for a second time. Asking
+            # the index which words it has never seen is one indexed lookup
+            # each, and it is a question this method already asks lower down;
+            # asked here it buys the correction as well as the notice.
+            parsed, spelling = self._correct_spelling(parsed, policy)
+
+            retrieved = self._retrieve(parsed, raw, limit, want_rerank,
+                                       timings, vector_problems, policy,
+                                       image_problems, keep_candidates=keep)
+
+            # §2b. **A second pass, and only where the alternative is an
+            # empty page.** `relax.candidates` is empty for the ordinary
+            # nothing-matched-anything query, so this costs one attribute
+            # read on every search that found something and every search
+            # there is nothing to relax towards.
+            if policy.relax_on_empty and not retrieved.results:
+                for candidate in relax.candidates(parsed):
+                    again = self._retrieve(candidate.query, raw, limit,
+                                           want_rerank, timings, vector_problems,
+                                           policy, image_problems,
+                                           keep_candidates=keep)
+                    if again.results:
+                        parsed, retrieved, relaxed = candidate.query, again, candidate
+                        break
+
+            if keep and retrieved.gathered is not None \
+                    and not vector_problems and not image_problems:
+                self._candidates_set(candidates_key, _Candidates(
+                    parsed=parsed, spelling=spelling, relaxed=relaxed,
+                    gathered=retrieved.gathered))
 
         keyword_hits, vector_hits = retrieved.keyword_hits, retrieved.vector_hits
         image_hits = retrieved.image_hits
@@ -1293,6 +1478,63 @@ class SearchEngine:
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
 
+    def _search_pictures(self, parsed: ParsedQuery, *, allowed_file_ids: Any,
+                         problems: Optional[list], on_progress: Any = None,
+                         query_vectors: Any = None) -> list:
+        r"""The picture lane, or `[]` without asking it when there are no pictures.
+
+        Work order 1h §5c (2026-10-10). The lane ran on every search,
+        including on an index with no pictures at all, and its first call
+        embeds the query with the CLIP text tower - which in the window
+        starts the vision host (`app.llm.engines.clip_text_embedder`, a
+        `RemoteEmbedder`), about four seconds, for a table that cannot
+        answer. Asked here instead: an empty table returns `[]` before the
+        encoder is touched, which `_gather` fuses exactly as it fuses a lane
+        that found nothing.
+        """
+        if not self._pictures_present():
+            return []
+        return vector.search_images(
+            self.image_vectors, self.clip_text_embedder, parsed,
+            allowed_file_ids=allowed_file_ids, problems=problems,
+            on_progress=on_progress, query_vectors=query_vectors)
+
+    def _pictures_present(self) -> bool:
+        r"""Whether the picture table holds a row. **Cheap, and never raises.**
+
+        Work order 1h §5c (2026-10-10). Counted once and kept, the way
+        `_expand_wildcards` keeps its expansions: against the index
+        generation, so an index write asks again. "Empty" is also asked again
+        after `PICTURE_RECHECK_S`, because a photo's vector can reach LanceDB
+        after the write that moved the generation (see that constant).
+
+        **Unknown is "yes".** A store with no `count` (a test double, a future
+        store) or one whose count raises - a deferred connect that failed, a
+        table being rebuilt - runs the lane as it always did, so it can say
+        what is wrong (`NOTICE_NO_IMAGES`) instead of the lane going quiet on
+        a guess. Only a store that answers "no rows" is skipped.
+        """
+        counter = getattr(self.image_vectors, "count", None)
+        if not callable(counter):
+            return True
+        generation = self._generation_now()
+        now = time.monotonic()
+        with self._pictures_lock:
+            known = self._pictures_known
+        if known is not None and known[0] == generation and (
+                known[1] > 0 or now - known[2] < PICTURE_RECHECK_S):
+            return known[1] > 0
+        try:
+            rows = int(counter())
+        except Exception as exc:                 # noqa: BLE001 - unknown runs the lane
+            _log.debug("could not count the picture table, searching it anyway: {}", exc)
+            return True
+        with self._pictures_lock:
+            self._pictures_known = (generation, rows, now)
+        if rows <= 0:
+            _log.debug("the picture table is empty; the picture lane is skipped")
+        return rows > 0
+
     def _generation_now(self) -> int:
         """The store's write generation, or -1 if it cannot be read.
 
@@ -1308,8 +1550,16 @@ class SearchEngine:
     def _retrieve(self, parsed: ParsedQuery, raw: str, limit: int,
                   want_rerank: bool, timings: dict, vector_problems: list,
                   policy: Optional[SearchPolicy] = None,
-                  image_problems: Optional[list] = None) -> "_Retrieved":
+                  image_problems: Optional[list] = None, *,
+                  keep_candidates: bool = False) -> "_Retrieved":
         r"""Both retrievers, fused, reranked, sorted — for one query.
+
+        Work order 1h §5a (2026-10-10): `_gather` then `_finish`, the split
+        falling at fusion so a reranked pass can run the second half alone on
+        a list the first pass gathered (see `search`). `keep_candidates`
+        returns a private copy of that list on `_Retrieved.gathered`, taken
+        before `_finish` reorders it - the reranker, `filename_match.blend`
+        and `recency.blend` all write into the rows they are handed.
 
         **A method rather than a block because §2b runs it twice.** Relaxation
         is "try the same pipeline with one instruction removed", and a second
@@ -1325,6 +1575,21 @@ class SearchEngine:
         see `NOTICE_NO_IMAGES`'s docstring for why the two must not share one
         list.
         """
+        gathered = self._gather(parsed, limit, timings, vector_problems,
+                                image_problems)
+        kept = _copy_gathered(gathered) if keep_candidates else None
+        retrieved = self._finish(gathered, parsed, raw, want_rerank, timings, policy)
+        return replace(retrieved, gathered=kept) if kept is not None else retrieved
+
+    def _gather(self, parsed: ParsedQuery, limit: int, timings: dict,
+                vector_problems: list,
+                image_problems: Optional[list] = None) -> _Gathered:
+        r"""The retrievers and fusion: the half of `_retrieve` a rerank never needs.
+
+        Work order 1h §5a (2026-10-10). Nothing here reads the reranker, the
+        policy or the raw text, which is what makes its output reusable by a
+        reranked pass of the same parsed query.
+        """
         mark = time.perf_counter()
         # **The eligible files, without listing them when there are too many.**
         # This used to be `file_ids_matching`, which materialised every
@@ -1337,6 +1602,7 @@ class SearchEngine:
         vector_future = self._pool.submit(
             vector.search, self.vectors, self.embedder, parsed,
             allowed_file_ids=allowed, problems=vector_problems,
+            query_vectors=self._query_vectors,
         )
         # Work order 0h §1c: the CLIP image lane, submitted alongside the
         # other two rather than after them - `self._pool` carries a worker
@@ -1344,17 +1610,22 @@ class SearchEngine:
         # unless both `clip_text_embedder` and `image_vectors` were handed to
         # the constructor (H4: absent means off, exactly as it always did
         # before this lane existed).
+        #
+        # 2026-10-10, work order 1h §5c: through `_search_pictures`, which
+        # asks first whether there is a single picture to find - on its own
+        # pool thread, so the question never holds up the other two lanes.
         image_future = None
         if self.clip_text_embedder is not None and self.image_vectors is not None:
             image_future = self._pool.submit(
-                vector.search_images, self.image_vectors, self.clip_text_embedder,
-                parsed, allowed_file_ids=allowed, problems=image_problems,
+                self._search_pictures, parsed, allowed_file_ids=allowed,
+                problems=image_problems,
                 # Work order 0r item 1c, second clause: only when there is
                 # somewhere to report to - see `_clip_download_progress` and
                 # `Embedder._start_progress_watcher_if_downloading`, both of
                 # which gate the same way for the same reason.
                 on_progress=(self._clip_download_progress
                              if self.status_callback is not None else None),
+                query_vectors=self._query_vectors,
             )
         # **Bounded, because the pool has one worker per retriever and no
         # queue deep enough to hide a wedge.** A hung LanceDB scan or a
@@ -1413,7 +1684,21 @@ class SearchEngine:
         )
         timings["fuse"] = timings.get("fuse", 0.0) + (
             time.perf_counter() - mark) * 1000
+        return _Gathered(fused=fused, keyword_hits=keyword_hits,
+                         vector_hits=vector_hits, image_hits=image_hits)
 
+    def _finish(self, gathered: _Gathered, parsed: ParsedQuery, raw: str,
+                want_rerank: bool, timings: dict,
+                policy: Optional[SearchPolicy] = None) -> "_Retrieved":
+        r"""Rerank and reorder a fused list: the half of `_retrieve` after fusion.
+
+        Work order 1h §5a (2026-10-10). Owns `gathered.fused` - it reorders
+        it and the rows in it - so a caller that needs the list again hands
+        in a copy (`_copy_gathered`).
+        """
+        fused = gathered.fused
+        keyword_hits, vector_hits = gathered.keyword_hits, gathered.vector_hits
+        image_hits = gathered.image_hits
         reranked = False
         if want_rerank and fused:
             mark = time.perf_counter()
@@ -1774,6 +2059,36 @@ class SearchEngine:
             repr(_fold(parsed.not_only)),
             parsed.scope, "r" if rerank else "-", model, str(limit),
         ])
+
+    def _candidates_key(self, raw: str, parsed: ParsedQuery, limit: int,
+                        policy: SearchPolicy) -> Optional[str]:
+        """The key a first pass's candidates are kept under, or None for none.
+
+        Work order 1h §5a (2026-10-10). `_cache_key` with the rerank flag off -
+        so a first pass and its reranked pass share it - plus the policy, which
+        the result cache leaves out but which decides the spelling step, the
+        relaxation and the recency nudge the kept candidates already went
+        through. None while the store is closing (`_cache_key` answers
+        "closed" for every query then, and a key every query shares is not a
+        key).
+        """
+        key = self._cache_key(raw, parsed, False, limit)
+        if key == "closed":
+            return None
+        return key + "|" + repr(policy)
+
+    def _candidates_get(self, key: str) -> Optional[_Candidates]:
+        try:
+            return self._candidates.get(key)
+        except Exception as exc:        # noqa: BLE001 - a miss retrieves afresh
+            _log.debug("candidate cache read failed: {}", exc)
+            return None
+
+    def _candidates_set(self, key: str, candidates: _Candidates) -> None:
+        try:
+            self._candidates.set(key, candidates)
+        except Exception as exc:        # noqa: BLE001
+            _log.debug("candidate cache write failed: {}", exc)
 
     def _cache_get(self, key: str) -> Optional[SearchResponse]:
         try:

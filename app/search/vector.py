@@ -21,6 +21,8 @@ the model is warmed at startup rather than on first search.
 
 from __future__ import annotations
 
+import threading
+from collections import OrderedDict
 from typing import Any, Callable, Optional, Sequence
 
 from app.core.model_devices import device_for as _device_for
@@ -31,7 +33,7 @@ from app.search.query import ParsedQuery
 __all__ = [
     "search", "VECTOR_LIMIT", "MAX_PREFILTER_IDS", "search_images", "hydrate_images",
     "CLIP_TEXT_MODEL", "CLIP_TEXT_DIM", "clip_text_embedder_from_settings",
-    "search_by_image",
+    "search_by_image", "QueryVectorCache", "QUERY_VECTOR_ENTRIES",
 ]
 
 #: Candidates handed to fusion. From the spec's pipeline diagram.
@@ -52,6 +54,87 @@ OVERFETCH_FACTORS = (4, 16)
 
 _log = logger.bind(component="search.vector")
 
+#: Work order 1h §5b (2026-10-10). Query vectors kept per engine. A search
+#: session repeats a handful of sentences - the relax loop re-runs the same
+#: words with one instruction dropped, Chat's widening rounds re-run them with
+#: a filter added, and somebody refining a search goes back and forth - so
+#: sixty-four is far more than is ever reused, and at 384 or 512 floats each
+#: it is about 130 KB at worst.
+QUERY_VECTOR_ENTRIES = 64
+
+
+class QueryVectorCache:
+    r"""The query's meaning vector, embedded once per model and sentence.
+
+    Work order 1h §5b (2026-10-10). The query's vector was never cached, so
+    every pass that reached `search` paid for an embedding - about 15 ms on
+    the text model, and on the picture lane a round trip to the vision host -
+    for a sentence it had embedded a moment earlier: §2b's relax loop re-runs
+    the same words with a filter or an `AND` dropped, which leaves
+    `embed_text` exactly as it was, and Chat's widening rounds do the same.
+
+    **Keyed on the model, not only the text.** The text model and CLIP's
+    text tower embed the same sentence into two different spaces, and a
+    vector from one compared against the other's table is a confident wrong
+    answer. The key is the embedder object itself (`id`), its class and its
+    `model_name` where it has one - so two engines, or one engine whose
+    embedder is replaced (a host restarted, a model changed in Settings),
+    never share an entry. `RemoteEmbedder` has no `model_name`; its identity
+    is enough, because one proxy only ever talks to one model.
+
+    **Normalised by whitespace only, never by case.** `Quarterly  report`
+    and ` Quarterly report` are one sentence to every tokenizer; `Paris` and
+    `paris` are not necessarily one to a cased model, and `EMBED_MODEL` can
+    name one. A case-folded key would hand one of them the other's vector.
+
+    **Thread-safe**, because the text lane and the picture lane embed on two
+    pool threads at once and Chat searches from its own. Failures are never
+    cached: an embedding that raised is retried on the next pass, which is
+    what it did before this existed.
+    """
+
+    __slots__ = ("_entries", "_limit", "_lock")
+
+    def __init__(self, limit: int = QUERY_VECTOR_ENTRIES) -> None:
+        self._entries: "OrderedDict[tuple, Any]" = OrderedDict()
+        self._limit = max(1, int(limit))
+        self._lock = threading.Lock()
+
+    @staticmethod
+    def key(embedder: Any, text: str) -> tuple:
+        """The model's identity and the sentence with its whitespace collapsed."""
+        return (id(embedder), type(embedder).__qualname__,
+                str(getattr(embedder, "model_name", "") or ""),
+                " ".join(str(text).split()))
+
+    def get(self, embedder: Any, text: str) -> Any:
+        """The vector for `text` under `embedder`, moved to most-recent, or None."""
+        key = self.key(embedder, text)
+        with self._lock:
+            found = self._entries.get(key)
+            if found is not None:
+                self._entries.move_to_end(key)
+            return found
+
+    def put(self, embedder: Any, text: str, vector: Any) -> None:
+        """Keep `vector`, evicting the least recently used past the limit."""
+        if vector is None:
+            return
+        key = self.key(embedder, text)
+        with self._lock:
+            self._entries[key] = vector
+            self._entries.move_to_end(key)
+            while len(self._entries) > self._limit:
+                self._entries.popitem(last=False)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._entries.clear()
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
+
 
 def search(
     vectors: Any,
@@ -61,8 +144,14 @@ def search(
     limit: int = VECTOR_LIMIT,
     allowed_file_ids: Optional[set[int]] = None,
     problems: Optional[list[str]] = None,
+    query_vectors: Optional[QueryVectorCache] = None,
 ) -> list[dict[str, Any]]:
     r"""ANN hits for a parsed query, nearest first.
+
+    `query_vectors` (work order 1h §5b, 2026-10-10): where the query's
+    vector is looked up before embedding it, and kept after. `None` embeds
+    every time, exactly as before - the default for every caller but the
+    engine, which owns one (`SearchEngine._query_vectors`).
 
     Returns [] when there is nothing to embed, when the index is empty, or when
     the filters exclude everything. All three are ordinary states rather than
@@ -96,8 +185,12 @@ def search(
     if eligible is not None and eligible.excludes_everything:
         return []                      # filters excluded everything; nothing to search
 
+    query_vector = query_vectors.get(embedder, text) if query_vectors is not None else None
     try:
-        query_vector = embedder.embed([text])[0]
+        if query_vector is None:
+            query_vector = embedder.embed([text])[0]
+            if query_vectors is not None:
+                query_vectors.put(embedder, text, query_vector)
     except AppErrorException as exc:
         # The model itself. Named separately from a generic failure because it
         # is the one with an action attached - the AppError already carries a
@@ -365,8 +458,13 @@ def search_images(
     allowed_file_ids: Optional[set[int]] = None,
     problems: Optional[list[str]] = None,
     on_progress: Optional[Callable[[float], None]] = None,
+    query_vectors: Optional[QueryVectorCache] = None,
 ) -> list[dict[str, Any]]:
     r"""CLIP hits for a parsed query, nearest first - the third retrieval lane.
+
+    `query_vectors` is handed straight to `search` (work order 1h §5b,
+    2026-10-10); its key carries the embedder, so the CLIP text tower's
+    vectors and the text model's never meet in it.
 
     **Reuses `search()` outright rather than reimplementing it.** Nothing in
     that function is specific to the text tower or the 384-dim table - it
@@ -429,6 +527,7 @@ def search_images(
     rows = search(
         image_vectors, text_embedder, parsed,
         limit=limit, allowed_file_ids=allowed_file_ids, problems=problems,
+        query_vectors=query_vectors,
     )
     for row in rows:
         row["chunk_id"] = f"img:{row['file_id']}"
