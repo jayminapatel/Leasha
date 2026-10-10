@@ -1180,7 +1180,6 @@ def _apply_engine_change(window: Any, value: Any) -> None:
 
     Never raises: failing to apply it live must not undo a saved setting.
     """
-    from app.core.logging import logger
     from app.llm import engines
 
     engine = "ollama" if str(value or "").strip().lower() == "ollama" else "onnx"

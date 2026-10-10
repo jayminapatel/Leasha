@@ -5764,7 +5764,6 @@ class Pipeline:
         from app.core.compute_profile import detect
         from app.core.config import load_settings
         from app.core.model_devices import device_for
-        from app.index import backends
 
         settings = load_settings(create_dirs=False, check_writable=False)
         profile = detect()
