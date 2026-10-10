@@ -26,13 +26,17 @@ from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
 from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSplitter,
                              QStackedWidget, QVBoxLayout, QWidget)
 
-from app.ui.presenter.photos import PHOTOS_COMMANDS, facets, narrow, sort_rows, summary
-from app.ui.presenter.photos import in_scope, toggle_in_box
+from app.ui.presenter.photos import PHOTOS_COMMANDS, summary, toggle_in_box
 from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.photo_browser import PhotoBrowser
 from app.ui.widgets.photo_info import PhotoInfo
-from app.ui.widgets.photo_page_parts import STATE_KEYS, ViewButton, photo_menu, same_day_box
+# 2026-10-10: the two reads (`library`, `read_box`) and the steps that start them on a
+# worker (`read_library`, `read_the_box`, `arrange_rows`) live in photo_page_parts, and
+# the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
+# lines test_presenter allows a view.
+from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, arrange_rows, photo_menu,
+                                             read_library, read_the_box, same_day_box)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
 from app.ui.qtsip import open_menu
@@ -42,33 +46,6 @@ __all__ = ["PhotosView"]
 #: How long typing settles before the box is read again.
 DEBOUNCE_MS = 220
 
-
-def _library(store: Any) -> tuple[list, int, dict]:
-    """Every picture, how many faces wait for a Yes or No, and the side list's
-    counts. **Worker.** The counts were taken on the window's thread until
-    2026-10-09, over 46,000 pictures, on every read of the tab."""
-    from app.extract.ocr import OcrExtractor
-
-    rows = store.photo_library(OcrExtractor.extensions)
-    waiting = sum(count for _p, _n, count in store.suggestion_counts())
-    return rows, waiting, facets(rows)
-
-
-def _arrange(rows: list, parsed: Any, words: str, sort_key: str) -> tuple[list, str, int, int]:
-    """The pictures the box lets through, in the order asked, with the order
-    and the two counts the summary line shows. **Worker.** Until 2026-10-09 the
-    window's thread did this on every search, and stopped answering."""
-    shown = narrow(rows, parsed, words)
-    order = getattr(parsed, "sort", "") or sort_key
-    return sort_rows(shown, order), order, len(shown), in_scope(rows, parsed)
-
-
-def _read(store: Any, text: str, reading: dict) -> tuple:
-    """The box, read as every tab reads it. **Worker.**"""
-    from app.search.run import read_typed, words_of
-
-    parsed, applied = read_typed(store, text, surface="files", **reading)
-    return parsed, applied, words_of(parsed)
 
 
 class PhotosView(QWidget):
@@ -152,12 +129,8 @@ class PhotosView(QWidget):
 
     def refresh(self) -> None:
         """Read the library again - on opening the tab, and after a run."""
-        from app.ui.later import when_done
-        from app.ui.workers import CallableWorker, run
-
-        worker = CallableWorker(_library, self._store, component="ui.photos")
-        when_done(self, worker, finished=self._library_ready, failed=self.error.emit)
-        run(self._pool, worker)
+        read_library(self, self._store, finished=self._library_ready,
+                  failed=self.error.emit)
 
     def _library_ready(self, result: Any) -> None:
         rows, waiting, counts = result
@@ -171,16 +144,11 @@ class PhotosView(QWidget):
 
     def _run(self, *_args: Any) -> None:
         """Read the box on a worker, tagged so a late reading is dropped."""
-        from app.ui.later import when_done
-        from app.ui.workers import CallableWorker, run
-
         self._generation += 1
         generation = self._generation
-        worker = CallableWorker(_read, self._store, self.input.text(), self.chips.reading(),
-                                component="ui.photos")
-        when_done(self, worker, finished=lambda read, g=generation: self._read(read, g),
+        read_the_box(self, self._store, self.input.text(), self.chips.reading(),
+                  finished=lambda read, g=generation: self._read(read, g),
                   failed=self.error.emit)
-        run(self._pool, worker)
 
     def _read(self, read: Any, generation: int) -> None:
         if generation != self._generation:
@@ -196,17 +164,11 @@ class PhotosView(QWidget):
         answering. Only the drawing is here now. A newer request makes an older
         answer stale, and `_drawn` drops it.
         """
-        from app.ui.later import when_done
-        from app.ui.workers import CallableWorker, run
-
         self._arranging = getattr(self, "_arranging", 0) + 1
         arranging = self._arranging
-        worker = CallableWorker(_arrange, self._all, self._parsed, self._words, self.sort_key,
-                                component="ui.photos")
-        when_done(self, worker,
+        arrange_rows(self, self._all, self._parsed, self._words, self.sort_key,
                   finished=lambda result, a=arranging: self._drawn(result, applied, a),
                   failed=self.error.emit)
-        run(self._pool, worker)
 
     def _drawn(self, result: Any, applied: Any, arranging: int) -> None:
         if arranging != getattr(self, "_arranging", 0):

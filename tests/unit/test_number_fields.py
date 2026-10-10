@@ -235,6 +235,11 @@ COVERED = {
     "widgets/add_file_type.py": "dialog",
     "widgets/timed_out_panel.py": "window",     # order 0z F3, on the Indexing page
     "widgets/mcp_box.py": "window",             # 2026-10-04, Settings > AI programs
+    # 2026-10-10: Settings > Appearance > Text size (UI_TEXT_SIZE), the body text size
+    # in pixels, 10 to 20, added with the 12px body text (commit 1e4b297). WindowBox
+    # fits it itself (number_field.fit, default 12) and is built by settings_shelves
+    # on the Settings page, so the whole-window walk above reaches it.
+    "widgets/window_box.py": "window",
 }
 
 _SPIN_TYPES = {"QSpinBox", "QDoubleSpinBox", "QTimeEdit", "QDateEdit",

@@ -959,8 +959,44 @@ RADIUS: dict[str, str] = {
     # tall, so 11px is the most that rounds every one of them; taller ones get
     # softly rounded ends rather than full semicircles, which is still a pill
     # to the eye. Qt stylesheets cannot say "half the height".
+    #
+    # **This is the radius at the size it was measured, not the one the sheet
+    # uses** (2026-10-10). 11px was measured when body text was 13px and the
+    # chip's small text 12px. Body text became 12px by default and a person may
+    # choose 10 to 20 (Settings > Appearance > Text size); at 12px the filter
+    # chip is 21px tall, half of that is 10.5, and 11px left every chip square
+    # again - test_ui_review_0x9's round-not-square test caught it. The sheet
+    # now takes `pill_radius()`, which shrinks this number with the text so a
+    # smaller font still gets round ends.
     "radius_pill": "11px",
 }
+
+#: The text the 11px pill radius was measured against: the chip's small text
+#: was 12px (9pt at 96 DPI), with body at 13px. See `pill_radius`.
+_PILL_MEASURED_SMALL_PT = 9.0
+_PILL_MEASURED_RADIUS = 11
+
+
+def pill_radius(base: Optional[float] = None) -> str:
+    """The pill radius for the text size now in force, as a `px` string.
+
+    **Why it moves with the text (2026-10-10).** Qt draws no rounding at all when a
+    radius is more than half the widget's height (see `RADIUS`), and a pill's height
+    is its small-text line plus a fixed few pixels of padding. When the text gets
+    smaller the pill gets shorter, so a fixed radius goes from round to square: at
+    the 12px default body the filter chip is 21px tall and 11px is too much.
+
+    Scaling the measured 11px by the small text's size against the size it was
+    measured at is safe in that direction - the padding does not shrink, so the
+    pill shrinks *less* than the text, and the scaled radius stays under half its
+    height. It is never scaled *up*: a taller pill keeps 11px, the softly rounded
+    ends the comment on `RADIUS` already accepts, because padding that does not
+    grow means a proportionally larger radius would pass half the height and the
+    corners would go square at large text sizes instead.
+    """
+    small_pt = float(font_sizes(base)["small"].rstrip("pt"))
+    factor = min(1.0, small_pt / _PILL_MEASURED_SMALL_PT)
+    return f"{max(2, int(_PILL_MEASURED_RADIUS * factor))}px"
 
 #: **Every action button's size, in one place** (the button system,
 #: `widgets/buttons.py`). 4px above and below, and a floor of 18px inside that
@@ -1043,5 +1079,7 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
 
     colours = palette_for(preference, detected=detected)
     _current = dict(colours)
-    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **RADIUS, **BUTTON,
+    # `radius_pill` follows the text size (2026-10-10) - see `pill_radius`.
+    radii = {**RADIUS, "radius_pill": pill_radius(base_pt)}
+    return _TEMPLATE.format(**colours, **font_sizes(base_pt), **radii, **BUTTON,
                             tick=_tick_file(colours))

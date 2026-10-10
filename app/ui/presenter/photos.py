@@ -30,7 +30,7 @@ __all__ = [
     "narrow", "facets", "sort_rows", "SORTS", "KINDS", "COLUMNS", "PHOTOS_COMMANDS",
     "month_heading", "date_text", "size_text", "people_text", "column_text",
     "summary", "year_of", "toggle_in_box", "box_has", "words_of_row", "only_matches",
-    "from_mail", "in_scope",
+    "from_mail", "in_scope", "arrange",
 ]
 
 #: The switches the Photos box offers when "/" is typed - the shared ones a
@@ -112,6 +112,23 @@ def in_scope(rows: Sequence[Any], parsed: Any) -> int:
     line under the photos, so it never counts what the page is not showing."""
     wants_mail = MAIL_KIND in tuple(getattr(parsed, "only", ()) or ())
     return sum(1 for row in rows if from_mail(row) == wants_mail)
+
+
+def arrange(rows: Sequence[Any], parsed: Any, words: str,
+            sort_key: str) -> tuple[list, str, int, int]:
+    """The pictures the box lets through, in the order asked, with the order and the
+    two counts the summary line shows. **Runs on a worker** - the Photos tab hands it
+    to one, because until 2026-10-09 the window's thread did this on every search
+    over 46,000 pictures and stopped answering.
+
+    2026-10-10: moved here from `photos_view._arrange`. It is pure - no Qt, no I/O -
+    so it belongs with the rest of the page's logic, and the view went over the 250
+    lines `test_presenter`'s guard allows a view (a long view is where untested logic
+    hides).
+    """
+    shown = narrow(rows, parsed, words)
+    order = getattr(parsed, "sort", "") or sort_key
+    return sort_rows(shown, order), order, len(shown), in_scope(rows, parsed)
 
 
 #: The `only:` value that brings pictures from mail in. Without it they are

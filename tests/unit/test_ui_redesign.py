@@ -92,8 +92,15 @@ def test_the_sheet_renders_with_no_token_left_unsubstituted(scheme):
 def test_the_display_size_follows_the_system_font():
     from app.ui.theme import font_sizes
 
-    assert font_sizes(9.0)["display"] == "19.5pt"                # 26px at 96dpi
-    assert float(font_sizes(18.0)["display"][:-2]) == pytest.approx(39.0, rel=0.02)
+    # 2026-10-10: the expected sizes changed on purpose, not the rule. The owner set
+    # body text to 12px by default (it was 13px), chosen in Settings > Appearance >
+    # Text size, with every other size a multiple of it (commit 1e4b297). Display is
+    # two times body, so at the 9pt Windows default it is 18pt - 24px at 96 DPI -
+    # where it used to be 19.5pt (26px, two times the old 13px body). What this test
+    # pins is unchanged: display follows the system font, so twice the system font
+    # gives twice the display size (36pt, which was 39pt).
+    assert font_sizes(9.0)["display"] == "18.0pt"                # 24px at 96dpi
+    assert float(font_sizes(18.0)["display"][:-2]) == pytest.approx(36.0, rel=0.02)
 
 
 def test_the_radius_scale_is_not_a_palette_token():
