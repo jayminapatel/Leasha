@@ -278,6 +278,16 @@ from app.index.run_setup import OCR_MODES  # noqa: E402, F401 - re-exported
 #: noticed.
 FTS_OPTIMIZE_AFTER_CHUNKS = 10_000
 
+#: 2026-10-10, review P5. Files a run must have found, on an index holding no
+#: passages, before `bulk_fts="auto"` bulk-loads the word index - see
+#: `Pipeline._maybe_bulk_fts_auto`. Below it a first run is short enough that
+#: keeping the word index searchable while it runs is worth more than the
+#: saving, which on a small run is seconds (the deferred writes of
+#: `SqliteStore._deferred` measured about 1 s per 1,000 messages, 2026-09-30).
+#: A judgement, not a measurement: a timed first run over a real corpus, bulk
+#: against row by row, is the evidence that would move it.
+BULK_FTS_AUTO_MIN_FILES = 20_000
+
 #: The window the reported throughput covers, in seconds.
 #:
 #: **A rate averaged since the start is useless on a run of days.** After
@@ -1461,6 +1471,9 @@ class Pipeline:
         self._write_group: Any = None
         self._write_group_opened = 0.0
         self._write_group_docs = 0
+        #: 2026-10-10, review P4: text-vector deletes waiting for the open
+        #: group to commit - see `_delete_vectors_once_committed`.
+        self._vector_deletes: list[int] = []
         #: Video and audio extensions, looked up once per run rather than
         #: once per document. See `_media_work_ahead`.
         self._media_exts: Optional[frozenset[str]] = None
@@ -2105,6 +2118,11 @@ class Pipeline:
             # half-written document must not be committed - so the whole
             # group is rolled back. See `_abandon_write_group`.
             self._abandon_write_group()
+            # 2026-10-10, review P1: a consumer that raised left the picture
+            # worker running; it finishes what it was handed and is joined
+            # before anything below tears the run down. A no-op otherwise -
+            # `_consume` finished it where reading ended.
+            self._finish_picture_work()
             # 0x 5d: and give back the page cache `_consume` asked for.
             self._restore_write_cache()
             self._stop.set()                    # unblock producer and workers
@@ -2490,6 +2508,22 @@ class Pipeline:
         §6f: if bulk mode is enabled, restores FTS triggers after a bulk insert.
         """
         wanted = str(self.config.bulk_fts or "auto").lower()
+        # Restore FTS triggers if they were suspended during bulk insert.
+        # 2026-10-10, review P5: **first, whatever the mode and the count.** It
+        # sat below the two returns, so a run that dropped them and then wrote
+        # fewer than `FTS_OPTIMIZE_AFTER_CHUNKS` passages - stopped early, or
+        # `auto` (`_maybe_bulk_fts_auto`) on a large walk of mostly unreadable
+        # files - left them off and the word index missing what it wrote until
+        # the next run's start repaired it.
+        if getattr(self, "_suspended_fts_triggers", None):
+            started = time.perf_counter()
+            if self.store.restore_fts_triggers(self._suspended_fts_triggers):
+                self._log.info(
+                    "restored FTS content triggers after bulk insert ({:.1f}s)",
+                    time.perf_counter() - started)
+                # Clear the dirty flag now that triggers are restored
+                self.store.set_state("fts_dirty", "")
+            self._suspended_fts_triggers = []
         # §6f. `on` merges whatever the run wrote; `auto` merges only when the
         # run was big enough for the merge to earn its minutes; `off` leaves the
         # segments alone.
@@ -2498,16 +2532,6 @@ class Pipeline:
             return
         if wanted != "on" and stats.chunks < FTS_OPTIMIZE_AFTER_CHUNKS:
             return
-
-        # Restore FTS triggers if they were suspended during bulk insert
-        if self._suspended_fts_triggers:
-            started = time.perf_counter()
-            if self.store.restore_fts_triggers(self._suspended_fts_triggers):
-                self._log.info(
-                    "restored FTS content triggers after bulk insert ({:.1f}s)",
-                    time.perf_counter() - started)
-                # Clear the dirty flag now that triggers are restored
-                self.store.set_state("fts_dirty", "")
 
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
@@ -4231,6 +4255,25 @@ class Pipeline:
         is visible, an interrupted run keeps what it read, and a search result
         names the email rather than the archive it came from.
         """
+        # 2026-10-10, review P2: **the gate before the hash, not after it.** A
+        # new file's blake2b is a read of every byte, and it was taken here
+        # first - so a video the gate defers to the tail (`ERR_MEDIA_BACKLOG`)
+        # or a picture or film a text pass holds (`ERR_OCR_HELD`,
+        # `ERR_MEDIA_HELD`) was read end to end, gigabytes for a film, only to
+        # be put aside unread. What that digest bought on the held row: the
+        # next run's `robocopy` check (`walker.has_changed` compares it when the
+        # date moves) and the Space report's duplicates, both of which a row
+        # with no hash answers correctly - the first says "changed", and a
+        # changed held file is held again at the cost of one row write, which is
+        # less than the read it replaces; the second leaves the file out until
+        # the pass that reads it hashes it, which is the same run's tail or its
+        # images pass. A digest `_classify` already took (a known row whose
+        # date moved) is passed on unchanged, as before.
+        held = self._ocr_gate(candidate)
+        if held is not None:
+            yield _Extracted(candidate, digest, error=held)
+            return
+
         if digest is None and not reads_externally(candidate.path):
             try:
                 # Through the walker module, where the change check's own hash
@@ -4241,11 +4284,6 @@ class Pipeline:
                 yield _Extracted(candidate, None, error=to_app_error(
                     exc, "index.pipeline", code="ERR_FILE_LOCKED", path=str(candidate.path)))
                 return
-
-        held = self._ocr_gate(candidate)
-        if held is not None:
-            yield _Extracted(candidate, digest, error=held)
-            return
 
         # Work order 0w §2a. After the gate, not before it: a video the gate
         # queues for the tail is not being read now, and a line saying it was
@@ -4588,18 +4626,67 @@ class Pipeline:
         wanted = str(self.config.bulk_fts or "auto").lower()
         if wanted == "off":
             return
-        # Cannot predict the final chunk count before the run, so for "auto"
-        # mode we drop triggers only after we see the first batch. For "on"
-        # mode we drop them immediately.
-        # Note: For now, we're conservative and only drop for "on" mode.
-        # A more aggressive strategy would check pending work in auto mode.
+        # "on" drops them now; "auto" is decided on the first document instead
+        # (`_maybe_bulk_fts_auto`), once the run knows how big it is.
         if wanted != "on":
             return
+        self._suspend_fts_triggers()
+
+    def _suspend_fts_triggers(self) -> None:
+        """Drop the keyword-index triggers for this run; `_optimise_keyword_index`
+        puts them back and rebuilds. A store that cannot drop them returns []
+        and the run writes the index row by row, as `off` does."""
         self._suspended_fts_triggers = self.store.drop_fts_triggers()
         if self._suspended_fts_triggers:
             self._log.info(
                 "dropped FTS content triggers for bulk insert mode"
             )
+
+    def _maybe_bulk_fts_auto(self, stats: IndexStats) -> bool:
+        r"""`bulk_fts="auto"`: bulk-load the word index when that is cheaper.
+
+        2026-10-10, review P5. The setting's help says "Automatic uses it only
+        when the run is big enough to be worth it", and "auto" did nothing at
+        all - it behaved exactly as "off". What a bulk load costs decides the
+        rule: the triggers come back with a `'rebuild'` of **the whole index**
+        (`SqliteStore.restore_fts_triggers`), not of what the run wrote. So it
+        saves time only when the index holds nothing before the run - a first
+        run, or the first run after a reset - and then the rebuild is the run's
+        own rows and nothing else; on an index that already holds a corpus, an
+        incremental run would pay a rebuild of everything to save the cost of a
+        few rows. And it costs the person keyword search until the run ends,
+        which is only worth paying when the run is long - hence the size floor.
+
+        **Asked once, on the first document the consumer takes**, before
+        anything is written, because that is the first moment the size is
+        known: in the "newest" order the scan has finished
+        (`stats.walk_complete`) before any file is queued, and `stats.seen` is
+        every file the run found. In the "found" order files are read while the
+        walk is still listing them, the size is unknown, and "auto" stays off -
+        the conservative answer, and what it always did.
+
+        Returns whether the triggers were dropped. Never raises: a question
+        that cannot be answered leaves the index written row by row.
+        """
+        if str(self.config.bulk_fts or "auto").lower() != "auto":
+            return False
+        if getattr(self, "_suspended_fts_triggers", None):
+            return False
+        if not stats.walk_complete or stats.seen < BULK_FTS_AUTO_MIN_FILES:
+            return False
+        try:
+            holds_passages = self.store.conn.execute(
+                "SELECT 1 FROM chunks LIMIT 1").fetchone() is not None
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            self._log.debug("could not tell whether the index is empty: {}", exc)
+            return False
+        if holds_passages:
+            return False
+        self._log.info(
+            "an empty index and {:,} file(s) to look at: the word index is built "
+            "once at the end of this run (bulk load, 'auto')", stats.seen)
+        self._suspend_fts_triggers()
+        return bool(self._suspended_fts_triggers)
 
     def _consume(
         self,
@@ -4649,6 +4736,10 @@ class Pipeline:
         # §6f: Drop FTS triggers if bulk mode is enabled, before processing
         # any work so row-by-row updates are avoided from the start.
         self._maybe_drop_fts_triggers(stats)
+        bulk_decided = False
+        # 2026-10-10, review P1: photos' models off this thread - see the
+        # notes above `PICTURE_QUEUE_SIZE`. Finished below, where reading ends.
+        self._start_picture_work()
 
         # 2026-09-29. The walker moves the run from scanning to reading
         # (`_read_in_order`), but only this thread reports progress - so it
@@ -4735,6 +4826,12 @@ class Pipeline:
             if item is _STOP:
                 finished += 1
                 continue
+
+            if not bulk_decided:
+                # 2026-10-10, review P5: the first document, before anything of
+                # it is written - see `_maybe_bulk_fts_auto`.
+                bulk_decided = True
+                self._maybe_bulk_fts_auto(stats)
 
             # The window's own timer says it is late: let it catch up first.
             self._yield_to_ui()
@@ -4881,7 +4978,10 @@ class Pipeline:
                 # 0w 3b: an archive moved on to its next folder. See there.
                 self._persist_at_folder_boundary(pending_vectors)
 
-            if len(self._pending_images) >= self.config.embed_batch:
+            if (not self._picture_worker_takes()
+                    and len(self._pending_images) >= self.config.embed_batch):
+                # 2026-10-10, review P1: the picture worker keeps this
+                # threshold itself (`_picture_loop`) while it runs.
                 # Work order 0h, H7 pattern: flushed in a batch on its own
                 # threshold - reusing `embed_batch` rather than a new config
                 # knob - never one Lance write per photo. Independent of the
@@ -4943,6 +5043,11 @@ class Pipeline:
         # while the feeder thread is still writing the last batch, and an
         # embed failure here must still end the run the way it always has.
         # `_feed_sync` waits for the feeder and re-raises whatever it caught.
+        #
+        # 2026-10-10, review P1: **reading ends here**, so the picture worker
+        # finishes first - every photo handed over done and flushed, the thread
+        # joined - and nothing after this line meets it running.
+        self._finish_picture_work()
         self._flush_pending_images()
         if self._text_first():
             # 2026-10-08: the last of the text is committed and searchable;
@@ -6696,11 +6801,74 @@ class Pipeline:
         # (the store has already rolled it back), and nothing may try to
         # commit it a second time.
         self._write_group = None
+        # 2026-10-10, review P4: taken before the commit, so a commit that
+        # raises drops them with the rows they belonged to - see
+        # `_delete_vectors_once_committed`.
+        deletes = self._take_vector_deletes()
         if not timed:
             group.__exit__(None, None, None)
+        else:
+            with self._clock.stage("write"):
+                group.__exit__(None, None, None)
+        self._run_vector_deletes(deletes)
+
+    def _delete_vectors_once_committed(self, file_id: int) -> None:
+        r"""Delete this file's text vectors - **after** its rows commit.
+
+        2026-10-10, review P4. `_write_one` deletes the vectors of a file that
+        now has no passages, or only keyword-only ones, because nothing else
+        ever will (see the comments there). It did so at once - while the
+        shared write group (`_begin_write_group`) could still be open around
+        the rows it had just replaced. Two faults followed:
+
+        * a LanceDB delete ran **holding the SQLite write lock**, which every
+          other writer (the window naming a face, saving a setting) waits on -
+          the thing `_write_one`'s own comment says it keeps out of the block;
+        * if the group was then **rolled back** - a later document in it failed
+          (`_group_failed`), or `_consume` raised and `run()` abandoned it - the
+          old passages came back with `embedded = 1` and their vectors were
+          already gone. Nothing re-embeds a passage marked embedded, so the
+          file was silently missing from meaning search for good.
+
+        So with a group open the id waits, and `_commit_write_group` deletes
+        once the commit has landed; `_abandon_write_group` drops it with the
+        rows. A rewrite after a rollback (`_group_failed` writes the group's
+        documents again) asks again, in its own group. With no group open the
+        rows are committed already and the delete runs now, as it always did.
+        """
+        if getattr(self, "_write_group", None) is None:
+            self.vectors.delete_by_file_ids([file_id])
             return
-        with self._clock.stage("write"):
-            group.__exit__(None, None, None)
+        waiting = getattr(self, "_vector_deletes", None)
+        if waiting is None:
+            waiting = self._vector_deletes = []
+        waiting.append(int(file_id))
+
+    def _take_vector_deletes(self) -> list[int]:
+        """The ids `_delete_vectors_once_committed` held for the group, and
+        none left behind. `getattr`: a pipeline built without `__init__`."""
+        waiting = getattr(self, "_vector_deletes", None) or []
+        self._vector_deletes = []
+        return waiting
+
+    def _run_vector_deletes(self, file_ids: list[int]) -> None:
+        """One LanceDB delete for every id a committed group held.
+
+        **Logged, not raised.** The rows are committed; raising here would
+        surface in whichever caller happened to commit (a checkpoint, a pause)
+        and fail a document that was written correctly. A vector left behind
+        points at a passage id that no longer exists, so search drops it when
+        it looks the passage up, and the next write of the file deletes it -
+        the cost is accuracy for a while, never a wrong answer kept for good.
+        """
+        if not file_ids:
+            return
+        try:
+            self.vectors.delete_by_file_ids(list(dict.fromkeys(file_ids)))
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            self._log.warning(
+                "could not delete the old vectors of {} file(s) with no passages "
+                "left: {}", len(file_ids), exc)
 
     # -- the file in hand: surviving a native crash ----------------------------
     #
@@ -6880,6 +7048,10 @@ class Pipeline:
         if group is None:
             return
         self._write_group = None
+        # 2026-10-10, review P4: the rows these deletes belonged to are being
+        # rolled back, so their old passages - and the vectors that go with
+        # them - stay. See `_delete_vectors_once_committed`.
+        self._take_vector_deletes()
         failure = RuntimeError("index run ended with a write group still open")
         try:
             group.__exit__(RuntimeError, failure, None)
@@ -6921,6 +7093,202 @@ class Pipeline:
             self._media_exts = frozenset(_media_extensions())
         path = candidate.path
         return path.suffix.lower() in self._media_exts or reads_by_ocr(path)
+
+    # -- the picture worker (2026-10-10, review P1) ---------------------------
+    #
+    # **Why a thread of its own.** `_write_one` and `_record_skip` ran a photo's
+    # models - CLIP, the perceptual hash, a face scan of about 0.9 s, a video's
+    # keyframes, and face grouping every `FACE_CLUSTER_EVERY` faces - on the
+    # consumer, the one thread that writes. Every text document queued behind a
+    # photo in `results` waited for them: on a folder of mixed photos and
+    # documents the letters became searchable at the photos' pace. Now the
+    # consumer writes the photo's row, hands `(candidate, file_id, meta)` to this
+    # worker through a bounded queue, and takes the next document.
+    #
+    # **One thread, not a pool.** The steps of one photo share one decode
+    # (`app.extract.picture`, two pictures kept) and must run back to back to
+    # use it; the CLIP batch (`_pending_pictures`) and the pending lists are
+    # this thread's alone while it runs, so nothing in them needs a lock; and
+    # the GPU is serialised anyway (`app.core.gpu_serialize`), so a second
+    # thread would mostly queue on it. A measured gain is what would justify a
+    # pool.
+    #
+    # **What is kept, guarantee by guarantee:**
+    #
+    # * *None of it holds the write lock.* The consumer still commits its write
+    #   group before the hand-off (the 0x 5d rule), and this thread never opens
+    #   one: its store writes (`add_face`, `set_phashes`, the face grouping) are
+    #   each the store's own short transaction, serialised with the consumer's
+    #   by `SqliteStore._write_lock` - and `SqliteStore` gives every thread its
+    #   own connection, so this one reads only committed rows. **The consumer
+    #   never waits on this thread while holding a group**: it commits before
+    #   every hand-off and before every flush it asks for, or the two would
+    #   deadlock on the write lock.
+    # * *Errors stay per capability.* Each step is called on its own guard
+    #   (`_picture_steps`), so a store failure inside one - which used to reach
+    #   `_group_failed` - costs that capability for that photo, logged.
+    # * *The flush order.* While this thread runs, `_flush_pending_images` is
+    #   done here: the consumer's call queues a flush behind every photo handed
+    #   over before it and waits for it, so an archive's marker and a resume
+    #   cursor are still written after its pictures' vectors (M6), and the
+    #   vectors are still deleted then added in one batch.
+    # * *Stop and pause.* A held run holds this thread between photos; a stop
+    #   lets it finish the photos already handed over (their rows are written,
+    #   and a settled photo is not read again to get them), at most
+    #   `PICTURE_QUEUE_SIZE` of them.
+    # * *Drained before the tail.* `_finish_picture_work` hands over the last
+    #   flush, waits for the queue to empty and joins the thread - called where
+    #   `_consume` stops reading, and again in `run()`'s teardown for a consumer
+    #   that raised. After it, every picture step runs inline, as before.
+    # * *Counts.* The same steps run, so the same `warned_by_code` and
+    #   `enrichment_counts` are written; the stage clock is lock-protected.
+
+    #: Photos handed over and not yet done. Small on purpose: it bounds what a
+    #: stop waits for and what a crash can lose (rows written, vectors not),
+    #: and a queue that is full simply makes the consumer wait, as it always did.
+    PICTURE_QUEUE_SIZE = 16
+
+    def _picture_lane_configured(self) -> bool:
+        """Is any picture model switched on? With none, every step returns at
+        its first line and a thread would carry nothing."""
+        return (getattr(self, "image_embedder", None) is not None
+                or getattr(self, "phash_computer", None) is not None
+                or bool(getattr(self.config, "people_recognition_enabled", False)))
+
+    def _start_picture_work(self) -> None:
+        """Start the picture worker for this run's reading. Consumer thread."""
+        if getattr(self, "_picture_thread", None) is not None:
+            return
+        if not self._picture_lane_configured():
+            return
+        self._picture_queue: "queue.Queue[Any]" = queue.Queue(maxsize=self.PICTURE_QUEUE_SIZE)
+        thread = threading.Thread(target=self._background(self._picture_loop),
+                                  name="pictures", daemon=True)
+        self._picture_thread = thread
+        thread.start()
+
+    def _on_picture_thread(self) -> bool:
+        thread = getattr(self, "_picture_thread", None)
+        return thread is not None and threading.current_thread() is thread
+
+    def _picture_worker_takes(self) -> bool:
+        """True when a call on this thread should go to the worker."""
+        thread = getattr(self, "_picture_thread", None)
+        return (thread is not None and thread.is_alive()
+                and threading.current_thread() is not thread)
+
+    def _picture_put(self, job: Any) -> bool:
+        """Hand `job` over, waiting while the queue is full. False if the worker
+        has died, so the caller does the work itself rather than wait for ever."""
+        thread = self._picture_thread
+        while True:
+            try:
+                self._picture_queue.put(job, timeout=0.5)
+                return True
+            except queue.Full:
+                if thread is None or not thread.is_alive():
+                    return False
+
+    def _hand_to_pictures(self, candidate: Candidate, file_id: int,
+                          meta: Optional[dict[str, Any]], *, video: bool) -> bool:
+        """Queue this file's picture steps for the worker. False when there is
+        no worker (outside `_consume`, or no picture model on), and the caller
+        runs them inline, exactly as before."""
+        if not self._picture_worker_takes():
+            return False
+        if not self._media_work_ahead(candidate):
+            return True                     # every step would return at once
+        # Never wait on the worker holding the write lock - see the notes above.
+        self._commit_write_group(timed=False)
+        return self._picture_put(("steps" if video else "photo", candidate, file_id, meta))
+
+    def _picture_steps(self, candidate: Candidate, file_id: int,
+                       meta: Optional[dict[str, Any]], *, video: bool = True) -> None:
+        """A file's picture steps, in their old order, each on its own guard."""
+        steps: list[tuple[str, Callable[[], None]]] = [
+            ("picture search", lambda: self._maybe_embed_image(candidate, file_id)),
+            ("duplicate fingerprint", lambda: self._maybe_compute_phash(candidate, file_id)),
+            ("face scan", lambda: self._maybe_detect_faces(candidate, file_id)),
+        ]
+        if video:
+            steps.append(("video pictures",
+                          lambda: self._maybe_embed_video(candidate, file_id, meta)))
+        for name, step in steps:
+            try:
+                step()
+            except Exception as exc:            # noqa: BLE001 - one capability, one photo
+                self._log.warning(
+                    "the {} step failed for {}: {}. The file stays indexed; only "
+                    "that step is missing for it.", name, candidate.path, exc)
+
+    def _picture_loop(self) -> None:
+        """The worker: take jobs until told to finish. Never raises."""
+        work = self._picture_queue
+        while True:
+            job = work.get()
+            try:
+                kind = job[0]
+                if kind == "finish":
+                    self._flush_pending_images()
+                    return
+                if kind == "flush":
+                    try:
+                        self._flush_pending_images()
+                    finally:
+                        job[1].set()
+                    continue
+                # A held run holds this thread too, between photos; a stop does
+                # not drop what was handed over - see the notes above.
+                while self._person_paused() and not self._stop.is_set():
+                    time.sleep(HOLD_POLL_S)
+                _kind, candidate, file_id, meta = job
+                self._picture_steps(candidate, file_id, meta,
+                                    video=kind == "steps")
+                if len(self._pending_images) >= self.config.embed_batch:
+                    self._flush_pending_images()
+            except Exception as exc:            # noqa: BLE001 - the worker never dies
+                self._log.error("the picture worker could not finish a job: {}", exc)
+                if job[0] == "flush":
+                    job[1].set()
+            finally:
+                work.task_done()
+
+    def _flush_pictures_on_worker(self) -> bool:
+        """Consumer side of `_flush_pending_images` while the worker runs: queue
+        a flush behind every photo handed over, and wait for it. False when there
+        is no worker to ask, and the caller flushes inline."""
+        if not self._picture_worker_takes():
+            return False
+        self._commit_write_group()
+        done = threading.Event()
+        if not self._picture_put(("flush", done)):
+            return False
+        thread = self._picture_thread
+        while not done.wait(0.5):
+            if not thread.is_alive():
+                return False
+        return True
+
+    def _finish_picture_work(self) -> None:
+        r"""Every photo handed over done, flushed, and the worker joined.
+
+        **The one call the end of reading needs** (2026-10-10, review P1): from
+        here on, post-passes, the prune and the ANN build may run, and they must
+        find every picture vector, hash and face of what was read. Called by
+        `_consume` where it stops reading, and by `run()`'s teardown for a
+        consumer that raised; safe to call twice, and a no-op with no worker.
+        Consumer thread; never raises.
+        """
+        thread = getattr(self, "_picture_thread", None)
+        if thread is None:
+            return
+        try:
+            self._commit_write_group()
+        except Exception as exc:                # noqa: BLE001 - teardown
+            self._log.warning("could not commit before the pictures finished: {}", exc)
+        if thread.is_alive() and self._picture_put(("finish",)):
+            thread.join()
+        self._picture_thread = None
 
     def _write_one(self, item: _Extracted) -> list[tuple[int, int, list[float]]]:
         """Chunks and vectors first, INDEXED last.
@@ -7050,26 +7418,30 @@ class Pipeline:
         # open across it would block every other writer for no reason - the
         # same argument `_embed_pending`'s comment makes for the LanceDB
         # delete below.
-        if self._media_work_ahead(candidate):
-            # 0x 5d: the four steps below can be real work - a picture's
-            # vector, its hash, its faces, a video's frames - and none of it
-            # may run holding the write lock. This document's rows commit now,
-            # with any written before it.
-            self._commit_write_group(timed=False)   # inside the write clock already
-        self._maybe_embed_image(candidate, file_id)
-        # Work order 0h §2a. Independent of the CLIP call just above - see
-        # `_maybe_compute_phash`'s docstring for why a pHash is computed and
-        # gated on its own rather than folded into `_maybe_embed_image`.
-        self._maybe_compute_phash(candidate, file_id)
-        # Work order 0j section 1a. Independent of both calls above, same
-        # reasoning `_maybe_compute_phash` already gives for its own
-        # independence from `_maybe_embed_image`: face detection, CLIP and
-        # pHash are three unrelated capabilities and a failure in one must
-        # never cost either of the others.
-        self._maybe_detect_faces(candidate, file_id)
-        # Work order 202626270515. Last, and it always releases the video's
-        # temporary pictures - see `_maybe_embed_video`.
-        self._maybe_embed_video(candidate, file_id, item.meta)
+        # 2026-10-10, review P1: and while the picture worker runs, not on this
+        # thread at all - the four steps below go to it, and the next document
+        # is written at once. See the notes above `PICTURE_QUEUE_SIZE`.
+        if not self._hand_to_pictures(candidate, file_id, item.meta, video=True):
+            if self._media_work_ahead(candidate):
+                # 0x 5d: the four steps below can be real work - a picture's
+                # vector, its hash, its faces, a video's frames - and none of it
+                # may run holding the write lock. This document's rows commit now,
+                # with any written before it.
+                self._commit_write_group(timed=False)   # inside the write clock already
+            self._maybe_embed_image(candidate, file_id)
+            # Work order 0h §2a. Independent of the CLIP call just above - see
+            # `_maybe_compute_phash`'s docstring for why a pHash is computed and
+            # gated on its own rather than folded into `_maybe_embed_image`.
+            self._maybe_compute_phash(candidate, file_id)
+            # Work order 0j section 1a. Independent of both calls above, same
+            # reasoning `_maybe_compute_phash` already gives for its own
+            # independence from `_maybe_embed_image`: face detection, CLIP and
+            # pHash are three unrelated capabilities and a failure in one must
+            # never cost either of the others.
+            self._maybe_detect_faces(candidate, file_id)
+            # Work order 202626270515. Last, and it always releases the video's
+            # temporary pictures - see `_maybe_embed_video`.
+            self._maybe_embed_video(candidate, file_id, item.meta)
 
         # **The old vectors are NOT deleted here.** They used to be, and that
         # single line is the mechanism behind the embedding gap - 154 of 3,355
@@ -7119,14 +7491,16 @@ class Pipeline:
             # `_embed_pending` will never delete its vectors. Orphaned vectors
             # point at chunk ids that no longer exist: they cost the ANN index
             # its accuracy and can resurface content the file no longer holds.
-            self.vectors.delete_by_file_ids([file_id])
+            # 2026-10-10, review P4: once the rows commit, never before - see
+            # `_delete_vectors_once_committed`.
+            self._delete_vectors_once_committed(file_id)
             return []
 
         if keyword_only:
             # Its old vectors point at passages that are gone - the same
             # orphans the empty-file case above removes, for the same reason.
             if had_vectors:
-                self.vectors.delete_by_file_ids([file_id])
+                self._delete_vectors_once_committed(file_id)
             return []
 
         return [
@@ -7610,10 +7984,18 @@ class Pipeline:
         raised - those photos stay searchable by every route except CLIP
         similarity, and nothing here can fail the run those images belong to.
         """
-        if self._pending_images or self._pending_phashes:
+        # 2026-10-10, review P1: while the picture worker runs, the pending
+        # lists are its own and so is this flush - the consumer's call waits
+        # for it there (`_flush_pictures_on_worker`), behind every photo handed
+        # over before it.
+        if self._flush_pictures_on_worker():
+            return
+        if (self._pending_images or self._pending_phashes) and not self._on_picture_thread():
             # 0x 5d: a LanceDB write is slow next to a SQLite statement, so
             # the consumer's shared transaction is committed rather than held
-            # open across it - the same rule `store.batch()` states.
+            # open across it - the same rule `store.batch()` states. (Never
+            # from the picture worker: the group is the consumer's, and the
+            # worker holds none.)
             self._commit_write_group()
         self._embed_pending_pictures()
         self._flush_pending_phashes()
@@ -8011,6 +8393,10 @@ class Pipeline:
             # finds no text in them - did not. CLIP, pHash and a 0.9 s face
             # scan then ran inside the consumer's open transaction, and every
             # queued UI write waited on it. The same commit, for the same reason.
+            # 2026-10-10, review P1: and with the picture worker running, the
+            # steps go to it (after the same commit) - see `_hand_to_pictures`.
+            if self._hand_to_pictures(candidate, file_id, None, video=False):
+                return
             if self._media_work_ahead(candidate):
                 self._commit_write_group(timed=False)
             self._maybe_embed_image(candidate, file_id)
@@ -8422,12 +8808,24 @@ class Pipeline:
         that still exist - harmless, they are simply re-deleted next time - where
         the reverse leaves vectors whose file row has gone, which is the
         orphaned-vector state that has no route back.
+
+        2026-10-10, review P3: **both vector stores, text and pictures.** This
+        deleted only `self.vectors`, so a photo or a film that vanished from
+        disk lost its row and kept its CLIP vector (and, through
+        `ImageVectorStore.delete_by_file_ids`, its frames) in
+        `image_vectors` for ever - exactly the orphaned-vector state the
+        paragraph above exists to prevent, and one "find a picture like this"
+        would go on answering from. `forget_folder.forget_ids` already deleted
+        both; the clean-up pass and the folder watch's `forget_files` now do the
+        same, in the same order: every vector side first, then SQLite.
         """
         if not doomed:
             return 0
         for start in range(0, len(doomed), self.PRUNE_BATCH):
             batch = doomed[start:start + self.PRUNE_BATCH]
-            self.vectors.delete_by_file_ids(batch)
+            for side in (self.vectors, self.image_vectors):
+                if side is not None:
+                    side.delete_by_file_ids(batch)
             with self.store.batch():
                 for file_id in batch:
                     self.store.delete_file(file_id)
