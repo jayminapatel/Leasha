@@ -3665,8 +3665,31 @@ class Pipeline:
             return None
         if fresh == deferred.known_hash:
             self._count_unchanged(stats if stats is not None else self._stats_ref)
+            # 2026-10-10: and remember the date the hash vouched for, or the
+            # next run hashes it again (`_flush_restamps`).
+            lock = self.__dict__.setdefault("_unchanged_lock", threading.Lock())
+            with lock:
+                self.__dict__.setdefault("_restamps", []).append(
+                    (str(candidate.path), int(candidate.size_bytes), int(candidate.mtime_ns)))
             return UNCHANGED
         return fresh
+
+    def _flush_restamps(self) -> None:
+        """Write the dates `_check_deferred_hash` collected, on the writer's
+        thread, in one transaction (`SqliteStore.restamp_files`). A restore of
+        a hundred thousand files is a few hundred small writes this way, not a
+        hundred thousand commits from the readers. Never raises: a date not
+        written costs one more hash next run, nothing else."""
+        lock = self.__dict__.setdefault("_unchanged_lock", threading.Lock())
+        with lock:
+            rows = self.__dict__.get("_restamps") or []
+            self._restamps = []
+        if not rows:
+            return
+        try:
+            self.store.restamp_files(rows)
+        except Exception as exc:                  # noqa: BLE001 - housekeeping
+            self._log.warning("could not record {} unchanged file date(s): {}", len(rows), exc)
 
     def _count_unchanged(self, stats: IndexStats) -> None:
         """One more file found unchanged, under a lock: since 2026-10-10 (W4)
@@ -5327,6 +5350,7 @@ class Pipeline:
                 # allowed to end the run.
                 try:
                     self._checkpoint(item.candidate, stats)
+                    self._flush_restamps()
                     stats.sample(now=now)
                     self._maybe_summarise(stats, now=now)
                     if on_progress is not None:
@@ -5355,6 +5379,7 @@ class Pipeline:
         # finishes first - every photo handed over done and flushed, the thread
         # joined - and nothing after this line meets it running.
         self._finish_picture_work()
+        self._flush_restamps()
         self._flush_pending_images()
         if self._text_first():
             # 2026-10-08: the last of the text is committed and searchable;

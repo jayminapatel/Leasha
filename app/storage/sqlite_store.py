@@ -2015,6 +2015,23 @@ class SqliteStore:
         row = self.conn.execute("SELECT * FROM files WHERE id = ?", (file_id,)).fetchone()
         return FileRecord.from_row(row) if row else None
 
+    def restamp_files(self, rows: Iterable[tuple[str, int, int]]) -> int:
+        """Record `(path, size_bytes, mtime_ns)` for files whose bytes were
+        hashed and found unchanged. One transaction. Returns how many rows.
+
+        2026-10-10, indexing review W4 follow-up. A file whose date moved but
+        whose content did not - a robocopy copy, a restore, a cloud sync - was
+        hashed, matched, and skipped, but its row kept the old date, so the
+        next run hashed it again, and every run after that. Writing the date
+        the hash vouched for makes the cheap tier answer next time."""
+        params = [(int(size), int(mtime), str(path)) for path, size, mtime in rows]
+        if not params:
+            return 0
+        with self.write() as conn:
+            conn.executemany(
+                "UPDATE files SET size_bytes = ?, mtime_ns = ? WHERE path = ?", params)
+        return len(params)
+
     def mark_indexed(self, file_id: int) -> None:
         """One file as INDEXED, its skip cleared. See `mark_indexed_many`."""
         self.mark_indexed_many((file_id,))

@@ -748,3 +748,32 @@ def test_an_interrupted_run_with_a_marked_folder_resumes_in_order(tmp_path: Path
         _record_reads(again, root, second)
         again.run()
     assert first + second == expected
+
+
+@pytest.mark.parametrize("order", ["newest", "found"])
+def test_a_matched_hash_records_the_new_date_so_the_next_run_does_not_hash(
+        tmp_path: Path, monkeypatch, order) -> None:
+    """2026-10-10, W4 follow-up: a restore moved the dates, the hash proved the
+    bytes the same - and the row kept the old date, so every later run hashed
+    the file again. The date the hash vouched for is now written, and the run
+    after that answers from `stat()` alone."""
+    from app.index import walker
+
+    root = tmp_path / "corpus"
+    ages = _corpus(root)
+    with SqliteStore(tmp_path / "index.db") as store:
+        _pipeline(store, root, read_order=order).run()
+        moved = sorted(ages)[:6]
+        _move_dates(root, moved, by_ns=-10 * DAY_NS)   # into the past: not a recent edit
+        second = _pipeline(store, root, read_order=order).run()
+        assert second.unchanged == len(ages) and second.indexed == 0
+        for name in moved:
+            assert store.get_file(str(root / name)).mtime_ns == (root / name).stat().st_mtime_ns
+
+        hashed: list[str] = []
+        real_hash = walker.content_hash
+        monkeypatch.setattr(walker, "content_hash",
+                            lambda path: hashed.append(str(path)) or real_hash(path))
+        third = _pipeline(store, root, read_order=order).run()
+    assert hashed == [], "the third run hashed nothing"
+    assert third.unchanged == len(ages)
