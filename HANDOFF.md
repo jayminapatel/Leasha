@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.131 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.132 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-10 - the Claude Desktop entry is removed by Claude Desktop itself (3.1), and Gemini CLI is a fifth local program (3.2).** Evidence: Claude Desktop had been running since 01:58; Leasha's Connect wrote the entry at 07:28:02; at 07:38:13 Claude Desktop wrote its MCP tool-toggles file and, one second later, `claude_desktop_config.json` with no Leasha entry. The likely cause is that it saved the copy it loaded at start-up. Not proven here. Fix: after a Connect, Leasha says so when Claude Desktop was already running (`started_before`), and the box re-reads the states every five seconds. The owner must quit and start Claude Desktop after Connect. Gemini CLI: `~/.gemini/settings.json`, `httpUrl` with a header; Gemini CLI is not installed on this computer, so that shape is UNVERIFIED. Uncommitted when written.
 
 **2026-10-10 - the AI-programs box re-reads each program's settings every five seconds while it is on screen (3.1).** A program can remove Leasha's entry after Connect, and the box showed the old state until an action. Scope, the owner's: local programs only, Copilot included where it runs on this computer (VS Code's Copilot through VS Code's settings). Programs that run in the cloud cannot reach 127.0.0.1 and are not supported without a decision on a tunnel. Gemini and ChatGPT are not connected; vendor support was not verified.
 

@@ -666,3 +666,35 @@ def test_the_program_states_are_re_read_while_the_box_is_on_screen(gui_mainwindo
     box.isVisible = lambda: True
     controller._recheck_if_shown()
     assert seen == [1]
+
+
+def test_gemini_is_a_local_program_with_its_own_entry_shape(tmp_path):
+    """3.2 (2026-10-10). The entry uses `httpUrl` and a header; UNVERIFIED on a real Gemini CLI."""
+    from app.serve import clients
+
+    keys = [p.key for p in clients.PROGRAMS]
+    assert "gemini" in keys
+    gemini = clients.Program("gemini", "Gemini CLI", str(tmp_path / "settings.json"),
+                             "mcpServers", "gemini")
+    backup = clients.connect(gemini, "http://127.0.0.1:8737/mcp", "k3")
+    assert backup is None, "no file before: nothing to back up"
+    data = json.loads((tmp_path / "settings.json").read_text(encoding="utf-8"))
+    assert data["mcpServers"]["leasha"] == {"httpUrl": "http://127.0.0.1:8737/mcp",
+                                            "headers": {"Authorization": "Bearer k3"}}
+    assert clients.is_connected(gemini) is True
+    clients.disconnect(gemini)
+    assert clients.is_connected(gemini) is False
+
+
+def test_a_program_started_before_a_connect_is_named(monkeypatch):
+    """3.1 (2026-10-10): Claude Desktop keeps the settings it read at start-up."""
+    import time
+
+    import psutil
+
+    from app.serve import clients
+
+    me = psutil.Process().name()
+    assert clients.started_before(me, time.time()) is True
+    assert clients.started_before(me, 0) is False
+    assert clients.started_before("no-such-program-xyz.exe", time.time()) is False

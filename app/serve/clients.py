@@ -111,15 +111,38 @@ PROGRAMS: tuple[Program, ...] = (
     Program("vscode", "VS Code", r"%APPDATA%\Code\User\mcp.json", "servers", "http",
             "Your default VS Code profile. The key header is not in VS Code's own "
             "example (UNCONFIRMED)."),
+    # 3.2 (2026-10-10). Gemini CLI reads ~/.gemini/settings.json; a remote server is
+    # given as `httpUrl` with headers. Not installed on the owner's laptop when this was
+    # written, so the shape is UNVERIFIED until it is connected to a real Gemini CLI.
+    Program("gemini", "Gemini CLI", r"~\.gemini\settings.json", "mcpServers", "gemini",
+            "Restart Gemini CLI after connecting. Shape per its documentation (UNVERIFIED "
+            "on this computer)."),
 )
 
 
 def http_entry(style: str, url: str, key: str) -> dict:
     """The address form: `url` and the key in a header."""
+    if style == "gemini":
+        return {"httpUrl": url, "headers": {"Authorization": f"Bearer {key}"}}
     entry: dict[str, Any] = {"url": url, "headers": {"Authorization": f"Bearer {key}"}}
     if style == "http":
         entry = {"type": "http", **entry}
     return entry
+
+
+def started_before(process_name: str, when: float) -> bool:
+    """Whether a process called `process_name` was already running at `when` (epoch
+    seconds). Never raises: an unknown answer is False, and nothing is said."""
+    try:
+        import psutil
+
+        for proc in psutil.process_iter(["name", "create_time"]):
+            if (proc.info.get("name") or "").lower() == process_name.lower() \
+                    and float(proc.info.get("create_time") or 0) < when:
+                return True
+    except Exception:                                  # noqa: BLE001 - a hint, not a verdict
+        return False
+    return False
 
 
 def bridge_entry() -> dict:

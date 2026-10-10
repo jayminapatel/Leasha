@@ -17,11 +17,13 @@ second 1.4 GB copy.
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from PySide6.QtCore import QObject, QThreadPool, QTimer
 
 from app.core.logging import logger
+from app.serve.clients import started_before
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["McpController"]
@@ -188,10 +190,18 @@ class McpController(QObject):
                 return connect(program, endpoint(port), key_for(store))
             return disconnect(program)
 
+        started = time.time()
+
         def done(_backup: Any) -> None:
             """UI thread: say what changed and re-read the states."""
             verb = "connected to" if join else "disconnected from"
             self._w.notify(f"Leasha is {verb} {program.name}. {program.note}", 8_000)
+            # 3.1 (2026-10-10): Claude Desktop saves its own settings. One started before
+            # this Connect holds an older copy, and its next save can drop Leasha's entry.
+            if join and program.key == "claude-desktop" and started_before("claude.exe", started):
+                self._w.notify("Claude Desktop was already running. Quit it and start it again, "
+                               "or it can drop Leasha's entry the next time it saves its settings.",
+                               20_000)
             self.refresh()
 
         self._run(change_settings, done, "ui.mcp.connect")
