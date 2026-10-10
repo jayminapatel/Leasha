@@ -356,6 +356,76 @@ def test_a_conversation_is_saved_and_comes_back_with_its_shelf_and_sources(chat)
     assert 'href="leasha-receipt:1"' in _html(last_answer(c))
 
 
+class _TitlingEngine(FakeChatEngine):
+    """2026-10-10 (3c): a fake engine that also writes titles, and records the order
+    in which the model was asked for answers and for the title."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.order: list[str] = []
+
+    def ask(self, question, history, emit, should_stop, scope=None, style=None, removed=None):
+        # The same keywords as the base: `supported_kwargs` hands over only these.
+        self.order.append("ask:" + question)
+        return super().ask(question, history, emit, should_stop, scope=scope, style=style,
+                           removed=removed)
+
+    def title(self, question, answer=""):
+        self.order.append("title")
+        return "The deposit chat"
+
+
+def test_a_second_question_asked_at_once_starts_before_the_title(chat):
+    """Work order model-sequencing 3c: the title is asked only once the model is idle,
+    so it never stands in front of the next question behind the model's lock."""
+    c = chat
+    titling = _TitlingEngine()
+    c.ctl.engine_factory = lambda: titling
+    c.ctl.engine = None
+    ask(c, "What did we agree with the landlord about the deposit?")
+    answered(c)
+    ask(c, "And when is it returned?")                  # at once, before the idle pause ends
+    answered(c)
+    _wait(c.qtbot, lambda: "title" in titling.order)
+
+    assert titling.order == ["ask:What did we agree with the landlord about the deposit?",
+                             "ask:And when is it returned?", "title"]
+    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat")
+
+
+def test_the_title_is_asked_once_the_model_has_been_idle(chat):
+    c = chat
+    titling = _TitlingEngine()
+    c.ctl.engine_factory = lambda: titling
+    c.ctl.engine = None
+    ask(c, "What did we agree with the landlord about the deposit?")
+    answered(c)
+    assert "title" not in titling.order                 # not the instant the reply ended
+    _wait(c.qtbot, lambda: "title" in titling.order)
+    assert titling.order.count("title") == 1
+    _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat")
+    assert c.ctl._title_pending is None
+
+
+def test_a_conversation_deleted_while_its_title_waits_is_not_brought_back(chat):
+    from app.ui.controllers import chat_controller
+
+    c = chat
+    titling = _TitlingEngine()
+    c.ctl.engine_factory = lambda: titling
+    c.ctl.engine = None
+    ask(c, "What did we agree with the landlord about the deposit?")
+    answered(c)
+    gone = c.ctl.session.id
+    c.ctl._delete(gone)
+    c.qtbot.wait(chat_controller.TITLE_IDLE_MS + 500)
+    answered(c)
+
+    assert "title" not in titling.order
+    assert gone not in c.backend.records
+    assert all(s.id != gone for s in c.ctl.sessions)
+
+
 def test_new_rename_and_delete(chat):
     c = chat
     ask(c, "first question")
