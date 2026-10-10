@@ -265,11 +265,45 @@ class VectorStore:
         if self.table_name in self._list_tables():
             self._table = self._db.open_table(self.table_name)
             self._verify_dimension()
-            self._indexed_at_rows = self.count()
             # Corrected from the table on every open, so the running total can
             # never drift further than one session.
-            self._approx_rows = self._indexed_at_rows
+            self._approx_rows = self.count()
+            # 2026-10-10, storage review S7a: what the ANN index really covers,
+            # not the row count - see `_rows_in_index`.
+            self._indexed_at_rows = self._rows_in_index()
         return self
+
+    def _rows_in_index(self) -> int:
+        r"""Rows the table's vector index covers now; 0 when it has none.
+
+        2026-10-10, storage review S7a. `_indexed_at_rows` was set to
+        `count()` on every open, so a table that had crossed `INDEX_MIN_ROWS`
+        but whose index build failed or was killed (a window closed during
+        the end-of-run build, a crash) was taken for indexed at its full size
+        - and `maybe_create_index` would not try again until the table
+        doubled, searching by brute force all the while. Asked of the index
+        instead: `list_indices()` (lancedb 0.37.1, `requirements.txt`; checked
+        2026-10-10 in this laptop's venv) gives each index's columns and
+        `num_indexed_rows` - 200,000 after a build on 200,000 rows, 195,000
+        after 5,000 deletes, unchanged by rows added since (they are
+        `num_unindexed_rows`). Metadata, about 3 ms on that table.
+
+        A LanceDB that cannot say (an older or newer API) keeps the old
+        answer, `count()`, so nothing is rebuilt on a guess.
+        """
+        if self._table is None:
+            return 0
+        try:
+            covered = 0
+            for index in self._table.list_indices():
+                columns = list(getattr(index, "columns", None) or [])
+                if "vector" in columns:
+                    covered = max(covered, int(getattr(index, "num_indexed_rows", 0) or 0))
+            return covered
+        except Exception as exc:                  # noqa: BLE001 - third-party raises broadly
+            _log.debug("could not read the {} table's index state, assuming the "
+                       "row count: {}", self.table_name, exc)
+            return self.count()
 
     def _open_if_created_since(self) -> None:
         """Open the table if another process has created it since `connect`.
@@ -294,8 +328,9 @@ class VectorStore:
         # 2026-10-04, code review: counted as `connect` counts an existing
         # table. Left at 0, `delete_by_file_ids` took the table for empty and
         # deleted nothing - a file removed later kept answering by meaning.
-        self._indexed_at_rows = self.count()
-        self._approx_rows = self._indexed_at_rows
+        self._approx_rows = self.count()
+        # 2026-10-10, storage review S7a: from the index itself, as `connect`.
+        self._indexed_at_rows = self._rows_in_index()
         _log.info("the {} table was created since this store opened; using it now",
                   self.table_name)
 
@@ -624,7 +659,8 @@ class VectorStore:
         self._open_if_created_since()       # 2026-10-04, code review: as `count` does
         if self._table is None or self._approx_rows <= 0:
             return
-        self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})")
+        self._forget_deleted(
+            self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})"))
 
     def delete_by_chunk_ids(self, chunk_ids: Iterable[int]) -> None:
         """Remove the vectors of these chunks, in one delete. A no-op on an
@@ -632,7 +668,33 @@ class VectorStore:
         ids = [int(i) for i in chunk_ids]
         if not ids or self._table is None:
             return
-        self._table.delete(f"chunk_id IN ({', '.join(str(i) for i in ids)})")
+        self._forget_deleted(
+            self._table.delete(f"chunk_id IN ({', '.join(str(i) for i in ids)})"))
+
+    def _forget_deleted(self, result: Any) -> None:
+        r"""Take a delete's rows off the running total.
+
+        2026-10-10, storage review S7c. `_approx_rows` grew with every add and
+        never shrank, so a table with churn - files re-read, their vectors
+        replaced - looked bigger than it was, and `maybe_create_index` retrained
+        early on rows that were no longer there. LanceDB 0.37.1's `delete`
+        answers `DeleteResult(num_deleted_rows, version)` (checked 2026-10-10),
+        so the count is free. Where it does not say, or the total would reach
+        zero - when `delete_by_file_ids` stops deleting at all, so a wrong zero
+        would leave a removed file answering by meaning - the table is asked:
+        `count_rows()` is fragment metadata in Lance, measured 2026-10-10 at
+        2.5 ms on 200,000 rows, 20 ms the first time after 50 deletes, 3 ms
+        after.
+        """
+        deleted = getattr(result, "num_deleted_rows", None)
+        try:
+            deleted = None if deleted is None else int(deleted)
+        except (TypeError, ValueError):
+            deleted = None
+        if deleted is not None and self._approx_rows - deleted > 0:
+            self._approx_rows -= deleted
+            return
+        self._approx_rows = self.count()
 
     def drop(self) -> None:
         """Drop the table. Safe: this is derived data, rebuildable from SQLite.
@@ -709,13 +771,40 @@ class VectorStore:
 
         partitions = self._partitions_for(rows)
         try:
-            self._table.create_index(
-                metric="cosine",
-                num_partitions=partitions,
-                num_sub_vectors=max(1, self.dim // 16),
-                replace=True,
-            )
-        except Exception:  # noqa: BLE001 - correctness does not depend on the index
+            # 2026-10-10, found while testing storage review S7: lancedb 0.37.1
+            # deprecates the `metric=`/`num_partitions=` form and warns on
+            # every call (and `pyproject.toml` makes an app DeprecationWarning
+            # an error under pytest, so no test could build an index at all).
+            # The same index - IVF_PQ, cosine, the same partitions and
+            # sub-vectors - through the `config=` form it asks for; the old
+            # form stays for a LanceDB too old to have `IvfPq`.
+            try:
+                from lancedb.index import IvfPq
+            except ImportError:
+                IvfPq = None                       # noqa: N806 - the class, or nothing
+            if IvfPq is not None:
+                self._table.create_index(
+                    "vector",
+                    config=IvfPq(distance_type="cosine", num_partitions=partitions,
+                                 num_sub_vectors=max(1, self.dim // 16)),
+                    replace=True,
+                )
+            else:
+                self._table.create_index(
+                    metric="cosine",
+                    num_partitions=partitions,
+                    num_sub_vectors=max(1, self.dim // 16),
+                    replace=True,
+                )
+        except Exception as exc:  # noqa: BLE001 - correctness does not depend on the index
+            # 2026-10-10, storage review S7b: said, not swallowed. The build
+            # failing is still not a reason to fail a run - search stays
+            # correct by brute force - but a silent failure here is how a
+            # table stays unindexed for ever with nothing in the log to say why.
+            _log.warning(
+                "the {} vector index could not be built over {:,} rows ({}: {}). "
+                "Search still works, more slowly; the next run tries again.",
+                self.table_name, rows, type(exc).__name__, exc)
             return False
 
         self._indexed_at_rows = rows
