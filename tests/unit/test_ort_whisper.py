@@ -8,7 +8,7 @@ fake encoder and a fake merged decoder (the naming `test_ort_generate.py` uses)
 that speak a scripted transcript in a twenty-two-timestamp toy vocabulary.
 
 The last test is the real thing and skips cleanly unless a Whisper export is in
-the model cache (`LEASHA_TEST_MODEL_CACHE`, default `D:\Leasha\Data\models`).
+the model cache (`LEASHA_TEST_MODEL_CACHE`, default the `MODEL_CACHE` that `.env` names).
 Its speech is `LEASHA_TEST_SPEECH_WAV` when set, otherwise a clip spoken by
 Windows' own speech synthesiser; without either it skips too.
 """
@@ -446,7 +446,19 @@ def test_nothing_in_the_speech_path_imports_faster_whisper():
 # The real model - skipped unless it is in the model cache
 # ==========================================================================
 
-MODEL_CACHE = Path(os.environ.get("LEASHA_TEST_MODEL_CACHE", "") or r"D:\Leasha\Data\models")
+def _owner_model_cache() -> Path:
+    r"""2026-10-10: the models folder `.env` names, read only, never created -
+    it was `D:\Leasha\Data\models`, which is no longer where the owner's
+    models are (`DATA_PATH` moved to `D:\LeashaIndex\Data`), so the real-model
+    tests skipped for want of a folder nobody uses."""
+    try:
+        from app.core.config import load_settings
+        return Path(load_settings(create_dirs=False, check_writable=False).model_cache)
+    except Exception:                                   # noqa: BLE001 - no .env: skip
+        return Path("__no_model_cache__")
+
+
+MODEL_CACHE = Path(os.environ.get("LEASHA_TEST_MODEL_CACHE", "") or _owner_model_cache())
 SPOKEN = ("The treasure is buried under the old oak tree at the bottom of the garden. "
           "Please remember to bring the homework on Tuesday morning.")
 

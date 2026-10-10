@@ -50,9 +50,13 @@ def test_the_search_box_is_the_one_input_that_is_larger(themed):
     assert _size(box) == pytest.approx(float(theme.font_sizes()["large"][:-2]), abs=0.01)
 
 
-def _settings():
+def _settings(root):
+    # 2026-10-10: a temporary folder, never the owner's. This read
+    # "D:/Leasha/Data", and building the Settings boxes from it created that
+    # folder's cache, fts, models, state and vectors on every run - the
+    # owner's machine had a D:\Leasha it no longer uses (non-negotiable #10).
     return SimpleNamespace(
-        data_path="D:/Leasha/Data", model_cache="D:/Leasha/Data/models", embed_model="m",
+        data_path=str(root), model_cache=str(root / "models"), embed_model="m",
         embed_dim=384, cloud_content_cap_mb=1024, chat_engine="ollama", chat_model="",
         ollama_url="http://127.0.0.1:11434", ollama_model="qwen2.5:1.5b", chat_max_rounds=3,
         chat_context_tokens=4096, chat_verify_strictness=70, chat_web_enabled=False,
@@ -63,7 +67,7 @@ def _settings():
         mini_search_enabled=True, mini_search_hotkey="Ctrl+Shift+Space")
 
 
-def test_the_settings_boxes_hold_nothing_that_is_not_body_size(themed):
+def test_the_settings_boxes_hold_nothing_that_is_not_body_size(themed, tmp_path):
     """Every input and button in the boxes that have text boxes is the same size - so a
     text box added to one of them later cannot be larger or smaller than its neighbours."""
     from app.ui.widgets.chat_box import ChatBox
@@ -73,7 +77,7 @@ def test_the_settings_boxes_hold_nothing_that_is_not_body_size(themed):
     from app.ui.widgets.search_behaviour_box import SearchBehaviourBox
     from app.ui.widgets.storage_box import StorageBox
 
-    settings = _settings()
+    settings = _settings(tmp_path / "Data")
     host = QWidget()
     boxes = [StorageBox(settings), ModelBox(lambda: SimpleNamespace(available_models=lambda: [])),
              ChatBox(settings), MediaBox(settings), SearchBehaviourBox(settings), EditorBox(settings)]
