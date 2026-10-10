@@ -109,6 +109,32 @@ WRITE_CACHE_CEILING_KIB = 256 * 1024
 SEARCH_CACHE_KIB = 64 * 1024
 SEARCH_MMAP_BYTES = 256 * 1024 * 1024
 
+#: 2026-10-10, storage review S5. **What the write-ahead log is cut back to
+#: each time it starts over** (`PRAGMA journal_size_limit`, bytes). SQLite's
+#: default is no limit: the `-wal` file stays at its high-water mark until the
+#: last connection closes - and the window keeps connections open for days,
+#: so one large transaction (a reset, `reembed --all`, a migration, a batch
+#: written while a search held a snapshot) left gigabytes on disk for the life
+#: of the window. Checked 2026-10-10 on this laptop's Python (SQLite 3.49.1):
+#: a 5 MB log with the limit at 64 KiB is cut to exactly 64 KiB by the first
+#: write after a checkpoint. 64 MiB, not smaller: auto-checkpoint keeps the log
+#: near 4 MiB (1,000 pages of 4 KiB) when nothing pins it, and a write group of
+#: a large run can go past that - a limit under the usual high-water mark
+#: would truncate and regrow the file at every restart of the log, a file
+#: system round trip for nothing. 64 MiB is sixteen times the usual size and
+#: under one per cent of a 10 GB index. Fixed, not a setting (non-negotiable
+#: 11): nobody would ever change it; a measured `-wal` size that matters is
+#: the evidence that would.
+WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
+#: 2026-10-10, storage review S5. How long `checkpoint_wal` lets a
+#: `TRUNCATE` checkpoint wait for readers before it settles for `PASSIVE`.
+#: A `TRUNCATE` waits for every reader to finish, through `busy_timeout` -
+#: 30 s by default, measured 2026-10-10 to wait out the whole timeout and then
+#: answer "busy" while one reader held a snapshot. The window has readers open
+#: much of the time, so the wait is kept short and the fallback does the work.
+CHECKPOINT_WAIT_S = 2.0
+
 #: 2026-10-04. The most chunk matches a list on the Files or Mail tab reads
 #: before it changes how it reads them, and the newest chunks a word's share
 #: is estimated from - the same numbers as `keyword.SCORED_MATCHES` and
@@ -1025,6 +1051,10 @@ class SqliteStore:
             # big job (`size_write_cache`) sits on top as before.
             conn.execute(f"PRAGMA cache_size = -{SEARCH_CACHE_KIB}")
             conn.execute(f"PRAGMA mmap_size = {SEARCH_MMAP_BYTES}")
+            # 2026-10-10: per connection, like the two above - the connection
+            # that restarts the log is the one that cuts it back. See
+            # `WAL_SIZE_LIMIT_BYTES`.
+            conn.execute(f"PRAGMA journal_size_limit = {WAL_SIZE_LIMIT_BYTES}")
         except sqlite3.OperationalError as exc:
             try:
                 conn.close()
@@ -5521,6 +5551,75 @@ class SqliteStore:
             except OSError:
                 continue
         return total
+
+    def checkpoint_wal(self) -> Optional[tuple[int, int, int]]:
+        r"""Fold the write-ahead log into the database, and empty it if it can.
+
+        2026-10-10, storage review S5. Nothing checkpointed during or after a
+        run but SQLite's own auto-checkpoint, which is `PASSIVE`: it copies
+        what no reader still needs and never makes the file smaller. With the
+        window's readers open beside a run, the log could grow for the whole
+        run. Meant for the end of a run (the pipeline calls it), and safe at
+        any moment no write is open on this thread.
+
+        `TRUNCATE` first: copies everything and cuts the log to nothing. It has
+        to wait for every reader, so it is given `CHECKPOINT_WAIT_S` rather
+        than the store's 30 s busy timeout, and when a reader or a writer
+        outlasts that SQLite answers busy (`(1, ...)`, not an exception -
+        measured 2026-10-10). Then `PASSIVE`, which copies what it can without
+        waiting for anyone; `journal_size_limit` cuts the file back the next
+        time the log starts over.
+
+        Returns SQLite's `(busy, log pages, pages checkpointed)` from the last
+        checkpoint that ran, or None when none could run. **Never raises** -
+        an uncheckpointed log costs disk and a little read speed, never a
+        result - so every failure is a warning saying what to do.
+        """
+        try:
+            conn = self.conn
+        except Exception as exc:                  # noqa: BLE001 - a closed store
+            _log.warning("the write-ahead log was not checkpointed: {}", exc)
+            return None
+        if conn.in_transaction:
+            # Inside a `batch()` on this thread: a checkpoint cannot run in a
+            # transaction, and committing someone else's batch to make room
+            # would break its all-or-nothing promise.
+            _log.warning(
+                "the write-ahead log was not checkpointed: a write is open on "
+                "this thread. It will be checkpointed at the end of the next run.")
+            return None
+        result: Optional[tuple[int, int, int]] = None
+        with self._write_lock:
+            try:
+                conn.execute("PRAGMA busy_timeout = %d" % int(CHECKPOINT_WAIT_S * 1000))
+                try:
+                    for mode in ("TRUNCATE", "PASSIVE"):
+                        row = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+                        if row is None:
+                            continue
+                        result = (int(row[0]), int(row[1]), int(row[2]))
+                        if result[0] == 0:
+                            break
+                        _log.info(
+                            "the write-ahead log could not be emptied: a reader or "
+                            "writer kept it for {:g} s; copying what it can instead",
+                            CHECKPOINT_WAIT_S)
+                finally:
+                    conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
+            except Exception as exc:              # noqa: BLE001 - see the docstring
+                _log.warning(
+                    "the write-ahead log was not checkpointed, so {}-wal stays "
+                    "larger than it needs to be: {}. Nothing is lost; close other "
+                    "Leasha windows and command-line runs and it is done next time.",
+                    self.db_path.name, exc)
+        # A `PASSIVE` answers 0 even when a reader stopped it part way; the
+        # page counts say so. (-1, -1) is a database not in WAL mode.
+        if result is not None and (result[0] or 0 <= result[2] < result[1]):
+            _log.warning(
+                "the write-ahead log was only partly checkpointed ({} of {} pages); "
+                "another Leasha window or run is reading the index. The rest is "
+                "copied once it stops.", result[2], result[1])
+        return result
 
     def reclaim_space(self) -> int:
         """Return deleted space to the filesystem. Answers with bytes freed.
