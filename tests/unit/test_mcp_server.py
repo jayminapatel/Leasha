@@ -603,3 +603,23 @@ def test_backups_made_in_one_clock_tick_never_reuse_a_name(tmp_path, monkeypatch
     assert len(kept) == clients.KEEP_BACKUPS + 1
     assert kept[0] == first.name, "the oldest, the file before Leasha changed it, is kept"
     assert kept[1:] == [p.name for p in made[-clients.KEEP_BACKUPS:]], "the newest are kept"
+
+
+def test_the_server_starts_with_no_console_as_under_pythonw(settings, monkeypatch):
+    """2026-10-10. The window runs under pythonw.exe, where sys.stdout is None.
+    Uvicorn's default logging config asks sys.stdout.isatty() and raised
+    AttributeError, so the server never started ("could not connect"). The
+    server must start with no standard output at all."""
+    import sys
+
+    from app.serve.mcp import McpHost
+
+    monkeypatch.setattr(sys, "stdout", None)
+    monkeypatch.setattr(sys, "stderr", None)
+    host, port = McpHost(), _free_port()
+    try:
+        url = host.start(_tools(settings), port, "pythonw-key")
+        assert url.endswith("/mcp")
+        assert host.running
+    finally:
+        host.stop()

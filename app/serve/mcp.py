@@ -762,7 +762,12 @@ class McpHost:
         # `timeout_graceful_shutdown` (2026-10-04, code review): an AI program
         # holding its event stream open kept uvicorn waiting for it forever, so
         # Stop left a loop and a thread behind on every Stop/Start.
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning",
+        # `log_config=None` (2026-10-10): uvicorn's default logging setup asks
+        # `sys.stdout.isatty()`, and under pythonw.exe - the window - there is no
+        # stdout, so the server never started and every Connect failed with
+        # "Unable to configure formatter 'default'". Leasha logs through its own
+        # logger, so uvicorn need not configure any.
+        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_config=None,
                                 lifespan="on", access_log=False,
                                 timeout_graceful_shutdown=GRACEFUL_S)
         server = uvicorn.Server(config)
