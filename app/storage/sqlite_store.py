@@ -27,6 +27,8 @@ import time
 import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
+from itertools import groupby
+from operator import itemgetter
 from pathlib import Path
 from types import TracebackType
 from typing import (
@@ -108,6 +110,45 @@ WRITE_CACHE_CEILING_KIB = 256 * 1024
 #: ceiling (bytes) - see `_new_connection` for the measurement.
 SEARCH_CACHE_KIB = 64 * 1024
 SEARCH_MMAP_BYTES = 256 * 1024 * 1024
+
+#: 2026-10-10, storage review S5. **What the write-ahead log is cut back to
+#: each time it starts over** (`PRAGMA journal_size_limit`, bytes). SQLite's
+#: default is no limit: the `-wal` file stays at its high-water mark until the
+#: last connection closes - and the window keeps connections open for days,
+#: so one large transaction (a reset, `reembed --all`, a migration, a batch
+#: written while a search held a snapshot) left gigabytes on disk for the life
+#: of the window. Checked 2026-10-10 on this laptop's Python (SQLite 3.49.1):
+#: a 5 MB log with the limit at 64 KiB is cut to exactly 64 KiB by the first
+#: write after a checkpoint. 64 MiB, not smaller: auto-checkpoint keeps the log
+#: near 4 MiB (1,000 pages of 4 KiB) when nothing pins it, and a write group of
+#: a large run can go past that - a limit under the usual high-water mark
+#: would truncate and regrow the file at every restart of the log, a file
+#: system round trip for nothing. 64 MiB is sixteen times the usual size and
+#: under one per cent of a 10 GB index. Fixed, not a setting (non-negotiable
+#: 11): nobody would ever change it; a measured `-wal` size that matters is
+#: the evidence that would.
+WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
+
+#: 2026-10-10, storage review S5. How long `checkpoint_wal` lets a
+#: `TRUNCATE` checkpoint wait for readers before it settles for `PASSIVE`.
+#: A `TRUNCATE` waits for every reader to finish, through `busy_timeout` -
+#: 30 s by default, measured 2026-10-10 to wait out the whole timeout and then
+#: answer "busy" while one reader held a snapshot. The window has readers open
+#: much of the time, so the wait is kept short and the fallback does the work.
+CHECKPOINT_WAIT_S = 2.0
+
+#: 2026-10-10, storage review S6. Pages each step of `optimize_fts` merges
+#: (FTS5's `'merge'`, given negated so it does what `'optimize'` does, in
+#: steps). Measured 2026-10-10 on this laptop, 300,000 sixty-word passages
+#: written 500 to a transaction, CPU shared with four other jobs: one
+#: `'optimize'` held the write lock 3.97 s (4.84 s on a second run). In steps
+#: of 50 / 100 / 250 / 500 pages: 300 / 153 / 64 / 33 steps, 3.86 / 2.87 /
+#: 2.84 / 2.92 s in all, a median step of 8 / 12 / 34 / 92 ms; the longest
+#: single step 214-306 ms whatever the size (a WAL checkpoint or the shared
+#: CPU, not the merge size). 250: the whole job no slower than one
+#: `'optimize'`, each hold far under anything a person notices, and a quarter
+#: of the steps that 50 needs. Fixed, not a setting: nobody would tune it.
+FTS_MERGE_PAGES = 250
 
 #: 2026-10-04. The most chunk matches a list on the Files or Mail tab reads
 #: before it changes how it reads them, and the newest chunks a word's share
@@ -1025,6 +1066,10 @@ class SqliteStore:
             # big job (`size_write_cache`) sits on top as before.
             conn.execute(f"PRAGMA cache_size = -{SEARCH_CACHE_KIB}")
             conn.execute(f"PRAGMA mmap_size = {SEARCH_MMAP_BYTES}")
+            # 2026-10-10: per connection, like the two above - the connection
+            # that restarts the log is the one that cuts it back. See
+            # `WAL_SIZE_LIMIT_BYTES`.
+            conn.execute(f"PRAGMA journal_size_limit = {WAL_SIZE_LIMIT_BYTES}")
         except sqlite3.OperationalError as exc:
             try:
                 conn.close()
@@ -1548,7 +1593,16 @@ class SqliteStore:
 
         with self._write_lock:
             conn = self.conn
-            conn.execute("BEGIN IMMEDIATE")
+            # 2026-10-10, storage review S3: through `_begin_write`, as `write()`
+            # already was. A bare `BEGIN IMMEDIATE` here asked for the write lock
+            # once, and when another process (an index run beside the window)
+            # held it past `busy_timeout` the batch failed with a bare
+            # `sqlite3.OperationalError: database is locked` - the "this is a
+            # bug" report `_begin_write` was written to end. Now the same second
+            # wait and the same `ERR_DB_BUSY` that says what to do. Nothing of the
+            # batch's own state is set until the lock is held, so a refusal
+            # leaves this thread exactly as it was.
+            self._begin_write(conn)
             self._local.batch_depth = 1
             # 0x 5d: this transaction has not moved the generation yet. See
             # `_bump_generation`.
@@ -2109,7 +2163,7 @@ class SqliteStore:
             self._message_index = row is not None
         return bool(self._message_index)
 
-    def optimize_fts(self) -> bool:
+    def optimize_fts(self, *, time_budget_s: Optional[float] = None) -> bool:
         r"""Merge the FTS5 index's b-tree segments into one. Never raises.
 
         *Note, 2026-10-04: no longer true - `Pipeline` calls this after a
@@ -2137,17 +2191,48 @@ class SqliteStore:
         `chunks_fts` was, so `files_fts` and `messages_fts` kept a segment per
         write for the life of the index. Either may be absent (an old schema,
         a SQLite without trigram); that skips the one, not the merge.
+
+        *Note, 2026-10-10 (storage review S6): no longer one `'optimize'`.* That
+        rewrote all three indexes inside one write transaction, so at ten
+        million passages the write lock was held for minutes and every write
+        from the window - a rename, a tag, a face named - waited behind it or
+        failed. The same end state is now reached in steps: `'merge'` with a
+        negative page count (`FTS_MERGE_PAGES`) is FTS5's incremental form of
+        `'optimize'` - every segment is put on one level and merged a few
+        hundred pages at a time - each step its own short transaction, the
+        lock let go between steps. A step that changes fewer than two rows did
+        nothing (FTS5's documented test, checked 2026-10-10: the step after
+        the last real one changes exactly 1, and an `'optimize'` afterwards
+        also changes 1 - one segment is left, as `'optimize'` leaves).
+        `time_budget_s` stops between steps once spent - the next call carries
+        on where this one stopped - and is unlimited by default, which keeps
+        the old meaning for `Pipeline`. True when every step ran, a stop on
+        the budget included.
         """
+        deadline = (None if time_budget_s is None
+                    else time.monotonic() + max(0.0, float(time_budget_s)))
         try:
-            with self.write() as conn:
-                conn.execute(
-                    "INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
-                for fts in ("files_fts", "messages_fts"):
-                    if conn.execute(
-                            "SELECT 1 FROM sqlite_master WHERE name = ?",
-                            (fts,)).fetchone() is not None:
+            for fts in ("chunks_fts", "files_fts", "messages_fts"):
+                if fts != "chunks_fts" and self.conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name = ?",
+                        (fts,)).fetchone() is None:
+                    continue
+                steps = 0
+                while True:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        _log.info(
+                            "keyword index merge stopped at its time budget in {} "
+                            "after {} step(s); the next merge carries on", fts, steps)
+                        return True
+                    with self.write() as conn:
+                        before = conn.total_changes
                         conn.execute(
-                            f"INSERT INTO {fts}({fts}) VALUES('optimize')")
+                            f"INSERT INTO {fts}({fts}, rank) VALUES('merge', ?)",
+                            (-FTS_MERGE_PAGES,))
+                        changed = conn.total_changes - before
+                    steps += 1
+                    if changed < 2:
+                        break
             return True
         except Exception as exc:                  # noqa: BLE001 - see the docstring
             # **Deliberately every exception, not just `sqlite3.Error`.** A
@@ -4040,7 +4125,9 @@ class SqliteStore:
             last_id = batch[-1].id
             yield batch
 
-    def unembedded_by_file(self, batch_size: int = 256) -> list[list[tuple[int, int]]]:
+    def unembedded_by_file(
+        self, batch_size: int = 256, first_folders: Sequence[str] = (),
+    ) -> list[list[tuple[int, int]]]:
         r"""Chunks awaiting a vector, as `(chunk_id, file_id)` batches of **whole files**.
 
         2026-10-08. `iter_unembedded` cuts batches by chunk id, so one file's
@@ -4054,23 +4141,105 @@ class SqliteStore:
         out, and more when its last file is long - a file is never cut. One
         sorted read of two integers per passage, not of the text: the caller
         fetches text with `chunk_texts` one batch at a time.
+
+        **Newest file first** (2026-10-10, storage review S2). The order was
+        `file_id, id` - oldest stored first - while a run reads files newest
+        first (`app.index.read_order`). With a backlog of days (5.9 million
+        passages measured on the owner's index) the files a person is most
+        likely to search for got their vectors last. Now files in the order a
+        run reads them: those under `first_folders` first, in the order given
+        (the run's `--first` folders), then by modified time, newest first;
+        `file_id` breaks ties so the order is the same every time. Passages
+        within a file stay in id order, and a file is still never split.
+
+        `first_folders` matches as `walker._priority_for` does - the folder
+        itself or anything under it at a separator, so `C:\Docs` does not take
+        `C:\Docs2` - without regard to the case of A-Z. Storage cannot import
+        the walker (it is the layer below), so the rule is repeated here.
+
+        Measured 2026-10-10 on this laptop, synthetic stores with 120-word
+        passages, 60% awaiting a vector, CPU shared with four other jobs (so
+        each figure is a range over two runs of a median of 3): 120k waiting
+        passages, 0.37-0.66 s before, 0.49-0.57 s now; 600k, 3.42-4.36 s
+        before, 3.28-4.27 s now; two first folders add nothing measurable
+        beyond the noise. No slower: the time is reading each passage's row for
+        its `file_id` (`idx_chunks_pending` holds only the id), which both
+        versions pay; the file's date is one primary-key lookup per passage,
+        and the sort is per file, in Python. Sorting the passages in SQL
+        instead (`ORDER BY f.mtime_ns DESC, ...`) was slower (0.59 s against
+        0.37 s at 120k): a temporary B-tree of every passage. A covering index
+        `chunks(file_id) WHERE embedded = 0` would take the 600k case to about
+        1.8 s, at the price of a second index written for every passage and a
+        full read of `chunks` to build it - not taken for a read made once at
+        the start of a run that then embeds for hours. Plan, pinned in
+        `test_backlog_order.py`: `SEARCH c USING INDEX idx_chunks_pending`,
+        then `SEARCH f USING INTEGER PRIMARY KEY`, no temporary B-tree.
         """
-        rows = self.conn.execute(
-            "SELECT id, file_id FROM chunks WHERE embedded = 0 ORDER BY file_id, id"
-        ).fetchall()
+        groups: dict[int, list[tuple[int, int]]] = {}
+        modified: dict[int, int] = {}
+        # Plain tuples, not `sqlite3.Row`, and `fetchall()` rather than a loop
+        # over the cursor: `_GuardedCursor.__next__` takes its guard once per
+        # row, which profiled at half this method's time over 120k rows.
+        cursor = self.conn.cursor()
+        cursor.row_factory = None
+        rows = cursor.execute(
+            # LEFT: a passage whose file row is missing (foreign keys off in a
+            # repair or a test) is still handed back, as it always was - last,
+            # with no date.
+            "SELECT c.id, c.file_id, f.mtime_ns FROM chunks c "
+            "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0").fetchall()
+        # Rows arrive in passage-id order, and one file's passages are written
+        # together (`replace_chunks`), so they come as runs: grouped a run at a
+        # time rather than a row at a time. A file met again later (its
+        # passages not contiguous) is joined to its first run and re-sorted.
+        for file_id, run in groupby(rows, key=itemgetter(1)):
+            run_rows = list(run)
+            pairs = [(row[0], file_id) for row in run_rows]
+            found = groups.get(file_id)
+            if found is None:
+                groups[file_id] = pairs
+                modified[file_id] = int(run_rows[0][2] or 0)
+            else:
+                found.extend(pairs)
+                found.sort()
+        rank = self._first_folder_ranks(groups, first_folders)
+        unranked = len(tuple(first_folders))         # after every first folder
+        order = sorted(groups, key=lambda f: (rank.get(f, unranked), -modified[f], f))
         batches: list[list[tuple[int, int]]] = []
         batch: list[tuple[int, int]] = []
-        current: Optional[int] = None
-        for row in rows:
-            file_id = int(row["file_id"])
-            if file_id != current and len(batch) >= batch_size:
+        for file_id in order:
+            if batch and len(batch) >= batch_size:
                 batches.append(batch)
                 batch = []
-            current = file_id
-            batch.append((int(row["id"]), file_id))
+            batch.extend(groups[file_id])
         if batch:
             batches.append(batch)
         return batches
+
+    def _first_folder_ranks(self, file_ids: Iterable[int],
+                            first_folders: Sequence[str]) -> dict[int, int]:
+        """`{file_id: position of the first folder it is under}` for the files
+        under any of `first_folders`; others are absent. One lookup of paths
+        per 500 files, and none at all when no folder is given."""
+        prefixes = [str(folder or "").strip().rstrip("\\/").lower()
+                    for folder in first_folders]
+        prefixes = [p for p in prefixes if p]
+        if not prefixes:
+            return {}
+        ids = [int(f) for f in file_ids]
+        ranks: dict[int, int] = {}
+        for start in range(0, len(ids), 500):
+            part = ids[start:start + 500]
+            marks = ",".join("?" * len(part))
+            for file_id, path in self.conn.execute(
+                    f"SELECT id, path FROM files WHERE id IN ({marks})", part):
+                text = str(path).lower()
+                for position, prefix in enumerate(prefixes):
+                    if text == prefix or (text.startswith(prefix)
+                                          and text[len(prefix):len(prefix) + 1] in ("\\", "/")):
+                        ranks[int(file_id)] = position
+                        break
+        return ranks
 
     def chunk_texts(self, chunk_ids: Iterable[int]) -> dict[int, str]:
         """`{chunk_id: text}` for the given chunks that still await a vector.
@@ -5019,6 +5188,11 @@ class SqliteStore:
                             "SELECT 1 FROM messages WHERE file_id = ?", (file_id,)
                         ).fetchone() is not None):
                     # Already has a row: `messages_au` must see this update.
+                    # 2026-10-10 (schema v36): it still does. The trigger now
+                    # fires only for `UPDATE OF subject, sender, recipients`,
+                    # and the upsert below names all three in `DO UPDATE SET`
+                    # - SQLite fires an `UPDATE OF` trigger for a column the
+                    # SET names, whether or not its value changed.
                     self._finish_deferred(conn)
                     state = None
                 else:
@@ -5507,6 +5681,75 @@ class SqliteStore:
             except OSError:
                 continue
         return total
+
+    def checkpoint_wal(self) -> Optional[tuple[int, int, int]]:
+        r"""Fold the write-ahead log into the database, and empty it if it can.
+
+        2026-10-10, storage review S5. Nothing checkpointed during or after a
+        run but SQLite's own auto-checkpoint, which is `PASSIVE`: it copies
+        what no reader still needs and never makes the file smaller. With the
+        window's readers open beside a run, the log could grow for the whole
+        run. Meant for the end of a run (the pipeline calls it), and safe at
+        any moment no write is open on this thread.
+
+        `TRUNCATE` first: copies everything and cuts the log to nothing. It has
+        to wait for every reader, so it is given `CHECKPOINT_WAIT_S` rather
+        than the store's 30 s busy timeout, and when a reader or a writer
+        outlasts that SQLite answers busy (`(1, ...)`, not an exception -
+        measured 2026-10-10). Then `PASSIVE`, which copies what it can without
+        waiting for anyone; `journal_size_limit` cuts the file back the next
+        time the log starts over.
+
+        Returns SQLite's `(busy, log pages, pages checkpointed)` from the last
+        checkpoint that ran, or None when none could run. **Never raises** -
+        an uncheckpointed log costs disk and a little read speed, never a
+        result - so every failure is a warning saying what to do.
+        """
+        try:
+            conn = self.conn
+        except Exception as exc:                  # noqa: BLE001 - a closed store
+            _log.warning("the write-ahead log was not checkpointed: {}", exc)
+            return None
+        if conn.in_transaction:
+            # Inside a `batch()` on this thread: a checkpoint cannot run in a
+            # transaction, and committing someone else's batch to make room
+            # would break its all-or-nothing promise.
+            _log.warning(
+                "the write-ahead log was not checkpointed: a write is open on "
+                "this thread. It will be checkpointed at the end of the next run.")
+            return None
+        result: Optional[tuple[int, int, int]] = None
+        with self._write_lock:
+            try:
+                conn.execute("PRAGMA busy_timeout = %d" % int(CHECKPOINT_WAIT_S * 1000))
+                try:
+                    for mode in ("TRUNCATE", "PASSIVE"):
+                        row = conn.execute(f"PRAGMA wal_checkpoint({mode})").fetchone()
+                        if row is None:
+                            continue
+                        result = (int(row[0]), int(row[1]), int(row[2]))
+                        if result[0] == 0:
+                            break
+                        _log.info(
+                            "the write-ahead log could not be emptied: a reader or "
+                            "writer kept it for {:g} s; copying what it can instead",
+                            CHECKPOINT_WAIT_S)
+                finally:
+                    conn.execute("PRAGMA busy_timeout = %d" % int(self._timeout * 1000))
+            except Exception as exc:              # noqa: BLE001 - see the docstring
+                _log.warning(
+                    "the write-ahead log was not checkpointed, so {}-wal stays "
+                    "larger than it needs to be: {}. Nothing is lost; close other "
+                    "Leasha windows and command-line runs and it is done next time.",
+                    self.db_path.name, exc)
+        # A `PASSIVE` answers 0 even when a reader stopped it part way; the
+        # page counts say so. (-1, -1) is a database not in WAL mode.
+        if result is not None and (result[0] or 0 <= result[2] < result[1]):
+            _log.warning(
+                "the write-ahead log was only partly checkpointed ({} of {} pages); "
+                "another Leasha window or run is reading the index. The rest is "
+                "copied once it stops.", result[2], result[1])
+        return result
 
     def reclaim_space(self) -> int:
         """Return deleted space to the filesystem. Answers with bytes freed.
@@ -6560,6 +6803,10 @@ class SqliteStore:
 
     def keyword_only_count(self) -> int:
         """Passages found by their words only, on purpose. See `KEYWORD_ONLY`."""
+        # 2026-10-10 (schema v36): answered from the partial index
+        # `idx_chunks_keyword_only`, not a scan of every passage and its text.
+        # The `WHERE` must stay `embedded = 2` written exactly so: the planner
+        # uses a partial index only for a term that matches its own.
         return int(self.conn.execute(
             f"SELECT COUNT(*) AS n FROM chunks WHERE embedded = {self.KEYWORD_ONLY}"
         ).fetchone()["n"])
