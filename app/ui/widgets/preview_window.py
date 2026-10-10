@@ -166,11 +166,16 @@ class PreviewWindow(QWidget):
         self._store = store
         # Left out, the window's own (`set_describe_options`) - so the lightbox,
         # which had none, describes with the same settings a pinned window does.
-        self._ollama_url = ollama_url or _DESCRIBE["ollama_url"]
-        self._ollama_vision_model = ollama_vision_model or _DESCRIBE["ollama_vision_model"]
+        #: 2026-10-10 (A4): kept as told; read at the moment of use, like the engine.
+        self._ollama_url_told = ollama_url
+        self._ollama_vision_model_told = ollama_vision_model
         #: `CHAT_ENGINE` (2026-09-29): Describe is Florence-2 inside Leasha
         #: unless this says `ollama`. Told, like the address, never read from disk.
-        self._chat_engine = chat_engine or _DESCRIBE["chat_engine"]
+        #: 2026-10-10 (order model-sequencing A4): kept as *told*, and the window's
+        #: value read each time Describe runs (`_chat_engine`), so a pop-out already
+        #: open follows an engine switched in Settings - the switch says "Chat,
+        #: Interpret and Describe now run on ...", and Describe went on asking the old one.
+        self._chat_engine_told = chat_engine
         self._describe_file_id = getattr(row, "file_id", None)
         self._describe_generation = 0
         # 2026-10-05: the availability check counts on its own, and stands
@@ -582,6 +587,22 @@ class PreviewWindow(QWidget):
         # disabled reads as broken; visible and clickable at least offers a
         # retry, and `_describe` itself never raises into the UI either way.
         run(QThreadPool.globalInstance(), worker)
+
+    @property
+    def _chat_engine(self) -> str:
+        """The engine Describe asks now: the one this window was told, else the
+        window's current one (`set_describe_options`), read at the moment of use."""
+        return self._chat_engine_told or _DESCRIBE["chat_engine"]
+
+    @property
+    def _ollama_url(self) -> str:
+        """Ollama's address for Describe, read at the moment of use (see `_chat_engine`)."""
+        return self._ollama_url_told or _DESCRIBE["ollama_url"]
+
+    @property
+    def _ollama_vision_model(self) -> str:
+        """Ollama's photo description model, read at the moment of use."""
+        return self._ollama_vision_model_told or _DESCRIBE["ollama_vision_model"]
 
     def _describe_status_ready(self, status: "_DescribeStatus", generation: int) -> None:
         """UI thread: whether Describe can run. Dropped if a newer check is out, and

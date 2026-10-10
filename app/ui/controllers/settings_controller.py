@@ -1151,6 +1151,13 @@ def _apply_written_settings(window: Any, values: dict) -> None:
             "Saved. The rerank model is loaded at startup, so it changes "
             "the next time the app opens.", 8_000)
 
+    # 2026-10-10 (A4): Describe asks the model and the address saved, from the next press.
+    describe = {field: values[key] for key, field in (("OLLAMA_URL", "ollama_url"),
+                                                       ("OLLAMA_VISION_MODEL", "ollama_vision_model"))
+                if key in values and str(values[key] or "").strip()}
+    if describe:
+        _describe_follows(**describe)
+
     if "CHAT_ENGINE" in values:
         _apply_engine_change(window, values["CHAT_ENGINE"])
 
@@ -1163,6 +1170,59 @@ def _apply_written_settings(window: Any, values: dict) -> None:
                if setting is not None and setting.restart and setting.key != "RERANK_MODEL"]
     if waiting:
         window.notify("Saved. Restart Leasha to apply: " + ", ".join(waiting) + ".", 12_000)
+
+
+def _describe_follows(**changed: str) -> None:
+    """UI thread: Describe's settings for every pop-out, with `changed` put in.
+
+    2026-10-10 (order model-sequencing A4). Built on what Describe holds now, not on
+    the window's start-up `Settings`: a photo description model or Ollama address
+    saved earlier in the session must survive a later engine switch, and the other
+    way round. Neither `OLLAMA_VISION_MODEL` nor `OLLAMA_URL` is marked as needing a
+    restart, and until now both did - for Describe - because nothing told it.
+    """
+    from app.ui.widgets import preview_window
+
+    now = dict(preview_window._DESCRIBE)
+    now.update({key: str(value) for key, value in changed.items() if value is not None})
+    preview_window.set_describe_options(
+        ollama_url=now["ollama_url"], ollama_vision_model=now["ollama_vision_model"],
+        chat_engine=now["chat_engine"])
+
+
+def _engine_followers(window: Any, view: Any, fresh: Any, engine: str) -> None:
+    """UI thread: the readers of `CHAT_ENGINE` that `_apply_engine_change` did not reach.
+
+    2026-10-10, work order model-sequencing A4. The switch's own notice says "Chat,
+    Interpret and Describe now run on ...", and Describe did not: every pop-out and the
+    lightbox take Describe's engine from `preview_window.set_describe_options`, which
+    the window called once, at start-up (`MainWindow._lend_open_context`), so a photo
+    went on being described by the old engine - Florence-2 inside Leasha, or Ollama's
+    vision model - until a restart. Three Settings boxes held the start-up `Settings`
+    too and drew the old engine's parts: the photo description model field (Ollama's
+    list or Florence-2's Download), and the two model lists, whose "in use" and
+    "Not used while Chat runs on Ollama" are decided from `chat_engine`.
+
+    Each is told here; a box not drawn yet reads the fresh settings when it first is.
+    Chat itself needs nothing: `ChatController._settings_changed` drops its engine on
+    any `CHAT_*` key and the next question builds one from `.env`.
+    """
+    _describe_follows(chat_engine=engine)
+    if view is None:
+        return
+    cache = getattr(fresh, "model_cache", None)
+    vision = getattr(view, "vision_field", None)
+    if vision is not None:
+        vision.set_engine(engine, cache)
+        if engine == "ollama" and not getattr(vision, "_asked", True) and vision.isVisible():
+            vision.refresh()                      # on screen already: no showEvent to ask it
+    for name in ("model_manager", "needed_models"):
+        box = getattr(view, name, None)
+        if box is None:
+            continue
+        box._settings = fresh
+        if getattr(box, "_asked", False):
+            box.refresh()                         # drawn already: look again, under the new engine
 
 
 def _apply_engine_change(window: Any, value: Any) -> None:
@@ -1189,6 +1249,7 @@ def _apply_engine_change(window: Any, value: Any) -> None:
         view = getattr(window, "settings_view", None)
         if view is not None:
             view._settings = fresh
+        _engine_followers(window, view, fresh, engine)
 
         translator = getattr(window, "_translator", None)
         if translator is None:
