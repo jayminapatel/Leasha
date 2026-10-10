@@ -548,10 +548,14 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
     # fine, because the splash is already visible.** This used to run before
     # `QApplication` was even constructed; see the comment above `splash.show()`.
     try:
-        from app.index.embedder import Embedder
+        # `Embedder` and `Reranker` are no longer built here by name (2026-10-10:
+        # `engines.meaning_embedder` and `engines.search_reranker` build them, the
+        # model in the search host); imported still, because this block is also
+        # the check that the packages behind them are installed.
+        from app.index.embedder import Embedder  # noqa: F401 - the dependency check
         from app.search import vector
         from app.search.engine import SearchEngine
-        from app.search.rerank import Reranker
+        from app.search.rerank import Reranker  # noqa: F401 - the dependency check
         from app.storage.sqlite_store import SqliteStore
         from app.storage.vector_store import ImageVectorStore, VectorStore
         from app.ui.shell import MainWindow
@@ -684,7 +688,20 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # thread. Splash's status text becomes the plain-words message
             # already used elsewhere for a first-run download, now paired
             # with a real, moving number instead of a static line.
-            embedder = Embedder.from_settings(
+            #
+            # 2026-10-10: **the model now loads in the search host, not here**
+            # (owner: "take the other models into the helper too").
+            # `engines.meaning_embedder` builds the same `Embedder.from_settings`
+            # and, because `use_model_host` is on above, hands the engine a proxy
+            # with its methods (`RemoteEmbedder`): the load, which holds Python's
+            # lock for its whole length, happens in the host when the warm-up on
+            # a worker asks for it after the window is shown, and the window's
+            # lock is never held by it. `on_progress` stays in this process and
+            # is called by the host's progress frames. A host that cannot start
+            # fails each query embedding with `ERR_MODEL_HOST_ENDED`, which
+            # `vector.search` turns into keyword-only results with the notice -
+            # the path a model that would not load took before.
+            embedder = _engines.meaning_embedder(
                 settings,
                 on_progress=lambda pct: status_reporter(
                     get_splash_status_text("model_download"), pct),
@@ -699,7 +716,13 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             # is the one reading `app.cli search` and the MCP server use too.
             from app.search.run import rerank_wanted
 
-            reranker = Reranker.from_settings(
+            # 2026-10-10: the same `Reranker.from_settings`, with its model in the
+            # search host (`RemoteReranker`, a `Reranker` whose load and scoring
+            # call cross to the host; everything else - the switch, top_n, the
+            # passage window, the failure budget - stays here and live). A host
+            # that cannot start is a reranker that would not load: warned once,
+            # results keep their fused order.
+            reranker = _engines.search_reranker(
                 settings, enabled=rerank_wanted(settings, store))
 
             # Work order 0h §1c. **Not loaded here, not warmed here.**
@@ -840,6 +863,17 @@ def _run_window(run: Any, qt_arguments: list[str], debug: bool) -> int:
             gui_lock.release()
             close_timer.record_lock_released()
             log.info("shutdown: lock released - {}s",
+                     round(time.perf_counter() - t0, 3))
+
+            # 2026-10-10: the model hosts (chat, vision, search) are told to
+            # leave, here, because `_exit_fast` below skips the `atexit` hook
+            # each one registered - a host left only on reading the end of its
+            # pipe, which one busy loading a model does not read until the load
+            # is over. All at once and bounded (`engines.CLOSE_WAIT_S`); after
+            # the lock, so a relaunch is not kept waiting for it.
+            t0 = time.perf_counter()
+            _engines.close_hosts()
+            log.info("shutdown: model processes closed - {}s",
                      round(time.perf_counter() - t0, 3))
         # **After the context exits, stores and lock are released.** §3d: Skip
         # interpreter teardown of heavyweight native modules (onnxruntime, lance,
