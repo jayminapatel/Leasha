@@ -135,6 +135,19 @@ WAL_SIZE_LIMIT_BYTES = 64 * 1024 * 1024
 #: much of the time, so the wait is kept short and the fallback does the work.
 CHECKPOINT_WAIT_S = 2.0
 
+#: 2026-10-10, storage review S6. Pages each step of `optimize_fts` merges
+#: (FTS5's `'merge'`, given negated so it does what `'optimize'` does, in
+#: steps). Measured 2026-10-10 on this laptop, 300,000 sixty-word passages
+#: written 500 to a transaction, CPU shared with four other jobs: one
+#: `'optimize'` held the write lock 3.97 s (4.84 s on a second run). In steps
+#: of 50 / 100 / 250 / 500 pages: 300 / 153 / 64 / 33 steps, 3.86 / 2.87 /
+#: 2.84 / 2.92 s in all, a median step of 8 / 12 / 34 / 92 ms; the longest
+#: single step 214-306 ms whatever the size (a WAL checkpoint or the shared
+#: CPU, not the merge size). 250: the whole job no slower than one
+#: `'optimize'`, each hold far under anything a person notices, and a quarter
+#: of the steps that 50 needs. Fixed, not a setting: nobody would tune it.
+FTS_MERGE_PAGES = 250
+
 #: 2026-10-04. The most chunk matches a list on the Files or Mail tab reads
 #: before it changes how it reads them, and the newest chunks a word's share
 #: is estimated from - the same numbers as `keyword.SCORED_MATCHES` and
@@ -2148,7 +2161,7 @@ class SqliteStore:
             self._message_index = row is not None
         return bool(self._message_index)
 
-    def optimize_fts(self) -> bool:
+    def optimize_fts(self, *, time_budget_s: Optional[float] = None) -> bool:
         r"""Merge the FTS5 index's b-tree segments into one. Never raises.
 
         *Note, 2026-10-04: no longer true - `Pipeline` calls this after a
@@ -2176,17 +2189,48 @@ class SqliteStore:
         `chunks_fts` was, so `files_fts` and `messages_fts` kept a segment per
         write for the life of the index. Either may be absent (an old schema,
         a SQLite without trigram); that skips the one, not the merge.
+
+        *Note, 2026-10-10 (storage review S6): no longer one `'optimize'`.* That
+        rewrote all three indexes inside one write transaction, so at ten
+        million passages the write lock was held for minutes and every write
+        from the window - a rename, a tag, a face named - waited behind it or
+        failed. The same end state is now reached in steps: `'merge'` with a
+        negative page count (`FTS_MERGE_PAGES`) is FTS5's incremental form of
+        `'optimize'` - every segment is put on one level and merged a few
+        hundred pages at a time - each step its own short transaction, the
+        lock let go between steps. A step that changes fewer than two rows did
+        nothing (FTS5's documented test, checked 2026-10-10: the step after
+        the last real one changes exactly 1, and an `'optimize'` afterwards
+        also changes 1 - one segment is left, as `'optimize'` leaves).
+        `time_budget_s` stops between steps once spent - the next call carries
+        on where this one stopped - and is unlimited by default, which keeps
+        the old meaning for `Pipeline`. True when every step ran, a stop on
+        the budget included.
         """
+        deadline = (None if time_budget_s is None
+                    else time.monotonic() + max(0.0, float(time_budget_s)))
         try:
-            with self.write() as conn:
-                conn.execute(
-                    "INSERT INTO chunks_fts(chunks_fts) VALUES('optimize')")
-                for fts in ("files_fts", "messages_fts"):
-                    if conn.execute(
-                            "SELECT 1 FROM sqlite_master WHERE name = ?",
-                            (fts,)).fetchone() is not None:
+            for fts in ("chunks_fts", "files_fts", "messages_fts"):
+                if fts != "chunks_fts" and self.conn.execute(
+                        "SELECT 1 FROM sqlite_master WHERE name = ?",
+                        (fts,)).fetchone() is None:
+                    continue
+                steps = 0
+                while True:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        _log.info(
+                            "keyword index merge stopped at its time budget in {} "
+                            "after {} step(s); the next merge carries on", fts, steps)
+                        return True
+                    with self.write() as conn:
+                        before = conn.total_changes
                         conn.execute(
-                            f"INSERT INTO {fts}({fts}) VALUES('optimize')")
+                            f"INSERT INTO {fts}({fts}, rank) VALUES('merge', ?)",
+                            (-FTS_MERGE_PAGES,))
+                        changed = conn.total_changes - before
+                    steps += 1
+                    if changed < 2:
+                        break
             return True
         except Exception as exc:                  # noqa: BLE001 - see the docstring
             # **Deliberately every exception, not just `sqlite3.Error`.** A
