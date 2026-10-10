@@ -623,3 +623,27 @@ def test_the_server_starts_with_no_console_as_under_pythonw(settings, monkeypatc
         assert host.running
     finally:
         host.stop()
+
+
+def test_connect_is_offered_only_when_a_program_is_not_yet_connected(gui_mainwindow):
+    """2026-10-10: the screen showed Claude Desktop as Connected with Connect still enabled.
+    Uses whatever programs the box holds, so it does not depend on the order of other tests."""
+    import importlib
+
+    import app.serve.clients as clients
+    from app.core.config import load_settings
+    from app.ui.widgets.mcp_box import McpBox
+
+    importlib.reload(clients)                   # other tests may have swapped the list
+    box = McpBox(load_settings(create_dirs=False, check_writable=False))
+    keys = list(box._rows)
+    assert len(keys) >= 3, keys
+    connected, not_connected, not_installed = keys[0], keys[1], keys[2]
+    box.show_programs({connected: "connected", not_connected: "not connected",
+                       not_installed: "not installed"}, "k")
+    _label, connect, disconnect = box._rows[connected]
+    assert connect.isEnabled() is False and disconnect.isEnabled() is True
+    _label, connect, disconnect = box._rows[not_connected]
+    assert connect.isEnabled() is True and disconnect.isEnabled() is False
+    _label, connect, disconnect = box._rows[not_installed]
+    assert connect.isEnabled() is False and disconnect.isEnabled() is False

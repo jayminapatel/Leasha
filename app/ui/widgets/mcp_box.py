@@ -179,7 +179,9 @@ class McpBox(QGroupBox):
         for program, (label, connect, disconnect) in self._rows.items():
             state = states.get(program, "not connected")
             label.setText(words.get(state, state))
-            connect.setEnabled(state != "not installed")
+            # Connect only for a program that is installed and not yet connected; Disconnect
+            # only for one that is. (2026-10-10: Connect stayed enabled while connected.)
+            connect.setEnabled(state == "not connected")
             disconnect.setEnabled(state == "connected")
 
     # -- copying -------------------------------------------------------------------
