@@ -86,5 +86,5 @@ def test_the_evaluate_command_gives_its_translators_the_index():
     source = (Path(__file__).resolve().parents[2] / "app" / "cli" / "evaluate.py").read_text(
         encoding="utf-8")
     built = source.count("QueryTranslator(")
-    assert built == 2 and source.count("store=store)") >= 2, (
+    assert built == 2 and source.count("store=store") >= 2, (
         "every QueryTranslator in evaluate.py is given the store")
