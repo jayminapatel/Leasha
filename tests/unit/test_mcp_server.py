@@ -647,3 +647,22 @@ def test_connect_is_offered_only_when_a_program_is_not_yet_connected(gui_mainwin
     assert connect.isEnabled() is True and disconnect.isEnabled() is False
     _label, connect, disconnect = box._rows[not_installed]
     assert connect.isEnabled() is False and disconnect.isEnabled() is False
+
+
+def test_the_program_states_are_re_read_while_the_box_is_on_screen(gui_mainwindow, qtbot):
+    """3.1 (2026-10-10): a removed entry must show as Not connected without an action."""
+    from app.ui.controllers import mcp_controller
+
+    _app, window, _store, _engine = gui_mainwindow
+    controller = window.mcp_ctl
+    assert controller._recheck.interval() == mcp_controller.RECHECK_MS
+    assert controller._recheck.isActive()
+    seen = []
+    controller.refresh = lambda: seen.append(1)
+    box = controller._box
+    box.isVisible = lambda: False               # the window is not shown in this test
+    controller._recheck_if_shown()
+    assert seen == [], "a box nobody can see is not re-read"
+    box.isVisible = lambda: True
+    controller._recheck_if_shown()
+    assert seen == [1]

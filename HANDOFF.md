@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.130 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
+**Doc version:** 7.131 · **Updated:** 2026-10-09 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-10 - the AI-programs box re-reads each program's settings every five seconds while it is on screen (3.1).** A program can remove Leasha's entry after Connect, and the box showed the old state until an action. Scope, the owner's: local programs only, Copilot included where it runs on this computer (VS Code's Copilot through VS Code's settings). Programs that run in the cloud cannot reach 127.0.0.1 and are not supported without a decision on a tunnel. Gemini and ChatGPT are not connected; vendor support was not verified.
 
 **2026-10-10 - the AI-program server could not start under the window ("could not connect").** The window runs under pythonw.exe, which has no stdout. Uvicorn's default logging config asks `sys.stdout.isatty()`, so `uvicorn.Config` raised and `McpHost.start` never listened (window log 07:17:36, `ERR_UNEXPECTED` in `ui.mcp.start`). Fixed in `app/serve/mcp.py`: `log_config=None`, Leasha logs through its own logger. Test `test_the_server_starts_with_no_console_as_under_pythonw` reproduced the same error before the fix. Checked under pythonw: no key 401, with key 200 (the check redirected stdout to a file, so the no-console case rests on the test). Still UNVERIFIED with a real client; the window must be restarted to load this. Uncommitted when written.
 

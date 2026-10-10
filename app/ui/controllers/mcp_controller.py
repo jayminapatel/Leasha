@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from PySide6.QtCore import QObject, QThreadPool
+from PySide6.QtCore import QObject, QThreadPool, QTimer
 
 from app.core.logging import logger
 from app.ui.workers import CallableWorker, run
@@ -27,6 +27,9 @@ from app.ui.workers import CallableWorker, run
 __all__ = ["McpController"]
 
 _log = logger.bind(component="ui.mcp")
+
+#: How often the program states are re-read while the box is on screen.
+RECHECK_MS = 5_000
 
 
 class McpController(QObject):
@@ -49,6 +52,18 @@ class McpController(QObject):
         box.stop_requested.connect(self.stop)
         box.connect_requested.connect(self.connect_program)
         box.refresh_requested.connect(self.refresh)
+        # 3.1 (2026-10-10): a program's entry can be removed by the program itself after
+        # Connect, so the states are re-read while this box is on screen, not only after
+        # an action. Reads a few small files on a worker; never the interface thread.
+        self._recheck = QTimer(self)
+        self._recheck.setInterval(RECHECK_MS)
+        self._recheck.timeout.connect(self._recheck_if_shown)
+        self._recheck.start()
+
+    def _recheck_if_shown(self) -> None:
+        """Re-read the program states when the AI-programs box can be seen."""
+        if self._box.isVisible():
+            self.refresh()
 
     # -- the engine's models, for the server's searches -------------------------
 
