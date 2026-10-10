@@ -626,6 +626,32 @@ class VectorStore:
             return
         self._table.delete(f"file_id IN ({', '.join(str(i) for i in ids)})")
 
+    def delete_by_file_ids_except(self, file_ids: Iterable[int],
+                                  keep_chunk_ids: Iterable[int]) -> None:
+        """Remove these files' vectors, except those of `keep_chunk_ids`. One delete.
+
+        2026-10-10. `SqliteStore.replace_chunks` now keeps a passage whose text
+        did not change, with its id and its vector, so a re-read file's vectors
+        are replaced passage by passage rather than all at once. The indexer's
+        delete before the add (`Pipeline._embed_pending`) names the passages
+        that keep theirs; everything else of the file goes - the gone passages'
+        and any old copy of a passage about to be written again. With nothing
+        to keep this is `delete_by_file_ids`, empty-table shortcut and all.
+        """
+        ids = [int(i) for i in file_ids]
+        keep = sorted({int(i) for i in keep_chunk_ids})
+        if not keep:
+            self.delete_by_file_ids(ids)
+            return
+        if not ids:
+            return
+        self._open_if_created_since()
+        if self._table is None or self._approx_rows <= 0:
+            return
+        self._table.delete(
+            f"file_id IN ({', '.join(str(i) for i in ids)}) "
+            f"AND chunk_id NOT IN ({', '.join(str(i) for i in keep)})")
+
     def delete_by_chunk_ids(self, chunk_ids: Iterable[int]) -> None:
         """Remove the vectors of these chunks, in one delete. A no-op on an
         empty list or before the table exists."""

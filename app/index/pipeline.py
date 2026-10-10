@@ -7025,11 +7025,23 @@ class Pipeline:
             had_vectors = keyword_only and self.store.has_embedded_chunks(file_id)
 
             chunk_ids = self.store.replace_chunks(file_id, item.chunks)
+            # 2026-10-10: a passage whose text is unchanged keeps its row and
+            # its vector (`replace_chunks`), so only these go to the model.
+            # `getattr`: a store double that returns a plain list re-embeds
+            # everything, which is what every store did before.
+            to_embed = getattr(chunk_ids, "to_embed", chunk_ids)
+            removed = getattr(chunk_ids, "removed", ())
 
             if keyword_only and chunk_ids:
                 # Complete as it stands: nothing is coming for it, so it is
                 # INDEXED now rather than PARTIAL for ever.
                 self.store.mark_keyword_only(chunk_ids)
+                self.store.mark_indexed_many([file_id])
+            elif chunk_ids and not to_embed:
+                # Every passage already has its vector - a document re-read
+                # with the same words. Nothing will reach `_embed_pending` to
+                # promote it, and nothing needs to: INDEXED is true now, in the
+                # same transaction as the PARTIAL above.
                 self.store.mark_indexed_many([file_id])
 
             if item.meta:
@@ -7129,9 +7141,22 @@ class Pipeline:
                 self.vectors.delete_by_file_ids([file_id])
             return []
 
+        if not to_embed:
+            # 2026-10-10: nothing new, so no flush will run the delete before
+            # the add for this file - the gone passages' vectors (a paragraph
+            # deleted, nothing written) are removed here, by id. The kept ones
+            # are this file's whole current set, so at no instant is it without
+            # its vectors.
+            by_chunk = getattr(self.vectors, "delete_by_chunk_ids", None)
+            if removed and by_chunk is not None:     # None: a test double only
+                by_chunk(removed)
+            return []
+
+        wanted = set(to_embed)
         return [
             (chunk_id, file_id, chunk["text"])
             for chunk_id, chunk in zip(chunk_ids, item.chunks, strict=True)
+            if chunk_id in wanted
         ]
 
     def _store_message_meta(self, file_id: int, meta: dict[str, Any]) -> None:
@@ -7899,8 +7924,27 @@ class Pipeline:
         # `delete_by_file_ids` returns immediately when the table is empty,
         # which is the whole of a first index, so this is free on the run that
         # does the most work.
-        self.vectors.delete_by_file_ids(
-            list(dict.fromkeys(fid for _c, fid, _t in pending)))
+        #
+        # **2026-10-10: except the passages that keep their vector.** A re-read
+        # file now keeps every passage whose text did not change, id and vector
+        # with it (`SqliteStore.replace_chunks`), and only its new passages are
+        # here - so "every vector of the file" would delete the kept ones with
+        # nothing to put back. The kept ones are the file's passages marked
+        # embedded that are not in this batch; everything else of the file is
+        # deleted - the gone passages' vectors, and any old copy of one about to
+        # be written. With nothing kept (a first index, a file wholly changed,
+        # `reembed --all`) it is the old whole-file delete. A vector store
+        # without the method (a test double) gets the old call.
+        files = list(dict.fromkeys(fid for _c, fid, _t in pending))
+        except_kept = getattr(self.vectors, "delete_by_file_ids_except", None)
+        keep: set[int] = set()
+        if except_kept is not None:
+            keep = self.store.embedded_chunk_ids(files)
+            keep.difference_update(cid for cid, _f, _t in pending)
+        if keep:
+            except_kept(files, keep)
+        else:
+            self.vectors.delete_by_file_ids(files)
 
         with self._clock.stage("vectors"):
             written = self.vectors.add(
