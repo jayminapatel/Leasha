@@ -117,6 +117,17 @@ class _LruCache:
         return len(self._entries)
 
 
+#: Work order 1h §5c (2026-10-10). How long "the picture table is empty" is
+#: believed without asking again, when the index generation has not moved.
+#: The generation is what normally refreshes it, but the indexer writes a
+#: photo's vector to LanceDB after committing its SQLite rows
+#: (`Pipeline._flush_pending_images` commits first, on purpose), so the last
+#: photos of a run can land without a later bump. Thirty seconds bounds how
+#: long a first photo can go unsearched; an answer of "there are pictures" is
+#: kept for the whole generation, since being wrong that way costs only a
+#: lane that finds nothing.
+PICTURE_RECHECK_S = 30.0
+
 #: Work order 1h §5a (2026-10-10). How many first passes' fused candidates
 #: are kept for the reranked pass that follows them. The window asks for one
 #: search at a time and the reranked pass follows its first pass within a
@@ -775,6 +786,12 @@ class SearchEngine:
         #: reason - `use_cache=False` asks for results computed from the index
         #: as it is now, and a sentence's vector is the same either way.
         self._query_vectors = vector.QueryVectorCache()
+        #: Work order 1h §5c (2026-10-10). Whether the picture table holds
+        #: anything, as `(generation, rows, checked_at)`, or None before the
+        #: first search asks. See `_pictures_present`. Locked because the
+        #: picture lane asks from a pool thread and two searches can overlap.
+        self._pictures_known: Optional[tuple[int, int, float]] = None
+        self._pictures_lock = threading.Lock()
 
     @property
     def closed(self) -> bool:
@@ -1461,6 +1478,63 @@ class SearchEngine:
             elapsed_ms=(time.perf_counter() - started) * 1000,
         )
 
+    def _search_pictures(self, parsed: ParsedQuery, *, allowed_file_ids: Any,
+                         problems: Optional[list], on_progress: Any = None,
+                         query_vectors: Any = None) -> list:
+        r"""The picture lane, or `[]` without asking it when there are no pictures.
+
+        Work order 1h §5c (2026-10-10). The lane ran on every search,
+        including on an index with no pictures at all, and its first call
+        embeds the query with the CLIP text tower - which in the window
+        starts the vision host (`app.llm.engines.clip_text_embedder`, a
+        `RemoteEmbedder`), about four seconds, for a table that cannot
+        answer. Asked here instead: an empty table returns `[]` before the
+        encoder is touched, which `_gather` fuses exactly as it fuses a lane
+        that found nothing.
+        """
+        if not self._pictures_present():
+            return []
+        return vector.search_images(
+            self.image_vectors, self.clip_text_embedder, parsed,
+            allowed_file_ids=allowed_file_ids, problems=problems,
+            on_progress=on_progress, query_vectors=query_vectors)
+
+    def _pictures_present(self) -> bool:
+        r"""Whether the picture table holds a row. **Cheap, and never raises.**
+
+        Work order 1h §5c (2026-10-10). Counted once and kept, the way
+        `_expand_wildcards` keeps its expansions: against the index
+        generation, so an index write asks again. "Empty" is also asked again
+        after `PICTURE_RECHECK_S`, because a photo's vector can reach LanceDB
+        after the write that moved the generation (see that constant).
+
+        **Unknown is "yes".** A store with no `count` (a test double, a future
+        store) or one whose count raises - a deferred connect that failed, a
+        table being rebuilt - runs the lane as it always did, so it can say
+        what is wrong (`NOTICE_NO_IMAGES`) instead of the lane going quiet on
+        a guess. Only a store that answers "no rows" is skipped.
+        """
+        counter = getattr(self.image_vectors, "count", None)
+        if not callable(counter):
+            return True
+        generation = self._generation_now()
+        now = time.monotonic()
+        with self._pictures_lock:
+            known = self._pictures_known
+        if known is not None and known[0] == generation and (
+                known[1] > 0 or now - known[2] < PICTURE_RECHECK_S):
+            return known[1] > 0
+        try:
+            rows = int(counter())
+        except Exception as exc:                 # noqa: BLE001 - unknown runs the lane
+            _log.debug("could not count the picture table, searching it anyway: {}", exc)
+            return True
+        with self._pictures_lock:
+            self._pictures_known = (generation, rows, now)
+        if rows <= 0:
+            _log.debug("the picture table is empty; the picture lane is skipped")
+        return rows > 0
+
     def _generation_now(self) -> int:
         """The store's write generation, or -1 if it cannot be read.
 
@@ -1536,11 +1610,15 @@ class SearchEngine:
         # unless both `clip_text_embedder` and `image_vectors` were handed to
         # the constructor (H4: absent means off, exactly as it always did
         # before this lane existed).
+        #
+        # 2026-10-10, work order 1h §5c: through `_search_pictures`, which
+        # asks first whether there is a single picture to find - on its own
+        # pool thread, so the question never holds up the other two lanes.
         image_future = None
         if self.clip_text_embedder is not None and self.image_vectors is not None:
             image_future = self._pool.submit(
-                vector.search_images, self.image_vectors, self.clip_text_embedder,
-                parsed, allowed_file_ids=allowed, problems=image_problems,
+                self._search_pictures, parsed, allowed_file_ids=allowed,
+                problems=image_problems,
                 # Work order 0r item 1c, second clause: only when there is
                 # somewhere to report to - see `_clip_download_progress` and
                 # `Embedder._start_progress_watcher_if_downloading`, both of
