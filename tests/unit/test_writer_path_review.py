@@ -190,3 +190,67 @@ def test_forget_files_deletes_both_sides(tmp_path):
         assert pipeline.forget_files([file_id]) == 1
         assert store.get_file(str(tmp_path / "p.png")) is None
     assert images.deletes == [([file_id], True)] and text.deletes == [[file_id]]
+
+
+# ---------------------------------------------------------------------------
+# P4. Old text vectors go once the rows commit
+# ---------------------------------------------------------------------------
+
+def _indexed_letter(tmp_path, store, vectors) -> tuple[Path, int]:
+    root = tmp_path / "docs"
+    letter = _write(root / "a.txt", "pump station")
+    assert _pipeline(store, [root], vectors).run().indexed == 1
+    file_id = store.get_file(str(letter)).id
+    assert vectors.count() >= 1 and _chunks(store, file_id) >= 1
+    return letter, file_id
+
+
+def _emptied(letter: Path) -> _Extracted:
+    candidate = Candidate(path=letter, size_bytes=letter.stat().st_size, mtime_ns=OLD_NS)
+    return _Extracted(candidate, "digest", key=str(letter), chunks=[])
+
+
+def test_a_rolled_back_group_keeps_the_old_passages_and_their_vectors(tmp_path):
+    vectors = _Vectors()
+    with SqliteStore(tmp_path / "index.db") as store:
+        letter, file_id = _indexed_letter(tmp_path, store, vectors)
+        before = vectors.count()
+        pipeline = _pipeline(store, [letter.parent], vectors)
+        pipeline._begin_write_group()
+        assert pipeline._write_one(_emptied(letter)) == []
+        assert vectors.count() == before, "no LanceDB delete inside the open group"
+        pipeline._abandon_write_group()
+        assert _chunks(store, file_id) >= 1, "the old passages are back"
+    assert vectors.count() == before, "and so are their vectors"
+    assert pipeline._vector_deletes == []
+
+
+def test_a_committed_group_deletes_the_old_vectors_after_the_commit(tmp_path):
+    vectors = _Vectors()
+    with SqliteStore(tmp_path / "index.db") as store:
+        letter, file_id = _indexed_letter(tmp_path, store, vectors)
+        pipeline = _pipeline(store, [letter.parent], vectors)
+        seen_at_delete: list[int] = []
+        real = vectors.delete_by_file_ids
+
+        def delete(file_ids):
+            # Run outside the write group: a fresh connection sees it committed.
+            seen_at_delete.append(_chunks(store, file_id))
+            real(file_ids)
+
+        vectors.delete_by_file_ids = delete
+        pipeline._begin_write_group()
+        pipeline._write_one(_emptied(letter))
+        pipeline._commit_write_group()
+        assert getattr(pipeline, "_write_group", None) is None
+    assert vectors.count() == 0
+    assert seen_at_delete == [0], "deleted once, after the empty passages committed"
+
+
+def test_with_no_group_open_the_delete_runs_at_once(tmp_path):
+    vectors = _Vectors()
+    with SqliteStore(tmp_path / "index.db") as store:
+        letter, _file_id = _indexed_letter(tmp_path, store, vectors)
+        pipeline = _pipeline(store, [letter.parent], vectors)
+        pipeline._write_one(_emptied(letter))
+    assert vectors.count() == 0

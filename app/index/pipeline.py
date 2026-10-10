@@ -1461,6 +1461,9 @@ class Pipeline:
         self._write_group: Any = None
         self._write_group_opened = 0.0
         self._write_group_docs = 0
+        #: 2026-10-10, review P4: text-vector deletes waiting for the open
+        #: group to commit - see `_delete_vectors_once_committed`.
+        self._vector_deletes: list[int] = []
         #: Video and audio extensions, looked up once per run rather than
         #: once per document. See `_media_work_ahead`.
         self._media_exts: Optional[frozenset[str]] = None
@@ -6710,11 +6713,74 @@ class Pipeline:
         # (the store has already rolled it back), and nothing may try to
         # commit it a second time.
         self._write_group = None
+        # 2026-10-10, review P4: taken before the commit, so a commit that
+        # raises drops them with the rows they belonged to - see
+        # `_delete_vectors_once_committed`.
+        deletes = self._take_vector_deletes()
         if not timed:
             group.__exit__(None, None, None)
+        else:
+            with self._clock.stage("write"):
+                group.__exit__(None, None, None)
+        self._run_vector_deletes(deletes)
+
+    def _delete_vectors_once_committed(self, file_id: int) -> None:
+        r"""Delete this file's text vectors - **after** its rows commit.
+
+        2026-10-10, review P4. `_write_one` deletes the vectors of a file that
+        now has no passages, or only keyword-only ones, because nothing else
+        ever will (see the comments there). It did so at once - while the
+        shared write group (`_begin_write_group`) could still be open around
+        the rows it had just replaced. Two faults followed:
+
+        * a LanceDB delete ran **holding the SQLite write lock**, which every
+          other writer (the window naming a face, saving a setting) waits on -
+          the thing `_write_one`'s own comment says it keeps out of the block;
+        * if the group was then **rolled back** - a later document in it failed
+          (`_group_failed`), or `_consume` raised and `run()` abandoned it - the
+          old passages came back with `embedded = 1` and their vectors were
+          already gone. Nothing re-embeds a passage marked embedded, so the
+          file was silently missing from meaning search for good.
+
+        So with a group open the id waits, and `_commit_write_group` deletes
+        once the commit has landed; `_abandon_write_group` drops it with the
+        rows. A rewrite after a rollback (`_group_failed` writes the group's
+        documents again) asks again, in its own group. With no group open the
+        rows are committed already and the delete runs now, as it always did.
+        """
+        if getattr(self, "_write_group", None) is None:
+            self.vectors.delete_by_file_ids([file_id])
             return
-        with self._clock.stage("write"):
-            group.__exit__(None, None, None)
+        waiting = getattr(self, "_vector_deletes", None)
+        if waiting is None:
+            waiting = self._vector_deletes = []
+        waiting.append(int(file_id))
+
+    def _take_vector_deletes(self) -> list[int]:
+        """The ids `_delete_vectors_once_committed` held for the group, and
+        none left behind. `getattr`: a pipeline built without `__init__`."""
+        waiting = getattr(self, "_vector_deletes", None) or []
+        self._vector_deletes = []
+        return waiting
+
+    def _run_vector_deletes(self, file_ids: list[int]) -> None:
+        """One LanceDB delete for every id a committed group held.
+
+        **Logged, not raised.** The rows are committed; raising here would
+        surface in whichever caller happened to commit (a checkpoint, a pause)
+        and fail a document that was written correctly. A vector left behind
+        points at a passage id that no longer exists, so search drops it when
+        it looks the passage up, and the next write of the file deletes it -
+        the cost is accuracy for a while, never a wrong answer kept for good.
+        """
+        if not file_ids:
+            return
+        try:
+            self.vectors.delete_by_file_ids(list(dict.fromkeys(file_ids)))
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            self._log.warning(
+                "could not delete the old vectors of {} file(s) with no passages "
+                "left: {}", len(file_ids), exc)
 
     # -- the file in hand: surviving a native crash ----------------------------
     #
@@ -6894,6 +6960,10 @@ class Pipeline:
         if group is None:
             return
         self._write_group = None
+        # 2026-10-10, review P4: the rows these deletes belonged to are being
+        # rolled back, so their old passages - and the vectors that go with
+        # them - stay. See `_delete_vectors_once_committed`.
+        self._take_vector_deletes()
         failure = RuntimeError("index run ended with a write group still open")
         try:
             group.__exit__(RuntimeError, failure, None)
@@ -7133,14 +7203,16 @@ class Pipeline:
             # `_embed_pending` will never delete its vectors. Orphaned vectors
             # point at chunk ids that no longer exist: they cost the ANN index
             # its accuracy and can resurface content the file no longer holds.
-            self.vectors.delete_by_file_ids([file_id])
+            # 2026-10-10, review P4: once the rows commit, never before - see
+            # `_delete_vectors_once_committed`.
+            self._delete_vectors_once_committed(file_id)
             return []
 
         if keyword_only:
             # Its old vectors point at passages that are gone - the same
             # orphans the empty-file case above removes, for the same reason.
             if had_vectors:
-                self.vectors.delete_by_file_ids([file_id])
+                self._delete_vectors_once_committed(file_id)
             return []
 
         return [
