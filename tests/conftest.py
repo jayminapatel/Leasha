@@ -112,6 +112,76 @@ if sys.platform == "win32":
         os.environ.setdefault("QT_QPA_FONTDIR", str(_windows_fonts))
 
 
+# ---------------------------------------------------------------------------
+# A private basetemp for every run (2026-10-10)
+# ---------------------------------------------------------------------------
+#
+# `pyproject.toml` used to pass `--basetemp=.pytest_tmp` to every run, and pytest
+# deletes a given basetemp when a run starts - so two sessions testing in one
+# checkout at once wiped each other's temporary folders mid-run, which showed up
+# as hangs, `PermissionError`s and stray failures rather than as anything that
+# named the other run. Now a run that was not given `--basetemp` gets
+# `.pytest_tmp/run-<pid>`: still a dedicated folder inside the project (so the
+# Windows junction trap the long comment in `pyproject.toml` describes stays
+# avoided - pytest makes no `pytest-current` junction for a basetemp it is
+# given), but one no other live run can share. `tests/basetemp.py` has the rest.
+#
+# **Why `pytest_configure` with `tryfirst`, and why the factory is patched too.**
+# pytest's own `_pytest/tmpdir.py` (9.1.1 in the venv, read 2026-10-10) builds
+# its `TempPathFactory` in its own `pytest_configure`, copying
+# `config.option.basetemp` into `_given_basetemp` there; the directory itself is
+# made lazily, at the first `getbasetemp()`, which is after configure. So the
+# option has to be set before pytest's hook runs. This conftest is an *initial*
+# conftest (loaded before configure for any run under `tests/`), and pluggy calls
+# `tryfirst` implementations ahead of the built-in plugin's. For the one route
+# where this conftest is registered later - its historic `pytest_configure` is
+# then replayed after the factory exists - the factory's `_given_basetemp` is set
+# as well, while it has not yet made a directory. `_given_basetemp` is private to
+# pytest; if a future pytest renames it, the option above still works for the
+# normal route and this second step quietly does nothing.
+#
+# An explicit `--basetemp` wins: `config.option.basetemp` is then already set,
+# `choose` returns None, and nothing here touches it. `scripts/run_suite.py`
+# relies on that.
+_BASETEMP_RUN_DIR = pytest.StashKey[Path]()
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_configure(config):
+    from tests import basetemp
+
+    run_dir = basetemp.choose(Path(config.rootpath), config.option.basetemp)
+    if run_dir is None:
+        return
+    try:
+        keep = int(config.getini("tmp_path_retention_count"))
+    except (TypeError, ValueError):
+        keep = 3
+    basetemp.tidy_stale(run_dir.parent, keep=keep)
+    run_dir.parent.mkdir(parents=True, exist_ok=True)
+    config.option.basetemp = str(run_dir)
+    factory = getattr(config, "_tmp_path_factory", None)
+    if factory is not None and getattr(factory, "_basetemp", None) is None:
+        factory._given_basetemp = Path(os.path.abspath(str(run_dir)))
+    config.stash[_BASETEMP_RUN_DIR] = run_dir
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    """A green run removes its own `run-<pid>` folder; a red one keeps it.
+
+    pytest removes a basetemp after a green run only when it chose the folder
+    itself, and this one was given to it - so without this every green run would
+    leave a folder behind. `trylast` so pytest's own session-finish clean-up of
+    the same tree has already run.
+    """
+    from tests import basetemp
+
+    run_dir = session.config.stash.get(_BASETEMP_RUN_DIR, None)
+    if run_dir is not None:
+        basetemp.finish(run_dir, passed=int(exitstatus) == 0)
+
+
 @pytest.fixture(autouse=True, scope="session")
 def _repository_detection_stops_at_the_test_tree(tmp_path_factory) -> Iterator[None]:
     """A test's folder must not be "inside a repository" because of what happens

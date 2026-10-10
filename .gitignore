@@ -104,8 +104,9 @@ dist/
 !packaging/leasha.spec
 
 # --- pytest scratch --------------------------------------------------------
-# Set by --basetemp in pyproject.toml. pytest DELETES this folder's contents on
-# every run, so never put anything real here.
+# Each run's basetemp is .pytest_tmp/run-<pid>, chosen by tests/conftest.py
+# (2026-10-10; before that a fixed --basetemp in pyproject.toml). pytest DELETES
+# a basetemp's contents when a run starts, so never put anything real here.
 .pytest_tmp*/
 
 # --- Generated test fixtures -----------------------------------------------
