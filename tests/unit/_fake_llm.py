@@ -9,6 +9,8 @@ a gigabyte. The prompts below are the test's switches:
     "boom"  fails with a chat-model error
     "die"   ends the whole process after its first piece, the way a fault in
             the model library does
+
+2026-10-10: `FakeReranker` too, for the search host's reranker.
 """
 
 from __future__ import annotations
@@ -75,8 +77,13 @@ class FakeEmbedder:
 
     HOSTED_METHODS = frozenset({"embed", "warm_up"})
 
-    def __init__(self, kind: str = "clip-text", env_file: str = "") -> None:
+    def __init__(self, kind: str = "clip-text", env_file: str = "",
+                 spec: Optional[dict] = None) -> None:
+        # `spec` (2026-10-10): the meaning model's constructor arguments, sent by
+        # `RemoteEmbedder.for_meaning`; kept so a test can read what arrived.
         self.progress_sink: Any = None
+        self.kind = kind
+        self.spec = dict(spec or {})
 
     def embed(self, texts: Any) -> Any:
         import numpy as np
@@ -91,7 +98,35 @@ class FakeEmbedder:
         return np.array([[float(len(text)), 1.0] for text in texts])
 
     def warm_up(self) -> None:
+        if self.progress_sink is not None:
+            self.progress_sink(50.0)
         return None
+
+
+class FakeReranker:
+    """Stands in for `app.ort.hosted.HostedReranker` (2026-10-10).
+
+    Scores a passage by its length, so the longest comes first. The model
+    name "absent" fails to load, the way a model that is not downloaded does;
+    the query "die" ends the process, the way a fault in the model library does.
+    """
+
+    HOSTED_METHODS = frozenset({"load", "score"})
+
+    def __init__(self, model_name: str = "", cache_dir: Any = None, device: str = "auto") -> None:
+        self.progress_sink: Any = None
+        self.model_name = model_name
+
+    def load(self) -> bool:
+        if self.model_name == "absent":
+            raise RuntimeError("ValueError: the reranker model is not downloaded")
+        return True
+
+    def score(self, query: str, passages: Any) -> Any:
+        self.load()
+        if query == "die":
+            os._exit(3)
+        return [float(len(passage)) for passage in passages]
 
 
 class FakeFlorence:

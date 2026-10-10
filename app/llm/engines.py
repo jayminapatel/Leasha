@@ -19,7 +19,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 __all__ = ["ONNX", "OLLAMA", "engine_of", "text_model", "vision_model", "reset_shared",
-           "chat_key", "ollama_context", "use_model_host", "model_host", "clip_text_embedder"]
+           "chat_key", "ollama_context", "use_model_host", "model_host", "clip_text_embedder",
+           "meaning_embedder", "search_reranker", "close_hosts"]
 
 ONNX = "onnx"
 OLLAMA = "ollama"
@@ -46,7 +47,9 @@ _shared_lock = threading.Lock()
 #: building an ONNX Runtime session holds Python's lock for the whole load (20 s
 #: measured) and froze the window. Everything else - the command line, the
 #: indexer, tests - keeps the model in the calling process, where nothing is
-#: waiting on a window and a second process would be a cost.
+#: waiting on a window and a second process would be a cost. 2026-10-10: and the
+#: window search engine's meaning model and reranker (`meaning_embedder`,
+#: `search_reranker`), which loaded in the window during its first seconds.
 _host_enabled = False
 _host_env: Optional[Path] = None
 _hosts: dict[str, Any] = {}
@@ -57,6 +60,14 @@ _host_lock = threading.Lock()
 #: reply that is being written.
 CHAT_HOST = "chat"
 VISION_HOST = "vision"
+#: 2026-10-10: the meaning model and the reranker, the two models every full search
+#: uses. A third host rather than a place in one of the two above, for the same
+#: reason those two are apart: a query's embedding is one short text and must come
+#: back in milliseconds, which it cannot do from a process whose lock a 14 s chat
+#: model load or a 12 s Florence-2 load is holding. The two search models share
+#: one host: they run one after the other in a search anyway, and a fourth Python
+#: process holding numpy and onnxruntime would cost its memory for nothing.
+SEARCH_HOST = "search"
 
 
 def model_host(name: str = CHAT_HOST) -> Any:
@@ -69,6 +80,34 @@ def model_host(name: str = CHAT_HOST) -> Any:
         if host is None:
             host = _hosts[name] = ModelHost(env_file=_host_env)
         return host
+
+
+#: Longest `close_hosts` waits, all hosts together.
+CLOSE_WAIT_S = 4.0
+
+
+def close_hosts(wait_s: float = CLOSE_WAIT_S) -> None:
+    """Tell every host process to leave, all at once, waiting at most `wait_s`.
+
+    2026-10-10. The window ends with `os._exit` (`main._exit_fast`), which skips
+    the `atexit` hook each `ModelHost` registers, so until now a host left only
+    when it read the end of its pipe - which a host busy loading a model does
+    not read until the load is over. Asked here, while the window still runs:
+    each host is sent "quit" and, if it has not gone in `ModelHost.close`'s own
+    three seconds, ended. In parallel, so three hosts cost one wait, not three;
+    a host still not gone when `wait_s` is up is left to the pipe closing at
+    `os._exit`, as before. Never raises."""
+    import time
+
+    with _host_lock:
+        hosts = list(_hosts.values())
+    closers = [threading.Thread(target=host.close, name="model-host-close", daemon=True)
+               for host in hosts]
+    for closer in closers:
+        closer.start()
+    deadline = time.monotonic() + max(0.0, float(wait_s))
+    for closer in closers:
+        closer.join(max(0.0, deadline - time.monotonic()))
 
 
 def use_model_host(enabled: bool = True, env_file: Optional[Path] = None) -> None:
@@ -101,6 +140,44 @@ def clip_text_embedder(settings: Any) -> Any:
     from app.search import vector
 
     return vector.clip_text_embedder_from_settings(settings)
+
+
+def meaning_embedder(settings: Any, **overrides: Any) -> Any:
+    """The search engine's query embedder (2026-10-10): a proxy to the search host
+    in the window, the plain `Embedder` anywhere else.
+
+    Built here for the window's `SearchEngine` only (`app/main.py`). The index
+    run - the window's own (`index_controller`), the `app.cli index` child, the
+    watcher - builds `Embedder.from_settings` itself and keeps the model in its
+    own process, where a quarter of a million chunks an hour would make a pipe a
+    real cost and nothing is waiting on a window. `overrides` are
+    `Embedder.from_settings`'s (`on_progress`, the splash's download hook, stays
+    on this side and receives the host's progress frames)."""
+    from app.index.embedder import Embedder
+
+    # Built either way: lazy (nothing loads, nothing is read from the disk), and it
+    # is the one place the settings are turned into an embedder's arguments.
+    local = Embedder.from_settings(settings, **overrides)
+    if not _host_enabled:
+        return local
+    from app.llm.remote_models import RemoteEmbedder
+
+    return RemoteEmbedder.for_meaning(model_host(SEARCH_HOST), local)
+
+
+def search_reranker(settings: Any, **overrides: Any) -> Any:
+    """The search engine's reranker (2026-10-10): `Reranker` with its model in the
+    search host in the window (`RemoteReranker`), the plain `Reranker` anywhere
+    else. `overrides` are `Reranker.from_settings`'s - `enabled` above all, the
+    Rerank box's saved value (`run.rerank_wanted`). A reranker that is off starts
+    no host: nothing is sent until one is asked to load."""
+    if not _host_enabled:
+        from app.search.rerank import Reranker
+
+        return Reranker.from_settings(settings, **overrides)
+    from app.llm.remote_models import RemoteReranker
+
+    return RemoteReranker.from_settings(settings, host=model_host(SEARCH_HOST), **overrides)
 
 
 def _new_onnx(cache: Any, model: str, device: str, timeout: float) -> Any:
