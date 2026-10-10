@@ -23,12 +23,37 @@ from PySide6.QtWidgets import (  # noqa: E402
 from app.ui import theme  # noqa: E402
 
 
+class _Themed:
+    """A host widget carrying the real theme; `themed(widget)` puts a widget under it.
+
+    2026-10-10: this fixture used to call `setStyleSheet` on the whole QApplication, which
+    `test_no_application_stylesheet` forbids - Qt then re-polishes every widget alive in the
+    process, so a long suite run walks every widget earlier tests leaked (each test here took
+    about 165 s in the full suite) and can die on one that is already gone. A stylesheet on a
+    parent reaches its children exactly as the window's own does - `MainWindow._apply_theme`
+    styles the window, not the application - so each widget under test is parented to this
+    host instead, and `restyle` sets a new sheet on the host the way the window gets one when
+    the Text size changes. What every test checks is unchanged.
+    """
+
+    def __init__(self, scheme: str) -> None:
+        self.app = QApplication.instance() or QApplication([])
+        self.host = QWidget()
+        self.host.setStyleSheet(theme.stylesheet(scheme))
+
+    def __call__(self, widget: QWidget) -> QWidget:
+        widget.setParent(self.host)
+        return widget
+
+    def restyle(self, scheme: str) -> None:
+        self.host.setStyleSheet(theme.stylesheet(scheme))
+
+
 @pytest.fixture(params=["light", "dark"])
 def themed(request):
-    app = QApplication.instance() or QApplication([])
-    app.setStyleSheet(theme.stylesheet(request.param))
-    yield app
-    app.setStyleSheet("")
+    host = _Themed(request.param)
+    yield host
+    host.host.deleteLater()
 
 
 def _size(widget: QWidget) -> float:
@@ -37,16 +62,17 @@ def _size(widget: QWidget) -> float:
 
 
 def test_every_kind_of_input_is_the_size_of_the_text_around_it(themed):
-    reference = _size(QLabel("x"))
+    reference = _size(themed(QLabel("x")))
     for kind in (QLineEdit, QTextEdit, QPlainTextEdit, QTextBrowser, QComboBox, QSpinBox,
                  QTimeEdit, QCheckBox, QPushButton):
-        assert _size(kind()) == reference, f"{kind.__name__} is not body size"
+        assert _size(themed(kind())) == reference, f"{kind.__name__} is not body size"
 
 
 def test_the_search_box_is_the_one_input_that_is_larger(themed):
     box = QLineEdit("x")
     box.setObjectName("searchBox")
-    assert _size(box) > _size(QLineEdit("x"))
+    themed(box)
+    assert _size(box) > _size(themed(QLineEdit("x")))
     assert _size(box) == pytest.approx(float(theme.font_sizes()["large"][:-2]), abs=0.01)
 
 
@@ -78,12 +104,11 @@ def test_the_settings_boxes_hold_nothing_that_is_not_body_size(themed, tmp_path)
     from app.ui.widgets.storage_box import StorageBox
 
     settings = _settings(tmp_path / "Data")
-    host = QWidget()
     boxes = [StorageBox(settings), ModelBox(lambda: SimpleNamespace(available_models=lambda: [])),
              ChatBox(settings), MediaBox(settings), SearchBehaviourBox(settings), EditorBox(settings)]
     for box in boxes:
-        box.setParent(host)
-    body = _size(QLabel("x"))
+        themed(box)
+    body = _size(themed(QLabel("x")))
     kinds = (QLineEdit, QComboBox, QSpinBox, QCheckBox, QPushButton, QPlainTextEdit, QTextEdit)
     checked = 0
     for box in boxes:
@@ -131,12 +156,12 @@ def test_a_size_outside_the_range_or_not_a_number_is_made_safe(twelve):
 
 def test_a_new_stylesheet_resizes_widgets_that_already_exist(themed, twelve):
     """The change is live: the same widgets, restyled, no restart and no rebuild."""
-    label, box, area = QLabel("x"), QLineEdit("x"), QPlainTextEdit("x")
+    label, box, area = (themed(w) for w in (QLabel("x"), QLineEdit("x"), QPlainTextEdit("x")))
     before = [_size(w) for w in (label, box, area)]
     assert before == [9.0, 9.0, 9.0]
 
     theme.set_text_size(16)
-    themed.setStyleSheet(theme.stylesheet("dark"))
+    themed.restyle("dark")
     for widget in (label, box, area):
         widget.ensurePolished()
     after = [_size(w) for w in (label, box, area)]
@@ -178,3 +203,28 @@ def test_the_controller_remembers_the_size_and_restyles_the_window(monkeypatch, 
 
     assert saved == {"ui:text_size": "15"}
     assert window._text_size == 15 and restyled == [15], "the sheet was rebuilt at the old size"
+
+
+def test_a_pill_stays_round_at_every_text_size(themed, twelve):
+    """2026-10-10: Qt draws no rounding when a radius is more than half the widget's height,
+    and the 11px pill radius was measured at the old 13px body. At the new 12px default the
+    filter chip is 21px tall, so every chip went square (test_ui_review_0x9 caught it). The
+    radius now follows the text size (`theme.pill_radius`); this holds it at every size a
+    person can choose, on a real chip - the same QToolButton `chips.py` builds."""
+    from PySide6.QtWidgets import QToolButton
+
+    low, high = theme.TEXT_PX_RANGE
+    for px in range(low, high + 1):
+        theme.set_text_size(px)
+        themed.restyle("light")
+        chip = QToolButton()
+        chip.setObjectName("chip")
+        chip.setText("pdf  ×")
+        chip.setAutoRaise(True)
+        themed(chip)
+        chip.ensurePolished()
+        radius = int(theme.pill_radius()[:-2])
+        assert 2 * radius <= chip.sizeHint().height(), (
+            f"at {px}px text the chip is {chip.sizeHint().height()}px tall and the radius "
+            f"{radius}px - Qt draws it square")
+        assert radius <= 11, "a taller pill keeps the measured 11px, never more"
