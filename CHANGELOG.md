@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.104 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 4.105 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -19,6 +19,10 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### Search and Chat do less twice, and the window stays free while models load (2026-10-10)
 
+- **"Retry with a longer time limit" and reading videos and recordings at the end of a run work again.** Both read
+  nothing after an earlier change today.
+- **Turning Rerank off takes effect at once**; a reranker already loaded went on reordering results.
+- **Filter chips and suggested searches are round again** at the new text size.
 - **A reranked search no longer searches twice.** The better order is worked out from the results already found.
 - **A query is turned into meaning once**, however many times a search or a Chat answer asks for it.
 - **An index with no pictures never starts the picture-search model** on the first search.
