@@ -501,3 +501,90 @@ def test_a_landed_thumbnail_waits_for_the_tick_that_repaints_it(qapp, monkeypatc
     assert emitted == [], "nothing is repainted until the tick"
     model._fade_step()
     assert emitted == [(0, 199)], emitted
+
+
+# -- the waiting picture is cheap to paint (2026-10-10, A5) ---------------------------------
+
+
+def test_a_blurred_preview_is_scaled_once_per_tile_size(qapp):
+    """A waiting tile is painted on every frame of a scroll; its 24-pixel preview was
+    filtered up to the tile on every one of those paints."""
+    from collections import OrderedDict
+
+    from PySide6.QtGui import QColor, QPixmap
+
+    from app.ui.widgets import photo_browser
+
+    soft = QPixmap(24, 24)
+    soft.fill(QColor(90, 120, 200))
+    cache = OrderedDict()
+    first = photo_browser.scaled_preview(cache, soft, 160, 160)
+    again = photo_browser.scaled_preview(cache, soft, 160, 160)
+    assert first.cacheKey() == again.cacheKey(), "scaled again for the same tile"
+    assert (first.width(), first.height()) == (160, 160)
+    larger = photo_browser.scaled_preview(cache, soft, 256, 256)
+    assert (larger.width(), larger.height()) == (256, 256)
+    assert len(cache) == 2
+
+
+def test_a_preview_is_made_at_device_pixels_on_a_scaled_screen(qapp):
+    from collections import OrderedDict
+
+    from PySide6.QtGui import QColor, QPixmap
+
+    from app.ui.widgets import photo_browser
+
+    soft = QPixmap(24, 24)
+    soft.fill(QColor(90, 120, 200))
+    made = photo_browser.scaled_preview(OrderedDict(), soft, 160, 160, 1.5)
+    assert (made.width(), made.height()) == (240, 240)
+    assert made.devicePixelRatio() == 1.5
+
+
+def test_the_scaled_previews_kept_are_bounded(qapp, monkeypatch):
+    from collections import OrderedDict
+
+    from PySide6.QtGui import QColor, QPixmap
+
+    from app.ui.widgets import photo_browser
+
+    monkeypatch.setattr(photo_browser, "KEEP_SCALED", 3)
+    cache = OrderedDict()
+    for _ in range(5):
+        soft = QPixmap(24, 24)                     # a new pixmap each: a new cacheKey
+        soft.fill(QColor(10, 10, 10))
+        photo_browser.scaled_preview(cache, soft, 96, 96)
+    assert len(cache) == 3
+
+
+def test_a_waiting_tile_with_a_preview_paints_and_scales_it_once(qapp):
+    from PySide6.QtGui import QColor, QPixmap
+
+    from app.ui.widgets.photo_browser import PhotoBrowser
+
+    soft = QPixmap(24, 24)
+    soft.fill(QColor(90, 120, 200))
+
+    class _WithPreview(_Thumbs):
+        def tiny(self, path, size, mtime):
+            return soft
+
+    browser = PhotoBrowser(_WithPreview())
+    browser.resize(400, 300)
+    browser.set_rows(_rows(["a.jpg"]))
+    browser.show()
+    qapp.processEvents()
+    assert not browser.grab().isNull()
+    assert not browser.grab().isNull()             # painted twice
+    delegate = browser.grid.itemDelegate()
+    assert len(delegate._scaled) == 1, "the preview was scaled again on the second paint"
+
+
+def test_a_cache_name_is_worked_out_once():
+    from app.ui.widgets.photo_thumbs import cache_name
+
+    cache_name.cache_clear()
+    first = cache_name("D:/Photos/a.jpg", 10, 20)
+    assert cache_name("D:/Photos/a.jpg", 10, 20) == first
+    assert cache_name.cache_info().hits >= 1
+    assert cache_name("D:/Photos/a.jpg", 10, 21) != first

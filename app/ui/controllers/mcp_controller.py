@@ -185,21 +185,36 @@ class McpController(QObject):
             return
         store, port = self._w._store, self._box.port.value()
 
-        def change_settings() -> Any:
-            """Worker body: write (or remove) the program's entry for this server."""
-            if join:
-                return connect(program, endpoint(port), key_for(store))
-            return disconnect(program)
-
         started = time.time()
 
-        def done(_backup: Any) -> None:
-            """UI thread: say what changed and re-read the states."""
+        def change_settings() -> Any:
+            """Worker body: write (or remove) the program's entry for this server,
+            then ask whether Claude Desktop was already running (see `done`)."""
+            if join:
+                backup = connect(program, endpoint(port), key_for(store))
+            else:
+                backup = disconnect(program)
+            # 2026-10-10, A5: this question used to be asked in `done`, on the
+            # interface thread, and it walks every process on the computer -
+            # `psutil.process_iter` with `create_time`, one `OpenProcess` per
+            # process. The window log of 2026-10-10 08:56:20
+            # (logs/runs/run-20261010-085501-window.log, the lag monitor's stack
+            # at line 139: `clients.py started_before` -> `psutil ... proc_info`)
+            # shows it holding the window for 731 ms. Asked here, on the worker,
+            # the window only reads the answer.
+            already = bool(join and program.key == "claude-desktop"
+                           and started_before(claude_desktop_process(), started))
+            return backup, already
+
+        def done(result: Any) -> None:
+            """UI thread: say what changed and re-read the states. Nothing slow here:
+            the worker has already answered every question this needs."""
+            _backup, already = result if isinstance(result, tuple) else (result, False)
             verb = "connected to" if join else "disconnected from"
             self._w.notify(f"Leasha is {verb} {program.name}. {program.note}", 8_000)
             # 3.1 (2026-10-10): Claude Desktop saves its own settings. One started before
             # this Connect holds an older copy, and its next save can drop Leasha's entry.
-            if join and program.key == "claude-desktop" and started_before(claude_desktop_process(), started):
+            if already:
                 self._w.notify("Claude Desktop was already running. Quit it and start it again, "
                                "or it can drop Leasha's entry the next time it saves its settings.",
                                20_000)

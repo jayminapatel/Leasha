@@ -45,7 +45,7 @@ import time
 from PySide6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QItemSelectionModel,
                           QModelIndex, QObject, QPoint, QSize, Qt, QTimer, QVariantAnimation,
                           Signal)
-from PySide6.QtGui import QIcon, QPainter
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLabel, QListView,
                              QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                              QTableView, QVBoxLayout, QWidget)
@@ -277,10 +277,61 @@ def fade_runs(numbers) -> list[tuple[int, int]]:
     return [(first, last) for first, last in runs]
 
 
+#: 2026-10-10, A5: blurred previews kept already scaled to a tile, newest last.
+#: A screenful of Small tiles is about 150, of Large about 30; 256 covers a
+#: screenful and the one scrolled from, at most ~65 KB (Medium) to ~260 KB (Large)
+#: each - and the oldest goes first, so the cost is bounded whatever is scrolled.
+KEEP_SCALED = 256
+
+
+def scaled_preview(cache: "dict", soft: Any, width: int, height: int,
+                   ratio: float = 1.0) -> Any:
+    """`soft` scaled smoothly to `width` x `height` (logical pixels, at the
+    screen's device-pixel `ratio`), made once and kept in `cache` (an
+    `OrderedDict`, oldest first) by the pixmap's own `cacheKey` and the size.
+
+    Made at device pixels and marked with the ratio, so on a 125% or 150%
+    screen it is still drawn 1:1, with no filtering at paint time.
+
+    2026-10-10, A5: the waiting picture is a 24-pixel blurred preview
+    (`photo_thumbs.TINY_EDGE`) drawn into a 96- to 256-pixel tile. Drawn with
+    `SmoothPixmapTransform`, Qt filtered it up to the tile on *every* paint -
+    and a waiting tile is painted on every frame the grid scrolls, which is
+    exactly when tiles are waiting. The preview does not change while it waits
+    (a new one is a new pixmap, with a new `cacheKey`), so it is scaled once.
+    """
+    from PySide6.QtCore import Qt as _Qt
+
+    try:
+        ratio = float(ratio) if float(ratio) > 0 else 1.0
+    except (TypeError, ValueError):
+        ratio = 1.0
+    key = (int(soft.cacheKey()), int(width), int(height), round(ratio, 3))
+    found = cache.get(key)
+    if found is not None:
+        cache.move_to_end(key)
+        return found
+    found = soft.scaled(max(1, round(width * ratio)), max(1, round(height * ratio)),
+                        _Qt.AspectRatioMode.IgnoreAspectRatio,
+                        _Qt.TransformationMode.SmoothTransformation)
+    found.setDevicePixelRatio(ratio)
+    cache[key] = found
+    while len(cache) > KEEP_SCALED:
+        cache.popitem(last=False)
+    return found
+
+
 class _FadeDelegate(QStyledItemDelegate):
     """Paints a tile as usual, except while its picture is on its way: then the
     tile is its blurred preview (or grey, never seen before), and a picture
     still fading in is drawn over that at the strength `PhotoModel.fade_of` gives."""
+
+    def __init__(self, parent: Optional[Any] = None) -> None:
+        from collections import OrderedDict
+
+        super().__init__(parent)
+        #: `scaled_preview`'s store: (cacheKey, width, height) -> pixmap at that size.
+        self._scaled: "OrderedDict" = OrderedDict()
 
     def paint(self, painter: Any, option: Any, index: QModelIndex) -> None:
         """UI thread, no I/O: the blurred preview under a picture fading in."""
@@ -296,17 +347,25 @@ class _FadeDelegate(QStyledItemDelegate):
             return
         opt = QStyleOptionViewItem(option)
         self.initStyleOption(opt, index)
-        picture = QIcon(opt.icon)
+        # 2026-10-10, A5: the picture's icon is copied only when there is one to
+        # fade in - a tile still waiting has nothing to draw over its preview.
+        picture = QIcon(opt.icon) if sharp is not None else None
         opt.icon = model.placeholder
         widget = opt.widget
         style = widget.style() if widget is not None else QApplication.style()
         style.drawControl(QStyle.ControlElement.CE_ItemViewItem, opt, painter, widget)
         where = style.subElementRect(QStyle.SubElement.SE_ItemViewItemDecoration, opt, widget)
         painter.save()
-        if soft is not None:
-            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
-            painter.drawPixmap(where, soft)
-        if sharp is not None:
+        if soft is not None and where.width() > 0 and where.height() > 0:
+            # Scaled once per preview and tile size (`scaled_preview`), then drawn
+            # 1:1 - no filtering on each paint.
+            try:
+                ratio = painter.device().devicePixelRatioF()
+            except (AttributeError, RuntimeError):
+                ratio = 1.0
+            painter.drawPixmap(where.topLeft(), scaled_preview(
+                self._scaled, soft, where.width(), where.height(), ratio))
+        if picture is not None:
             painter.setOpacity(alpha)
             picture.paint(painter, where)
         painter.restore()

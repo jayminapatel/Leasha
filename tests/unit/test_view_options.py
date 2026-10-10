@@ -1551,3 +1551,30 @@ def test_a_search_never_takes_away_a_column_the_list_has_shown():
     replies = [SimpleNamespace(sender="Me", recipients="")]
     assert available_columns(replies, columns, kept=kept) == ("from", "to")
     assert available_columns(replies, columns, kept=set()) == ("from",), "no To anywhere: none"
+
+
+def test_a_text_size_already_in_force_is_not_set_again():
+    """2026-10-10, A5: `setStyleSheet` re-polishes a widget and all its children on
+    every call, even with the same rule. The Files list set the same one after every
+    result page, and the window log caught a 747 ms stall inside that call."""
+    from app.ui.view_options import apply_font
+
+    class _Widget:
+        def __init__(self, sheet=""):
+            self.sheet, self.calls = sheet, 0
+
+        def styleSheet(self):                      # noqa: N802 - Qt's naming
+            return self.sheet
+
+        def setStyleSheet(self, sheet):            # noqa: N802 - Qt's naming
+            self.sheet, self.calls = sheet, self.calls + 1
+
+    widget = _Widget()
+    apply_font(widget, 11)
+    assert widget.sheet == "font-size: 11pt;" and widget.calls == 1
+    apply_font(widget, 11)
+    assert widget.calls == 1, "the same rule was set again"
+    apply_font(widget, 0)
+    assert widget.sheet == "" and widget.calls == 2, "a changed rule still applies"
+    apply_font(widget, 0)
+    assert widget.calls == 2

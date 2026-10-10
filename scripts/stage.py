@@ -140,7 +140,8 @@ Re-stage without the flag to get a tree that matches a real install.
 #: Added by `--with-tests`, so the suite can be run against the production tree.
 #:
 #: `pyproject.toml` is not optional here: it carries the pytest configuration -
-#: `--basetemp`, the strict markers, the `jvm` exclusion - and without it the
+#: the strict markers, the `jvm` exclusion (the per-run basetemp is chosen by
+#: `tests/conftest.py` since 2026-10-10, and travels with `tests`) - and without it the
 #: suite runs with different settings in the staged tree than in development,
 #: which makes any difference in the results meaningless.
 TEST_EXTRAS: tuple[str, ...] = ("tests", "pyproject.toml")

@@ -13,8 +13,16 @@ norecursedirs = [".pytest_tmp", ".git", "venv", "logs", "build", "dist", "__pyca
 # Makes `import app` work regardless of where pytest is invoked from, so the
 # VS Code Test Explorer and a bare `pytest` behave identically.
 pythonpath = ["."]
-# --basetemp keeps pytest's temporary files inside the project instead of
+# pytest's temporary files live inside the project instead of
 # %LOCALAPPDATA%\Temp. Not tidiness - a correctness fix.
+#
+# 2026-10-10: the basetemp is no longer a fixed `--basetemp=.pytest_tmp` here.
+# pytest deletes a given basetemp when a run starts, so two runs in one checkout
+# at once wiped each other's temporary folders. `tests/conftest.py`
+# (`pytest_configure`, helper in `tests/basetemp.py`) now gives every run that
+# was not handed an explicit `--basetemp` its own `.pytest_tmp/run-<pid>` - still
+# a dedicated folder inside the project, so everything below still holds - and
+# removes it after a green run. An explicit `--basetemp` still wins.
 #
 # pytest maintains a `pytest-current` junction in its temp root pointing at the
 # newest run. On Windows, creating and resolving a junction needs a privilege
@@ -29,14 +37,14 @@ pythonpath = ["."]
 # puts scratch I/O on the same drive as the project.
 #
 # WARNING: pytest DELETES the contents of basetemp. It must stay a dedicated
-# folder - never point it at anything real. It is gitignored.
+# folder - never point it at anything real. It is gitignored (`.pytest_tmp*/`).
 # `-m "not jvm"` keeps JVM-starting tests out of the default run: JPype's
 # startJVM can hard-crash the *host process* (a Windows access violation, not
 # a Python exception) depending on the installed Java/JPype pair, taking the
 # whole suite's result with it. A crash in one optional integration must not
 # cost the report for everything else. Run them deliberately, in their own
 # process: `pytest -m jvm`.
-addopts = "-q --strict-markers --basetemp=.pytest_tmp -m \"not jvm and not e2e\""
+addopts = "-q --strict-markers -m \"not jvm and not e2e\""
 # Keep the last few runs' temp trees for inspection, then discard them.
 tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed"

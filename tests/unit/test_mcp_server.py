@@ -698,3 +698,71 @@ def test_a_program_started_before_a_connect_is_named(monkeypatch):
     assert clients.started_before(me, time.time()) is True
     assert clients.started_before(me, 0) is False
     assert clients.started_before("no-such-program-xyz.exe", time.time()) is False
+
+
+def test_only_a_process_with_the_right_name_is_asked_its_start_time(monkeypatch):
+    """2026-10-10, A5: asking every process its start time held the window 731 ms
+    (lag monitor, 08:56:20). Only the name is read of every process now."""
+    import psutil
+
+    from app.serve import clients
+
+    asked = []
+
+    class _Proc:
+        def __init__(self, name, created):
+            self.info = {"name": name}
+            self._created = created
+
+        def create_time(self):
+            asked.append(self.info["name"])
+            return self._created
+
+    procs = [_Proc("explorer.exe", 1.0), _Proc("Claude.exe", 5.0), _Proc("svchost.exe", 1.0)]
+    seen_attrs = []
+
+    def fake_iter(attrs=None, *a, **k):
+        seen_attrs.append(list(attrs or []))
+        return iter(procs)
+
+    monkeypatch.setattr(psutil, "process_iter", fake_iter)
+    assert clients.started_before("claude.exe", 10.0) is True
+    assert clients.started_before("claude.exe", 1.0) is False
+    assert asked == ["Claude.exe", "Claude.exe"], "no other process is asked its start time"
+    assert all("create_time" not in attrs for attrs in seen_attrs)
+
+
+@pytest.mark.gui
+def test_connect_asks_whether_claude_desktop_was_running_on_the_worker(
+        gui_mainwindow, qtbot, tmp_path, monkeypatch):
+    """2026-10-10, A5: `started_before` walks every process; it ran in `done`, on the
+    interface thread, and held the window 731 ms. It must run on the worker, and the
+    window must still be told when Claude Desktop was already running."""
+    import threading
+
+    from app.serve import clients
+    from app.ui.controllers import mcp_controller
+
+    _app, window, _store, _engine = gui_mainwindow
+    program = clients.Program("claude-desktop", "Claude Desktop",
+                              str(tmp_path / "c" / "claude_desktop_config.json"),
+                              "mcpServers", "url", "Restart it.")
+    program.path().parent.mkdir()
+    monkeypatch.setattr(clients, "PROGRAMS", (program,))
+    ui_thread = threading.get_ident()
+    asked_on = []
+
+    def fake_started_before(_name, _when):
+        asked_on.append(threading.get_ident())
+        return True
+
+    monkeypatch.setattr(mcp_controller, "started_before", fake_started_before)
+    told = []
+    monkeypatch.setattr(window, "notify", lambda text, *_a, **_k: told.append(text))
+    ctl = window.mcp_ctl
+    monkeypatch.setattr(ctl, "refresh", lambda: None)
+    ctl.connect_program("claude-desktop", True)
+    qtbot.waitUntil(lambda: len(told) >= 2, timeout=5_000)
+    assert asked_on and all(ident != ui_thread for ident in asked_on), \
+        "the process walk ran on the interface thread"
+    assert any("already running" in text for text in told)

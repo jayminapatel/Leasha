@@ -1352,7 +1352,23 @@ def apply_font(widget: Any, font_pt: int) -> None:
         size = 0
     # Qt warns and ignores anything <= 0. A widget sized from a px stylesheet
     # reports pointSize() == -1, which is how a -1 reached setPointSize at all.
-    widget.setStyleSheet(f"font-size: {size}pt;" if size > 0 else "")
+    wanted = f"font-size: {size}pt;" if size > 0 else ""
+    # 2026-10-10, A5: **only when it changes.** `setStyleSheet` does not compare
+    # with what is already there: every call re-polishes the widget and all its
+    # children, sending each a style-change event - and through every Python
+    # event filter on the way. `apply_to_table` runs after every result page
+    # (`files_view._show` -> `_apply_prefs`), so the same rule was set again on
+    # every search. The window log of 2026-10-10 07:24:44
+    # (logs/runs/run-20261010-072434-window.log, line 135) caught the window
+    # 263 ms into a 747 ms stall inside exactly this line, called from
+    # `FilesView._show`, with `FilesView.eventFilter` being entered under it.
+    # An unchanged rule is now left alone; a changed one is set as before.
+    try:
+        if widget.styleSheet() == wanted:
+            return
+    except (AttributeError, RuntimeError, TypeError):
+        pass
+    widget.setStyleSheet(wanted)
 
 
 def _has_rows(table: Any) -> bool:
