@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.5 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.0
+**Doc version:** 1.6 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -35,7 +35,7 @@ disagree, the one named below wins.
 
 **Verify, never guess.** Run the command, read the function, check the second source
 before asserting anything. Three wrong diagnoses in one session are why. When
-something cannot be checked from here — `D:\Leasha\Data`, the Windows venv, Qt
+something cannot be checked from here — `D:\LeashaIndex\Data`, the Windows venv, Qt
 behaviour — say so and ask, rather than reasoning past the gap.
 
 **Never create a work order unprompted.** Answer design questions in conversation.
@@ -74,7 +74,7 @@ folders, commands and apps only while the desktop app is open.
 |---|---|---|
 | Code, docs, work orders | GitHub `jayminapatel/Leasha`, branch `main` - the only master | a cloud session clones and pushes; the laptop runs `git pull` |
 | Laptop working copy + venv | `D:\Local\GitHub\Leasha` (moved out of Google Drive 2026-09-30) | git only - never Drive sync |
-| The owner's index and models | `D:\Leasha\Data` | never synced, never in git |
+| The owner's index and models | `D:\LeashaIndex\Data` (the `.env`'s `DATA_PATH`; `D:\Leasha\Data` until 2026-10-10) | never synced, never in git |
 | Release builds | Google Drive `Leasha\Releases\<version>\` (on the laptop `D:\Local\GDrive\Leasha\Releases\`), outside the repo | Drive sync brings them to the laptop |
 
 **A cloud (Linux) session can do**: code, docs, pure-Python tests. **It cannot see**:
