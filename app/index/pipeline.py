@@ -2487,8 +2487,8 @@ class Pipeline:
         log. Not after a few files from the folder watch, which may come every
         few seconds, nor from the media tail's run, whose outer run does it.
 
-        `getattr` until that method is on the store in this branch's base:
-        a store without it skips the step, which is what happened before.
+        `getattr` because test doubles of the store do not all carry
+        `SqliteStore.checkpoint_wal`: a store without it skips the step.
         """
         checkpoint = getattr(self.store, "checkpoint_wal", None)
         if checkpoint is None:
@@ -5964,7 +5964,12 @@ class Pipeline:
         """
         try:
             # 2026-10-08: whole files per batch - see `unembedded_by_file`.
-            backlog = self.store.unembedded_by_file(batch_size=self.config.embed_batch)
+            # 2026-10-10 (indexing review S2): in the order the run reads -
+            # the `--first` folders first, then newest file first - not the
+            # order the passages were stored in.
+            backlog = self.store.unembedded_by_file(
+                batch_size=self.config.embed_batch,
+                first_folders=[str(p) for p in (self.config.walk.priority_roots or ())])
         except Exception as exc:                 # noqa: BLE001 - a repair, not the job
             self._log.warning("could not check for unembedded chunks: {}", exc)
             return
