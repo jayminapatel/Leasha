@@ -8422,12 +8422,24 @@ class Pipeline:
         that still exist - harmless, they are simply re-deleted next time - where
         the reverse leaves vectors whose file row has gone, which is the
         orphaned-vector state that has no route back.
+
+        2026-10-10, review P3: **both vector stores, text and pictures.** This
+        deleted only `self.vectors`, so a photo or a film that vanished from
+        disk lost its row and kept its CLIP vector (and, through
+        `ImageVectorStore.delete_by_file_ids`, its frames) in
+        `image_vectors` for ever - exactly the orphaned-vector state the
+        paragraph above exists to prevent, and one "find a picture like this"
+        would go on answering from. `forget_folder.forget_ids` already deleted
+        both; the clean-up pass and the folder watch's `forget_files` now do the
+        same, in the same order: every vector side first, then SQLite.
         """
         if not doomed:
             return 0
         for start in range(0, len(doomed), self.PRUNE_BATCH):
             batch = doomed[start:start + self.PRUNE_BATCH]
-            self.vectors.delete_by_file_ids(batch)
+            for side in (self.vectors, self.image_vectors):
+                if side is not None:
+                    side.delete_by_file_ids(batch)
             with self.store.batch():
                 for file_id in batch:
                     self.store.delete_file(file_id)
