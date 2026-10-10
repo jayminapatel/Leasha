@@ -130,6 +130,10 @@ def _backlog_pipeline_class() -> type:
     class BacklogPipeline(Pipeline):
         """`Pipeline` with its candidates taken from the ledger, not from a walk."""
 
+        #: 2026-10-10: the outer run does the end-of-run work - see
+        #: `Pipeline.outer_run_finishes`, and `drain` below for the faces.
+        outer_run_finishes = True
+
         def __init__(self, *args: Any, queued: list[Candidate], **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
             self._queued = queued
@@ -247,6 +251,14 @@ def drain(
     finally:
         finished.set()
         watcher.join(timeout=2)
+        # 2026-10-10: faces the tail found in films and has not grouped (it
+        # leaves grouping to this run - `outer_run_finishes`) are this run's
+        # to group, straight after this returns. Also after a tail that
+        # raised: whatever faces it stored before that are still ungrouped.
+        left = int(getattr(sub, "_faces_since_cluster", 0) or 0)
+        if left:
+            pipeline._faces_since_cluster = (
+                int(getattr(pipeline, "_faces_since_cluster", 0) or 0) + left)
 
     _merge(stats, done, before=len(queued), remaining=len(queued_paths(pipeline.store)))
     stats.enrichment_counts[KIND_MEDIA_TRANSCRIPT] = done.indexed

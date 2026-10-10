@@ -1169,6 +1169,29 @@ _FEEDER_QUEUE_SIZE = 1
 #: batches that take half a minute: nothing waits on it.
 _PARKED_POLL_S = 0.1
 
+#: 2026-10-10. How long a stop may wait for the meaning model to finish the
+#: batch it is in the middle of, so the batch's vectors are written instead of
+#: thrown away. Measured from the moment the embedder first sees the stop, and
+#: shared by every batch after it, so a stop never costs more than this plus
+#: the one model call already running (`CPU_INFER_BATCH` passages, a few
+#: seconds). A batch the measured pace says will not finish inside it is cut
+#: exactly as before. Seen on 2026-10-10 07:03: closing the window cut "0 of
+#: 480 passages embedded" 1.4 s after the stop - a 480-passage batch on the
+#: processor is 40-90 s, far past any bound a closing window can give, so
+#: this changes nothing there; it keeps the batch that was nearly done.
+#: Fixed, not a setting (non-negotiable 11): the window gives a closing run
+#: 30 s (`MainWindow.INDEX_SHUTDOWN_GRACE_MS`) and the run's own tail needs a
+#: few of them; nobody has a reason to trade those seconds differently.
+STOP_FINISH_BATCH_S = 10.0
+
+#: 2026-10-10. How long the end of the meaning catch-up waits for the photo
+#: passes running beside it (`_start_pictures_beside_meaning`) once the run is
+#: stopping. One photo description is ~10 s on the processor and ~4 s on the
+#: graphics card; a thread still busy after this is left (it is a daemon and
+#: stops at its next photo) and the run's own end does not start the same
+#: passes a second time behind it.
+PICTURES_BESIDE_JOIN_S = 30.0
+
 #: §6g. How dominant `waiting` must be, as a share of the critical path,
 #: before another extraction worker is worth starting. The same threshold
 #: `stages.advice()` uses for "this run is extraction-bound" - one number,
@@ -1322,6 +1345,52 @@ def say_unexpected_skip(log: Any, path: Any, error: Any) -> bool:
         return True
     except Exception:                            # noqa: BLE001 - see the docstring
         return False
+
+
+def _chars(texts: list[str]) -> int:
+    """A batch's size in characters, every passage counted as at least one."""
+    return sum(max(1, len(text)) for text in texts)
+
+
+class _BesideMeaning:
+    r"""The pipeline, as the photo passes see it while they run beside the
+    meaning catch-up (`Pipeline._start_pictures_beside_meaning`). 2026-10-10.
+
+    Everything is the pipeline's own - every read and every write goes
+    straight through - except two things the passes must not do from a second
+    thread while the run's thread is reporting and the feeder is embedding:
+
+    * **say a phase.** The run's thread is saying "meaning"; two threads
+      writing `stats.phase` would make the page flicker between them. The
+      phase is kept here, and the catch-up names it once the model's own
+      backlog is done (`_follow_pictures_beside`).
+    * **embed.** Each pass ends by embedding what it wrote
+      (`_drain_unembedded`), which calls `_embed_pending` - not safe beside the
+      feeder's own call, and its query would take the meaning backlog the
+      feeder is working through as well. Noted here instead, and done once by
+      the run's end after the feeder has gone (`run`).
+
+    A view rather than a change to the passes, so the passes read the same
+    whether they run beside the model or after it.
+    """
+
+    def __init__(self, pipeline: "Pipeline") -> None:
+        object.__setattr__(self, "_pipeline", pipeline)
+        object.__setattr__(self, "phase", "")
+        object.__setattr__(self, "wrote", False)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._pipeline, name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(self._pipeline, name, value)
+
+    def _announce_phase(self, stats: Any, on_progress: Any, phase: str) -> None:
+        object.__setattr__(self, "phase", phase)
+
+    def _drain_unembedded(self, stats: Any, **_kwargs: Any) -> None:
+        object.__setattr__(self, "wrote", True)
+
 
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
@@ -1913,6 +1982,12 @@ class Pipeline:
         self._stop.clear()
         self._interrupted = False
         self._embed_abandoned = False
+        # 2026-10-10: a second run starts afresh - no stop seen, nothing
+        # embedded at the run's end yet, no photo passes beside the meaning model.
+        self._stop_seen_at = None
+        self._tail_embedding = False
+        self._pictures_beside = None
+        self._beside_view = None
         # A pause belongs to the run it was asked for. A second run on the
         # same `Pipeline` starts moving, and a person who wants it held asks
         # again - a run that sat still for a reason nobody can see is the
@@ -2167,16 +2242,54 @@ class Pipeline:
 
         # Work order 202626270515: videos and recordings the run only found are
         # read now, after everything else - see `app/index/media_backlog.py`.
+        # 2026-10-10: `finishing` is False for the media tail's own run
+        # (`outer_run_finishes`): the run that started it does every step
+        # guarded on it straight afterwards, over the same store, so doing them
+        # here too was each of them twice - see `app/index/media_backlog.py`.
+        finishing = not light and not self.outer_run_finishes
+        # 2026-10-10: the feeder has gone and every thread has been told to
+        # unwind, so `_stop` is set for good. Anything embedded from here on
+        # is a pass's own new passages, and only the person's Stop may cut it
+        # (`_stopping_for_embed`), not the flag the teardown set.
+        self._tail_embedding = True
         if not light:
             self._drain_media_backlog(stats, on_progress)
         # 2026-10-04: faces found this run are grouped now, not at the start of
-        # the next one - see `FACE_CLUSTER_EVERY`.
-        if getattr(self, "_faces_since_cluster", 0):
+        # the next one - see `FACE_CLUSTER_EVERY`. 2026-10-10: not by the media
+        # tail's run, which hands its count to the outer run instead.
+        if getattr(self, "_faces_since_cluster", 0) and not self.outer_run_finishes:
             self._drain_face_cluster(stats)
             self._faces_since_cluster = 0
-        if not light:
+        # 2026-10-10: the photo passes may already have run beside the meaning
+        # model (`_start_pictures_beside_meaning`). They run again here all the
+        # same - the media tail above can leave pictures of its own, and a pass
+        # with nothing waiting is one query - unless that thread is somehow
+        # still going, when a second copy of the same pass would describe the
+        # same photos twice.
+        # Their counts are kept: each pass *sets* its count, so the second,
+        # near-empty run of it would otherwise report the photos described
+        # beside the model as none at all.
+        beside = getattr(self, "_pictures_beside", None)
+        if finishing and not (beside is not None and beside.is_alive()):
+            # Taken out first, so a pass that returns before counting (no
+            # Florence-2 here) does not have the earlier count added twice.
+            done_beside = {kind: stats.enrichment_counts.pop(kind, None)
+                           for kind in ("photo_tags", "picture_text")}
             self._drain_photo_tags(stats, on_progress)
             self._drain_picture_text(stats, on_progress)
+            for kind, count in done_beside.items():
+                if count is not None:
+                    stats.enrichment_counts[kind] = (
+                        stats.enrichment_counts.get(kind, 0) + count)
+            # What the passes beside the model wrote, embedded now that the
+            # feeder has gone - the call each pass makes at its own end, made
+            # once for them (`_BesideMeaning`). `at_run_end` is the form of
+            # `_drain_unembedded` that embeds here rather than parking, and
+            # whose stop is the person's Stop; until it exists the passages
+            # wait for the next run, as every post-pass passage did.
+            view = getattr(self, "_beside_view", None)
+            if getattr(view, "wrote", False) and self._drain_takes_run_end():
+                self._drain_unembedded(stats, at_run_end=True)
         self._close_ocr_helper()                 # the last OCR of the run was just above
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
@@ -2230,8 +2343,11 @@ class Pipeline:
         # `except OSError: continue` used to make those files vanish with no
         # number anywhere, and on Windows a path over 260 characters is exactly
         # that case.
+        # 2026-10-10: not from the media tail's run. `dataclasses.replace` hands
+        # it the outer walk's own sink dicts, so it read the outer run's numbers
+        # and said each of these warnings a second time.
         unreachable = dict(getattr(self.config.walk, "stat_failures", {}) or {})
-        if unreachable:
+        if unreachable and not self.outer_run_finishes:
             stats.unreachable_by_reason = unreachable
             stats.activity.record(KIND_WARNING, (
                 f"{sum(unreachable.values()):,} file(s) could not be looked at "
@@ -2252,7 +2368,7 @@ class Pipeline:
         # says so.
         oversize_dropped = dict(
             getattr(self.config.walk, "oversize_dropped", {}) or {})
-        if oversize_dropped:
+        if oversize_dropped and not self.outer_run_finishes:
             stats.oversize_dropped = oversize_dropped
             stats.activity.record(KIND_WARNING, (
                 f"{sum(oversize_dropped.values()):,} file(s) were too large to "
@@ -2279,8 +2395,9 @@ class Pipeline:
                 sum(self._settled_skips.values()),
                 ", ".join(f"{code} ({count:,})" for code, count in worst),
             )
-        self._report_root_problems(stats)
-        if not light:
+        if not self.outer_run_finishes:           # 2026-10-10: the same sink
+            self._report_root_problems(stats)
+        if finishing:
             # 0z F1: a few files from the folder watch are not "the last run"
             # - that record is what the Indexing page and the tuning footer
             # show, and a one-file update must not replace a night's numbers.
@@ -2293,26 +2410,42 @@ class Pipeline:
         # (Also when the readers end, and at each resume-cursor write - see
         # `_save_run_books`; anything the media backlog added is written here.)
         self._save_run_books()
+        # 2026-10-10, the owner's close at 07:03:02: the run had stopped its
+        # batch 1.4 s after the stop and reached this phase at 07:03:03.6, and
+        # was still in it at 07:03:37 when the window ended the process ("did
+        # not stop within 5s"). Nothing else was logged in between, and this
+        # phase is the table's index build and a forced rewrite of the whole
+        # vector table. **A stopped run leaves both to the next run**, which
+        # does them at its own end: a table left fragmented or without its
+        # newest index rows is slower to search, never wrong, and a stop is
+        # somebody waiting for the run to end. The media tail's run leaves
+        # them to the run that started it, which does them a moment later.
+        tidy_vectors = not self._interrupted and not self.outer_run_finishes
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
-        self.vectors.maybe_create_index()
-        # **Always at the end of a run**, whatever the row threshold says. A run
-        # that added 4,000 chunks would otherwise never compact at all, and a
-        # nightly incremental index is exactly that shape - a small run, every
-        # day, each one leaving fragments behind forever.
-        # 0z F1: **except after a few files from the folder watch**, which may
-        # come every few seconds - rewriting the table each time would cost
-        # far more than the file did. Those leave the table to its own
-        # threshold (`COMPACT_EVERY_ROWS`) and to the next ordinary run.
-        self.vectors.maybe_compact(force=not light)
-        # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
-        # applied to the image table. Nothing above this line ever calls
-        # `maybe_create_index` on it either - see `_flush_pending_images`.
-        if self.image_vectors is not None:
-            self.image_vectors.maybe_create_index()
-            self.image_vectors.maybe_compact(force=not light)
+        if tidy_vectors:
+            self.vectors.maybe_create_index()
+            # **Always at the end of a run**, whatever the row threshold says. A run
+            # that added 4,000 chunks would otherwise never compact at all, and a
+            # nightly incremental index is exactly that shape - a small run, every
+            # day, each one leaving fragments behind forever.
+            # 0z F1: **except after a few files from the folder watch**, which may
+            # come every few seconds - rewriting the table each time would cost
+            # far more than the file did. Those leave the table to its own
+            # threshold (`COMPACT_EVERY_ROWS`) and to the next ordinary run.
+            self.vectors.maybe_compact(force=not light)
+            # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
+            # applied to the image table. Nothing above this line ever calls
+            # `maybe_create_index` on it either - see `_flush_pending_images`.
+            if self.image_vectors is not None:
+                self.image_vectors.maybe_create_index()
+                self.image_vectors.maybe_compact(force=not light)
         self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
-        self._optimise_keyword_index(stats)
-        if not light:
+        # 2026-10-10: the merge rewrites the whole word index, so it is left by
+        # a stopped run and by the media tail's run, as the vector work above
+        # is. Triggers a bulk load suspended are put back regardless - without
+        # them nothing written after this run is in keyword search at all.
+        self._optimise_keyword_index(stats, merge=tidy_vectors)
+        if finishing:
             # 0z F1: the completions file is rebuilt from the whole index.
             self._write_completions()
         from app.extract.legacy_office import take_fallback_summary
@@ -2328,7 +2461,42 @@ class Pipeline:
             stats.activity.record(
                 KIND_FINISHED,
                 "stopped" if (self._interrupted or stats.stopped_early) else "")
+        if finishing:
+            self._checkpoint_wal()
         return stats
+
+    def _drain_takes_run_end(self) -> bool:
+        """Does `_drain_unembedded` have its `at_run_end` form here? 2026-10-10:
+        being added in another change; asked rather than assumed, so this
+        branch runs either way. Once both are in, this is always True."""
+        import inspect
+
+        try:
+            return "at_run_end" in inspect.signature(self._drain_unembedded).parameters
+        except (TypeError, ValueError):
+            return False
+
+    def _checkpoint_wal(self) -> None:
+        r"""Fold the write-ahead log back into the database, last thing in a run.
+
+        2026-10-10. A run of days writes gigabytes through the WAL, and SQLite
+        only checkpoints it in passing; whatever is left stays beside the
+        database until something asks. `SqliteStore.checkpoint_wal` asks
+        (TRUNCATE, PASSIVE when a reader is in the way) and never raises.
+        Last, after every write the run makes, so nothing follows it into the
+        log. Not after a few files from the folder watch, which may come every
+        few seconds, nor from the media tail's run, whose outer run does it.
+
+        `getattr` until that method is on the store in this branch's base:
+        a store without it skips the step, which is what happened before.
+        """
+        checkpoint = getattr(self.store, "checkpoint_wal", None)
+        if checkpoint is None:
+            return
+        try:
+            checkpoint()
+        except Exception as exc:                  # noqa: BLE001 - housekeeping, not the run
+            self._log.debug("the write-ahead log was not checkpointed: {}", exc)
 
     def _report_gpu_regression(self, stats: IndexStats) -> None:
         r"""Work order 202626130120 (0t) section 6, the one case that fires.
@@ -2483,7 +2651,7 @@ class Pipeline:
             target = Path(database).parent.parent
         write_sidecar(self.store, target)
 
-    def _optimise_keyword_index(self, stats: IndexStats) -> None:
+    def _optimise_keyword_index(self, stats: IndexStats, *, merge: bool = True) -> None:
         r"""Merge the FTS5 segments, after a run that wrote enough to matter.
 
         **Never run before this existed.** FTS5 writes a segment per batch of
@@ -2517,6 +2685,11 @@ class Pipeline:
                 # Clear the dirty flag now that triggers are restored
                 self.store.set_state("fts_dirty", "")
 
+        # 2026-10-10: `merge=False` - a stopped run, or the media tail's run -
+        # puts the triggers back above and leaves the merge to the next run
+        # (or to the outer one, which reads this run's chunks in its count).
+        if not merge:
+            return
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
             return
@@ -5198,8 +5371,16 @@ class Pipeline:
         moving ("batch n of m") instead of sitting on the last file read - and
         the one that honours the person's pause and Stop. A stop leaves the
         rest `embedded = 0` for the next run to park again at its start.
+
+        2026-10-10: **the photo passes may run beside it**, when the photo
+        models are on a different processor from the meaning model - see
+        `_start_pictures_beside_meaning`. Then this also waits for them, and
+        for the passages they hand the model, before it returns; once the
+        model's own backlog is done it says which photo pass is still going,
+        so the page names what the run is actually waiting for.
         """
-        if self._parked_idle():
+        beside = self._start_pictures_beside_meaning(stats)
+        if beside is None and self._parked_idle():
             return
         # Named only when there is a backlog. The run's last batch is nearly
         # always still with the model as reading ends, and that wait was never
@@ -5209,35 +5390,45 @@ class Pipeline:
         if backlog:
             self._announce_phase(stats, on_progress, PHASE_MEANING)
         last = time.monotonic()
-        while not self._stop.is_set():
-            self._raise_if_feeder_failed()
-            if self._feeder_thread is not None and not self._feeder_thread.is_alive():
-                break
-            if self._parked_idle():
-                break
-            if self._person_paused():
-                self._report_pause(stats, on_progress)
-                held_from = time.monotonic()
-                stopped = self._hold_if_paused()
-                note = getattr(self.governor, "note_manual_pause", None)
-                if note is not None:
-                    note(time.monotonic() - held_from)
-                if stopped:
+        failed = True
+        try:
+            while not self._stop.is_set():
+                self._raise_if_feeder_failed()
+                if self._feeder_thread is not None and not self._feeder_thread.is_alive():
                     break
-                self._report_pause(stats, on_progress)
-                continue
-            now = time.monotonic()
-            if (now - last) >= HEARTBEAT_SECONDS:
-                last = now
-                if not self._disk_ok(stats):
-                    break
-                if on_progress is not None:
-                    try:
-                        stats.sample(now=now)
-                        on_progress(stats)
-                    except Exception as exc:  # noqa: BLE001 - reporting, not work
-                        self._log.warning("progress reporting failed: {}", exc)
-            time.sleep(_PARKED_POLL_S)
+                # Read **before** `_parked_idle`: a photo pass that parks its
+                # last batch and then ends is seen as parked, never missed.
+                pictures = beside is not None and beside.is_alive()
+                if self._parked_idle():
+                    if not pictures:
+                        break
+                    self._follow_pictures_beside(stats, on_progress)
+                if self._person_paused():
+                    self._report_pause(stats, on_progress)
+                    held_from = time.monotonic()
+                    stopped = self._hold_if_paused()
+                    note = getattr(self.governor, "note_manual_pause", None)
+                    if note is not None:
+                        note(time.monotonic() - held_from)
+                    if stopped:
+                        break
+                    self._report_pause(stats, on_progress)
+                    continue
+                now = time.monotonic()
+                if (now - last) >= HEARTBEAT_SECONDS:
+                    last = now
+                    if not self._disk_ok(stats):
+                        break
+                    if on_progress is not None:
+                        try:
+                            stats.sample(now=now)
+                            on_progress(stats)
+                        except Exception as exc:  # noqa: BLE001 - reporting, not work
+                            self._log.warning("progress reporting failed: {}", exc)
+                time.sleep(_PARKED_POLL_S)
+            failed = False
+        finally:
+            self._end_pictures_beside(beside, failed=failed)
         # A parked batch already in the model's hands is finished (or cut
         # short by the stop) before anything else in the run moves on - the
         # teardown must never find the feeder still writing vectors.
@@ -5250,6 +5441,156 @@ class Pipeline:
                 break
             time.sleep(0.01)
         self._raise_if_feeder_failed()
+
+    # -- 2026-10-10: the photo passes beside the meaning model ---------------
+
+    def _start_pictures_beside_meaning(
+            self, stats: IndexStats) -> Optional[threading.Thread]:
+        r"""Start the photo passes now, beside the meaning catch-up - or None.
+
+        2026-10-10. The end of a text-first run waits for the meaning model's
+        backlog (`_catch_up_meaning`), and the photo passes - Florence-2
+        descriptions, then text read from pictures - used to wait behind it.
+        On the owner's laptop that backlog was 5.9 million passages at 5-13 a
+        second: days, with every photo undescribed until it was over. Measured
+        there (HANDOFF, 2026-10-04): the meaning model is fastest on the
+        processor, and Florence-2 (8.0 -> 4.0 s a photo) and OCR (2.6 -> 1.5)
+        on the Iris Xe. Two models on two processors do not compete for either,
+        so the photo passes start here (`_BesideMeaning` says how they run)
+        and their new passages get their vectors at the run's end, where the
+        passes have always had them embedded.
+
+        **Only then** (`_pictures_beside_allowed`). With all of them on the
+        processor - a 15 W, 2P+8E part - the meaning model already uses the
+        cores it can (more threads gain nothing past four: +6% at eight,
+        slower at twelve), Florence-2 is the heaviest model in the stack, and
+        both would share one power budget; nothing measured says the pair
+        would finish sooner than one after the other, and the meaning model
+        slowing down is the one thing a text-first run is waiting on. With all
+        of them on the graphics card, `gpu_exclusive` makes them take turns
+        anyway. Both stay as they were: after the catch-up.
+
+        Not for a folder-watch run (`light`, which tags as it reads), not for
+        the media tail's run, not once the run is stopping, and not when
+        nothing is parked - the passes then follow at once, as before.
+        """
+        if self.config.light or self.outer_run_finishes or self._interrupted:
+            return None
+        with self._parked_lock:
+            backlog = bool(self._parked) and not self._parked_refused
+        if not backlog:
+            return None
+        try:
+            if not self._pictures_beside_allowed():
+                return None
+        except Exception as exc:                  # noqa: BLE001 - "no" is always safe
+            self._log.debug("photo passes stay after the meaning model: {}", exc)
+            return None
+
+        view = _BesideMeaning(self)
+        passes_of = type(self)
+
+        def passes() -> None:
+            # Each pass is already never fatal; this is for anything between
+            # them, so one bad photo pass can never take the run's thread down.
+            try:
+                passes_of._drain_photo_tags(view, stats, None)
+                if not self._interrupted:
+                    passes_of._drain_picture_text(view, stats, None)
+            except Exception as exc:              # noqa: BLE001 - a repair, not the job
+                self._log.warning(
+                    "the photo passes beside the meaning model stopped: {}", exc)
+
+        self._beside_view = view
+        thread = threading.Thread(target=self._background(passes),
+                                  name="pictures-beside-meaning", daemon=True)
+        self._pictures_beside = thread
+        self._log.info(
+            "describing and reading photos on the {} while the meaning model "
+            "finishes on the {}", *self._beside_devices_words())
+        thread.start()
+        return thread
+
+    def _pictures_beside_allowed(self) -> bool:
+        """Are the photo models on a different processor from the meaning model?
+
+        The meaning model's own answer (`Embedder.choice`, set when it loaded
+        at the start of the run) against what Florence-2 and OCR will be given
+        (`_picture_models_on_gpu`). Every one of the photo models must differ:
+        one sharing the meaning model's processor is the contention this
+        avoids.
+        """
+        meaning_gpu = self._meaning_on_gpu()
+        pictures = self._picture_models_on_gpu()
+        if not pictures:
+            return False
+        return all(on_gpu != meaning_gpu for on_gpu in pictures)
+
+    def _meaning_on_gpu(self) -> bool:
+        return bool(getattr(getattr(self.embedder, "choice", None), "is_gpu", False))
+
+    def _picture_models_on_gpu(self) -> tuple[bool, ...]:
+        """Florence-2's and OCR's processor, as their own constructors choose it.
+
+        The same call each makes for itself - `backends.choose` on this
+        machine's profile and the per-model setting (`model_devices`) - so the
+        answer is the one they will act on, a driver that failed this session
+        included. A seam for tests, which have no graphics card to ask about.
+        """
+        from app.core.compute_profile import detect
+        from app.core.config import load_settings
+        from app.core.model_devices import device_for
+        from app.index import backends
+
+        settings = load_settings(create_dirs=False, check_writable=False)
+        profile = detect()
+        return tuple(bool(backends.choose(profile, device_for(settings, model)).is_gpu)
+                     for model in ("describe", "ocr"))
+
+    def _beside_devices_words(self) -> tuple[str, str]:
+        card, cpu = "graphics card", "processor"
+        return (cpu, card) if self._meaning_on_gpu() else (card, cpu)
+
+    def _follow_pictures_beside(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]],
+    ) -> None:
+        """The model is idle and the photo passes are not: say which one runs."""
+        view = getattr(self, "_beside_view", None)
+        phase = getattr(view, "phase", "")
+        if phase and stats.phase != phase:
+            self._announce_phase(stats, on_progress, phase)
+
+    def _end_pictures_beside(self, thread: Optional[threading.Thread], *,
+                             failed: bool) -> None:
+        """Wait for the photo passes beside the catch-up before the run moves on.
+
+        Unbounded while the run is going on normally: the catch-up returned
+        because the model is idle, and the passes are the run's work. Bounded
+        once the run is stopping (`PICTURES_BESIDE_JOIN_S`) - they stop at
+        their next photo. If the catch-up raised, the run is ending with an
+        error, and the passes are told so the way a stop tells them: nothing
+        else they look at would ever end them.
+        """
+        if thread is None:
+            return
+        # A feeder that failed or ended takes nothing more, and the run raises
+        # its error straight after this: that is an error ending too, and the
+        # passes would otherwise go on describing photos for nobody.
+        feeder = getattr(self, "_feeder_thread", None)
+        if self._feeder_errors or (feeder is not None and not feeder.is_alive()):
+            failed = True
+        if failed:
+            self._interrupted = True
+        while thread.is_alive():
+            if self._interrupted or self._stop.is_set():
+                thread.join(timeout=PICTURES_BESIDE_JOIN_S)
+                break
+            thread.join(timeout=_PARKED_POLL_S)
+        if thread.is_alive():
+            self._log.warning(
+                "the photo passes were still busy {:.0f}s after the stop; they "
+                "end at their next photo", PICTURES_BESIDE_JOIN_S)
 
     def _persist_text_first_progress(self, stats: IndexStats) -> None:
         """The resume cursors, once the last text is committed. See `_settle`."""
@@ -5558,6 +5899,18 @@ class Pipeline:
     #: like the kinds above: it is the most expensive thing in the corpus and
     #: nothing is waiting behind it. See `_drain_media_backlog`.
     KIND_MEDIA_TRANSCRIPT = "media_transcript"
+
+    #: 2026-10-10. True only for the media tail's own run (`media_backlog.
+    #: BacklogPipeline`). That run is started by another `Pipeline.run` near
+    #: its end, over the same store and tables, and the outer run goes on to
+    #: do its whole end straight afterwards: the photo passes, face grouping,
+    #: the forced vector rewrite, the word-index merge, the completions file,
+    #: the `last_run` record and the WAL checkpoint. Done by both, each was
+    #: done twice, and the second `last_run_stats` overwrote the first with
+    #: the tail's own numbers for a moment. What only the tail can do - its
+    #: own threads, its own books, its OCR helper, triggers it suspended -
+    #: it still does.
+    outer_run_finishes = False
 
     def _drain_media_backlog(
         self, stats: IndexStats,
@@ -8073,7 +8426,7 @@ class Pipeline:
         # identical (`Embedder.groups_by_length` - not the smaller model file);
         # never when a stop is already waiting, so the run's final flush keeps
         # its leading files exactly as before.
-        if (size < len(texts) and not self._stop.is_set()
+        if (size < len(texts) and not self._stopping_for_embed()
                 and getattr(self.embedder, "groups_by_length", False)):
             order = length_order(texts)
             if order is not None:
@@ -8081,6 +8434,8 @@ class Pipeline:
                 if grouped is not None:
                     return grouped
         out: list = []
+        # 2026-10-10: what `_stop_cuts_embedding` measures this batch's pace by.
+        began, done_chars, total_chars = time.monotonic(), 0, _chars(texts)
         for start in range(0, len(texts), size):
             # **The first slice always runs**, unless an earlier batch was already
             # abandoned. A stop keeps "everything gathered so far" up to one model
@@ -8089,9 +8444,16 @@ class Pipeline:
             # run had just finished (`test_stopping_does_not_lose_completed_work`).
             # Once a batch has been cut, the rest are dropped without a call, so a
             # stop still costs one call in flight plus at most this one.
-            if self._stop.is_set() and (start > 0 or self._embed_abandoned):
+            # 2026-10-10: and a later slice runs too while the batch can still
+            # finish inside `STOP_FINISH_BATCH_S` - see `_stop_cuts_embedding`.
+            if start == 0:
+                if self._embed_abandoned and self._stopping_for_embed():
+                    break
+            elif self._stop_cuts_embedding(began, done_chars, total_chars):
                 break
-            out.extend(self.embedder.embed_all(texts[start:start + size]))
+            part = texts[start:start + size]
+            out.extend(self.embedder.embed_all(part))
+            done_chars += _chars(part)
         return out
 
     def _embed_grouped(self, texts: list[str], order: list[int],
@@ -8115,11 +8477,16 @@ class Pipeline:
         its own order, where the count check that already exists catches it.
         """
         found: list = [None] * len(texts)
+        # 2026-10-10: shortest first, so the pace is measured in characters -
+        # passages counted would make the long ones at the end look quick.
+        began, done_chars, total_chars = time.monotonic(), 0, _chars(texts)
         for start in range(0, len(order), size):
-            if self._stop.is_set() and start > 0:
+            if start > 0 and self._stop_cuts_embedding(began, done_chars, total_chars):
                 break
             part = order[start:start + size]
-            vectors = list(self.embedder.embed_all([texts[index] for index in part]))
+            chosen = [texts[index] for index in part]
+            vectors = list(self.embedder.embed_all(chosen))
+            done_chars += _chars(chosen)
             if len(vectors) != len(part):
                 self._log.warning(
                     "the model returned {} vectors for {} passages; not grouping "
@@ -8128,6 +8495,47 @@ class Pipeline:
             for index, vector in zip(part, vectors):
                 found[index] = vector
         return found
+
+    def _stopping_for_embed(self) -> bool:
+        """Is a stop asking the embedding in hand to end?
+
+        The stop flag - except at the end of a run, after its teardown
+        (`_tail_embedding`), where only the photo passes' own new passages are
+        embedded: the teardown sets that flag to unwind the run's threads, so
+        there only the person's Stop counts.
+        """
+        if getattr(self, "_tail_embedding", False):
+            return bool(self._interrupted)
+        return self._stop.is_set()
+
+    def _stop_cuts_embedding(self, began: float, done_chars: int,
+                             total_chars: int) -> bool:
+        r"""Should a stop cut this batch here, between two model calls?
+
+        2026-10-10, the owner's close at 07:03: "stopped mid-batch: 0 of 480
+        passages embedded and written" - every vector the batch had made so
+        far was thrown away. **A batch that can finish soon now finishes**:
+        `began` is when this batch started, `done_chars` how much of it the
+        model has done, `total_chars` all of it; at that pace, if the rest is
+        done before `STOP_FINISH_BATCH_S` after the stop was first seen, it
+        goes on and its files are written whole. Otherwise it is cut exactly
+        as before. The allowance is shared by every batch after the stop, so
+        the run's final flush cannot add a second one, and a batch already cut
+        (`_embed_abandoned`) means every later one is cut at once.
+        """
+        if not self._stopping_for_embed():
+            return False
+        if self._embed_abandoned:
+            return True
+        now = time.monotonic()
+        seen = getattr(self, "_stop_seen_at", None)
+        if seen is None:
+            seen = self._stop_seen_at = now
+        deadline = seen + STOP_FINISH_BATCH_S
+        if now >= deadline or done_chars <= 0:
+            return True
+        rest = (now - began) * (total_chars - done_chars) / done_chars
+        return now + rest > deadline
 
     @staticmethod
     def _whole_file_prefix(pending: list[tuple[int, int, str]], done: int) -> int:

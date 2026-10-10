@@ -105,6 +105,18 @@ class ResumableArchive:
 
 
 @pytest.fixture(autouse=True)
+def _no_time_to_finish_a_batch(monkeypatch):
+    """*2026-10-10 note*: a stop now lets a batch that can finish within
+    `STOP_FINISH_BATCH_S` finish (`test_stop_finishes_the_batch.py`), and this
+    fake model finishes any batch in an instant. These tests pin the cut
+    itself - what a stop that cannot wait must and must not leave - so they
+    give it no time."""
+    from app.index import pipeline as module
+
+    monkeypatch.setattr(module, "STOP_FINISH_BATCH_S", 0.0)
+
+
+@pytest.fixture(autouse=True)
 def _register_archive():
     before = dict(base.REGISTRY)
     base.REGISTRY.pop(".stopmbox", None)
