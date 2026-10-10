@@ -1323,6 +1323,7 @@ def say_unexpected_skip(log: Any, path: Any, error: Any) -> bool:
     except Exception:                            # noqa: BLE001 - see the docstring
         return False
 
+
 class Pipeline:
     """Walk, extract, embed and write - resumably, and without falling over."""
 
@@ -2159,14 +2160,20 @@ class Pipeline:
 
         # Work order 202626270515: videos and recordings the run only found are
         # read now, after everything else - see `app/index/media_backlog.py`.
+        # 2026-10-10: `finishing` is False for the media tail's own run
+        # (`outer_run_finishes`): the run that started it does every step
+        # guarded on it straight afterwards, over the same store, so doing them
+        # here too was each of them twice - see `app/index/media_backlog.py`.
+        finishing = not light and not self.outer_run_finishes
         if not light:
             self._drain_media_backlog(stats, on_progress)
         # 2026-10-04: faces found this run are grouped now, not at the start of
-        # the next one - see `FACE_CLUSTER_EVERY`.
-        if getattr(self, "_faces_since_cluster", 0):
+        # the next one - see `FACE_CLUSTER_EVERY`. 2026-10-10: not by the media
+        # tail's run, which hands its count to the outer run instead.
+        if getattr(self, "_faces_since_cluster", 0) and not self.outer_run_finishes:
             self._drain_face_cluster(stats)
             self._faces_since_cluster = 0
-        if not light:
+        if finishing:
             self._drain_photo_tags(stats, on_progress)
             self._drain_picture_text(stats, on_progress)
         self._close_ocr_helper()                 # the last OCR of the run was just above
@@ -2222,8 +2229,11 @@ class Pipeline:
         # `except OSError: continue` used to make those files vanish with no
         # number anywhere, and on Windows a path over 260 characters is exactly
         # that case.
+        # 2026-10-10: not from the media tail's run. `dataclasses.replace` hands
+        # it the outer walk's own sink dicts, so it read the outer run's numbers
+        # and said each of these warnings a second time.
         unreachable = dict(getattr(self.config.walk, "stat_failures", {}) or {})
-        if unreachable:
+        if unreachable and not self.outer_run_finishes:
             stats.unreachable_by_reason = unreachable
             stats.activity.record(KIND_WARNING, (
                 f"{sum(unreachable.values()):,} file(s) could not be looked at "
@@ -2244,7 +2254,7 @@ class Pipeline:
         # says so.
         oversize_dropped = dict(
             getattr(self.config.walk, "oversize_dropped", {}) or {})
-        if oversize_dropped:
+        if oversize_dropped and not self.outer_run_finishes:
             stats.oversize_dropped = oversize_dropped
             stats.activity.record(KIND_WARNING, (
                 f"{sum(oversize_dropped.values()):,} file(s) were too large to "
@@ -2271,8 +2281,9 @@ class Pipeline:
                 sum(self._settled_skips.values()),
                 ", ".join(f"{code} ({count:,})" for code, count in worst),
             )
-        self._report_root_problems(stats)
-        if not light:
+        if not self.outer_run_finishes:           # 2026-10-10: the same sink
+            self._report_root_problems(stats)
+        if finishing:
             # 0z F1: a few files from the folder watch are not "the last run"
             # - that record is what the Indexing page and the tuning footer
             # show, and a one-file update must not replace a night's numbers.
@@ -2285,26 +2296,35 @@ class Pipeline:
         # (Also when the readers end, and at each resume-cursor write - see
         # `_save_run_books`; anything the media backlog added is written here.)
         self._save_run_books()
+        # 2026-10-10: the media tail's run leaves the table's index build and
+        # its forced rewrite to the run that started it, which does both a
+        # moment later over the same table.
+        tidy_vectors = not self.outer_run_finishes
         self._announce_phase(stats, on_progress, PHASE_VECTOR_INDEX)
-        self.vectors.maybe_create_index()
-        # **Always at the end of a run**, whatever the row threshold says. A run
-        # that added 4,000 chunks would otherwise never compact at all, and a
-        # nightly incremental index is exactly that shape - a small run, every
-        # day, each one leaving fragments behind forever.
-        # 0z F1: **except after a few files from the folder watch**, which may
-        # come every few seconds - rewriting the table each time would cost
-        # far more than the file did. Those leave the table to its own
-        # threshold (`COMPACT_EVERY_ROWS`) and to the next ordinary run.
-        self.vectors.maybe_compact(force=not light)
-        # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
-        # applied to the image table. Nothing above this line ever calls
-        # `maybe_create_index` on it either - see `_flush_pending_images`.
-        if self.image_vectors is not None:
-            self.image_vectors.maybe_create_index()
-            self.image_vectors.maybe_compact(force=not light)
+        if tidy_vectors:
+            self.vectors.maybe_create_index()
+            # **Always at the end of a run**, whatever the row threshold says. A run
+            # that added 4,000 chunks would otherwise never compact at all, and a
+            # nightly incremental index is exactly that shape - a small run, every
+            # day, each one leaving fragments behind forever.
+            # 0z F1: **except after a few files from the folder watch**, which may
+            # come every few seconds - rewriting the table each time would cost
+            # far more than the file did. Those leave the table to its own
+            # threshold (`COMPACT_EVERY_ROWS`) and to the next ordinary run.
+            self.vectors.maybe_compact(force=not light)
+            # Work order 0h §1b, M8 pattern: the same end-of-run-only discipline,
+            # applied to the image table. Nothing above this line ever calls
+            # `maybe_create_index` on it either - see `_flush_pending_images`.
+            if self.image_vectors is not None:
+                self.image_vectors.maybe_create_index()
+                self.image_vectors.maybe_compact(force=not light)
         self._announce_phase(stats, on_progress, PHASE_WORD_INDEX)
-        self._optimise_keyword_index(stats)
-        if not light:
+        # 2026-10-10: the merge rewrites the whole word index, so the media
+        # tail's run leaves it to the outer run, as the vector work above.
+        # Triggers a bulk load suspended are put back regardless - without
+        # them nothing written after this run is in keyword search at all.
+        self._optimise_keyword_index(stats, merge=tidy_vectors)
+        if finishing:
             # 0z F1: the completions file is rebuilt from the whole index.
             self._write_completions()
         from app.extract.legacy_office import take_fallback_summary
@@ -2475,7 +2495,7 @@ class Pipeline:
             target = Path(database).parent.parent
         write_sidecar(self.store, target)
 
-    def _optimise_keyword_index(self, stats: IndexStats) -> None:
+    def _optimise_keyword_index(self, stats: IndexStats, *, merge: bool = True) -> None:
         r"""Merge the FTS5 segments, after a run that wrote enough to matter.
 
         **Never run before this existed.** FTS5 writes a segment per batch of
@@ -2509,6 +2529,11 @@ class Pipeline:
                 # Clear the dirty flag now that triggers are restored
                 self.store.set_state("fts_dirty", "")
 
+        # 2026-10-10: `merge=False` - the media tail's run - puts the triggers
+        # back above and leaves the merge to the outer run, which reads this
+        # run's chunks in its count.
+        if not merge:
+            return
         optimise = getattr(self.store, "optimize_fts", None)
         if optimise is None:
             return
@@ -5515,6 +5540,18 @@ class Pipeline:
     #: like the kinds above: it is the most expensive thing in the corpus and
     #: nothing is waiting behind it. See `_drain_media_backlog`.
     KIND_MEDIA_TRANSCRIPT = "media_transcript"
+
+    #: 2026-10-10. True only for the media tail's own run (`media_backlog.
+    #: BacklogPipeline`). That run is started by another `Pipeline.run` near
+    #: its end, over the same store and tables, and the outer run goes on to
+    #: do its whole end straight afterwards: the photo passes, face grouping,
+    #: the forced vector rewrite, the word-index merge, the completions file,
+    #: the `last_run` record and the WAL checkpoint. Done by both, each was
+    #: done twice, and the second `last_run_stats` overwrote the first with
+    #: the tail's own numbers for a moment. What only the tail can do - its
+    #: own threads, its own books, its OCR helper, triggers it suspended -
+    #: it still does.
+    outer_run_finishes = False
 
     def _drain_media_backlog(
         self, stats: IndexStats,
