@@ -178,6 +178,7 @@ class SideList(QTreeWidget):
         """Redraw the icons in this palette (the window calls it on a theme change)."""
         self._colours = dict(colours)
         if self._entries:
+            self._shape = ()                               # a new palette: draw every row again, not just the ticks
             self.set_entries(self._entries)
 
     # -- drawing -------------------------------------------------------------------------

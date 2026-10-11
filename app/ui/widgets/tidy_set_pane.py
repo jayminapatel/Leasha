@@ -30,6 +30,20 @@ from app.ui.presenter.tidy import set_heading
 __all__ = ["TidySetPane", "TAB_ICONS"]
 
 _PATH = int(Qt.ItemDataRole.UserRole) + 21
+_SORT = int(Qt.ItemDataRole.UserRole) + 22
+
+
+class _Row(QTreeWidgetItem):
+    """A copies row that sorts size and date by their numbers, not by the words shown."""
+
+    def __lt__(self, other: "QTreeWidgetItem") -> bool:
+        column = self.treeWidget().sortColumn() if self.treeWidget() is not None else 0
+        a, b = self.data(column, _SORT), other.data(column, _SORT)
+        if a is not None and b is not None:
+            return a < b
+        return self.text(column).casefold() < other.text(column).casefold()
+
+
 #: Tab -> Lucide glyph (`assets/icons`), drawn by `retint`.
 TAB_ICONS = (("Compare", "layout-grid"), ("Copies", "list"), ("Details", "info"),
              ("Keep rule", "sliders-horizontal"), ("List", "list-checks"))
@@ -97,6 +111,16 @@ class TidySetPane(QWidget):
         self.copies.setAccessibleName("Every copy")
         self.copies.setHeaderLabels(["Can go", "Where", "Size", "Modified"])
         self.copies.setRootIsDecorated(False)
+        # The same table behaviour as every other list: columns fitted to what is in them, the path
+        # taking the rest of the width and shortened in the middle, and a click on a heading sorts.
+        header = self.copies.header()
+        header.setStretchLastSection(False)
+        for column, mode in ((0, header.ResizeMode.ResizeToContents), (1, header.ResizeMode.Stretch),
+                             (2, header.ResizeMode.ResizeToContents), (3, header.ResizeMode.ResizeToContents)):
+            header.setSectionResizeMode(column, mode)
+        self.copies.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.copies.setSortingEnabled(True)
+        self.copies.sortByColumn(1, Qt.SortOrder.AscendingOrder)
         self.copies.itemChanged.connect(self._row_changed)
         for view in (self.tiles, self.copies):
             view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -224,16 +248,18 @@ class TidySetPane(QWidget):
                 tile.setCheckState(_state(self._marked_of(f.path)))
                 tile.setSizeHint(QSize(_TILE + 24, _TILE + 64))
                 self.tiles.addItem(tile)
-                row = QTreeWidgetItem(["", f.path, format_size(f.size_bytes), _when(f.mtime_ns)])
+                row = _Row(["", f.path, format_size(f.size_bytes), _when(f.mtime_ns)])
                 row.setData(0, _PATH, f.path)
+                row.setData(2, _SORT, int(f.size_bytes or 0))
+                row.setData(3, _SORT, int(f.mtime_ns or 0))
+                row.setToolTip(1, f.path)
                 row.setFlags(row.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 row.setCheckState(0, _state(self._marked_of(f.path)))
                 self.copies.addTopLevelItem(row)
             for where in tset.elsewhere:
-                row = QTreeWidgetItem(["", where, "", "on a catalogued drive - never touched"])
+                row = _Row(["", where, "", "on a catalogued drive - never touched"])
                 row.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 self.copies.addTopLevelItem(row)
-            self.copies.resizeColumnToContents(0)
         for view in (self.tiles, self.copies):
             view.blockSignals(False)
         self.list_pane.refresh_marks(self._marked_of)
