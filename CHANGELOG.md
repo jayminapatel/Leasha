@@ -32,6 +32,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
   install order: dated notes recording that distribution is on again (owner, 2026-10-11).
 
+### Drop-downs and the default marker (2026-10-12)
+
+- **Every drop-down now shows its arrow.** The stylesheet had removed the native arrow and drawn none, so the type
+  boxes (work, home, mobile), the country boxes and every other combo looked like plain text boxes. The type boxes
+  were always editable: pick a suggestion or type your own word.
+- **The default email or phone says "Default"** in a filled button; the others say "Set default".
+
 ### Microsoft updates and the bin (2026-10-12)
 
 - **Fixed: Microsoft refused every contact update (HTTP 500).** Graph answers 500 to a change that sets an address to
