@@ -17,6 +17,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Changed in two places: review and accept, and notes are joined (2026-10-12)
+
+- **More tools > Changed in two places...** lists every clash with both values and the one kept now. Tick (all, none,
+  by which side is kept, waiting for you), then Keep what is there, Keep Leasha's or Keep the account's - one batch,
+  one undo, like merges.
+- **Notes changed on both sides are joined** instead of one winning; no clash is recorded as nothing is lost.
+
 ### Mail: "Messages saved as files" (2026-10-12)
 
 - It held 4,913 items, of which about 4,050 were attachments (pictures, spreadsheets, PDFs) inside Outlook archives,

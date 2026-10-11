@@ -115,6 +115,83 @@ class MergeStep:
     names: list[str] = field(default_factory=list)
 
 
+# --------------------------------------------------------------------------
+# Changed in two places: review and accept
+# --------------------------------------------------------------------------
+
+def _unit_value(raw: Any) -> Any:
+    """The stored JSON text of one side of a clash, as the value `card.units` makes (lists back to tuples)."""
+    import json
+
+    value = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+    if isinstance(value, list) and len(value) == 4:
+        label, text, data, primary = value
+        return (label, text, tuple(sorted((k, v) for k, v in (data or []))), bool(primary))
+    return value
+
+
+def _put_unit(hub: Any, card: Card, unit: str, value: Any) -> bool:
+    """Set `unit` on `card` to `value` (None removes it). False when the unit is not one this can set."""
+    from app.contacts.card import Field  # noqa: PLC0415
+
+    kind, _, rest = unit.partition(":")
+    if kind == "s":
+        if rest not in SCALARS:
+            return False
+        if value:
+            card.scalars[rest] = str(value)
+        else:
+            card.scalars.pop(rest, None)
+        return True
+    if kind == "f":
+        for f in list(card.fields):
+            if "f:" + field_key(f, hub.region) == unit:
+                card.fields.remove(f)
+        if value is not None:
+            label, text, data, primary = value
+            card.fields.append(Field(rest.partition(":")[0], text, label, dict(data), bool(primary)))
+        return True
+    return False
+
+
+def open_conflict_rows(hub: Any) -> list[dict]:
+    """Every clash still open, each with its contact's name: what the review window lists."""
+    rows = hub.open_conflicts()
+    names: dict[int, str] = {}
+    for r in rows:
+        cid = int(r["contact_id"])
+        if cid not in names:
+            card = hub.get_card(cid)
+            names[cid] = display_name(card) if card is not None else f"Contact {cid}"
+        r["contact_name"] = names[cid]
+    return rows
+
+
+def accept_conflicts(hub: Any, picks: Sequence[tuple[int, str]]) -> MergeSummary:
+    """Settle clashes: `picks` is `(conflict id, "local" | "remote")`, the side to keep.
+
+    The hub already holds the winner's value, so keeping the winner only clears the clash; keeping the other
+    side writes that value to the contact (which the next sync sends on). One batch, so one undo."""
+    batch = new_batch()
+    open_by_id = {int(r["id"]): r for r in hub.open_conflicts()}
+    switched = 0
+    for conflict_id, side in picks:
+        row = open_by_id.get(int(conflict_id))
+        if row is None or side not in ("local", "remote"):
+            continue
+        current = "remote" if row.get("winner") == "remote" else "local"
+        if side != current:
+            cid = int(row["contact_id"])
+            card = hub.get_card(cid)
+            value = _unit_value(row["remote_value" if side == "remote" else "local_value"])
+            if card is not None and _put_unit(hub, card, str(row["unit"]), value):
+                hub.update(cid, card, action="conflict-choice", batch_id=batch)
+                switched += 1
+        hub.resolve_conflict_row(int(conflict_id))
+    forget_scan(hub)
+    return MergeSummary(batch if switched else None, len(picks), switched)
+
+
 def plan_chosen_merges(groups: Iterable, cards: dict[int, Card], region: str = "GB") -> list[MergeStep]:
     """What merging the groups the person ticked will do. Unlike `plan_safe_merges` it asks nothing of
     the reasons: the person looked and chose. A group of fewer than two live cards is left out."""

@@ -271,6 +271,16 @@ class MergeResult:
     held: bool = False              # a clash was left for the person ("ask me every time")
 
 
+def _join_notes(local: str, remote: str) -> str:
+    """Both notes, once each: if one already contains the other the longer stands, else local then remote."""
+    a, b = local.strip(), remote.strip()
+    if b in a:
+        return a
+    if a in b:
+        return b
+    return a + "\n\n" + b
+
+
 def merge(base: Optional[Card], local: Card, remote: Card, caps: Capabilities, *,
           local_time: float = 0.0, remote_time: float = 0.0, policy: str = "newest",
           remote_wins_ties: bool = False, region: str = phones.DEFAULT_REGION) -> MergeResult:
@@ -295,6 +305,10 @@ def merge(base: Optional[Card], local: Card, remote: Card, caps: Capabilities, *
             pick = rv
         elif rv == bv:
             pick = lv
+        elif key == "s:notes" and isinstance(lv, str) and isinstance(rv, str) and lv.strip() and rv.strip():
+            # Notes are free text that both sides added to: keep both rather than pick one. No clash is
+            # recorded - nothing is lost, so there is nothing to review.
+            pick = _join_notes(lv, rv)
         else:
             if policy == "local":
                 winner = "local"
