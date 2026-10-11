@@ -505,6 +505,22 @@ class ContactHub:
                 (cid, account_id, remote_id, version_tag,
                  snapshot.dumps() if snapshot is not None else "{}", hub_rev, state, int(time.time())))
 
+    def mirror_to(self, account_ids: Iterable[int]) -> int:
+        """Keep every live contact in each of these accounts: a contact with no link to one gets a
+        `pending_create` link, written there at the next push. A link in any state counts as a
+        link - one the account deleted (`deleted_remote`) or the person removed is not brought
+        back. Returns how many links were added."""
+        added = 0
+        with self._write() as conn:
+            for aid in {int(a) for a in account_ids}:
+                for r in conn.execute(
+                        "SELECT c.id FROM contacts c WHERE c.deleted_at IS NULL AND NOT EXISTS "
+                        "(SELECT 1 FROM contact_links l WHERE l.contact_id = c.id AND l.account_id = ?)",
+                        (aid,)).fetchall():
+                    self._ensure_link(conn, int(r[0]), aid, "pending_create")
+                    added += 1
+        return added
+
     def drop_link(self, cid: int, account_id: int, *, conn: Any = None) -> None:
         ctx = self._write() if conn is None else _Null(conn)
         with ctx as c:

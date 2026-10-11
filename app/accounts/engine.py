@@ -68,6 +68,7 @@ class Plan:
     merge_in: int = 0             # contacts already linked whose account side changed
     possible_duplicates: int = 0  # new from the account but matching a contact already here
     flagged_deleted: int = 0      # deleted at the account (kept here, D7.1)
+    deleted_in: int = 0           # deleted at the master account, so deleted here and at the others
     create_out: int = 0           # written to the account for the first time
     update_out: int = 0
     delete_out: int = 0
@@ -80,8 +81,8 @@ class Plan:
 
     def to_json(self) -> dict:
         return {k: getattr(self, k) for k in (
-            "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "create_out", "update_out",
-            "delete_out", "conflicts", "held_conflicts")} | {"names": self.names}
+            "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "deleted_in", "create_out",
+            "update_out", "delete_out", "conflicts", "held_conflicts")} | {"names": self.names}
 
     @property
     def added(self) -> int:
@@ -93,7 +94,7 @@ class Plan:
 
     @property
     def deleted(self) -> int:
-        return self.delete_out
+        return self.delete_out + self.deleted_in
 
     @property
     def held(self) -> int:
@@ -121,6 +122,8 @@ class _Ctx:
     trigger: str
     cancel: Callable[[], bool]
     full_seen: set[str] = field(default_factory=set)
+    master: bool = False                                      # this account is the master list
+    master_gone: set[int] = field(default_factory=set)        # contacts the master no longer has
 
 
 class ContactSyncEngine:
@@ -152,18 +155,28 @@ class ContactSyncEngine:
             run_id = self.accounts.start_run(acct, "contacts", trigger, dry_run=dry)
             out = SyncOutcome(acct.id, acct.name, run_id, "running")
             outcomes[acct.id] = out
-            ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel)
+            ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel,
+                       master=acct.id == settings.master_account_id)
             out.needs_approval = first_pending
             try:
                 self.accounts.record_attempt(acct.id, "contacts")
                 provider = self.provider_for(acct)
                 providers[acct.id] = provider
                 self._pull(acct, provider, ctx, settings)
+                if ctx.master and not ctx.dry:
+                    self._apply_master_deletes(acct, ctx, settings, allow_brake)
                 if ctx.dry:
                     self._plan_outbound(acct, provider, ctx)
                     out.status = "needs-approval" if first_pending else "dry-run"
+            except _Held as held:
+                out.status, out.error = "held", held.error
             except Exception as exc:                          # noqa: BLE001 - one account never stops the rest
                 self._fail(acct, out, exc)
+        if settings.mirror_contacts and not dry_run:
+            targets = [a.id for a in chosen if a.writes_contacts and outcomes[a.id].status == "running"
+                       and (a.first_sync_done or not settings.dry_run_first or approve_first)]
+            if len(targets) > 1:
+                self.hub.mirror_to(targets)                   # every contact, in every account that takes them
         for acct in chosen:                                  # phase 2: push
             out = outcomes[acct.id]
             if out.status != "running" or not acct.writes_contacts:
@@ -261,10 +274,47 @@ class ContactSyncEngine:
             for r in conn.execute("SELECT contact_id, remote_id FROM contact_links WHERE account_id = ? "
                                   "AND state = 'synced' AND remote_id IS NOT NULL", (acct.id,)).fetchall():
                 if r["remote_id"] not in ctx.full_seen:
+                    if ctx.master:
+                        ctx.master_gone.add(r["contact_id"])
+                        continue
                     self.hub.flag_deleted_remote(r["contact_id"], acct.id, sync_id=ctx.run_id, conn=conn)
                     ctx.plan.flagged_deleted += 1
             self.accounts.save_token(acct.id, "contacts", self.accounts.state(acct.id, "contacts").token,
                                      extra={"full_in_progress": False, "seen": []}, conn=conn)
+
+    def _apply_master_deletes(self, acct: Account, ctx: _Ctx, settings: AccountSettings,
+                              allow_brake: bool) -> None:
+        """What the master account no longer holds is deleted here (to the Bin, so it can be put
+        back) and, at the next push, at the other accounts.
+
+        The delete brake stands in front of it: a master that suddenly returns nothing - an outage,
+        a revoked permission - must not empty the book. Past the limit the contacts are only
+        flagged "deleted elsewhere" and the run is held; pressing Allow carries them out, because
+        a flagged contact of the master counts again on every later sync."""
+        hub = self.hub
+        gone = set(ctx.master_gone)
+        for r in self.store.conn.execute(
+                "SELECT l.contact_id FROM contact_links l JOIN contacts c ON c.id = l.contact_id "
+                "WHERE l.account_id = ? AND l.state = 'deleted_remote' AND c.deleted_at IS NULL", (acct.id,)):
+            gone.add(int(r[0]))
+        alive = sorted(c for c in gone if (m := hub.contact_meta(c)) is not None and m["deleted_at"] is None)
+        if not alive:
+            return
+        book = max(1, hub.count(include_bin=True))
+        too_many = len(alive) > settings.brake_count or (len(alive) > 1 and len(alive) > book * settings.brake_percent / 100.0)
+        if too_many and not allow_brake:
+            for cid in alive:
+                hub.flag_deleted_remote(cid, acct.id, sync_id=ctx.run_id)
+            ctx.plan.flagged_deleted += len(alive)
+            err = make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=len(alive), account=acct.name)
+            self.accounts.finish_run(ctx.run_id, "held", error_code=err.code, error_text=err.message,
+                                     plan=ctx.plan.to_json(), held=len(alive))
+            raise _Held(err)
+        for cid in alive:
+            ctx.plan.note("deleted_in", self._name(cid))
+            hub.drop_link(cid, acct.id)                       # already gone there: nothing to delete
+            hub.delete(cid, actor=f"account:{acct.id}", sync_id=ctx.run_id)
+            ctx.plan.deleted_in += 1
 
     def _inbound(self, acct: Account, provider: ContactProvider, rc: RemoteContact, ctx: _Ctx) -> None:
         caps = provider.caps
@@ -279,6 +329,13 @@ class ContactSyncEngine:
                     hub.drop_link(link.contact_id, acct.id)
                 return
             if link.state == "deleted_remote":
+                return
+            if ctx.master:                                    # the master's delete is everyone's
+                if ctx.dry:
+                    ctx.plan.deleted_in += 1
+                    ctx.plan.note("deleted_in", self._name(link.contact_id))
+                else:
+                    ctx.master_gone.add(link.contact_id)
                 return
             ctx.plan.flagged_deleted += 1
             ctx.plan.note("flagged_deleted", self._name(link.contact_id))
