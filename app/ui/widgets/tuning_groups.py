@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFormLayout,
     QGroupBox,
+    QLineEdit,
     QLabel,
     QSpinBox,
 )
@@ -522,6 +523,25 @@ class StrategyBox(QGroupBox):
             "well, as documents are, and indexing takes longer.\n"
             "Takes effect from the next Start.")
 
+        # 2026-10-12, the owner: which file types never go to the meaning model (configurable, so a type
+        # can be brought back later), and whether the model is given passages of a similar length together.
+        self.words_only = QLineEdit()
+        self.words_only.setObjectName("INDEX_WORDS_ONLY_TYPES")
+        self.words_only.setPlaceholderText("svg,epub")
+        self.words_only.setAccessibleName("File types found by their words only")
+        self.words_only.setToolTip(
+            "File types found by the words in them only - never sent to the\n"
+            "meaning model, which is most of an index run. A comma list:\n"
+            "svg,epub. Take a type out and it is given meaning again at the\n"
+            "next Start, without being read again.")
+        self.group_by_length = QCheckBox("Group passages by length")
+        self.group_by_length.setObjectName("EMBED_GROUP_BY_LENGTH")
+        self.group_by_length.setToolTip(
+            "Send the meaning model passages of a similar length together:\n"
+            "less padding, so a run is a quarter to two fifths faster.\n"
+            "Vectors differ in the last decimals only.\n"
+            "Takes effect from the next Start.")
+
         self.dedup = QCheckBox("Embed repeated text once")
         self.dedup.setObjectName("EMBED_DEDUP")
         self.dedup.setToolTip(
@@ -591,14 +611,17 @@ class StrategyBox(QGroupBox):
         self._save = Debounced(lambda: self.changed.emit(self.values()),
                                parent=self)
         for widget in (self.two_phase, self.dedup, self.separate_process,
-                       self.read_processes, self.spreadsheet_meaning):
+                       self.read_processes, self.spreadsheet_meaning, self.group_by_length):
             widget.stateChanged.connect(lambda _s: self._save())
+        self.words_only.editingFinished.connect(lambda: self._save())
         for widget in (self.bulk_fts, self.ocr_pass, self.read_order):
             widget.currentIndexChanged.connect(lambda _i: self._save())
 
         form = QFormLayout(self)
         form.addRow(self.two_phase)
         form.addRow(self.spreadsheet_meaning)
+        form.addRow("Found by their words only", self.words_only)
+        form.addRow(self.group_by_length)
         form.addRow(self.dedup)
         form.addRow("Word index", self.bulk_fts)
         form.addRow("Read images", self.ocr_pass)
@@ -613,10 +636,12 @@ class StrategyBox(QGroupBox):
         """Fill from Settings with signals blocked; then drop any debounced write queued before."""
         widgets = (self.two_phase, self.dedup, self.bulk_fts, self.ocr_pass,
                    self.read_order, self.separate_process, self.read_processes,
-                   self.spreadsheet_meaning)
+                   self.spreadsheet_meaning, self.words_only, self.group_by_length)
         for widget in widgets:
             widget.blockSignals(True)
         try:
+            self.words_only.setText(str(getattr(settings, "index_words_only_types", "svg,epub")))
+            self.group_by_length.setChecked(bool(getattr(settings, "embed_group_by_length", True)))
             self.two_phase.setChecked(
                 bool(getattr(settings, "index_two_phase", True)))
             self.spreadsheet_meaning.setChecked(
@@ -643,6 +668,8 @@ class StrategyBox(QGroupBox):
         return {
             "INDEX_TWO_PHASE": bool(self.two_phase.isChecked()),
             "INDEX_SPREADSHEET_MEANING": bool(self.spreadsheet_meaning.isChecked()),
+            "INDEX_WORDS_ONLY_TYPES": self.words_only.text().strip().lower() or "svg,epub",
+            "EMBED_GROUP_BY_LENGTH": bool(self.group_by_length.isChecked()),
             "EMBED_DEDUP": bool(self.dedup.isChecked()),
             "INDEX_BULK_FTS": str(self.bulk_fts.currentData() or "auto"),
             "INDEX_OCR_PASS": str(self.ocr_pass.currentData() or "with-run"),

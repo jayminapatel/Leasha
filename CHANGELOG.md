@@ -17,6 +17,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Faster meaning: what goes to the model, and in what order (2026-10-12)
+
+- **Found by their words only** (Settings > Index > Tuning): a comma list of file types never sent to the meaning
+  model. The default is `svg,epub` (epub books were 23% and svg drawings 10% of what was waiting). Take a type out of
+  the list and it is queued for meaning again at the next Start, without being read again.
+- **Mail first:** the meaning backlog is worked mail before documents (after the `--first` folders), newest first.
+- **Group passages by length** is on by default, also for the smaller model file: less padding, so the run is a
+  quarter to two fifths faster; vectors differ in the last decimals only.
+
 ### Sync that does not give up, attachments, and Enrich progress (2026-10-12)
 
 - **Microsoft sync:** four more causes found on the owner's account and fixed. Outlook holds two home and two work

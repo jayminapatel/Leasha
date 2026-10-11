@@ -218,6 +218,7 @@ class Embedder:
         problems: Optional[list] = None,
         threads: int = 0,
         quantised: bool = False,
+        group_quantised: bool = False,
         on_progress: Optional[Callable[[float], None]] = None,
     ) -> None:
         if batch_size < 1:
@@ -242,6 +243,9 @@ class Embedder:
         #: Prefer the quantised model file: several times smaller and faster on
         #: a processor, no gain on a graphics card, a small cost in ranking.
         self.quantised = bool(quantised)
+        #: Group a batch by length for the smaller file too (`EMBED_GROUP_BY_LENGTH`): faster, vectors that
+        #: differ in the last decimals. Off, as it was, for a bare `Embedder`; the setting turns it on.
+        self.group_quantised = bool(group_quantised)
         #: True once the smaller (int8) file is the one loaded - not merely
         #: asked for: on the graphics card, or when it cannot be prepared, the
         #: ordinary file answers instead. See `groups_by_length`.
@@ -278,6 +282,7 @@ class Embedder:
             cache_dir=str(getattr(settings, "model_cache", "") or "") or None,
             device=_device_for(settings, "meaning"),  # 2026-10-04: per model (`model_devices`)
             quantised=bool(getattr(settings, "embed_quantised", False)),
+            group_quantised=bool(getattr(settings, "embed_group_by_length", False)),
         )
         fields.update(overrides)
         return cls(
@@ -627,7 +632,7 @@ class Embedder:
             return False
         if self.choice is not None and self.choice.is_gpu:
             return False
-        return not self._quantised_in_use
+        return self.group_quantised or not self._quantised_in_use
 
     def _length_order(self, texts: Sequence[str]) -> Optional[list[int]]:
         """The order to hand `texts` to the model in, or None to leave it alone.

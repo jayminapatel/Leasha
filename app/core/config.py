@@ -402,6 +402,15 @@ class Settings(BaseModel):
     #: index they were 52% of all passages (xlsx, xls, xlsm, csv), so half of
     #: every run's embedding time went on rows of cells.
     index_spreadsheet_meaning: bool = False
+    #: 2026-10-12, the owner: which file types are found by their words only, and never sent to the meaning model.
+    #: A comma list of extensions. The meaning model ran at 5-13 passages a second on the owner's processor with
+    #: 5.4 million passages waiting; epub books (23% of them) and svg drawings (10%) are rarely searched by
+    #: idea. Taking a type out of this list queues it for meaning again at the next run.
+    index_words_only_types: str = "svg,epub"
+    #: 2026-10-12, the owner. Batch the meaning model's passages by length, also for the smaller (int8) file:
+    #: padding falls and a run is a quarter to two fifths faster; vectors differ in the last decimals (cosine
+    #: against the ungrouped vector 0.994 or better in the 2026-09-30 measurement), not in what a search finds.
+    embed_group_by_length: bool = True
     #: Work order 0z lane B (`app/index/file_watch.py`). Seconds one text or
     #: code file may take to read before it is skipped (`ERR_FILE_TIMEOUT`);
     #: PDFs, Office files and other documents get ten times this. 0 is no
@@ -582,6 +591,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_SEPARATE_PROCESS",
     "INDEX_READ_PROCESSES",
     "INDEX_SPREADSHEET_MEANING",
+    "INDEX_WORDS_ONLY_TYPES",
+    "EMBED_GROUP_BY_LENGTH",
     "INDEX_FILE_TIME_LIMIT_S",
     "INDEX_STALL_LIMIT_S",
     "INDEX_WATCH_FOLDERS",
@@ -799,6 +810,9 @@ def load_settings(
             index_spreadsheet_meaning=_as_bool(
                 "INDEX_SPREADSHEET_MEANING",
                 values.get("INDEX_SPREADSHEET_MEANING", "false")),
+            index_words_only_types=(values.get("INDEX_WORDS_ONLY_TYPES") or "svg,epub").strip().lower(),
+            embed_group_by_length=_as_bool(
+                "EMBED_GROUP_BY_LENGTH", values.get("EMBED_GROUP_BY_LENGTH", "true")),
             index_file_time_limit_s=max(0, _as_int(
                 "INDEX_FILE_TIME_LIMIT_S",
                 values.get("INDEX_FILE_TIME_LIMIT_S", "120"))),
