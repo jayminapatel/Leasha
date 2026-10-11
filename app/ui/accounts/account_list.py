@@ -97,8 +97,9 @@ class AccountList(QTreeWidget):
         rows = max(3, min(self.topLevelItemCount(), 8))
         self.setMinimumHeight(self.header().height() + rows * 26 + 8)
         if keep:
+            blocked = self.blockSignals(True)
             self.select(keep)
-        self.account_selected.emit(self.current_id())
+            self.blockSignals(blocked)
 
     def dropEvent(self, event: Any) -> None:               # noqa: N802 - Qt's naming
         super().dropEvent(event)

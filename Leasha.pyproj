@@ -433,6 +433,7 @@
     <Compile Include="app\ui\accounts\backend.py" />
     <Compile Include="app\ui\accounts\globals_box.py" />
     <Compile Include="app\ui\accounts\logic.py" />
+    <Compile Include="app\ui\accounts\panel.py" />
     <Compile Include="app\ui\accounts\parts.py" />
     <Compile Include="app\ui\accounts\state.py" />
     <Compile Include="app\ui\attachment_open.py" />
@@ -452,10 +453,12 @@
     <Compile Include="app\ui\contacts\logic.py" />
     <Compile Include="app\ui\contacts\model.py" />
     <Compile Include="app\ui\contacts\openers.py" />
+    <Compile Include="app\ui\contacts\page.py" />
     <Compile Include="app\ui\contacts\parts.py" />
     <Compile Include="app\ui\contacts\photos.py" />
     <Compile Include="app\ui\contacts\sidebar.py" />
     <Compile Include="app\ui\contacts\smart.py" />
+    <Compile Include="app\ui\contacts\toolbar.py" />
     <Compile Include="app\ui\contacts_tools\__init__.py" />
     <Compile Include="app\ui\contacts_tools\_common.py" />
     <Compile Include="app\ui\contacts_tools\actions.py" />
@@ -464,6 +467,8 @@
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
     <Compile Include="app\ui\contacts_tools\import_dialog.py" />
     <Compile Include="app\ui\contacts_tools\merge_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\print_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\qr_dialog.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
