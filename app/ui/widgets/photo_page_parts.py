@@ -142,45 +142,14 @@ TREE_TIP = ("Show or hide the list on the left - people, years, places and kinds
 
 
 def tree_toggle(view: Any) -> QToolButton:
-    """The tree's on/off icon, beside View: lit while the tree is shown, and kept
-    in step when the View menu changes it (`view.show_tree` calls `set_quietly`)."""
-    from PySide6.QtCore import Qt
+    """The tree's on/off icon, beside View (`side_toggle`, shared with Mail's folders):
+    lit while the tree is shown, kept in step by `view.show_tree`."""
+    from app.ui.widgets.side_toggle import side_toggle
 
-    from app.ui.widgets.icons import icon
-
-    toggle = QToolButton()
-    toggle.setObjectName("toggle_photo_tree")
-    toggle.setProperty("iconToggle", True)
-    toggle.setCheckable(True)
-    toggle.setAutoRaise(True)
-    toggle.setText("People, years and places")
-    toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
-    toggle.setToolTip(TREE_TIP)
-    toggle.setAccessibleName("People, years and places list")
-    toggle.setFocusPolicy(Qt.FocusPolicy.TabFocus)
-    toggle.icon_name = "panel-left"
-
-    def paint(colours: Any = None) -> None:
-        if colours is None:
-            from app.ui.theme import theme_colours
-
-            colours = theme_colours()
-        lit = colours.get("accent_text", "#ffffff") if toggle.isChecked() else colours.get(
-            "text_dim", "#888888")
-        toggle.setIcon(icon("panel-left", lit))
-
-    def quietly(on: bool) -> None:
-        toggle.blockSignals(True)
-        toggle.setChecked(bool(on))
-        toggle.blockSignals(False)
-        paint()
-
-    toggle.clicked.connect(lambda _c=False: view.show_tree(toggle.isChecked()))
-    toggle.toggled.connect(lambda _on: paint())
-    toggle.retint = paint
-    toggle.set_quietly = quietly
-    paint()
-    return toggle
+    view.tree_button = side_toggle(
+        "People, years and places", tip=TREE_TIP, accessible="People, years and places list",
+        name="toggle_photo_tree", on_click=lambda on: view.show_tree(on))
+    return view.tree_button
 
 
 class ViewButton(QToolButton):

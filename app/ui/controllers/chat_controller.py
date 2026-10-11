@@ -182,6 +182,8 @@ class ChatController(QObject):
         self._closing = False
         self._saving = False
         self._pending: dict[str, dict] = {}
+        #: Conversations deleted in this run (2026-10-11): a late read or save never revives one.
+        self._deleted: set[str] = set()
         #: Times the same question has been asked again (Regenerate), for a fresh reply.
         self._again = 0
         #: Whether Settings lets Chat use the web at all (the Web chip's presence).
@@ -498,6 +500,9 @@ class ChatController(QObject):
         found, speed, preview = (*result, "")[:3]
         if self.view is None:
             return
+        # 2026-10-11: this read can land after a delete made meanwhile - put back, the
+        # conversation the person removed came back (`test_chat_tab_qt`, a race).
+        found = [s for s in found if s.id not in self._deleted]
         if speed:
             self.view.set_speed(speed)
         if preview:
@@ -555,6 +560,8 @@ class ChatController(QObject):
     def _delete(self, session_id: str) -> None:
         """Forget a session, on a worker; a new one opens if it was the current one."""
         self.sessions = [s for s in self.sessions if s.id != session_id]
+        # Remembered for this run: a read or a save still on its way must not bring it back.
+        self._deleted.add(session_id)
         worker = CallableWorker(self._sessions.delete, session_id, component="ui.chat")
         worker.signals.failed.connect(lambda error: _log.warning("chat: {}", error))
         run(QThreadPool.globalInstance(), worker)
@@ -584,15 +591,22 @@ class ChatController(QObject):
         record = self._pending.pop(session_id)
         self._saving = True
         worker = CallableWorker(self._sessions.save, record, component="ui.chat")
-        worker.signals.finished.connect(lambda _r: self._saved(None))
-        worker.signals.failed.connect(self._saved)
+        worker.signals.finished.connect(lambda _r, sid=session_id: self._saved(None, sid))
+        worker.signals.failed.connect(lambda error, sid=session_id: self._saved(error, sid))
         run(QThreadPool.globalInstance(), worker)
 
-    def _saved(self, error: Any) -> None:
-        """UI thread: a save landed (or failed, logged); save the next pending one."""
+    def _saved(self, error: Any, session_id: str = "") -> None:
+        """UI thread: a save landed (or failed, logged); save the next pending one.
+
+        2026-10-11: a save already on its way when its conversation was deleted
+        wrote it back; it is deleted again here, after the save, in order."""
         self._saving = False
         if error is not None:
             _log.warning("chat: a conversation could not be saved: {}", error)
+        if session_id and session_id in self._deleted:
+            worker = CallableWorker(self._sessions.delete, session_id, component="ui.chat")
+            worker.signals.failed.connect(lambda e: _log.warning("chat: {}", e))
+            run(QThreadPool.globalInstance(), worker)
         self._flush()
 
     # -- the Sources pane's right-click menu ---------------------------------------

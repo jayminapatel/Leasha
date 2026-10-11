@@ -742,7 +742,9 @@ def button(
         """Open the View menu at `at`, or under the button."""
         from app.ui.qtsip import open_menu      # lazily: this module imports no Qt at load
 
-        menu = menu_for(widget)
+        # Through the attribute, so a tab that adds to its menu (Mail's Folders,
+        # order 1n) adds to this one too, not only to the window's View menu.
+        menu = widget.menu_for(widget)
         open_menu(menu, at or widget.mapToGlobal(widget.rect().bottomLeft()))
 
     def toggle_preview() -> None:

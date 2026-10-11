@@ -56,6 +56,7 @@ from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
 from app.ui.workers import CallableWorker, open_row_async, run, stop_timers
+from app.ui.widgets.mail_folders import attach as attach_folders, in_folder
 
 __all__ = ["MailView", "MAIL_DEBOUNCE_MS", "COLUMNS", "PREFS_KEY"]
 
@@ -197,6 +198,7 @@ class MailView(QWidget):
         self.chips = list_chips(self, layout, top, self._run)
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)
+        attach_folders(self, top)            # order 1n: mailboxes and folders, on the left
         self._apply_prefs()
         # **The list exists on open.** `refresh()` was only reached after an
         # index run, so the tab opened empty and stayed empty until somebody
@@ -214,8 +216,9 @@ class MailView(QWidget):
         self.input.selectAll()
 
     def refresh(self) -> None:
-        """Re-run the current filter. Called when an index run finishes."""
+        """Re-run the current filter, and count the folders again. Called when an index run finishes."""
         self._run()
+        self.load_folders()
 
     # -- querying -------------------------------------------------------------
 
@@ -228,7 +231,7 @@ class MailView(QWidget):
 
         worker = CallableWorker(   # the reading, the page, its total and the index's
             browse_messages_typed, self._store, self.input.text(), limit=PAGE_SIZE,
-            component="ui.mail", **self.chips.reading(),
+            component="ui.mail", folder=getattr(self, "mail_folder", None), **self.chips.reading(),
         )
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
@@ -278,12 +281,9 @@ class MailView(QWidget):
             len(page["rows"]), leftover, page.get("total")) + (f"  ·  {said}" if said else ""))
 
     def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:
-        """The wording lives in `presenter.mail_summary` - this file had one
-        line of headroom under the 250-line guard, and three branches of string
-        formatting inside a widget can only be checked by a person looking at a
-        mail tab at the right moment."""
-        return with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE, total=total),
-                                  getattr(self, "_parsed", None))
+        """Worded by `presenter.mail_summary` and `mail_folders.in_folder`: this view is at its line guard."""
+        return in_folder(with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE, total=total),
+                                            getattr(self, "_parsed", None)), getattr(self, "mail_folder", None))
 
     # -- how it looks ----------------------------------------------------------
 

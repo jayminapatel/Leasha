@@ -107,7 +107,11 @@ def test_no_raw_filter_value_ever_appears_as_literal_sql_text(raw: str) -> None:
         # meaningful markers rather than any substring at all.
         if len(value) < 3:
             continue
-        assert value not in where, f"{value!r} leaked into the SQL text: {where}"
+        # 2026-10-11: as a whole token. Hypothesis found "ace" inside the fixed
+        # `faces` of the `who:` clause - scaffolding, not a leak. A value that
+        # reached the text would stand on its own: quoted, or between spaces.
+        leaked = re.search(rf"(?<![A-Za-z0-9_]){re.escape(value)}(?![A-Za-z0-9_])", where)
+        assert not leaked, f"{value!r} leaked into the SQL text: {where}"
 
 
 @given(_SPICY_WORD)

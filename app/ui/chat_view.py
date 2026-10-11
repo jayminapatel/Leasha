@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.presenter.chat import NOT_BUILT_LINE, PREVIEW_TAB, THINKING_LINE, unavailable_text
 from app.ui.widgets.chat_answer_run import AnswerRun, NoShelf
-from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble
+from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble, centred
 from app.ui.widgets.chat_message_box import MessageBox
 from app.ui.widgets.chat_session_list import SessionList
 from app.ui.widgets.chat_shelf import ShelfBar
@@ -129,9 +129,8 @@ class ChatView(QWidget):
         head.addWidget(self.toggles["inspector"])
         # 2026-10-04: which model answers; filled by the controller, hidden with fewer than two.
         self.model_picker = ModelPicker()
-        head.addWidget(self.model_picker.warning)   # 2026-10-04, code review: a big model's cost
-        head.addWidget(self.model_picker)
-        head.addWidget(self.speed)
+        # Order 1o D4: the model and speed are the box's own controls, along its bottom edge.
+        self.box.add_to_footer(self.model_picker.warning, self.model_picker, self.speed)
         centre = QWidget()
         column = QVBoxLayout(centre)
         # 10 a side: the three panes of the splitter met with a hairline between
@@ -143,8 +142,7 @@ class ChatView(QWidget):
         column.addLayout(head)
         column.addWidget(self.speed_note)
         column.addWidget(self.bubbles, stretch=1)
-        column.addWidget(self.shelf)
-        column.addWidget(self.box)
+        column.addWidget(centred(self.shelf, self.box))       # order 1o D1
 
         self.split = QSplitter(Qt.Orientation.Horizontal)
         for part, weight in ((self.sessions, 1), (centre, 4), (self.sources, 2)):
