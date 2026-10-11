@@ -732,7 +732,7 @@ def test_the_contacts_pill_is_after_files_and_the_page_is_built_on_first_show(gu
     app, window, store, _engine = gui_mainwindow
     rail = window.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
-    assert titles[:3] == ["Search", "Files", "Contacts"]
+    assert titles[:5] == ["Search", "Mail", "Photos", "Files", "Contacts"]   # main's order (1m), Contacts right after Files
     index = titles.index("Contacts")
     assert rail._icons[index] == "contact"
     assert "Contacts" in [b.text() for b in rail._buttons.values()]
