@@ -26,6 +26,7 @@ it did before - python-docx - so the fast path can only ever be a speed-up.
 from __future__ import annotations
 
 import zipfile
+import zlib
 from pathlib import Path
 from typing import Iterator
 from xml.etree import ElementTree
@@ -173,7 +174,7 @@ def docx_blocks(path: Path) -> list[str]:
                 raise DocxUnreadable("word/document.xml is implausibly large")
             data = archive.read(info)
         root = ElementTree.fromstring(data)
-    except (zipfile.BadZipFile, ElementTree.ParseError, RuntimeError, EOFError, ValueError) as exc:
+    except (zipfile.BadZipFile, zlib.error, ElementTree.ParseError, RuntimeError, EOFError, ValueError) as exc:
         raise DocxUnreadable(str(exc)) from exc
 
     body = root.find(_W + "body")

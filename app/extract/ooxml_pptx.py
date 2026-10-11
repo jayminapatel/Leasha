@@ -19,6 +19,7 @@ real decks by `tools/reader_recall.py`-style comparison (see the work-order note
 from __future__ import annotations
 
 import zipfile
+import zlib
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -183,5 +184,6 @@ def pptx_slides(path: Path) -> list[tuple[str, str]]:
                             pass
                 slides.append(("\n".join(parts), notes))
             return slides
-    except (zipfile.BadZipFile, ElementTree.ParseError, RuntimeError, EOFError, ValueError, KeyError) as exc:
+    except (zipfile.BadZipFile, zlib.error, ElementTree.ParseError, RuntimeError, EOFError, ValueError,
+            KeyError) as exc:
         raise PptxUnreadable(str(exc)) from exc

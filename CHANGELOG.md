@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.105 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 4.106 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A damaged Office file is reported as damaged (2026-10-11)
+
+- **A Word, Excel or PowerPoint file with a damaged part inside is "file corrupt"**, not "a fault in Leasha". A
+  deck in the owner's overnight run was logged as a Leasha bug; Python's own zip check fails on the same file.
 
 ### Search and Chat do less twice, and the window stays free while models load (2026-10-10)
 

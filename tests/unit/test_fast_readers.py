@@ -449,3 +449,54 @@ def test_a_docx_that_is_not_a_zip_still_reports_corrupt_through_the_old_path(tmp
     with pytest.raises(AppErrorException) as caught:
         list(extract(path))
     assert caught.value.error.code == "ERR_FILE_CORRUPT"
+
+
+def damage_member(path: Path, member: str) -> Path:
+    """Overwrite the middle of one deflated member, leaving the zip directory intact."""
+    with zipfile.ZipFile(path) as archive:
+        info = archive.getinfo(member)
+    assert info.compress_type == zipfile.ZIP_DEFLATED
+    data = bytearray(path.read_bytes())
+    name_length, extra_length = struct.unpack("<HH", data[info.header_offset + 26:info.header_offset + 30])
+    middle = info.header_offset + 30 + name_length + extra_length + info.compress_size // 2
+    data[middle:middle + 16] = b"\xff" * 16
+    path.write_bytes(bytes(data))
+    return path
+
+
+def _office_file(extension: str, path: Path) -> str:
+    """Build a small file of the kind and return the member holding its text."""
+    text = "Licence 12400 is current " * 200          # long enough to deflate into many bytes
+    if extension == ".docx":
+        docx = pytest.importorskip("docx")
+        document = docx.Document()
+        document.add_paragraph(text)
+        document.save(str(path))
+        return "word/document.xml"
+    if extension == ".xlsx":
+        openpyxl = pytest.importorskip("openpyxl")
+        book = openpyxl.Workbook()
+        for row in range(200):
+            book.active.append([f"{text[:40]} {row}", row])
+        book.save(str(path))
+        return "xl/worksheets/sheet1.xml"
+    pptx = pytest.importorskip("pptx")
+    deck = pptx.Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[1])
+    slide.shapes.title.text = "Boiler review"
+    slide.placeholders[1].text = text
+    deck.save(str(path))
+    return "ppt/slides/slide1.xml"
+
+
+@pytest.mark.parametrize("extension", [".docx", ".xlsx", ".pptx"])
+def test_a_damaged_compressed_part_is_the_files_fault_not_leashas(tmp_path: Path, extension: str) -> None:
+    # 2026-10-11, the owner's overnight run: a deck whose slide stream was damaged
+    # raised `zlib.error` ("invalid distance too far back"), which no fast reader
+    # caught, and the run logged it as ERR_UNEXPECTED - "a fault in Leasha, not
+    # in the file". Python's own `ZipFile.testzip` fails on the same deck.
+    path = tmp_path / f"damaged{extension}"
+    damage_member(path, _office_file(extension, path))
+    with pytest.raises(AppErrorException) as caught:
+        list(extract(path))
+    assert caught.value.error.code == "ERR_FILE_CORRUPT"

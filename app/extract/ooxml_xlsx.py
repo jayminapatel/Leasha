@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import re
 import zipfile
+import zlib
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
@@ -198,7 +199,7 @@ def read_workbook(path: Path, *, max_rows: int) -> list[SheetData]:
     """Every worksheet, in workbook order, with rows up to `max_rows` (+1 to see the cap)."""
     try:
         return _read(path, max_rows)
-    except (zipfile.BadZipFile, ElementTree.ParseError, KeyError, ValueError, IndexError,
+    except (zipfile.BadZipFile, zlib.error, ElementTree.ParseError, KeyError, ValueError, IndexError,
             RuntimeError, EOFError) as exc:
         raise XlsxUnreadable(f"{type(exc).__name__}: {exc}") from exc
 
