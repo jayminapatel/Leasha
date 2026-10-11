@@ -207,11 +207,14 @@ def test_default_account_saves_and_reloads(world):
 
 
 def test_every_global_control_has_a_name_and_a_sentence(world):
-    from PySide6.QtWidgets import QCheckBox, QComboBox, QDoubleSpinBox, QLineEdit, QSpinBox, QTimeEdit
+    from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QLineEdit, QSpinBox, QTimeEdit
     svc, page = world
     p = page()
-    for w in p.globals.findChildren((QComboBox, QSpinBox, QDoubleSpinBox, QTimeEdit, QLineEdit)):
-        assert w.accessibleName() or w.placeholderText() if isinstance(w, QLineEdit) else w.accessibleName(), w
+    for kind in (QComboBox, QSpinBox, QDoubleSpinBox, QTimeEdit, QLineEdit):
+        for w in p.globals.findChildren(kind):
+            if w.objectName().startswith("qt_"):
+                continue                                   # a spin box's own inner editor
+            assert w.accessibleName() or (isinstance(w, QLineEdit) and w.placeholderText()), w
     hints = p.globals.findChildren(type(p.notice), "accountsHint")
     assert len(hints) >= 14
 

@@ -14,7 +14,7 @@ from typing import Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QWidget
 
-from app.ui.contacts.parts import tool_button
+from app.ui.contacts.parts import name_inner_buttons, tool_button
 
 __all__ = ["ContactToolbar", "TOOLS"]
 
@@ -86,6 +86,7 @@ class ContactToolbar(QWidget):
         self.filter.setClearButtonEnabled(True)
         self.filter.setMinimumWidth(240)
         self.filter.textChanged.connect(self.text_changed.emit)
+        name_inner_buttons(self.filter, "Clear the search box")
         row.addWidget(self.count)
         row.addWidget(self.filter)
 

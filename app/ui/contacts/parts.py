@@ -19,7 +19,7 @@ from app.ui.theme import theme_colours
 from app.ui.widgets.flow_layout import FlowLayout
 from app.ui.widgets.icons import icon
 
-__all__ = ["tool_button", "retint_tools", "TokenEdit", "set_glyph"]
+__all__ = ["name_inner_buttons", "tool_button", "retint_tools", "TokenEdit", "set_glyph"]
 
 
 def set_glyph(button: QToolButton, glyph: str, colours: Optional[dict[str, str]] = None) -> None:
@@ -44,6 +44,14 @@ def tool_button(glyph: str, words: str, tooltip: str = "", *, checkable: bool = 
     if checkable:
         button.toggled.connect(lambda _on, b=button: set_glyph(b, str(b.property("glyph"))))
     return button
+
+
+def name_inner_buttons(edit: QLineEdit, words: str = "Clear") -> None:
+    """Qt's own clear button inside a line edit has no name; a screen reader gets one here."""
+    for b in edit.findChildren(QToolButton):
+        if not b.accessibleName():
+            b.setAccessibleName(words)
+            b.setToolTip(words)
 
 
 def retint_tools(root: QWidget, colours: dict[str, str]) -> None:

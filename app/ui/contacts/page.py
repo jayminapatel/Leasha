@@ -18,7 +18,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QInputDialog, QLabel, QListView,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QHeaderView, QInputDialog, QLabel, QListView,
                              QMessageBox, QSplitter, QStackedWidget, QTableView, QVBoxLayout, QWidget)
 
 from app.contacts.card import Card, Photo
@@ -158,6 +158,10 @@ class ContactsPage(QWidget):
         for col in (5, 6, 7):
             t.setItemDelegateForColumn(col, self.chips_delegate)
         t.setSortingEnabled(True)
+        corner = t.findChild(QAbstractButton, "qt_tableview_cornerbutton")
+        if corner is not None:
+            corner.setAccessibleName("Pick every contact")
+            corner.setToolTip("Pick every contact")
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         return t
 
@@ -401,7 +405,7 @@ class ContactsPage(QWidget):
             self.placeholder.setText(f"{len(ids)} contacts picked.\nUse the bar above the list.")
             self.right.setCurrentWidget(self.placeholder)
         else:
-            if not self._creating:
+            if not self._creating and not self.editor.is_dirty():
                 self.editor.clear()
                 self.history.clear()
                 self.placeholder.setText("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
