@@ -516,6 +516,10 @@ class IndexStats:
     #: already had one, instead of the model. 25% of what waited on the owner's
     #: index was in such copies.
     vectors_reused: int = 0
+    #: Order 1j 3c (2026-10-11). Messages not written because the same archive
+    #: already holds one with the same text, subject, sender and sent time
+    #: (`app.index.mail_duplicates`), and their attachments.
+    mail_repeats: int = 0
     #: Which pass this is - `both`, `text` or `images`. Carried on the stats so
     #: the progress line can say "reading with OCR", because seconds per page
     #: looks exactly like a stall on a line built for hundreds of files a minute.
@@ -738,6 +742,7 @@ class IndexStats:
             "embed_failures": self.embed_failures,
             "chunks_deduped": self.chunks_deduped,
             "vectors_reused": self.vectors_reused,
+            "mail_repeats": self.mail_repeats,
             "name_only": self.name_only,
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
@@ -7947,6 +7952,9 @@ class Pipeline:
         search, and never retried by anything.
         """
         candidate = item.candidate
+        if self._repeated_message(item):
+            self._stats_ref.mail_repeats += 1
+            return []
         # Work order 0i section 4b: computed once, used by the upsert below.
         taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
         place = self._photo_place(candidate)
@@ -8182,6 +8190,42 @@ class Pipeline:
             for chunk_id, chunk in zip(chunk_ids, item.chunks, strict=True)
             if chunk_id in wanted
         ]
+
+    def _repeated_message(self, item: _Extracted) -> bool:
+        r"""Is this a second copy of a message the archive already has? Order 1j 3c.
+
+        The same archive, text (`content_hash`), subject, sender and sent time as
+        a message already indexed under another key - an Outlook item that is in
+        the `.pst` twice (`app.index.mail_duplicates`, D2). Its attachments are
+        skipped with it. The first copy indexed is the one kept. One lookup on
+        `idx_files_content_hash`; anything unexpected answers "no", so a doubt
+        costs a duplicate row, never a message.
+        """
+        if item.source_kind != "pst_message":
+            return False
+        key = str(item.row_key)
+        repeats = self.__dict__.setdefault("_repeat_keys", set())
+        from app.core.row_facts import ATTACHMENT_MARKER
+
+        if ATTACHMENT_MARKER in key:
+            return key.split(ATTACHMENT_MARKER, 1)[0] in repeats
+        meta = item.meta or {}
+        if not item.chunks or not meta.get("store_path"):
+            return False
+        try:
+            found = self.store.conn.execute(
+                "SELECT 1 FROM files f JOIN messages m ON m.file_id = f.id "
+                "WHERE f.content_hash = ? AND f.path != ? AND m.store_path = ? "
+                "AND m.subject IS ? AND m.sender IS ? AND m.sent_at IS ? LIMIT 1",
+                (_text_digest(item.chunks), key, str(meta.get("store_path")),
+                 meta.get("subject"), meta.get("sender"), meta.get("sent_at"))).fetchone()
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            self._log.debug("could not check {} for a repeat: {}", key, exc)
+            return False
+        if found is None:
+            return False
+        repeats.add(key)
+        return True
 
     def _store_message_meta(self, file_id: int, meta: dict[str, Any]) -> None:
         """Write a mail message's headers (`messages` row) for `file_id`, from

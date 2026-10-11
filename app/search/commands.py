@@ -289,7 +289,7 @@ COMMANDS: tuple[Command, ...] = (
         aliases=("volume", "drive"),
         summary="Only files on this Offline Media source",
         example='/on "Projects 2019"',
-        value_hint="a source name, as shown in the Offline Media tab - or several: \"a\",\"b\"",
+        value_hint="a source name, as shown on the Indexing page's Offline shelf - or several: \"a\",\"b\"",
         icon="\u25a4",
         source="on",
     ),

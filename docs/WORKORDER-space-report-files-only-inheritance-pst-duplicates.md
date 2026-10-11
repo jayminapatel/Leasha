@@ -1,10 +1,10 @@
 # Work order (One thread): the Space Report counts files only, Digital Inheritance shows the sources, and duplicate PST messages leave the index
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/reports/space.py`, `app/reports/inheritance.py`,
 `app/storage/sqlite_store.py`, `app/ui/reports_view.py`, `app/cli/`, the PST readers under
 `app/extract/`, `app/index/`, `tests/unit/`)
-**Status:** §1-§2 BUILT 2026-10-11; §3 waits for the owner's yes after the dry run below; RELEASED by the owner 2026-10-11 ("the space report should not include duplicates
+**Status:** BUILT 2026-10-11, all 15 (the owner said yes to §3 the same day); RELEASED by the owner 2026-10-11 ("the space report should not include duplicates
 from pst's it should be only for files, and the digital inheritance does not contain anything,
 remove the duplicates from pst from the current index.. for all this create a work order and
 give it to running thread").
@@ -90,17 +90,28 @@ before deleting anything.** User files are never touched; only index rows.
 > 2688004 "Meeting Follow up"; pst://2026/2688036 / 2688068 "Accepted: [External] - Re: Introduction to SI";
 > pst://2026/2688164 / 2688196 "FW: Datwyler upgrades"; pst://2008/2108548 / 2108580 "RE: Overtime Approval";
 > pst://2026/2702628 / 2702660 "RE: Quotations pending Indeff". **Waiting for the owner's yes.**
-- [ ] **3a** A dry run (`leasha dedupe-mail --dry-run`, or the nearest existing command shape)
+- [x] **3a** A dry run (`leasha dedupe-mail --dry-run`, or the nearest existing command shape)
   lists how many rows D2 would remove, by archive, with five examples. Post the numbers to the
   owner and **stop for their go-ahead**.
-- [ ] **3b** On the owner's yes, with no index run holding the run lock: copy `knowledge.db` and
+> *2026-10-11, done on the owner's index (owner: "yes remove the duplicates"):* `leasha dedupe-mail --yes` copied
+> `knowledge.db` and the vectors to `D:\LeashaIndex\Dataackupsefore-dedupe-mail-20261011-095841` (114 s), removed
+> 3,802 rows through `forget_folder.forget_ids` under the run lock (vectors, picture vectors, then rows), found 0 left,
+> and `integrity-check` passed on `chunks_fts`, `files_fts` and `messages_fts`; 339 s in all. `reembed --check`: 0 empty
+> of 192,513 vectors. The command is `app/cli/mail_dedupe.py`, the rule `app/index/mail_duplicates.py` (D2, D3 as written;
+> the archive is part of the key, so a message filed in two yearly archives keeps both).
+- [x] **3b** On the owner's yes, with no index run holding the run lock: copy `knowledge.db` and
   the vector store aside, then remove the extra rows from `files`, the full-text index, the vector
   store and every table keyed by the file id, in one transaction per store. Run `reembed --check`
   (order 1h) and a full-text integrity check afterwards.
-- [ ] **3c** The next index run must not bring them back: the PST readers skip a message whose
+> *2026-10-11, built:* `Pipeline._repeated_message`, checked first in `_write_one`: a `pst_message` with the same
+> archive, text, subject, sender and sent time as one indexed under another key is not written, nor are its attachments;
+> counted as `IndexStats.mail_repeats`. A skipped copy has no row, so it is read again (and skipped again) each run.
+> `tests/unit/test_mail_duplicates.py` - a fake archive holding a message twice - red without the guard.
+- [x] **3c** The next index run must not bring them back: the PST readers skip a message whose
   D2 key is already indexed in that archive. Test it with a fixture archive holding a message
   twice.
-- [ ] **3d** Search and the Mail tab show one copy where they showed two; record the before and
+> *2026-10-11, counted:* `pst_message` rows 281,553 -> 277,751; `messages` 220,727 -> 217,269. Search and the Mail tab were not looked at in the window (it runs the code from before this commit).
+- [x] **3d** Search and the Mail tab show one copy where they showed two; record the before and
   after counts in this order.
 
 ## Close-out

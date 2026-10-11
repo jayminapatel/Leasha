@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.110 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.111 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A message stored twice in one mailbox is indexed once (2026-10-11)
+
+- **`leasha dedupe-mail`** finds messages an Outlook archive holds twice (same text, subject, sender and time) and,
+  with `--yes`, copies the index aside and removes the extra copies from the index. The mailbox is not touched.
+- **Indexing no longer adds such a copy** in the first place, nor its attachments.
+- The `/on` hint names the Indexing page's Offline shelf.
 
 ### The Space Report counts files, and Digital Inheritance shows your folders (2026-10-11)
 

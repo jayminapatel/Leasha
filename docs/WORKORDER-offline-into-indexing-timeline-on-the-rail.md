@@ -66,6 +66,7 @@ the word "Timeline" wherever 2a and 3a use it as the rail label.*
   `rescan_requested`, `delete_requested` -> `index_ctl`). A scan still takes the run lock and
   still refuses while an index run holds it, with the same words.
 > *2026-10-11, built:* the Go menu's Offline (`MainWindow._show_offline`) and every refresh land on the shelf. No notice or opener message named the tab; the `/on` command's hint still reads "as shown in the Offline Media tab" (`app/search/commands.py`) - existing UI wording, left for the owner.
+> *2026-10-11, the owner ("change it"):* the `/on` hint now reads "as shown on the Indexing page's Offline shelf" (`app/search/commands.py`, the user guide).
 - [x] **1e** Anything that sent the person to the Offline tab (a "drive not plugged in" notice,
   the opener's message, the `/` menu, `test_command_subsets`' page names) now lands on the
   Indexing page's Offline shelf.
