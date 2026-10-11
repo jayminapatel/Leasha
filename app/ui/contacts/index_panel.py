@@ -164,6 +164,7 @@ class IndexPanel(QWidget):
             widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.hide()
+                widget.setParent(None)
                 widget.deleteLater()
             elif item is not None and item.layout() is not None:
                 self._drop_layout(item.layout())
@@ -175,8 +176,10 @@ class IndexPanel(QWidget):
         while layout.count():
             item = layout.takeAt(0)
             if item is not None and item.widget() is not None:
-                item.widget().hide()
-                item.widget().deleteLater()
+                w = item.widget()
+                w.hide()
+                w.setParent(None)
+                w.deleteLater()
 
     def _section(self, words: str, items: list) -> None:
         if not items:
