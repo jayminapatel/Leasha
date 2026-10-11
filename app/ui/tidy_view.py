@@ -36,6 +36,7 @@ RULE_KEY = "ui:tidy_keep_rule"
 _SET_KINDS = ("copies", "similar", "large", "leftovers")
 
 
+
 class TidyView(QWidget):
     """A list on the left; Overview, a set, the Space Report or History on the right."""
 
@@ -83,7 +84,12 @@ class TidyView(QWidget):
         self.sets.bind(lambda path: path in self.marks.marked,
                        lambda tset: words.set_sentence(tset, self.marks.marked))
         self.sets.set_rule(self.marks.rule)
+        self.sets.bind_store(store)
         self.sets.toggled.connect(self._toggled)
+        for signal, change in ((self.sets.toggled_in, self.marks.toggle), (self.sets.keep_only_in, self.marks.keep_only)):
+            for slot in (change, self._update_queue, self.sets.refresh_marks):     # the List tab's ticks, for any set
+                signal.connect(slot)
+        self.sets.error.connect(self.error.emit)
         self.sets.keep_only.connect(self._keep_only)
         self.sets.rule_chosen.connect(self._rule_chosen)
         self.sets.mark_all.connect(self._mark_all)

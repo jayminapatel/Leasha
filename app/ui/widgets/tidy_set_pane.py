@@ -32,7 +32,7 @@ __all__ = ["TidySetPane", "TAB_ICONS"]
 _PATH = int(Qt.ItemDataRole.UserRole) + 21
 #: Tab -> Lucide glyph (`assets/icons`), drawn by `retint`.
 TAB_ICONS = (("Compare", "layout-grid"), ("Copies", "list"), ("Details", "info"),
-             ("Keep rule", "sliders-horizontal"))
+             ("Keep rule", "sliders-horizontal"), ("List", "list-checks"))
 _TILE = 180
 _RULE_TIPS = {
     "leasha": "Photos: the most pixels, then the sharpest. Copies: not in Downloads or a "
@@ -52,6 +52,10 @@ class TidySetPane(QWidget):
     mark_all = Signal()
     #: A set is about to be drawn - the page marks it by the rule first, if it is new.
     showing = Signal(object)
+    #: The List tab ticked or unticked a file of some set (not necessarily the one on show).
+    toggled_in = Signal(object, str, bool)
+    keep_only_in = Signal(object, str)
+    error = Signal(object)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -117,19 +121,30 @@ class TidySetPane(QWidget):
         rule_layout.addWidget(self.mark_every)
         rule_layout.addStretch(1)
 
-        # The window has no QTabWidget (its pages are the rail's): the four views are
+        # 2026-10-11, the owner: the list view every other page has - every file of every set in one
+        # table, with the View menu, fitted columns, sorting, a filter and the Preview pane.
+        from app.ui.widgets.tidy_list_pane import TidyListPane
+
+        self.list_pane = TidyListPane()
+        self.list_pane.toggled.connect(self._list_toggled)
+        self.list_pane.keep_only.connect(self._list_keep_only)
+        self.list_pane.open_set.connect(self._open_in_compare)
+        self.list_pane.error.connect(self.error.emit)
+        self._owner: dict[str, int] = {}
+        self._opened_on_list: set[str] = set()
+        # The window has no QTabWidget (its pages are the rail's): the views are
         # a segmented control over a stack, the control the Search page uses.
         from app.ui.widgets.segmented import SegmentedControl
 
         self.tabs = SegmentedControl()
         self.tabs.setAccessibleName("How to look at this set")
         self.views = QStackedWidget()
-        for widget, (name, _icon) in zip((self.tiles, self.copies, self.details, rule_box), TAB_ICONS,
-                                         strict=True):
+        for widget, (name, _icon) in zip((self.tiles, self.copies, self.details, rule_box, self.list_pane),
+                                         TAB_ICONS, strict=True):
             self.tabs.addItem(name, name)
             self.views.addWidget(widget)
-        self.tabs.setToolTip("Compare side by side, list every copy, read about the set, or "
-                             "choose which file a rule keeps.")
+        self.tabs.setToolTip("Compare side by side, list every copy, read about the set, choose "
+                             "which file a rule keeps, or list every file of every set in one table.")
         self.tabs.currentIndexChanged.connect(self.views.setCurrentIndex)
         self.tabs.setCurrentIndex(0)
         self.why = QLabel("")
@@ -154,7 +169,21 @@ class TidySetPane(QWidget):
 
     def set_sets(self, sets: list, index: int = 0) -> None:
         self._sets = list(sets)
+        self._owner = {f.path: i for i, tset in enumerate(self._sets) for f in tset.files}
+        self.list_pane.set_rows(self._sets, self._marked_of)
+        kind = self._sets[0].kind if self._sets else ""
+        if kind in ("large", "leftovers") and kind not in self._opened_on_list:
+            self._opened_on_list.add(kind)          # many files in one set: a table is the first look
+            self.show_list()
         self.show_set(index)
+
+    def bind_store(self, store: Any) -> None:
+        """Where the List tab's View menu remembers its choices."""
+        self.list_pane.bind_store(store)
+
+    def show_list(self) -> None:
+        """Open on the List tab (the sets of large files and leftovers read best as a table)."""
+        self.tabs.setCurrentIndex(len(TAB_ICONS) - 1)
 
     def all_sets(self) -> list:
         return list(self._sets)
@@ -207,6 +236,7 @@ class TidySetPane(QWidget):
             self.copies.resizeColumnToContents(0)
         for view in (self.tiles, self.copies):
             view.blockSignals(False)
+        self.list_pane.refresh_marks(self._marked_of)
         self.why.setText(self._why(tset) if tset is not None else "Nothing to tidy here.")
         self.details.setMarkdown(_details(tset) if tset is not None else "")
 
@@ -215,11 +245,28 @@ class TidySetPane(QWidget):
 
         ink = colours.get("text_dim", "#888888")
         self._file_icon = icon("file", ink)
+        self.list_pane.retint(colours)
         for n, (_name, glyph) in enumerate(TAB_ICONS):
             segment = self.tabs.button(n)
             if segment is not None:
                 segment.setIcon(icon(glyph, ink))
                 segment.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+
+    # -- the List tab ------------------------------------------------------------------
+
+    def _list_toggled(self, path: str, on: bool) -> None:
+        index = self._owner.get(path)
+        if index is not None:
+            self.toggled_in.emit(self._sets[index], path, on)
+
+    def _list_keep_only(self, path: str) -> None:
+        index = self._owner.get(path)
+        if index is not None:
+            self.keep_only_in.emit(self._sets[index], path)
+
+    def _open_in_compare(self, index: int) -> None:
+        self.show_set(index)
+        self.tabs.setCurrentIndex(0)
 
     # -- clicks ----------------------------------------------------------------------
 

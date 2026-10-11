@@ -120,9 +120,10 @@ def test_a_worker_is_called_with_arguments_it_accepts(
     if function is None:
         pytest.skip(f"{target} could not be resolved to a module-level function")
 
-    #: `component=` is consumed by the worker itself and never forwarded.
+    #: `component=` and `report_progress=` are consumed by the worker itself and never forwarded
+    #: (`report_progress` hands the function an `on_progress` callback instead).
     forwarded_keywords = {
-        kw.arg for kw in keywords if kw.arg and kw.arg != "component"
+        kw.arg for kw in keywords if kw.arg and kw.arg not in ("component", "report_progress")
     }
     signature = inspect.signature(function)
 

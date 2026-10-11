@@ -169,6 +169,8 @@ class GlobalSettingsBox(QWidget):
         self.backup_keep.setRange(1, 1000)
         self.backup_keep.setKeyboardTracking(False)
         self.backup_keep.setAccessibleName("Contact copies to keep")
+        self.backup.setToolTip("Write a copy of the contact book before an account's first sync and once a day")
+        self.backup_keep.setToolTip("How many copies to keep; older ones are removed as new ones are written")
         form.addRow(self.backup)
         form.addRow("Copies to keep", self.backup_keep)
         form.addRow(hint("A vCard file and a small database of the contact tables, in the backups folder "
