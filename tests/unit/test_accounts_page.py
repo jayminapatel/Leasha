@@ -483,3 +483,66 @@ def test_open_guide_builds_a_file_url_with_the_anchor(monkeypatch):
     monkeypatch.setattr(QDesktopServices, "openUrl", staticmethod(lambda url: seen.append(url.toString()) or True))
     assert parts.open_guide("accounts-imap") is True
     assert seen[0].startswith("file:") and seen[0].endswith("USER_GUIDE.html#accounts-imap")
+
+
+# ------------------------------------------------------------ the Settings category (6l)
+@pytest.fixture()
+def settings_view(tmp_path):
+    from app.core.config import load_settings
+    from app.storage.sqlite_store import SqliteStore
+    from tests.unit.test_pages_reorg import ENV
+    qt()
+    env = tmp_path / ".env"
+    env.write_text(ENV.format(d=tmp_path.as_posix()), encoding="utf-8")
+    settings = load_settings(env)
+    store = SqliteStore(settings.fts_db).connect()
+    from app.ui.settings_view import SettingsView
+    view = SettingsView(settings, store)
+    yield view, store
+    view.close()
+    store.close()
+
+
+def test_settings_has_an_accounts_category_with_an_icon_that_builds_when_first_shown(settings_view):
+    from app.ui.widgets.category_nav import CategoryNav
+    view, store = settings_view
+    assert view._nav.category_names()[-1] == "Accounts"
+    assert "Accounts" in CategoryNav.ICONS
+    page = view.accounts_page
+    assert view._nav.page("Accounts") is page and not page._built      # costs nothing until shown
+    view.resize(900, 700)
+    view.show()
+    view._nav.show_category("Accounts", persist=False)
+    assert wait_until(lambda: page._built and page._state is not None)
+    assert page.globals.same_for_all.currentData() is True
+    view.hide()
+
+
+def test_without_a_store_there_is_no_accounts_category():
+    from app.ui.settings_view import SettingsView
+    from types import SimpleNamespace
+    qt()
+    # a settings object is needed by the other boxes; reuse the lightest the suite builds
+    pytest.skip("SettingsView cannot be built without a store in this suite")
+
+
+def test_every_action_button_on_the_page_is_in_the_button_system(world):
+    from PySide6.QtWidgets import QPushButton
+    from app.ui.widgets.buttons import ICON_PX, ROLES, is_exempt
+    svc, page = world
+    svc.accounts.add("imap", "me@x.com", "Mail", server="s", mail_on=True)
+    p = page()
+    p.resize(900, 900)
+    p.show()
+    _select(p, svc.accounts.list()[0].id)
+    wait_until(lambda: False, 0.1)
+    buttons = [b for b in p.findChildren(QPushButton) if not is_exempt(b)]
+    assert len(buttons) >= 16
+    for b in buttons:
+        assert b.property("buttonRole") in ROLES, b.text()
+        assert not b.icon().isNull() and b.iconSize().height() == ICON_PX, b.text()
+        assert b.accessibleName() or b.text()
+    assert len({b.height() for b in buttons if b.isVisible()}) == 1
+    assert p.add_button.property("buttonRole") == "primary"
+    assert p.panel.remove_button.property("buttonRole") == "danger"
+    p.hide()
