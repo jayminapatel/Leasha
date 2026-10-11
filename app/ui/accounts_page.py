@@ -25,7 +25,10 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget
 
-__all__ = ["AccountsPage"]
+__all__ = ["AccountsPage", "CATEGORY_ACCOUNTS"]
+
+#: The Settings category this page is the content of (6l).
+CATEGORY_ACCOUNTS = "Accounts"
 
 
 def _reorder(factory: Callable[[], Any], ids: list[int]) -> None:
@@ -47,6 +50,7 @@ class AccountsPage(QWidget):
         self._reading = False
         self._again = False
         self._state: Any = None
+        self._select_after = 0
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
         if scheduler is not None:
@@ -176,6 +180,9 @@ class AccountsPage(QWidget):
         self._state = state
         self.globals.load(state)
         self.account_list.set_rows(state.statuses)
+        if self._select_after:
+            self.account_list.select(self._select_after)
+            self._select_after = 0
         self.log.set_runs(state.runs, [r.account for r in state.statuses])
         self._show_panel()
         self.state_loaded.emit(state)
@@ -214,12 +221,11 @@ class AccountsPage(QWidget):
 
     def _wizard_done(self) -> None:
         account = self.wizard.account
-        self.refresh()
         if account is not None:
-            self._say(f"Added {account.name}. Press Sync now to start its first sync"
-                      + (" - it begins as a dry run that writes nothing." if True else "."))
             self._select_after = account.id
-            self.backend.call(lambda: None, serial=True, done=lambda _r: self.account_list.select(account.id))
+            self._say(f"Added {account.name}. Press Sync now to start its first sync - it begins as a dry "
+                      "run that writes nothing, and waits for your Approve.")
+        self.refresh()
 
     # ------------------------------------------------------------------- notices
     def _say(self, text: str) -> None:

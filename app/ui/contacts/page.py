@@ -107,7 +107,7 @@ class ContactsPage(QWidget):
         for w, stretch in ((self.sidebar, 0), (centre, 1), (self.right, 0)):
             self.split.addWidget(w)
             self.split.setStretchFactor(self.split.indexOf(w), stretch)
-        self.split.setSizes([210, 560, 430])
+        self.split.setSizes([220, 520, 420])
         self.split.setChildrenCollapsible(False)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -275,6 +275,14 @@ class ContactsPage(QWidget):
         self.sidebar.retint(colours)
         self.editor.retint(colours)
         retint_tools(self, colours)
+        # The theme's sheet names QTableWidget and not QTableView, so the table gets its
+        # surface, its edge and its selected row from the same tokens here.
+        self.table.setStyleSheet(
+            f"#contactsTable {{ background: {colours.get('surface', '#ffffff')}; "
+            f"border: 1px solid {colours.get('border', '#cccccc')}; border-radius: 6px; }} "
+            f"#contactsTable::item:selected {{ background: {colours.get('accent_soft', '#dddddd')}; "
+            f"color: {colours.get('text', '#000000')}; }} "
+            f"#contactsTable::item:hover {{ background: {colours.get('surface_hover', '#eeeeee')}; }}")
         self.table.viewport().update()
         self.cards.viewport().update()
 
