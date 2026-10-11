@@ -186,3 +186,22 @@ def test_the_summary_names_the_account(live):
 
     mail_folders._NAMES.update(store.mail_account_names())
     assert in_folder("2 messages", (f"account://{gmail}", "")) == "2 messages - in GMail Main - me@gmail.example"
+
+
+def test_attachment_mailbox_and_mailfolder_switches_find_the_right_mail(live):
+    """`/attachment *.xlsx`, `/mailbox gmail`, `/mailfolder inbox`: new switches, wildcard-aware."""
+    store, gmail, work = live
+    mail = store.conn.execute("SELECT f.id, f.path FROM files f JOIN messages m ON m.file_id = f.id "
+                              "WHERE m.subject = 'Gmail one'").fetchone()
+    store.upsert_file(mail[1] + "/attachments/Budget-Q1.xlsx", size_bytes=1, mtime_ns=1, status="INDEXED",
+                      source_kind="eml")
+    assert _subjects(browse_messages_typed(store, "/attachment *.xlsx", limit=50)) == ["Gmail one"]
+    assert _subjects(browse_messages_typed(store, "/attachment budget", limit=50)) == ["Gmail one"]
+    assert _subjects(browse_messages_typed(store, "/attachment b?dget-q?.xlsx", limit=50)) == ["Gmail one"]
+    assert _subjects(browse_messages_typed(store, "/attachment *.pdf", limit=50)) == []
+    others = {r["subject"] for r in browse_messages_typed(store, "-attachment:xlsx", limit=50)["rows"]}
+    assert "Gmail one" not in others and "Gmail two" in others
+    assert _subjects(browse_messages_typed(store, "/mailbox gmail", limit=50)) == ["Gmail one", "Gmail two"]
+    assert _subjects(browse_messages_typed(store, "/mailbox 2018", limit=50)) == ["From an archive"]
+    assert _subjects(browse_messages_typed(store, "/mailfolder inbox", limit=50)) == ["From an archive"] or \
+        "From an archive" in _subjects(browse_messages_typed(store, "/mailfolder inbox", limit=50))

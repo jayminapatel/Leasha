@@ -17,6 +17,26 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Sync that does not give up, attachments, and Enrich progress (2026-10-12)
+
+- **Microsoft sync:** four more causes found on the owner's account and fixed. Outlook holds two home and two work
+  numbers (a third was refused, HTTP 400): the numbers are fitted to the slots and the rest stay in Leasha. A change
+  Outlook refuses as a whole (HTTP 500 with no reason) is now sent one property at a time, so one property it will
+  not take no longer stops the rest of the contact. The Sync window's Sync now button can no longer stay greyed out
+  after a run has ended.
+- **New switches** `/attachment` (wildcards allowed; `-attachment:` for the opposite), `/mailbox` and `/mailfolder`,
+  offered in Search and Mail, and everywhere the full set is offered.
+- **What an account holds is now part of the contact model.** Outlook has room for three emails, five numbers, three
+  addresses, one web page, one birthday and a spouse, a manager and an assistant; those limits are declared once
+  (`Capabilities.max_per_kind`, `kind_labels`) and used everywhere an account is compared and written, so what does
+  not fit stays in Leasha, is never read as deleted or changed there, and a freed slot is refilled from what was
+  waiting. Google documents no limit on the number of values (only one name, birthday and note), and sends one of
+  each; CardDAV holds everything.
+- **Chat** answers a question about a person in the contact book from the card ("what is Zane's number"), takes the
+  same `/` switches as every box (`/from dave what did he say...`), and offers them when you type `/`. Search
+  already shows the person's card above the results.
+- **Enrich** says "Contact 312 of 1,433 - 41 suggestions so far", and has **Stop looking**, which keeps what was found.
+
 ### Changed in two places: review and accept, and notes are joined (2026-10-12)
 
 - **More tools > Changed in two places...** lists every clash with both values and the one kept now. Tick (all, none,

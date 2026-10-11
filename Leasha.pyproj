@@ -140,6 +140,7 @@
     <Compile Include="app\chat\absence.py" />
     <Compile Include="app\chat\aggregate.py" />
     <Compile Include="app\chat\config.py" />
+    <Compile Include="app\chat\contacts.py" />
     <Compile Include="app\chat\context.py" />
     <Compile Include="app\chat\engine.py" />
     <Compile Include="app\chat\evaluate.py" />
@@ -151,6 +152,7 @@
     <Compile Include="app\chat\roles.py" />
     <Compile Include="app\chat\router.py" />
     <Compile Include="app\chat\sessions.py" />
+    <Compile Include="app\chat\switches.py" />
     <Compile Include="app\chat\testing.py" />
     <Compile Include="app\chat\text.py" />
     <Compile Include="app\chat\types.py" />
@@ -603,6 +605,7 @@
     <Compile Include="app\ui\widgets\chat_answer_run.py" />
     <Compile Include="app\ui\widgets\chat_box.py" />
     <Compile Include="app\ui\widgets\chat_bubbles.py" />
+    <Compile Include="app\ui\widgets\chat_commands.py" />
     <Compile Include="app\ui\widgets\chat_markdown.py" />
     <Compile Include="app\ui\widgets\chat_message_box.py" />
     <Compile Include="app\ui\widgets\chat_message_menu.py" />
@@ -785,6 +788,7 @@
     <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_account_address.py" />
+    <Compile Include="tests\unit\test_account_limits.py" />
     <Compile Include="tests\unit\test_account_scheduler.py" />
     <Compile Include="tests\unit\test_account_scheduler_static.py" />
     <Compile Include="tests\unit\test_account_service.py" />
@@ -828,6 +832,7 @@
     <Compile Include="tests\unit\test_cell_locators.py" />
     <Compile Include="tests\unit\test_chat_absence.py" />
     <Compile Include="tests\unit\test_chat_aggregate.py" />
+    <Compile Include="tests\unit\test_chat_contacts_and_switches.py" />
     <Compile Include="tests\unit\test_chat_conversation.py" />
     <Compile Include="tests\unit\test_chat_conversation_qt.py" />
     <Compile Include="tests\unit\test_chat_engine.py" />

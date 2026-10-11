@@ -262,6 +262,34 @@ def test_update_never_sends_a_null_address_to_a_contact_that_has_none(tr, gc):
     assert "homeAddress" in tr.to("GET", "/me/contacts/id-1")[0]["url"]
 
 
+def test_more_numbers_than_outlook_has_slots_for_are_fitted_not_refused(tr, gc):
+    """Four work numbers answered HTTP 400 "exceeds the max allowed value of 2" (found live, 2026-10-12)."""
+    from app.contacts.card import Field
+
+    card = Card(scalars={"given": "Ann"}, fields=[Field("phone", f"+44 20 7946 000{i}", "work") for i in range(5)])
+    body = gc._to_body(card)
+    assert len(body["businessPhones"]) == 2 and len(body["homePhones"]) == 2      # the rest stay in Leasha
+
+
+def test_a_refused_update_is_retried_one_property_at_a_time(tr, gc):
+    """Graph answered 500 with no reason to a body whose parts each succeed alone: write what it will take."""
+    tr.add("GET", f"{B}/me/contacts/id-1", {"id": "id-1", "changeKey": "ck-1", "parentFolderId": DEFAULT})
+    tr.add("PATCH", f"{B}/me/contacts/id-1", {"error": {"code": "ErrorInternalServerError"}}, status=500)
+    tr.add("PATCH", f"{B}/me/contacts/id-1", {"changeKey": "ck-2"})
+    key = gc.update("id-1", "ck-1", Card(scalars={"given": "Ann", "family": "Lee"}))
+    sent = [c["body"] for c in tr.to("PATCH", "/me/contacts/id-1")]
+    assert len(sent[0]) > 2 and all(len(b) == 1 for b in sent[1:]) and len(sent) > 2
+    assert key == "ck-2"
+
+
+def test_an_update_where_nothing_goes_through_is_still_an_error(tr, gc):
+    tr.add("GET", f"{B}/me/contacts/id-1", {"id": "id-1", "changeKey": "ck-1", "parentFolderId": DEFAULT})
+    tr.add("PATCH", f"{B}/me/contacts/id-1", {"error": {"code": "ErrorInvalidProperty", "message": "no"}}, status=400)
+    with pytest.raises(Exception) as caught:
+        gc.update("id-1", "ck-1", Card(scalars={"given": "Ann"}))
+    assert "HTTP 400" in str(caught.value) or "400" in repr(caught.value)
+
+
 def test_update_can_send_if_match(tr):
     gc = GraphContactsProvider(tr, lambda: "t", send_if_match=True)
     tr.add("GET", f"{B}/me/contacts/id-1", {"id": "id-1", "changeKey": "ck-1", "parentFolderId": DEFAULT})

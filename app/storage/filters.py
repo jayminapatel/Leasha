@@ -277,13 +277,16 @@ def _name_clause(value: str, *, negated: bool = False) -> tuple[str, str]:
 def _attachment_exists(name: str, *, negated: bool, params: list) -> str:
     """SQL for "this message has (or has not) an attachment called `name`"; appends its parameter.
 
-    `f.path || '/attachments/'` to the same with `0` after the slash is the range of every attachment of this
-    message, found through the path index. The glob is applied to the part after the last slash."""
+    An attachment is a file filed as `<message path>/attachments/<name>`. The subquery finds the attachments whose
+    name fits and cuts each path back to its message's; `f.path IN (...)` then reads the message by its path index.
+    (Asking the other way round - for each message, look for its attachments - measured 7.5 s over 228,000
+    messages; this is 0.3 s.) The glob is applied to the part after `/attachments/`."""
     pattern = glob(name) if has_wildcard(name) else contains(name)
     params.append(pattern)
-    inner = ("SELECT 1 FROM files a WHERE a.path >= f.path || '/attachments/' AND a.path < f.path || '/attachments0' "
-             "AND LOWER(SUBSTR(a.path, LENGTH(f.path) + 14)) LIKE ?" + ESCAPE)
-    return f"{'NOT ' if negated else ''}EXISTS ({inner})"
+    inner = ("SELECT SUBSTR(a.path, 1, INSTR(a.path, '/attachments/') - 1) FROM files a "
+             "WHERE INSTR(a.path, '/attachments/') > 1 "
+             "AND LOWER(SUBSTR(a.path, INSTR(a.path, '/attachments/') + 13)) LIKE ?" + ESCAPE)
+    return f"f.path {'NOT IN' if negated else 'IN'} ({inner})"
 
 
 def _ext_clause(exts: Any, *, negated: bool = False) -> tuple[str, list]:
