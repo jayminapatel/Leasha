@@ -259,6 +259,10 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td><code>/to priya</code></td><td>recipient, cc</td><td>Only email sent to this person</td><td>part of a name or address; matches the To and Cc lines</td></tr>
 <tr><td><code>/subject licence</code></td><td>title, re</td><td>Only email whose subject contains this</td><td>any part of the subject; quote it for several words: "licence renewal"</td></tr>
 <tr><td><code>/has attachment</code></td><td></td><td>Only email with (or without) an attachment</td><td>attachment, or no-attachment</td></tr>
+<tr><td><code>/attachment *.xlsx</code></td><td>attachments, attached, attach</td><td>Only email with an attachment called this</td><td>part of an attachment's name, or a pattern: *.pdf, invoice*, q?-report. <code>-attachment:zip</code> for the opposite</td></tr>
+<tr><td><code>/mailbox gmail</code></td><td>account, archive</td><td>Only email kept in this account or archive</td><td>part of an account's name or address, or an archive's file name (2019)</td></tr>
+<tr><td><code>/mailfolder inbox</code></td><td>label</td><td>Only email in this folder or label</td><td>part of a mail folder's name: inbox, sent, projects/acme</td></tr>
+<tr><td colspan="4">Chat takes all of these too: type <code>/</code> in the question box for the list, for example <code>/from dave what did he say about the contract</code>. A question about someone in your contacts ("what is Zane's number") is answered from their card.</td></tr>
 <tr><td><code>/status skipped</code></td><td>state</td><td>Only things in this indexing state</td><td>indexed, partial, skipped, failed, nameonly, pending - or several: skipped,failed</td></tr>
 <tr><td><code>/after 2024-06-01</code></td><td>since</td><td>Only things changed on or after this date</td><td>2024-06-01, 2024, last month, 30d</td></tr>
 <tr><td><code>/before 2025-03-01</code></td><td>until</td><td>Only things changed on or before this date</td><td>2025-03-01, 2025, yesterday, 2y</td></tr>

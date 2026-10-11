@@ -112,6 +112,7 @@ class SyncDialog(ToolDialog):
     def start_sync(self) -> None:
         if self.scheduler is None:
             return
+        self._trust_the_scheduler()
         if self.scheduler.sync_now():
             self._problems.clear()
             self.problems.clear()
@@ -217,7 +218,15 @@ class SyncDialog(ToolDialog):
         self.problem_title.setText(f"<b>Could not be written ({len(self._problems):,})</b> - the account refused "
                                    "these one by one. The rest was written; Sync now tries them again.")
 
+    def _trust_the_scheduler(self) -> None:
+        """What is running is the scheduler's to say. A "running" this window kept after the run ended (a late
+        progress note, a window opened mid-run) must not leave Sync now greyed out for good."""
+        if self.scheduler is not None and self._running and not self.scheduler.busy:
+            self._running = self._stopping = False
+            self._started.clear()
+
     def _show_buttons(self) -> None:
+        self._trust_the_scheduler()
         self.sync_button.setEnabled(not self._running)
         self.stop_button.setEnabled(self._running and not self._stopping)
 
@@ -247,6 +256,8 @@ def open_sync_window(parent: Any, ctx: Any, *, start: bool = True) -> Any:
     window.show()
     window.raise_()
     window.activateWindow()
+    window._trust_the_scheduler()
+    window._show_buttons()
     if start and not window._running:
         window.start_sync()
     return window

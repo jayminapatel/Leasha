@@ -70,14 +70,23 @@ _COMPONENT = "accounts.providers.graph_contacts"
 #: Outlook keeps three email slots per contact.
 MAX_EMAILS = 3
 
+#: What Outlook has room for (found against the owner's account, and Microsoft's own limits): three emails;
+#: one mobile, two home and two business numbers; a home, a business and an other address; one web page; one
+#: birthday; a spouse, a manager and an assistant. What does not fit stays in Leasha.
 GRAPH_CAPS = Capabilities(
     kinds=frozenset({"email", "phone", "address", "url", "date", "related", "im"}),
-    groups=True, favourite=False, photo=False, date_labels=frozenset({"birthday"}))
+    groups=True, favourite=False, photo=False, date_labels=frozenset({"birthday"}),
+    max_per_kind=(("email", 3), ("phone", 5), ("address", 3), ("url", 1), ("date", 1), ("related", 3)),
+    kind_labels=(("related", frozenset({"spouse", "manager", "assistant"})),))
 
 #: Graph answers HTTP 500 (ErrorInternalServerError) to a PATCH that sets an address to null on a contact that has
 #: no such address - found 2026-10-12 against the owner's account, one property at a time. So a null address is
 #: sent only when the contact has one to clear.
 _ADDRESS_SLOTS = ("homeAddress", "businessAddress", "otherAddress")
+#: Outlook holds at most two home and two business phone numbers (and one mobile). A third is answered with
+#: HTTP 400 "exceeds the max allowed value of 2" - found 2026-10-12, with four contacts that each had three or
+#: four work numbers. What does not fit stays in Leasha and in the other accounts.
+_MAX_PER_PHONE_SLOT = 2
 _RELATED = {"spouse": "spouseName", "manager": "manager", "assistant": "assistantName"}
 _YEARLESS = (1, 1604)                   # the years Outlook uses for "no year"
 
@@ -270,6 +279,13 @@ class GraphContactsProvider:
                     body[key] = f.value
             elif f.kind == "im":
                 body["imAddresses"].append(f.value)
+        # Fit the numbers into the slots Outlook has: when business is full the next goes to home, and back.
+        homes, work = body["homePhones"], body["businessPhones"]
+        while len(work) > _MAX_PER_PHONE_SLOT and len(homes) < _MAX_PER_PHONE_SLOT:
+            homes.append(work.pop())
+        while len(homes) > _MAX_PER_PHONE_SLOT and len(work) < _MAX_PER_PHONE_SLOT:
+            work.append(homes.pop())
+        del homes[_MAX_PER_PHONE_SLOT:], work[_MAX_PER_PHONE_SLOT:]
         body["categories"] = [g for g in c.groups if g.casefold() != folder_name.casefold()]
         return body
 
@@ -403,9 +419,39 @@ class GraphContactsProvider:
                           extra=self._write_headers(version))
         if resp.status in (409, 412, 404):
             raise VersionConflict(remote_id)
+        if resp.status in (400, 500):
+            return self._update_piecewise(remote_id, version, body, resp)
         if resp.status != 200:
             raise self._fail(resp, "update a contact")
         return (resp.json() or {}).get("changeKey", "")
+
+    def _update_piecewise(self, remote_id: str, version: str, body: dict[str, Any], refused: HttpResponse) -> str:
+        """The whole change was refused: send it one property at a time, so one property Outlook will not take
+        cannot stop the rest of the contact from being written.
+
+        Graph accepts each of this contact's properties alone and sometimes refuses them together (HTTP 500
+        with no reason), and a 400 names one property and rejects all. A contact where nothing at all goes
+        through is still an error; where some do, the rest are logged and the contact is written as far as
+        it can be - the read-back after the write records what the account really holds."""
+        key, failed, written = version, [], 0
+        for name, value in body.items():
+            resp = self._call("PATCH", f"me/contacts/{quote(remote_id, safe='')}", body={name: value},
+                              extra=self._write_headers(key))
+            if resp.status == 200:
+                written += 1
+                key = (resp.json() or {}).get("changeKey", "") or key
+            elif resp.status in (409, 412, 404):
+                raise VersionConflict(remote_id)
+            else:
+                failed.append(name)
+        if not written:
+            raise self._fail(refused, "update a contact")
+        if failed:
+            from app.core.logging import logger  # noqa: PLC0415
+
+            logger.bind(component=_COMPONENT).warning("{}: Outlook would not take {} of contact {}; the rest was written",
+                                                      self._account, ", ".join(failed), remote_id)
+        return key
 
     def delete(self, remote_id: str, version: str) -> None:
         try:

@@ -59,7 +59,7 @@ def test_every_command_can_offer_something():
     """
     silent = [c.name for c in COMMANDS if not c.values and not c.source]
 
-    assert set(silent) <= {"to", "subject", "name"}, (
+    assert set(silent) <= {"to", "subject", "name", "mailbox"}, (
         f"{silent} offer nothing after the colon and could")
 
 

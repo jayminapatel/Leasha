@@ -145,9 +145,42 @@ class Capabilities:
     #: Dates the account can keep, by label (Google and Microsoft keep a
     #: birthday and little else); None means any label.
     date_labels: Optional[frozenset] = None
+    #: `((kind, n), ...)`: the account keeps at most `n` of that kind (Outlook: three emails, five numbers).
+    #: What does not fit stays in Leasha, and is not read as "deleted there" or "changed there": it is outside
+    #: what this account is compared on, like a kind it does not hold at all.
+    max_per_kind: tuple = ()
+    #: `((kind, labels), ...)`: only these labels of that kind (Outlook's related people are a spouse, a
+    #: manager and an assistant, and nothing else).
+    kind_labels: tuple = ()
 
 
 ALL_CAPS = Capabilities()
+
+
+def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:
+    """The fields of `card` that an account with `caps` holds: a supported kind and label, once each, and no
+    more of a kind than the account has room for - the default one first, then in the card's order."""
+    labelled = {k: set(v) for k, v in caps.kind_labels}
+    out: list[Field] = []
+    seen: set[str] = set()
+    for f in card.fields:
+        if f.kind not in caps.kinds or not f.value.strip() and not any(f.data.values()):
+            continue
+        if f.kind == "date" and caps.date_labels is not None and _slug(f.label) not in caps.date_labels:
+            continue
+        if f.kind in labelled and _slug(f.label) not in labelled[f.kind]:
+            continue
+        key = field_key(f, region)
+        if key in seen:                       # an exact copy inside one card is one value
+            continue
+        seen.add(key)
+        out.append(f)
+    for kind, limit in caps.max_per_kind:
+        mine = [f for f in out if f.kind == kind]
+        if len(mine) > limit:
+            keep = {id(f) for f in sorted(mine, key=lambda f: not f.primary)[:limit]}
+            out = [f for f in out if f.kind != kind or id(f) in keep]
+    return out
 
 
 def display_name(card: Card) -> str:
@@ -206,17 +239,8 @@ def units(card: Card, caps: Capabilities = ALL_CAPS, region: str = phones.DEFAUL
     for name in SCALARS:
         if name in caps.scalars and card.get(name).strip():
             out[f"s:{name}"] = card.get(name).strip()
-    seen: set[str] = set()
-    for f in card.fields:
-        if f.kind not in caps.kinds or not f.value.strip() and not any(f.data.values()):
-            continue
-        if f.kind == "date" and caps.date_labels is not None and _slug(f.label) not in caps.date_labels:
-            continue
-        key = "f:" + field_key(f, region)
-        if key in seen:                       # an exact copy inside one card is one value
-            continue
-        seen.add(key)
-        out[key] = _attr(f)
+    for f in _held_fields(card, caps, region):
+        out["f:" + field_key(f, region)] = _attr(f)
     if caps.groups:
         for g in card.groups:
             if g.strip():
@@ -234,16 +258,7 @@ def project(card: Card, caps: Capabilities, region: str = phones.DEFAULT_REGION)
     for name in SCALARS:
         if name in caps.scalars and card.get(name).strip():
             out.scalars[name] = card.get(name)
-    seen: set[str] = set()
-    for f in card.fields:
-        if f.kind not in caps.kinds:
-            continue
-        if f.kind == "date" and caps.date_labels is not None and _slug(f.label) not in caps.date_labels:
-            continue
-        key = field_key(f, region)
-        if key in seen:
-            continue
-        seen.add(key)
+    for f in _held_fields(card, caps, region):
         out.fields.append(Field(f.kind, f.value, f.label, dict(f.data), f.primary))
     if caps.groups:
         out.groups = list(dict.fromkeys(g for g in card.groups if g.strip()))
@@ -356,9 +371,12 @@ def _rebuild(local: Card, remote: Card, chosen: dict[str, Any], caps: Capabiliti
             return False
         return True
 
+    kept_here = {"f:" + field_key(f, region) for f in _held_fields(local, caps, region)}
     taken: set[str] = set()
     for f in local.fields:
-        if not supported(f):
+        # A field over the account's room stays as it is, unless the account itself has the value.
+        if not supported(f) or ("f:" + field_key(f, region) not in kept_here
+                                and "f:" + field_key(f, region) not in chosen):
             out.fields.append(Field(f.kind, f.value, f.label, dict(f.data), f.primary))
             continue
         key = "f:" + field_key(f, region)

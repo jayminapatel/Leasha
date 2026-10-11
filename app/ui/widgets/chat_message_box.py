@@ -95,9 +95,13 @@ class MessageBox(QWidget):
         self.edit.setAccessibleName("Your question")
         self.edit.setToolTip(
             "Type your question. Enter sends it; Shift+Enter starts a new line. "
+            "Type / for the switches every other search box has (/from, /type, /after, /attachment ...). "
             "Up and Down move through the sources on the right without leaving "
             "this box.")
         self.edit.setTabChangesFocus(True)
+        from app.ui.widgets.chat_commands import attach_chat_commands
+
+        self.commands = attach_chat_commands(self.edit)             # `/` offers the same switches as every box
         self.edit.submitted.connect(self._submit)
         self.edit.open_source.connect(self.open_source_requested)
         self.edit.walk.connect(self.walk_requested)

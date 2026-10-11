@@ -168,15 +168,26 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
 
 def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, transport: Any = None,
                      clock: Callable[[], float] = time.time, force: bool = False,
-                     sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None) -> list[Proposal]:
-    """`enrich_contact` for each id, in order. Colleagues at one company share one Wikidata lookup."""
+                     sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
+                     on_progress: Optional[Callable[[dict], Any]] = None,
+                     cancelled: Optional[Callable[[], bool]] = None) -> list[Proposal]:
+    """`enrich_contact` for each id, in order. Colleagues at one company share one Wikidata lookup.
+
+    A look through the mail takes about a second a contact, so a thousand contacts is a quarter of an hour:
+    `on_progress({"done", "total", "found"})` is called after each, and `cancelled()` is asked before each -
+    when it says yes the proposals found so far are returned (a stop, not a failure)."""
     net = _Net(transport)
     wiki: dict = {}
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
-    for cid in dict.fromkeys(int(c) for c in contact_ids):
+    ids = list(dict.fromkeys(int(c) for c in contact_ids))
+    for done, cid in enumerate(ids):
+        if cancelled is not None and cancelled():
+            break
         out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force, sources=wanted,
                               notes=notes, _net=net, _wiki=wiki)
+        if on_progress is not None:
+            on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     return out
 
 
