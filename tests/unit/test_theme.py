@@ -292,3 +292,34 @@ def test_the_sheet_still_builds_with_no_application(monkeypatch):
 
     monkeypatch.setattr(theme, "base_point_size", lambda: 9.0)
     assert "font-size: 9.0pt" in theme.stylesheet("dark")
+
+
+def test_a_chosen_radio_button_is_drawn_differently_from_an_unchosen_one():
+    """The owner, on Add account (2026-10-11): the picked kind of account showed no mark.
+
+    Rendered, not read from the sheet: grab both states in both schemes and require the
+    indicator's pixels to differ, and the picked one to carry the accent colour.
+    """
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication, QRadioButton
+
+    from app.ui.theme import stylesheet, theme_colours
+
+    app = QApplication.instance() or QApplication([])
+    for scheme in (Theme.LIGHT, Theme.DARK):
+        sheet = stylesheet(scheme)
+        shots = {}
+        for on in (False, True):
+            r = QRadioButton("Microsoft")
+            r.setStyleSheet(sheet)
+            r.setChecked(on)
+            r.resize(160, 24)
+            r.show()
+            app.processEvents()
+            shots[on] = r.grab().toImage().copy(0, 0, 22, 24)
+            r.hide()
+            r.deleteLater()
+        assert shots[False] != shots[True], f"{scheme}: a chosen radio button looks like an unchosen one"
+        accent = theme_colours()["accent"].lower()          # the tokens `stylesheet` just built
+        seen = {shots[True].pixelColor(x, y).name().lower() for x in range(22) for y in range(24)}
+        assert accent in seen, f"{scheme}: no accent-coloured pixel in the chosen radio button"
