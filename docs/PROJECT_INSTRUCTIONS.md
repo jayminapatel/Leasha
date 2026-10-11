@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.10 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.11 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -69,6 +69,14 @@ change it deliberately, write down why, and update `HANDOFF.md`.
     never written to. The directory of a work account is never synced. Documents and email on disk
     are untouched by this: the indexer still opens and reads. The precedent is the 2026-10-05
     note on photo names.
+    *2026-10-11 note on rule 10 below - the owner's third exception, Tidy.* "option a, rename to
+    Tidy, write the order and build it" (order 1q, `docs/WORKORDER-tidy-page.md`). The Tidy page
+    may move **files on this computer** - plain files on a fixed local drive, never mail, a file
+    inside a `.zip`, a catalogued drive, a network share or a USB stick - **to the Recycle Bin**,
+    only when the owner has seen the plan and said yes (twice over 500 files or 20 GB). Never the
+    last copy; each file is read again just before it moves and left if it changed; every move is
+    journalled (`tidy_journal`) and can be put back. `app/tidy/remove.py` is the only code that
+    does it. Indexing, search and every report stay read-only.
 10. **Read-only against user data.** The indexer opens and reads. It never modifies, moves or
     deletes a document or an email.
 11. **Anything tunable has a UI, or is not tunable.** No setting ever requires editing a file.

@@ -1,13 +1,13 @@
-r"""The Reports page: read-only surfaces over the existing index.
+r"""The Space Report pane: the one report there is, inside the Tidy page.
 
 Layer: L5, driving L4 (`app/reports/`)
 
-Order 202626270602 (0n) section 1. A sibling of Indexing/Settings, not one
-of the four search tabs - reports are outputs, not searches. **This view
-decides nothing about what a report says** - `app/reports/inheritance.py`
-builds the document; this shows it and asks for an Export location. Room
-for future reports: `REPORTS` is a small registry, not two hard-coded
-screens, so a second report is one more entry rather than a second view.
+Order 202626270602 (0n) section 1 made a Reports page of a list of reports.
+Order 1q (2026-10-11) took Digital Inheritance away at the owner's word and put
+what was left - the Space Report - in the Tidy page's list (`tidy_view.py`), so
+this is a pane now, not a page. **It decides nothing about what the report
+says** - `app/reports/space.py` builds the document; this shows it as a table
+and asks for an Export location.
 """
 
 from __future__ import annotations
@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSplitter,
     QTextBrowser,
     QVBoxLayout,
     QWidget,
@@ -29,40 +28,21 @@ from PySide6.QtWidgets import (
 # The PDF writer, kept under the name it had while it lived in this file
 # (2026-10-02: moved to keep this view under its line limit).
 from app.ui.report_pdf import write_pdf as _write_pdf
-from app.ui.widgets.report_export_dialog import SourceSelectionDialog
-from app.ui.widgets.report_list import ReportList
 from app.ui.widgets.space_table import SpaceTables
-from app.ui.widgets.timeline_host import REPORT_KEY, keep_names_readable
 from app.ui.workers import CallableWorker, run
 
-__all__ = ["ReportsView", "REPORTS"]
-
-#: (key, title, one-line plain-words description). Room for future reports:
-#: adding one is a new row here plus a case in `_render`, never a second view.
-REPORTS: tuple[tuple[str, str, str], ...] = (
-    ("inheritance", "Digital Inheritance",
-     "A map of every source Leasha knows about - names, locations and "
-     "what's in each - for someone who isn't you."),
-    # Order 0n section 3, wired by WORKORDER-space-report-and-idle-tune-ui-wiring
-    # (2026-09-16). The content is `app.reports.space` - the same words
-    # `leasha report space` prints.
-    ("space", "The Space Report",
-     "Which files exist in more than one place, how much room the copies "
-     "take, and what exists nowhere else - so you know what is safe to "
-     "clear and what is not."),
-)
+__all__ = ["ReportsView"]
 
 
 class ReportsView(QWidget):
-    """A list of reports; pick one, read it, export it."""
+    """The Space Report: read it, sort it, export it."""
 
     error = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
-        """Build the list and the report pane. UI thread; `refresh` reads on a worker."""
+        """Build the report pane. UI thread; `refresh` reads on a worker."""
         super().__init__(parent)
         self._store = store
-        self._sources: list = []
         self._generated_at: Optional[int] = None
         #: Section 3c's cache: `_report_snapshot` skips the expensive Space
         #: Report queries entirely when the store's own data timestamp has
@@ -70,23 +50,14 @@ class ReportsView(QWidget):
         #: the user, so no separate "am I stale" marker to invent or forget
         #: to update.
         self._space_cached_at: Optional[int] = None
-        #: The Space Report, rendered on the worker with the rest of the
-        #: snapshot - it touches the store, so never on this thread.
+        #: The Space Report, rendered on the worker - it touches the store,
+        #: so never on this thread.
         self._space_document: str = ""
         #: 2026-10-02: one load at a time. `_loading` is True from `refresh`
         #: starting a worker until that worker is done; `_refresh_again` is a
         #: refresh that was asked for meanwhile, run once the first has landed.
         self._loading = False
         self._refresh_again = False
-
-        intro = QLabel(
-            "What Leasha has catalogued, read out as a document rather "
-            "than searched. Nothing here changes anything on your drives."
-        )
-        intro.setWordWrap(True)
-
-        self.list = ReportList(REPORTS)        # 2026-10-04: with icons, like the category lists
-        self.list.currentRowChanged.connect(self._show_selected)
 
         self.timestamp = QLabel("")
         self.timestamp.setObjectName("resultsSummary")
@@ -106,56 +77,37 @@ class ReportsView(QWidget):
         self.space_table.hide()
 
         self.export = QPushButton("Export…")
-        self.export.setToolTip(
-            "Choose which sources to include, then save this report as a "
-            "PDF you can print or hand to someone else.")
+        # 1q: the source picker went with Digital Inheritance; this says what
+        # the button does now.
+        self.export.setToolTip("Save the Space Report as a PDF you can print or keep.")
         self.export.clicked.connect(self._start_export)
         self.export.setEnabled(False)
 
-        right = QVBoxLayout()
-        right.addWidget(self.timestamp)
-        right.addWidget(self.progress_label)
-        right.addWidget(self.body, 1)
-        right.addWidget(self.space_table, 1)
-        # Order 1i (2026-10-11): the timeline left this pane for its own rail page.
-        keep_names_readable(self.list)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.timestamp)
+        layout.addWidget(self.progress_label)
+        layout.addWidget(self.body, 1)
+        layout.addWidget(self.space_table, 1)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.export)
-        right.addLayout(buttons)
-        right_widget = QWidget()
-        right_widget.setLayout(right)
-
-        split = QSplitter()
-        split.addWidget(self.list)
-        split.addWidget(right_widget)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 3)
-
-        layout = QVBoxLayout(self)
-        layout.addWidget(intro)
-        layout.addWidget(split, 1)
-
-        if self.list.count():
-            self.list.setCurrentRow(0)
+        layout.addLayout(buttons)
 
     # -- filling it in --------------------------------------------------
 
     def refresh(self) -> None:
-        """Re-read the catalogue, off a worker - every tab switch, the
-        same "refresh on forward, never on a timer" rule the other pages
-        already follow."""
+        """Re-read the report, off a worker - every time it comes forward,
+        the same "refresh on forward, never on a timer" rule the other pages
+        follow."""
         if self._store is None:
             return
-        # **One load at a time** (2026-10-02). Each load carries the "data as
-        # of" stamp it was started with, and that stamp only moves when a load
-        # lands - so a second load started before the first had finished ran
-        # every Space Report query again, and its answer, equal to the first
-        # but a new object, rebuilt the table: the sort and any opened row
-        # gone, under the person's pointer. Leaving Reports and coming straight
-        # back was enough. A refresh asked for while one is running now waits
-        # for it and then runs with the stamp that load left, which costs one
-        # cheap query when nothing has moved.
+        # **One load at a time** (2026-10-02). A second load started before
+        # the first had finished ran every Space Report query again, and its
+        # answer, equal to the first but a new object, rebuilt the table: the
+        # sort and any opened row gone, under the person's pointer. A refresh
+        # asked for while one is running waits for it and then runs with the
+        # stamp that load left, which costs one cheap query when nothing moved.
         if self._loading:
             self._refresh_again = True
             return
@@ -189,97 +141,52 @@ class ReportsView(QWidget):
             # the last load, so the worker skipped the Space Report's own
             # queries entirely - what is already on screen is still current.
             return
-        self._sources, self._generated_at, self._space_document = snapshot
+        self._generated_at, self._space_document = snapshot
         self._space_cached_at = self._generated_at
-        self.export.setEnabled(bool(self._sources) or bool(self._space_document))
-        self._show_selected(self.list.currentRow())
+        self.export.setEnabled(bool(self._space_document))
+        self._show()
 
-    def _show_selected(self, row: int) -> None:
-        """Draw the chosen report from the snapshot in hand - no store read."""
-        from app.reports.inheritance import data_timestamp_sentence, render_inheritance_document
+    def _show(self) -> None:
+        """Draw the report from the snapshot in hand - no store read."""
+        from app.reports.common import data_timestamp_sentence
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
-        tabled = False
-        if row < 0:
-            self.body.setMarkdown("Nothing indexed yet.")
-            return
-        key = self.list.item(row).data(REPORT_KEY)
-        if key == "inheritance":
-            if not self._sources:
-                self.body.setMarkdown("Nothing indexed yet.")
-            else:
-                self.body.setMarkdown(
-                    render_inheritance_document(self._sources, generated_at=self._generated_at))
-        elif key == "space":
-            findings = getattr(self._space_document, "findings", None)
-            if findings is not None:
-                self.space_table.set_findings(
-                    findings, getattr(self._space_document, "shaped", None))
-            else:
-                self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
-            tabled = findings is not None
-        self.body.setVisible(not tabled)
-        self.space_table.setVisible(tabled)
+        findings = getattr(self._space_document, "findings", None)
+        if findings is not None:
+            self.space_table.set_findings(findings, getattr(self._space_document, "shaped", None))
+        else:
+            self.body.setMarkdown(self._space_document or "Nothing indexed yet.")
+        self.body.setVisible(findings is None)
+        self.space_table.setVisible(findings is not None)
 
     # -- export -----------------------------------------------------------
 
-    def _selected_key(self) -> str:
-        row = self.list.currentRow()
-        return str(self.list.item(row).data(REPORT_KEY)) if row >= 0 else ""
-
     def _start_export(self) -> None:
-        """Export: ask for sources (not for Space), then a path; the PDF is a worker."""
-        if self._selected_key() == "space":
-            # No source picker: the Space Report is about the whole corpus.
-            if not self._space_document:
-                return
-            path, _filter = QFileDialog.getSaveFileName(
-                self, "Export report", "space-report.pdf", "PDF files (*.pdf)")
-            if path:
-                worker = CallableWorker(_write_pdf, self._space_document, path,
-                                        component="ui.reports.export")
-                worker.signals.failed.connect(self.error.emit)
-                run(QThreadPool.globalInstance(), worker)
+        """Export: ask for a path; the PDF is written on a worker."""
+        if not self._space_document:
             return
-        if not self._sources:
-            return
-        dialog = SourceSelectionDialog(self._sources, self)
-        if dialog.exec() != SourceSelectionDialog.DialogCode.Accepted:
-            return
-        excluded = dialog.excluded_names()
         path, _filter = QFileDialog.getSaveFileName(
-            self, "Export report", "report.pdf", "PDF files (*.pdf)")
-        if not path:
-            return
-        self._export_to(path, excluded)
-
-    def _export_to(self, path: str, excluded: set) -> None:
-        """Render the inheritance document with `excluded` left out; the PDF is a worker."""
-        from app.reports.inheritance import render_inheritance_document
-        from dataclasses import replace
-
-        sources = [replace(s, include=s.name not in excluded) for s in self._sources]
-        document = render_inheritance_document(sources, generated_at=self._generated_at)
-        worker = CallableWorker(_write_pdf, document, path, component="ui.reports.export")
-        worker.signals.failed.connect(self.error.emit)
-        run(QThreadPool.globalInstance(), worker)
+            self, "Export report", "space-report.pdf", "PDF files (*.pdf)")
+        if path:
+            worker = CallableWorker(_write_pdf, self._space_document, path,
+                                    component="ui.reports.export")
+            worker.signals.failed.connect(self.error.emit)
+            run(QThreadPool.globalInstance(), worker)
 
 
 def _report_snapshot(
     store: Any, last_known_generated_at: Optional[int] = None,
     on_progress: Any = None,
 ) -> Optional[tuple]:
-    """The read-only half of a refresh, off the worker thread - the same
-    split `_offline_media_snapshot` already draws.
+    """The read-only half of a refresh, off the worker thread.
 
     Section 3c, performance: `report_generated_at` (`MAX(files.indexed_at)`)
     is the same "data as of" timestamp `1b` already shows the user, and it
-    only moves when an index run actually adds or touches a file - exactly
-    "the next index run" the item asks to cache until. Checking it first,
-    cheaply, and returning `None` when it has not moved skips the expensive
-    duplicate/uniqueness queries on every tab switch that changes nothing.
+    only moves when an index run actually adds or touches a file. Checking it
+    first, cheaply, and returning `None` when it has not moved skips the
+    expensive duplicate/uniqueness queries on every visit that changes nothing.
     """
-    from app.reports.inheritance import catalogue_sources, report_generated_at
+    from app.reports.common import report_generated_at
     from app.reports.space import (
         SpaceFindings, document_for, find_duplicate_groups,
         find_near_duplicate_photo_groups, find_source_duplicate_share,
@@ -295,9 +202,6 @@ def _report_snapshot(
         if on_progress is not None:
             on_progress(text)
 
-    stage("Reading sources...")
-    roots = _local_roots(store)
-    sources = catalogue_sources(store, roots=roots)
     stage("Finding duplicates...")
     groups = find_duplicate_groups(store)
     stage("Finding similar photos...")
@@ -314,13 +218,4 @@ def _report_snapshot(
         duplicate_share=tuple(duplicate_share), uniqueness=tuple(uniqueness),
         total_reclaimable=total_reclaimable_bytes(store), generated_at=generated_at, **hash_coverage(store)))
     # 2026-10-03: the table's rows are shaped here too, off the window's thread.
-    return sources, generated_at, shape(space)
-
-
-def _local_roots(store: Any) -> list:
-    """Worker body: the folder list from the store, or [] when unreadable."""
-    try:
-        raw = store.get_state("ui:roots", "") or ""
-    except Exception:                            # noqa: BLE001 - a report, not a search
-        return []
-    return [part.strip() for part in raw.split("|") if part.strip()]
+    return generated_at, shape(space)

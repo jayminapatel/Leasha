@@ -74,6 +74,7 @@ from app.cli.maintenance import (
 from app.cli.offline_media import add_offline_media_parser
 from app.cli.ollama import add_ollama_parser
 from app.cli.report import add_report_parser
+from app.cli.tidy import add_tidy_parser
 from app.cli.timeline import add_timeline_parser
 from app.cli.watch import add_watch_parser, cmd_watch  # noqa: F401
 from app.cli.repos import add_gitsearch_parser, add_repos_parser
@@ -125,6 +126,7 @@ from app.cli.maintenance import (  # noqa: F401
 from app.cli.offline_media import cmd_offline_media  # noqa: F401
 from app.cli.ollama import cmd_ollama  # noqa: F401
 from app.cli.report import cmd_report  # noqa: F401
+from app.cli.tidy import cmd_tidy  # noqa: F401
 from app.cli.repos import _scan_for_repos, cmd_gitmeasure, cmd_gitsearch, cmd_repos  # noqa: F401
 from app.cli.scan import cmd_scan  # noqa: F401
 from app.cli.search import (  # noqa: F401
@@ -182,6 +184,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_repos_parser(sub, common)
     add_offline_media_parser(sub, common)
     add_report_parser(sub, common)
+    add_tidy_parser(sub, common)
     add_timeline_parser(sub, common)
     add_evaluate_parser(sub, common)
     add_embed_bench_parser(sub, common)

@@ -60,6 +60,7 @@
     <Folder Include="app\serve" />
     <Folder Include="app\shell" />
     <Folder Include="app\storage" />
+    <Folder Include="app\tidy" />
     <Folder Include="app\ui" />
     <Folder Include="app\ui\accounts" />
     <Folder Include="app\ui\contacts" />
@@ -180,6 +181,7 @@
     <Compile Include="app\cli\repos.py" />
     <Compile Include="app\cli\scan.py" />
     <Compile Include="app\cli\search.py" />
+    <Compile Include="app\cli\tidy.py" />
     <Compile Include="app\cli\timeline.py" />
     <Compile Include="app\cli\watch.py" />
     <Compile Include="app\contacts\__init__.py" />
@@ -246,6 +248,7 @@
     <Compile Include="app\core\osbridge\paths.py" />
     <Compile Include="app\core\osbridge\priority.py" />
     <Compile Include="app\core\osbridge\programs.py" />
+    <Compile Include="app\core\osbridge\recycle.py" />
     <Compile Include="app\core\osbridge\startmenu.py" />
     <Compile Include="app\core\osbridge\stdio.py" />
     <Compile Include="app\core\osbridge\volumes.py" />
@@ -381,7 +384,7 @@
     <Compile Include="app\ort\session.py" />
     <Compile Include="app\ort\whisper.py" />
     <Compile Include="app\reports\__init__.py" />
-    <Compile Include="app\reports\inheritance.py" />
+    <Compile Include="app\reports\common.py" />
     <Compile Include="app\reports\space.py" />
     <Compile Include="app\reports\timeline.py" />
     <Compile Include="app\reports\timeline_words.py" />
@@ -431,6 +434,10 @@
     <Compile Include="app\storage\side_counts.py" />
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
+    <Compile Include="app\tidy\__init__.py" />
+    <Compile Include="app\tidy\find.py" />
+    <Compile Include="app\tidy\keep.py" />
+    <Compile Include="app\tidy\remove.py" />
     <Compile Include="app\ui\__init__.py" />
     <Compile Include="app\ui\account_runtime.py" />
     <Compile Include="app\ui\account_scheduler.py" />
@@ -542,6 +549,8 @@
     <Compile Include="app\ui\presenter\side_entry.py" />
     <Compile Include="app\ui\presenter\snippets.py" />
     <Compile Include="app\ui\presenter\space_rows.py" />
+    <Compile Include="app\ui\presenter\tidy.py" />
+    <Compile Include="app\ui\presenter\tidy_marks.py" />
     <Compile Include="app\ui\presenter\timed_out.py" />
     <Compile Include="app\ui\presenter\timeline.py" />
     <Compile Include="app\ui\presenter\tray_words.py" />
@@ -567,6 +576,7 @@
     <Compile Include="app\ui\tasks.py" />
     <Compile Include="app\ui\theme.py" />
     <Compile Include="app\ui\thumbnail_loader.py" />
+    <Compile Include="app\ui\tidy_view.py" />
     <Compile Include="app\ui\timeline.py" />
     <Compile Include="app\ui\timeline_view.py" />
     <Compile Include="app\ui\tray.py" />
@@ -665,8 +675,6 @@
     <Compile Include="app\ui\widgets\rail_order.py" />
     <Compile Include="app\ui\widgets\repo_health_note.py" />
     <Compile Include="app\ui\widgets\repo_ignore.py" />
-    <Compile Include="app\ui\widgets\report_export_dialog.py" />
-    <Compile Include="app\ui\widgets\report_list.py" />
     <Compile Include="app\ui\widgets\restart_note.py" />
     <Compile Include="app\ui\widgets\result_drag_model.py" />
     <Compile Include="app\ui\widgets\result_table.py" />
@@ -697,8 +705,9 @@
     <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
+    <Compile Include="app\ui\widgets\tidy_parts.py" />
+    <Compile Include="app\ui\widgets\tidy_set_pane.py" />
     <Compile Include="app\ui\widgets\timed_out_panel.py" />
-    <Compile Include="app\ui\widgets\timeline_host.py" />
     <Compile Include="app\ui\widgets\timeline_list.py" />
     <Compile Include="app\ui\widgets\timeline_picker.py" />
     <Compile Include="app\ui\widgets\timeline_strip.py" />
@@ -1023,7 +1032,6 @@
     <Compile Include="tests\unit\test_indexing_partial_row.py" />
     <Compile Include="tests\unit\test_indexing_that_works.py" />
     <Compile Include="tests\unit\test_indexing_workers_panel.py" />
-    <Compile Include="tests\unit\test_inheritance_roots.py" />
     <Compile Include="tests\unit\test_install_nightly_script.py" />
     <Compile Include="tests\unit\test_installer_script.py" />
     <Compile Include="tests\unit\test_interpret_optional.py" />
@@ -1216,7 +1224,6 @@
     <Compile Include="tests\unit\test_repo_tree_rows.py" />
     <Compile Include="tests\unit\test_reports_acceptance_scenarios.py" />
     <Compile Include="tests\unit\test_reports_fixtures.py" />
-    <Compile Include="tests\unit\test_reports_inheritance.py" />
     <Compile Include="tests\unit\test_reports_read_only.py" />
     <Compile Include="tests\unit\test_reports_space.py" />
     <Compile Include="tests\unit\test_reports_thin_data.py" />
@@ -1315,6 +1322,8 @@
     <Compile Include="tests\unit\test_the_owners_seven.py" />
     <Compile Include="tests\unit\test_theme.py" />
     <Compile Include="tests\unit\test_thumbnail_grid.py" />
+    <Compile Include="tests\unit\test_tidy_engine.py" />
+    <Compile Include="tests\unit\test_tidy_page.py" />
     <Compile Include="tests\unit\test_timed_notices.py" />
     <Compile Include="tests\unit\test_timed_out_panel.py" />
     <Compile Include="tests\unit\test_timed_out_retry.py" />
@@ -1655,6 +1664,7 @@
     <Content Include="docs\WORKORDER-space-report-files-only-inheritance-pst-duplicates.md" />
     <Content Include="docs\WORKORDER-suite-speed.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
+    <Content Include="docs\WORKORDER-tidy-page.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
     <Content Include="docs\images\files.png" />

@@ -76,7 +76,7 @@ def test_the_menu_moves_up_and_down(rail):
     assert window.rail.page_order()[:2] == ["Mail", "Search"]
     assert move_up(window.rail, _index(window, "Search"))
     assert not move_up(window.rail, _index(window, "Search")), "the first page moved up"
-    assert not move_down(window.rail, _index(window, "Reports")), "the last page moved down"
+    assert not move_down(window.rail, _index(window, "Tidy")), "the last page moved down"
 
 
 def test_the_order_is_remembered_and_restored_and_reset_forgets_it(rail):
@@ -95,8 +95,8 @@ def test_the_order_is_remembered_and_restored_and_reset_forgets_it(rail):
     store.set_state(rail_order.STATE_KEY, "Reports|Mail|Nonsense")
     rail_order.restore(window)
     gui_pump(app, 2)
-    assert window.rail.page_order()[:2] == ["Reports", "Mail"]
-    assert window.rail.tabText(window._tab_index[window.reports_view]) == "Reports"
+    assert window.rail.page_order()[:2] == ["Tidy", "Mail"]
+    assert window.rail.tabText(window._tab_index[window.tidy_view]) == "Tidy"
 
 
 def test_a_page_dropped_on_another_lands_there(rail):
@@ -109,7 +109,7 @@ def test_a_page_dropped_on_another_lands_there(rail):
     window.resize(1100, 900)
     window.show()
     gui_pump(app, 6)
-    source = _index(window, "Reports")
+    source = _index(window, "Tidy")
     target_button = window.rail._buttons[_index(window, "Mail")]
     data = QMimeData()
     data.setData(MIME, str(source).encode("ascii"))
@@ -117,7 +117,7 @@ def test_a_page_dropped_on_another_lands_there(rail):
     drop = QDropEvent(where, Qt.DropAction.MoveAction, data, Qt.MouseButton.LeftButton,
                       Qt.KeyboardModifier.NoModifier)
     assert window.rail._drop_target.eventFilter(window.rail.column, drop)
-    assert window.rail.page_order()[:2] == ["Search", "Reports"]
+    assert window.rail.page_order()[:2] == ["Search", "Tidy"]
 
 
 def test_every_page_button_has_the_move_menu(rail):

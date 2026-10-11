@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.114 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.115 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Reports is now Tidy: clear copies, similar photos and leftovers (2026-10-11)
+
+- **Tidy** takes the Reports page's place on the rail. On the left: What's indexed; Exact copies, Similar photos,
+  Large files and Leftovers; Only one copy; the Space Report; and Removed by Leasha.
+- **A set opens four ways** - Compare (pictures side by side), Copies, Details and Keep rule - each with its icon.
+- **Keep rule**: Leasha picks (the photo with the most detail; the copy not in Downloads or named like a copy),
+  the oldest, the newest, or **I'll choose**, which marks nothing until you tick. Right-click a file and choose
+  **Keep this one**, or double-click its picture.
+- **Find copies of this...** on the Files page's right-click opens Tidy on that file's copies, nothing marked.
+- **Review and remove...** shows the count and the room it gives back and asks; over 500 files or 20 GB it asks
+  again. Files go to the Windows Recycle Bin, never deleted outright, and **Put back** returns a batch. Only files
+  on this computer's own drives; never mail, a catalogued drive, a share or a USB stick, and never the last copy.
+  Each file is checked again just before it moves, and left where it is if it changed.
+- `leasha tidy copies|similar|large|leftovers [--remove --yes]`, `leasha tidy history`, `leasha tidy put-back`.
+- **Digital Inheritance is gone**, at the owner's word, with `leasha report inheritance`. The Space Report stays.
+- Index schema 39: `tidy_journal`, the record of every file Tidy moved.
 
 ### Every page has its list on the left, drawn the same way (2026-10-11)
 

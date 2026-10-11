@@ -123,6 +123,8 @@ class FilesView(QWidget):
 
     #: 2026-10-07: a file to read again now ("Index this file now" on its menu).
     index_file_requested = Signal(str)
+    #: Order 1q D5: "Find copies of this..." - the window opens Tidy on it.
+    find_copies_requested = Signal(str)
 
     def __init__(self, store: Any, parent: Optional[QWidget] = None) -> None:
         """Build the box, the table, the picker and the preview. UI thread; the first
@@ -429,9 +431,9 @@ class FilesView(QWidget):
         if path is None:
             return
 
+        # `row`: its Offline mark, and its real path to copy.
         show_for(self.results, point, path, FileActions(
-            open_file=self._open_selected, reveal=self._reveal_selected,
-            row=self.results.current_row(),     # its Offline mark; its real path to copy
+            open_file=self._open_selected, reveal=self._reveal_selected, row=self.results.current_row(),
             search_inside=lambda: self.search_inside_requested.emit(path),
             index_file=lambda: self.index_file_requested.emit(path),
-        ))
+            find_copies=lambda: self.find_copies_requested.emit(path)))

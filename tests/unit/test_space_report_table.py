@@ -163,7 +163,6 @@ def test_the_document_and_the_table_come_from_the_same_findings():
 pytest.importorskip("PySide6.QtWidgets")
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
-from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 
 from app.ui.widgets.sortable_item import SORT_ROLE  # noqa: E402
 from app.ui.widgets.space_table import SpaceTables  # noqa: E402
@@ -364,14 +363,13 @@ def space_window(gui_mainwindow, qtbot):
     with store.write() as conn:
         conn.execute("UPDATE files SET indexed_at = 1700000000 + id WHERE indexed_at IS NULL")
 
-    view = window.reports_view
+    view = window.tidy_view.report              # 1q: the "Report" entry of the Tidy page
     view._space_cached_at = None
     view._space_document = ""
     window.resize(1100, 700)
     window.show()
-    view.list.setCurrentRow([view.list.item(i).data(REPORT_KEY) for i in range(view.list.count())]
-                            .index("space"))
-    window._show(view)
+    window._show(window.tidy_view)
+    window.tidy_view.show_kind("report")
     view.refresh()                     # the tab switch does this too - explicit, so a
     #                                    view that was already the current tab reloads
     qtbot.waitUntil(lambda: bool(view._space_document), timeout=15000)
@@ -387,10 +385,6 @@ def test_the_space_report_appears_as_a_table_not_a_document(space_window):
     assert [tree.topLevelItem(i).text(0) for i in range(tree.topLevelItemCount())] \
         == ["alpha.bin", "zeta.bin"]
     assert "would free" in view.space_table.headline.text()
-    view.list.setCurrentRow(0)                       # Digital Inheritance is still a document
-    assert view.space_table.isHidden() and not view.body.isHidden()
-    view.list.setCurrentRow(1)
-    assert not view.space_table.isHidden()
 
 
 @pytest.mark.gui
@@ -480,7 +474,7 @@ def test_a_second_load_asked_for_while_one_is_running_does_not_rebuild_the_table
     view._space_cached_at = None        # as after an index run: the data has moved
     view._space_document = ""
     view.refresh()
-    view.refresh()                      # ...and Reports is asked again straight away
+    view.refresh()                      # ...and the report is asked again straight away
     qtbot.waitUntil(lambda: bool(view._space_document), timeout=15000)
     gui_pump(app)
 

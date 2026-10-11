@@ -16,7 +16,7 @@ owns; `indexOf` and `tabText` answer in stack order, which is the only order
 anything asks about.
 
 **Labels are the strings the window passes** - "Search", "Files", "Mail",
-"Code", "Offline Media", "Reports", "Settings" - verbatim (§2b). The icon per
+"Code", "Offline Media", "Tidy", "Settings" - verbatim (§2b). The icon per
 page is chosen by the caller, never inferred from a label.
 
 **Indexing is not an entry; it is the pill** (§2d). `addTab(..., pill=True)`

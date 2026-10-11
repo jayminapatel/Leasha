@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -79,7 +79,7 @@ Both are single self-contained files: open them in any browser, offline.
 | **Code** | Every repository under your folders, with git history search (`/history`, `/introduced`, `/branch` …) |
 | **Chat** | Ask about your files and get an answer in plain words, with every source one click away |
 | **Offline** | Catalogue a removable drive once; its files stay findable after you unplug it |
-| **Reports** | Digital Inheritance, the Space Report (duplicates, only copies), and the Life Timeline |
+| **Tidy** | What is indexed, and the exact copies, similar photos, large files and leftovers to clear - moved to the Recycle Bin only after you review them, and put back from History; the Space Report |
 | **Indexing** | Start, pause and watch a run; what gets read from files, mail, attachments, zips, pictures, video and code; schedule; tuning |
 | **Settings** | Folders, file types, search behaviour, models, appearance, storage and maintenance |
 
@@ -347,12 +347,13 @@ pull request, and the macOS suite once a week (`.github/workflows/ci.yml`).
 
 ```
 app/core      L0  config, settings registry, AppError, logging, locks, osbridge
-app/storage   L1  SQLite/FTS5 + LanceDB (schema v38)
+app/storage   L1  SQLite/FTS5 + LanceDB (schema v39)
 app/extract   L2  PDF, Office, plaintext, PST/EML/mbox, zip, OCR, media + chunking
 app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat LLM
 app/index     L3  walker, resumable pipeline, embedder, governor, folder watch
 app/search    L4  BM25 + ANN, RRF fusion, rerank, filters, git search, evaluation
-app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
+app/reports   L4  read-only reports: Space Report, Life Timeline
+app/tidy      L4  Tidy: copies, similar photos, large files, leftovers; remove.py, the one writer
 app/ui        L5  the window (PySide6, Qt 6.11)
 app/shell     L5  `leasha shell`, the terminal search prompt
 app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe

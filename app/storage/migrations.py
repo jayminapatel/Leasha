@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 38
+CURRENT_VERSION = 39
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2036,6 +2036,37 @@ def _v38_live_mail(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_message_places_file ON message_places(file_id)")
 
 
+def _v39_tidy_journal(conn: sqlite3.Connection) -> None:
+    r"""Every file the Tidy page moved to the Recycle Bin, and the way back (order 1q D6).
+
+    One row per file: the batch it went in, when, the path it had, its size, modified
+    time and content hash as they were checked just before it moved, and `bin_ref` -
+    where in the Recycle Bin it went - so Put back can return it. `put_back_at` is set
+    when it was returned. The `files` row is left for the watcher or the next index run
+    to forget, as for a file deleted in Explorer; until then the Tidy page hides every
+    path here that has not been put back (`idx_tidy_journal_path`).
+
+    Additive: a new table, nothing existing touched.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS tidy_journal (
+            id           INTEGER PRIMARY KEY,
+            batch_id     TEXT    NOT NULL,
+            at           INTEGER NOT NULL,
+            kind         TEXT    NOT NULL,
+            path         TEXT    NOT NULL,
+            size_bytes   INTEGER NOT NULL,
+            mtime_ns     INTEGER NOT NULL,
+            content_hash TEXT,
+            kept_path    TEXT,
+            bin_ref      TEXT    NOT NULL,
+            put_back_at  INTEGER
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tidy_journal_batch ON tidy_journal(batch_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_tidy_journal_path ON tidy_journal(path) "
+                 "WHERE put_back_at IS NULL")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2074,6 +2105,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     36: _v36_index_upkeep,
     37: _v37_accounts_and_contacts,
     38: _v38_live_mail,
+    39: _v39_tidy_journal,
 }
 
 #: Released migrations that open and close transactions of their own -

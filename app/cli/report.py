@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from app.cli._common import EXIT_OK, _load, _report, _saved_roots
+from app.cli._common import EXIT_OK, _load, _report
 from app.core.errors import make_error
 from app.core.logging import setup_logging
 
@@ -23,66 +23,21 @@ def cmd_report(args: argparse.Namespace) -> int:
     named in the order's own 2b is a UI-only concern (`QPrinter`), so the
     CLI proves the report's content and wording headlessly, which is what
     non-negotiable 8 actually asks for.
+
+    Order 1q D9 (2026-10-11): the Space Report is the one report left -
+    Digital Inheritance was removed at the owner's word.
     """
-    from dataclasses import replace as _replace
-
-    from app.reports.inheritance import (
-        catalogue_sources,
-        render_inheritance_document,
-        report_generated_at,
-    )
-    from app.storage.sqlite_store import SqliteStore
-
     settings = _load(args)
     setup_logging(settings.log_path)
 
-    name = str(getattr(args, "name", "") or "").strip().lower()
+    name = str(getattr(args, "name", "") or "space").strip().lower()
     if name in ("space", "space-report"):
         return _cmd_report_space(settings, args)
-    if name not in ("inheritance", "digital-inheritance"):
-        return _report(make_error(
-            "ERR_CONFIG_INVALID", "cli.report",
-            key="name", reason=f"no report named {name!r}",
-            suggestion="Try: leasha report inheritance, or leasha report space",
-        ), args.json)
-
-    excluded = {
-        part.strip().lower() for part in str(args.exclude or "").split(",")
-        if part.strip()
-    }
-
-    with SqliteStore(settings.fts_db) as store:
-        roots = _saved_roots(settings)
-        sources = catalogue_sources(store, roots=roots)
-        generated_at = report_generated_at(store)
-
-    if excluded:
-        sources = [
-            s if s.name.strip().lower() not in excluded else _replace(s, include=False)
-            for s in sources
-        ]
-
-    document = render_inheritance_document(sources, generated_at=generated_at)
-
-    if args.json:
-        print(json.dumps({
-            "sources": [
-                {"name": s.name, "kind": s.kind, "file_count": s.file_count,
-                 "size_bytes": s.size_bytes, "status": s.status,
-                 "include": s.include}
-                for s in sources
-            ],
-            "generated_at": generated_at,
-        }, indent=2, default=str))
-        return EXIT_OK
-
-    if args.out:
-        Path(args.out).write_text(document, encoding="utf-8")
-        print(f"Written to {args.out}")
-        return EXIT_OK
-
-    print(document)
-    return EXIT_OK
+    return _report(make_error(
+        "ERR_CONFIG_INVALID", "cli.report",
+        key="name", reason=f"no report named {name!r}",
+        suggestion="Try: leasha report space",
+    ), args.json)
 
 
 def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
@@ -91,7 +46,7 @@ def _cmd_report_space(settings: Any, args: argparse.Namespace) -> int:
     stands apart from `cmd_report` itself - a second report is a second
     function, not a second set of branches threaded through the first one.
     """
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
     from app.reports.space import (
         find_duplicate_groups,
         find_near_duplicate_photo_groups,
@@ -162,14 +117,10 @@ def add_report_parser(sub: argparse._SubParsersAction, common: argparse.Argument
         help="a read-only report over the existing index - the catalogue, "
              "not a search")
     p_report.add_argument(
-        "name", metavar="NAME",
-        help="which report: inheritance (the Digital Inheritance catalogue), "
-             "space (duplicates and the only-copy warning)")
+        "name", metavar="NAME", nargs="?", default="space",
+        help="which report: space (duplicates and the only-copy warning), "
+             "the one report there is")
     p_report.add_argument(
         "--out", metavar="FILE",
         help="write the report's text to this file instead of stdout")
-    p_report.add_argument(
-        "--exclude", metavar="NAME,NAME",
-        help="202626270602 2c: leave these sources out of the report by name, "
-             "comma-separated")
     p_report.set_defaults(func=cmd_report)

@@ -66,7 +66,7 @@ CAPTIONS: dict[str, str] = {
     "code": "The Code page",
     "chat": "The Chat page",
     "offline-media": "The Offline page",
-    "reports": "The Reports page",
+    "reports": "The Tidy page",
     "space-report": "The Space Report",
     "indexing-status": "Indexing, Status",
     "indexing-what-gets-read": "Indexing, What gets read",
@@ -114,24 +114,19 @@ SURFACES: dict[str, dict[str, str]] = {
     **grab_ui.SURFACES,
     "indexing-what-gets-read": {"page": "Indexing", "category": "What gets read"},
     "search-results-dark": {"page": "Search", "state": "results"},
-    "space-report": {"page": "Reports"},
+    "space-report": {"page": "Tidy"},
 }
 
-#: Which report each Reports picture shows. Chosen every time: the page keeps
-#: whichever report was last opened, and the first `--all` run photographed
-#: the timeline twice because the timeline picture had been taken before it.
-REPORT_SHOWN = {"reports": "inheritance", "space-report": "space"}
+#: Which Tidy entry each picture shows (order 1q: Reports became Tidy). Chosen
+#: every time: the page keeps whichever entry was last opened, and the first
+#: `--all` run photographed one view twice because of that.
+REPORT_SHOWN = {"reports": "copies", "space-report": "report"}
 
 
 def _dress(window, name: str) -> None:
     """What a surface needs beyond reaching it."""
     if name in REPORT_SHOWN:
-        from app.ui.widgets.timeline_host import REPORT_KEY
-
-        reports = window.reports_view.list
-        for row in range(reports.count()):
-            if reports.item(row).data(REPORT_KEY) == REPORT_SHOWN[name]:
-                reports.setCurrentRow(row)
+        window.tidy_view.show_kind(REPORT_SHOWN[name])
     if name == "photos":
         # 2026-10-05: a photo selected, so the info panel shows what it is for.
         browser = window.photos_view.browser
