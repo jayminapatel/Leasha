@@ -438,6 +438,7 @@
     <Compile Include="app\ui\accounts\state.py" />
     <Compile Include="app\ui\accounts\sync_log.py" />
     <Compile Include="app\ui\accounts\wizard.py" />
+    <Compile Include="app\ui\accounts_page.py" />
     <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
     <Compile Include="app\ui\chat_view.py" />
