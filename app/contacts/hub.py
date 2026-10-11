@@ -392,6 +392,14 @@ class ContactHub:
     def empty_bin(self) -> int:
         return self.purge_bin(older_than_days=-1)
 
+    def bin_waiting(self) -> int:
+        """How many contacts in the bin are still waiting to be removed from an account. They stay in the bin
+        until a sync has done that: deleting them here first would lose the instruction, and the next sync
+        would bring them back from the account."""
+        return int(self.conn.execute(
+            "SELECT COUNT(DISTINCT c.id) FROM contacts c JOIN contact_links l ON l.contact_id = c.id "
+            "WHERE c.deleted_at IS NOT NULL AND c.merged_into IS NULL AND l.state = 'pending_remove'").fetchone()[0])
+
     # -- low-level row writers (call inside a write transaction) ---------------
     def _store_card(self, conn: Any, cid: int, card: Card) -> None:
         sets = {k: card.get(k) for k in SCALARS}

@@ -32,6 +32,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
   install order: dated notes recording that distribution is on again (owner, 2026-10-11).
 
+### Microsoft updates and the bin (2026-10-12)
+
+- **Fixed: Microsoft refused every contact update (HTTP 500).** Graph answers 500 to a change that sets an address to
+  "nothing" on a contact that has no such address. Leasha sent that for every contact without a home, work or other
+  address; it now sends it only where there is an address to clear. Checked live on five contacts that had failed.
+- **Empty the bin** says which contacts it kept: those still waiting to be deleted from an account stay until a sync
+  has done that (deleting them first would lose the instruction), and the notice says so.
+
 ### Sync window, Clean up, editor, Mail and Browse (2026-10-11)
 
 - **Sync window.** The Contacts page's Sync opens a window: per account its state, step, progress bar with time left,
