@@ -1,6 +1,6 @@
 # Work order (One thread): the models run where they pay, in the order that pays, and the graphics card is one lock across processes
 
-**Doc version:** 1.2 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/core/gpu_serialize.py`, `app/index/pipeline.py`, `app/index/media_backlog.py`,
 `app/extract/ocr.py`, `app/extract/chunker.py`, `app/search/engine.py`, `app/search/vector.py`,
 `app/search/translate.py`, `app/ui/workers.py`, `app/ui/shell.py`, `app/chat/engine.py`, `app/chat/context.py`,
@@ -213,6 +213,11 @@ tail without a word (UNCONFIRMED).
 - [ ] **6a** Measure the truncation: run the real tokenizer over a sample of 10,000 of the owner's passages;
       write here the share over 512 tokens and how much is cut. If it matters, size passages by the real
       tokenizer (`chunker.py`) - a change that applies to newly read files only, with no forced re-index.
+      > **2026-10-11, measured for 6b on the owner's index** (read-only, while the overnight run was in its meaning
+      > phase): 6,328,527 passages are bound for the model (2,629,553 more are keyword-only). **1,610,571 of them (25%)
+      > sit in second-and-later copies of a file with the same `content_hash`** - a lower bound for 6b, which matches
+      > passages, not whole files. Not small: the item stands. Passage-level share not measured (a full read of the
+      > 31 GB store did not finish in 10 minutes).
 - [ ] **6b** A passage whose text is identical to one already embedded (a content hash of the passage) takes
       the existing vector instead of the model.
       *Acceptance:* a fixture with a file copied into three folders embeds its passages once; the share of
