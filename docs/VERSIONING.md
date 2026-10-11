@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.13 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.14 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 ## Scheme
 
@@ -137,6 +137,15 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
    machine and let **Check the installation** say READY. The build refuses to run if one of
    the optional libraries (`av`, `pypff`, `reverse_geocoder`, `insightface`) is missing from
    the venv, naming it; a release build never passes `-AllowMissingOptional`.
+10. Publish it: `.\packaging\build.ps1 -Publish` in place of `-Release` in step 9 (it does
+    everything `-Release` does). Before building it checks that `gh` is signed in as
+    `jayminapatel`, that the checkout is at tag `v<x.y.z>` and the tag is on GitHub, and that
+    `CHANGELOG.md` has a `## [x.y.z]` section; after building it creates the GitHub release
+    `v<x.y.z>` (notes from that section, marked latest) or adds to it if it exists, with three
+    files: `Leasha-Setup-<x.y.z>.exe`, its `.sha256`, and the same installer again as
+    `Leasha-Setup.exe`. That last copy is not optional: the website's download link,
+    `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe`, names
+    no version and finds the newest release only through a file of exactly that name.
 
 Steps 5 and 6 are enforced by tests rather than trusted to memory. Documentation that has
 quietly gone stale is worse than none: it is confidently wrong, and someone acts on it.

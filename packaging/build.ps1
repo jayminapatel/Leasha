@@ -5,6 +5,7 @@
 
         .\packaging\build.ps1            # build into build\installer
         .\packaging\build.ps1 -Release   # and copy it to the Releases folder on Google Drive
+        .\packaging\build.ps1 -Publish   # -Release, then publish it as the GitHub release
 
     Steps: PyInstaller (packaging\leasha.spec) makes build\dist\Leasha, a folder with
     Leasha.exe and leasha-cli.exe; a quick check runs leasha-cli.exe; Inno Setup
@@ -17,6 +18,13 @@
 [CmdletBinding()]
 param(
     [switch]$Release,
+    # 2026-10-11 (owner): Leasha is distributed again, from GitHub Releases. -Publish
+    # does everything -Release does, then puts the installer, a second copy of it
+    # named Leasha-Setup.exe and the .sha256 on the GitHub release v<version>. The
+    # fixed name is what keeps one version-free download link working for ever:
+    # github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe,
+    # the link leasha.co.uk/app carries. Needs gh, signed in as jayminapatel.
+    [switch]$Publish,
     # 2026-10-08 review: leasha.spec now refuses to build when one of the optional
     # packages (av, pypff, reverse_geocoder, insightface) is missing from the venv,
     # so two builds of one commit ship the same thing. This switch is the deliberate
@@ -35,6 +43,45 @@ $Work = Join-Path $Root "build\work"
 $Out = Join-Path $Root "build\installer"
 
 Write-Host "Leasha $Version" -ForegroundColor Cyan
+
+# -Publish is checked here, before the build, so a missing sign-in or tag costs
+# seconds rather than a 15-minute build. Every probe decides by its exit code or
+# its output; nothing feeds a native program's stderr to a redirect (see the
+# PyInstaller probe below for why that matters in Windows PowerShell 5.1).
+$Repo = "jayminapatel/Leasha"
+$Tag = "v$Version"
+if ($Publish) {
+    $Release = $true
+    if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
+        throw "gh (the GitHub CLI) is not installed. Run: winget install --id GitHub.cli -e"
+    }
+    $Login = & gh api user --jq .login
+    if ($LASTEXITCODE -ne 0 -or $Login -ne "jayminapatel") {
+        throw "gh is not signed in as jayminapatel (it answered '$Login'). Run: gh auth login"
+    }
+    $AtTag = @(& git -C $Root tag --points-at HEAD)
+    if ($AtTag -notcontains $Tag) {
+        throw "This checkout is not at tag $Tag. A release is built from its tag: git checkout $Tag"
+    }
+    $Remote = & git -C $Root ls-remote --tags origin "refs/tags/$Tag"
+    if ($LASTEXITCODE -ne 0 -or -not $Remote) {
+        throw "Tag $Tag is not on GitHub yet. Run: git push origin $Tag"
+    }
+    # The release notes are this version's CHANGELOG section, as for 1.0.2 and 1.0.3.
+    $Notes = New-Object System.Collections.Generic.List[string]
+    $Inside = $false
+    foreach ($Line in Get-Content -LiteralPath (Join-Path $Root "CHANGELOG.md") -Encoding UTF8) {
+        if ($Line -match '^## \[') {
+            if ($Inside) { break }
+            $Inside = $Line.StartsWith("## [$Version]")
+            continue
+        }
+        if ($Inside) { $Notes.Add($Line) }
+    }
+    if (-not ($Notes -join "").Trim()) {
+        throw "CHANGELOG.md has no '## [$Version]' section to publish as the release notes."
+    }
+}
 
 # One build at a time. A second build clears build\dist while the first is still
 # packaging it, and neither finishes (2026-10-07: a 0.3.4 and a 0.3.5 build
@@ -123,4 +170,29 @@ if ($Release) {
     Copy-Item -LiteralPath $Setup -Destination $Shelf -Force
     Set-Content -LiteralPath (Join-Path $Shelf "Leasha-Setup-$Version.sha256") -Value "$Hash  Leasha-Setup-$Version.exe" -Encoding ascii
     Write-Host "  Copied to $Shelf" -ForegroundColor Green
+}
+
+# The installer goes up twice: under its version, for the record, and as
+# Leasha-Setup.exe, which GitHub's releases/latest/download/ address resolves to
+# the newest release carrying that name. Drop the second copy and the website's
+# download button quietly keeps serving the previous version.
+if ($Publish) {
+    Write-Host "Publishing $Tag on GitHub..." -ForegroundColor Cyan
+    $Sum = Join-Path $Out "Leasha-Setup-$Version.sha256"
+    Set-Content -LiteralPath $Sum -Value "$Hash  Leasha-Setup-$Version.exe" -Encoding ascii
+    $Fixed = Join-Path $Out "Leasha-Setup.exe"
+    Copy-Item -LiteralPath $Setup -Destination $Fixed -Force
+    $NotesFile = Join-Path $Out "release-notes-$Version.md"
+    [System.IO.File]::WriteAllLines($NotesFile, $Notes, (New-Object System.Text.UTF8Encoding($false)))
+    $Existing = @(& gh release list --repo $Repo --limit 200 --json tagName --jq '.[].tagName')
+    if ($LASTEXITCODE -ne 0) { throw "gh could not list the releases of $Repo (exit $LASTEXITCODE)." }
+    if ($Existing -contains $Tag) {
+        & gh release upload $Tag $Setup $Fixed $Sum --repo $Repo --clobber
+    } else {
+        & gh release create $Tag $Setup $Fixed $Sum --repo $Repo --title "Leasha $Version" `
+            --notes-file $NotesFile --verify-tag --latest
+    }
+    if ($LASTEXITCODE -ne 0) { throw "gh could not publish $Tag (exit $LASTEXITCODE)." }
+    Write-Host "  https://github.com/$Repo/releases/tag/$Tag" -ForegroundColor Green
+    Write-Host "  Always the newest: https://github.com/$Repo/releases/latest/download/Leasha-Setup.exe" -ForegroundColor Green
 }

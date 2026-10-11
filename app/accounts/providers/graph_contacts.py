@@ -74,6 +74,10 @@ GRAPH_CAPS = Capabilities(
     kinds=frozenset({"email", "phone", "address", "url", "date", "related", "im"}),
     groups=True, favourite=False, photo=False, date_labels=frozenset({"birthday"}))
 
+#: Graph answers HTTP 500 (ErrorInternalServerError) to a PATCH that sets an address to null on a contact that has
+#: no such address - found 2026-10-12 against the owner's account, one property at a time. So a null address is
+#: sent only when the contact has one to clear.
+_ADDRESS_SLOTS = ("homeAddress", "businessAddress", "otherAddress")
 _RELATED = {"spouse": "spouseName", "manager": "manager", "assistant": "assistantName"}
 _YEARLESS = (1, 1604)                   # the years Outlook uses for "no year"
 
@@ -359,7 +363,7 @@ class GraphContactsProvider:
         """Read the contact's changeKey and folder; raise `VersionConflict` if it is
         gone or has changed since `version`. Nothing is written blind."""
         resp = self._call("GET", f"me/contacts/{quote(remote_id, safe='')}?" +
-                          urlencode({"$select": "changeKey,parentFolderId"}))
+                          urlencode({"$select": "changeKey,parentFolderId," + ",".join(_ADDRESS_SLOTS)}))
         if resp.status == 404:
             raise VersionConflict(remote_id)
         if resp.status != 200:
@@ -392,6 +396,9 @@ class GraphContactsProvider:
         cur = self._current(remote_id, version)
         self._ensure_default_id()
         body = self._to_body(card, self._folder_name(cur.get("parentFolderId", "")))
+        for slot in _ADDRESS_SLOTS:
+            if body.get(slot) is None and not cur.get(slot):
+                del body[slot]                                  # nothing to clear, and Graph answers 500
         resp = self._call("PATCH", f"me/contacts/{quote(remote_id, safe='')}", body=body,
                           extra=self._write_headers(version))
         if resp.status in (409, 412, 404):

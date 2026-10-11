@@ -202,3 +202,45 @@ def test_the_spec_refuses_a_build_missing_an_optional_package_unless_told_not_to
     build = (SCRIPT.parent / "build.ps1").read_text(encoding="utf-8-sig")
     assert "[switch]$AllowMissingOptional" in build
     assert '$env:LEASHA_BUILD_ALLOW_MISSING = "1"' in build
+
+
+# --- publishing to GitHub Releases (owner, 2026-10-11) -----------------------------------
+
+BUILD = SCRIPT.parent / "build.ps1"
+
+
+def _publish_block() -> str:
+    text = BUILD.read_text(encoding="utf-8-sig")
+    return text.split('Write-Host "Publishing $Tag on GitHub..."', 1)[1]
+
+
+def test_publish_puts_up_a_fixed_name_copy_beside_the_versioned_installer():
+    """leasha.co.uk/app downloads through releases/latest/download/Leasha-Setup.exe,
+    which GitHub resolves to the newest release carrying a file of exactly that
+    name. A release without the copy leaves the button serving the version before."""
+    text = BUILD.read_text(encoding="utf-8-sig")
+    assert "[switch]$Publish" in text
+    block = _publish_block()
+    assert '$Fixed = Join-Path $Out "Leasha-Setup.exe"' in block
+    uploads = [line for line in block.splitlines() if "& gh release " in line and ("upload" in line or "create" in line)]
+    assert len(uploads) == 2, uploads
+    assert all("$Setup $Fixed $Sum" in line for line in uploads), uploads
+    assert "--clobber" in block and "--verify-tag" in block
+
+
+def test_publish_checks_sign_in_and_tag_before_the_build_starts():
+    """A missing sign-in or an untagged checkout found after a 15-minute build
+    is a wasted build; found first it costs seconds."""
+    text = BUILD.read_text(encoding="utf-8-sig")
+    start = text.index('Write-Host "1/4 PyInstaller..."')
+    for probe in ("& gh api user --jq .login", "tag --points-at HEAD", "ls-remote --tags origin", "CHANGELOG.md"):
+        assert -1 < text.index(probe) < start, probe
+
+
+def test_no_native_probe_in_the_build_script_feeds_stderr_to_null():
+    """The 2026-10-08 trap again, for gh and git: under Stop, Windows PowerShell
+    5.1 turns a redirected native stderr line into a terminating error."""
+    text = BUILD.read_text(encoding="utf-8-sig")
+    probes = [line for line in text.splitlines()
+              if line.lstrip().startswith(("& gh", "& git", "$Login", "$AtTag", "$Remote", "$Existing")) and "2>" in line]
+    assert probes == [], probes

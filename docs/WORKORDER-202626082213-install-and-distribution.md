@@ -1,11 +1,13 @@
 # Work order (DRAFT - to be finalised): install and distribution
 
-**Doc version:** 1.2 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Created:** 2026-08-26 22:13 · **Layer:** L9 - packaging, `install.ps1`, a new `packaging/`
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
 **Thread:** the single merged thread
+
+> **2026-10-11 (owner) - distributed from GitHub Releases, with a download page.** The owner put distribution back on (see `docs/ORDER_REGISTER.md` §5's note of the same date). The download page is `https://www.leasha.co.uk/app`; its download button is `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe`, kept pointing at the newest version by `packaging\build.ps1 -Publish`, which uploads the installer a second time under that fixed name. §1's "say so out loud" is met there: the page says in one note that the installer is not code-signed yet, what Windows shows and how to get past it, that Smart App Control may block it, and that whatever it installs stays on the PC. Still open from §1: a SmartScreen screenshot (A9).
 
 > **2026-10-06 (00:39) - the Setup.exe is built, and §4.2 steps 4 and 6 and §5 are in it.**
 > `Leasha-Setup-0.3.4.exe`, **325 MB**, SHA256 `A79158951F1F7E8034154423C3B916171E05DB90CEEAD13EEB371F0E8DDE6BDA`; a copy and its `.sha256` are in

@@ -643,6 +643,27 @@ def test_delete_key_moves_the_selection_to_the_bin_and_the_bin_empties(world):
     assert world.hub.counts()["bin"] == 0
 
 
+def test_emptying_the_bin_says_what_is_still_waiting_to_leave_an_account(world):
+    """The owner (2026-10-12): "empty contacts in the bin does not work" - it kept those waiting to be removed
+    from an account, silently. It still keeps them (a sync must do the removing) but now says so."""
+    a = world.add(card("A", "A"))
+    world.hub.conn.execute("UPDATE contacts SET deleted_at = 1 WHERE id = ?", (a,))
+    world.hub.conn.execute("INSERT OR REPLACE INTO contact_links (contact_id, account_id, remote_id, state, hub_rev) "
+                           "VALUES (?, 1, 'r1', 'pending_remove', 0)", (a,))
+    world.hub.conn.commit()
+    assert world.hub.bin_waiting() == 1
+    page = world.page()
+    said = []
+    page.notice.connect(said.append)
+    page.sidebar.select_key("bin")
+    settle(page)
+    page.confirm = lambda *a: True
+    page._bulk("empty_bin", None)
+    settle(page)
+    assert world.hub.counts()["bin"] == 1                      # kept: the account has not been told yet
+    assert any("still waiting to be deleted from your accounts" in t for t in said), said
+
+
 # ----------------------------------------------------------------------------- sidebar
 def test_smart_groups_are_created_edited_and_deleted_from_rules(world):
     from app.ui.contacts.smart import SmartDialog
