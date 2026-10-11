@@ -72,5 +72,5 @@ class PhotoCache(QObject):
             self._have.pop(cid, None)
         self.loaded.emit(cid if cid is not None else -1)
 
-    def wait(self, ms: int = 5000) -> bool:
+    def _wait_for_workers(self, ms: int = 5000) -> bool:
         return self._pool.waitForDone(ms)

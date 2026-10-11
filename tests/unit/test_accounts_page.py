@@ -532,7 +532,7 @@ def test_every_action_button_on_the_page_is_in_the_button_system(world):
     svc, page = world
     svc.accounts.add("imap", "me@x.com", "Mail", server="s", mail_on=True)
     p = page()
-    p.resize(900, 900)
+    p.resize(900, 4200)                       # tall: in the window it sits in a scroll area
     p.show()
     _select(p, svc.accounts.list()[0].id)
     wait_until(lambda: False, 0.1)

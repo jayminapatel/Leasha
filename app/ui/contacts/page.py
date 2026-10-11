@@ -827,4 +827,4 @@ class ContactsPage(QWidget):
 
     def shutdown(self) -> None:
         self._timer.stop()
-        self.photos.wait(2000)
+        self.photos._wait_for_workers(2000)
