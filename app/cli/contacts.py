@@ -90,6 +90,28 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
                   + (f"  {r.error_code}" if r.error_code else "") + ("  (undone)" if r.undone_at else ""))
         return EXIT_OK
 
+    if action == "merge-safe":
+        from app.ui.contacts_tools import actions  # noqa: PLC0415 - plain functions; no window is made
+
+        scan = actions.scan_book(svc.hub, use_cache=False)
+        steps = actions.plan_safe_merges(scan.groups, scan.cards, svc.hub.region)
+        folded = sum(len(s.others) for s in steps)
+        print(f"{len(steps)} groups of contacts are certainly one person (same email or mobile number, names "
+              f"that agree): {folded} duplicate(s) would be folded in.")
+        for step in steps[:6]:
+            print(f"  {' + '.join(step.names[:4])}  [{', '.join(step.reasons)}]")
+        if len(steps) > 6:
+            print(f"  ... and {len(steps) - 6} more")
+        if not steps or not args.yes:
+            print("Nothing was changed." + ("" if not steps else " Add --yes to merge them as one step "
+                  "(undo with: contacts unmerge --all --yes)."))
+            return EXIT_OK
+        print(f"Copy written: {svc.backup_contacts('before-merge-safe')}")
+        summary = actions.merge_safe(svc.hub, steps)
+        print(f"Merged {summary.groups} groups ({summary.contacts} contacts) in one step; "
+              f"{svc.hub.count()} contacts in the book.")
+        return EXIT_OK
+
     if action == "backup":
         path = svc.backup_contacts("manual")
         print(f"Wrote {path.with_suffix('.vcf')} and {path}")
@@ -178,6 +200,9 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     u = c.add_parser("undo", parents=[common], help="undo a whole sync (or one journal entry)")
     u.add_argument("target", help="sync log id (or a journal id with --entry)")
     u.add_argument("--entry", action="store_true")
+    ms = c.add_parser("merge-safe", parents=[common],
+                      help="merge the contacts that are certainly one person (shows them first; --yes to do it)")
+    ms.add_argument("--yes", action="store_true", help="really do it")
     c.add_parser("backup", parents=[common], help="copy the contact book now (a vCard file and the contact tables)")
     um = c.add_parser("unmerge", parents=[common], help="give a wrongly merged contact back as its own person")
     um.add_argument("ids", nargs="*", help="the contact id(s) that were folded into another")

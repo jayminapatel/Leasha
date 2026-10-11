@@ -159,3 +159,23 @@ def test_a_value_the_account_quietly_cannot_hold_stays_in_leasha_and_is_not_rewr
     world.sync()
     world.sync()
     assert len(world.servers[m].writes) == writes                          # and it is not rewritten each sync
+
+
+def test_the_mirror_waits_while_the_same_person_is_held_twice_and_goes_on_once_they_are_merged(world):
+    """Mirroring two copies of one person writes both to every account: it waits for the merge."""
+    from app.ui.contacts_tools import actions
+
+    g, m = world.account("Google"), world.account("Work")
+    world.hub.create(person("Ann", "Lee", email="ann@x.example"))           # the same person, twice
+    world.hub.create(person("Ann", "Lee", email="ann@x.example"))
+    world.hub.create(person("Bob", "Bell", email="bob@x.example"))
+    world.accounts.update_settings(mirror_contacts=True)
+    out = world.sync()
+    assert world.servers[g].live() == {} and world.servers[m].live() == {}   # nothing was written yet
+    assert "mirror_waiting" in only(out, g).plan.names and "1 duplicate group" in only(out, g).plan.names["mirror_waiting"][0]
+    scan = actions.scan_book(world.hub, use_cache=False)
+    steps = actions.plan_safe_merges(scan.groups, scan.cards, world.hub.region)
+    actions.merge_safe(world.hub, steps)
+    world.sync()
+    world.sync()
+    assert _names(world.servers[g]) == _names(world.servers[m]) == ["Ann Lee", "Bob Bell"]   # once each, not twice
