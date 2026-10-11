@@ -436,6 +436,7 @@
     <Compile Include="app\ui\accounts\panel.py" />
     <Compile Include="app\ui\accounts\parts.py" />
     <Compile Include="app\ui\accounts\state.py" />
+    <Compile Include="app\ui\accounts\sync_log.py" />
     <Compile Include="app\ui\accounts\wizard.py" />
     <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
@@ -471,6 +472,7 @@
     <Compile Include="app\ui\contacts_tools\merge_dialog.py" />
     <Compile Include="app\ui\contacts_tools\print_dialog.py" />
     <Compile Include="app\ui\contacts_tools\qr_dialog.py" />
+    <Compile Include="app\ui\contacts_view.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
@@ -845,6 +847,7 @@
     <Compile Include="tests\unit\test_contacts_people.py" />
     <Compile Include="tests\unit\test_contacts_printing.py" />
     <Compile Include="tests\unit\test_contacts_qr.py" />
+    <Compile Include="tests\unit\test_contacts_tools_ui_common.py" />
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
