@@ -584,7 +584,9 @@ _TERSE_FOR_MODEL: dict[str, str] = {
 #: Operators the model is not told about. 2026-10-05: `/only` is a Photos-tab
 #: switch, typed or clicked, never what a sentence translates to - and telling
 #: the model would take the prompt over the ceiling above (2,139 of 2,100).
-_NOT_FOR_MODEL = frozenset({"only"})
+#: 2026-10-12: nor the mail switches `/attachment`, `/mailbox` and `/mailfolder`, which a person types or picks; they
+#: would take the prompt past the same ceiling.
+_NOT_FOR_MODEL = frozenset({"only", "attachment", "mailbox", "mailfolder"})
 
 
 def grammar_for_model() -> str:

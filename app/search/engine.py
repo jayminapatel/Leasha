@@ -2062,6 +2062,10 @@ class SearchEngine:
             repr(_fold(parsed.not_shows)), repr(_fold(parsed.not_place)),
             repr(_fold(parsed.not_who)), repr(_fold(parsed.not_volumes)),
             repr(_fold(parsed.not_only)),
+            # 2026-10-12: the mail switches. Left out of the key they would have served `/attachment *.xlsx`
+            # the results of `/attachment *.pdf`.
+            repr(_fold(parsed.attachments)), repr(_fold(parsed.not_attachments)),
+            repr(_fold(parsed.mailboxes)), repr(_fold(parsed.mailfolders)),
             parsed.scope, "r" if rerank else "-", model, str(limit),
         ])
 
