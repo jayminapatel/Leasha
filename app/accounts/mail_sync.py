@@ -342,7 +342,7 @@ class MailSyncer:
                 plan.merge_in += result.changed
                 plan.delete_out += result.deleted
                 for p in prepared[:5]:
-                    plan.note("add_in", p.key.rsplit("/", 1)[-1])
+                    plan.note("add_in", str(p.pieces[0].meta.get("subject") or "(no subject)"))
                 bytes_run += fetched_bytes
                 if page.done:
                     break
