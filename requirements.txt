@@ -369,3 +369,22 @@ prompt_toolkit==3.0.53
 # address. opentelemetry-api is the SDK's tracing interface: with no
 # OpenTelemetry SDK or exporter installed it records nothing and sends nothing.
 mcp==2.3.0
+
+# --- Accounts, contacts and contact sync (order 1k, 2026-10-11) -------------
+#
+# All three are pure-Python py3-none-any wheels (checked on PyPI 2026-10-11),
+# so rule 12 holds: nothing to compile, nothing else to install.
+#
+# keyring: the only place a sign-in secret is kept. On Windows it is Credential
+# Manager (its pywin32-ctypes dependency is pure Python too); a refresh token or
+# an app password is never written to SQLite, `.env` or a log. 25.7.0 is the
+# release the order was built and tested against.
+keyring==25.7.0
+# phonenumbers: E.164 matching for "the same person in two accounts" (2d). A
+# number typed without a country code is read in the person's own region.
+phonenumbers==9.0.41
+# segno: the QR code of a contact card (6r), drawn here with no network.
+segno==1.6.6
+# tzdata: zoneinfo has no time-zone database on Windows without it. The sync
+# schedule tests (a DST change) read Europe/London through zoneinfo.
+tzdata==2025.2

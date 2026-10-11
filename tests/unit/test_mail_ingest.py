@@ -84,7 +84,7 @@ def test_an_unnamed_attachment_gets_a_name():
 ])
 def test_account_paths_round_trip(folder, rid):
     path = account_path(7, folder, rid)
-    assert path.startswith("account://7/") and path.count("/") == 4 + 0 or True
+    assert path.startswith("account://7/")
     assert split_account_path(path) == ("7", folder, rid)
     assert path.isascii()
 

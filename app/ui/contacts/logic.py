@@ -18,7 +18,7 @@ from app.contacts.hub import ContactFilter, ContactRow, JournalRow
 
 __all__ = [
     "STATE_VIEW", "STATE_SORT", "COLUMNS", "column_key", "sort_rows", "initials",
-    "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for",
+    "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for", "actor_words", "source_words",
     "account_glyph", "describe_entry", "KIND_INFO", "LABELS", "date_icon", "RULE_FIELDS",
     "RULE_OPS", "SMART_EXAMPLES", "rule_text", "TAG_COLOURS", "parse_sort", "hub_error_text",
 ]
@@ -209,8 +209,27 @@ def describe_entry(j: JournalRow, account_names: Optional[dict[int, str]] = None
             extra.append(f"{verb} " + ", ".join(names.get(int(i), f"account {i}") for i in ids))
     if extra:
         words += " (" + "; ".join(extra) + ")"
-    who = {"user": "you", "undo": "an undo", "sync": "a sync"}.get(j.actor, j.actor)
-    return icon_name, f"{words} by {who}"
+    return icon_name, f"{words} by {actor_words(j.actor, names)}"
+
+
+def actor_words(actor: str, names: Optional[dict[int, str]] = None) -> str:
+    """'you', 'an undo', or the account a change came from."""
+    if actor.startswith("account:") and actor[8:].isdigit():
+        return (names or {}).get(int(actor[8:]), "an account")
+    return {"user": "you", "undo": "an undo", "sync": "a sync"}.get(actor, actor)
+
+
+def source_words(sources: list, names: Optional[dict[int, str]] = None) -> str:
+    """Hover text for a field: where the hub learnt it (2a's sources). '' when it was typed here."""
+    if not sources:
+        return ""
+    parts = []
+    for source, ref in sources:
+        if source.startswith("account:"):
+            parts.append(f"synced from {actor_words(source, names)}")
+        elif source:
+            parts.append(f"imported ({source}{': ' + ref if ref else ''})")
+    return ("Came from: " + "; ".join(dict.fromkeys(parts))) if parts else ""
 
 
 def hub_error_text(exc: Any) -> str:

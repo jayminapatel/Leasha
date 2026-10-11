@@ -1,0 +1,100 @@
+"""Linking a contact to a named person on the photo side.
+
+Layer: L7
+
+Order 1k 2c. The Photo Tagger names people (`piles`); a contact is a person with
+an address. A link says they are the same person, so the contact can borrow a
+photo from that person's faces and the person's photos can be listed on the
+contact (6f).
+
+**Suggested, then accepted by the person (D9).** A name that matches is only a
+suggestion; nothing is linked until the person says so, and a "no" is remembered
+(`declined`) so it is not suggested again. Never merged on a name alone.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any, Optional
+
+__all__ = ["PileLink", "suggest_pile_links", "pile_link", "accept_pile_link", "decline_pile_link",
+           "link_to_pile", "unlink", "pending_suggestions", "faces_of_contact"]
+
+
+@dataclass
+class PileLink:
+    contact_id: int
+    pile_id: int
+    pile_name: str
+    state: str                 # suggested | accepted | declined
+
+
+def _fold(text: Optional[str]) -> str:
+    return " ".join((text or "").casefold().split())
+
+
+def suggest_pile_links(hub: Any) -> int:
+    """Suggest a named person for every contact that has none and whose name matches. Returns how many."""
+    conn = hub.conn
+    named = {}
+    for r in conn.execute("SELECT id, name FROM piles WHERE name IS NOT NULL"):
+        named.setdefault(_fold(r["name"]), r["id"])
+    if not named:
+        return 0
+    n = 0
+    with hub.store.write() as w:
+        for r in w.execute("SELECT c.id, c.display_name FROM contacts c WHERE c.deleted_at IS NULL "
+                           "AND NOT EXISTS (SELECT 1 FROM contact_pile_links l WHERE l.contact_id = c.id)"):
+            pid = named.get(_fold(r["display_name"]))
+            if pid is not None:
+                w.execute("INSERT OR IGNORE INTO contact_pile_links (contact_id, pile_id, state) "
+                          "VALUES (?,?,'suggested')", (r["id"], pid))
+                n += 1
+    return n
+
+
+def pile_link(hub: Any, contact_id: int) -> Optional[PileLink]:
+    r = hub.conn.execute(
+        "SELECT l.contact_id, l.pile_id, l.state, p.name FROM contact_pile_links l "
+        "JOIN piles p ON p.id = l.pile_id WHERE l.contact_id = ?", (contact_id,)).fetchone()
+    return PileLink(r["contact_id"], r["pile_id"], r["name"] or "", r["state"]) if r else None
+
+
+def pending_suggestions(hub: Any) -> list[PileLink]:
+    return [PileLink(r["contact_id"], r["pile_id"], r["name"] or "", r["state"]) for r in hub.conn.execute(
+        "SELECT l.contact_id, l.pile_id, l.state, p.name FROM contact_pile_links l "
+        "JOIN piles p ON p.id = l.pile_id WHERE l.state = 'suggested' ORDER BY p.name")]
+
+
+def accept_pile_link(hub: Any, contact_id: int) -> None:
+    with hub.store.write() as w:
+        w.execute("UPDATE contact_pile_links SET state = 'accepted' WHERE contact_id = ?", (contact_id,))
+
+
+def decline_pile_link(hub: Any, contact_id: int) -> None:
+    with hub.store.write() as w:
+        w.execute("UPDATE contact_pile_links SET state = 'declined' WHERE contact_id = ?", (contact_id,))
+
+
+def link_to_pile(hub: Any, contact_id: int, pile_id: int) -> None:
+    """The person chose it by hand: accepted at once."""
+    with hub.store.write() as w:
+        w.execute("INSERT INTO contact_pile_links (contact_id, pile_id, state) VALUES (?,?,'accepted') "
+                  "ON CONFLICT(contact_id) DO UPDATE SET pile_id = excluded.pile_id, state = 'accepted'",
+                  (contact_id, pile_id))
+
+
+def unlink(hub: Any, contact_id: int) -> None:
+    with hub.store.write() as w:
+        w.execute("DELETE FROM contact_pile_links WHERE contact_id = ?", (contact_id,))
+
+
+def faces_of_contact(hub: Any, contact_id: int, limit: int = 50) -> list[dict]:
+    """The faces of the person an accepted link names: face id, the photo's path, its box."""
+    link = pile_link(hub, contact_id)
+    if link is None or link.state != "accepted":
+        return []
+    return [dict(r) for r in hub.conn.execute(
+        "SELECT f.id AS face_id, f.file_id, fl.path, f.bbox_x, f.bbox_y, f.bbox_w, f.bbox_h, f.confidence "
+        "FROM faces f JOIN files fl ON fl.id = f.file_id WHERE f.pile_id = ? "
+        "ORDER BY COALESCE(f.confidence, 0) DESC, f.id LIMIT ?", (link.pile_id, limit))]

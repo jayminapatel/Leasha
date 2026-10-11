@@ -30,7 +30,7 @@ _AUTOMATIC_LOCAL = re.compile(
     r"bounces?|newsletters?|notifications?|notify|alerts?|digest|unsubscribe|mailer|auto[._-]?reply|"
     r"autoresponder|daemon|robot|bot)(?:$|[._+\-\d])", re.I)
 _AUTOMATIC_NAME = re.compile(r"\b(?:no[- ]?reply|do not reply|newsletter|notifications?|mailer-daemon)\b", re.I)
-_AUTOMATIC_DOMAIN = re.compile(r"^(?:bounce|bounces|mailer|email|em\d*|mg|news|newsletter|notify|mail\d*)\.", re.I)
+_AUTOMATIC_DOMAIN = re.compile(r"^(?:bounce|bounces|mailer|email|em\d*|mg|news|newsletter|notify)\.", re.I)
 
 
 @dataclass(frozen=True)
