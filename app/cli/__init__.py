@@ -56,7 +56,9 @@ from app.cli.evaluate import add_evaluate_parser
 from app.cli.extract import add_convert_parser, add_extract_parser
 from app.cli.formats import add_formats_parser
 from app.cli.index import add_index_parser, add_reembed_parser
-from app.cli.mail_dedupe import add_dedupe_mail_parser, cmd_dedupe_mail  # noqa: F401
+from app.cli.mail_dedupe import (  # noqa: F401
+    add_dedupe_mail_parser, add_outlook_dedupe_parser, cmd_dedupe_mail, cmd_outlook_dedupe,
+)
 from app.cli.media import add_media_parser
 from app.cli.models import add_models_parser
 from app.cli.photos import add_photos_parser
@@ -187,6 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_bench_pipeline_parser(sub, common)
     add_reembed_parser(sub, common)
     add_dedupe_mail_parser(sub, common)
+    add_outlook_dedupe_parser(sub, common)
     add_commands_parser(sub, common)
     add_ollama_parser(sub, common)
     add_shell_parser(sub, common)

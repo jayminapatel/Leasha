@@ -36,7 +36,8 @@ from app.ui.widgets.photo_info import PhotoInfo
 # the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
 # lines test_presenter allows a view.
 from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, arrange_rows, photo_menu,
-                                             read_library, read_the_box, same_day_box)
+                                             read_library, read_the_box, same_day_box,
+                                             tree_toggle)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
 from app.ui.qtsip import open_menu
@@ -115,6 +116,8 @@ class PhotosView(QWidget):
         top = QHBoxLayout()
         top.addWidget(self.input, 1)
         top.addWidget(self.write_button)
+        self.tree_button = tree_toggle(self)
+        top.addWidget(self.tree_button)
         top.addWidget(self.view_button)
         layout = QVBoxLayout(self)
         self.chips = list_chips(self, layout, top, self._run)
@@ -123,6 +126,7 @@ class PhotosView(QWidget):
 
         self.set_mode(self._state("mode") or "medium", remember=False)
         self.show_info((self._state("info") or "1") == "1", remember=False)
+        self.show_tree((self._state("tree") or "1") == "1", remember=False)
         self.refresh()
 
     # -- reading -------------------------------------------------------------------
@@ -193,6 +197,12 @@ class PhotosView(QWidget):
         self.info.setVisible(bool(on))
         if remember:
             self._remember("info", "1" if on else "0")
+
+    def show_tree(self, on: bool, *, remember: bool = True) -> None:
+        self.sidebar.setVisible(bool(on))
+        self.tree_button.set_quietly(bool(on))
+        if remember:
+            self._remember("tree", "1" if on else "0")
 
     def _state(self, key: str) -> str:
         """A remembered choice, or "" - never an error that stops the tab opening."""

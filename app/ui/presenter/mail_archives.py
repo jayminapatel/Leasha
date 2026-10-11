@@ -17,7 +17,7 @@ happened at all.
 from __future__ import annotations
 
 from pathlib import PureWindowsPath
-from typing import Any, Mapping, Optional
+from typing import Any, Mapping, Optional, Sequence
 
 __all__ = [
     "ARCHIVE_CHOICES", "OUTLOOK_ONLY_TIP", "ARCHIVE_CHOICE_TIP", "archive_choices",
@@ -185,3 +185,37 @@ def archive_choice_saved_message(path: Any, backend: str,
     how = labels.get(str(backend or "auto"), labels["auto"])
     return (f"{archive_name(path)}: {how}. {own:,} {archives}; it applies from "
             "the next index run.")
+
+
+# -- Order 1l (2026-10-11): copies inside a mailbox, to its Deleted Items --------
+
+def copies_counting_message(path: Any) -> str:
+    """The status line while the mailbox is read through Outlook."""
+    return f"Looking for messages that are in {archive_name(path)} twice, through Outlook..."
+
+
+def no_copies_message(path: Any, examined: int) -> str:
+    return (f"No message is in {archive_name(path)} twice ({examined:,} looked at). "
+            "Nothing was moved.")
+
+
+def copies_confirmation(path: Any, count: int, examples: Sequence[str]) -> tuple[str, str]:
+    """What "Move duplicates to Deleted Items" asks. `(title, body)`."""
+    name = archive_name(path)
+    noun = "copy" if count == 1 else "copies"
+    title = f"Move {count:,} duplicate {noun} in {name} to Deleted Items?"
+    shown = "".join(f"\n  - {line}" for line in examples)
+    body = (
+        f"{count:,} {'message is' if count == 1 else 'messages are'} in {name} more than once - "
+        "the same subject, sender, time, text and attachments. One of each stays where it is; "
+        f"the extra {noun} {'moves' if count == 1 else 'move'} to {name}'s own Deleted Items, "
+        f"where Outlook can restore {'it' if count == 1 else 'them'}.{shown}\n\n"
+        "Nothing is deleted, and Leasha's index already holds one of each.")
+    return title, body
+
+
+def copies_moved_message(path: Any, moved: int, left: int) -> str:
+    said = f"Moved {moved:,} duplicate {'copy' if moved == 1 else 'copies'} in {archive_name(path)} to its Deleted Items."
+    if left:
+        said += f" {left:,} had changed or gone since they were counted, and were left where they are."
+    return said

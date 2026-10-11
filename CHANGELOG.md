@@ -17,6 +17,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Duplicates in a mailbox, the rail's order, and the Photos list switch (2026-10-11)
+
+- **Settings > Mail archives > Duplicates**: a button on each archive's line counts the messages that are in it twice,
+  asks, and on Yes moves the extra copies to that archive's own Deleted Items, through Outlook. Nothing is deleted.
+  `leasha outlook-dedupe <archive> --dry-run` does the count from the command line.
+- **The rail reads Search, Mail, Photos, Files, Code, Browse, Chat, Reports**, and the Go menu follows it.
+- **Photos: the list on the left can be hidden** - the panel icon beside View, or View > People, years and places.
+
 ### Accounts, live mail and a contact book that syncs (order 1k, 2026-10-11; branch `feat/accounts-1k`, not merged)
 
 - **Accounts**: Google, Microsoft, Apple and any IMAP or CardDAV server, any number of each; secrets only in Windows Credential Manager. `leasha accounts` and `leasha contacts` on the command line.

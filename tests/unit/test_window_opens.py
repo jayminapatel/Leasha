@@ -914,7 +914,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Contacts", "Photos", "Mail", "Code", "Chat", "Browse", "Reports",
+            "Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Reports",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -1087,7 +1087,8 @@ def test_files_and_search_are_not_deferred(window):
     assert built.files_view is not None
     assert built._tab_index[built.search_view] == 0, \
         "Search must be tab 0 - the tab shown at first paint"
-    assert built._tab_index[built.files_view] == 1
+    # 2026-10-11: Files sits after Mail and Photos once they are built (the owner's order).
+    assert built.rail.tabText(built._tab_index[built.files_view]) == "Files"
 
 
 # ---------------------------------------------------------------------------
@@ -1174,7 +1175,7 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
         titles = [built.rail.tabText(i) for i in range(built.rail.count())]
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
-        assert titles == ["Search", "Files", "Contacts", "Photos", "Mail", "Code", "Chat", "Browse",
+        assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
                           "Reports", "Indexing", "Settings"]
         assert built.rail._pill_index == titles.index("Indexing"), (
             "the pill must open the Indexing page")

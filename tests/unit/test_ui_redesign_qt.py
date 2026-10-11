@@ -91,9 +91,9 @@ def test_every_page_is_reachable_by_click_and_by_index(window):
     rail = built.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
     # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
-    # 2026-10-11, order 1i: Offline is a shelf of Indexing; Browse (the timeline) took its slot.
     # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
-    assert titles == ["Search", "Files", "Contacts", "Photos", "Mail", "Code", "Chat", "Browse",
+    # 2026-10-11: the owner's order ("search, mail, photos, file, code, browse, chat and reports").
+    assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
                       "Reports", "Indexing", "Settings"]
     for index in range(rail.count()):
         rail.setCurrentIndex(index)
@@ -157,7 +157,7 @@ def test_the_last_page_is_remembered_under_ui_page(window):
     # Queued on the ordered state writer since bug 3a - wait for it, and for
     # the switch back below, so neither lands on top of "Reports".
     assert pool().waitForDone(5000)
-    assert store.get_state("ui:page", "") == "Files"
+    assert store.get_state("ui:page", "") == "Mail"     # 2026-10-11: the second page now
     built.rail.setCurrentIndex(0)
     assert pool().waitForDone(5000)
     store.set_state("ui:page", "Reports")

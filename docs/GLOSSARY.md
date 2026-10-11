@@ -217,7 +217,7 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Files, Contacts, Photos, Mail, Code, Chat, Browse (the timeline), Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
 | What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
 | `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |

@@ -534,6 +534,10 @@ class MainWindow(QMainWindow):
                 wrapped, title, icon=icon_name,
                 foot=placement == "foot", pill=placement == "pill")
         self.rail.describe(self._tab_index[self.timeline_view], "Browse your timeline")
+        # Order 1m: pages dragged or moved from their menu, remembered and reset.
+        from app.ui.widgets import rail_order
+
+        rail_order.wire(self)
         # Refresh a panel when it comes forward rather than on a timer: an
         # index run between visits changes what it should show, and polling a
         # table nobody is looking at is work for nothing. Safe to connect
@@ -721,12 +725,12 @@ class MainWindow(QMainWindow):
         for pane in (self.mail_view.preview, self.code_view.results.preview):
             pane.pop_out_requested.connect(self._pin_document)
 
-        # Inserted right after Files - the position this pair held in the
-        # original single loop - so the tab order nobody has to relearn
-        # never changes. `indexOf` on the exact wrapped widget, not a
-        # remembered number, is what keeps the refresh below correct
-        # regardless of how many tabs an insertion has shifted.
-        after_files = self._tab_index[self.files_view]
+        # 2026-10-11, the owner: "reorder the pills search, mail, photos, file, code,
+        # browse, chat and reports". Each page is placed by where its neighbour is
+        # now (`indexOf` on the wrapped widget), never by a remembered number.
+        def at(view: Any) -> int:
+            return self.rail.indexOf(self._tab_wrapped[view])
+
         # Order 1k 6a / D14 (2026-10-11): Contacts has a pill of its own, right after Files.
         # The page is built on its first show (`ContactsView.ensure_built`), so this is an
         # empty widget until somebody opens it and costs the window's start-up nothing.
@@ -736,24 +740,22 @@ class MainWindow(QMainWindow):
         self.contacts_view.error.connect(self._show_error)
         self.contacts_view.notice.connect(self.notify)
         contacts_wrapped = wrap_if_needed(self.contacts_view, scroll=False)
-        self.rail.insertTab(after_files + 1, contacts_wrapped, "Contacts", icon="contact")
+        self.rail.insertTab(at(self.files_view) + 1, contacts_wrapped, "Contacts", icon="contact")
         self._tab_wrapped[self.contacts_view] = contacts_wrapped
-        after_files += 1
         # 2026-10-05, the owner: "a chip just for pictures designed to view find
-        # and deal with pictures including namings". Photos, right after Files.
+        # and deal with pictures including namings".
         self.photos_view = PhotosView(store)
         self.photos_view.error.connect(self._show_error)
         self.photos_view.open_requested.connect(self._open_path)
         self.photos_view.reveal_requested.connect(self._reveal_path)
         photos_wrapped = wrap_if_needed(self.photos_view, scroll=False)
-        self.rail.insertTab(after_files + 1, photos_wrapped, "Photos", icon="image")
-        self._tab_wrapped[self.photos_view] = photos_wrapped
-        after_files += 1
         mail_wrapped = wrap_if_needed(self.mail_view, scroll=False)
-        self.rail.insertTab(after_files + 1, mail_wrapped, "Mail", icon="mail")
+        self.rail.insertTab(at(self.files_view), mail_wrapped, "Mail", icon="mail")
         self._tab_wrapped[self.mail_view] = mail_wrapped
+        self.rail.insertTab(at(self.files_view), photos_wrapped, "Photos", icon="image")
+        self._tab_wrapped[self.photos_view] = photos_wrapped
         code_wrapped = wrap_if_needed(self.code_view, scroll=False)
-        self.rail.insertTab(after_files + 2, code_wrapped, "Code", icon="code")
+        self.rail.insertTab(at(self.contacts_view) + 1, code_wrapped, "Code", icon="code")
         self._tab_wrapped[self.code_view] = code_wrapped
         # Chat (order 202626270611): a real tab, after Code. Everything but
         # the page itself - engine, worker, saving - is `ChatController`.
@@ -762,7 +764,8 @@ class MainWindow(QMainWindow):
         # 2026-10-04: the Sources column's preview pins like every other pane's.
         self.chat_view.preview.pop_out_requested.connect(self._pin_document)
         chat_wrapped = wrap_if_needed(self.chat_view, scroll=False)
-        self.rail.insertTab(after_files + 3, chat_wrapped, "Chat", icon="message-square")
+        self.rail.insertTab(at(self.timeline_view) + 1, chat_wrapped, "Chat",
+                            icon="message-square")
         self._tab_wrapped[self.chat_view] = chat_wrapped
         for view, wrapped in self._tab_wrapped.items():
             self._tab_index[view] = self.rail.indexOf(wrapped)
@@ -771,6 +774,10 @@ class MainWindow(QMainWindow):
         # existed by then; Mail's and Code's controls did not, so it runs
         # again for exactly what it missed. Safe to call twice - a widget
         # guarded a second time is guarded harmlessly, see `protect`.
+        # Order 1m: every movable page exists now, so the remembered order applies.
+        from app.ui.widgets import rail_order
+
+        rail_order.restore(self)
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
         fit_number_fields(self)
@@ -866,6 +873,12 @@ class MainWindow(QMainWindow):
                 self.settings_ctl._read_archive_again)
             self.settings_view.mail_archive_clear_requested.connect(
                 self.settings_ctl._clear_archive)
+            # Order 1l: "Move duplicates to Deleted Items" on each archive's line.
+            from app.ui.controllers.outlook_cleanup_controller import OutlookCleanupController
+
+            self.outlook_cleanup_ctl = OutlookCleanupController(self)
+            self.settings_view.mail_archives.copies_requested.connect(
+                self.outlook_cleanup_ctl.request)
             self.indexing_view.finished.connect(self.settings_ctl._load_mail_archives)
             self.settings_ctl._load_mail_archives()
             self.settings_view.code_types_changed.connect(self._save_code_types)
@@ -1515,16 +1528,20 @@ class MainWindow(QMainWindow):
         view = bar.addMenu("&View")
         add(view, "Preview pane", self._toggle_preview, "Ctrl+Shift+P",
             icon="panel-right", tip="Show or hide the preview pane beside the results")
+        # Order 1m: the rail back in Leasha's order (D3).
+        add(view, "Reset page order", lambda: getattr(self, "reset_page_order", lambda: None)(),
+            icon="rotate-ccw", tip="Put the pages on the left back in Leasha's order")
         # 2026-10-04, the owner: the tab's View options here too, changing with the tab.
         view.aboutToShow.connect(lambda menu=view: self._fill_view_menu(menu))
 
         go = bar.addMenu("&Go")
+        # 2026-10-11: in the rail's order (the owner's).
+        add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
+        add(go, "Photos", self._show_photos, icon="image",
+            tip="See, find and name your photos")
         add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
         add(go, "Contacts", self._show_contacts, icon="contact",
             tip="Your people: lists, cards, groups and the accounts they are kept in")
-        add(go, "Photos", self._show_photos, icon="image",
-            tip="See, find and name your photos")
-        add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
         add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
         add(go, "Offline", self._show_offline, icon="hard-drive")
         add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
@@ -1896,6 +1913,7 @@ class MainWindow(QMainWindow):
         photos = getattr(self, "photos_view", None)
         if photos is not None:
             photos.view_button.retint(colours)
+            photos.tree_button.retint(colours)           # 2026-10-11: the tree's switch
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)

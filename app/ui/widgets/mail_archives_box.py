@@ -67,7 +67,7 @@ def _backend(value: Any) -> str:
     return text if text in _BACKENDS else "auto"
 
 #: Column numbers, named so the controller and the tests need not count.
-COL_ARCHIVE, COL_MESSAGES, COL_STATUS, COL_HOW, COL_READ, COL_CLEAR = range(6)
+COL_ARCHIVE, COL_MESSAGES, COL_STATUS, COL_HOW, COL_READ, COL_CLEAR, COL_COPIES = range(7)
 
 _PATH_ROLE = Qt.ItemDataRole.UserRole
 
@@ -82,6 +82,8 @@ class MailArchivesBox(QGroupBox):
     read_again = Signal(str)
     #: "Clear and read again" on a line: ask, clear its items, read it again.
     clear_and_read = Signal(str)
+    #: Order 1l: copies inside that mailbox, moved to its Deleted Items (it counts and asks).
+    copies_requested = Signal(str)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("Mail archives", parent)
@@ -94,13 +96,13 @@ class MailArchivesBox(QGroupBox):
         self.empty.setWordWrap(True)
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(6)
+        self.tree.setColumnCount(7)
         # The two button columns' headings on two lines (2026-10-08): on one,
         # "Clear and read again" made its column four times the width of its
         # button, and on the window's default size the row ran off the side.
         # The same words, broken where a person would break them.
         self.tree.setHeaderLabels(["Archive", "Messages", "Status", "How it is read",
-                                   "Read\nagain", "Clear and\nread again"])
+                                   "Read\nagain", "Clear and\nread again", "Duplicates"])
         self.tree.setRootIsDecorated(False)
         self.tree.setAlternatingRowColors(True)
         self.tree.setUniformRowHeights(True)
@@ -153,7 +155,7 @@ class MailArchivesBox(QGroupBox):
         path = str(row["path"])
         messages = int(row.get("messages") or 0)
         status = archive_status_words(row.get("status"), row.get("skip_code"), messages)
-        item = QTreeWidgetItem([path, messages_words(messages), status, "", "", ""])
+        item = QTreeWidgetItem([path, messages_words(messages), status, "", "", "", ""])
         item.setData(COL_ARCHIVE, _PATH_ROLE, path)
         item.setToolTip(COL_ARCHIVE, path)
         item.setToolTip(COL_STATUS, status)
@@ -204,6 +206,17 @@ class MailArchivesBox(QGroupBox):
         clear.clicked.connect(
             lambda _checked=False, where=path: self.clear_and_read.emit(where))
         put_on_row(self.tree, item, COL_CLEAR, clear)
+
+        copies = icon_button(
+            "Move duplicates to Deleted Items",
+            name=f"Move duplicate messages in this archive to its Deleted Items: {path}",
+            tooltip=("Move duplicates to Deleted Items - this archive only, through Outlook.\n\n"
+                     "Leasha counts the messages that are in this archive twice and asks "
+                     "first. Only the extra copies move, into this archive's own Deleted "
+                     "Items, where Outlook can restore them. Nothing is deleted."))
+        copies.clicked.connect(
+            lambda _checked=False, where=path: self.copies_requested.emit(where))
+        put_on_row(self.tree, item, COL_COPIES, copies)
         return item
 
     def set_default_backend(self, backend: str) -> None:
