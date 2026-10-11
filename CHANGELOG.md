@@ -17,6 +17,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Mail: "Messages saved as files" (2026-10-12)
+
+- It held 4,913 items, of which about 4,050 were attachments (pictures, spreadsheets, PDFs) inside Outlook archives,
+  recorded with no archive of their own and shown as year folders (2008, 2009, 2025, 2026). Those are no longer listed
+  there; it now holds the 858 real `.msg` and `.eml` files. The archive attachments still count in All mail.
+
 ### Drop-downs and the default marker (2026-10-12)
 
 - **Every drop-down now shows its arrow.** The stylesheet had removed the native arrow and drawn none, so the type

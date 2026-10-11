@@ -131,6 +131,12 @@ def live(tmp_path):
         pst = store.upsert_file("pst://9/1", size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="pst_message")
         store.set_message(pst, store_path=ARCHIVE, folder_path="Inbox", subject="From an archive",
                           sender="sam@example.com", sent_at=1_700_000_900)
+        # An attachment inside an archive is recorded with no archive of its own (4,000 of them in the owner's
+        # index, folder "2025/2025"): it is not a message saved as a file.
+        att = store.upsert_file("pst://2025/0000/attachments/image007.png", size_bytes=1, mtime_ns=1,
+                                status="INDEXED", source_kind="pst_message")
+        store.set_message(att, store_path=None, folder_path="2025/2025", subject=None,
+                          sender=None, sent_at=1_700_000_950)
         yield store, str(gmail), str(work)
 
 
@@ -142,6 +148,7 @@ def test_live_mail_is_grouped_by_account_and_named_for_it(live):
     rows = store.mail_folder_counts()
     assert (f"account://{gmail}", "", 2) in rows and (f"account://{work}", "Inbox", 1) in rows
     assert ("", "", 1) in rows and (ARCHIVE, "Inbox", 1) in rows
+    assert not any(a == "" and f for a, f, _n in rows), "an archive's attachment landed under saved files"
     names = store.mail_account_names()
     assert names[gmail] == "GMail Main - me@gmail.example" and names[work] == "MS Main"   # no "pending-" address
     entries = {e.key: e for e in mail_entries(folder_tree(rows), names) if e.section == "Mailboxes"}
@@ -170,7 +177,7 @@ def test_messages_saved_as_files_and_archives_still_list_and_do_not_mix(live):
     store, gmail, _work = live
     assert _subjects(browse_messages_typed(store, "", limit=50, folder=("", ""))) == ["A saved file"]
     assert _subjects(browse_messages_typed(store, "", limit=50, folder=(ARCHIVE, ""))) == ["From an archive"]
-    assert len(browse_messages_typed(store, "", limit=50)["rows"]) == 7                    # All mail
+    assert len(browse_messages_typed(store, "", limit=50)["rows"]) == 8                    # All mail
 
 
 def test_the_summary_names_the_account(live):

@@ -2601,7 +2601,7 @@ class SqliteStore:
         rows = self.conn.execute(
             "SELECT COALESCE(m.store_path, ''), COALESCE(m.folder_path, ''), COUNT(*) "
             "FROM messages m JOIN files f ON f.id = m.file_id "
-            "WHERE f.path NOT LIKE 'account://%' GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+            "WHERE f.path NOT LIKE 'account://%' AND NOT (m.store_path IS NULL AND f.path LIKE 'pst://%') GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
         out = [(str(a), str(f), int(n)) for a, f, n in rows]
         # Live account mail has no `store_path`: it is `account://<id>/<folder>/<remote id>` (the folder
         # percent-encoded as one part), so it is grouped by that - one mailbox per account.
