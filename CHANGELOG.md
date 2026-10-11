@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.111 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.112 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Duplicates in a mailbox, the rail's order, and the Photos list switch (2026-10-11)
+
+- **Settings > Mail archives > Duplicates**: a button on each archive's line counts the messages that are in it twice,
+  asks, and on Yes moves the extra copies to that archive's own Deleted Items, through Outlook. Nothing is deleted.
+  `leasha outlook-dedupe <archive> --dry-run` does the count from the command line.
+- **The rail reads Search, Mail, Photos, Files, Code, Browse, Chat, Reports**, and the Go menu follows it.
+- **Photos: the list on the left can be hidden** - the panel icon beside View, or View > People, years and places.
 
 ### A message stored twice in one mailbox is indexed once (2026-10-11)
 

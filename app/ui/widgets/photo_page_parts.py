@@ -31,11 +31,14 @@ from PySide6.QtWidgets import QMenu, QToolButton, QWidget
 from app.ui.presenter.photos import SORTS, facets
 from app.ui.widgets.photo_browser import MODES
 
-__all__ = ["ViewButton", "fill_view_menu", "photo_menu", "STATE_KEYS", "same_day_box",
+__all__ = ["ViewButton", "fill_view_menu", "photo_menu", "STATE_KEYS", "same_day_box", "tree_toggle",
+           "TREE_TIP",
            "library", "read_box", "read_library", "read_the_box", "arrange_rows"]
 
 #: `index_state` keys, namespaced `ui:` like every remembered choice.
-STATE_KEYS = {"mode": "ui:photos_mode", "sort": "ui:photos_sort", "info": "ui:photos_info"}
+STATE_KEYS = {"mode": "ui:photos_mode", "sort": "ui:photos_sort", "info": "ui:photos_info",
+              # 2026-10-11, the owner: the tree on the left, switched on and off.
+              "tree": "ui:photos_tree"}
 
 
 def library(store: Any) -> tuple[list, int, dict]:
@@ -122,10 +125,62 @@ def fill_view_menu(menu: QMenu, view: Any) -> None:
         action.setChecked(view.sort_key == key)
         action.triggered.connect(lambda _c=False, k=key: view.set_sort(k))
     menu.addSeparator()
+    tree = menu.addAction("People, years and places")
+    tree.setCheckable(True)
+    tree.setChecked(view.sidebar.isVisible())
+    tree.setToolTip(TREE_TIP)
+    tree.triggered.connect(lambda on=False: view.show_tree(bool(on)))
     info = menu.addAction("Info panel")
     info.setCheckable(True)
     info.setChecked(view.info.isVisible())
     info.triggered.connect(lambda on=False: view.show_info(bool(on)))
+
+
+#: 2026-10-11: what the tree's switch says.
+TREE_TIP = ("Show or hide the list on the left - people, years, places and kinds. "
+            "Click an entry there to narrow the photos to it.")
+
+
+def tree_toggle(view: Any) -> QToolButton:
+    """The tree's on/off icon, beside View: lit while the tree is shown, and kept
+    in step when the View menu changes it (`view.show_tree` calls `set_quietly`)."""
+    from PySide6.QtCore import Qt
+
+    from app.ui.widgets.icons import icon
+
+    toggle = QToolButton()
+    toggle.setObjectName("toggle_photo_tree")
+    toggle.setProperty("iconToggle", True)
+    toggle.setCheckable(True)
+    toggle.setAutoRaise(True)
+    toggle.setText("People, years and places")
+    toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+    toggle.setToolTip(TREE_TIP)
+    toggle.setAccessibleName("People, years and places list")
+    toggle.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+    toggle.icon_name = "panel-left"
+
+    def paint(colours: Any = None) -> None:
+        if colours is None:
+            from app.ui.theme import theme_colours
+
+            colours = theme_colours()
+        lit = colours.get("accent_text", "#ffffff") if toggle.isChecked() else colours.get(
+            "text_dim", "#888888")
+        toggle.setIcon(icon("panel-left", lit))
+
+    def quietly(on: bool) -> None:
+        toggle.blockSignals(True)
+        toggle.setChecked(bool(on))
+        toggle.blockSignals(False)
+        paint()
+
+    toggle.clicked.connect(lambda _c=False: view.show_tree(toggle.isChecked()))
+    toggle.toggled.connect(lambda _on: paint())
+    toggle.retint = paint
+    toggle.set_quietly = quietly
+    paint()
+    return toggle
 
 
 class ViewButton(QToolButton):

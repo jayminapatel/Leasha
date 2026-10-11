@@ -130,6 +130,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # or its messages taken out of the index first (it asks).
     "Read again": ("refresh-cw", "secondary"),
     "Clear and read again": ("eraser", "danger"),
+    # Order 1l (2026-10-11): copies inside that mailbox, moved to its Deleted Items (it asks).
+    "Move duplicates to Deleted Items": ("copy", "danger"),
     # -- Settings › Models & AI › AI programs (2026-10-04) ----------------------
     "Start": ("play", "secondary"),
     "Connect": ("plus", "secondary"),

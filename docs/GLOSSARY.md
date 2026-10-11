@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.11 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.1
+**Doc version:** 1.12 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.1
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -187,7 +187,7 @@ and `202626270514`.
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Files, Photos, Mail, Code, Chat, Browse (the timeline), Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Code, Browse (the timeline), Chat, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
 | What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
 | `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |

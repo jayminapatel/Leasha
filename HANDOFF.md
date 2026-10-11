@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.147 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.148 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, order 1l built, the rail reordered, the Photos list switch (owner: "write the order for the outlook clean-up and execute"; "reorder the pills search, mail, photos, file, code, browse, chat and reports"; the tree in Photos "switch it on and off ... a rich icon and in view menu").**
+1l: `app/extract/outlook_cleanup.py` (`find_copies` by Outlook folder tables + D2, `move_copies` to the store's Deleted Items, checking subject and time first), `leasha outlook-dedupe`, and the Duplicates button per Mail archives line (`OutlookCleanupController`). Dry runs: `2007.pst` 0 copies, `2008.pst` 1 copy - the pair 1j found. **Nothing has been moved in the owner's mail; that is their press of the button.** Rail: `_construct_secondary_views` places Mail and Photos before Files, Code after it, Chat after Browse, each by its neighbour's `indexOf`; Go menu in the same order. Photos: `photo_page_parts.tree_toggle` (icon `panel-left`, new `assets/icons/panel-left.svg`), View > "People, years and places", `PhotosView.show_tree`, remembered as `ui:photos_tree`. **A fault of this session fixed here:** the 1i guide edit (9bc9895) cut Search, Files, Mail, Code and Chat from the guide's rail sentence (a regex matched from the first icon to Offline's); rebuilt from 9bc9895~1. A `run_suite --affected` part hung on `test_limits_changed_applies_live` (a temporary `.env` the OS would not let it replace, then a modal error box); that file passes alone, 8 of 8.
 
 **2026-10-11, order 1j §3 done on the owner's index (owner: "yes remove the duplicates").**
 `leasha dedupe-mail` (`app/cli/mail_dedupe.py`, rule in `app/index/mail_duplicates.py`): backup to `D:\LeashaIndex\Dataackupsefore-dedupe-mail-20261011-095841` (index + vectors; delete it once satisfied), 3,802 rows removed (3,458 message copies, 344 attachments), FTS integrity checks passed, `reembed --check` 0 empty of 192,513. `pst_message` 281,553 -> 277,751, `messages` 220,727 -> 217,269. `Pipeline._repeated_message` keeps copies out of later runs (`mail_repeats`). The `/on` hint now says "the Indexing page's Offline shelf" (owner: "change it"). **Not done, the owner asked only for thoughts:** removing copies from the `.pst` itself, and a per-mailbox button.

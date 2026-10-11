@@ -55,10 +55,11 @@ def test_reports_lists_two_reports_and_no_longer_hosts_the_timeline(qtbot, tmp_p
         QThreadPool.globalInstance().waitForDone(5000)
 
 
-def test_the_rail_entry_browse_opens_the_timeline_above_reports(dated_window, qtbot):
+def test_the_rail_entry_browse_opens_the_timeline_after_code(dated_window, qtbot):
     _app, window, _store, _ids = dated_window
     titles = [window.rail.tabText(i) for i in range(window.rail.count())]
-    assert titles.index("Browse") == titles.index("Reports") - 1
+    # 2026-10-11, the owner's order: ... Code, Browse, Chat, Reports.
+    assert titles.index("Code") + 1 == titles.index("Browse") < titles.index("Reports")
     assert "Offline" not in titles
     button = next(b for b in window.rail._buttons.values() if b.text() == "Browse")
     assert button.accessibleName() == "Browse your timeline"

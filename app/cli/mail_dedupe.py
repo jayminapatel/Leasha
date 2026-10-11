@@ -19,7 +19,8 @@ from app.cli._common import EXIT_ERROR, EXIT_OK, _load
 from app.core.logging import setup_logging
 from app.core.run_lock import COMMAND_LINE, IndexRunLock
 
-__all__ = ["add_dedupe_mail_parser", "cmd_dedupe_mail", "backup_index"]
+__all__ = ["add_dedupe_mail_parser", "cmd_dedupe_mail", "backup_index",
+           "add_outlook_dedupe_parser", "cmd_outlook_dedupe"]
 
 
 def backup_index(fts_db: Path, vector_path: Path, store: object) -> Path:
@@ -91,3 +92,37 @@ def add_dedupe_mail_parser(sub: argparse._SubParsersAction, common: argparse.Arg
     p_dedupe.add_argument("--yes", action="store_true",
                           help="remove them, after copying the index aside")
     p_dedupe.set_defaults(func=cmd_dedupe_mail)
+
+
+def cmd_outlook_dedupe(args: argparse.Namespace) -> int:
+    """Order 1l: copies inside one mailbox, moved to its Deleted Items through Outlook."""
+    from app.core.errors import AppErrorException
+    from app.extract.outlook_cleanup import find_copies, move_copies, plan_lines
+
+    settings = _load(args)
+    setup_logging(settings.log_path)
+    try:
+        plan = find_copies(Path(args.archive))
+    except AppErrorException as exc:
+        print(f"{exc.error.message} {exc.error.suggestion or ''}".strip())
+        return EXIT_ERROR
+    for line in plan_lines(plan):
+        print(line)
+    if args.dry_run or not plan.copies:
+        return EXIT_OK
+    if not args.yes:
+        print("Nothing moved. Add --yes to move them to Deleted Items.")
+        return EXIT_OK
+    moved, left = move_copies(plan)
+    print(f"Moved {moved:,} to Deleted Items" + (f"; {left:,} had changed or gone and were left." if left else "."))
+    return EXIT_OK
+
+
+def add_outlook_dedupe_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
+    p_outlook = sub.add_parser(
+        "outlook-dedupe", parents=[common],
+        help="move copies of a message inside one mailbox to its Deleted Items, through Outlook")
+    p_outlook.add_argument("archive", help="the .pst file")
+    p_outlook.add_argument("--dry-run", action="store_true", help="count them and move nothing")
+    p_outlook.add_argument("--yes", action="store_true", help="move them to Deleted Items")
+    p_outlook.set_defaults(func=cmd_outlook_dedupe)
