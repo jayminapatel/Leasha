@@ -144,7 +144,7 @@ def test_address_book_is_a_to_z_with_headings(tmp_path):
     entries = [p for p in lay.placements if p.kind == "entry"]
     assert sorted(p.index for p in entries) == list(range(len(cards)))
     order = [cards[p.index].get("family") or cards[p.index].get("company") for p in entries]
-    assert order[:3] == ["Adams", "Adler", "Acme Ltd"] or order[:3] == ["Acme Ltd", "Adams", "Adler"]
+    assert order[:3] == ["Acme Ltd", "Adams", "Adler"]
     assert lay.pages > 1 and _pages(path) == lay.pages
     # a heading is never the last thing in a column
     for h in (p for p in lay.placements if p.kind == "heading"):

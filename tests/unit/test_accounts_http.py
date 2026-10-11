@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import pytest
 
 from app.accounts.http import (
-    PROVIDER_HOSTS, AllowedHosts, RetryingTransport, UrllibTransport, backoff_minutes,
+    ENRICHMENT_HOSTS, PROVIDER_HOSTS, AllowedHosts, RetryingTransport, UrllibTransport, backoff_minutes,
     parse_retry_after, retry_after_of,
 )
 from app.accounts.provider import HttpResponse
@@ -54,6 +54,32 @@ def test_the_pinned_provider_hosts():
         "microsoft": ("login.microsoftonline.com", "graph.microsoft.com"),
         "apple": ("contacts.icloud.com", "imap.mail.me.com"),
     }
+
+
+def test_the_pinned_enrichment_hosts():
+    """Internet enrichment (7f, 7h) may reach exactly these, and only when asked for by name."""
+    assert ENRICHMENT_HOSTS == {
+        "gravatar": ("www.gravatar.com", "gravatar.com"),
+        "wikidata": ("www.wikidata.org", "query.wikidata.org"),
+    }
+    assert not set(ENRICHMENT_HOSTS) & set(PROVIDER_HOSTS)
+
+
+def test_enrichment_hosts_are_refused_unless_the_source_is_named():
+    plain = AllowedHosts()                      # every account provider, no enrichment source
+    for hosts in ENRICHMENT_HOSTS.values():
+        for h in hosts:
+            with pytest.raises(AppErrorException):
+                plain.check(f"https://{h}/x")
+    gravatar = AllowedHosts(("gravatar",))
+    for h in ENRICHMENT_HOSTS["gravatar"]:
+        assert gravatar.check(f"https://{h}/x") == h
+    for h in ENRICHMENT_HOSTS["wikidata"] + PROVIDER_HOSTS["google"]:
+        with pytest.raises(AppErrorException):
+            gravatar.check(f"https://{h}/x")
+    for bad in ("https://gravatar.com.evil.com/", "https://evil-gravatar.com/", "http://www.gravatar.com/x"):
+        with pytest.raises(AppErrorException):
+            gravatar.check(bad)
 
 
 def test_listed_hosts_allowed_and_unlisted_refused_with_an_apperror():

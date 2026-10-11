@@ -157,7 +157,8 @@ def test_paging_follows_next_links_and_the_token_resumes_there(tr, gc):
     before = len(tr.calls)
     rest = list(GraphContactsProvider(tr, lambda: "t").pull(first.next_token))
     assert [c.remote_id for c in rest[0].changes] == ["id-2"]
-    assert tr.calls[before + 2]["url"] == nxt or any(c["url"] == nxt for c in tr.calls[before:])
+    assert any(c["url"] == nxt for c in tr.calls[before:])         # it asked for the saved next link
+    assert not any(c["url"] == f"{B}/me/contacts/delta" for c in tr.calls[before:])   # not from the start
     assert rest[-1].done
 
 

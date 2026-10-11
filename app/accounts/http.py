@@ -47,7 +47,7 @@ from app.accounts.secrets import redact
 from app.core.errors import AppErrorException, make_error
 
 __all__ = [
-    "PROVIDER_HOSTS", "AllowedHosts", "UrllibTransport", "RetryingTransport",
+    "PROVIDER_HOSTS", "ENRICHMENT_HOSTS", "AllowedHosts", "UrllibTransport", "RetryingTransport",
     "backoff_minutes", "parse_retry_after", "retry_after_of",
 ]
 
@@ -64,6 +64,16 @@ PROVIDER_HOSTS: dict[str, tuple[str, ...]] = {
                "gmail.googleapis.com", "www.googleapis.com"),
     "microsoft": ("login.microsoftonline.com", "graph.microsoft.com"),
     "apple": ("contacts.icloud.com", "imap.mail.me.com"),
+}
+
+#: Fixed hosts per internet enrichment source (order 1k section 7f, 7h). Kept apart
+#: from `PROVIDER_HOSTS` so an account cannot reach them by accident: an
+#: `AllowedHosts` includes them only when it is built with the source's name
+#: (`AllowedHosts(("gravatar",))`). The company-logo source (7g) has no fixed host;
+#: it registers the company's own domain with `allow_server` for one call.
+ENRICHMENT_HOSTS: dict[str, tuple[str, ...]] = {
+    "gravatar": ("www.gravatar.com", "gravatar.com"),
+    "wikidata": ("www.wikidata.org", "query.wikidata.org"),
 }
 
 #: iCloud moves a CardDAV account to a numbered host after sign-in
@@ -98,7 +108,8 @@ class AllowedHosts:
 
     def __init__(self, providers: Optional[tuple[str, ...]] = None) -> None:
         names = tuple(providers) if providers is not None else tuple(PROVIDER_HOSTS)
-        self._fixed = {h for p in names for h in PROVIDER_HOSTS.get(p, ())}
+        self._fixed = {h for p in names
+                       for h in (*PROVIDER_HOSTS.get(p, ()), *ENRICHMENT_HOSTS.get(p, ()))}
         self._apple = "apple" in names
         self._servers: set[str] = set()
         self._lock = threading.Lock()

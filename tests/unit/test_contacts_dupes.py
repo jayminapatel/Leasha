@@ -90,7 +90,7 @@ def test_a_chain_through_a_name_is_not_safe_and_keeps_its_safe_core_separate():
 
 
 def test_only_exact_e164_is_safe_a_loose_digit_match_is_not():
-    items = [(1, c("A", "A", phone=["12345678"])), (2, c("B", "B", phone=["(1234) 5678"]))]
+    items = [(1, c("A", "A", phone=["12345678901234567"])), (2, c("B", "B", phone=["1234 5678 9012 34567"]))]
     (g,) = dupes.scan_duplicates(items, set())
     assert not g.safe and "digits" in g.reasons[0]
     short = [(1, c("A", "A", phone=["123"])), (2, c("B", "B", phone=["123"]))]

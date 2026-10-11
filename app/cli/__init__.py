@@ -43,6 +43,8 @@ from pathlib import Path
 from typing import Optional, Sequence
 
 from app.cli._common import EXIT_ERROR, EXIT_OK, _report, make_console_safe
+from app.cli.accounts import add_accounts_parser
+from app.cli.contacts import add_contacts_parser
 from app.cli.bench import (
     add_bench_index_parser,
     add_bench_pipeline_parser,
@@ -198,6 +200,8 @@ def build_parser() -> argparse.ArgumentParser:
     add_search_parser(sub, common)
     add_mcp_parser(sub, common)
     add_models_parser(sub, common)
+    add_accounts_parser(sub, common)
+    add_contacts_parser(sub, common)
 
     return parser
 

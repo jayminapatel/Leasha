@@ -109,6 +109,7 @@ class SyncOutcome:
     plan: Plan = field(default_factory=Plan)
     error: Optional[AppError] = None
     accounts_to_push: set[int] = field(default_factory=set)
+    needs_approval: bool = False
 
 
 @dataclass
@@ -134,9 +135,12 @@ class ContactSyncEngine:
 
     # ------------------------------------------------------------------- API
     def sync(self, account_ids: Optional[list[int]] = None, *, trigger: str = "sync-now",
-             approve_first: bool = False, allow_brake: bool = False,
+             approve_first: bool = False, allow_brake: bool = False, dry_run: bool = False,
              cancel: Callable[[], bool] = lambda: False) -> list[SyncOutcome]:
-        """Pull from then push to the accounts (all with contact sync on, by default)."""
+        """Pull from then push to the accounts (all with contact sync on, by default).
+
+        `dry_run` plans without writing, for any account (`contacts sync --dry-run`);
+        the first sync of an account is a dry run by itself until approved (D8)."""
         settings = self.accounts.settings()
         chosen = [a for a in self.accounts.list() if a.syncs_contacts
                   and (account_ids is None or a.id in account_ids)]
@@ -144,10 +148,12 @@ class ContactSyncEngine:
         providers: dict[int, ContactProvider] = {}
         for acct in chosen:                                  # phase 1: pull
             first_pending = (not acct.first_sync_done) and settings.dry_run_first and not approve_first
-            run_id = self.accounts.start_run(acct, "contacts", trigger, dry_run=first_pending)
+            dry = first_pending or dry_run
+            run_id = self.accounts.start_run(acct, "contacts", trigger, dry_run=dry)
             out = SyncOutcome(acct.id, acct.name, run_id, "running")
             outcomes[acct.id] = out
-            ctx = _Ctx(run_id, out.plan, first_pending, settings.conflict_policy, trigger, cancel)
+            ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel)
+            out.needs_approval = first_pending
             try:
                 self.accounts.record_attempt(acct.id, "contacts")
                 provider = self.provider_for(acct)
@@ -155,7 +161,7 @@ class ContactSyncEngine:
                 self._pull(acct, provider, ctx, settings)
                 if ctx.dry:
                     self._plan_outbound(acct, provider, ctx)
-                    out.status = "needs-approval"
+                    out.status = "needs-approval" if first_pending else "dry-run"
             except Exception as exc:                          # noqa: BLE001 - one account never stops the rest
                 self._fail(acct, out, exc)
         for acct in chosen:                                  # phase 2: push
@@ -479,6 +485,10 @@ class ContactSyncEngine:
             self.accounts.finish_run(out.run_id, "failed", added=p.added, changed=p.changed, deleted=p.deleted,
                                      held=p.held, error_code=out.error.code, error_text=_with_fix(out.error),
                                      plan=p.to_json())
+            return
+        if out.status == "dry-run":
+            self.accounts.finish_run(out.run_id, "dry-run", added=p.added, changed=p.changed,
+                                     deleted=p.deleted, held=p.held, plan=p.to_json())
             return
         if out.status == "needs-approval":
             err = make_error("ERR_SYNC_NEEDS_APPROVAL", "accounts.engine", account=acct.name)

@@ -15,9 +15,23 @@ every request must carry the key Leasha made (`Authorization: Bearer <key>`),
 so another program on this computer cannot read the index without being
 given it. The library's DNS-rebinding guard stays on.
 
-**Read-only.** Four tools - `search`, `find_files`, `read_text`,
-`index_status` - and nothing that writes, moves, deletes or opens anything.
-Every answer names the file it came from. **The privacy fact, stated once:**
+**Read-only.** Seven tools and nothing that writes, moves, deletes or opens
+anything (the owner, 2026-10-11, order 1k D15: "the only read for mcp"):
+
+* `search`, `find_files`, `read_text` - the files and mail in the index;
+* `index_status` - the counts of files, messages and passages, and each
+  account set up in Leasha: its provider, its name, whether mail and contact
+  sync are on, the direction, the last sync and the last error. Never a
+  token, a password, a client ID or anything held in Credential Manager;
+* `find_contact`, `get_contact`, `contact_activity` - the contact hub: find a
+  person by name, email, phone or company; every field of one person with its
+  label and where it came from, groups, tags, favourite, the accounts it is
+  "Kept in" (by name) and notes; and the latest mail, the files exchanged as
+  attachments, the photos and the first and last contact dates for one person.
+
+No tool creates, changes or deletes a contact, an account or an index row;
+`tests/unit/test_mcp_contacts_readonly.py` fails if one can.
+Every answer names the file or message it came from. **The privacy fact, stated once:**
 Leasha itself sends nothing anywhere, but what a tool returns goes to the AI
 program that asked, and one that runs in the cloud sends it there.
 
@@ -41,6 +55,12 @@ address (anthropics/claude-code#37286) - runs `app.cli mcp`, which speaks
 MCP on its stdin/stdout and passes each call to the running server
 (`bridge_server`). With Leasha's server stopped, each tool answers that it
 is stopped and where to start it.
+
+*Note, 2026-10-11, order 1k section 8:* three contact tools and the accounts
+in `index_status` joined the four above. They read through `ContactHub`'s and
+`AccountStore`'s read methods on the same open index, and the bridge
+forwards them like the rest, so a stopped server answers each one with
+`STOPPED`. `search` is unchanged.
 """
 
 from __future__ import annotations
@@ -48,8 +68,10 @@ from __future__ import annotations
 import contextlib
 import hmac
 import json
+import re
 import secrets
 import socket
+import sqlite3
 import threading
 import time
 from collections.abc import Callable
@@ -74,19 +96,27 @@ _log = logger.bind(component="serve.mcp")
 #: Where Leasha keeps the key, in the index's own state table. The bridge, a
 #: separate process, reads it there.
 KEY_STATE = "mcp:key"
-TOOL_NAMES = ("search", "find_files", "read_text", "index_status")
+TOOL_NAMES = ("search", "find_files", "read_text", "index_status",
+              "find_contact", "get_contact", "contact_activity")
 
 #: What one search returns at most, and what one result's passage is cut to.
 SEARCH_LIMIT_MAX = 50
 SNIPPET_CHARS = 600
 #: The most text `read_text` returns for one file.
 TEXT_CHARS_MAX = 200_000
+#: What `find_contact` and `contact_activity` return at most, per list.
+CONTACT_LIMIT_MAX = 50
+#: The longest recipients line a message is answered with.
+RECIPIENTS_CHARS = 300
 
 INSTRUCTIONS = (
     "Leasha is the owner's local search index of their own files and Outlook mail. "
     "Use `search` to find documents and messages by what they say, `find_files` to find a "
     "file by its name, and `read_text` for the whole indexed text of one result. Every answer "
-    "names the file it came from - cite the path. Nothing here can change, move or open a file."
+    "names the file it came from - cite the path. Nothing here can change, move or open a file. "
+    "Use `find_contact` and `get_contact` to look up the people in the owner's contacts and "
+    "`contact_activity` for the mail, files and photos shared with one of them. "
+    "`index_status` also lists the owner's connected accounts, never their sign-in details."
 )
 
 STOPPED = ("Leasha's AI access is stopped. Open Leasha, go to Settings > Models & AI > "
@@ -142,7 +172,7 @@ def key_for(store: Any, *, create: bool = True) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The four tools, over the index
+# The tools, over the index
 # ---------------------------------------------------------------------------
 
 class IndexTools:
@@ -243,7 +273,7 @@ class IndexTools:
             if index is not None and index.users == 0:
                 index.close()
 
-    # -- the four tools -----------------------------------------------------
+    # -- the tools ----------------------------------------------------------
 
     def search(self, query: str, limit: int = 10) -> dict:
         """The `search` tool: `run_search` over the open index, `limit` capped at
@@ -370,9 +400,126 @@ class IndexTools:
                     return int(store.conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
                 return {"files": count("files"), "messages": count("messages"),
-                        "passages": count("chunks")}
+                        "passages": count("chunks"), "accounts": _accounts_of(store)}
         except _Closing:
             return {"error": CLOSING}
+
+    # -- the contact tools: reads of the hub and the index, nothing more ---------
+
+    def find_contact(self, query: str, limit: int = 20) -> dict:
+        """The `find_contact` tool: people by name, email, phone or company.
+
+        An address or a phone number that matches a contact exactly comes
+        first; then the contact search's own ranking. `limit` is capped at
+        `CONTACT_LIMIT_MAX`. Every failure is answered as `{"error": ...}`.
+        """
+        text = str(query or "").strip()
+        if not text:
+            return {"error": "Give a name, an email address, a phone number or a company."}
+        missing = self._missing()
+        if missing:
+            return missing
+        limit = max(1, min(int(limit or 20), CONTACT_LIMIT_MAX))
+        try:
+            with self._open() as index:
+                hub = _hub_of(index.store)
+                exact: list[tuple[int, str]] = []
+                if "@" in text and " " not in text:
+                    exact = [(cid, "email") for cid in hub.find_by_email(text)]
+                elif sum(c.isdigit() for c in text) >= 5 and not any(c.isalpha() for c in text):
+                    exact = [(cid, "phone") for cid in hub.find_by_phone(text)]
+                matched = dict(exact)
+                ranked = [cid for cid, _ in exact]
+                for hit in hub.search(text, limit=limit):
+                    if hit.id not in matched:
+                        matched[hit.id] = "text"
+                        ranked.append(hit.id)
+                contacts = []
+                for cid in ranked[:limit]:
+                    row = hub.get_row(cid)
+                    if row is None or row.deleted_at is not None:
+                        continue
+                    contacts.append({"contact_id": cid, "name": row.display_name,
+                                     "company": row.company, "title": row.title,
+                                     "email": row.email, "phone": row.phone,
+                                     "favourite": row.favourite, "matched": matched[cid]})
+        except _Closing:
+            return {"error": CLOSING}
+        except sqlite3.Error as exc:
+            return {"error": _CONTACTS_UNREADABLE.format(what=type(exc).__name__)}
+        return {"query": text, "contacts": contacts}
+
+    def get_contact(self, contact_id: int) -> dict:
+        """The `get_contact` tool: everything held for one person, by the
+        `contact_id` that `find_contact` returned."""
+        missing = self._missing()
+        if missing:
+            return missing
+        try:
+            with self._open() as index:
+                found = _contact_of(index.store, contact_id)
+                if "error" in found:
+                    return found
+                hub, cid, row, card = found["hub"], found["id"], found["row"], found["card"]
+                sources = hub.sources(cid)
+                names = _account_names(index.store)
+                kept = [names.get(a, "an account that is no longer set up")
+                        for a in hub.kept_in(cid)]
+                tags = hub.tags_of(cid)
+        except _Closing:
+            return {"error": CLOSING}
+        except sqlite3.Error as exc:
+            return {"error": _CONTACTS_UNREADABLE.format(what=type(exc).__name__)}
+        from app.contacts.card import SCALARS, field_key
+
+        def said(key: str) -> list[dict]:
+            return [{"source": src, "ref": ref} for src, ref in sources.get(key, ())]
+
+        details = [{"field": name, "value": card.get(name), "sources": said(f"s:{name}")}
+                   for name in SCALARS if name != "notes" and card.get(name)]
+        values = []
+        for item in card.fields:
+            entry: dict = {"kind": item.kind, "label": item.label, "value": item.value,
+                           "primary": item.primary,
+                           "sources": said("f:" + field_key(item, hub.region))}
+            if item.data:
+                entry["parts"] = dict(item.data)
+            values.append(entry)
+        return {"contact_id": cid, "name": row.display_name, "company": row.company,
+                "title": row.title, "favourite": bool(card.favourite), "details": details,
+                "fields": values, "groups": list(card.groups), "tags": tags,
+                "kept_in": kept, "notes": card.get("notes"), "has_photo": row.has_photo}
+
+    def contact_activity(self, contact_id: int, limit: int = 10) -> dict:
+        """The `contact_activity` tool: the latest mail with one person, the
+        files exchanged as attachments, the photos of them, and the first and
+        last contact, each item naming the message or file it came from.
+
+        Mail is matched on the contact's email addresses, in the message's
+        sender and recipients; the photos are those of the Photo Tagger person
+        the contact is confirmed as.
+        """
+        missing = self._missing()
+        if missing:
+            return missing
+        limit = max(1, min(int(limit or 10), CONTACT_LIMIT_MAX))
+        try:
+            with self._open() as index:
+                store = index.store
+                found = _contact_of(store, contact_id)
+                if "error" in found:
+                    return found
+                emails = [f.value.strip() for f in found["card"].values("email") if f.value.strip()]
+                mail = _mail_with(store, emails, limit)
+                files = _files_exchanged(store, emails, limit)
+                link, photos = _photos_of(store, found["id"], limit)
+        except _Closing:
+            return {"error": CLOSING}
+        except sqlite3.Error as exc:
+            return {"error": _CONTACTS_UNREADABLE.format(what=type(exc).__name__)}
+        return {"contact_id": found["id"], "name": found["row"].display_name,
+                "emails": emails, **mail, "files_exchanged": files,
+                "photo_match": link, "photos": photos}
 
     @staticmethod
     def _result(document: Any) -> dict:
@@ -489,6 +636,183 @@ def _mail_card(detail: Any, path: str) -> dict | None:
     return mail
 
 
+#: Said when the contact tables cannot be read (an index built before contacts).
+_CONTACTS_UNREADABLE = ("Leasha could not read its contacts from this index ({what}). "
+                        "Open Leasha once so it can bring the index up to date.")
+_NO_CONTACT = "No contact has that contact_id. Use a contact_id exactly as find_contact returned it."
+
+
+def _hub_of(store: Any) -> Any:
+    """A `ContactHub` over the open index. Only its read methods are used here;
+    `tests/unit/test_mcp_contacts_readonly.py` holds this module to that."""
+    from app.contacts.hub import ContactHub
+
+    try:
+        from app.accounts.store import AccountStore
+
+        region = AccountStore(store).settings().phone_region or "GB"
+    except Exception:                            # noqa: BLE001 - the default region will do
+        return ContactHub(store)
+    return ContactHub(store, region=region)
+
+
+def _contact_of(store: Any, contact_id: Any) -> dict:
+    """`{hub, id, row, card}` for a live contact, or `{"error": ...}`."""
+    try:
+        cid = int(contact_id)
+    except (TypeError, ValueError):
+        return {"error": _NO_CONTACT}
+    hub = _hub_of(store)
+    row = hub.get_row(cid)
+    card = hub.get_card(cid) if row is not None else None
+    if row is None or card is None or row.deleted_at is not None:
+        return {"error": _NO_CONTACT}
+    return {"hub": hub, "id": cid, "row": row, "card": card}
+
+
+def _account_names(store: Any) -> dict[int, str]:
+    """`{account id: the name the person gave it}`. Names only - nothing that signs in."""
+    from app.accounts.store import AccountStore
+
+    try:
+        return {int(a.id): str(a.name or a.address) for a in AccountStore(store).list()}
+    except sqlite3.Error:
+        return {}
+
+
+def _accounts_of(store: Any) -> list[dict]:
+    """Each account as `index_status` says it. **Never a token, a password, a
+    client ID or a Credential Manager value**: only these named fields are
+    read, and the error text goes through the secret scrubber as well."""
+    from app.accounts.secrets import redact
+    from app.accounts.store import AccountStore
+
+    try:
+        accounts = AccountStore(store).list()
+    except sqlite3.Error:
+        return []
+    out = []
+    for account in accounts:
+        out.append({
+            "name": str(account.name or ""), "provider": account.provider,
+            "mail_sync": "on" if account.mail_on else "off",
+            "contact_sync": "on" if account.syncs_contacts else "off",
+            "contact_direction": account.contacts_direction,
+            "last_sync": _when(account.last_synced_at),
+            "last_error": redact(account.last_error) if account.last_error else "",
+            "last_error_code": str(account.last_error_code or ""),
+        })
+    return out
+
+
+def _is_address_in(text: Any, email: str) -> bool:
+    """`email` as a whole address in `text` - `ann@x.com`, not `joann@x.com`."""
+    pattern = r"(?<![\w.+%-])" + re.escape(email) + r"(?![\w-]|\.\w)"
+    return re.search(pattern, str(text or ""), re.IGNORECASE) is not None
+
+
+def _messages(store: Any, emails: list[str], limit: int, *, attachments: bool = False,
+              oldest: bool = False) -> list[dict]:
+    """Messages from or to any of `emails`, newest first (oldest first for
+    `oldest`), through the Mail tab's own read (`browse_messages`)."""
+    rows: dict[int, dict] = {}
+    fetch = 25 if oldest else min(limit * 4, 200)
+    for email in emails[:10]:
+        for side in ("sender", "recipient"):
+            found = store.browse_messages(
+                **{side: email}, has_attachment=True if attachments else None,
+                sort="oldest" if oldest else "", limit=fetch)
+            for row in found:
+                if _is_address_in(row.get(side if side == "sender" else "recipients"), email):
+                    rows.setdefault(int(row["file_id"]), {**row, "_email": email, "_side": side})
+    ordered = sorted(rows.values(), key=lambda r: (r.get("sent_at") is None, r.get("sent_at") or 0,
+                                                   int(r["file_id"])), reverse=False)
+    dated = [r for r in ordered if r.get("sent_at") is not None]
+    undated = [r for r in ordered if r.get("sent_at") is None]
+    dated = dated if oldest else dated[::-1]
+    return (dated + undated)[:limit]
+
+
+def _message_entry(row: dict) -> dict:
+    """One message as `contact_activity` says it: the `_mail_card` fields, the
+    path to give `read_text`, and whether it came from them or went to them."""
+    card = _mail_card({"subject": row.get("subject"), "sender": row.get("sender"),
+                       "sent_at": row.get("sent_at")}, str(row.get("path") or "")) or {}
+    recipients = str(row.get("recipients") or "")
+    return {"path": str(row.get("path") or ""), **card,
+            "to": recipients if len(recipients) <= RECIPIENTS_CHARS
+            else recipients[:RECIPIENTS_CHARS - 1] + "…",
+            "direction": "from them" if row.get("_side") == "sender" else "to them"}
+
+
+def _mail_with(store: Any, emails: list[str], limit: int) -> dict:
+    """The latest mail with these addresses, and the first and last contact."""
+    if not emails:
+        return {"messages": [], "first_contact": "", "last_contact": "",
+                "note": "This contact has no email address, so no mail can be matched."}
+    latest = _messages(store, emails, limit)
+    first = _messages(store, emails, 1, oldest=True)
+    stamps = [r["sent_at"] for r in latest + first if r.get("sent_at")]
+    return {"messages": [_message_entry(r) for r in latest],
+            "first_contact": _when(min(stamps)) if stamps else "",
+            "last_contact": _when(max(stamps)) if stamps else ""}
+
+
+def _files_exchanged(store: Any, emails: list[str], limit: int) -> list[dict]:
+    """Files attached to messages with these addresses: each with the message it came on."""
+    from app.core.row_facts import attachment_of
+
+    out: list[dict] = []
+    if not emails:
+        return out
+    for row in _messages(store, emails, limit, attachments=True):
+        message_path = str(row.get("path") or "")
+        for file_id in store.file_ids_at_or_under(message_path):
+            record = store.get_file_by_id(file_id)
+            if record is None or attachment_of(record.path)[0] != message_path:
+                continue
+            out.append({"path": record.path, "name": attachment_of(record.path)[1],
+                        "type": record.ext, "size_bytes": record.size_bytes,
+                        "message": _message_entry(row)})
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def _photos_of(store: Any, contact_id: int, limit: int) -> tuple[str, list[dict]]:
+    """`(how the contact is matched to a Photo Tagger person, their photos)`.
+
+    The match is `accepted`, `suggested` or `none`; only an accepted one lists
+    photos - a suggestion is the program's guess, not the person's word.
+    """
+    from app.core.row_facts import shown_date_ns
+
+    try:
+        link = store.conn.execute(
+            "SELECT l.pile_id, l.state, p.name FROM contact_pile_links l "
+            "JOIN piles p ON p.id = l.pile_id WHERE l.contact_id = ?", (contact_id,)).fetchone()
+    except sqlite3.Error:
+        return "none", []
+    if link is None or link["state"] == "declined":
+        return "none", []
+    if link["state"] != "accepted":
+        return "suggested", []
+    ids = [int(r[0]) for r in store.conn.execute(
+        "SELECT DISTINCT file_id FROM faces WHERE pile_id = ? ORDER BY file_id DESC LIMIT ?",
+        (int(link["pile_id"]), min(limit * 4, 100)))]
+    photos = []
+    for file_id in ids:
+        record = store.get_file_by_id(file_id)
+        if record is None:
+            continue
+        when = shown_date_ns(mtime_ns=record.mtime_ns, taken_at_ns=record.taken_at_ns, sent_at=None)
+        photos.append((when or 0, {"path": record.path,
+                                   "taken": _when(when / 1e9) if when else "",
+                                   "person": link["name"] or ""}))
+    photos.sort(key=lambda item: item[0], reverse=True)
+    return "accepted", [item[1] for item in photos[:limit]]
+
+
 def _preferences_of(settings: Any) -> dict:
     """The Settings search switches, from `settings` alone (no window)."""
     from app.search.policy import preferences
@@ -508,11 +832,11 @@ def _when(seconds: Any) -> str:
 
 
 # ---------------------------------------------------------------------------
-# The server, and the bridge - the same four tools, defined once
+# The server, and the bridge - the same tools, defined once
 # ---------------------------------------------------------------------------
 
 def _register(server: Any, tools: Any) -> None:
-    """The four tools, their wording and their read-only marks, on `server`.
+    """The tools, their wording and their read-only marks, on `server`.
     `tools` is an `IndexTools`, or the bridge's forwarder with the same methods.
 
     Async, and an `IndexTools` call runs on a worker thread
@@ -563,6 +887,29 @@ def _register(server: Any, tools: Any) -> None:
         answers every search with nothing."""
         return await _invoke(tools.index_status)
 
+    @server.tool(annotations=read_only)
+    async def find_contact(query: str, limit: int = 20) -> dict:
+        """Find people in the owner's contacts by name, email address, phone number
+        or company. An exact email or phone match comes first, then the best name and
+        company matches (at most 50). Each answer has a `contact_id` for `get_contact`
+        and `contact_activity`."""
+        return await _invoke(tools.find_contact, query, limit)
+
+    @server.tool(annotations=read_only)
+    async def get_contact(contact_id: int) -> dict:
+        """Everything Leasha holds for one contact, by the `contact_id` `find_contact`
+        returned: each field with its label and the `sources` it came from, groups,
+        tags, favourite, the accounts it is kept in (by name) and notes."""
+        return await _invoke(tools.get_contact, contact_id)
+
+    @server.tool(annotations=read_only)
+    async def contact_activity(contact_id: int, limit: int = 10) -> dict:
+        """The latest mail with one contact, the files exchanged with them as email
+        attachments, photos of them (when Leasha knows who they are in photos) and
+        the first and last contact dates. Each item names the message or file it came
+        from; give a message's `path` to `read_text` for its text."""
+        return await _invoke(tools.contact_activity, contact_id, limit)
+
 
 async def _invoke(method: Callable[..., Any], *args: Any) -> Any:
     import inspect
@@ -575,7 +922,7 @@ async def _invoke(method: Callable[..., Any], *args: Any) -> Any:
 
 
 def build_server(tools: Any) -> Any:
-    """An MCP server with the four tools over `tools`."""
+    """An MCP server with the tools over `tools`."""
     from mcp.server import MCPServer
 
     from app.core.version import version
@@ -668,6 +1015,15 @@ class _Forward:
 
     async def index_status(self) -> dict:
         return await self._call("index_status", {})
+
+    async def find_contact(self, query: str, limit: int = 20) -> dict:
+        return await self._call("find_contact", {"query": query, "limit": limit})
+
+    async def get_contact(self, contact_id: int) -> dict:
+        return await self._call("get_contact", {"contact_id": contact_id})
+
+    async def contact_activity(self, contact_id: int, limit: int = 10) -> dict:
+        return await self._call("contact_activity", {"contact_id": contact_id, "limit": limit})
 
 
 _FAILURE_WORDS = {"stopped": STOPPED, "key": KEY_CHANGED, "timeout": TIMED_OUT,
