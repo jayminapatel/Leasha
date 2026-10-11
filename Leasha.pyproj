@@ -436,6 +436,7 @@
     <Compile Include="app\ui\accounts\panel.py" />
     <Compile Include="app\ui\accounts\parts.py" />
     <Compile Include="app\ui\accounts\state.py" />
+    <Compile Include="app\ui\accounts\wizard.py" />
     <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
     <Compile Include="app\ui\chat_view.py" />
@@ -464,6 +465,7 @@
     <Compile Include="app\ui\contacts_tools\actions.py" />
     <Compile Include="app\ui\contacts_tools\cleanup_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
     <Compile Include="app\ui\contacts_tools\import_dialog.py" />
     <Compile Include="app\ui\contacts_tools\merge_dialog.py" />

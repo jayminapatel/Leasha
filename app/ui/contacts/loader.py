@@ -10,7 +10,6 @@ the indexer is safe.
 
 from __future__ import annotations
 
-import base64
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -49,6 +48,7 @@ class Snapshot:
     accounts: list = field(default_factory=list)
     account_counts: dict[int, int] = field(default_factory=dict)
     full: bool = True
+    default_account_id: Optional[int] = None
 
 
 def load_snapshot(hub: Any, accounts: Any, flt: ContactFilter, *, full: bool = True) -> Snapshot:
@@ -61,6 +61,8 @@ def load_snapshot(hub: Any, accounts: Any, flt: ContactFilter, *, full: bool = T
     snap.tags = hub.tags()
     snap.smarts = hub.smart_groups()
     snap.accounts = accounts.list()
+    default = accounts.default_account()
+    snap.default_account_id = default.id if default is not None else None
     snap.account_counts = {
         int(r[0]): int(r[1]) for r in hub.conn.execute(
             "SELECT l.account_id, COUNT(DISTINCT l.contact_id) FROM contact_links l "

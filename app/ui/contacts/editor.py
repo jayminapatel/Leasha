@@ -510,6 +510,10 @@ class ContactEditor(QWidget):
         if self.isEnabled():
             self.save_requested.emit(self.request())
 
+    def save_if_dirty(self) -> None:
+        if self._dirty and self.isEnabled():
+            self._save()
+
     def _cancel(self) -> None:
         self.cancel_requested.emit()
 

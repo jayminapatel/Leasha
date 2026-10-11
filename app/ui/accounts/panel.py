@@ -544,7 +544,10 @@ class AccountPanel(QGroupBox):
         if self._loading:
             return
         key = str(self.direction.currentData())
-        self._acct(contacts_direction=key, contacts_on=key != "off" or bool(self._account.contacts_on) and False)
+        values: dict[str, Any] = {"contacts_direction": key}
+        if key != "off":
+            values["contacts_on"] = True
+        self._acct(**values)
 
     def _groups_mode(self, all_: bool) -> None:
         if self._loading:

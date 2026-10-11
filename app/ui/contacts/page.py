@@ -29,7 +29,7 @@ from app.ui.contacts.delegates import CARD_SIZE, CardDelegate, ChipsDelegate, Na
 from app.ui.contacts.editor import ContactEditor, SaveRequest
 from app.ui.contacts.history import HistoryPanel
 from app.ui.contacts.logic import (COLUMNS, STATE_SORT, STATE_VIEW, TAG_COLOURS, Entry, build_entries,
-                                    filter_for, parse_sort)
+                                    filter_for, parse_sort, describe_entry)
 from app.ui.contacts.model import ContactModel
 from app.ui.contacts.photos import PhotoCache
 from app.ui.contacts.parts import retint_tools
@@ -66,6 +66,7 @@ class ContactsPage(QWidget):
         self._sort = "name"
         self._creating = False
         self._busy = 0
+        self._mode = "list"
         self.setObjectName("contactsPage")
 
         self.photos = PhotoCache(hub, parent=self)
@@ -230,7 +231,7 @@ class ContactsPage(QWidget):
             key("/", self.toolbar.focus_filter),
             key("Ctrl+N", self.new_contact),
             key("Ctrl+Z", self.undo_last),
-            key("Ctrl+S", self.editor._save),
+            key("Ctrl+S", self.editor.save_if_dirty),
             key("Delete", self.delete_selected, self.table, Qt.ShortcutContext.WidgetShortcut),
             key("Delete", self.delete_selected, self.cards, Qt.ShortcutContext.WidgetShortcut),
         ]
@@ -262,7 +263,7 @@ class ContactsPage(QWidget):
             self._remember(STATE_VIEW, mode)
 
     def _show_list(self) -> None:
-        self.views.setCurrentWidget(self.cards if getattr(self, "_mode", "list") == "cards" else self.table)
+        self.views.setCurrentWidget(self.cards if self._mode == "cards" else self.table)
 
     def _sort_changed(self, column: int, order: Qt.SortOrder) -> None:
         self._remember(STATE_SORT, f"{COLUMNS[column][0]}:{'desc' if order == Qt.SortOrder.DescendingOrder else 'asc'}")
@@ -357,8 +358,10 @@ class ContactsPage(QWidget):
 
     # --------------------------------------------------------------- selection
     def selected_ids(self) -> list[int]:
-        rows = sorted({i.row() for i in self.table.selectionModel().selectedIndexes()})
-        return [r.id for r in (self.model.row_at(i) for i in rows) if r is not None]
+        rows: set[int] = set()
+        for span in self.table.selectionModel().selection():
+            rows.update(range(span.top(), span.bottom() + 1))
+        return [r.id for r in (self.model.row_at(i) for i in sorted(rows)) if r is not None]
 
     def select_ids(self, ids: list[int]) -> None:
         sm = self.table.selectionModel()
@@ -438,6 +441,8 @@ class ContactsPage(QWidget):
                 self.editor.clear()
                 return
             self.editor.show_detail(d)
+            if self._entry.kind == "bin":
+                self.editor.setEnabled(False)
             if self.toolbar.history_button.isChecked():
                 self._load_history(cid, d.row.display_name if d.row else "")
             else:
@@ -448,28 +453,12 @@ class ContactsPage(QWidget):
     def new_contact(self) -> None:
         if self.editor.is_dirty() and not self._confirm_discard():
             return
-        default = None
-        try:
-            default = self._default_account_id
-        except AttributeError:
-            pass
+        default = self._snap.default_account_id if self._snap is not None else None
         self._creating = True
         self.table.selectionModel().clearSelection()
         self.toolbar.history_button.setChecked(False)
         self.editor.start_new(default)
         self.right.setCurrentWidget(self.editor)
-
-    @property
-    def _default_account_id(self) -> Optional[int]:
-        a = self.accounts.default_account() if self._snap is None else next(
-            (x for x in self._snap.accounts if x.writes_contacts and x.id == self._default_id()), None)
-        return a.id if a is not None else self._first_writable()
-
-    def _default_id(self) -> Optional[int]:
-        return getattr(getattr(self, "_default", None), "id", None)
-
-    def _first_writable(self) -> Optional[int]:
-        return next((a.id for a in (self._snap.accounts if self._snap else []) if a.writes_contacts), None)
 
     def _save(self, req: SaveRequest) -> None:
         card = req.card
@@ -600,12 +589,13 @@ class ContactsPage(QWidget):
 
         def work() -> tuple:
             entry, res = loader.undo_last(hub)
-            return res if res is not None else None, entry
+            return res, entry
 
         self._after_undo(work, None)
 
     def _after_undo(self, work: Callable, message: Optional[str]) -> None:
         service = self.service
+        names = self._names()
 
         def run() -> Any:
             out = work()
@@ -620,6 +610,8 @@ class ContactsPage(QWidget):
                 self.notice.emit("Nothing to undo.")
                 return
             text = message or "Undid your last change."
+            if isinstance(out, tuple) and out[1] is not None:
+                text = "Undid: " + describe_entry(out[1], names)[1] + "."
             if res.skipped:
                 text += f" {res.skipped} could not be undone because the contact changed since."
             self.notice.emit(text)
