@@ -43,6 +43,7 @@ from app.ui.controllers.timeline_controller import TimelineController
 from app.ui.files_view import FilesView
 from app.ui.indexing_view import IndexingView
 from app.ui.mail_view import MailView
+from app.ui.contacts_view import ContactsView
 from app.ui.photos_view import PhotosView
 from app.ui.offline_media_view import OfflineMediaView
 from app.ui.reports_view import ReportsView
@@ -354,6 +355,7 @@ class MainWindow(QMainWindow):
         self._lend_open_context()   # 2026-10-04: the one open route, for every page
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
         self.search_view.reindex_requested.connect(self._reindex_for)
+        self.search_view.person_strip.open_requested.connect(self._open_contact)   # order 1k 6f
         self.search_view.error.connect(self._show_error)
         # Restored from last time, then saved whenever it changes. Three keys in
         # one transaction - see `set_states`.
@@ -729,6 +731,17 @@ class MainWindow(QMainWindow):
         def at(view: Any) -> int:
             return self.rail.indexOf(self._tab_wrapped[view])
 
+        # Order 1k 6a / D14 (2026-10-11): Contacts has a pill of its own, right after Files.
+        # The page is built on its first show (`ContactsView.ensure_built`), so this is an
+        # empty widget until somebody opens it and costs the window's start-up nothing.
+        from app.ui.account_runtime import LazyService
+
+        self.contacts_view = ContactsView(store, host=self, service=LazyService(self))
+        self.contacts_view.error.connect(self._show_error)
+        self.contacts_view.notice.connect(self.notify)
+        contacts_wrapped = wrap_if_needed(self.contacts_view, scroll=False)
+        self.rail.insertTab(at(self.files_view) + 1, contacts_wrapped, "Contacts", icon="contact")
+        self._tab_wrapped[self.contacts_view] = contacts_wrapped
         # 2026-10-05, the owner: "a chip just for pictures designed to view find
         # and deal with pictures including namings".
         self.photos_view = PhotosView(store)
@@ -742,7 +755,7 @@ class MainWindow(QMainWindow):
         self.rail.insertTab(at(self.files_view), photos_wrapped, "Photos", icon="image")
         self._tab_wrapped[self.photos_view] = photos_wrapped
         code_wrapped = wrap_if_needed(self.code_view, scroll=False)
-        self.rail.insertTab(at(self.files_view) + 1, code_wrapped, "Code", icon="code")
+        self.rail.insertTab(at(self.contacts_view) + 1, code_wrapped, "Code", icon="code")
         self._tab_wrapped[self.code_view] = code_wrapped
         # Chat (order 202626270611): a real tab, after Code. Everything but
         # the page itself - engine, worker, saving - is `ChatController`.
@@ -1041,6 +1054,12 @@ class MainWindow(QMainWindow):
             # thread before the first frame.
             if settings_view is not None:
                 settings_view.refresh_slow_labels()
+            # Order 1k 10b: the account scheduler's 30 s tick and the tray's account items.
+            # Starts no sync itself (D11.2): only a due schedule or Sync now does.
+            if settings_view is not None and getattr(settings_view, "accounts_page", None) is not None:
+                from app.ui.account_runtime import start_runtime
+
+                self.account_runtime = start_runtime(self)
             mcp_ctl = getattr(self, "mcp_ctl", None)
             if mcp_ctl is not None:
                 mcp_ctl.start_if_wanted()
@@ -1498,6 +1517,8 @@ class MainWindow(QMainWindow):
         edit = bar.addMenu("&Edit")
         add(edit, "Search", self._focus_search, "Ctrl+K", icon="search",
             tip="Put the cursor in the search box")
+        add(edit, "New contact", self._new_contact, icon="user-plus",
+            tip="Start a new contact (Ctrl+N on the Contacts page)")
         add(edit, "Clear the search", self._clear_search, "Esc", icon="x")
         add(edit, "Save this search…", self._save_current_search, "Ctrl+D", icon="bookmark",
             tip="Give the search in the box a name, so you can run it again")
@@ -1519,6 +1540,8 @@ class MainWindow(QMainWindow):
         add(go, "Photos", self._show_photos, icon="image",
             tip="See, find and name your photos")
         add(go, "Files", self._focus_files, "Ctrl+P", icon="folder")
+        add(go, "Contacts", self._show_contacts, icon="contact",
+            tip="Your people: lists, cards, groups and the accounts they are kept in")
         add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
         add(go, "Offline", self._show_offline, icon="hard-drive")
         add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
@@ -1898,7 +1921,7 @@ class MainWindow(QMainWindow):
         # the button system with the rest (`_style_buttons`, below), so Start
         # takes the primary's ink rather than every icon the same grey.
         for view in (self.files_view, getattr(self, "mail_view", None),
-                     getattr(self, "code_view", None),
+                     getattr(self, "code_view", None), getattr(self, "contacts_view", None),
                      indexing_view, settings_view, self.reports_view):
             for target in (view, getattr(view, "_nav", None), getattr(view, "list", None)):
                 retint = getattr(target, "retint", None)
@@ -2054,6 +2077,14 @@ class MainWindow(QMainWindow):
                 return view
         return None
 
+    def pick_photo_from_person(self, contact_id):
+        """The Contacts editor's 'from my photos' button (6d, 2c)."""
+        from app.ui.contacts.person_photo import pick_photo_from_person
+
+        page = getattr(self.contacts_view, "page", None)
+        hub = getattr(page, "hub", None)
+        return pick_photo_from_person(self, hub, contact_id) if hub is not None else None
+
     def _tab_changed(self, index: int) -> None:
         """Refresh what the tab shows, then put the cursor where typing goes.
 
@@ -2090,6 +2121,9 @@ class MainWindow(QMainWindow):
         elif index == self._tab_index.get(getattr(self, "photos_view", None)):
             # 2026-10-05: on the way in - a run, or a name given, changes it.
             self.photos_view.refresh()
+        elif index == self._tab_index.get(getattr(self, "contacts_view", None)):
+            # Order 1k 6a: built on the first visit, re-read on every later one.
+            self.contacts_view.refresh()
         elif index == self._tab_index.get(getattr(self, "code_view", None)):
             # On the way in rather than on a timer: repositories change when an
             # index run finds one, which is rare and never while somebody is
@@ -2106,7 +2140,8 @@ class MainWindow(QMainWindow):
         # tab's widget, which is the same trap `_show` exists to avoid.
         for view in (self.search_view, self.files_view,
                      getattr(self, "mail_view", None),
-                     getattr(self, "code_view", None)):
+                     getattr(self, "code_view", None),
+                     getattr(self, "contacts_view", None)):
             if view is not None and self._tab_index.get(view) == index:
                 view.focus()
                 break
@@ -2317,6 +2352,28 @@ class MainWindow(QMainWindow):
     def _reveal_path(self, path: str) -> None:
         """Show `path` in its folder - the Photos tab's "Show in folder"."""
         self._open_path(path, reveal=True)
+
+    def _show_contacts(self) -> None:
+        """Order 1k 6a: bring the Contacts tab forward (it builds itself on the first visit)."""
+        view = getattr(self, "contacts_view", None)
+        if view is not None:
+            self._show(view)
+
+    def _open_contact(self, contact_id: int) -> None:
+        """Order 1k 6f: a contact card in Search was opened - the Contacts tab, on that person."""
+        view = getattr(self, "contacts_view", None)
+        if view is None:
+            return
+        self._show(view)
+        view.show_contact(contact_id)
+
+    def _new_contact(self) -> None:
+        """Edit > New contact: the Contacts tab, on a blank card."""
+        view = getattr(self, "contacts_view", None)
+        if view is None:
+            return
+        self._show(view)
+        view.new_contact()
 
     def _show_photos(self, *, naming: bool = False) -> None:
         """Bring the Photos tab forward - on its naming page when `naming`."""
@@ -2656,6 +2713,14 @@ class MainWindow(QMainWindow):
         mcp_ctl = getattr(self, "mcp_ctl", None)
         if mcp_ctl is not None:
             mcp_ctl.shutdown()
+        # Order 1k: no scheduled account sync starts once the window is closing; pending
+        # settings changes on the Accounts page are saved first.
+        account_runtime = getattr(self, "account_runtime", None)
+        if account_runtime is not None:
+            account_runtime.stop()
+        accounts_page = getattr(getattr(self, "settings_view", None), "accounts_page", None)
+        if accounts_page is not None:
+            accounts_page.flush()
         # 2026-10-04: the copies "Open" made of attachments. After the hide, so
         # the person never waits on it; a copy still open in Excel is left.
         try:
@@ -2705,7 +2770,8 @@ class MainWindow(QMainWindow):
                      getattr(self, "mail_view", None),
                      getattr(self, "code_view", None),
                      getattr(self, "chat_view", None),
-                     getattr(self, "photos_view", None)):
+                     getattr(self, "photos_view", None),
+                     getattr(self, "contacts_view", None)):
             if view is None:
                 continue
             stage(type(view).__name__, view.shutdown)

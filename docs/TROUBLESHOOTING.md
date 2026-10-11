@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.19 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.20 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -280,6 +280,135 @@ The target is under 300ms warm, under 3s for the first search after launch (an O
 loads once per session). If it is consistently worse, the per-stage timings are logged at
 DEBUG level in `logs\app\` - they say which stage overran, which is the whole point of
 breaking the budget down by stage.
+
+## Accounts, contacts and sync
+
+Everything here is in **Settings > Accounts**. The account list shows each account's status
+(Up to date, Syncing, Waiting, Paused, Needs sign-in or Failed) with its last and next sync, and
+the **Sync log** under it records every sync, what it did and, for one that went wrong, the fix.
+Each message below is the one Leasha shows, with its code (`ERR_...`) in the log and in
+`logs\errors\`. A failing account never stops the others, and nothing already in Leasha is lost.
+
+**Where the sync log and Undo are.** Settings > Accounts, at the bottom, under **Sync log**. Pick a
+row: **Undo this sync** puts the contact book back as it was before that sync and writes the
+accounts to match; **Approve** and **Allow** appear only on a row that is waiting for you. **Export
+log** saves what is shown as a CSV. From a terminal: `contacts log`, then `contacts undo <id>`
+(`contacts undo --entry <id>` undoes one change to one contact; the `contacts history <id>`
+command lists a contact's changes).
+
+### "The sign-in for (account) has expired or was revoked" - `ERR_ACCOUNT_SIGNIN_EXPIRED`
+
+The account shows **Needs sign-in**. Leasha says: "Open Settings > Accounts, choose the account
+and press Reconnect. Nothing already in Leasha is lost." Reconnect opens your browser to sign in
+again (`accounts signin <account>` on the command line). For an iCloud, other IMAP or CardDAV
+account there is no browser: the provider has stopped accepting the app password (Apple revokes
+every app-specific password when you change your Apple Account password, and Google does the same
+for a Gmail app password when the Google password changes). Make a new one and use **Change app
+password...** in the account's panel (`accounts password <account>`). An account that Google keeps
+in "Testing" mode needs signing in again every 7 days; the sign-in guide for Google explains how to
+avoid that.
+
+### "Your organisation has not approved Leasha" - `ERR_ACCOUNT_ADMIN_CONSENT`
+
+A Microsoft work or school account whose administrator has not allowed people to approve apps
+refuses the sign-in. Leasha says: "Ask your IT administrator to approve the app registration you
+made (or to allow users to consent to apps) for the permissions Mail.Read and Contacts.ReadWrite,
+then press Reconnect." Nothing on your side can get round it. If you only need contacts in Leasha
+from that organisation, a personal Microsoft account does not have the problem.
+
+### "There is no app registration (client ID) for (provider) yet" - `ERR_ACCOUNT_NOT_CONFIGURED`
+
+Google and Microsoft sign in through a registration you make in your own name; Leasha ships with
+none. Open Settings > Accounts, press **Show me how: Google** (or **Microsoft**), follow the guide
+and paste the client ID into **Sign-in set-up**.
+
+### "(account) could not be reached" - `ERR_ACCOUNT_UNREACHABLE`
+
+Leasha could not talk to the server: no internet, a wrong server, port or security on an IMAP or
+CardDAV account, or an address Leasha is not allowed to contact (it only talks to the hosts of the
+providers you connected, and the one server you typed for an IMAP or CardDAV account). Check the
+connection and the server details, then press **Test connection** in the account's panel, then
+**Sync now**.
+
+### "(account) refused the request" - `ERR_ACCOUNT_REJECTED`
+
+The server answered and said no. Press **Test connection**; it reports each permission granted. If
+it keeps happening, send the newest file in `logs\errors\`.
+
+### "(account) asked Leasha to slow down" - `ERR_PROVIDER_LIMIT`
+
+Nothing to do. The provider limits how fast one person may ask; Leasha waits as long as the provider
+says and tries again by itself. Other accounts carry on meanwhile. If a first fetch of a big
+mailbox is the cause, Settings > Accounts > **First fetch of mail** has a speed cap.
+
+### "Windows Credential Manager could not be used" - `ERR_ACCOUNT_SECRET_STORE`
+
+Leasha keeps every sign-in secret and app password in Windows Credential Manager and nowhere else -
+not the index, not a settings file, not a log. If Credential Manager is locked, damaged, or blocked
+by a policy, an account cannot be added or used. Unlock or repair it (Control Panel > Credential
+Manager > Windows Credentials), then try again. Leasha will not fall back to keeping the secret in
+a file.
+
+### "This sync would delete (N) contacts" - `ERR_SYNC_DELETE_BRAKE`
+
+The delete brake. A sync that would delete more contacts than your limit (20 contacts or 5% of the
+book, changed under Settings > Accounts > **Safety**) stops and deletes nothing. Leasha says: "Check
+the list in the sync log. If it is right, press Allow in the sync log and sync again; if not, press
+Undo." Select the row marked **Held**: it lists what the sync was about to do, with a few names.
+**Allow** lets it go ahead; **Undo this sync** is for a sync that already ran. A brake that keeps
+firing usually means an account was emptied or a folder was unsubscribed at the provider: look
+before you press Allow.
+
+### "The first sync of (account) is a dry run" - `ERR_SYNC_NEEDS_APPROVAL`
+
+Not a fault. The first sync of every account only reads and plans: nothing is written to Leasha or
+to the account until you approve. Leasha says: "Read what it would add, merge and change, then press
+Approve to run it for real." Select the row marked **Waiting for you** in the Sync log, read the
+plan under the table, and press **Approve**. (`contacts sync --account X --approve-first` does the
+same from a terminal.) The dry run can be switched off under **Safety**, which asks first.
+
+### "(N) contact(s) changed in two places" - `ERR_SYNC_CONFLICT_HELD`
+
+The same field of one contact was changed in Leasha and at an account (or at two accounts) since
+the last sync. Open **Contacts > Changed in two places**. Each such contact shows a banner at the top
+of its editor. Under the default rule (**The newest edit wins**) the newest value was kept and the
+other is in the contact's **History**, where **Undo** puts it back. Press **Acknowledge** when you
+have looked, and the marker goes. The rule is under Settings > Accounts > **When the same contact
+changed in two places**.
+
+### A sync failed - `ERR_SYNC_FAILED`
+
+"Syncing (account) failed (reason)." Press **Sync now** to try again; the other accounts were not
+affected. The reason is also in the Sync log's last column. If it fails the same way twice, send the
+newest file in `logs\errors\`.
+
+### "My contact is missing from an account"
+
+Each contact has a **Kept in** set: the accounts it is stored in. A contact you made in Leasha goes
+only to the default account (Settings > Accounts > **New contacts go to**), and a contact that came
+from one account is kept in that account only. Nothing copies every contact to every account. Open
+the contact: under **Kept in** the accounts it is in are lit. Click another account to keep it there
+too; it is written at the next sync. For many at once, select them and use **Keep in account** on
+the bar above the list. **Contacts > Single account** lists the contacts kept in only one account,
+which is what closing that account would lose.
+
+Also check that the account's contacts direction is not **Off**, and that **Into Leasha only** is
+not the reason (it never writes to the account). Both are on the **Contacts** tab of the account's
+panel.
+
+### A contact deleted at an account is still in Leasha
+
+By design. A contact deleted at one account is not deleted in Leasha or at your other accounts; it
+is listed under **Contacts > Deleted elsewhere**. A contact you delete in Leasha goes to the **Bin**
+for 30 days and leaves every account it was kept in; restoring it from the Bin writes it back.
+
+### Nothing syncs by itself
+
+The schedule starts as **Manual** for mail and for contacts, so nothing syncs until you press
+**Sync now** or choose a timed schedule. Nothing syncs when Leasha starts, wakes or reconnects.
+**Pause all sync** (here and in the tray menu) and quiet hours each hold scheduled syncs back;
+the account's row says which one in its Notes column. `accounts due` on the command line
+prints what the schedule would start now, and why nothing is due.
 
 ## Checking on things
 

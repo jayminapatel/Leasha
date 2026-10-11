@@ -611,6 +611,23 @@ QTableView::indicator:checked:disabled {{
     background: {border_strong}; border-color: {border_strong};
 }}
 
+/* **A chosen radio button is seen to be chosen** (2026-10-11, the owner, on Add account:
+   the picked kind of account showed no mark at all). The platform style draws the dot in a
+   colour the dark theme's surface swallows, so the picked row read as a row of plain text.
+   Same family as the tick box above: a round box, and a dot in the accent colour inside it
+   when on. Only the indicator is styled, so the height test above still holds. */
+QRadioButton::indicator {{
+    width: 16px; height: 16px; border: 1px solid {border_strong};
+    border-radius: 9px; background: {surface};
+}}
+QRadioButton::indicator:hover {{ border-color: {focus_ring}; }}
+QRadioButton::indicator:checked {{
+    border: 1px solid {accent};
+    background: qradialgradient(cx:0.5, cy:0.5, radius:0.5, fx:0.5, fy:0.5,
+        stop:0 {accent}, stop:0.45 {accent}, stop:0.55 {surface}, stop:1 {surface});
+}}
+QRadioButton::indicator:disabled {{ border-color: {border}; background: {surface_alt}; }}
+
 QSplitter::handle {{ background: {divider}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 QSplitter::handle:vertical {{ height: 1px; }}

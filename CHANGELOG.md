@@ -35,6 +35,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **The rail reads Search, Mail, Photos, Files, Code, Browse, Chat, Reports**, and the Go menu follows it.
 - **Photos: the list on the left can be hidden** - the panel icon beside View, or View > People, years and places.
 
+### Accounts, live mail and a contact book that syncs (order 1k, 2026-10-11; branch `feat/accounts-1k`, not merged)
+
+- **Accounts**: Google, Microsoft, Apple and any IMAP or CardDAV server, any number of each; secrets only in Windows Credential Manager. `leasha accounts` and `leasha contacts` on the command line.
+- **Contacts**: a Contacts page (list and cards), duplicates, clean-up, import/export, labels and address-book printing, tags; two-way sync with a per-contact "Kept in" set, a first-sync dry run, a delete brake, and undo of any change or whole sync.
+- **Live mail** is read-only and goes through the ordinary indexing pipeline; the MCP server gains read-only contact tools.
+- **Fixed on the way**: the "From your index" panel deleted widgets without detaching them and could abort the whole test process.
+
 ### A message stored twice in one mailbox is indexed once (2026-10-11)
 
 - **`leasha dedupe-mail`** finds messages an Outlook archive holds twice (same text, subject, sender and time) and,

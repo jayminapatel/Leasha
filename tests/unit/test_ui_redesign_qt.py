@@ -91,8 +91,9 @@ def test_every_page_is_reachable_by_click_and_by_index(window):
     rail = built.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
     # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
+    # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
     # 2026-10-11: the owner's order ("search, mail, photos, file, code, browse, chat and reports").
-    assert titles == ["Search", "Mail", "Photos", "Files", "Code", "Browse", "Chat",
+    assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
                       "Reports", "Indexing", "Settings"]
     for index in range(rail.count()):
         rail.setCurrentIndex(index)

@@ -5908,6 +5908,14 @@ class SqliteStore:
                 "DELETE FROM index_state WHERE key LIKE 'graph:%' "
                 "OR key LIKE 'index:%' OR key LIKE 'resume:%'"
             )
+            # Order 1k: fetched mail went with `files`, so each account's mail position goes too -
+            # or the next sync would find itself up to date over an empty index. Contacts and the
+            # accounts themselves are the person's own data, not derived from anything: a reset
+            # keeps them (`tests/unit/test_reset_keeps_accounts_and_contacts.py`).
+            try:
+                conn.execute("UPDATE account_sync_state SET token = NULL, extra = '{}' WHERE kind = 'mail'")
+            except sqlite3.OperationalError:
+                pass
             # **In the same transaction as the delete.** The search cache is
             # keyed on this, so without it a cache built from the index that was
             # just destroyed keeps answering - which is the exact failure the
@@ -7063,3 +7071,181 @@ class SqliteStore:
         index. For `diagnose` and `doctor`, never a window refresh."""
         row = self.conn.execute("PRAGMA integrity_check").fetchone()
         return str(row[0]).lower() == "ok"
+
+    # -- live mail (order 1k, Phase B) ------------------------------------------
+    #
+    # A message fetched from an account is an ordinary `files` row plus an
+    # ordinary `messages` row (path `account://<id>/<folder>/<remote id>`); what
+    # an account knows and a file does not is in the v38 columns written below.
+    # New methods only: `set_message` and everything the mbox / .pst paths use
+    # are exactly as they were.
+
+    def set_account_message(self, file_id: int, *, account_id: int, remote_id: str,
+                            labels: Sequence[str] = (), message_id: str = "") -> None:
+        """Which account a message came from, the id its server uses, its labels
+        (a JSON list: Gmail labels stay labels) and its normalised Message-ID.
+        The message's `messages` row must exist (`set_message`)."""
+        import json as _json
+
+        with self.write() as conn:
+            conn.execute(
+                "UPDATE messages SET account_id = ?, remote_id = ?, labels = ?, message_id = ? "
+                "WHERE file_id = ?",
+                (int(account_id), str(remote_id), _json.dumps(list(labels or ())),
+                 (message_id or None), int(file_id)))
+
+    def set_message_id(self, file_id: int, message_id: Optional[str]) -> None:
+        """The normalised Message-ID of a message read from an archive, so a live
+        copy of it can be found (D13). A no-op for an empty id or a file with no
+        `messages` row."""
+        if not message_id:
+            return
+        with self.write() as conn:
+            conn.execute("UPDATE messages SET message_id = ? WHERE file_id = ?",
+                         (str(message_id), int(file_id)))
+
+    def message_file_ids_for_remote(self, account_id: int, remote_ids: Sequence[str]) -> dict[str, int]:
+        """`{remote id: file id}` for the account's messages with these server ids."""
+        found: dict[str, int] = {}
+        wanted = list(dict.fromkeys(str(r) for r in remote_ids or ()))
+        for start in range(0, len(wanted), 800):
+            chunk = wanted[start:start + 800]
+            for row in self.conn.execute(
+                    f"SELECT remote_id, file_id FROM messages WHERE account_id = ? "
+                    f"AND remote_id IN ({','.join('?' * len(chunk))})", [int(account_id), *chunk]):
+                found[str(row["remote_id"])] = int(row["file_id"])
+        return found
+
+    @staticmethod
+    def _path_range(prefix: str) -> tuple[str, str]:
+        """`(low, high)` such that `low <= path < high` is "starts with `prefix`",
+        answered by the index on `files.path` (the way `mail_duplicates` does it)."""
+        return prefix, prefix[:-1] + chr(ord(prefix[-1]) + 1)
+
+    def file_ids_under_prefix(self, prefix: str) -> list[int]:
+        """Every file row whose path starts with `prefix` - an account's messages
+        and their attachments, for `prefix = 'account://<id>/'`."""
+        if not prefix:
+            return []
+        low, high = self._path_range(prefix)
+        return [int(r[0]) for r in self.conn.execute(
+            "SELECT id FROM files WHERE path >= ? AND path < ?", (low, high))]
+
+    def attachment_file_ids(self, message_path: str) -> list[int]:
+        """The rows of the files attached to the message at `message_path`
+        (`<message>/attachments/<name>` and, for a zip, its members)."""
+        return self.file_ids_under_prefix(message_path + "/attachments/")
+
+    def account_message_rows(self, account_id: int) -> list[dict[str, Any]]:
+        """`{file_id, path, remote_id, labels}` for each of an account's messages."""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT m.file_id, f.path, m.remote_id, m.labels FROM messages m "
+            "JOIN files f ON f.id = m.file_id WHERE m.account_id = ?", (int(account_id),))]
+
+    def message_accounts(self, file_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
+        """`{file id: {account_id, account, remote_id, labels}}` for the live
+        messages among these files (a file read from disk or an archive is
+        absent) - what the Mail page and the MCP card name a message's account by."""
+        import json as _json
+
+        wanted = [int(f) for f in file_ids or ()]
+        out: dict[int, dict[str, Any]] = {}
+        for start in range(0, len(wanted), 800):
+            chunk = wanted[start:start + 800]
+            for row in self.conn.execute(
+                    "SELECT m.file_id, m.account_id, m.remote_id, m.labels, a.name AS account "
+                    "FROM messages m LEFT JOIN accounts a ON a.id = m.account_id "
+                    f"WHERE m.account_id IS NOT NULL AND m.file_id IN ({','.join('?' * len(chunk))})",
+                    chunk):
+                try:
+                    labels = _json.loads(row["labels"] or "[]")
+                except ValueError:
+                    labels = []
+                out[int(row["file_id"])] = {"account_id": int(row["account_id"]),
+                                            "account": row["account"] or "",
+                                            "remote_id": row["remote_id"], "labels": labels}
+        return out
+
+    def live_copy_of(self, message_id: str) -> Optional[int]:
+        """The file id of the account copy of a message with this normalised
+        Message-ID, or None (D13: the live copy is the one searched)."""
+        if not message_id:
+            return None
+        row = self.conn.execute(
+            "SELECT file_id FROM messages WHERE message_id = ? AND account_id IS NOT NULL "
+            "ORDER BY file_id LIMIT 1", (message_id,)).fetchone()
+        return int(row[0]) if row else None
+
+    def archive_copies_of(self, message_id: str, *, exclude_account: bool = True) -> list[dict[str, Any]]:
+        """Messages read from an Outlook archive with this normalised Message-ID:
+        `{file_id, path, store_path, entry_id}` (D13's archive copies)."""
+        if not message_id:
+            return []
+        return [dict(r) for r in self.conn.execute(
+            "SELECT f.id AS file_id, f.path, m.store_path, m.entry_id FROM messages m "
+            "JOIN files f ON f.id = m.file_id WHERE m.message_id = ? AND f.source_kind = 'pst_message' "
+            "AND m.account_id IS NULL ORDER BY f.id", (message_id,))]
+
+    def add_message_place(self, file_id: int, kind: str, ref: str, *,
+                          store_path: Optional[str] = None, entry_id: Optional[str] = None) -> None:
+        """Record another place a live message lives (`kind` 'archive': `ref` is the
+        archive copy's `files.path`). Re-recording the same `(kind, ref)` re-points it."""
+        with self.write() as conn:
+            conn.execute(
+                "INSERT INTO message_places (file_id, kind, ref, store_path, entry_id) VALUES (?,?,?,?,?) "
+                "ON CONFLICT(kind, ref) DO UPDATE SET file_id = excluded.file_id, "
+                "store_path = excluded.store_path, entry_id = excluded.entry_id",
+                (int(file_id), kind, ref, store_path, entry_id))
+
+    def message_places(self, file_id: int) -> list[dict[str, Any]]:
+        """Where else a live message lives: `{kind, ref, store_path, entry_id}`."""
+        return [dict(r) for r in self.conn.execute(
+            "SELECT kind, ref, store_path, entry_id FROM message_places WHERE file_id = ? ORDER BY id",
+            (int(file_id),))]
+
+    def place_ref_known(self, kind: str, ref: str) -> bool:
+        """Is `ref` recorded as another place of a live message (so its own row stays out)?"""
+        return self.conn.execute("SELECT 1 FROM message_places WHERE kind = ? AND ref = ? LIMIT 1",
+                                 (kind, ref)).fetchone() is not None
+
+    def places_of_files(self, file_ids: Sequence[int], kind: str = "archive") -> list[dict[str, Any]]:
+        """The `kind` places recorded for these live messages (read before deleting
+        them, so the archives they hid can be re-read)."""
+        out: list[dict[str, Any]] = []
+        wanted = [int(f) for f in file_ids or ()]
+        for start in range(0, len(wanted), 800):
+            chunk = wanted[start:start + 800]
+            out += [dict(r) for r in self.conn.execute(
+                f"SELECT file_id, kind, ref, store_path, entry_id FROM message_places "
+                f"WHERE kind = ? AND file_id IN ({','.join('?' * len(chunk))})", [kind, *chunk])]
+        return out
+
+    def reopen_archives(self, store_paths: Sequence[str]) -> int:
+        """Make the next index run read these archives again: their marker row's
+        date and change marker are cleared. For an archive whose messages were
+        hidden behind a live copy that has since gone (D13), so they come back.
+        Index rows only; the archive is not touched. Returns the markers changed."""
+        changed = 0
+        with self.write() as conn:
+            for path in dict.fromkeys(str(p) for p in store_paths or () if p):
+                changed += conn.execute(
+                    "UPDATE files SET mtime_ns = 0, content_hash = NULL "
+                    "WHERE path = ? AND source_kind = 'archive'", (path,)).rowcount
+        return changed
+
+    def account_mail_space(self, account_id: int, prefix: str) -> dict[str, int]:
+        """What an account's mail takes in the index, counted: `messages`,
+        `attachments` (rows), `passages`, `embedded` (passages with a vector) and
+        `text_bytes` (the passages' text). `prefix` is `account://<id>/`."""
+        low, high = self._path_range(prefix)
+        row = self.conn.execute(
+            "SELECT COUNT(DISTINCT f.id) AS files, COUNT(c.id) AS passages, "
+            "COALESCE(SUM(c.embedded = 1), 0) AS embedded, COALESCE(SUM(LENGTH(c.text)), 0) AS text_bytes "
+            "FROM files f LEFT JOIN chunks c ON c.file_id = f.id WHERE f.path >= ? AND f.path < ?",
+            (low, high)).fetchone()
+        messages = int(self.conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE account_id = ?", (int(account_id),)).fetchone()[0])
+        files = int(row["files"] or 0)
+        return {"messages": messages, "attachments": max(0, files - messages),
+                "passages": int(row["passages"] or 0), "embedded": int(row["embedded"] or 0),
+                "text_bytes": int(row["text_bytes"] or 0)}

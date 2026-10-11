@@ -155,7 +155,7 @@ def make_movable(rail: Any, button: Any) -> None:
 # -- the window's side: remembered, applied at start, reset ----------------------
 
 #: The owner's order (2026-10-11), and what Reset page order goes back to.
-DEFAULT_ORDER = ("Search", "Mail", "Photos", "Files", "Code", "Browse", "Chat", "Reports")
+DEFAULT_ORDER = ("Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Reports")
 
 #: Where the order is remembered: titles, `|`-separated (D2).
 STATE_KEY = "ui:rail_order"

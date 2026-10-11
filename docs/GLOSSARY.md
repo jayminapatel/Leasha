@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.12 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.1
+**Doc version:** 1.12 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -19,7 +19,7 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 | Term | Means | Notes |
 |---|---|---|
 | L0 | Foundation — config, `AppError`, logging, single-instance, CLI | `app/core` |
-| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 34` (`app/storage/migrations.py`) |
+| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 38` (`app/storage/migrations.py`) |
 | L2 | Extraction — PDF, Office, plaintext, Outlook/PST, chunking | `app/extract`; local models in `app/ort` |
 | L3 | Indexing pipeline — walker, workers, resumable cursor | `app/index` |
 | L4 | Search — BM25 + ANN, RRF fusion, rerank, filters | `app/search`; read-only reports in `app/reports` |
@@ -108,7 +108,7 @@ Verified against `app/search/commands.py`.
 
 ## 6. Errors
 
-`app/core/errors.py` is the authority. 68 codes registered.
+`app/core/errors.py` is the authority. 83 codes registered.
 
 | Term | Means |
 |---|---|
@@ -183,11 +183,41 @@ and `202626270514`.
 
 ---
 
+## 11. Accounts, contacts and sync
+
+Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, live mail),
+`app/contacts` (the hub and its tools) and `app/ui/accounts`, `app/ui/contacts`.
+
+| Term | Means | Notes |
+|---|---|---|
+| Account | One connection to a provider, in the person's own name for it ("Work", "Home"): Google, Microsoft, Apple (iCloud), or any IMAP or CardDAV server. Any number of each. It can bring in mail (read only), contacts, or both | `accounts` table; Settings > Accounts. Its secrets are in Windows Credential Manager, never in a column |
+| Account worker | The one background thread that talks to every account, one at a time per provider. It runs only while Leasha is open | `app/accounts/engine.py`, `service.py`; started by the schedule or Sync now, nothing else |
+| App password | A password made at the provider for one program (iCloud, Gmail over IMAP, Yahoo, Fastmail ...), so the real password is never given to Leasha | Used by Apple, IMAP and CardDAV accounts; kept in Credential Manager |
+| Bin | Where a deleted contact waits for 30 days. Deleting a contact in Leasha also removes it from every account it is kept in; restoring it from the Bin writes it back | Contacts sidebar, **Bin** |
+| Changed in two places | A contact whose same field was edited in Leasha and at an account (or at two accounts) since the last sync. Under the default rule the newest edit wins, the other value stays in History, and the contact carries a marker until the person presses Acknowledge | `ERR_SYNC_CONFLICT_HELD`; Contacts sidebar, **Changed in two places**; Settings > Accounts, **When the same contact changed in two places** |
+| Client ID | The code that identifies the sign-in registration a person makes in their own name at Google or Microsoft. Leasha ships with none | Settings > Accounts, **Sign-in set-up**; the user guide walks through making one |
+| Contact | One person (or company) in Leasha's contact book: typed, repeatable fields (email, phone, address, website, dates, related people, handles), a photo, notes, groups, tags and the accounts it is kept in | `contacts`, `contact_fields`; `app/contacts/card.py` |
+| Delete brake | The stop on a sync that would delete more contacts than the safety limit (20 contacts or 5% of the book by default). Nothing is deleted until the person presses Allow | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety** |
+| Deleted elsewhere | A contact an account no longer has. Leasha and the other accounts keep it; it is listed for the person to look at, never deleted on a hunch | Contacts sidebar, **Deleted elsewhere**; `contact_links.state = 'deleted_remote'` |
+| Direction | What a contact sync may do with one account: **Two-way** (read it and write to it; the default for every account, work accounts included), **Into Leasha only** (read it, never write), or **Off** | Settings > Accounts, the account's **Contacts** tab |
+| Dry run | A sync that reads and plans and writes nothing: not Leasha, not the account, not the saved position. The first sync of every account is one until the person presses Approve | `ERR_SYNC_NEEDS_APPROVAL`; `contacts sync --dry-run` |
+| Enrichment | Proposed additions to a contact (a phone number from a signature, a company from an email domain, a photo from a named face, and three optional internet look-ups: Gravatar, a company's own icon, Wikidata for companies). Nothing is kept until the person accepts it, and each internet source is off by default | `app/contacts/enrich/`; hosts pinned in `app/accounts/http.py` |
+| Hub | Leasha's own master copy of the contact book. Accounts are copies that are kept in step with it, not the source | `ContactHub`, `app/contacts/hub.py`; SQLite is the authority (rule 6) |
+| Journal | The record of every change to a contact (who made it: Leasha, an import, or an account) with what was there before, so any change, a whole merge, a clean-up or a whole sync can be undone | `contact_journal`; a contact's **History**; `contacts history`, `contacts undo` |
+| Kept in | The set of accounts a contact is stored in. A contact made in Leasha goes to the default account; one that came from an account is kept in that account; nothing is copied everywhere unless the person asks. Adding an account writes the contact there; taking one away deletes it from that account only after the person confirms | `contact_links`; the editor's **Kept in** chips |
+| Live mail | Mail fetched from an account over the internet, read only, and indexed like any other mail. Mail read from files and Outlook archives stays with the indexing schedule | `app/accounts/mail_sync.py`; Settings > Accounts, the account's **Mail** tab |
+| Quiet hours | Two times between which no scheduled sync starts. Sync now still works | Settings > Accounts |
+| Smart group | A saved filter over the contact book ("no phone number", "company is Acme") that is always up to date | Contacts sidebar, **New smart group** |
+| Sync log | The table of every sync: when, which account, what started it, what was added, changed, deleted and held, how long it took, and any problem with its fix. **Undo this sync** is here | Settings > Accounts, **Sync log**; `contacts log` |
+| Tag | A coloured label on a contact; any number per contact. Leasha's own, so it is sent to an account only where that account has an equivalent | Contacts sidebar, **Tags** |
+
+---
+
 ## Added 1 October 2026
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Code, Browse (the timeline), Chat, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
 | What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
 | `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |

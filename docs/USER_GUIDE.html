@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha User Guide</h1>
   <p>Find anything on your computer by describing it in plain English: documents, photos, code and years of email, all searched on this machine and nothing sent anywhere.</p>
-  <div class="meta">For Leasha 1.0.0 · Guide updated 8 October 2026 · Windows 10 and 11; macOS and Linux from source</div>
+  <div class="meta">For Leasha 1.0.3 · Guide updated 11 October 2026 · Windows 10 and 11; macOS and Linux from source</div>
 </header>
 
 <h2 id="welcome"><span class="num">1</span>Welcome</h2>
@@ -120,9 +120,9 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
   <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> Search by meaning</h4><p>Words and meaning are searched together, so "the quote for the boiler" finds the email even if it never says "quote".</p></div>
   <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span> Files and mail together</h4><p>Documents, PDFs, spreadsheets, photos, code, Outlook archives (.pst), Google Takeout and zip files, in one search box.</p></div>
   <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg></span> Drives in a drawer</h4><p>Catalogue a removable drive once and its files stay findable after you unplug it.</p></div>
-  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span> Stays on this computer</h4><p>No account, no cloud and no telemetry. Your documents are only ever read, never changed, moved or deleted.</p></div>
+  <div class="card"><h4><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg></span> Stays on this computer</h4><p>Searching and indexing never go online, and there is no telemetry. Your documents and mail are only ever read, never changed, moved or deleted. Connecting an account is your choice, and is the only other thing that talks to the internet.</p></div>
 </div>
-<div class="callout tip"><b>One exception, off unless you switch it on</b>The Chat page can look things up on the web to add to what your own files say. It is off by default. When it is on, only a short search phrase that you can see leaves the computer, never a file name, a passage, an email or your conversation. Searching, indexing and reading stay fully offline either way.</div>
+<div class="callout tip"><b>Two exceptions, both off until you switch them on</b>The Chat page can look things up on the web to add to what your own files say. When that is on, only a short search phrase that you can see leaves the computer, never a file name, a passage, an email or your conversation. And if you add an account (Google, Microsoft, Apple or another server), Leasha signs in and fetches that account's mail and contacts to this computer, and writes contact changes back to the same account; see <a href="#accounts-leaves">What leaves this computer</a>. Searching, indexing and reading stay fully offline either way.</div>
 
 <h2 id="getting-started"><span class="num">2</span>Getting started</h2>
 <h3 id="install">Install</h3>
@@ -195,7 +195,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 </figure>
 <ol class="legend">
   <li><b class="n">1</b><span><b>Menu bar</b>: File, Edit, View, Go and Help (see <a href="#menus">Menus and shortcuts</a>).</span></li>
-  <li><b class="n">2</b><span><b>The rail</b>: one button per page. <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> Search, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span> Mail, Photos, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span> Files, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> Code, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg></span> Browse, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> Chat, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></span> Reports. Offline is the last shelf of the Indexing page. Up and Down move along it; Enter opens a page. To put the pages in another order, drag a button up or down, or right-click it for <b>Move up</b>, <b>Move down</b> and <b>Reset page order</b> (also in the View menu); Leasha remembers the order. Indexing and Settings stay at the bottom.</span></li>
+  <li><b class="n">2</b><span><b>The rail</b>: one button per page (Contacts comes right after Files). <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></span> Search, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg></span> Mail, Photos, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span> Files, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> Code, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2v4"/><path d="M16 2v4"/><rect width="18" height="18" x="3" y="4" rx="2"/><path d="M3 10h18"/></svg></span> Browse, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span> Chat, <span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></svg></span> Reports. Offline is the last shelf of the Indexing page. Up and Down move along it; Enter opens a page. To put the pages in another order, drag a button up or down, or right-click it for <b>Move up</b>, <b>Move down</b> and <b>Reset page order</b> (also in the View menu); Leasha remembers the order. Indexing and Settings stay at the bottom.</span></li>
   <li><b class="n">3</b><span><b>The Indexing pill</b> says what the index is doing ("Up to date", "Indexing", "Paused") with a coloured dot. Click it to open the Indexing page.</span></li>
   <li><b class="n">4</b><span><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg></span> <b>Settings</b>.</span></li>
   <li><b class="n">5</b><span><b>The search box.</b> <span class="btn">×</span> clears it, and so does <kbd>Esc</kbd>.</span></li>
@@ -372,6 +372,264 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
   <li>View › <b>One row per conversation</b> folds replies together (off by default).</li>
 </ul>
 <div class="callout"><b>Outlook archives</b>Leasha reads a <code>.pst</code> straight from the file where it can, with no Outlook needed and no lock on the file, and otherwise through Outlook. The choice is under Indexing › What gets read › Email.</div>
+
+<h2 id="accounts"><span class="num">6a</span>Adding an account: Google, Microsoft, Apple and others</h2>
+<p>An account lets Leasha fetch your mail and keep your contacts in step with the ones held by Google, Microsoft, Apple or any other provider. Everything is added under <b>Settings › Accounts</b>, with <b>Add account</b>. Your mail and contacts are copied to this computer, indexed here, and searched here, as for any other file.</p>
+<p>Leasha is a program that runs on your own computer, and it does not come with a sign-in of its own for Google or Microsoft. For those two you make a small free registration in your own name, once, and paste one code (the <b>client ID</b>) into Settings › Accounts. It is not a file and not something you edit. Apple and every other mail server need no registration, only a password made just for Leasha. Each step below says which screen to look for. Provider websites change their wording from time to time, so a button may be named a little differently from here.</p>
+<div class="callout tip"><b>Which one do I need?</b>Gmail or Google Contacts: <a href="#accounts-google-setup">Google</a>. Outlook.com, Hotmail, or a Microsoft 365 work or school mailbox: <a href="#accounts-microsoft-setup">Microsoft</a>. iCloud: <a href="#accounts-icloud-password">Apple</a>. Yahoo, Fastmail, your own company's or web host's mail, Nextcloud: <a href="#accounts-imap">any other server</a>.</div>
+
+<h3 id="accounts-google-setup">Google (Gmail and Google Contacts)</h3>
+<p>You make your own Google Cloud project. It costs nothing and needs no card. You will be the only person who ever uses it.</p>
+<ol class="steps">
+  <li><b>Open the Google Cloud console.</b> Go to <code>console.cloud.google.com</code> and sign in with the Google account you want to connect. Accept the terms if it asks.</li>
+  <li><b>Make a project.</b> Click the project name at the top of the page, then <b>New project</b>. Call it <code>Leasha</code> and press <b>Create</b>. Make sure the new project is the one named at the top.</li>
+  <li><b>Switch on the two services.</b> Open the menu (three lines, top left) › <b>APIs &amp; Services</b> › <b>Library</b>. Search for <b>People API</b> and press <b>Enable</b>. Go back to the library, search for <b>Gmail API</b>, and press <b>Enable</b>. People API is for contacts and Gmail API is for mail. If you will only sync contacts you can skip the Gmail one.</li>
+  <li><b>Describe the app.</b> Open <b>APIs &amp; Services › OAuth consent screen</b>. Newer consoles call this <b>Google Auth Platform</b> and show a <b>Get started</b> button. Give the app the name <code>Leasha</code>, choose your own address as the support email and as the contact email, and press <b>Next</b>.</li>
+  <li><b>Choose External.</b> Under <b>Audience</b> choose <b>External</b>. (<b>Internal</b> is only for a Google Workspace organisation, and only if every user is inside it.) Agree to the policy and press <b>Create</b>.</li>
+  <li><b>Add yourself.</b> Under <b>Audience</b> find <b>Test users</b>, press <b>Add users</b>, type the Google address you are connecting, and <b>Save</b>. Add each other Google address you plan to connect, up to 100.</li>
+  <li><b>Move the app to production.</b> Still under <b>Audience</b>, the <b>Publishing status</b> says <b>Testing</b>. Press <b>Publish app</b> and confirm. You do not need to send anything to Google for review. See the note below for why this matters.</li>
+  <li><b>Make the sign-in code.</b> Open <b>Clients</b> (older consoles: <b>APIs &amp; Services › Credentials › Create credentials › OAuth client ID</b>). Press <b>Create client</b>, choose the application type <b>Desktop app</b>, call it <code>Leasha</code>, and press <b>Create</b>.</li>
+  <li><b>Copy the two values.</b> Google shows the <b>Client ID</b>, a long text ending in <code>.apps.googleusercontent.com</code>, and the <b>Client secret</b>. Copy both. For a desktop client Google does give a secret; it is not really secret in the way a password is, but Leasha treats it as one and keeps it in Windows Credential Manager, never in a file.</li>
+  <li><b>Paste them into Leasha.</b> Open <b>Settings › Accounts › Google</b>, paste the <b>Client ID</b> and the <b>Client secret</b> into their boxes, and press <b>Save</b>.</li>
+  <li><b>Add the account.</b> Press <b>Add account › Google</b>. Your browser opens on a Google page. Choose the account, press <b>Continue</b> on the unverified screen (next paragraph), tick the boxes that let Leasha see your contacts and read your mail, and press <b>Continue</b>. The page then says you can close it. Leasha shows <b>Connected</b>.</li>
+</ol>
+<p><b>The "Google hasn't verified this app" screen.</b> Because you made the app yourself and never sent it to Google, Google warns you before you sign in. This is expected: the app is yours. Press <b>Advanced</b>, then <b>Go to Leasha (unsafe)</b> (the name is whatever you gave the app in step 4), and carry on. You will see it once for each account you add.</p>
+<div class="callout"><b>Why step 7 matters: signing in again every 7 days</b>Google keeps a sign-in alive by giving the app a long-lived pass. For an app whose publishing status is <b>Testing</b>, Google's documentation says that pass expires after 7 days, so Leasha would show <b>Needs sign-in</b> every week and you would press <b>Sign in again</b>. For an app set to <b>In production</b>, no such 7-day limit is documented. Google also exempts an app "for your personal use (fewer than 100 users)" from its review, and the unverified screen above is the only price. <b>Not yet seen live:</b> that a pass from an unreviewed production app really lasts longer than 7 days has been read in Google's documents but not yet watched happening. It is checked on the owner's own laptop as part of the testing of this feature (acceptance check A11), and this note will say what was seen when that is done. If you are asked to sign in again after a week, you are in <b>Testing</b>: open the consent screen and press <b>Publish app</b>.</div>
+<h4>The other way: read Gmail over IMAP instead</h4>
+<p>If you would rather not make a Google Cloud project for mail, Leasha can read your Gmail over IMAP with an app password. In <b>Settings › Accounts › Google</b>, choose <b>Read Gmail over IMAP instead</b>. Contacts still need the People API from the steps above (a smaller permission than reading mail), so you still need a project for those, but not the Gmail API. Its limits:</p>
+<ul>
+  <li>Google only offers app passwords for <b>personal</b> Google accounts that have <b>2-Step Verification</b> switched on. They are not offered for work or school accounts, or for accounts in Google's Advanced Protection Program. Make one at <code>myaccount.google.com</code> › Security › 2-Step Verification › App passwords.</li>
+  <li>An app password stops working when you change your Google password. Leasha then shows <b>Needs sign-in</b> and you make a new one.</li>
+  <li>The server is <code>imap.gmail.com</code>, port 993, SSL/TLS, and Leasha fills those in. If IMAP is off in your Gmail settings, switch it on there first.</li>
+</ul>
+<p class="small muted">(Google Cloud console and Gmail wording above was written from memory of the consoles and Google's help pages and has not been checked against the live console.)</p>
+
+<h3 id="accounts-microsoft-setup">Microsoft (Outlook.com, Hotmail, Microsoft 365)</h3>
+<p>Personal Microsoft accounts and work or school accounts both work, and you register once for both. The registration is free.</p>
+<ol class="steps">
+  <li><b>Open the Entra admin center.</b> Go to <code>entra.microsoft.com</code> and sign in with a Microsoft account. A personal account that has never used Azure may be asked to start a free Azure account first; that is a sign-up screen, it needs no payment for this, and you can come back here afterwards.</li>
+  <li><b>Start a registration.</b> Open <b>Entra ID › App registrations › New registration</b>.</li>
+  <li><b>Name it.</b> Type <code>Leasha</code> (or any name; you will see it on the sign-in page).</li>
+  <li><b>Choose who can sign in.</b> Under <b>Supported account types</b> choose <b>Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant) and personal Microsoft accounts (e.g. Skype, Xbox)</b>. Leasha needs this one so that both kinds work.</li>
+  <li><b>Say it is a desktop program.</b> Under <b>Redirect URI</b> choose the platform <b>Public client/native (mobile &amp; desktop)</b> and type <code>http://localhost</code>. Do not add a port: Microsoft ignores the port on this address, and Leasha uses a free one each time. Press <b>Register</b>.</li>
+  <li><b>Allow the permissions.</b> Open <b>API permissions › Add a permission › Microsoft Graph › Delegated permissions</b> and tick these four: <code>Contacts.ReadWrite</code>, <code>Mail.Read</code>, <code>offline_access</code> and <code>User.Read</code>. Press <b>Add permissions</b>. They are the least Leasha needs: it reads mail, and reads and writes your own contacts. Do not press <b>Grant admin consent</b> unless you are the administrator of an organisation; you approve the permissions yourself when you sign in.</li>
+  <li><b>Copy the Application (client) ID.</b> On the registration's <b>Overview</b> page, copy <b>Application (client) ID</b>, a code made of letters, numbers and dashes. There is no secret to make: Leasha is a public client.</li>
+  <li><b>Paste it into Leasha.</b> Open <b>Settings › Accounts › Microsoft</b>, paste the ID into <b>Client ID</b>, and press <b>Save</b>.</li>
+  <li><b>Add the account.</b> Press <b>Add account › Microsoft</b>. Your browser opens on a Microsoft page. Sign in, read the list of what Leasha asks for, press <b>Accept</b>, and close the page when it says you can. Leasha shows <b>Connected</b>.</li>
+</ol>
+<div class="callout warn"><b>"Your organisation has not approved Leasha"</b>Some organisations stop their people approving apps themselves. If yours has, sign-in is refused and Leasha says: "Your organisation has not approved Leasha for (the account), so the sign-in was refused." The fix is for your IT administrator, not you. Ask them to <b>approve the app registration you made</b> for the permissions Mail.Read and Contacts.ReadWrite, or to <b>allow users to consent to apps</b>. Then press <b>Reconnect</b> beside the account. Leasha cannot get round this and does not try. If you only want contacts or only want a personal Microsoft account, nothing is needed from IT.</div>
+<p class="small muted">(The Entra admin center menu names above were written from memory and have not been checked against the live console.)</p>
+
+<h3 id="accounts-icloud-password">Apple (iCloud Mail and Contacts)</h3>
+<p>Apple does not let other programs use your real password. You make a separate password just for Leasha, called an <b>app-specific password</b>.</p>
+<ol class="steps">
+  <li><b>Check two-factor authentication is on.</b> App-specific passwords need it. On an iPhone or Mac it is almost certainly on already.</li>
+  <li><b>Make the password.</b> In a browser go to <code>account.apple.com</code> and sign in. Choose <b>Sign-In and Security › App-Specific Passwords</b>, press <b>Generate an app-specific password</b> (or the plus button), and call it <code>Leasha</code>. Apple shows a password like <code>abcd-efgh-ijkl-mnop</code>. Copy it now: Apple will not show it again.</li>
+  <li><b>Add the account.</b> In Leasha press <b>Add account › Apple (iCloud)</b>. Type your Apple ID address (the one ending <code>@icloud.com</code> or whichever you sign in with), paste the app-specific password, choose whether to fetch mail and contacts, and press <b>Test connection</b>, then <b>Add</b>.</li>
+</ol>
+<ul>
+  <li>You can have up to 25 app-specific passwords at once. Make a fresh one if you lose one.</li>
+  <li>If you change your Apple Account password, Apple <b>revokes all of them</b>. The account then shows <b>Needs sign-in</b>, which is not a fault: make a new app-specific password and paste it into the account's <b>New app password</b>.</li>
+</ul>
+
+<h3 id="accounts-imap">Any other mail or contacts server (IMAP and CardDAV)</h3>
+<p>For Yahoo, Fastmail, a company or web-hosting mail server, or anything else that speaks <b>IMAP</b>, Leasha can fetch the mail. For a server that speaks <b>CardDAV</b> (Fastmail, Nextcloud and similar), it can also keep your contacts. They are two separate things, and one account can use either or both.</p>
+<ol class="steps">
+  <li><b>Make an app password if your provider has them.</b> Yahoo, Fastmail and many others will not take your normal password from another program: look in your provider's account page for <b>App passwords</b> (sometimes <b>Security › Third-party apps</b>) and make one for Leasha. If your server accepts your ordinary password, use that.</li>
+  <li><b>Find the server details.</b> Your provider's help page for "IMAP settings" gives the <b>server</b> (such as <code>imap.example.com</code>), the <b>port</b> and the <b>security</b>. For contacts, the page for "CardDAV" gives a web address.</li>
+  <li><b>Add the account.</b> Press <b>Add account › Other server (IMAP / CardDAV)</b>. Type your address, the server, the port, and the security: <b>SSL/TLS</b> (normally port 993) or <b>STARTTLS</b> (normally port 143). Paste the password.</li>
+  <li><b>Test it.</b> Press <b>Test connection</b>. Leasha checks the server before it saves anything and says what is wrong in plain words: the server is not found, the password was refused, or the security does not match the port. Press <b>Add</b> when it says <b>Connected</b>.</li>
+</ol>
+<p>For contacts, if Leasha cannot find the address book by itself, paste the address book's web address into <b>Address book URL</b>.</p>
+
+<h3 id="accounts-leaves">What leaves this computer</h3>
+<p>Leasha stays offline except for the things below. Searching, indexing and Chat with the web switch off never connect anywhere, even with accounts added.</p>
+<ul>
+  <li><b>Signing in, and fetching.</b> When you add or reconnect an account, and when a sync runs (on the schedule you set, or when you press <b>Sync now</b>), Leasha talks to that provider to sign in and fetch your mail and contacts. It fetches mail to read only; it never sends, moves or deletes mail.</li>
+  <li><b>Contact changes you make.</b> If an account is two-way, a contact you add or change in Leasha is written back to your own account at that provider.</li>
+  <li><b>Look-ups you switched on.</b> The optional enrichment look-ups for contacts run only if you turned them on, and are off otherwise.</li>
+</ul>
+<p>Nothing else is sent. There is no telemetry and no copy of your mail or contacts anywhere but this computer and your own accounts. Every secret (sign-in passes, app passwords and the Google client secret) is kept only in <b>Windows Credential Manager</b>: never in the index, a settings file, a log or a support bundle. Removing an account deletes its secret.</p>
+
+<h2 id="contacts"><span class="num">6b</span>Contacts</h2>
+<p>Your people, in one book that lives on this computer. Open it with <b>Contacts</b> on the rail (after Files), or <b>Go › Contacts</b>. You can use it on its own, with no account at all: make contacts, import them from a file, tidy them, print them. If you connect accounts (see <a href="#accounts">Adding an account</a>), the same book is kept in step with the contacts held by Google, Microsoft, Apple or another server, in both directions. Leasha's own copy is the master: the accounts are copies that are kept up to date from it.</p>
+
+<h3 id="contacts-page">The Contacts page</h3>
+<p>Three panes. On the left, the <b>sidebar</b> narrows the list. In the middle, the <b>list</b>. On the right, the <b>editor</b> for the contact you picked. The row of icons above the list does the rest; hover an icon for what it does.</p>
+<ul>
+  <li><b>List or cards.</b> The <b>List view</b> and <b>Cards view</b> icons switch between a table and a grid of business cards (photo or initials, name, title, company, main email and phone, a coloured edge for each account the contact is in). Leasha remembers which you chose. The list has the columns Name, Company, Title, Email, Phone, Accounts, Groups, Tags, Last contacted and Where it lives; click a heading to sort by it.</li>
+  <li><b>Find.</b> The box at the top right ("Find contacts - name, company, email or phone") narrows the list as you type. Press <kbd>/</kbd> to go to it.</li>
+  <li><b>In Search.</b> Type a person's exact name (or the start of it, three letters or more), email address or phone number in the Search box and their contact card appears above the results, with their main email and phone, the accounts they are kept in and <b>Open contact</b>. At most two cards show, and the results below are exactly as they would have been.</li>
+  <li><b>The icons.</b> <b>New contact</b>, the two views, <b>Import contacts</b>, <b>Export contacts</b>, <b>Print contacts</b>, <b>Find duplicates</b>, <b>Sync now</b>, <b>History</b>, <b>Bin</b> and <b>Favourite</b>.</li>
+</ul>
+<h4>The sidebar</h4>
+<table class="wrap"><tr><th>Entry</th><th>Shows</th></tr>
+<tr><td><b>All</b>, <b>Favourites</b></td><td>Everyone; the contacts you starred.</td></tr>
+<tr><td>Each <b>group</b></td><td>Contacts you put in that group, such as "Family" or "Book club". Right-click a group to rename it.</td></tr>
+<tr><td>Each <b>tag</b></td><td>Contacts with that coloured tag. Right-click a tag to change its colour or delete it (the contacts stay).</td></tr>
+<tr><td>Each <b>account</b></td><td>The contacts kept in that account, in the account's colour, with how many.</td></tr>
+<tr><td><b>Changed in two places</b></td><td>Contacts whose same detail was changed in Leasha and at an account (or at two accounts) between syncs. See <a href="#sync-conflicts">Changed in two places</a>.</td></tr>
+<tr><td><b>Possible duplicates</b></td><td>Not a list: it opens the <a href="#contacts-duplicates">Duplicates screen</a>.</td></tr>
+<tr><td><b>Deleted elsewhere</b></td><td>Contacts an account no longer has. See <a href="#sync-deleted">Deleted elsewhere</a>.</td></tr>
+<tr><td><b>Single account</b></td><td>Contacts kept in only one account: what that account closing would lose.</td></tr>
+<tr><td>Each <b>smart group</b></td><td>A saved filter that is always up to date (below).</td></tr>
+<tr><td><b>Bin</b></td><td>Contacts you deleted in the last 30 days.</td></tr></table>
+<p><b>Smart groups.</b> Press <b>New smart group</b> under the sidebar. Give it a name and one or more rules; a contact is in the group when it matches every rule. A rule is a thing to look at (Company, Title, Name, Email, Phone number, Group, Tag, Account, Favourite or Last contacted), a test (is, is not, contains, is empty, is not empty, is older than (days)) and a value. <b>Start from an example…</b> offers "No phone number" and "Not contacted in a year". Right-click a smart group to edit or delete it; deleting it does not delete the contacts in it.</p>
+
+<h3 id="contacts-editor">Editing a contact</h3>
+<p>Press <b>New contact</b> (<kbd>Ctrl</kbd>+<kbd>N</kbd>, or <b>Edit › New contact</b>) for a blank card, or pick a contact to edit it. Everything in the editor is on one scrolling page:</p>
+<ul>
+  <li><b>Photo.</b> <b>Choose photo</b> takes a picture file; <b>From my photos</b> offers photos of this person from your own pictures, when Leasha knows who they are from the Photos page; <b>Remove photo</b> takes it away. The star marks a favourite.</li>
+  <li><b>Name and work.</b> Title (Dr, Ms), First name, Middle name, Last name, Suffix, Nickname; Company, Department, Job title.</li>
+  <li><b>Details you can have any number of:</b> Email, Phone, Address (street, town or city, county or state, postcode, country), Website, Dates (a birthday, an anniversary or any date), Related people, Social handle, Messaging and Other. Each has a label (work, home, mobile or your own word). Press the plus beside a heading to add one, the cross to remove one, and drag the grip beside a detail to reorder it (or use <kbd>Up</kbd> and <kbd>Down</kbd> while the grip has the focus). For email and phone one can be marked <b>main</b>; it is the one shown in the list and on the card.</li>
+  <li><b>Notes</b>, <b>Kept in</b>, <b>Groups</b> and <b>Tags</b>. Type a group or tag name and press <kbd>Enter</kbd>; a new name makes a new one.</li>
+  <li><b>Where a detail came from.</b> Hover a detail: if it came from an account or an import, the tip says so ("Came from: synced from Work"). A detail you typed has no tip.</li>
+  <li><b>From your index.</b> Under the editor, what Leasha already holds about this person: the <b>Latest mail</b> with them (subject, date, whether it came from them or went to them, and the account for mail fetched from one), <b>Files exchanged</b> with them as attachments, <b>Photos</b>, and the first and last time you were in touch. Mail is matched by the contact's email addresses. Every item opens. Photos are those of the person on the Photos page that this contact is linked to; for a contact with none the panel offers <b>Suggest link</b>, and for a suggestion <b>Yes, link them</b> or <b>Not them</b>. A name that merely matches is only ever a suggestion.</li>
+</ul>
+<p>Nothing is saved until you press <b>Save</b> (<kbd>Ctrl</kbd>+<kbd>S</kbd>); <b>Cancel</b> puts back what was there. A contact you edit is written to its accounts at the next sync.</p>
+
+<h3 id="contacts-kept-in">Kept in: where a contact lives</h3>
+<p>Each contact has a <b>Kept in</b> row of coloured account buttons. A button that is lit means the contact is stored in that account. It is the answer to "why is this contact on my phone but not in my work address book?"</p>
+<ul>
+  <li>A contact you make in Leasha is kept in your <b>default account</b> (Settings › Accounts › <b>New contacts go to</b>; until you choose, the first account with contact sync on). With no account, it stays in Leasha.</li>
+  <li>A contact that came from an account is kept in that account. Nothing copies every contact to every account.</li>
+  <li><b>Click a dark button to add the contact to that account.</b> It is written there at that account's next sync.</li>
+  <li><b>Click a lit button to take it out.</b> Leasha asks first, because it deletes the contact from that account the next time it syncs. It stays in Leasha and in the other accounts.</li>
+</ul>
+<div class="callout tip"><b>Work accounts</b>A work account here holds your own contacts, not your organisation's directory, which Leasha never reads. By default every account, work ones included, is two-way. If you would rather Leasha never changed a work account, set its direction to <b>Into Leasha only</b> (see <a href="#sync-direction">Direction</a>).</div>
+<p>To see what would be lost if an account closed, pick <b>Single account</b> in the sidebar and use <b>Keep in account</b> (below) to copy those contacts to another.</p>
+
+<h3 id="contacts-history">History and undo</h3>
+<p>Every change to a contact is remembered: an edit, a merge, a change made by a sync, a deletion. Press <b>History</b> to see them for the picked contact, newest first, each with who made it ("you", an account, a sync) and when. <b>Undo</b> beside a change puts back what was there before it. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes your most recent change anywhere on the page (the whole of a bulk action, if it was one). An undo is written to the accounts too.</p>
+
+<h3 id="contacts-bulk">Several contacts at once</h3>
+<p>Pick more than one (<kbd>Ctrl</kbd>+click or <kbd>Shift</kbd>+click) and a bar appears over the list: <b>Add to group</b>, <b>Take out of group</b>, <b>Add tag</b>, <b>Remove tag</b>, <b>Keep in account</b>, <b>Take out of account</b> (asks first), <b>Set company</b>, <b>Favourite</b>, <b>Export</b> and <b>Delete</b>. In the Bin the bar offers <b>Restore</b> and <b>Empty the bin</b> instead. Each action is one step to undo.</p>
+<p><b>Deleting.</b> Delete (or <kbd>Del</kbd>) moves a contact to the <b>Bin</b> for 30 days and removes it from every account it was kept in. <b>Restore</b> puts it back, and writes it back to those accounts. <b>Empty the bin</b> deletes for good.</p>
+
+<h3 id="contacts-keys">Keyboard</h3>
+<table><tr><th>Keys</th><th>Does</th></tr>
+<tr><td><kbd>/</kbd></td><td>Go to the Find box</td></tr>
+<tr><td><kbd>Up</kbd> / <kbd>Down</kbd></td><td>Move along the list; the editor shows the picked contact</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New contact</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save the contact being edited</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo the last change</td></tr>
+<tr><td><kbd>Del</kbd></td><td>Move the picked contacts to the Bin</td></tr></table>
+
+<h3 id="contacts-quick">Quick actions, the QR code and tags</h3>
+<p>Right-click a contact for: <b>Copy email address</b>, <b>Copy phone number</b>, <b>Copy as vCard</b>, <b>Show QR code or map…</b>, <b>Favourite (or not)</b>, <b>Export…</b> and <b>Move to the bin</b>. In the Bin the menu offers <b>Restore</b>.</p>
+<p><b>Show QR code or map…</b> draws the contact's card as a QR code, on this computer with no connection, for a phone's camera to scan and add. Beside it: <b>Copy vCard</b>, <b>Copy email</b>, <b>Copy phone</b> and <b>Open address in maps</b>. The last opens your chosen maps site (Settings › Accounts › <b>Show addresses on</b>: OpenStreetMap, Google Maps, Apple Maps or Bing Maps) in your browser, and only when you press it; nothing is sent anywhere before that.</p>
+<p><b>Tags</b> are coloured labels, any number to a contact, beside groups. Add one in the editor or with <b>Add tag</b> on the bar; right-click it in the sidebar to change its colour. Tags are Leasha's own: they go to an account only where that account has something equivalent.</p>
+
+<h3 id="contacts-import">Importing contacts</h3>
+<p>Press <b>Import contacts</b>. Importing never changes the file you bring in, and <b>nothing is added until you press Add these contacts</b>.</p>
+<ol class="steps">
+  <li><b>Choose files.</b> <b>Choose files…</b> takes one or more files: vCard (<code>.vcf</code>, versions 2.1, 3.0 and 4.0, one contact or many), or CSV or Excel. Google, Outlook, Apple-style and Leasha's own all-fields CSV layouts are recognised by their column headings. Below, <b>vCard files already in your index</b> lists any <code>.vcf</code> Leasha has already found while indexing, for a one-time import. Press <b>Read the files</b>.</li>
+  <li><b>Say what the columns are (only for a CSV Leasha does not recognise).</b> One line for each column in your file, and a list of what it becomes: full name, first name, last name, company, job title, email, phone, website, birthday, street, city, postcode, group and so on, or "leave this column out", or kept under its own heading. Press <b>Use this mapping</b>.</li>
+  <li><b>Look at the preview.</b> Every contact in the files is listed. One that looks like a person already in your book (the same email address or phone number), or that appears twice in the files, is marked, and you choose <b>Add as new</b>, <b>Merge into existing</b> or untick it to skip it. <b>Show only contacts that need a decision</b> hides the plain new ones. <b>Keep new contacts in</b> chooses where they live: <b>Leasha only</b> (kept on this computer) or one of your accounts (sent there at its next sync).</li>
+  <li><b>Add them.</b> Press <b>Add these contacts</b>. The whole import is one step: <b>Undo this import</b> takes back everything it added or changed.</li>
+</ol>
+
+<h3 id="contacts-export">Exporting contacts</h3>
+<p>Press <b>Export contacts</b> (or <b>Export</b> on the bar, or right-click). Choose <b>Which contacts</b>: everything in your book, the ones you picked, or those in the current view. Then <b>Save as</b>:</p>
+<table class="wrap"><tr><th>Format</th><th>For</th></tr>
+<tr><td>vCard 3.0 (works almost everywhere), vCard 4.0</td><td>Phones, Apple Contacts, almost any program. One file with everyone, or tick <b>One file for each contact</b>.</td></tr>
+<tr><td>CSV for Google Contacts, CSV for Outlook</td><td>Importing into those programs.</td></tr>
+<tr><td>CSV with every field (Leasha's own layout)</td><td>A spreadsheet that keeps everything, and Leasha can read back.</td></tr>
+<tr><td>Excel spreadsheet (.xlsx)</td><td>Working on the book in Excel.</td></tr>
+<tr><td>PDF list to print, PDF business cards to print</td><td>Paper.</td></tr></table>
+<p>Before you choose a file, the window says in plain words what the format you picked cannot hold (a CSV layout has no photos, for example), so nothing is left out unexpectedly. Exporting only reads your book.</p>
+
+<h3 id="contacts-duplicates">Duplicates and merging</h3>
+<p>Pick <b>Possible duplicates</b> in the sidebar, or press <b>Find duplicates</b>. Leasha scans the whole book and groups contacts that look like one person, with the reason ("same email", "same phone", "same name and company"), how sure it is, and a total ("14 groups, 31 contacts"). Nothing is merged by the scan.</p>
+<ul>
+  <li><b>Merge all safe matches</b> merges every group marked <b>Safe</b>: those matched by an <b>exact email address or an exact phone number</b>. It lists what it is about to do first, and the whole batch is one step you can undo with <b>Undo this merge</b>. A group matched only by name and company is marked <b>Look first</b> and is <b>never</b> merged by this button.</li>
+  <li><b>Review</b> opens the picked group side by side. Choose, field by field, which contact each single detail comes from, and tick which emails, phones and addresses to keep. A <b>Result</b> card shows the contact as it will be, and <b>What each account will be sent</b> shows what each account in its Kept-in set will be given. Nothing is written until <b>Confirm merge</b>, and <b>Split again</b> afterwards brings the separate contacts back.</li>
+  <li><b>Not a duplicate</b> remembers that this group is not the same person and does not suggest it again. The <b>Rejected</b> tab lists them, and <b>Suggest again</b> takes one back.</li>
+  <li><b>Scan again</b> looks through the whole book again after you have changed it.</li>
+</ul>
+
+<h3 id="contacts-print">Printing labels, envelopes and an address book</h3>
+<p>Press <b>Print contacts</b>. <b>Print</b> chooses whose: the whole book, the contacts in view, or the ones you picked. Then a tab:</p>
+<ul>
+  <li><b>Address labels</b>: choose your <b>Sheet</b> (Avery L-series for A4, and the 5160 family for Letter), which <b>Address</b> to print (the main one, home, work or other) and <b>Start at label</b>, for a sheet you have already used part of. Contacts with no such address are left out and named.</li>
+  <li><b>Envelopes</b>: the size (DL, C5, C4 or No. 10) and, if you want a return address, <b>Return address from</b>, picking yourself from your book.</li>
+  <li><b>Address book</b>: everyone, A to Z, with or without photos.</li>
+</ul>
+<p><b>Preview</b> makes the pages and shows them; <b>Save PDF…</b> saves them to print. Nothing is saved before you have seen the preview.</p>
+<div class="callout warn"><b>Check the sheet against your real one</b>The label positions are worked out from the sheet makers' published sizes, but printers and paper differ. Print the first page on plain paper, hold it against a real sheet of labels to the light, and check the edges line up before you use real labels.</div>
+<h2 id="sync"><span class="num">6c</span>Syncing your accounts, and live mail</h2>
+<p>Everything about accounts after you have added one is under <b>Settings › Accounts</b>. From the top: the settings that cover every account (schedule, pause, quiet hours, safety, notifications, defaults, sign-in set-up), the <b>Accounts</b> list with its <b>Add account</b> and <b>Sync now</b> buttons and the panel of the account you pick, and the <b>Sync log</b>. Every control saves the moment you change it, and has a plain sentence under it saying what it does.</p>
+<p>The list shows one row per account: its colour, name, type, address, <b>Status</b> (Up to date, Syncing, Waiting, Paused, Needs sign-in or Failed), <b>Last sync</b>, <b>Next sync</b> and a note when something is holding it back. Drag a row up or down to reorder; the order matters only for the rule "The account higher in the list wins" (below). Pick a row and its panel opens with three tabs: <b>General</b>, <b>Mail</b> and <b>Contacts</b>.</p>
+
+<h3 id="sync-how">When a sync happens</h3>
+<p>A sync starts for one of two reasons, and no others: the <b>schedule</b>, or you pressing <b>Sync now</b>. Opening Leasha, waking the computer and the network coming back start nothing. Mail and contacts have a schedule each, under <b>Sync schedule</b>:</p>
+<ul>
+  <li><b>Manual - only when I press Sync now.</b> The default for both. Nothing syncs by itself until you choose otherwise.</li>
+  <li><b>Every few minutes or hours.</b> Every 5, 10, 15 or 30 minutes, or every 1 (the usual starting point once you switch it on), 2, 4, 6 or 12 hours.</li>
+  <li><b>Daily at a time.</b></li>
+</ul>
+<p><b>The same schedule for every account</b> is the default. Choose <b>Each account has its own</b> and every account's <b>General</b> tab shows its own mail and contacts schedules, starting from the ones above.</p>
+<ul>
+  <li><b>Asleep or closed.</b> A laptop that slept through several due times syncs <b>once</b> when it wakes, not once per missed time. If Leasha was closed, an account whose last sync is older than its interval syncs once, about a minute after the window opens. Leasha only syncs while it is open (or in the tray); it never syncs after you quit.</li>
+  <li><b>Sync now</b> is on the Accounts list (every account), on each account's panel (that account, or just its mail or contacts) and on the Contacts page. If a sync is already running, your request joins it instead of queueing a second one, and Leasha says so.</li>
+  <li><b>Pause all sync</b> holds every scheduled sync: for 1 hour, until tomorrow, or until you turn it back on. The Leasha icon by the clock has the same switch (<b>Pause account sync</b> and <b>Turn account sync back on</b>). <b>Quiet hours</b> hold scheduled syncs between two times (off by default). Sync now still works through both, and an account's row says when one of them is holding it back.</li>
+  <li>If a sync fails, Leasha tries again after 1, 2, 4, 8 ... minutes, up to the schedule's own interval, or as long as the provider asks if it has said. Other accounts are not slowed. An account that has failed for 24 hours shows a warning on its row.</li>
+</ul>
+
+<h3 id="sync-first">The first sync is a dry run</h3>
+<p>The first sync of every new account <b>writes nothing</b>: not to Leasha, not to the account. It reads the account and works out what it would do, then waits for you. Find the row in the <b>Sync log</b> marked <b>Waiting for you</b>; the sentence under the table says what it would do ("It would add 312 to Leasha, change 4 in Leasha, 6 look like contacts you already have, ..."). Press <b>Approve</b> to run it for real. Contacts that arrive from an account are never merged into ones you already have automatically: a look-alike is only counted, and shows up on the <a href="#contacts-duplicates">Duplicates screen</a>.</p>
+<p>The dry run can be switched off (<b>Safety › Dry run before an account's first sync</b>). Leasha says what that costs and asks first.</p>
+
+<h3 id="sync-brake">The delete brake</h3>
+<p>A sync that would delete more than <b>20 contacts, or 5% of your book</b> (both changeable under <b>Safety</b>) stops and deletes <b>nothing</b>. The Sync log row is marked <b>Held</b> and lists what it was about to do, with a few names. If the list is right, select the row and press <b>Allow</b>; if it is not, leave it, or press <b>Undo this sync</b> on any sync that did run. A brake that fires unexpectedly usually means an account was emptied or a folder removed at the provider, so look before you press Allow.</p>
+
+<h3 id="sync-conflicts">Changed in two places</h3>
+<p>If the same detail of a contact (a phone number, say) was changed in Leasha and at an account since they last agreed, or at two accounts, Leasha does not ask at once. By default <b>the newest edit wins</b>, detail by detail: a change on one side only always goes through, and where both changed, the most recently edited value is kept. The other is not lost: it stays in the contact's <a href="#contacts-history">History</a>, where <b>Undo</b> can bring it back. The contact is marked, appears under <b>Changed in two places</b> in the sidebar, and its editor shows a banner. Press <b>Acknowledge</b> when you have looked, and the marker goes.</p>
+<p>The rule is under <b>When the same contact changed in two places</b>: <b>The newest edit wins</b>, <b>The account higher in the list wins</b> (drag accounts to order them), or <b>Ask me every time</b> (the contact waits, marked, with Leasha's own value kept).</p>
+
+<h3 id="sync-deleted">Deleted elsewhere</h3>
+<p>If a contact is deleted at one account, Leasha does <b>not</b> delete it here or at your other accounts: a deletion in the wrong place should never spread. It is listed under <b>Deleted elsewhere</b> in the Contacts sidebar, still in your book. If you agree, delete it (it goes to the Bin and leaves the other accounts too); if not, leave it where it is.</p>
+<p>The other way round: deleting a contact in Leasha moves it to the Bin for 30 days and removes it from every account it was kept in. Restoring it from the Bin writes it back.</p>
+
+<h3 id="sync-undo">The sync log, and undoing a sync</h3>
+<p>Every sync, scheduled or by hand, is a row in the <b>Sync log</b>: when, which account, mail or contacts, what started it (Schedule, Sync now, Approved first sync, Undo ...), how many were added, changed, deleted and held, how long it took, the result (Done, Held, Failed, Dry run, Waiting for you, Undone) and, for a problem, what went wrong and how to fix it. Filter it by account and by mail or contacts. <b>Export log</b> saves what is shown as a CSV.</p>
+<p>Pick a row and press <b>Undo this sync</b> to put your contact book back as it was before that sync. Leasha says what it will undo, and writes the accounts to match, so contacts that sync added go away and contacts it changed return to how they were. Edits you made to those same contacts since are not kept. A single contact's changes can be undone from its own History.</p>
+
+<h3 id="sync-direction">Direction: Two-way, Into Leasha only, Off</h3>
+<p>On an account's <b>Contacts</b> tab, <b>Direction</b> says what a contact sync may do with that account:</p>
+<ul>
+  <li><b>Two-way</b> (the default for every account, work accounts included): Leasha reads the account, and writes the contacts kept in it back to it.</li>
+  <li><b>Into Leasha only</b>: Leasha reads the account and never writes to it. Edit a contact in Leasha and the edit stays in Leasha.</li>
+  <li><b>Off</b>: contacts are not synced with this account.</li>
+</ul>
+<p>Also on that tab: <b>Which contacts</b> (all folders and groups, or only ones you choose), <b>Sync contacts now</b>, and a count of the contacts kept in this account with what the last sync did in each direction.</p>
+
+<h3 id="sync-remove">Removing an account</h3>
+<p>The <b>Remove account</b> button on the <b>General</b> tab signs Leasha out, deletes the password or sign-in kept for it in Windows Credential Manager, and changes nothing on the account itself. It asks two things first. <b>Keep this account's contacts in Leasha</b> (ticked by default): they stay in your book with this account taken out of where they are kept; unticked, the contacts that lived only in this account go to the Bin for 30 days. <b>Remove this account's mail from the index</b> (ticked by default): unticked, the mail already fetched stays searchable but is no longer updated. You can sign in again later.</p>
+<p>Other things on the <b>General</b> tab: the name and colour, <b>Reconnect</b> (or <b>Change app password…</b> for an iCloud, IMAP or CardDAV account) when it shows Needs sign-in, and <b>Test connection</b>, which reaches the server and lists each permission granted.</p>
+
+<h3 id="live-mail">Live mail</h3>
+<p>An account with <b>Fetch this account's mail</b> ticked on its <b>Mail</b> tab brings that mailbox into Leasha's index, where it is searched like any other mail. The tab begins <b>Read only - Leasha never changes this mailbox</b>, and that is exact: mail is never moved, flagged, marked as read or deleted on the server. Mail read from files and Outlook archives is not affected, and follows the indexing schedule.</p>
+<ul>
+  <li><b>Folders.</b> <b>All folders and labels</b> (the default) or <b>Only the ones I choose</b> with <b>Choose folders…</b> (press <b>Test connection</b> first so Leasha can list them). Spam and Trash are left out, and Sent is included. A Gmail label stays a label.</li>
+  <li><b>How far back.</b> Everything (the default), the last year, 2, 5 or 10 years, or since a date. Choose before the first fetch to download less.</li>
+  <li><b>Attachments.</b> <b>Index attachments</b> (on by default) searches inside them; a size limit leaves a bigger one listed but not read.</li>
+  <li><b>The first fetch</b> of a large mailbox takes a while. The tab shows how many messages are fetched of the total and the rate, and <b>Pause fetch</b> / <b>Resume fetch</b> keep what is already fetched. It is resumable, so closing Leasha costs almost nothing. Under <b>First fetch of mail</b> at the top of the page, a <b>Speed cap</b> keeps it from using the whole connection.</li>
+  <li><b>Space used</b> shows how much of the index this account's mail takes, and <b>Remove this account's mail from the index…</b> takes it out (the mailbox itself is not touched, and fetching again brings it back).</li>
+  <li><b>New inbox mail as it arrives</b>, on the <b>General</b> tab of an IMAP or iCloud account, keeps a connection open while Leasha runs so new inbox mail is fetched at once. It is off by default, because the schedule and Sync now are the usual starters.</li>
+  <li>Mail deleted or moved at the server is followed: it leaves the index too.</li>
+</ul>
+<div class="callout"><b>Mail in an account and in an Outlook archive</b>If a message is both in a connected account and in an Outlook archive (<code>.pst</code>) Leasha has indexed, it is found once. The live copy is the one searched; the archive copy is taken out of the results so you do not see it twice. Nothing in the archive file or in Outlook is changed.</div>
+
+<h3 id="sync-leaves">When Leasha connects, exactly</h3>
+<p><a href="#accounts-leaves">What leaves this computer</a> says what. Here is when:</p>
+<table class="wrap"><tr><th>When</th><th>What happens</th></tr>
+<tr><td>You add an account, or press <b>Reconnect</b></td><td>Your browser opens on the provider's own sign-in page (Google, Microsoft), or Leasha tests the server with your app password (Apple, IMAP, CardDAV). The result is kept in Windows Credential Manager.</td></tr>
+<tr><td>You press <b>Test connection</b></td><td>Leasha reaches that account's server and reports what it may do.</td></tr>
+<tr><td>A scheduled sync, or <b>Sync now</b></td><td>Leasha fetches what changed (mail, if switched on; contacts), and writes contact changes to the accounts whose direction is Two-way. Only to that provider's own addresses, or the one server you typed.</td></tr>
+<tr><td>You press <b>Undo</b> on a sync or on a change</td><td>The old values are written back to the accounts straight away.</td></tr>
+<tr><td>You edit, add or delete a contact</td><td>Nothing leaves yet. The change goes to its accounts at the next sync.</td></tr>
+<tr><td>You search, index, read a file, or use Chat with the web switch off</td><td>Nothing connects, whether or not accounts are added.</td></tr></table>
 
 <h2 id="code"><span class="num">7</span><span class="ico" aria-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg></span> Code</h2>
 <p>One box over every code repository Leasha has found under your folders. Typing searches the indexed files; a git switch reads the repository's history. Shortcut: <kbd>Ctrl</kbd>+<kbd>E</kbd>.</p>
@@ -620,6 +878,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td><kbd>F3</kbd> / <kbd>Shift</kbd>+<kbd>F3</kbd></td><td>Next / previous highlighted word in a preview</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>P</kbd></td><td>Files</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Mail</td></tr>
+<tr><td><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New contact (on the Contacts page; <b>Edit › New contact</b> from anywhere)</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Code</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>I</kbd></td><td>Indexing</td></tr>
 <tr><td><kbd>Ctrl</kbd>+<kbd>,</kbd></td><td>Settings</td></tr>
@@ -631,18 +890,30 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <p><i>Added 4 October 2026, later.</i> A file that came from inside an email is listed on the Files page as itself - its own type and its own size - rather than as its archive. Typing <code>*.pst</code> or <code>*.pdf</code> in a search box now means every file of that type, the same as <code>/type pst</code>.</p>
 <p><i>Added 4 October 2026, later still.</i> <b>Open</b> works on a file that came from an email or from inside a zip: Leasha saves a copy and opens it in its own program. The copy is read-only, so a change you make is never taken for a change to the email - save it somewhere else if you want to keep it. Copies are cleared when Leasha closes. <b>Open in Outlook</b> is still beside it for mail, and <b>Show in folder</b> on a file inside a zip shows the zip.</p>
 <p><i>Added 4 October 2026, later still.</i> The preview pane shows an attachment's own pages: a PDF, a picture or an Excel workbook that came with an email is drawn under its message, without saving a copy. Other types show their words. A file inside a zip previews the same way.</p>
-<p><i>Added 4 October 2026, in the evening.</i> <b>AI programs can search your index.</b> In Settings &gt; Models &amp; AI &gt; <b>AI programs</b> <i>(from 5 October 2026: under <b>Advanced</b> there)</i>, press <b>Start</b>, then <b>Connect</b> beside the program you use - Claude Desktop, Claude Code, Cursor or VS Code - and restart that program. For any other program that supports MCP, <b>Copy address and key</b> (or <b>Copy bridge command</b>, for a program that only starts commands) and paste it into that program's MCP settings. Leasha answers only while it is open and AI access is started, only to programs on this computer that have its key, and can never change a file. What it finds goes to the AI program that asked - one that runs in the cloud sends it there. <b>Stop</b> ends it; it is off until you press Start, unless you tick <b>Start AI access when Leasha opens</b>.</p>
+<p><i>Added 4 October 2026, in the evening.</i> <b>AI programs can search your index.</b> In Settings &gt; Models &amp; AI &gt; <b>AI programs</b> <i>(from 5 October 2026: under <b>Advanced</b> there)</i>, press <b>Start</b>, then <b>Connect</b> beside the program you use - Claude Desktop, Claude Code, Cursor or VS Code - and restart that program. For any other program that supports MCP, <b>Copy address and key</b> (or <b>Copy bridge command</b>, for a program that only starts commands) and paste it into that program's MCP settings. Leasha answers only while it is open and AI access is started, only to programs on this computer that have its key, and can never change a file or a contact. What it finds goes to the AI program that asked - one that runs in the cloud sends it there. <b>Stop</b> ends it; it is off until you press Start, unless you tick <b>Start AI access when Leasha opens</b>.</p>
+<p><b>What an AI program can ask for.</b> Seven tools, all read-only - none can create, change or delete a file, a contact, an account or anything in the index:</p>
+<ul>
+  <li><code>search</code> - files and mail by what they say, as the Search box does. Each result has its path, a passage and, for mail, the subject, sender and date.</li>
+  <li><code>find_files</code> - files by part of their name, as the Files page does.</li>
+  <li><code>read_text</code> - the text Leasha holds for one file or message, by the path <code>search</code> gave.</li>
+  <li><code>index_status</code> - how many files, messages and passages are indexed, and each account you have set up: its provider, the name you gave it, whether mail and contact sync are on, the direction contacts move, when it last synced and the last error. It never includes a password, a sign-in token or a client ID.</li>
+  <li><code>find_contact</code> - people in your contacts by name, email address, phone number or company, an exact email or phone match first (at most 50). Each has a <code>contact_id</code>.</li>
+  <li><code>get_contact</code> - everything held for one contact: every field with its label and where it came from, groups, tags, favourite, the accounts it is kept in (by the names you gave them) and notes.</li>
+  <li><code>contact_activity</code> - for one contact, the latest mail with them, the files exchanged as email attachments, photos of them (when Leasha has been told who they are in your photos) and the first and last contact dates. Each item names the message or file it came from.</li>
+</ul>
+<p>Anything one of these returns goes to the AI program that asked - one that runs in the cloud sends it there.</p>
 <p><i>Added 4 October 2026, at night.</i> <b>The file list comes up first.</b> Once an index run has found your files, every one is on the Files page by name, marked <b>Queued</b>, before any is read; the words, then pictures and faces, fill in behind. With <b>When to read images</b> set to after the run, press <b>Start</b> again when the text is done and the pictures - and the faces in them - are read.</p>
 <p><i>Added 4 October 2026, late.</i> <b>Choose the model while you chat.</b> When more than one model can answer, the Chat tab shows a list of them - Leasha's own and every Ollama model you have - and the one you pick answers from your next question. Interpret has the same choice under the Search page's menu. Your Settings choice is where the list starts.</p>
 <p><i>Added 4 October 2026, late.</i> <b>Open does the same thing everywhere.</b> An email opens in Outlook from any page; a code result opens at its line; a recording at the moment that matched. In the photo grid, <b>View</b> shows a photo full-screen and <b>Open</b> opens the file.</p>
 
 <h2 id="privacy"><span class="num">15</span>Privacy and safety, in plain facts</h2>
 <ul>
-  <li>Everything Leasha indexes, and everything you search, stays on this computer.</li>
-  <li>Leasha only reads your files. It never changes, moves or deletes one. Reset, Delete and Clear act on Leasha's own index, never on your documents.</li>
+  <li>Everything Leasha indexes, and everything you search, stays on this computer. Mail and contacts fetched from an account are stored and searched here too, and nowhere else.</li>
+  <li>Leasha only reads your files and your mail. It never changes, moves or deletes one, and never changes a mailbox. Reset, Delete and Clear act on Leasha's own index, never on your documents. The one thing it writes outward is your own contacts, to the accounts you chose to keep them in, and every change to them can be undone.</li>
   <li>The index holds copies of text from your files. Treat it as being as sensitive as the most sensitive thing you index.</li>
   <li>On a computer with separate Windows accounts, each account gets its own private index. On a shared login, anyone using it can find anything Leasha can read; choose the indexed folders accordingly.</li>
-  <li>Leasha goes online only when you press something that says so: downloading a model, updating or checking the list of models, and a Chat web search you have allowed. Indexing and searching never do.</li>
+  <li>Leasha goes online only when you press something that says so (downloading a model, updating or checking the list of models, a Chat web search you have allowed) or when you have added an account: signing in, and syncing on the schedule you chose or when you press Sync now. Indexing and searching never do, even with accounts added. There is no telemetry.</li>
+  <li>Sign-in passes and app passwords are kept only in Windows Credential Manager, never in the index, a settings file or a log. Removing an account deletes its secret. See <a href="#accounts-leaves">What leaves this computer</a> and <a href="#sync-leaves">When Leasha connects, exactly</a>.</li>
 </ul>
 
 <h2 id="trouble"><span class="num">16</span>When something is not right</h2>
@@ -653,6 +924,12 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td>Chat says the chat model is not downloaded</td><td>Settings › Models &amp; AI › Download beside the chat model.</td></tr>
 <tr><td>An Outlook archive is not read</td><td>Indexing › What gets read › Email: try "Direct file reading (no Outlook needed)". If Outlook has the archive open, close Outlook or detach it.</td></tr>
 <tr><td>A folder cannot be renamed</td><td>"Index files as soon as they are saved" is on; switch it off under Indexing › Schedule first.</td></tr>
+<tr><td>An account shows <b>Needs sign-in</b></td><td>Settings › Accounts, pick the account, <b>Reconnect</b> (or <b>Change app password…</b> for iCloud, IMAP and CardDAV). Nothing already in Leasha is lost.</td></tr>
+<tr><td>"Your organisation has not approved Leasha"</td><td>Your IT administrator has to approve the app registration you made, or allow users to consent to apps. Then <b>Reconnect</b>. See <a href="#accounts-microsoft-setup">Microsoft</a>.</td></tr>
+<tr><td>"This sync would delete (N) contacts"</td><td>The delete brake. Settings › Accounts › Sync log: select the <b>Held</b> row, read what it was about to do, then <b>Allow</b> if it is right. See <a href="#sync-brake">The delete brake</a>.</td></tr>
+<tr><td>"The first sync is a dry run"</td><td>Not a fault. Read the plan in the Sync log row marked <b>Waiting for you</b> and press <b>Approve</b>. See <a href="#sync-first">The first sync is a dry run</a>.</td></tr>
+<tr><td>A contact is missing from an account</td><td>Open the contact: <b>Kept in</b> shows which accounts hold it. Click an account to keep it there too. See <a href="#contacts-kept-in">Kept in</a>.</td></tr>
+<tr><td>Nothing syncs by itself</td><td>The schedule starts as Manual. Choose one under Settings › Accounts › Sync schedule, or press <b>Sync now</b>. Pause and quiet hours also hold it back. See <a href="#sync-how">When a sync happens</a>.</td></tr>
 <tr><td>Anything else</td><td>Settings › Storage &amp; maintenance › Run doctor, then Save a support bundle… The bundle is a zip of the logs and settings that says what went wrong.</td></tr></table>
 
 <h2 id="glossary"><span class="num">17</span>Words used in Leasha</h2>
@@ -668,9 +945,16 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td>Offline</td><td>On a catalogued drive that is not plugged in.</td></tr>
 <tr><td>Live / Archive folder</td><td>Re-checked every run / walked once and then checked with a single look.</td></tr>
 <tr><td>Chip</td><td>A filter shown under the box, with × to remove it.</td></tr>
-<tr><td>Interpret</td><td>Asking the local model to turn a sentence into filters you can see and edit.</td></tr></table>
+<tr><td>Interpret</td><td>Asking the local model to turn a sentence into filters you can see and edit.</td></tr>
+<tr><td>Account</td><td>A connection to Google, Microsoft, Apple or another mail or contacts server, in your own name for it. Its secret is kept in Windows Credential Manager.</td></tr>
+<tr><td>Kept in</td><td>The accounts a contact is stored in. Nothing is copied to every account unless you ask.</td></tr>
+<tr><td>Dry run</td><td>A sync that only plans and writes nothing. The first sync of every account is one until you approve it.</td></tr>
+<tr><td>Delete brake</td><td>The stop on a sync that would delete more than 20 contacts, or 5% of your book, until you press Allow.</td></tr>
+<tr><td>Changed in two places</td><td>A contact whose same detail was changed in Leasha and at an account since they last agreed. The newest edit is kept and the other is in History.</td></tr>
+<tr><td>Deleted elsewhere</td><td>A contact an account no longer has. Leasha and your other accounts keep it until you decide.</td></tr>
+<tr><td>Bin</td><td>Where a deleted contact waits for 30 days before it goes for good.</td></tr></table>
 
-<footer>Leasha User Guide · for app v0.3.3 · 1 October 2026. Screenshots are of Leasha itself, taken against a small demonstration index; your own numbers and files will differ. The technical reference, with the command line, is <a href="TECHNICAL_REFERENCE.html">TECHNICAL_REFERENCE.html</a>.</footer>
+<footer>Leasha User Guide · for app v1.0.3 · 11 October 2026. Screenshots are of Leasha itself, taken against a small demonstration index; your own numbers and files will differ. The technical reference, with the command line, is <a href="TECHNICAL_REFERENCE.html">TECHNICAL_REFERENCE.html</a>.</footer>
 
 </main>
 </div>

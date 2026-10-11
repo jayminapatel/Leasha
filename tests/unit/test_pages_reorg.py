@@ -104,6 +104,7 @@ def _settings_view(settings, store):
 # ---------------------------------------------------------------------------
 
 def test_settings_has_five_categories_in_order(settings_and_store):
+    """Five shelves, then Accounts (order 1k 6l, 2026-10-11) as the sixth."""
     from app.ui.settings_view import (
         CATEGORY_APPEARANCE, CATEGORY_MODELS, CATEGORY_SEARCH,
         CATEGORY_STORAGE, CATEGORY_WHATS_INDEXED,
@@ -114,7 +115,7 @@ def test_settings_has_five_categories_in_order(settings_and_store):
 
     assert view._nav.category_names() == [
         CATEGORY_WHATS_INDEXED, CATEGORY_SEARCH, CATEGORY_MODELS,
-        CATEGORY_APPEARANCE, CATEGORY_STORAGE,
+        CATEGORY_APPEARANCE, CATEGORY_STORAGE, "Accounts",
     ]
 
 

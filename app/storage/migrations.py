@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 36
+CURRENT_VERSION = 38
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1742,6 +1742,299 @@ def _v36_index_upkeep(conn: sqlite3.Connection) -> None:
             if "messages_au" in statement:
                 conn.execute(statement)
 
+def _v37_accounts_and_contacts(conn: sqlite3.Connection) -> None:
+    r"""Accounts, and Leasha's own copy of a person's contacts (order 1k).
+
+    **Additive only**: no existing table is touched, so an index built by v36
+    keeps every row it had. Nothing here is derived from the files, so unlike
+    `chunks` it cannot be rebuilt by indexing again - the contact tables are
+    the master copy (rule 6), and `contact_journal` holds the way back.
+
+    * `accounts` - one row per connected account, any number of each provider.
+      A secret is never a column: tokens and app passwords live in Windows
+      Credential Manager (`app/accounts/secrets.py`).
+    * `account_sync_state` - the resume token and failure bookkeeping per
+      account and kind (`contacts` or `mail`), saved with each applied page.
+    * `sync_runs` - the sync log; `plan` holds a dry run's JSON.
+    * `contacts` / `contact_fields` / `contact_photos` - the people. `rev`
+      counts edits so a link knows whether the hub moved since it last agreed
+      with its account; `edited_at` is the person's own edit time (a sync never
+      moves it), which is what "most recent edit wins" compares.
+    * `contact_links` - contact x account: the account's own id, its version
+      tag and the snapshot last agreed (the base of the three-way merge).
+    * groups, tags, smart groups, `contact_journal` (whole-contact snapshots,
+      so any change can be undone), `contact_sources` (the receipt behind each
+      field), `contact_rejected` ("not a duplicate") and the link to named
+      people on the photo side.
+    * `contacts_fts` - the words of a contact, kept in step by `ContactHub`.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS accounts (
+            id                 INTEGER PRIMARY KEY,
+            provider           TEXT NOT NULL
+                               CHECK (provider IN ('google','microsoft','apple','imap','carddav')),
+            address            TEXT NOT NULL,
+            name               TEXT NOT NULL,
+            server             TEXT,
+            port               INTEGER,
+            security           TEXT,
+            colour             TEXT NOT NULL DEFAULT '#4C8BF5',
+            mail_on            INTEGER NOT NULL DEFAULT 0,
+            contacts_on        INTEGER NOT NULL DEFAULT 1,
+            contacts_direction TEXT NOT NULL DEFAULT 'two-way'
+                               CHECK (contacts_direction IN ('two-way','in-only','off')),
+            position           INTEGER NOT NULL DEFAULT 0,
+            added_at           INTEGER NOT NULL,
+            last_synced_at     INTEGER,
+            last_error         TEXT,
+            last_error_code    TEXT,
+            first_sync_done    INTEGER NOT NULL DEFAULT 0,
+            options            TEXT NOT NULL DEFAULT '{}'
+        )""")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_identity "
+                 "ON accounts(provider, address, COALESCE(server, ''))")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS account_sync_state (
+            account_id      INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            kind            TEXT NOT NULL CHECK (kind IN ('contacts','mail')),
+            token           TEXT,
+            extra           TEXT NOT NULL DEFAULT '{}',
+            last_success_at INTEGER,
+            last_attempt_at INTEGER,
+            first_failure_at INTEGER,
+            failures        INTEGER NOT NULL DEFAULT 0,
+            next_retry_at   INTEGER,
+            PRIMARY KEY (account_id, kind)
+        ) WITHOUT ROWID""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sync_runs (
+            id           INTEGER PRIMARY KEY,
+            account_id   INTEGER REFERENCES accounts(id) ON DELETE SET NULL,
+            account_name TEXT,
+            kind         TEXT NOT NULL DEFAULT 'contacts',
+            trigger      TEXT NOT NULL DEFAULT 'sync-now',
+            started_at   INTEGER NOT NULL,
+            finished_at  INTEGER,
+            status       TEXT NOT NULL DEFAULT 'running',
+            dry_run      INTEGER NOT NULL DEFAULT 0,
+            added        INTEGER NOT NULL DEFAULT 0,
+            changed      INTEGER NOT NULL DEFAULT 0,
+            deleted      INTEGER NOT NULL DEFAULT 0,
+            held         INTEGER NOT NULL DEFAULT 0,
+            error_code   TEXT,
+            error_text   TEXT,
+            plan         TEXT,
+            undone_at    INTEGER
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sync_runs_started ON sync_runs(started_at)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id           INTEGER PRIMARY KEY,
+            uid          TEXT NOT NULL UNIQUE,
+            prefix       TEXT NOT NULL DEFAULT '',
+            given        TEXT NOT NULL DEFAULT '',
+            additional   TEXT NOT NULL DEFAULT '',
+            family       TEXT NOT NULL DEFAULT '',
+            suffix       TEXT NOT NULL DEFAULT '',
+            nickname     TEXT NOT NULL DEFAULT '',
+            company      TEXT NOT NULL DEFAULT '',
+            department   TEXT NOT NULL DEFAULT '',
+            title        TEXT NOT NULL DEFAULT '',
+            notes        TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '',
+            sort_key     TEXT NOT NULL DEFAULT '',
+            favourite    INTEGER NOT NULL DEFAULT 0,
+            rev          INTEGER NOT NULL DEFAULT 1,
+            created_at   INTEGER NOT NULL,
+            edited_at    INTEGER NOT NULL,
+            updated_at   INTEGER NOT NULL,
+            deleted_at   INTEGER,
+            conflict_at  INTEGER,
+            last_contacted_at INTEGER,
+            merged_into  INTEGER
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_sort ON contacts(sort_key) "
+                 "WHERE deleted_at IS NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contacts_deleted ON contacts(deleted_at) "
+                 "WHERE deleted_at IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_fields (
+            id         INTEGER PRIMARY KEY,
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            kind       TEXT NOT NULL,
+            label      TEXT NOT NULL DEFAULT '',
+            value      TEXT NOT NULL DEFAULT '',
+            norm       TEXT NOT NULL DEFAULT '',
+            data       TEXT NOT NULL DEFAULT '{}',
+            position   INTEGER NOT NULL DEFAULT 0,
+            is_main    INTEGER NOT NULL DEFAULT 0
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contact_fields_contact ON contact_fields(contact_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contact_fields_norm ON contact_fields(kind, norm) "
+                 "WHERE norm <> ''")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_photos (
+            contact_id INTEGER PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+            mime       TEXT NOT NULL,
+            data       BLOB NOT NULL,
+            sha        TEXT NOT NULL,
+            source     TEXT NOT NULL DEFAULT ''
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_links (
+            id           INTEGER PRIMARY KEY,
+            contact_id   INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            account_id   INTEGER NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+            remote_id    TEXT,
+            version_tag  TEXT NOT NULL DEFAULT '',
+            snapshot     TEXT NOT NULL DEFAULT '{}',
+            hub_rev      INTEGER NOT NULL DEFAULT 0,
+            state        TEXT NOT NULL DEFAULT 'synced'
+                         CHECK (state IN ('synced','pending_create','pending_remove','deleted_remote')),
+            last_synced_at INTEGER,
+            UNIQUE (contact_id, account_id)
+        )""")
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_contact_links_remote "
+                 "ON contact_links(account_id, remote_id) WHERE remote_id IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_groups (
+            id     INTEGER PRIMARY KEY,
+            name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            icon   TEXT NOT NULL DEFAULT 'tag'
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_group_members (
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            group_id   INTEGER NOT NULL REFERENCES contact_groups(id) ON DELETE CASCADE,
+            PRIMARY KEY (contact_id, group_id)
+        ) WITHOUT ROWID""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_tags (
+            id     INTEGER PRIMARY KEY,
+            name   TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            colour TEXT NOT NULL DEFAULT '#4C8BF5'
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_tag_members (
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            tag_id     INTEGER NOT NULL REFERENCES contact_tags(id) ON DELETE CASCADE,
+            PRIMARY KEY (contact_id, tag_id)
+        ) WITHOUT ROWID""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_smart_groups (
+            id    INTEGER PRIMARY KEY,
+            name  TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            rules TEXT NOT NULL DEFAULT '[]',
+            icon  TEXT NOT NULL DEFAULT 'sliders-horizontal'
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_journal (
+            id         INTEGER PRIMARY KEY,
+            at         INTEGER NOT NULL,
+            contact_id INTEGER,
+            actor      TEXT NOT NULL,
+            action     TEXT NOT NULL,
+            sync_id    INTEGER,
+            batch_id   TEXT,
+            before     TEXT,
+            after      TEXT,
+            detail     TEXT,
+            undone_at  INTEGER
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_journal_contact ON contact_journal(contact_id, id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_journal_sync ON contact_journal(sync_id) "
+                 "WHERE sync_id IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_journal_batch ON contact_journal(batch_id) "
+                 "WHERE batch_id IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_sources (
+            id         INTEGER PRIMARY KEY,
+            contact_id INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            field_key  TEXT NOT NULL,
+            source     TEXT NOT NULL,
+            ref        TEXT NOT NULL DEFAULT '',
+            at         INTEGER NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contact_sources_contact "
+                 "ON contact_sources(contact_id, field_key)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_rejected (
+            a_id INTEGER NOT NULL,
+            b_id INTEGER NOT NULL,
+            at   INTEGER NOT NULL,
+            PRIMARY KEY (a_id, b_id)
+        ) WITHOUT ROWID""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_pile_links (
+            contact_id INTEGER PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+            pile_id    INTEGER NOT NULL REFERENCES piles(id) ON DELETE CASCADE,
+            state      TEXT NOT NULL DEFAULT 'suggested'
+                       CHECK (state IN ('suggested','accepted','declined'))
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS contact_conflicts (
+            id          INTEGER PRIMARY KEY,
+            contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            account_id  INTEGER REFERENCES accounts(id) ON DELETE CASCADE,
+            unit        TEXT NOT NULL,
+            local_value TEXT,
+            remote_value TEXT,
+            winner      TEXT NOT NULL,
+            at          INTEGER NOT NULL,
+            resolved_at INTEGER
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_contact_conflicts_open ON contact_conflicts(contact_id) "
+                 "WHERE resolved_at IS NULL")
+    try:
+        conn.execute("""
+            CREATE VIRTUAL TABLE IF NOT EXISTS contacts_fts USING fts5(
+                name, company, title, notes, emails, phones,
+                tokenize = 'unicode61 remove_diacritics 2')""")
+    except sqlite3.OperationalError as exc:       # FTS5 is in the build; if not, search says so
+        _log.warning("contacts_fts not created: {}", exc)
+
+def _v38_live_mail(conn: sqlite3.Connection) -> None:
+    r"""Mail fetched from an account lives beside mail read from files (order 1k, Phase B).
+
+    A live message is an ordinary `files` row (its path `account://<id>/<folder>/<id>`)
+    and an ordinary `messages` row, so search, the Mail page, previews and
+    attachments need no second code path. What is added is only what the account
+    knows and a file does not:
+
+    * `account_id` / `remote_id` - which account and the id the server uses (the
+      mail is followed when the server moves or deletes it, 5e);
+    * `labels` - JSON list (Gmail labels stay labels, never folders, 5a);
+    * `message_id` - the `Message-ID` header, the key D13 matches an account copy to
+      an Outlook archive copy by.
+    * `message_places` - D13: when the live copy and an archive copy are one
+      message, the live copy is the one searched and the archive copy is kept here
+      as another place it lives, so order 1j's duplicate handling is never undone.
+
+    Additive: the columns are nullable, so every mail row already indexed is
+    unchanged. `idx_messages_msgid` is partial, so an index with no live mail pays
+    nothing for it.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    for name, ddl in (("account_id", "INTEGER"), ("remote_id", "TEXT"), ("labels", "TEXT"),
+                      ("message_id", "TEXT")):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {name} {ddl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_account ON messages(account_id, remote_id) "
+                 "WHERE account_id IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_msgid ON messages(message_id) "
+                 "WHERE message_id IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS message_places (
+            id         INTEGER PRIMARY KEY,
+            file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            kind       TEXT NOT NULL CHECK (kind IN ('archive','account')),
+            ref        TEXT NOT NULL,
+            store_path TEXT,
+            entry_id   TEXT,
+            UNIQUE (kind, ref)
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_message_places_file ON message_places(file_id)")
+
 
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
@@ -1779,6 +2072,8 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     34: _v34_face_declines,
     35: _v35_message_read_stamp,
     36: _v36_index_upkeep,
+    37: _v37_accounts_and_contacts,
+    38: _v38_live_mail,
 }
 
 #: Released migrations that open and close transactions of their own -

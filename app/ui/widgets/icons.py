@@ -69,6 +69,21 @@ ICON_NAMES = (
     # 2026-10-05: "Force skip reader n" on the Indexing page (owner: "the
     # force skip needs icons too"). Lucide skip-forward, as above.
     "skip-forward",
+    # 2026-10-11, order 1k 6m (the owner: "add also the icon rich ui like our current app"):
+    # the Contacts pill, field rows, toolbar, sidebar, account chips and status words.
+    # Lucide 1.48.0 (ISC), copied from its npm package, same licence file beside them.
+    "contact", "phone", "map-pin", "building-2", "briefcase", "cake", "at-sign",
+    "sticky-note", "tag", "user-plus", "upload", "download", "merge", "star",
+    "key-round", "circle-alert", "server", "user", "user-round", "qr-code",
+    "shield-check", "cloud", "link", "unlink", "file-spreadsheet", "filter", "undo-2",
+    "wand-sparkles", "triangle-alert", "ban", "contact-round", "book-user", "id-card",
+    "image-plus", "copy-plus", "users-round", "mail-open", "archive-restore", "inbox",
+    "lock", "wifi-off", "hourglass", "loader-circle", "bell", "bell-off", "moon-star",
+    "calendar-clock", "smartphone", "building", "circle-x", "circle-minus", "heart",
+    "badge-check", "book-open-text", "trash", "folder-input",
+    # 2026-10-11, order 1k 6d (Contacts page, editor): the handle a field row is dragged by.
+    # Lucide 1.48.0 (ISC), as above.
+    "grip-vertical",
 )
 
 _cache: dict[tuple[str, str, int], QIcon] = {}

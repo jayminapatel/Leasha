@@ -114,6 +114,8 @@ class CategoryNav(QWidget):
         "Tuning": "sliders-horizontal",
         # Order 1i (2026-10-11): the Offline page, now the Indexing page's last shelf.
         "Offline": "hard-drive",
+        # Order 1k (2026-10-11): Settings > Accounts.
+        "Accounts": "users-round",
     }
 
     def retint(self, colours: dict) -> None:

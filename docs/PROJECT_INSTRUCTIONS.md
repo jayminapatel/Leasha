@@ -1,6 +1,6 @@
 # Project instructions
 
-**Doc version:** 1.9 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.3
+**Doc version:** 1.10 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 The standing rules for working on this project. `HANDOFF.md` says where things *are*; this
 says how to *work*. Read both before writing code.
@@ -57,6 +57,18 @@ change it deliberately, write down why, and update `HANDOFF.md`.
     files by default, so no photo changes; into JPEG and PNG only when chosen, after a copy of
     each is kept, pixels untouched and the modified time put back
     (`app/index/photo_metadata.py`). The indexer itself stays read-only.
+    *2026-10-11 note on rule 10 below - the owner's second exception, contacts.* "the offline
+    rule is for keeping the data offline not source of data, the exception will be contact sync"
+    (order 1k, `docs/WORKORDER-accounts-mail-and-contact-sync.md`). Mail stays read-only against
+    every server: it is read, never changed, moved, flagged or deleted. **Contacts are the one
+    exception.** Leasha holds the master copy of a person's contacts, and its sync engine writes a
+    contact's changes to the accounts that contact is "Kept in" (Google, Microsoft, Apple, any
+    CardDAV server); a contact deleted in Leasha goes to the bin for 30 days and leaves those
+    accounts. Every outward write is journalled and can be undone, a sync that would delete more
+    than 20 contacts or 5% of the book stops and asks, and an account set to "Into Leasha only" is
+    never written to. The directory of a work account is never synced. Documents and email on disk
+    are untouched by this: the indexer still opens and reads. The precedent is the 2026-10-05
+    note on photo names.
 10. **Read-only against user data.** The indexer opens and reads. It never modifies, moves or
     deletes a document or an email.
 11. **Anything tunable has a UI, or is not tunable.** No setting ever requires editing a file.
@@ -213,3 +225,17 @@ Do not add these without an explicit decision to change scope:
 > guard test fails if a turn with the switch off opens any non-loopback connection. This is
 > not telemetry: nothing is sent unless the person asked a question with the switch on. See
 > `docs/WORKORDER-202626270611-chat-tab.md`'s dated note.
+
+> **Scope exception, 2026-10-11 - the owner's, account connections (order 1k).** The line above
+> is a rule about where the data lives, not where it comes from. Account connections may fetch
+> mail and contacts from Google, Microsoft, Apple and any IMAP or CardDAV server the person adds,
+> with the person's own sign-in. Everything fetched is stored and searched on this machine only;
+> search, indexing and reading files stay offline as before. Only these may go out: (1) sign-in
+> and the provider calls that fetch mail and contacts; (2) contact changes written back to the
+> person's own accounts (the exception on rule 10); (3) enrichment calls, and only the ones the
+> person has switched on. Nothing else leaves the machine: no telemetry, no index content, no
+> passages, and no secret ever leaves Windows Credential Manager except to its own provider. A
+> guard test fails if an index run, a search or a Chat turn with the web switch off opens a
+> non-loopback connection with accounts connected, and pins which hosts the account worker and
+> enrichment may reach. Each user registers their own Google Cloud and Microsoft Entra app;
+> Leasha ships no client ID.
