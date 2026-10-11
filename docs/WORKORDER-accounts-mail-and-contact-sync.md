@@ -1,6 +1,6 @@
 # Work order (Master thread): Accounts - live mail in, and a contact book that syncs
 
-**Doc version:** 1.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.5 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** Master thread with helper threads (new `app/accounts/`, new `app/contacts/`,
 `app/storage/migrations.py`, `app/ui/shell.py`, a new `app/ui/contacts_view.py` and its widgets,
 `app/cli/`, `app/serve/mcp.py`, `tests/unit/`, the user guide, `docs/GLOSSARY.md`, `docs/PROJECT_INSTRUCTIONS.md`)
@@ -41,6 +41,9 @@ provider facts were checked against the providers' own documentation the same da
    D16 take 2, do 0c and commit"
 11. "release it and push but wait for my go ahead to implement .. also add the icon rich ui like
    our current app"
+12. "add all of these to the order and push birthday and anniversary reminder is not needed nor
+   is mail merge and export.. add this and commit" (the nine contact-manager gaps listed on
+   2026-10-11, less reminders and mail-merge export; 6n-6t below)
 
 **Why option c.** Microsoft 365 and Outlook.com contacts have no CardDAV, so they can be reached
 only through Microsoft Graph (checked 2026-10-11, §0c: Microsoft's own list of Exchange Online
@@ -438,6 +441,57 @@ is RELEASED.
   names are checked against the Lucide release `assets/icons/` already ships when they are
   added; a name Lucide lacks is replaced by its nearest, and the substitute recorded here.
 
+**Contact-manager completeness (owner, 2026-10-11).** What a world-class contact manager has
+beyond 6a-6m. Phase A, with the page. Not built, on purpose: birthday and anniversary reminders
+and a mail-merge export (the owner, "not needed"), and a "write to" button (mail stays read-only,
+and no decision was asked for).
+
+- [ ] **6n** **The Duplicates screen**, opened from the sidebar's "Possible duplicates" (6c), in
+  place of a plain filter:
+  1. A scan of the whole book that groups contacts as one person, each group showing why
+     ("same email", "same phone", "same name and company") and a confidence, and a total
+     ("14 groups, 31 contacts"). A match rule is D9's: name alone is a suggestion, never a merge.
+  2. **Merge all safe matches**: groups matched by an exact email or an exact normalised phone
+     number merge in one click. It lists what it will do first, and the whole batch is one entry
+     in the journal, undone in one step (3e). Groups matched any other way are never merged by
+     the batch; they are reviewed one at a time with 6g.
+  3. **Not a duplicate**: a pair or group the person rejects is remembered and never suggested
+     again, undoable from the screen's "Rejected" list.
+  4. The scan runs off the UI thread (rule 5) and its result is kept until the book changes.
+- [ ] **6o** **Merge preview**: 6g's merge shows the contact as it will be, field by field, which
+  field came from which contact, and what each account in the result's "Kept in" set will be
+  sent, before the person confirms. Nothing is written to an account until then.
+- [ ] **6p** **Clean-up tools**, each a preview of every change that the person accepts all at
+  once or one at a time, and each undoable as one batch:
+  1. Phone numbers into one format, the person's choice of international or national.
+  2. Capitalisation of names (leaving particles such as "van" and "de" and the person's own
+     capitals alone unless chosen).
+  3. A blank company filled from a work email's domain (7b's rule, with its free-mail list).
+  4. Finders, shown as lists to act on: contacts with no name, no email or phone, or nothing but
+     a name; exact copies of a field within one contact.
+- [ ] **6q** **Printing** (reusing `report_pdf.py`, as 6j does for lists and cards), each with a
+  preview first:
+  1. **Address labels** on standard sheets, the person choosing the sheet size, the contacts and
+     which address.
+  2. **Envelopes**, with the sender's contact picked from the book.
+  3. **A printed address book**: the whole book or the current filter, A to Z, with or without
+     photos.
+- [ ] **6r** **Quick actions** on a contact (the card's menu and a right-click, with their
+  icons, 6m): copy an email or a phone number, open an address in the maps site the person
+  chooses in Settings (nothing is sent anywhere until they click), copy the contact as a vCard,
+  and show a QR code of the card for a phone to scan, drawn here with no network.
+- [ ] **6s** **Tags with colours**, beside groups: a contact has any number of tags, each with a
+  name and a colour from the app's palette, shown on cards and rows and used as a filter and a
+  bulk action (6h). Tags are Leasha's own and are not sent to an account that has no
+  equivalent (D10); Google and Microsoft labels and categories map to tags where they exist.
+- [ ] **6t** **Where a contact lives**: a column, a filter and a sidebar count for contacts kept
+  in only one account, so the person sees what would be lost if that account closed, with a bulk
+  action to keep them in another (6h, D4).
+- [ ] **6u** Tests: Merge all safe matches never touches a name-only group; a batch merge and a
+  batch clean-up each undo in one step; a "Not a duplicate" pair is not suggested again after a
+  rescan; the merge preview matches what is written; label output on a known sheet size; the
+  QR code decodes to the card's vCard.
+
 ## 7. Enrichment - free of charge (Phase C)
 
 Two kinds, kept apart in the UI. Nothing is enriched without the person's say-so: enrichment
@@ -664,6 +718,9 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
   Leasha and the work account is unchanged.
 - [ ] **A11** A Google account signed in through the person's own unreviewed "In production"
   app (D3) is still signed in 8 days later, with no weekly sign-in.
+- [ ] **A12** In a book with seeded duplicates, the Duplicates screen finds each group, "Merge
+  all safe matches" merges only the exact email and phone ones, undo restores every contact in
+  every account, and a rejected pair stays rejected after a rescan.
 
 ## Not in this order
 
