@@ -137,6 +137,7 @@
     <Compile Include="app\cli\extract.py" />
     <Compile Include="app\cli\formats.py" />
     <Compile Include="app\cli\index.py" />
+    <Compile Include="app\cli\mail_dedupe.py" />
     <Compile Include="app\cli\maintenance.py" />
     <Compile Include="app\cli\mcp_server.py" />
     <Compile Include="app\cli\media.py" />
@@ -276,6 +277,7 @@
     <Compile Include="app\index\index_bench.py" />
     <Compile Include="app\index\interrupted.py" />
     <Compile Include="app\index\live_progress.py" />
+    <Compile Include="app\index\mail_duplicates.py" />
     <Compile Include="app\index\media_backlog.py" />
     <Compile Include="app\index\ocr_process.py" />
     <Compile Include="app\index\offline_media.py" />
@@ -891,6 +893,7 @@
     <Compile Include="tests\unit\test_mail_attachment_rule.py" />
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
+    <Compile Include="tests\unit\test_mail_duplicates.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
     <Compile Include="tests\unit\test_mail_list_order.py" />
     <Compile Include="tests\unit\test_mail_open_original.py" />
