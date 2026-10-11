@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.10 · **Updated:** 2026-10-08 · **Applies to:** app v1.0.1
+**Doc version:** 1.11 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.1
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -187,7 +187,7 @@ and `202626270514`.
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Files, Mail, Code, Chat, Offline, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Files, Photos, Mail, Code, Chat, Browse (the timeline), Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
 | What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
 | `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |
@@ -200,7 +200,7 @@ and `202626270514`.
 | Folder watching | Indexing a file seconds after it is saved, without a full run | `INDEX_WATCH_FOLDERS`, `app.cli watch`; off by default |
 | Governor | What pauses a run when the machine is busy, on battery, or short of space, and stops it below the free-disk floor | `app/index/resources.py` |
 | TimedOut | A file that ran out of its time limit; retried with a longer one | `ERR_FILE_TIMEOUT`, `app.cli timed-out` |
-| Offline Media | Drives catalogued once and findable after unplugging; a volume is never stored by drive letter | `volumes` table, the Offline page |
+| Offline Media | Drives catalogued once and findable after unplugging; a volume is never stored by drive letter | `volumes` table, the Offline shelf of the Indexing page |
 
 ## Added 4 October 2026
 

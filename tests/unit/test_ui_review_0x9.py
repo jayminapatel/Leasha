@@ -404,33 +404,26 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     top of each other. Grabs: `before-1100x760/light/timeline.png` and
     `before-760x560/light/timeline.png`.
 
-    Now Reports is opened and the timeline chosen with the mouse, and at both
-    sizes: the list is as wide as its longest name, the year box as wide as
-    its longest year, every month button as wide as its word, and no two
-    controls overlap. A month is then chosen with the mouse, as a person
-    would."""
+    Now the timeline is opened with the mouse - since order 1i (2026-10-11)
+    its own rail page, "Browse", no longer a row in Reports - and at both
+    sizes: the year box is as wide as its longest year, every month button as
+    wide as its word, and no two controls overlap. A month is then chosen with
+    the mouse, as a person would."""
     from PySide6.QtCore import QRect
-    from app.ui.widgets.timeline_host import REPORT_KEY
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, *size)
-    reports = window.reports_view
-    button = next(b for b in window.rail._buttons.values() if b.text() == "Reports")
+    button = next(b for b in window.rail._buttons.values() if b.text() == "Browse")
     qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
     gui_pump(app, 4)
-    names = reports.list
-    row = next(r for r in range(names.count()) if names.item(r).data(REPORT_KEY) == "timeline")
-    qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton,
-                     pos=names.visualItemRect(names.item(row)).center())
-    timeline = reports.timeline
+    timeline = window.timeline_view
     picker = timeline.picker
-    reports.refresh()
+    timeline.refresh()
     qtbot.waitUntil(lambda: timeline._overview is not None and picker.year_box.count() > 0,
                     timeout=20000)
     picker.year_box.setCurrentIndex(0)
     gui_pump(app, 10)
     try:
         assert timeline.isVisible()
-        assert names.viewport().width() >= names.sizeHintForColumn(0), "a report name is cut"
         assert picker.year_box.width() >= picker.year_box.sizeHint().width(), "the year is cut"
         for month in picker.month_buttons:
             assert month.isVisible() and month.width() >= month.sizeHint().width(), month.text()
@@ -455,7 +448,6 @@ def test_the_timeline_controls_wrap_instead_of_being_cut_or_piled_up(gui_mainwin
     finally:
         from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
-        names.setCurrentRow(0)
         window.rail.setCurrentIndex(0)
         gui_pump(app, 4)
 

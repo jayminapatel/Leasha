@@ -156,6 +156,7 @@
     <Compile Include="app\core\compute_profile.py" />
     <Compile Include="app\core\config.py" />
     <Compile Include="app\core\crash_guard.py" />
+    <Compile Include="app\core\date_format.py" />
     <Compile Include="app\core\deeplink.py" />
     <Compile Include="app\core\diagnostics.py" />
     <Compile Include="app\core\env_writer.py" />
@@ -735,6 +736,7 @@
     <Compile Include="tests\unit\test_crash_guard.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
+    <Compile Include="tests\unit\test_date_format.py" />
     <Compile Include="tests\unit\test_date_forms_every_box.py" />
     <Compile Include="tests\unit\test_debounce.py" />
     <Compile Include="tests\unit\test_debug_pane.py" />

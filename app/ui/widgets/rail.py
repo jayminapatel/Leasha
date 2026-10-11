@@ -523,6 +523,14 @@ class Rail(QWidget):
         self._retint_buttons()
         self.currentChanged.emit(index)
 
+    def describe(self, index: int, words: str) -> None:
+        """A longer tooltip and accessible name for one entry than its short title
+        (order 1i: "Browse" is read out as "Browse your timeline")."""
+        button = self._buttons.get(index)
+        if button is not None:
+            button.setToolTip(f"Open {words}")
+            button.setAccessibleName(words)
+
     def _sync_checked(self, index: int) -> None:
         """Tick the button for `index`, or none when the pill's page (or nothing) is shown."""
         button = self._buttons.get(index)

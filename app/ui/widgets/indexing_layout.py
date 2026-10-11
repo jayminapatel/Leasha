@@ -39,6 +39,7 @@ from app.ui.widgets.status_funnel import StatusFunnel
 from app.ui.widgets.timed_out_panel import TimedOutPanel
 
 __all__ = [
+    "CATEGORY_OFFLINE", "add_offline_shelf", "show_offline_shelf",
     "assemble_pages", "paint_finished", "paint_progress", "paint_resting_headline",
     "paint_run_panels", "paint_totals", "repaint_totals",
 ]
@@ -189,6 +190,36 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     layout.setContentsMargins(9, 9, 9, 9)
     layout.addWidget(nav)
     return nav
+
+
+#: The Indexing page's fifth shelf (order 1i, D1): the existing label, verbatim.
+CATEGORY_OFFLINE = "Offline"
+
+
+def add_offline_shelf(view: Any, offline: QWidget) -> None:
+    r"""Put the Offline page on the Indexing page as its last shelf (order 1i, 1b-1c).
+
+    2026-10-11, the owner: Offline is upkeep, not finding, so it leaves the rail
+    and joins the page that keeps the index current. The whole `OfflineMediaView`
+    goes in unchanged - its Scan, Rescan and Delete stay wired to the window as
+    before - and it stays fully manual: nothing here starts, schedules or watches
+    a scan.
+
+    **Read when its shelf is shown**, never when the Indexing page is and never
+    on a timer: choosing the shelf reads it here, and coming back to the page
+    with the shelf already chosen is the window's own check (`_tab_changed`).
+    Made here, not in `indexing_view.py`, which is at its line guard.
+    """
+    nav = view._nav
+    nav.add_category(CATEGORY_OFFLINE, offline)
+    nav.category_changed.connect(
+        lambda name: offline.refresh() if name == CATEGORY_OFFLINE else None)
+
+
+def show_offline_shelf(view: Any) -> None:
+    """Bring the Offline shelf forward (the Go menu's "Offline"). Choosing it reads
+    it (`add_offline_shelf`); a shelf already in front was read when it came forward."""
+    view._nav.show_category(CATEGORY_OFFLINE)
 
 
 def _row(controls: Any) -> tuple:

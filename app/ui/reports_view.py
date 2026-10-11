@@ -32,7 +32,7 @@ from app.ui.report_pdf import write_pdf as _write_pdf
 from app.ui.widgets.report_export_dialog import SourceSelectionDialog
 from app.ui.widgets.report_list import ReportList
 from app.ui.widgets.space_table import SpaceTables
-from app.ui.widgets.timeline_host import REPORT_KEY, attach_timeline, show_timeline_only
+from app.ui.widgets.timeline_host import REPORT_KEY, keep_names_readable
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["ReportsView", "REPORTS"]
@@ -50,12 +50,6 @@ REPORTS: tuple[tuple[str, str, str], ...] = (
      "Which files exist in more than one place, how much room the copies "
      "take, and what exists nowhere else - so you know what is safe to "
      "clear and what is not."),
-    # Order 0n section 4: a place to wander rather than a document. Its own
-    # view (`timeline_view.py`) sits in the same pane; nothing here decides
-    # what it shows.
-    ("timeline", "Browse your timeline",
-     "Everything from a month or year - photos, files and mail together, "
-     "wherever they are kept now - in the order it happened."),
 )
 
 
@@ -63,10 +57,6 @@ class ReportsView(QWidget):
     """A list of reports; pick one, read it, export it."""
 
     error = Signal(object)
-    #: A timeline entry was opened / shown in its folder - it carries `path`,
-    #: `volume_id` and `relative_path`, everything the shell's own opener reads.
-    opened = Signal(object)
-    reveal_requested = Signal(object)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         """Build the list and the report pane. UI thread; `refresh` reads on a worker."""
@@ -127,7 +117,8 @@ class ReportsView(QWidget):
         right.addWidget(self.progress_label)
         right.addWidget(self.body, 1)
         right.addWidget(self.space_table, 1)
-        self.timeline = attach_timeline(self, store, right)
+        # Order 1i (2026-10-11): the timeline left this pane for its own rail page.
+        keep_names_readable(self.list)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         buttons.addWidget(self.export)
@@ -156,7 +147,6 @@ class ReportsView(QWidget):
         already follow."""
         if self._store is None:
             return
-        self.timeline.refresh()
         # **One load at a time** (2026-10-02). Each load carries the "data as
         # of" stamp it was started with, and that stamp only moves when a load
         # lands - so a second load started before the first had finished ran
@@ -210,8 +200,6 @@ class ReportsView(QWidget):
 
         self.timestamp.setText(data_timestamp_sentence(self._generated_at))
         tabled = False
-        if show_timeline_only(self, row >= 0 and self.list.item(row).data(REPORT_KEY) == "timeline"):
-            return
         if row < 0:
             self.body.setMarkdown("Nothing indexed yet.")
             return

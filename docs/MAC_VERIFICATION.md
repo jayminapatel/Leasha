@@ -1,6 +1,6 @@
 # Checking Leasha on a real Mac
 
-**Doc version:** 1.12 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.13 · **Updated:** 2026-10-11 · **Applies to:** app v0.3.5
 
 Nobody working on Leasha has a Mac. Order 0x (`WORKORDER-overhaul-and-mac-ready.md`)
 writes every change to work on macOS as well as Windows, and checks it three ways that
@@ -145,7 +145,7 @@ it, or write what happened underneath with the date. Anything marked
 
 - [ ] **10.1** Shrink the window to its minimum height: the rail shows icons only, no label is cut, and
       the arrow keys still move between pages. **(UNCONFIRMED on macOS)**
-- [ ] **10.2** Reports › Browse your timeline at the narrowest window: months wrap, date boxes do not
+- [ ] **10.2** Browse (the timeline's rail page) at the narrowest window: months wrap, date boxes do not
       overlap, report names are shown in full.
 - [ ] **10.3** Settings: every category name is shown in full in SF Pro, with no sideways scrollbar.
 - [ ] **10.4** Suggested searches and filter chips have rounded ends in the macOS style.
@@ -205,7 +205,7 @@ followed on a Mac.
 - [ ] **12.4** Indexing › What gets read: does each place's sentence change as its levers move?
 - [ ] **12.5** Index a folder of `.emlx` mail with attachments: are Office and PDF attachments
       found by their contents (`MAIL_ATTACHMENTS=documents`)?
-- [ ] **12.6** Reports › Browse your timeline and the Offline page: open each once.
+- [ ] **12.6** Browse and the Indexing page's Offline shelf: open each once.
 
 This list grows with every section of order 0x. Each new entry carries the item it
 proves.

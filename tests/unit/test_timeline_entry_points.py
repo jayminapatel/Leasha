@@ -19,7 +19,6 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QPoint, Qt                               # noqa: E402
-from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 from PySide6.QtWidgets import QMenu                                  # noqa: E402
 
 from app.ui.controllers.timeline_controller import NO_DATE         # noqa: E402
@@ -37,34 +36,34 @@ class _Row:
         self.mtime_ns = mtime_ns
 
 
-def timeline_row(view) -> int:
-    return [view.list.item(i).data(REPORT_KEY) for i in range(view.list.count())].index("timeline")
-
-
 # ---------------------------------------------------------------------------
-# Door 1: Reports -> "Browse your timeline"
+# Door 1: the rail's "Browse" (order 1i, 2026-10-11 - it was a Reports row)
 # ---------------------------------------------------------------------------
 
-def test_the_reports_page_lists_the_timeline_and_choosing_it_gives_it_the_pane(qtbot, tmp_path):
+def test_reports_lists_two_reports_and_no_longer_hosts_the_timeline(qtbot, tmp_path):
     from app.storage.sqlite_store import SqliteStore
-    from app.ui.reports_view import ReportsView
+    from app.ui.reports_view import REPORTS, ReportsView
 
+    assert [key for key, _title, _words in REPORTS] == ["inheritance", "space"]
     with SqliteStore(tmp_path / "t.db") as store:
         view = ReportsView(store)
         qtbot.addWidget(view)
-        view.resize(1000, 700)
-        view.show()
         titles = [view.list.item(i).text() for i in range(view.list.count())]
-        assert "Browse your timeline" in titles
-        item = view.list.item(titles.index("Browse your timeline"))
-        assert "in the order it happened" in item.toolTip()
-        view.list.setCurrentRow(timeline_row(view))
-        assert view.timeline.isVisibleTo(view) and not view.export.isVisibleTo(view)
-        assert not view.body.isVisibleTo(view) and not view.space_table.isVisibleTo(view)
-        view.list.setCurrentRow(0)                                   # back to a document
-        assert not view.timeline.isVisibleTo(view) and view.export.isVisibleTo(view)
+        assert "Browse your timeline" not in titles and len(titles) == 2
+        assert not hasattr(view, "timeline")
         from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
+
+
+def test_the_rail_entry_browse_opens_the_timeline_above_reports(dated_window, qtbot):
+    _app, window, _store, _ids = dated_window
+    titles = [window.rail.tabText(i) for i in range(window.rail.count())]
+    assert titles.index("Browse") == titles.index("Reports") - 1
+    assert "Offline" not in titles
+    button = next(b for b in window.rail._buttons.values() if b.text() == "Browse")
+    assert button.accessibleName() == "Browse your timeline"
+    button.click()
+    assert window.rail.currentIndex() == window._tab_index[window.timeline_view]
 
 
 # ---------------------------------------------------------------------------
@@ -131,15 +130,15 @@ def test_choosing_it_on_a_search_result_opens_the_month_that_file_is_really_from
     results._on_context_menu(point)
     assert [r.file_id for r in heard] == [row.file_id]
     # The menu path opens the timeline too (at whatever month that file's date is).
-    qtbot.waitUntil(lambda: window.rail.currentIndex() == window._tab_index[window.reports_view],
+    qtbot.waitUntil(lambda: window.rail.currentIndex() == window._tab_index[window.timeline_view],
                     timeout=10000)
     # ...and the window's answer, for a file whose truthful date is June 2015 (asked
     # only after the first answer has landed, so the two cannot arrive out of order):
     window._show(window.search_view)
     window.timeline_ctl.browse_period(ids["photo"])
-    timeline = window.reports_view.timeline
+    timeline = window.timeline_view
     qtbot.waitUntil(lambda: timeline.heading.text() == "June 2015", timeout=10000)
-    assert window.rail.currentIndex() == window._tab_index[window.reports_view]
+    assert window.rail.currentIndex() == window._tab_index[window.timeline_view]
     qtbot.waitUntil(lambda: timeline._period is not None and not timeline._loading
                     and timeline.list.block_count() > 0, timeout=10000)
     shown = {f.head.file_id for r in range(timeline.list.block_count())
@@ -155,8 +154,8 @@ def test_a_message_opens_the_month_it_was_sent_not_the_month_its_archive_was_sav
     # the Reports page arrive late).
     window._show(window.search_view)
     window.mail_view.period_requested.emit(ids["mail"])            # what the Mail tab's menu emits
-    timeline = window.reports_view.timeline
-    qtbot.waitUntil(lambda: window.rail.currentIndex() == window._tab_index[window.reports_view],
+    timeline = window.timeline_view
+    qtbot.waitUntil(lambda: window.rail.currentIndex() == window._tab_index[window.timeline_view],
                     timeout=10000)
     qtbot.waitUntil(lambda: timeline.heading.text() == "June 2015", timeout=10000)
 
@@ -192,9 +191,9 @@ def test_a_right_click_on_a_strip_period_opens_the_timeline_on_that_period(dated
     monkeypatch.setattr(QMenu, "exec", lambda menu, *_a: menu.actions()[0].trigger())
     button.customContextMenuRequested.emit(QPoint(2, 2))
     assert heard and heard[0][0].startswith("2015")
-    timeline = window.reports_view.timeline
+    timeline = window.timeline_view
     qtbot.waitUntil(lambda: timeline._period is not None, timeout=10000)
-    assert window.rail.currentIndex() == window._tab_index[window.reports_view]
+    assert window.rail.currentIndex() == window._tab_index[window.timeline_view]
     assert timeline.picker.range_from.text() == heard[0][0]
 
 
@@ -230,7 +229,7 @@ def test_opening_an_item_on_a_drive_that_is_not_plugged_in_says_what_to_do(dated
     entry = next(e for e in page.entries if e.file_id == file_id)
     errors = []
     monkeypatch.setattr(window, "_show_error", errors.append)
-    window.reports_view.opened.emit(entry)
+    window.timeline_view.opened.emit(entry)
     qtbot.waitUntil(lambda: bool(errors), timeout=10000)
     assert "not plugged in" in errors[0].suggestion
 
@@ -239,7 +238,7 @@ def test_the_timeline_page_is_read_only_for_the_whole_window_session(dated_windo
     _app, window, store, _ids = dated_window
     before = store.conn.execute("SELECT COUNT(*), MAX(mtime_ns), SUM(size_bytes) FROM files").fetchone()[:]
     window.timeline_ctl.browse_range("2015-01-01", "2015-12-31")
-    timeline = window.reports_view.timeline
+    timeline = window.timeline_view
     qtbot.waitUntil(lambda: timeline._period is not None and not timeline._loading
                     and timeline.list.block_count() > 0, timeout=10000)
     assert store.conn.execute(

@@ -135,11 +135,12 @@ def last_answer(c):
 # It is a page of its own, in the rail
 # ---------------------------------------------------------------------------
 
-def test_chat_is_a_rail_tab_after_code_and_before_offline(chat):
+def test_chat_is_a_rail_tab_after_code_and_before_browse(chat):
     rail = chat.window.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
     assert titles.index("Chat") == titles.index("Code") + 1
-    assert titles.index("Offline") == titles.index("Chat") + 1
+    # 2026-10-11, order 1i: Browse (the timeline) has Offline's old slot.
+    assert titles.index("Browse") == titles.index("Chat") + 1
     assert rail.tabText(chat.window._tab_index[chat.view]) == "Chat"
     assert rail.currentIndex() == chat.window._tab_index[chat.view]
 

@@ -2,11 +2,11 @@
 
 Layer: L5
 
-Order 202626270602 (0n) section 4b. Three doors into the same place, all of
-which end at `TimelineView.browse_*` on the Reports page:
+Order 202626270602 (0n) section 4b, moved by order 1i (2026-10-11). The
+timeline is a rail page of its own, **Browse**, and every door ends at
+`TimelineView.browse_*` on that page:
 
-* **Reports -> "Browse your timeline"** needs no wiring: it is a row in the
-  Reports list (`reports_view.REPORTS`).
+* **The rail's "Browse"** (and Go > Browse) needs no wiring: it is the page.
 * **A result's right-click menu, "See everything from this month"** - the row
   carries a modified time, which for a photograph is the day it was copied and
   for a message is its container's, so the *truthful* date is asked of the index
@@ -32,7 +32,6 @@ from typing import Any
 from PySide6.QtCore import QObject, QThreadPool
 
 from app.reports.timeline import date_of_file
-from app.ui.widgets.timeline_host import show_timeline
 from app.ui.workers import CallableWorker, run
 
 __all__ = ["TimelineController", "NO_DATE"]
@@ -45,12 +44,12 @@ class TimelineController(QObject):
     """Connects the window's pages to the timeline. Holds no state of its own."""
 
     def __init__(self, window: Any) -> None:
-        """Wire the Reports page, the results menu and the strip to the timeline."""
+        """Wire the Browse page, the results menu and the strip to the timeline."""
         super().__init__(window)
         self._w = window
-        reports = window.reports_view
-        reports.opened.connect(window._open_result)
-        reports.reveal_requested.connect(lambda row: window._open_result(row, reveal=True))
+        timeline = window.timeline_view
+        timeline.opened.connect(window._open_result)
+        timeline.reveal_requested.connect(lambda row: window._open_result(row, reveal=True))
         window.search_view.results.period_requested.connect(self.browse_period)
         strip = getattr(window.search_view.split, "timeline", None)
         if strip is not None:
@@ -69,10 +68,10 @@ class TimelineController(QObject):
         if when_ns is None:
             self._w.notify(NO_DATE)
             return
-        self._w._show(self._w.reports_view)
-        show_timeline(self._w.reports_view, lambda timeline: timeline.browse_month_of(int(when_ns)))
+        self._w._show(self._w.timeline_view)
+        self._w.timeline_view.browse_month_of(int(when_ns))
 
     def browse_range(self, after: str, before: str) -> None:
         """Open the timeline on the period a strip band stands for."""
-        self._w._show(self._w.reports_view)
-        show_timeline(self._w.reports_view, lambda timeline: timeline.browse_range(after, before))
+        self._w._show(self._w.timeline_view)
+        self._w.timeline_view.browse_range(after, before)

@@ -115,12 +115,22 @@ def _visible_strings(root: QWidget) -> dict:
 
 @pytest.fixture
 def built(qtbot, tmp_path):
+    from PySide6.QtWidgets import QHBoxLayout, QWidget
+
     from app.ui.reports_view import ReportsView
+    from app.ui.timeline_view import TimelineView
 
     store, _ids = june_2015(tmp_path)
-    view = ReportsView(store)
+    # Order 1i (2026-10-11): the timeline is its own rail page now, not a pane
+    # of Reports - so both are built, side by side, and read as one surface.
+    view = QWidget()
+    reports, timeline = ReportsView(store), TimelineView(store)
+    row = QHBoxLayout(view)
+    row.addWidget(reports)
+    row.addWidget(timeline)
+    view.list, view.timeline = reports.list, timeline
     qtbot.addWidget(view)
-    view.resize(1000, 700)
+    view.resize(1400, 700)
     view.show()
     yield view
     from PySide6.QtCore import QThreadPool

@@ -912,7 +912,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
 
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Photos", "Mail", "Code", "Chat", "Offline", "Reports",
+            "Search", "Files", "Photos", "Mail", "Code", "Chat", "Browse", "Reports",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -922,7 +922,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
             (built.search_view, "Search"), (built.files_view, "Files"),
             (built.mail_view, "Mail"), (built.code_view, "Code"),
             (built.chat_view, "Chat"),
-            (built.offline_media_view, "Offline"),
+            (built.timeline_view, "Browse"),
             (built.reports_view, "Reports"),
             (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
         ):
@@ -1147,10 +1147,10 @@ def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path
             "indexing_view must not exist the instant MainWindow() returns")
         assert not hasattr(built, "settings_view"), (
             "settings_view must not exist the instant MainWindow() returns")
-        # Search and Files (kept synchronous on purpose) plus Offline and
-        # Reports are all that is in the rail before the loop turns.
+        # Search and Files (kept synchronous on purpose) plus Browse and
+        # Reports are all that is in the rail before the loop turns (order 1i).
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Offline", "Reports"]
+            "Search", "Files", "Browse", "Reports"]
 
         _pump(app)
 
@@ -1170,7 +1170,7 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
 
         titles = [built.rail.tabText(i) for i in range(built.rail.count())]
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
-        assert titles == ["Search", "Files", "Photos", "Mail", "Code", "Chat", "Offline",
+        assert titles == ["Search", "Files", "Photos", "Mail", "Code", "Chat", "Browse",
                           "Reports", "Indexing", "Settings"]
         assert built.rail._pill_index == titles.index("Indexing"), (
             "the pill must open the Indexing page")

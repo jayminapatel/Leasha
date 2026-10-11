@@ -46,6 +46,7 @@ from app.ui.mail_view import MailView
 from app.ui.photos_view import PhotosView
 from app.ui.offline_media_view import OfflineMediaView
 from app.ui.reports_view import ReportsView
+from app.ui.timeline_view import TimelineView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
 from app.ui.debug_recorder import recorder_for
@@ -454,6 +455,10 @@ class MainWindow(QMainWindow):
         # for, never a user's own file.
         self.reports_view = ReportsView(store)
         self.reports_view.error.connect(self._show_error)
+        # Order 1i (2026-10-11): the Life Timeline is a rail page of its own,
+        # "Browse", where Offline was - no longer a row in the Reports list.
+        self.timeline_view = TimelineView(store)
+        self.timeline_view.error.connect(self._show_error)
         # Order 0n 4b: the doors into the Life Timeline - see the controller.
         self.timeline_ctl = TimelineController(self)
 
@@ -516,7 +521,9 @@ class MainWindow(QMainWindow):
         for view, title, scroll, icon_name, placement in (
             (self.search_view, "Search", False, "search", ""),
             (self.files_view, "Files", False, "folder", ""),
-            (self.offline_media_view, "Offline", False, "hard-drive", ""),
+            # Order 1i (2026-10-11): Offline is a shelf of the Indexing page now
+            # (`indexing_layout.add_offline_shelf`), and the timeline has its slot.
+            (self.timeline_view, "Browse", False, "calendar", ""),
             (self.reports_view, "Reports", False, "chart-column", ""),
         ):
             wrapped = wrap_if_needed(view, scroll=scroll)
@@ -524,6 +531,7 @@ class MainWindow(QMainWindow):
             self._tab_index[view] = self.rail.addTab(
                 wrapped, title, icon=icon_name,
                 foot=placement == "foot", pill=placement == "pill")
+        self.rail.describe(self._tab_index[self.timeline_view], "Browse your timeline")
         # Refresh a panel when it comes forward rather than on a timer: an
         # index run between visits changes what it should show, and polling a
         # table nobody is looking at is work for nothing. Safe to connect
@@ -787,6 +795,10 @@ class MainWindow(QMainWindow):
         try:
             self.indexing_view = IndexingView()
             self.indexing_view.error.connect(self._show_error)
+            # Order 1i: the Offline page is the Indexing page's last shelf.
+            from app.ui.widgets.indexing_layout import add_offline_shelf
+
+            add_offline_shelf(self.indexing_view, self.offline_media_view)
             self.indexing_view.reset_requested.connect(self._reset_index)
             self.indexing_view.start_button.clicked.connect(lambda _checked=False: self._start_indexing())
             self.indexing_view.retry_requested.connect(lambda _code: self._start_indexing())
@@ -1490,7 +1502,9 @@ class MainWindow(QMainWindow):
             tip="See, find and name your photos")
         add(go, "Mail", self._focus_mail, "Ctrl+M", icon="mail")
         add(go, "Code", self._focus_code, "Ctrl+E", icon="code")
-        add(go, "Offline", lambda: self._show(self.offline_media_view), icon="hard-drive")
+        add(go, "Offline", self._show_offline, icon="hard-drive")
+        add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
+            tip="Browse your timeline")
         add(go, "Reports", lambda: self._show(self.reports_view), icon="chart-column")
         add(go, "Indexing", lambda: self._show(getattr(self, "indexing_view", None)),
             "Ctrl+I", icon="database")
@@ -1998,6 +2012,16 @@ class MainWindow(QMainWindow):
         if index is not None:
             self.rail.setCurrentIndex(index)
 
+    def _show_offline(self) -> None:
+        """Order 1i: the Indexing page, on its Offline shelf."""
+        indexing_view = getattr(self, "indexing_view", None)
+        if indexing_view is None:
+            return
+        self._show(indexing_view)
+        from app.ui.widgets.indexing_layout import show_offline_shelf
+
+        show_offline_shelf(indexing_view)
+
     def _current_view(self) -> Any:
         """The view whose tab is in front, or None.
 
@@ -2032,10 +2056,16 @@ class MainWindow(QMainWindow):
         indexing_view = getattr(self, "indexing_view", None)
         if indexing_view is not None and index == self._tab_index.get(indexing_view):
             indexing_view.refresh_totals(self._store, self._settings)
+            # Order 1i: back on the page with the Offline shelf already chosen
+            # is that shelf being shown - its list is read then, and only then.
+            from app.ui.widgets.indexing_layout import CATEGORY_OFFLINE
+
+            if indexing_view._nav.current_category() == CATEGORY_OFFLINE:
+                self.offline_media_view.refresh()
         elif index == self._tab_index.get(self.files_view):
             self.files_view.refresh_summary()
-        elif index == self._tab_index.get(self.offline_media_view):
-            self.offline_media_view.refresh()
+        elif index == self._tab_index.get(self.timeline_view):
+            self.timeline_view.refresh()
         elif index == self._tab_index.get(self.reports_view):
             self.reports_view.refresh()
         elif index == self._tab_index.get(getattr(self, "photos_view", None)):

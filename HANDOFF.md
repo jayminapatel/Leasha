@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.143 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.144 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, order 1i built (11 of 13) - Offline into Indexing, the timeline on the rail as "Browse".**
+Offline is `indexing_layout.add_offline_shelf` (fifth shelf, `CATEGORY_OFFLINE`, read on `category_changed` and in `_tab_changed` when the Indexing page comes forward on it; Go > Offline is `MainWindow._show_offline`). `MainWindow.timeline_view` is the rail page "Browse" between Chat and Reports (`Rail.describe` gives it "Browse your timeline"); `ReportsView` lists two reports and no longer hosts it; `timeline_host` keeps only `REPORT_KEY` and `keep_names_readable`; `TimelineController` opens `timeline_view`. Defaults taken: D1, D3, D4 as written; D2 replaced by the owner's "Browse". `tools/grab_ui.py` surfaces moved (`offline-media` is the Indexing shelf, `timeline` the Browse page). Tests: `test_offline_shelf.py` (3), the timeline doors rewritten, rail-order tests updated; `run_suite.py --affected` then the stragglers, all green. **Open:** 2d (start-up time, unmeasured - same construction point as before) and 3d (look at the real window at 125%); the `/on` hint still says "Offline Media tab" (owner's wording to change or keep).
 
 **2026-10-11, later still - one date format for Files and Mail (owner: "all the dates in the files and mail tab should be of the format yyyy-mm-dd hh:nn and make this configurable ... drop down of most common formats ... a validated custom format").**
 `app/core/date_format.py` (L0): tokens `yyyy yy mmmm mmm mm dddd ddd dd hh nn ss am/pm` (mm the month, nn the minutes, as Excel), 8 presets, `validate` with a sentence per fault (a stray character, `hh:mm`, no day/month/year, minutes without the hour). Window state `ui:date_format` like `ui:text_size`, not an `.env` key; Settings > Window > Dates (`WindowBox.date_format`, `date_custom`, `date_note`), wired straight to `settings_ctl._date_format_changed`, which saves it and redraws Files (`_run`) and Mail (`refresh`). Applied to `rows.file_rows` (`modified`, which no longer reads the Search register), `rows.mail_rows` (`sent`) and the mail card (`mail_card`, `card_from_row`). **Not changed:** Search, Code, the timeline and tooltips keep their own dates. Tests: `test_date_format.py` (28); `test_one_fact_one_function.py` and `test_mail_preview_card.py` updated where they pinned Files = Search and the long mail date. **Also:** commit 1719b69 added `tests/unit/test_vector_reuse.py` without regenerating `Leasha.pyproj`, so `test_vs_project.py` was red on main between it and this commit; regenerated here. `run_suite.py --affected`: 2 failed (those two), now 13/13.

@@ -112,6 +112,8 @@ class CategoryNav(QWidget):
         "Appearance": "palette", "Storage & maintenance": "hard-drive",
         "Status": "chart-column", "What gets read": "eye", "Schedule": "clock",
         "Tuning": "sliders-horizontal",
+        # Order 1i (2026-10-11): the Offline page, now the Indexing page's last shelf.
+        "Offline": "hard-drive",
     }
 
     def retint(self, colours: dict) -> None:

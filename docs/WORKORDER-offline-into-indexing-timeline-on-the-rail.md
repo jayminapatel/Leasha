@@ -1,11 +1,11 @@
 # Work order (One thread): Offline moves into Indexing, and the timeline takes its place on the rail
 
-**Doc version:** 1.0 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/ui/shell.py`, `app/ui/indexing_view.py`,
 `app/ui/widgets/indexing_layout.py`, `app/ui/offline_media_view.py`, `app/ui/reports_view.py`,
 `app/ui/timeline_view.py`, `app/ui/controllers/timeline_controller.py`, `tests/unit/`, the user
 guide, `docs/GLOSSARY.md`)
-**Status:** RELEASED by the owner 2026-10-11 ("yes write the order for both and give it to the
+**Status:** BUILT 2026-10-11, 11 of 13 (2d and 3d need the real window); RELEASED by the owner 2026-10-11 ("yes write the order for both and give it to the
 running thread to execute"), after asking whether "the pill for offline belong[s] in the indexing
 tab and the timeline ... in [its own] tab".
 
@@ -55,41 +55,45 @@ the word "Timeline" wherever 2a and 3a use it as the rail label.*
 
 ## 1. Offline into the Indexing page
 
-- [ ] **1a** `shell.py` no longer adds `offline_media_view` as a rail entry; the Go menu's
+- [x] **1a** `shell.py` no longer adds `offline_media_view` as a rail entry; the Go menu's
   "Offline" item (`add(go, "Offline", ...)`) opens the Indexing page on the Offline shelf.
-- [ ] **1b** The Indexing page gains the Offline shelf (D1). `indexing_view.py` is at the
+- [x] **1b** The Indexing page gains the Offline shelf (D1). `indexing_view.py` is at the
   250-line view guard - the shelf is assembled in `widgets/indexing_layout.py`, not added inline.
-- [ ] **1c** The refresh rule holds: the Offline list is read when its **shelf** is shown, not
+- [x] **1c** The refresh rule holds: the Offline list is read when its **shelf** is shown, not
   when the Indexing page is shown and not on a timer (the `_tab_index` check at `shell.py`
   ~line 2031 moves to a shelf-shown signal).
-- [ ] **1d** Scan / Rescan / Delete are wired exactly as now (`scan_requested`,
+- [x] **1d** Scan / Rescan / Delete are wired exactly as now (`scan_requested`,
   `rescan_requested`, `delete_requested` -> `index_ctl`). A scan still takes the run lock and
   still refuses while an index run holds it, with the same words.
-- [ ] **1e** Anything that sent the person to the Offline tab (a "drive not plugged in" notice,
+> *2026-10-11, built:* the Go menu's Offline (`MainWindow._show_offline`) and every refresh land on the shelf. No notice or opener message named the tab; the `/on` command's hint still reads "as shown in the Offline Media tab" (`app/search/commands.py`) - existing UI wording, left for the owner.
+- [x] **1e** Anything that sent the person to the Offline tab (a "drive not plugged in" notice,
   the opener's message, the `/` menu, `test_command_subsets`' page names) now lands on the
   Indexing page's Offline shelf.
 
 ## 2. The timeline on the rail
 
-- [ ] **2a** `TimelineView` becomes a rail page of its own (D2, D4), built from the same widget
+> *2026-10-11, built:* `MainWindow.timeline_view`, rail title "Browse" (owner's correction), icon `calendar`, tooltip and accessible name "Browse your timeline" (`Rail.describe`). The same `TimelineView`, built where Reports built it before.
+- [x] **2a** `TimelineView` becomes a rail page of its own (D2, D4), built from the same widget
   Reports hosts today - no second timeline.
-- [ ] **2b** The Reports row is removed (D3); `ReportsView` no longer hosts the timeline pane.
-- [ ] **2c** `TimelineController`'s doors (`browse_period`, the result menu, the strip) open the
+- [x] **2b** The Reports row is removed (D3); `ReportsView` no longer hosts the timeline pane.
+- [x] **2c** `TimelineController`'s doors (`browse_period`, the result menu, the strip) open the
   rail page at the asked period. Its module docstring is rewritten to say so.
+> *2026-10-11, not done:* the view is built at the same point as before (it was made inside `ReportsView.__init__`, now in `MainWindow.__init__` beside it), so start-up does the same work; the window-visible time before and after was not measured - it needs the real window.
 - [ ] **2d** The page is built lazily if it is costly at start-up, as Mail and Code are - measure
   the window-visible time before and after (order 0r's budget) and record both.
 
 ## 3. Tests and documents
 
-- [ ] **3a** The rail-label tests (`test_ui_redesign*.py`, `test_window_opens.py`,
+- [x] **3a** The rail-label tests (`test_ui_redesign*.py`, `test_window_opens.py`,
   `test_ui_review_0x9.py`, `test_e2e_pywinauto.py`) say the new rail: no "Offline" entry, a
   "Timeline" entry above Reports.
-- [ ] **3b** New tests: the Offline shelf exists on the Indexing page and refreshes only when
+- [x] **3b** New tests: the Offline shelf exists on the Indexing page and refreshes only when
   shown; each timeline door lands on the rail page at the right period
   (`test_timeline_entry_points.py`); Reports lists two reports.
-- [ ] **3c** Documentation rewritten in place to describe the app as it now is (owner rule
+- [x] **3c** Documentation rewritten in place to describe the app as it now is (owner rule
   2026-10-06): the user guide, troubleshooting, `docs/GLOSSARY.md` ("the Offline page" -> the
   Offline shelf of the Indexing page), and any screenshot list.
+> *2026-10-11:* `run_suite.py --affected` run on the laptop: the 1i failures were all tests pinning the old rail and were updated; the real window at 125% not yet looked at (the open app runs the code from before this commit).
 - [ ] **3d** `--affected` then the full suite (`scripts/run_suite.py`) green on Windows; the
   real window looked at once at 125% (HANDOFF trap "Look at the real window").
 

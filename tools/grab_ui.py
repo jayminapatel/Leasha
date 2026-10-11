@@ -58,14 +58,16 @@ SURFACES: dict[str, dict[str, str]] = {
     "mail": {"page": "Mail"},
     "code": {"page": "Code"},
     "chat": {"page": "Chat"},
-    "offline-media": {"page": "Offline"},
     "reports": {"page": "Reports"},
     # Order 0n section 4: the Life Timeline, opened at June 2015 over a small
-    # seeded index (real thumbnails, a drive in a drawer, a burst).
-    "timeline": {"page": "Reports", "state": "timeline"},
+    # seeded index (real thumbnails, a drive in a drawer, a burst). Its own
+    # rail page, "Browse", since order 1i (2026-10-11).
+    "timeline": {"page": "Browse", "state": "timeline"},
     "indexing-status": {"page": "Indexing", "category": "Status"},
     "indexing-schedule": {"page": "Indexing", "category": "Schedule"},
     "indexing-tuning": {"page": "Indexing", "category": "Tuning"},
+    # Order 1i: Offline is the Indexing page's last shelf.
+    "offline-media": {"page": "Indexing", "category": "Offline"},
     "settings-whats-indexed": {"page": "Settings", "category": "What's indexed"},
     "settings-search": {"page": "Settings", "category": "Search"},
     "settings-models": {"page": "Settings", "category": "Models & AI"},
@@ -263,11 +265,8 @@ def _show_timeline(app: Any, window: Any) -> None:
     """Open the timeline at June 2015 and wait until its list and its pictures are there."""
     from datetime import datetime as _dt
 
-    from app.ui.widgets.timeline_host import show_timeline
-
-    view = window.reports_view.timeline
-    show_timeline(window.reports_view, lambda t: t.browse_month_of(
-        int(_dt(2015, 6, 10, 12).timestamp()) * 1_000_000_000))
+    view = window.timeline_view
+    view.browse_month_of(int(_dt(2015, 6, 10, 12).timestamp()) * 1_000_000_000)
     _require(app, lambda: (not view._loading and view.list.block_count() > 0
                            and view._overview is not None),
              "the timeline's June 2015 list and overview")

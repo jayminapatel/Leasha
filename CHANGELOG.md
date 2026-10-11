@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.108 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.109 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Offline moves into Indexing, and the timeline gets the rail (2026-10-11)
+
+- **Offline is the last shelf of the Indexing page**, not a rail entry. Go > Offline opens it there; it is read when
+  the shelf is shown and stays fully manual.
+- **Browse, on the rail above Reports, is the Life Timeline.** It is no longer a row in Reports; a result's "See
+  everything from this month" and the strip's right-click open it.
 
 ### One date format for Files and Mail, chosen in Settings (2026-10-11)
 

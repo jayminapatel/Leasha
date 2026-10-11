@@ -130,13 +130,14 @@ def test_the_owner_sees_in_one_glance_which_drive_holds_the_only_copy(family, qt
 
 
 def test_june_2015_is_a_place_you_can_go(family, qtbot):
-    r"""Reports -> Browse your timeline -> 2015 -> Jun: the photograph, the
-    letter, the drive's photograph and the message, wherever each lives now."""
-    app, _window, view, ids = family
-    pick(view, "timeline")
-    timeline = view.timeline
-    assert timeline.isVisibleTo(view)
-    view.refresh()
+    r"""Browse -> 2015 -> Jun: the photograph, the letter, the drive's photograph
+    and the message, wherever each lives now. (Reports -> Browse your timeline
+    until order 1i, 2026-10-11, gave the timeline its own rail page.)"""
+    app, window, _view, ids = family
+    timeline = window.timeline_view
+    window._show(timeline)
+    assert timeline.isVisibleTo(window)
+    timeline.refresh()
     qtbot.waitUntil(lambda: timeline._overview is not None and timeline.picker.year_box.count() > 0,
                     timeout=20000)
     at = timeline.picker.year_box.findData(2015)

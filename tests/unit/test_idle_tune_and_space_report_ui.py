@@ -32,9 +32,9 @@ def test_the_space_report_is_listed_beside_digital_inheritance(window):
     from app.ui.reports_view import REPORTS
     app, built, _ = window
     keys = [key for key, _t, _d in REPORTS]
-    # 2026-09-20: "Browse your timeline" (order 0n section 4) is the third entry - a report
-    # is one more row in `REPORTS`, which is what that registry is for.
-    assert keys == ["inheritance", "space", "timeline"]
+    # 2026-09-20: "Browse your timeline" (order 0n section 4) was the third entry; on
+    # 2026-10-11 (order 1i) it left for its own rail page, "Browse".
+    assert keys == ["inheritance", "space"]
     titles = [built.reports_view.list.item(i).text()
               for i in range(built.reports_view.list.count())]
     assert "The Space Report" in titles
