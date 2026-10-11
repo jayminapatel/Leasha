@@ -115,6 +115,23 @@ class MergeStep:
     names: list[str] = field(default_factory=list)
 
 
+def plan_chosen_merges(groups: Iterable, cards: dict[int, Card], region: str = "GB") -> list[MergeStep]:
+    """What merging the groups the person ticked will do. Unlike `plan_safe_merges` it asks nothing of
+    the reasons: the person looked and chose. A group of fewer than two live cards is left out."""
+    steps: list[MergeStep] = []
+    for g in groups:
+        members = [cards[i] for i in g.ids if i in cards]
+        if len(members) < 2:
+            continue
+        survivor = pick_survivor(list(g.ids), cards)
+        others = [i for i in g.ids if i != survivor]
+        ordered = [cards[survivor]] + [cards[i] for i in others]
+        merged = dupes.merge_cards(ordered, region=region).card
+        steps.append(MergeStep(tuple(g.ids), survivor, others, merged, tuple(g.reasons),
+                               [display_name(cards[i]) for i in g.ids]))
+    return steps
+
+
 def plan_safe_merges(groups: Iterable, cards: dict[int, Card], region: str = "GB") -> list[MergeStep]:
     """What 'Merge all safe matches' will do, group by group, before it does anything.
 
