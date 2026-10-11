@@ -112,16 +112,20 @@ def messages(store: Any, emails: list[str], limit: int, *, attachments: bool = F
     return (dated + undated)[:limit]
 
 
-def message_entry(row: dict, accounts: Optional[dict] = None) -> dict:
+def message_entry(row: dict, accounts: Optional[dict] = None, *, raw: bool = False) -> dict:
     """One message as `contact_activity` says it: the `mail_card` fields, the
-    path to give `read_text`, and whether it came from them or went to them."""
+    path to give `read_text`, and whether it came from them or went to them.
+    `raw` adds `sent_at` (seconds), for a window that writes the date itself."""
     card = mail_card({"subject": row.get("subject"), "sender": row.get("sender"),
                       "sent_at": row.get("sent_at")}, str(row.get("path") or ""), accounts) or {}
     recipients = str(row.get("recipients") or "")
-    return {"path": str(row.get("path") or ""), **card,
-            "to": recipients if len(recipients) <= RECIPIENTS_CHARS
-            else recipients[:RECIPIENTS_CHARS - 1] + "…",
-            "direction": "from them" if row.get("_side") == "sender" else "to them"}
+    entry = {"path": str(row.get("path") or ""), **card,
+             "to": recipients if len(recipients) <= RECIPIENTS_CHARS
+             else recipients[:RECIPIENTS_CHARS - 1] + "…",
+             "direction": "from them" if row.get("_side") == "sender" else "to them"}
+    if raw:
+        entry["sent_at"] = row.get("sent_at")
+    return entry
 
 
 def mail_with(store: Any, emails: list[str], limit: int, accounts: Optional[dict] = None) -> dict:
@@ -138,7 +142,7 @@ def mail_with(store: Any, emails: list[str], limit: int, accounts: Optional[dict
 
 
 def files_exchanged(store: Any, emails: list[str], limit: int,
-                    accounts: Optional[dict] = None) -> list[dict]:
+                    accounts: Optional[dict] = None, *, raw: bool = False) -> list[dict]:
     """Files attached to messages with these addresses: each with the message it came on."""
     from app.core.row_facts import attachment_of
 
@@ -153,7 +157,7 @@ def files_exchanged(store: Any, emails: list[str], limit: int,
                 continue
             out.append({"path": record.path, "name": attachment_of(record.path)[1],
                         "type": record.ext, "size_bytes": record.size_bytes,
-                        "message": message_entry(row, accounts)})
+                        "message": message_entry(row, accounts, raw=raw)})
             if len(out) >= limit:
                 return out
     return out
@@ -204,13 +208,13 @@ def gather(store: Any, contact_id: int, emails: list[str], limit: int = 10,
         latest = messages(store, emails, limit)
         first = messages(store, emails, 1, oldest=True)
         stamps = [r["sent_at"] for r in latest + first if r.get("sent_at")]
-        mail = {"messages": [{**message_entry(r, accounts), "sent_at": r.get("sent_at")} for r in latest],
+        mail = {"messages": [message_entry(r, accounts, raw=True) for r in latest],
                 "first_contact": when(min(stamps)) if stamps else "",
                 "last_contact": when(max(stamps)) if stamps else "",
                 "first_at": min(stamps) if stamps else None, "last_at": max(stamps) if stamps else None}
     else:
         mail = {**mail_with(store, emails, limit, accounts), "first_at": None, "last_at": None}
-    files = files_exchanged(store, emails, limit, accounts)
+    files = files_exchanged(store, emails, limit, accounts, raw=True)
     link, photos = photos_of(store, contact_id, limit)
     return {"contact_id": contact_id, "emails": list(emails), **mail,
             "files_exchanged": files, "photo_match": link, "photos": photos}

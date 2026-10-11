@@ -456,6 +456,7 @@
     <Compile Include="app\ui\contacts\editor.py" />
     <Compile Include="app\ui\contacts\fields.py" />
     <Compile Include="app\ui\contacts\history.py" />
+    <Compile Include="app\ui\contacts\index_panel.py" />
     <Compile Include="app\ui\contacts\loader.py" />
     <Compile Include="app\ui\contacts\logic.py" />
     <Compile Include="app\ui\contacts\model.py" />

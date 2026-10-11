@@ -1,6 +1,6 @@
 # Leasha — architecture and installation
 
-**Doc version:** 2.15 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 2.16 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 > **Renamed.** This document was `LOCAL_KNOWLEDGE_GRAPH_V2.md`, and the application was
 > "Local Knowledge Graph Search + Office Suite". Neither name fits any more: the knowledge
@@ -123,10 +123,103 @@ Also worth knowing: every SQLite connection is now a `_GuardedConnection` that c
 flight, so closing the store never closes a connection another thread is still reading from (that
 was a native crash).
 
+### Accounts, the contact hub and live mail (order 1k)
+
+A fourth addition, and the one place where the picture above is not the whole story: Leasha can
+connect to the person's own Google, Microsoft, Apple, IMAP and CardDAV accounts. Everything it
+fetches is stored and searched on this machine only; search, indexing and reading files stay
+offline exactly as before. Accounts are off until a person adds one, and nothing syncs until the
+schedule or *Sync now* says so.
+
+```
+Settings > Accounts, Contacts page          app/ui/accounts, app/ui/contacts (Qt; every read and write on a worker)
+        |  AccountScheduler (app/ui/account_scheduler.py): a 30 s timer that only asks the policy
+        v
+AccountService (app/accounts/service.py)    the verbs: add, test, reconnect, remove, sync now, due work, undo
+   |-- policy.py        when a sync is due: pure functions of timestamps (manual / every N minutes / daily)
+   |-- ContactSyncEngine (engine.py)  --->  ContactProvider: google_people, graph_contacts, carddav
+   |-- MailSyncer (mail_sync.py)      --->  MailProvider: gmail_api, graph_mail, imap_mail
+   |-- SecretStore (secrets.py)             Windows Credential Manager, via keyring; nowhere else
+   |-- http.py                              the only code that opens a socket to an account:
+   |                                        an allow-list of hosts, TLS on, redirects not followed,
+   v                                        Retry-After honoured
+ContactHub (app/contacts/hub.py)            the master copy of the contact book, in SQLite
+```
+
+**The account worker.** There is one worker for all accounts (rule 5: not the UI thread), resumable
+(rule 4) and one failure domain per account: an account that fails is recorded with its error code
+and the rest carry on. A sync starts only on the schedule or on *Sync now* (opening Leasha, waking
+from sleep and the network returning start nothing). A due time that fell while the machine slept is
+served once, never once per missed time; after Leasha was closed, an account whose last sync is older
+than its interval syncs once, a minute after the window opens. A second *Sync now* while one runs is
+folded into it, not queued. Contacts go before mail when both are due, and a first mail fetch gives
+way between pages to a due contact sync. A failure backs off 1, 2, 4, 8 ... minutes up to the
+schedule's own interval, and the provider's `Retry-After` always wins.
+
+**The contact hub.** SQLite is the authority (rule 6), and the hub is the master copy: the accounts
+hold copies that are kept in step with it. A contact is a row in `contacts` with typed, repeatable
+rows in `contact_fields`, a `contact_links` row for each account it is **Kept in** (the account's
+own id, its version tag, and a snapshot of what the two last agreed on - the base of a three-way
+merge), groups, tags, smart groups, and `contact_journal`, which holds a whole-contact snapshot
+before and after every change, whoever made it, so any change, a merge, a clean-up or a whole sync
+can be undone. `contact_sources` is the receipt behind each field and `contacts_fts` makes a
+contact's words searchable. A contact made in Leasha goes to the default account; nothing is copied
+to every account unless the person asks. Fields an account cannot hold are never removed from Leasha
+by a round trip: each account is written only what it can hold (`Capabilities`, `project()`).
+
+**The sync engine, in two phases.** One call syncs every chosen account:
+
+1. **Pull**, account by account. Each page of changes is applied and its change token (Google
+   `syncToken`, Graph delta link, CardDAV `sync-token` or etag set) is saved in one transaction, so
+   a crash costs at most the page in flight. A change is merged into the hub field by field,
+   three-way against the snapshot: a change on one side only wins; when both changed, the newest
+   edit wins (or the account order decides, or the contact waits, by the person's rule), the loser
+   stays in the journal, and the contact carries a *changed in two places* marker. A new contact is
+   never auto-merged with one already here; a lookalike is only counted for the Duplicates screen. A
+   contact an account has deleted is only flagged *Deleted elsewhere*.
+2. **Push**, account by account, only to accounts whose direction is Two-way. The hub's changes
+   go to every account in the contact's Kept-in set. An update carries the version tag it was based
+   on; if the account refuses it as stale the engine re-reads, re-merges and retries (three times),
+   and never overwrites blind. Pulling from every account before pushing to any is what lets a change
+   made in one account reach the others in the one sync.
+
+The **first sync of an account is a dry run**: it reads and plans and writes nothing - not the hub,
+not the account, not the saved token - until the person approves. **The delete brake** counts the
+deletes a push would make; more than the limit (20 contacts or 5% of the book by default) stops the
+push with `ERR_SYNC_DELETE_BRAKE` and deletes nothing until the person allows it. Every run is a row in
+`sync_runs` (counts, trigger, error, and the plan of a dry run), and **undoing a sync** puts the
+hub back and pushes the old values to the accounts as well (`AccountService.undo_run`).
+
+**The live mail path.** `MailSyncer` builds the account's `MailProvider` behind a wrapper
+(`_ReadOnly`) that has `pull`, `list_folders` and `close` and nothing else, so no code on this path
+can move, flag, mark read or delete anything in a mailbox (rule 10 stands for mail). Gmail uses the
+Gmail API's history, Microsoft uses Graph delta per folder, and iCloud and any other server use IMAP
+(`UIDVALIDITY`, `CONDSTORE` where offered; a Gmail account may be read over IMAP with an app
+password instead). A page's messages and its resume token are written in one transaction
+(`MailIndexer.apply_page`). A fetched message is an ordinary `files` row whose path is
+`account://<account id>/<folder>/<remote id>`, with an ordinary `messages` row (migration 38 adds
+`account_id`, `remote_id`, `labels` and `message_id`), passed through the same chunker and store
+calls as every other mail, so search, the Mail page, previews and attachments need no second code
+path. Words are searchable at once and meaning follows (`PARTIAL` rows, then embeddings), and a
+sync never fails for want of a model. Mail deleted or moved on the server is followed in the index.
+A message that a connected account and an Outlook archive both hold is one message, matched by its
+`Message-ID`: the live copy is the one searched, and the archive copy is taken out of the index and
+recorded in `message_places` so it can still be found in Outlook. Spam and Trash are left out by
+default; how far back, which folders and whether attachments are indexed are the account's own
+options (`mail_sync.MailOptions`).
+
+**Error codes.** Every failure on this path is an `AppError` (the contract below). The block in
+`app/core/errors.py` is: `ERR_ACCOUNT_SIGNIN_EXPIRED`, `ERR_ACCOUNT_ADMIN_CONSENT`,
+`ERR_ACCOUNT_NOT_CONFIGURED`, `ERR_ACCOUNT_UNREACHABLE`, `ERR_ACCOUNT_SECRET_STORE`,
+`ERR_ACCOUNT_REJECTED`, `ERR_PROVIDER_LIMIT`, `ERR_SYNC_CONFLICT_HELD`, `ERR_SYNC_DELETE_BRAKE`,
+`ERR_SYNC_NEEDS_APPROVAL` and `ERR_SYNC_FAILED`. They are listed with their messages in the table
+under the error contract.
+
 Built since: folder watching (`app.cli watch`, a child process started from the Indexing page,
 off by default); the Indexing page *What gets read*, with `MAIL_ATTACHMENTS` deciding what is read
-from an email attachment; the Chat tab (`app/chat`); and local models on ONNX Runtime
-(`app/ort`). The schema is at `CURRENT_VERSION = 36`. `docs/TECHNICAL_REFERENCE.html` describes
+from an email attachment; the Chat tab (`app/chat`); local models on ONNX Runtime
+(`app/ort`); and accounts, the contact hub and live mail (below). The schema is at
+`CURRENT_VERSION = 38`. `docs/TECHNICAL_REFERENCE.html` describes
 the architecture as it stands; where it and this document disagree on an authority question, this
 document wins and should be corrected.
 
@@ -375,6 +468,23 @@ class AppError(BaseModel):
 | `ERR_OUTLOOK_MISSING` | PST indexing without Outlook | "PST indexing needs Outlook (or convert with XstReader). Other file types index normally." | `RUN_COMMAND`: link to XstReader instructions |
 | `ERR_ENCODING` | Undecodable text file | "Could not decode 'notes.txt'. Indexed with replacement characters; original untouched." | `AUTO_FIX` + log |
 
+Accounts and sync (order 1k) add the codes below. None halts anything but the account it names, and
+each says what to do next:
+
+| Code | Trigger | Suggestion (as shown) | Action |
+|---|---|---|---|
+| `ERR_ACCOUNT_SIGNIN_EXPIRED` | A refresh token expired or was revoked, or an app password was revoked | "Open Settings > Accounts, choose the account and press Reconnect. Nothing already in Leasha is lost." | `USER_RETRY` |
+| `ERR_ACCOUNT_ADMIN_CONSENT` | A work account whose administrator has not approved the app | "Ask your IT administrator to approve the app registration you made (or to allow users to consent to apps) for the permissions Mail.Read and Contacts.ReadWrite, then press Reconnect." | `USER_RETRY` |
+| `ERR_ACCOUNT_NOT_CONFIGURED` | Google or Microsoft chosen with no client ID pasted | "Open Settings > Accounts and follow the step-by-step guide to make your own, then paste its client ID there." | `USER_RETRY` |
+| `ERR_ACCOUNT_UNREACHABLE` | No answer, a wrong server, or a host that is not on the allow-list | "Check the internet connection and the server details, then press Sync now." | `USER_RETRY` |
+| `ERR_ACCOUNT_SECRET_STORE` | Windows Credential Manager could not keep or read a secret | "Leasha never keeps a password or token anywhere else. Unlock or repair Credential Manager and try again." | `USER_RETRY` |
+| `ERR_ACCOUNT_REJECTED` | The server answered and refused | "Press Test connection in the account's panel; if it keeps happening, send the log file." | `USER_RETRY` |
+| `ERR_PROVIDER_LIMIT` | HTTP 429 or 503 | "Nothing to do - Leasha waits as long as the provider asks and tries again." | `AUTO_FIX` |
+| `ERR_SYNC_CONFLICT_HELD` | Contacts changed in two places | "Open Contacts > Changed in two places and choose which value to keep." | `USER_RETRY` |
+| `ERR_SYNC_DELETE_BRAKE` | A push would delete more than the safety limit | "Check the list in the sync log. If it is right, press Allow in the sync log and sync again; if not, press Undo." | `USER_RETRY` |
+| `ERR_SYNC_NEEDS_APPROVAL` | The first sync of an account (a dry run) | "Read what it would add, merge and change, then press Approve to run it for real." | `USER_RETRY` |
+| `ERR_SYNC_FAILED` | Anything else that stopped one account's sync | "Press Sync now to try again; the other accounts were not affected." | `USER_RETRY` |
+
 **Pipeline rule: a single bad file must never halt a 100GB indexing run.** Log it, mark it, surface a "N files skipped — review" panel, continue.
 
 ---
@@ -427,6 +537,12 @@ Fallbacks, unchanged:
 Email features retained: thread grouping, conversation view, sender and date filters,
 attachment indexing through the normal extractor registry.
 
+**Mail that does not come through Outlook.** A connected Google, Microsoft, Apple or other IMAP
+account is a second, independent route in, with no Outlook and no MAPI: see *The live mail path*
+under *Accounts, the contact hub and live mail*. It is read only in the same sense as the rest of
+this section, and a message that both a connected account and an Outlook archive hold is indexed once,
+the live copy winning.
+
 ---
 
 ## ONEDRIVE AND SHAREPOINT
@@ -460,10 +576,53 @@ A file pinned with **Always keep on this device** has none of these bits and ind
 The Settings toggle *Index cloud-only files* opts in, with a blunt warning about disk and
 bandwidth. Default off: silently downloading half a terabyte is not a reasonable default.
 
-**What is deliberately not built:** talking to SharePoint or Graph over the network. That
-would mean OAuth, tokens, tenant permissions and an app registration - and it would break the
-core promise that this thing works entirely offline. Sync the library locally and point the
-indexer at it.
+**What is deliberately not built:** reading OneDrive or SharePoint *files* over the network. A
+Microsoft account (above) brings in the person's mail and contacts through Graph, with the person's
+own app registration, and never files or libraries. Sync the library locally and point the indexer
+at it.
+
+---
+
+## PRIVACY: WHAT MAY LEAVE THIS COMPUTER
+
+Leasha is offline by design, and the rule is about where the data lives, not only where it came
+from: **everything fetched is stored and searched on this machine only.** Search, indexing, reading
+files and the index never open a connection to anywhere else, even with accounts connected
+(`tests/unit/test_accounts_network_guard.py` pins that a search, a Chat turn with the web switch off
+and a folder scan open no non-loopback connection with accounts connected; a full index run with the
+models is the same path plus an embedder that opens no socket, not yet checked on Windows). Exactly three kinds of thing may leave, and each is off until the person sets it up:
+
+1. **Sign-in and the provider calls that fetch mail and contacts.** Only to the providers' own hosts,
+   and only for an account the person added. Google: `accounts.google.com`, `oauth2.googleapis.com`,
+   `people.googleapis.com`, `gmail.googleapis.com`, `www.googleapis.com`. Microsoft:
+   `login.microsoftonline.com`, `graph.microsoft.com`. Apple: `contacts.icloud.com` (and the numbered
+   `pNN-contacts.icloud.com` host it moves a person to) and `imap.mail.me.com`. An IMAP or CardDAV
+   account reaches exactly the one server the person typed in. The list is `PROVIDER_HOSTS` in
+   `app/accounts/http.py`; `AllowedHosts` refuses any other host before a socket is opened, only
+   `https` is allowed (a loopback test server excepted), redirects are never followed, and
+   `tests/unit/test_accounts_network_guard.py` pins the list.
+2. **Contact changes written back to the person's own accounts.** A contact made or changed in Leasha
+   goes to the accounts in its Kept-in set whose direction is Two-way (and a contact moved to the
+   Bin leaves them). Every outward write is journalled and can be undone. Mail is the opposite:
+   nothing is ever written to a mailbox.
+3. **Enrichment look-ups the person has switched on.** The five sources that read only the index
+   (signatures, company from a work email's domain, a photo from named faces, contact history,
+   suggested contacts) send nothing. The three internet sources are each a separate switch, **off by
+   default**: Gravatar (a SHA-256 hash of the email address, never the address, to `www.gravatar.com`),
+   a company's own icon (the company's own domain only, fetched from that domain), and Wikidata (a
+   company name only, never a person, to `www.wikidata.org`). Their hosts are `ENRICHMENT_HOSTS` in
+   `app/accounts/http.py`, kept apart so an account cannot reach them by accident. They run only on
+   demand, never on a timer, and what they propose is kept only if the person accepts it.
+
+Nothing else leaves: no telemetry, no index content, no passages, no mail or contacts to anyone but the
+account they came from. The Chat tab's optional web lookup is separate and unchanged (a short
+sanitised query, off by default). **Secrets** - refresh tokens, app passwords, the Google client
+secret - are kept only in Windows Credential Manager (macOS Keychain), through `keyring`
+(`app/accounts/secrets.py`): never in SQLite, `.env`, a log or a crash report, and a test greps the
+log and the database after a sign-in. Leasha ships with no client ID of its own: each person makes
+their own registrations and pastes the IDs into Settings > Accounts. The MCP server for AI programs
+stays read-only (seven tools, none of which writes), bound to `127.0.0.1` with Leasha's key, and
+never returns a token, a password or a client ID.
 
 ---
 
@@ -486,7 +645,7 @@ Indexing must be: background QThread pool, resumable (cursor persisted), increme
 ## CORE REQUIREMENTS (carried over, amended)
 
 - [x] Semantic + keyword hybrid search over 100GB local data
-- [x] Fully local & private — embeddings in-process; **no cloud, no network required after first model download**
+- [x] Fully local & private — embeddings in-process; **search and indexing need no network after the first model download.** Accounts and enrichment are the only things that may connect, each off until set up (*PRIVACY*, above)
 - [x] PST email search via Outlook MAPI (thread grouping, filters)
 - [x] Drag-drop instant indexing
 - [ ] ~~Create/edit Office documents (DOCX, XLSX, PPTX) from results~~ — cancelled (Layer 7)
@@ -496,6 +655,7 @@ Indexing must be: background QThread pool, resumable (cursor persisted), increme
 - [x] Keyboard shortcuts; dark mode; CSV/JSON export
 - [x] **Every error states the error AND suggests the solution** (AppError contract above)
 - [x] Single-instance app; graceful shutdown persists index cursor
+- [x] Accounts (Google, Microsoft, Apple, IMAP, CardDAV): contacts kept in step both ways, with a dry run first, a delete brake and undo; mail fetched read only and searched like any other
 
 ---
 
