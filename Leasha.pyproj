@@ -189,6 +189,7 @@
     <Compile Include="app\contacts\_pdf.py" />
     <Compile Include="app\contacts\activity.py" />
     <Compile Include="app\contacts\backup.py" />
+    <Compile Include="app\contacts\book_actions.py" />
     <Compile Include="app\contacts\card.py" />
     <Compile Include="app\contacts\cleanup.py" />
     <Compile Include="app\contacts\dupes.py" />
@@ -211,6 +212,7 @@
     <Compile Include="app\contacts\printing.py" />
     <Compile Include="app\contacts\qr.py" />
     <Compile Include="app\contacts\quick_actions.py" />
+    <Compile Include="app\contacts\slash.py" />
     <Compile Include="app\contacts\vcard.py" />
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
@@ -486,6 +488,7 @@
     <Compile Include="app\ui\contacts_tools\cleanup_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\enrich_run.py" />
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
     <Compile Include="app\ui\contacts_tools\import_dialog.py" />
     <Compile Include="app\ui\contacts_tools\merge_dialog.py" />
@@ -527,6 +530,7 @@
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
+    <Compile Include="app\ui\presenter\contact_commands.py" />
     <Compile Include="app\ui\presenter\coverage.py" />
     <Compile Include="app\ui\presenter\explain.py" />
     <Compile Include="app\ui\presenter\facts.py" />
@@ -543,6 +547,7 @@
     <Compile Include="app\ui\presenter\opening.py" />
     <Compile Include="app\ui\presenter\photos.py" />
     <Compile Include="app\ui\presenter\quick_search.py" />
+    <Compile Include="app\ui\presenter\regions.py" />
     <Compile Include="app\ui\presenter\repos.py" />
     <Compile Include="app\ui\presenter\results.py" />
     <Compile Include="app\ui\presenter\rows.py" />
@@ -677,6 +682,7 @@
     <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\rail.py" />
     <Compile Include="app\ui\widgets\rail_order.py" />
+    <Compile Include="app\ui\widgets\region_box.py" />
     <Compile Include="app\ui\widgets\repo_health_note.py" />
     <Compile Include="app\ui\widgets\repo_ignore.py" />
     <Compile Include="app\ui\widgets\restart_note.py" />
@@ -888,6 +894,7 @@
     <Compile Include="tests\unit\test_contact_import_match.py" />
     <Compile Include="tests\unit\test_contact_master.py" />
     <Compile Include="tests\unit\test_contact_merge_undo.py" />
+    <Compile Include="tests\unit\test_contact_slash.py" />
     <Compile Include="tests\unit\test_contact_sync_engine.py" />
     <Compile Include="tests\unit\test_contact_sync_progress.py" />
     <Compile Include="tests\unit\test_contacts_backup_verify.py" />
@@ -1228,6 +1235,7 @@
     <Compile Include="tests\unit\test_reader_process_isolation.py" />
     <Compile Include="tests\unit\test_recency.py" />
     <Compile Include="tests\unit\test_reembed_bad_vectors.py" />
+    <Compile Include="tests\unit\test_region_boxes.py" />
     <Compile Include="tests\unit\test_relax.py" />
     <Compile Include="tests\unit\test_render_page_image_orientation.py" />
     <Compile Include="tests\unit\test_repo_attribution.py" />

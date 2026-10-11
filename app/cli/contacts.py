@@ -91,7 +91,7 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
         return EXIT_OK
 
     if action == "merge-safe":
-        from app.ui.contacts_tools import actions  # noqa: PLC0415 - plain functions; no window is made
+        from app.contacts import book_actions as actions  # noqa: PLC0415 - plain functions; no window is made
 
         scan = actions.scan_book(svc.hub, use_cache=False)
         steps = actions.plan_safe_merges(scan.groups, scan.cards, svc.hub.region)

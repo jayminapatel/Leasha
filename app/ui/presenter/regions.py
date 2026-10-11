@@ -1,4 +1,4 @@
-"""The countries a phone number or an address can be from, as a drop-down shows them. Qt-free apart from names.
+"""The countries a phone number or an address can be from, as a drop-down shows them. Qt-free.
 
 Layer: L5. "default country code should show number and flag" (the owner, 2026-10-11): each row reads
 `flag  United Kingdom  +44`, the two-letter code is what is stored, and typing a code, a name or a
@@ -33,11 +33,12 @@ def flag(code: str) -> str:
 def regions() -> tuple[Region, ...]:
     """Every region phone numbers are known for, by name."""
     import phonenumbers
-    from PySide6.QtCore import QLocale
+    from phonenumbers import geocoder
 
     out = []
     for code in phonenumbers.SUPPORTED_REGIONS:
-        name = QLocale.territoryToString(QLocale.codeToTerritory(code)) or code
+        example = phonenumbers.example_number(code)
+        name = (geocoder.country_name_for_number(example, "en") if example else "") or code
         out.append(Region(code, name, f"+{phonenumbers.country_code_for_region(code)}"))
     return tuple(sorted(out, key=lambda r: r.name.casefold()))
 
