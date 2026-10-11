@@ -952,6 +952,27 @@ class VectorStore:
                 return [float(value) for value in found]
         return None
 
+    def vectors_for(self, chunk_ids: Iterable[int]) -> dict[int, list]:
+        """The stored vectors of these chunks, `{chunk_id: vector}`; a chunk with
+        none is left out. Order 1h 6b: an identical copy's passages take these
+        instead of the model. Raises what the table raises - the caller falls
+        back to the model."""
+        wanted = sorted({int(chunk_id) for chunk_id in chunk_ids})
+        if self._table is None or not wanted:
+            return {}
+        out: dict[int, list] = {}
+        for start in range(0, len(wanted), 500):
+            part = wanted[start:start + 500]
+            rows = (self._table.search()
+                    .where(f"chunk_id IN ({', '.join(str(i) for i in part)})")
+                    .select(["chunk_id", "vector"])
+                    .limit(len(part)).to_list())
+            for row in rows:
+                found = row.get("vector")
+                if found is not None:
+                    out[int(row["chunk_id"])] = [float(value) for value in found]
+        return out
+
     def bad_vectors(self, batch_size: int = 8192) -> list[tuple[int, int]]:
         r"""`(chunk_id, file_id)` of every row whose vector is empty or not a number.
 

@@ -752,6 +752,10 @@ def cmd_index(args: argparse.Namespace, events: "_EventSession | None" = None) -
         share = stats.chunks_deduped / max(1, stats.chunks + stats.chunks_deduped)
         print(f"Repeated  {stats.chunks_deduped:,} passage(s) were already "
               f"embedded this run ({share:.0%}) and were not sent again")
+    if getattr(stats, "vectors_reused", 0):
+        # Order 1h 6b: the same file in two places is given meaning once.
+        print(f"Copies    {stats.vectors_reused:,} passage(s) in identical copies of "
+              f"files already given meaning took their vectors and were not sent")
     if stats.stages:
         # §6a, in the shape §4f shows: proportions, because the question this
         # answers is "what should I change" and that is about shares.

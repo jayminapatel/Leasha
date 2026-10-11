@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.106 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.107 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Copies are given meaning once, and drawings are found by their words (2026-10-11)
+
+- **A file that is an exact copy of one already given meaning takes its meaning** instead of waiting for the model -
+  backups, versioned folders, the same attachment twice. A quarter of what was waiting on the owner's index.
+- **SVG drawings are found by their words only**, as spreadsheets are, whatever "Find spreadsheets by meaning" says.
+  Drawing passages already waiting leave the queue at the next run.
 
 ### A damaged Office file is reported as damaged (2026-10-11)
 

@@ -257,6 +257,12 @@ EMBED_BATCH = _EMBED_BATCH
 #: half of all embedding, for rows of cells a meaning search rarely helps with.
 KEYWORD_ONLY_EXTS = frozenset({"xlsx", "xlsm", "xlsb", "xls", "ods", "csv", "tsv"})
 
+#: 2026-10-11, the owner: "make svg keyword only". Drawings, found by their
+#: words only whatever "Find spreadsheets by meaning" says: an SVG's text is
+#: labels and attribute values, and on the owner's index it was 651,707
+#: passages, 10% of everything waiting for the model.
+WORDS_ONLY_EXTS = frozenset({"svg"})
+
 #: Files between free-space checks. `shutil.disk_usage` is a syscall, so this is
 #: cheap, but not free enough to do per file.
 DISK_CHECK_EVERY = 200
@@ -505,6 +511,11 @@ class IndexStats:
     #: chunks it is not worth the code, and the only way to know is to look at
     #: a real corpus.
     chunks_deduped: int = 0
+    #: Order 1h 6b (2026-10-11). Passages that took the vector of the same
+    #: passage in an identical copy of the file (same `content_hash`) that
+    #: already had one, instead of the model. 25% of what waited on the owner's
+    #: index was in such copies.
+    vectors_reused: int = 0
     #: Which pass this is - `both`, `text` or `images`. Carried on the stats so
     #: the progress line can say "reading with OCR", because seconds per page
     #: looks exactly like a stall on a line built for hundreds of files a minute.
@@ -726,6 +737,7 @@ class IndexStats:
             "vectors": self.vectors,
             "embed_failures": self.embed_failures,
             "chunks_deduped": self.chunks_deduped,
+            "vectors_reused": self.vectors_reused,
             "name_only": self.name_only,
             "name_only_by_ext": dict(self.name_only_by_ext),
             "skipped_by_code": dict(self.skipped_by_code),
@@ -2161,13 +2173,23 @@ class Pipeline:
             # passages kept by their words only join the repair just below.
             if getattr(self.config, "spreadsheet_meaning", False):
                 try:
-                    released = self.store.reset_keyword_only()
+                    released = self.store.reset_keyword_only(KEYWORD_ONLY_EXTS)
                     if released:
                         self._log.info(
                             "{} spreadsheet passage(s) will be given meaning "
                             "as well as words", released)
                 except Exception as exc:          # noqa: BLE001 - a repair, not the job
                     self._log.warning("could not queue spreadsheet passages: {}", exc)
+            # 2026-10-11: and passages of a words-only type stored before it was
+            # one leave the model's queue before the repair below takes them.
+            try:
+                held = self.store.mark_keyword_only_for_exts(WORDS_ONLY_EXTS)
+                if held:
+                    self._log.info(
+                        "{} drawing passage(s) are found by their words only, "
+                        "and leave the queue for the meaning model", held)
+            except Exception as exc:              # noqa: BLE001 - a repair, not the job
+                self._log.warning("could not take drawing passages off the queue: {}", exc)
             self._run_enrichment_drains(stats)
         # Before anything else: an archival root that is being skipped must not
         # have its own stores protected, its repositories seeded or its rows
@@ -5892,10 +5914,14 @@ class Pipeline:
         return bool(getattr(self.config, "two_phase", False))
 
     def _keyword_only(self, ext: Optional[str]) -> bool:
-        """Is a file of this type found by its words only? See `KEYWORD_ONLY_EXTS`."""
+        """Is a file of this type found by its words only? See `KEYWORD_ONLY_EXTS`
+        and `WORDS_ONLY_EXTS`."""
+        ext = str(ext or "").lower().lstrip(".")
+        if ext in WORDS_ONLY_EXTS:
+            return True
         if getattr(self.config, "spreadsheet_meaning", False):
             return False
-        return str(ext or "").lower().lstrip(".") in KEYWORD_ONLY_EXTS
+        return ext in KEYWORD_ONLY_EXTS
 
     def _hand_over_or_park(self, batch: list[tuple[int, int, str]]) -> None:
         r"""Give the batch to the meaning model if it is free; park it if not.
@@ -8689,6 +8715,73 @@ class Pipeline:
             self._stats_ref.warned_by_code["ERR_CLIP_STORE"] = (
                 self._stats_ref.warned_by_code.get("ERR_CLIP_STORE", 0) + 1)
 
+    def _embed_reusing(self, pending: list[tuple[int, int, str]], texts: list[str]) -> list:
+        r"""`_embed_texts`, with passages of an already-embedded copy reused. 1h 6b.
+
+        A file whose `content_hash` matches another file with vectors - a
+        backup, a versioned folder, the same attachment on two messages - is
+        the same words, and so the same vectors: each passage whose text
+        matches a passage of the copy takes that vector, and only the rest go
+        to the model. Matched on text, not ordinal, so a copy read by an
+        older chunker gives what it can and costs nothing wrong.
+
+        One list as long as `pending`, as `_embed_texts` returns, with `None`
+        where a stop left a passage without one - `_embed_pending` keeps whole
+        files. Off with "Embed repeated passages once" (`EMBED_DEDUP`), and
+        anything unexpected falls back to the model for the whole batch.
+        """
+        reused = self._reused_vectors(pending)
+        if not reused:
+            return self._embed_texts(texts)
+        rest = [index for index in range(len(texts)) if index not in reused]
+        fresh = self._embed_texts([texts[index] for index in rest]) if rest else []
+        if len(fresh) != len(rest) and not self._stop.is_set():
+            self._log.warning(
+                "the model returned {} vectors for {} passages; not reusing",
+                len(fresh), len(rest))
+            return self._embed_texts(texts)
+        out: list = [None] * len(texts)
+        for index, vector in reused.items():
+            out[index] = vector
+        for index, vector in zip(rest, fresh):
+            out[index] = vector
+        if any(vector is None for vector in out) and not self._stop.is_set():
+            return self._embed_texts(texts)
+        # A stop that cut `fresh` short leaves gaps (`None`), which is what the
+        # shortest-first path reports too; `_embed_pending` keeps whole files.
+        self._stats_ref.vectors_reused += len(reused)
+        return out
+
+    def _reused_vectors(self, pending: list[tuple[int, int, str]]) -> dict[int, Any]:
+        """`{index in pending: vector}` from identical, already-embedded copies.
+
+        Empty when the switch is off, the stores cannot say, or anything goes
+        wrong - the model then does the work, as it always did. Never raises.
+        """
+        if not self.config.dedup_chunks or not pending:
+            return {}
+        twins_of = getattr(self.store, "embedded_twin_passages", None)
+        read = getattr(self.vectors, "vectors_for", None)
+        if twins_of is None or read is None:
+            return {}
+        try:
+            twins = twins_of(dict.fromkeys(fid for _c, fid, _t in pending))
+            if not twins:
+                return {}
+            wanted: dict[int, int] = {}
+            for index, (_cid, fid, text) in enumerate(pending):
+                source = twins.get(fid, {}).get(text)
+                if source is not None:
+                    wanted[index] = source
+            if not wanted:
+                return {}
+            found = read(set(wanted.values()))
+            return {index: found[source] for index, source in wanted.items()
+                    if source in found}
+        except Exception as exc:                 # noqa: BLE001 - the model is the fallback
+            self._log.warning("could not reuse the vectors of identical files: {}", exc)
+            return {}
+
     def _embed_texts(self, texts: list[str]) -> list:
         r"""Embed a batch, sending each **distinct** passage once. §6e.
 
@@ -8932,7 +9025,7 @@ class Pipeline:
         # wants a faster drive. Neither is guessable from the outside, and both
         # are one `perf_counter` pair here.
         with self._clock.stage("embed"):
-            vectors = self._embed_texts(texts)
+            vectors = self._embed_reusing(pending, texts)
 
         if self._stop.is_set() and any(vector is None for vector in vectors):
             # **A stop arrived mid-batch, and the batch was taken shortest

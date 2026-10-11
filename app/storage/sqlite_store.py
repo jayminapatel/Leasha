@@ -4016,6 +4016,42 @@ class SqliteStore:
             self._bump_generation(conn)
         return SqliteStore.ChunkIds(ids, to_embed=to_embed, removed=removed)
 
+    def embedded_twin_passages(self, file_ids: Iterable[int]) -> dict[int, dict[str, int]]:
+        """For each of these files with an identical copy that has vectors: the
+        copy's embedded passages, as `{file_id: {text: chunk_id}}`.
+
+        Order 1h 6b (2026-10-11). "Identical" is the same `content_hash`
+        (`idx_files_content_hash`); a copy counts when any of its passages has
+        a vector (`embedded = 1`), and only those passages are offered. One
+        copy per file - the lowest id - so the answer is the same every time.
+        Files without a hash, or without such a copy, are left out.
+        """
+        wanted = sorted({int(file_id) for file_id in file_ids})
+        twin_of: dict[int, int] = {}
+        for start in range(0, len(wanted), 900):
+            part = wanted[start:start + 900]
+            for file_id, twin in self.conn.execute(
+                    f"SELECT f.id, MIN(g.id) FROM files f "
+                    f"JOIN files g ON g.content_hash = f.content_hash AND g.id <> f.id "
+                    f"WHERE f.id IN ({','.join('?' * len(part))}) "
+                    f"AND f.content_hash IS NOT NULL "
+                    f"AND EXISTS (SELECT 1 FROM chunks c WHERE c.file_id = g.id "
+                    f"AND c.embedded = 1) "
+                    f"GROUP BY f.id", part):
+                twin_of[int(file_id)] = int(twin)
+        if not twin_of:
+            return {}
+        by_twin: dict[int, dict[str, int]] = {}
+        twins = sorted(set(twin_of.values()))
+        for start in range(0, len(twins), 900):
+            part = twins[start:start + 900]
+            for file_id, chunk_id, text in self.conn.execute(
+                    f"SELECT file_id, id, text FROM chunks WHERE embedded = 1 "
+                    f"AND file_id IN ({','.join('?' * len(part))}) ORDER BY id", part):
+                by_twin.setdefault(int(file_id), {}).setdefault(str(text), int(chunk_id))
+        return {file_id: by_twin[twin] for file_id, twin in twin_of.items()
+                if twin in by_twin}
+
     def embedded_chunk_ids(self, file_ids: Iterable[int]) -> set[int]:
         """The ids of these files' passages that have a vector (`embedded = 1`).
 
@@ -5265,16 +5301,46 @@ class SqliteStore:
             conn.executemany(
                 f"UPDATE chunks SET embedded = {self.KEYWORD_ONLY} WHERE id = ?", ids)
 
-    def reset_keyword_only(self) -> int:
+    def reset_keyword_only(self, exts: Optional[Iterable[str]] = None) -> int:
         """Put keyword-only passages in the embedding queue. Returns how many.
 
         For "Find spreadsheets by meaning" switched back on: the run's start
         repair (`Pipeline._drain_unembedded`) then gives them vectors without
-        reading a single spreadsheet again.
+        reading a single spreadsheet again. 2026-10-11: `exts` limits it to
+        files of those types, so a drawing kept by its words only on purpose
+        (`pipeline.WORDS_ONLY_EXTS`) stays so.
         """
         with self.write() as conn:
+            if exts is None:
+                cursor = conn.execute(
+                    f"UPDATE chunks SET embedded = 0 WHERE embedded = {self.KEYWORD_ONLY}")
+            else:
+                names = sorted({str(e).lower().lstrip(".") for e in exts})
+                if not names:
+                    return 0
+                marks = ",".join("?" * len(names))
+                cursor = conn.execute(
+                    f"UPDATE chunks SET embedded = 0 WHERE embedded = {self.KEYWORD_ONLY} "
+                    f"AND file_id IN (SELECT id FROM files WHERE lower(ext) IN ({marks}))",
+                    names)
+            return int(cursor.rowcount)
+
+    def mark_keyword_only_for_exts(self, exts: Iterable[str]) -> int:
+        """Take passages of files of these types off the model's queue. Returns how many.
+
+        2026-10-11: for a type made words-only after its passages were stored
+        and left waiting (`embedded = 0`). Passages that already have a vector
+        keep it. One indexed lookup per file of the type once none is waiting.
+        """
+        names = sorted({str(e).lower().lstrip(".") for e in exts})
+        if not names:
+            return 0
+        marks = ",".join("?" * len(names))
+        with self.write() as conn:
             cursor = conn.execute(
-                f"UPDATE chunks SET embedded = 0 WHERE embedded = {self.KEYWORD_ONLY}")
+                f"UPDATE chunks SET embedded = {self.KEYWORD_ONLY} WHERE embedded = 0 "
+                f"AND file_id IN (SELECT id FROM files WHERE lower(ext) IN ({marks}))",
+                names)
             return int(cursor.rowcount)
 
     def has_embedded_chunks(self, file_id: int) -> bool:

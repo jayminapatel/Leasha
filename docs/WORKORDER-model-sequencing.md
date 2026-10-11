@@ -1,6 +1,6 @@
 # Work order (One thread): the models run where they pay, in the order that pays, and the graphics card is one lock across processes
 
-**Doc version:** 1.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/core/gpu_serialize.py`, `app/index/pipeline.py`, `app/index/media_backlog.py`,
 `app/extract/ocr.py`, `app/extract/chunker.py`, `app/search/engine.py`, `app/search/vector.py`,
 `app/search/translate.py`, `app/ui/workers.py`, `app/ui/shell.py`, `app/chat/engine.py`, `app/chat/context.py`,
@@ -218,6 +218,16 @@ tail without a word (UNCONFIRMED).
       > sit in second-and-later copies of a file with the same `content_hash`** - a lower bound for 6b, which matches
       > passages, not whole files. Not small: the item stands. Passage-level share not measured (a full read of the
       > 31 GB store did not finish in 10 minutes).
+      > **2026-10-11, built (owner: "build 6b").** Departure from the item's wording: matched by *file*, not by a
+      > hash of each passage. A file whose `content_hash` matches a file with vectors takes, for each passage whose text
+      > matches, that copy's vector (`SqliteStore.embedded_twin_passages`, `VectorStore.vectors_for`,
+      > `Pipeline._embed_reusing`); the rest go to the model. Why: it uses `idx_files_content_hash` and
+      > `idx_chunks_file_ord`, which exist, where a passage hash needs a new column and index backfilled over 8.9M rows
+      > of a 31 GB store. It covers the 25% measured above; identical passages in *different* files (boilerplate) are
+      > still only caught within one batch (6e). Off with `EMBED_DEDUP`. Counted as `IndexStats.vectors_reused` and
+      > reported by `app.cli index` ("Copies ..."). Measured on the owner's index, read-only: the twin lookup 1.31 s
+      > for a batch of 300 files, `vectors_for` 0.22 s for 256 vectors, against ~35 s of model per batch.
+      > `tests/unit/test_vector_reuse.py`: a file copied into three folders is embedded once - the item's acceptance.
 - [ ] **6b** A passage whose text is identical to one already embedded (a content hash of the passage) takes
       the existing vector instead of the model.
       *Acceptance:* a fixture with a file copied into three folders embeds its passages once; the share of
