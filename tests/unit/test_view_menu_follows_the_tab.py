@@ -42,10 +42,12 @@ def test_the_menu_shows_the_options_of_the_tab_in_front(gui_mainwindow):
     window._fill_view_menu(menu)
     on_files = _texts(menu)
     assert on_files[0] == "Preview pane"
+    # 2026-10-11, order 1m: the window's own Reset page order follows it, on every tab.
+    assert on_files[1] == "Reset page order"
     assert "Columns" in on_files, "the tab's own options follow"
     own = [a.text() for a in window.files_view.view_button.menu_for(window).actions()
            if a.text() and a.text().replace("&", "") != "Preview pane"]
-    assert [t for t in _texts(menu)[1:]] == [t.replace("&", "") for t in own],         "the tab's own options, in its own order, Preview pane once"
+    assert [t for t in _texts(menu)[2:]] == [t.replace("&", "") for t in own],         "the tab's own options, in its own order, Preview pane once"
 
     window._show(window.mail_view)
     window._fill_view_menu(menu)
@@ -56,7 +58,7 @@ def test_the_menu_shows_the_options_of_the_tab_in_front(gui_mainwindow):
     if indexing is not None:
         window._show(indexing)
         window._fill_view_menu(menu)
-        assert _texts(menu) == ["Preview pane"]
+        assert _texts(menu) == ["Preview pane", "Reset page order"]   # the window's own two
 
 
 def test_a_choice_in_the_menu_is_the_tabs_choice(gui_mainwindow):

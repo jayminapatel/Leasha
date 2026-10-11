@@ -2592,6 +2592,17 @@ class SqliteStore:
         where = (" WHERE " + " AND ".join(clauses)) if clauses else " WHERE 1=1"
         return where, params
 
+    def mail_folder_counts(self) -> list[tuple[str, str, int]]:
+        """`(archive, folder, messages)` for every folder that holds mail. Order 1n.
+
+        One grouped read of `messages` (its `store_path` and `folder_path`,
+        schema 32); a message read before folders were kept has folder "".
+        """
+        rows = self.conn.execute(
+            "SELECT COALESCE(store_path, ''), COALESCE(folder_path, ''), COUNT(*) "
+            "FROM messages GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+        return [(str(a), str(f), int(n)) for a, f, n in rows]
+
     def count_messages_matching(
         self,
         *,

@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.76 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.77 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -85,7 +85,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1k | `accounts-mail-and-contact-sync` | Accounts - live mail in, and a contact book that syncs | RELEASED *(owner, 2026-10-11: "release it and push but wait for my go ahead to implement")* | 1 / 107 | **Waiting for the owner's go-ahead to start.** One order, three phases (A accounts, contacts, the Contacts pill, read-only MCP tools, Settings > Accounts; B live mail; C free enrichment). Google, Microsoft, Apple and any IMAP or CardDAV accounts, any number of each; contacts two-way with Leasha as the hub; an icon-rich Contacts page (6m) with a Duplicates screen, merge preview, clean-up tools, label and address-book printing, tags and quick actions (6n-6t); no birthday reminders and no mail-merge export (owner). Every decision D1-D17 taken by the owner; 0c checked against the providers' own pages. 0a (the two rule exceptions in `docs/PROJECT_INSTRUCTIONS.md`) is the first step after the go-ahead |
 | 1l | `outlook-duplicate-cleanup` | Copies of a message in a mailbox are moved to its Deleted Items, from a button on its line | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "yes write the order for the outlook clean-up and execute")* | 10 / 10 | Follows 1j: the index holds one copy, the `.pst` still two. Read and moved through Outlook; never deleted outright; moving is the owner's press of the button |
 | 1m | `rail-order-by-drag` | The rail's pages can be put in any order, by dragging or from a menu | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all")* | 6 / 6 | Default order the owner's; Indexing and Settings fixed |
-| 1n | `mail-folder-list` | Mail shows the mailboxes and their folders on the left, and a click narrows the list | RELEASED *(owner, 2026-10-11: "b do them all")* | 0 / 5 | Data already stored (`messages.store_path`, `folder_path`) |
+| 1n | `mail-folder-list` | Mail shows the mailboxes and their folders on the left, and a click narrows the list | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all")* | 5 / 5 | Data already stored (`messages.store_path`, `folder_path`) |
 | 1o | `chat-like-claude` | Chat looks and works like a modern assistant: one calm column, actions on hover and right-click | RELEASED *(owner, 2026-10-11: "b do them all")* | 0 / 6 | Layout only; every existing action kept |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of

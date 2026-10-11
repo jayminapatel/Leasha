@@ -236,7 +236,7 @@ def browse_files_typed(store: Any, raw: str, *, limit: int, preferences: Any = N
 
 
 def browse_messages_typed(store: Any, raw: str, *, limit: int, preferences: Any = None,
-                          declined: Any = ()) -> dict:
+                          declined: Any = (), folder: Any = None) -> dict:
     """`browse_messages_page` for a typed line, read the shared way. **Worker.**
 
     The words left once the filters are taken out narrow the list by what the
@@ -248,6 +248,17 @@ def browse_messages_typed(store: Any, raw: str, *, limit: int, preferences: Any 
     parsed, applied = read_box(store, raw, surface="mail", preferences=preferences,
                                declined=declined)
     filters = mail_filters(parsed)
+    if folder:
+        # Order 1n: the Mail folder list's choice - an archive, and a folder in it
+        # with its sub-folders ("" for the whole archive).
+        from app.storage.like import like_escape
+
+        archive, path = str(folder[0]), str(folder[1] or "")
+        filters["file_where"] = (str(filters.get("file_where") or "")
+                                 + " AND m.store_path = ? AND (? = '' OR m.folder_path = ?"
+                                   " OR m.folder_path LIKE ? ESCAPE '\\')")
+        filters["file_params"] = [*(filters.get("file_params") or ()), archive, path, path,
+                                  like_escape(path + "/") + "%"]
     words = _words_of(parsed)
     if words:
         filters["words"] = words
