@@ -83,6 +83,7 @@ def test_it_opens_with_each_accounts_last_result_and_what_it_refused(ctx, qtbot)
 def test_progress_shows_the_step_the_bar_and_the_contact_it_is_on(ctx, qtbot):
     c, sched = ctx
     dlg = open_dialog(qtbot, SyncDialog, c)
+    sched.busy = True                    # a run is going, as it is whenever progress arrives
     sched.run_started.emit("sync-now")
     sched.progress.emit({"account": "MS Main", "account_id": 2, "phase": "reading", "done": 300, "total": 0})
     assert "Reading the account - 300 so far" in _cell(dlg, "MS Main", 2)
