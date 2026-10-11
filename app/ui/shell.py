@@ -778,6 +778,13 @@ class MainWindow(QMainWindow):
         from app.ui.widgets import rail_order
 
         rail_order.restore(self)
+        # Order 1p: Files, Code and Browse gain their left-hand lists, drawn the
+        # Contacts way like every other page's (`widgets/side_panel.py`).
+        from app.ui.widgets import side_panel
+
+        side_panel.wire_files(self.files_view)
+        side_panel.wire_code(self.code_view)
+        side_panel.wire_browse(self.timeline_view)
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
         fit_number_fields(self)
@@ -1914,6 +1921,10 @@ class MainWindow(QMainWindow):
         if photos is not None:
             photos.view_button.retint(colours)
             photos.tree_button.retint(colours)           # 2026-10-11: the tree's switch
+            photos.sidebar.retint(colours)               # order 1p: its icons follow the theme
+        timeline = getattr(self, "timeline_view", None)
+        if timeline is not None:
+            retint_toggles(timeline, colours)            # order 1p: Browse's switch and list
         self._tint_menu_icons(colours)
         for pane in self._preview_panes():
             pane.retint(colours)

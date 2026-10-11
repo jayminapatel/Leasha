@@ -1,10 +1,10 @@
 # Work order (One thread): one left-hand list for every page, drawn the Contacts way
 
-**Doc version:** 1.0 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/ui/widgets/side_list.py`, `app/ui/widgets/mail_folders.py`,
 `app/ui/widgets/photo_sidebar.py`, `app/ui/files_view.py`, `app/ui/code_view.py`,
 `app/ui/timeline_view.py`, `app/ui/presenter/`, `app/storage/sqlite_store.py`, `tests/unit/`, the user guide)
-**Status:** RELEASED by the owner 2026-10-11 ("yes write the order and build it for all and build it"), after
+**Status:** BUILT 2026-10-11, all 8; D1-D4 as written, with one change to D1 (below); RELEASED by the owner 2026-10-11 ("yes write the order and build it for all and build it"), after
 "i like the look of contacts panel with icons etc can that be standardised ?" and the thread's ideas for the
 three pages that had no list (Files, Code, Browse).
 
@@ -38,15 +38,31 @@ widget by the Mail & Contacts thread after `main` is merged into its branch, not
 
 ## Items
 
-- [ ] **1a** `SideList` and its `SideEntry` (D1), with icons, colours, counts, tooltips, sections, the menu and
+> *2026-10-11, built:* `app/ui/widgets/side_list.py` (`SideList`) and `app/ui/presenter/side_entry.py` (`SideEntry`,
+> Qt-free so presenters build entries): sections that fold (a section seen first follows `open_sections`, then the
+> person's choice), icons, colours, counts, tooltips, nesting (`parent`), "More..." past `shown`, doors (`door`), a
+> right-click menu (`menu` -> `menu_chosen`). **D1 changed:** an entry in force is drawn bold with its icon in the
+> accent, not with a tick box - the Contacts panel the owner liked has none, and the boxes looked busy in the first
+> grab. New icons: file, sheet, presentation, archive, video.
+- [x] **1a** `SideList` and its `SideEntry` (D1), with icons, colours, counts, tooltips, sections, the menu and
   "doors".
-- [ ] **1b** Mail's folders on `SideList`.
-- [ ] **1c** Photos' list on `SideList`, its ticks kept.
-- [ ] **2a** Files: Places, Drives, Kinds (D3), read on a worker, a click into the box (D2), switched (D4).
-- [ ] **2b** Code: Repositories, Languages (D3), the same way.
-- [ ] **2c** Browse: Years and months, Show (D3); a click opens that year or month, or that kind.
-- [ ] **3a** Tests: the widget; each page's list, its click and its switch; counts read off the window's thread.
-- [ ] **3b** The user guide's Files, Code, Browse, Mail and Photos sections, and the Mail & Contacts thread told
+- [x] **1b** Mail's folders on `SideList`.
+- [x] **1c** Photos' list on `SideList`, its ticks kept.
+> *2026-10-11, built:* counts in `app/storage/side_counts.py` (one grouped read each), entries in
+> `presenter/side_entries.py`, wiring in `widgets/side_panel.py` (`attach`, `wire_files`, `wire_code`, `wire_browse`),
+> called from `MainWindow._construct_secondary_views` - Files and Code are at their 250-line guard and gain no line.
+> Counts are read on a worker each time the page is shown; the bold follows the box as it is typed.
+- [x] **2a** Files: Places, Drives, Kinds (D3), read on a worker, a click into the box (D2), switched (D4).
+- [x] **2b** Code: Repositories, Languages (D3), the same way.
+- [x] **2c** Browse: Years and months, Show (D3); a click opens that year or month, or that kind.
+- [x] **3a** Tests: the widget; each page's list, its click and its switch; counts read off the window's thread.
+> *2026-10-11:* the Mail & Contacts thread was told before the build; it says moving Contacts onto `SideList` stays
+> unassigned until the owner asks. **How, when it is:** `logic.Entry` maps to `SideEntry` field for field (`arg` ->
+> `value`, plus `kind="door"` for Possible duplicates); `ContactSidebar` becomes a `SideList` whose `picked` is today's
+> `picked`, whose `door` asks for the Duplicates tool, and whose per-kind menus (smart group, tag, group) become each
+> entry's `menu` with `menu_chosen` emitting today's `smart_edit` / `tag_colour` / `group_rename` signals; New smart
+> group stays a button under it.
+- [x] **3b** The user guide's Files, Code, Browse, Mail and Photos sections, and the Mail & Contacts thread told
   how to move Contacts onto `SideList`.
 
 ## Close-out

@@ -84,10 +84,13 @@ def test_the_list_the_switch_and_the_view_entry(store):
     QThreadPool.globalInstance().waitForDone(5000)
     QApplication.processEvents()
     folders = view.folder_split.widget(0)
+    # Order 1p: drawn by `SideList` - All mail, then a Mailboxes section.
     names = [folders.topLevelItem(i).text(0) for i in range(folders.topLevelItemCount())]
-    assert names == ["All mail", "2018.pst", "2019.pst"]
+    assert names == ["All mail", "Mailboxes"]
+    boxes = folders.topLevelItem(1)
+    assert [boxes.child(i).text(0) for i in range(boxes.childCount())] == ["2018.pst", "2019.pst"]
 
-    item = folders.topLevelItem(1).child(0)                  # 2018.pst > Inbox
+    item = boxes.child(0).child(0)                           # 2018.pst > Inbox
     folders._clicked(item, 0)
     assert view.mail_folder == (ARCHIVE, "Inbox")
 

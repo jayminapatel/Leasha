@@ -46,6 +46,8 @@ ICON_NAMES = (
     # The rail and the Search toolbar (§1c as first written).
     "search", "folder", "mail", "code", "hard-drive", "chart-column",
     "settings", "pin", "chart-no-axes-column", "layout-grid", "panel-right", "panel-left",
+    # Order 1p: the side lists' kinds.
+    "file", "sheet", "presentation", "archive", "video",
     "ellipsis", "x", "chevron-down", "chevron-right", "move", "sparkles",
     "database",
     # §0.3, owner 2026-09-16 - "icons wherever possible": the inspector's

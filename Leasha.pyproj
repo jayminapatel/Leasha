@@ -428,6 +428,7 @@
     <Compile Include="app\storage\filters.py" />
     <Compile Include="app\storage\like.py" />
     <Compile Include="app\storage\migrations.py" />
+    <Compile Include="app\storage\side_counts.py" />
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
@@ -537,6 +538,8 @@
     <Compile Include="app\ui\presenter\rows.py" />
     <Compile Include="app\ui\presenter\search.py" />
     <Compile Include="app\ui\presenter\settings.py" />
+    <Compile Include="app\ui\presenter\side_entries.py" />
+    <Compile Include="app\ui\presenter\side_entry.py" />
     <Compile Include="app\ui\presenter\snippets.py" />
     <Compile Include="app\ui\presenter\space_rows.py" />
     <Compile Include="app\ui\presenter\timed_out.py" />
@@ -681,6 +684,8 @@
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
+    <Compile Include="app\ui\widgets\side_list.py" />
+    <Compile Include="app\ui\widgets\side_panel.py" />
     <Compile Include="app\ui\widgets\side_toggle.py" />
     <Compile Include="app\ui\widgets\skeleton.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
@@ -1269,6 +1274,7 @@
     <Compile Include="tests\unit\test_shimmer_bar.py" />
     <Compile Include="tests\unit\test_shortcut_and_tray_search.py" />
     <Compile Include="tests\unit\test_show_in_folder.py" />
+    <Compile Include="tests\unit\test_side_lists.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
     <Compile Include="tests\unit\test_source_types.py" />
@@ -1410,6 +1416,7 @@
     <Content Include="archive\finish-cleanup.ps1" />
     <Content Include="archive\scripts\setup-github.ps1" />
     <Content Include="assets\icons\archive-restore.svg" />
+    <Content Include="assets\icons\archive.svg" />
     <Content Include="assets\icons\arrow-right-left.svg" />
     <Content Include="assets\icons\at-sign.svg" />
     <Content Include="assets\icons\badge-check.svg" />
@@ -1455,6 +1462,7 @@
     <Content Include="assets\icons\file-plus.svg" />
     <Content Include="assets\icons\file-spreadsheet.svg" />
     <Content Include="assets\icons\file-text.svg" />
+    <Content Include="assets\icons\file.svg" />
     <Content Include="assets\icons\filter.svg" />
     <Content Include="assets\icons\flask-conical.svg" />
     <Content Include="assets\icons\folder-input.svg" />
@@ -1502,6 +1510,7 @@
     <Content Include="assets\icons\pin.svg" />
     <Content Include="assets\icons\play.svg" />
     <Content Include="assets\icons\plus.svg" />
+    <Content Include="assets\icons\presentation.svg" />
     <Content Include="assets\icons\printer.svg" />
     <Content Include="assets\icons\qr-code.svg" />
     <Content Include="assets\icons\refresh-cw.svg" />
@@ -1513,6 +1522,7 @@
     <Content Include="assets\icons\send.svg" />
     <Content Include="assets\icons\server.svg" />
     <Content Include="assets\icons\settings.svg" />
+    <Content Include="assets\icons\sheet.svg" />
     <Content Include="assets\icons\shield-check.svg" />
     <Content Include="assets\icons\skip-forward.svg" />
     <Content Include="assets\icons\sliders-horizontal.svg" />
@@ -1536,6 +1546,7 @@
     <Content Include="assets\icons\user.svg" />
     <Content Include="assets\icons\users-round.svg" />
     <Content Include="assets\icons\users.svg" />
+    <Content Include="assets\icons\video.svg" />
     <Content Include="assets\icons\wand-sparkles.svg" />
     <Content Include="assets\icons\wifi-off.svg" />
     <Content Include="assets\icons\x-circle.svg" />

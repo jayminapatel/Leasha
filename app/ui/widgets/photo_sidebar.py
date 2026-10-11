@@ -19,8 +19,9 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QFont
-from PySide6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, QWidget
+from PySide6.QtWidgets import QWidget
+
+from app.ui.widgets.side_list import SideList
 
 from app.ui.presenter.photos import KINDS, box_has
 
@@ -44,119 +45,75 @@ ROLE_ACTION = int(Qt.ItemDataRole.UserRole) + 3
 SHOWN = 12
 
 
-class PhotoSidebar(QTreeWidget):
-    """Narrowing lists. `toggled(switch, value)`; `action(name)` for the rest."""
+#: Each section's icon (order 1p: drawn the Contacts way).
+SECTION_ICONS = {"people": "user", "years": "calendar", "places": "map-pin", "kinds": "tag",
+                 "types": "image"}
+
+
+class PhotoSidebar(SideList):
+    """Narrowing lists. `toggled(switch, value)`; `action(name)` for the rest.
+
+    Order 1p (2026-10-11): drawn by `SideList`, so it looks like every other page's list
+    and the Contacts one - an icon on every line, a faint count, sections that fold.
+    What a click does is unchanged.
+    """
 
     toggled = Signal(str, object)
     action = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("photo_sidebar")
-        self.setHeaderHidden(True)
-        self.setColumnCount(2)
-        self.setRootIsDecorated(True)
-        self.setIndentation(10)
-        self.setUniformRowHeights(True)
-        self.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
-        self.setToolTip("Click a person, a year or a place to narrow the photos to it; "
-                        "click again to take it away")
+        super().__init__("photo_sidebar", accessible="People, years and places",
+                         tip="Click a person, a year or a place to narrow the photos to it; "
+                             "click again to take it away",
+                         shown=SHOWN, open_sections=("People", "Years", "Only"), parent=parent)
         self.setMinimumWidth(190)
-        from PySide6.QtWidgets import QHeaderView
-
-        self.header().setStretchLastSection(False)
-        self.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
-        self.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        self.itemClicked.connect(self._clicked)
-        self._expanded: set[str] = set()
         self._box = ""
         self._counts: dict = {}
         self._waiting = 0
+        self.picked.connect(self._picked)
+        self.door.connect(lambda entry: self.action.emit(str(entry.value)))
         self.fill({}, 0)
 
     def fill(self, counts: dict, waiting: int) -> None:
         """Rebuild from `presenter.photos.facets` counts and the faces waiting."""
         self._counts, self._waiting = counts, int(waiting or 0)
-        open_sections = {self.topLevelItem(i).data(0, ROLE_SWITCH)
-                         for i in range(self.topLevelItemCount())
-                         if self.topLevelItem(i).isExpanded()} or {"people", "years", "kinds"}
-        self.clear()
-        bold = QFont(self.font())
-        bold.setBold(True)
+        self._draw()
 
-        naming = QTreeWidgetItem(["People to name", f"{self._waiting:,}" if self._waiting else ""])
-        naming.setData(0, ROLE_ACTION, "name_people")
-        naming.setToolTip(0, "Name the people Leasha has found, and answer its "
-                             "\"Is this ...?\" questions")
-        naming.setFont(0, bold)
-        self.addTopLevelItem(naming)
-        everything = QTreeWidgetItem(["All photos", ""])
-        everything.setData(0, ROLE_ACTION, "clear")
-        everything.setToolTip(0, "Take every narrowing away")
-        self.addTopLevelItem(everything)
+    def set_box(self, text: str) -> None:
+        """Tick what the box now holds."""
+        self._box = text or ""
+        self._draw()
 
+    def _draw(self) -> None:
+        from app.ui.presenter.side_entry import SideEntry
+
+        entries = [
+            SideEntry("name_people", "People to name", icon="users",
+                      count=self._waiting or None, kind="door", value="name_people",
+                      tip="Name the people Leasha has found, and answer its \"Is this ...?\" questions"),
+            SideEntry("all", "All photos", icon="image", kind="all", tip="Take every narrowing away"),
+        ]
         kinds = dict(KINDS)
         for key, heading, switch in SECTIONS:
-            found = counts.get(key) or {}
-            section = QTreeWidgetItem([heading, ""])
-            section.setData(0, ROLE_SWITCH, key)
-            section.setFont(0, bold)
-            section.setFlags(Qt.ItemFlag.ItemIsEnabled)
-            self.addTopLevelItem(section)
+            found = self._counts.get(key) or {}
             if key == "years":
                 ordered = sorted(found.items(), key=lambda kv: -kv[0])
             elif key == "kinds":
                 ordered = [(k, found.get(k, 0)) for k, _label in KINDS]
             else:
                 ordered = sorted(found.items(), key=lambda kv: (-kv[1], str(kv[0]).casefold()))
-            limit = None if key in self._expanded or key == "kinds" else SHOWN
-            for value, count in ordered[:limit]:
-                label = kinds.get(value, str(value).upper() if key == "types" else str(value))
-                item = QTreeWidgetItem([label, f"{count:,}"])
-                item.setData(0, ROLE_SWITCH, switch)
-                item.setData(0, ROLE_VALUE, value)
-                item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight)
-                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(0, Qt.CheckState.Unchecked)
-                section.addChild(item)
-            if limit is not None and len(ordered) > limit:
-                more = QTreeWidgetItem([f"More… ({len(ordered) - limit:,})", ""])
-                more.setData(0, ROLE_ACTION, f"more:{key}")
-                section.addChild(more)
             if not ordered:
-                none = QTreeWidgetItem(["None yet", ""])
-                none.setFlags(Qt.ItemFlag.NoItemFlags)
-                section.addChild(none)
-            section.setExpanded(key in open_sections)
-        self.set_box(self._box)
+                entries.append(SideEntry(f"{key}:none", "None yet", section=heading, kind="note"))
+            for value, count in ordered:
+                label = kinds.get(value, str(value).upper() if key == "types" else str(value))
+                entries.append(SideEntry(
+                    f"{key}:{value}", label, section=heading, icon=SECTION_ICONS.get(key, ""),
+                    count=count, value=(switch, value), checked=box_has(self._box, switch, value)))
+        self.set_entries(entries)
 
-    def set_box(self, text: str) -> None:
-        """Tick what the box now holds."""
-        self._box = text or ""
-        for top in range(self.topLevelItemCount()):
-            section = self.topLevelItem(top)
-            for n in range(section.childCount()):
-                item = section.child(n)
-                switch = item.data(0, ROLE_SWITCH)
-                if not switch:
-                    continue
-                on = box_has(self._box, switch, item.data(0, ROLE_VALUE))
-                item.setCheckState(0, Qt.CheckState.Checked if on else Qt.CheckState.Unchecked)
-
-    def _clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        """A click: "More..." opens a section fully, an action row asks the page,
-        a value row toggles its switch in the box, a heading folds.
-        """
-        action = item.data(0, ROLE_ACTION)
-        if action and str(action).startswith("more:"):
-            self._expanded.add(str(action)[5:])
-            self.fill(self._counts, self._waiting)
-            return
-        if action:
-            self.action.emit(str(action))
-            return
-        switch = item.data(0, ROLE_SWITCH)
-        if switch and item.data(0, ROLE_VALUE) is not None:
-            self.toggled.emit(str(switch), item.data(0, ROLE_VALUE))
-        elif item.childCount():
-            item.setExpanded(not item.isExpanded())
+    def _picked(self, entry: Any) -> None:
+        if entry.kind == "all":
+            self.action.emit("clear")
+        elif entry.kind == "filter" and entry.value:
+            switch, value = entry.value
+            self.toggled.emit(str(switch), value)

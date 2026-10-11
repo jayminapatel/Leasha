@@ -25,15 +25,16 @@ import weakref
 from pathlib import PureWindowsPath
 from typing import Any, Optional
 
-from PySide6.QtCore import QThreadPool, Qt, Signal
-from PySide6.QtWidgets import QSplitter, QTreeWidget, QTreeWidgetItem
+from PySide6.QtCore import QThreadPool, Signal
 
-__all__ = ["MailFolderList", "attach", "STATE_KEY", "FOLDERS_TIP", "folder_tree", "in_folder"]
+from app.ui.widgets.side_list import SideList
+
+__all__ = ["MailFolderList", "attach", "STATE_KEY", "FOLDERS_TIP", "folder_tree", "in_folder",
+           "mail_entries"]
 
 STATE_KEY = "ui:mail_folders"
 FOLDERS_TIP = ("Show or hide your mailboxes and their folders on the left. "
                "Click one to see only its mail; All mail shows everything again.")
-_ROLE = int(Qt.ItemDataRole.UserRole) + 1
 
 
 def folder_tree(rows: Any) -> dict:
@@ -52,10 +53,6 @@ def folder_tree(rows: Any) -> dict:
     return tree
 
 
-def _words(count: int) -> str:
-    return f"{count:,}"
-
-
 def in_folder(summary: str, choice: Any) -> str:
     """D2: the summary line says which mailbox or folder the list is narrowed to."""
     if not choice:
@@ -65,76 +62,60 @@ def in_folder(summary: str, choice: Any) -> str:
     return f"{summary} - in {where}" if summary else f"In {where}"
 
 
-class MailFolderList(QTreeWidget):
-    """The tree. `chosen` carries `(archive, folder)`, or None for All mail."""
+class MailFolderList(SideList):
+    """The tree, drawn by `SideList` (order 1p). `chosen` carries `(archive, folder)`, or None
+    for All mail."""
 
     chosen = Signal(object)
 
     def __init__(self, parent: Optional[Any] = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("mailFolders")
-        self.setAccessibleName("Mailboxes and folders")
-        self.setHeaderHidden(True)
-        self.setColumnCount(2)
-        self.setRootIsDecorated(True)
-        self.setUniformRowHeights(True)
-        self.setMinimumWidth(170)
-        self.itemClicked.connect(self._clicked)
-        self._fill({})
-
-    def _fill(self, tree: dict) -> None:
-        self.clear()
-        total = sum(node["count"] for node in tree.values())
-        everything = QTreeWidgetItem(["All mail", _words(total) if total else ""])
-        everything.setData(0, _ROLE, None)
-        self.addTopLevelItem(everything)
-        for archive in sorted(tree, key=lambda a: PureWindowsPath(a).name.lower()):
-            node = tree[archive]
-            name = PureWindowsPath(archive).name or archive or "(no archive)"
-            top = QTreeWidgetItem([name, _words(node["count"])])
-            top.setToolTip(0, archive)
-            top.setData(0, _ROLE, (archive, ""))
-            self.addTopLevelItem(top)
-            self._add(top, archive, node["folders"])
-        for column in (1,):
-            self.header().setStretchLastSection(False)
-            self.resizeColumnToContents(column)
-        self.setCurrentItem(everything)
-
-    def _add(self, parent: QTreeWidgetItem, archive: str, folders: dict) -> None:
-        for name in sorted(folders, key=str.lower):
-            entry = folders[name]
-            item = QTreeWidgetItem([name, _words(entry["count"])])
-            item.setData(0, _ROLE, (archive, entry["path"]))
-            item.setToolTip(0, entry["path"])
-            item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            parent.addChild(item)
-            self._add(item, archive, entry["folders"])
+        super().__init__("mailFolders", accessible="Mailboxes and folders",
+                         tip="Click a mailbox or a folder to see only its mail", parent=parent)
+        self.picked.connect(lambda entry: self.chosen.emit(entry.value))
+        self.show_rows(())
 
     def show_rows(self, rows: Any) -> None:
-        self._fill(folder_tree(rows))
+        self.set_entries(mail_entries(folder_tree(rows)))
 
-    def _clicked(self, item: QTreeWidgetItem, _column: int) -> None:
-        self.chosen.emit(item.data(0, _ROLE))
+    def _clicked(self, item: Any, column: int) -> None:          # kept for tests that click
+        super()._clicked(item, column)
+
+
+def mail_entries(tree: dict) -> list:
+    """All mail, then Mailboxes: each archive and its folders, nested, with counts."""
+    from app.ui.presenter.side_entry import SideEntry
+
+    total = sum(node["count"] for node in tree.values())
+    entries = [SideEntry("all", "All mail", icon="mail", count=total or None, kind="all",
+                         value=None, tip="Every message, in every mailbox")]
+
+    def add(archive: str, parent: str, folders: dict) -> None:
+        for name in sorted(folders, key=str.lower):
+            node = folders[name]
+            key = f"{archive}|{node['path']}"
+            entries.append(SideEntry(key, name, icon="folder", count=node["count"], parent=parent,
+                                     value=(archive, node["path"]), tip=node["path"]))
+            add(archive, key, node["folders"])
+
+    for archive in sorted(tree, key=lambda a: PureWindowsPath(a).name.lower()):
+        node = tree[archive]
+        key = f"{archive}|"
+        entries.append(SideEntry(key, PureWindowsPath(archive).name or archive or "(no archive)",
+                                 section="Mailboxes", icon="archive", count=node["count"],
+                                 value=(archive, ""), tip=archive))
+        add(archive, key, node["folders"])
+    return entries
 
 
 def attach(view: Any, top: Any) -> MailFolderList:
-    """Put the list left of Mail's results, its icon on the top row, its entry in View."""
-    from app.ui.state_writes import save_state
-    from app.ui.widgets.side_toggle import side_toggle
+    """Put the list left of Mail's results, its switch on the top row, its entry in View
+    (`side_panel.attach`, the same for every page), and count the folders on a worker."""
+    from app.ui.widgets.side_panel import attach as attach_side
     from app.ui.workers import CallableWorker, run
 
     folders = MailFolderList()
     ref = weakref.ref(view)
     view.mail_folder = None
-
-    outer = QSplitter(Qt.Orientation.Horizontal)
-    view.layout().replaceWidget(view.split, outer)
-    outer.addWidget(folders)
-    outer.addWidget(view.split)
-    outer.setStretchFactor(1, 1)
-    outer.setSizes([220, 900])
-    view.folder_split = outer
 
     def pick(choice: Any) -> None:
         mail = ref()
@@ -143,20 +124,11 @@ def attach(view: Any, top: Any) -> MailFolderList:
             mail._run()
 
     folders.chosen.connect(pick)
-
-    def show(on: bool, *, remember: bool = True) -> None:
-        mail = ref()
-        if mail is None:
-            return
-        folders.setVisible(bool(on))
-        toggle.set_quietly(bool(on))
-        if remember:
-            save_state(mail._store, STATE_KEY, "1" if on else "0", component="ui.mail")
-
-    toggle = side_toggle("Folders", tip=FOLDERS_TIP, accessible="Mailboxes and folders list",
-                         name="toggle_mail_folders", on_click=lambda on: show(on))
-    top.insertWidget(max(0, top.indexOf(view.view_button) - 1), toggle)
-    view.toggles = {**getattr(view, "toggles", {}), "folders": toggle}
+    before = getattr(view, "toggles", {}).get("inspector") or view.view_button
+    show = attach_side(view, folders, target=view.split, row=top, before=before, page="mail",
+                       words="Folders", tip=FOLDERS_TIP, state_key=STATE_KEY)
+    view.folder_split = view.side_split
+    view.toggles["folders"] = view.toggles["side"]
     view.show_folders = show
 
     def load() -> None:
@@ -169,26 +141,6 @@ def attach(view: Any, top: Any) -> MailFolderList:
         run(QThreadPool.globalInstance(), worker)
 
     view.load_folders = load
-
-    # View > Folders, in the tab's own View menu and the window's.
-    making = view.view_button.menu_for
-
-    def menu_for(parent: Any) -> Any:
-        menu = making(parent)
-        if menu is not None:
-            entry = menu.addAction("Folders")
-            entry.setCheckable(True)
-            entry.setChecked(folders.isVisible() or not folders.isHidden())
-            entry.setToolTip(FOLDERS_TIP)
-            entry.triggered.connect(lambda on=False: show(bool(on)))
-        return menu
-
-    view.view_button.menu_for = menu_for
-    try:
-        shown = str(view._store.get_state(STATE_KEY, "") or "1") == "1"
-    except Exception:                                            # noqa: BLE001 - shown by default
-        shown = True
-    show(shown, remember=False)
     if view._store is not None:
         load()
     return folders

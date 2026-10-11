@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.113 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.114 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Every page has its list on the left, drawn the same way (2026-10-11)
+
+- **Files** lists Places, Drives and Kinds; **Code** lists Repositories and Languages; **Browse** lists Years and their
+  months, and Show. Click one to narrow; click it again, or All, to take it away.
+- **Mail's folders and Photos' list are drawn the same way**, the way the Contacts page draws its own: an icon on
+  every line, a quiet count, sections that fold. What is in force shows in bold.
+- Each list hides and shows with the panel icon or the View menu, and Leasha remembers.
 
 ### Pages in any order, Mail folders, and a calmer Chat (2026-10-11)
 

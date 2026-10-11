@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.149 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.150 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, evening - order 1p built: one left-hand list for every page (owner: "i like the look of contacts panel with icons etc can that be standardised ?" ... "build it for all").**
+Built in `.worktrees/side-lists` on `main`, rebased onto the 1k merge (518f634; icons `user`, `map-pin`, `tag` came with it). `SideList` / `SideEntry`, `side_counts`, `side_entries`, `side_panel` (see the order's notes); Mail's `MailFolderList` and Photos' `PhotoSidebar` are `SideList`s now with their old signals; Files, Code and Browse wired from `_construct_secondary_views`; theme repaint covers Photos' list and Browse. Chosen entries are bold with an accent icon, not ticked (D1 changed). Contacts is not moved - unassigned until the owner asks; the how is in the order. Tests: `test_side_lists.py` (9); the Photos/Mail/side set 334 passed. Grabbed Files, Browse, Photos; not looked at in the real window.
 
 **2026-10-11, afternoon - orders 1m, 1n, 1o built (owner: "b do them all"), in `.worktrees/ui-main` on `main`.**
 **Why a worktree:** another session switched the shared folder `D:\Local\GitHub\Leasha` to `feat/accounts-1k` mid-session; this thread's docs commit 2eb4d4e landed on that branch (the same content is on `main` as b764099) and its uncommitted 1m edits were moved here by a tagged stash. That session was told, and sent the owner's UI guidelines (list pages: box, left-list switch `side_toggle`, Preview, View; asking pages: one centred column; buttons in `BUTTONS`; theme tokens; `date_format`; `rail_order.DEFAULT_ORDER`). **1m:** `Rail.moveTab`, drag and the Move menu (`widgets/rail_order.py`), `ui:rail_order`, View > Reset page order. **1n:** `mail_folder_counts`, `browse_messages_typed(folder=)`, `widgets/mail_folders.py`, shared `widgets/side_toggle.py`. **1o:** centred column (`COLUMN_MAX` 760), actions on hover + right-click (`widgets/chat_message_menu.py`), the composer box with model and speed inside, Chat's empty page in Search's styles; Search unchanged (already the pattern). **Fixed in passing:** `ChatController._deleted` - a delete undone by a late start-up read or save. Tests: `test_rail_order.py` 7, `test_mail_folders.py` 5, `test_chat_like_claude.py` 8; the Mail/View set 2,107 passed, the Chat set 1,084 passed. **Not looked at in the real window yet**, and 1o's fresh guide screenshot is owed. `run_suite --affected origin/main` then found: `photos_view.py` at 251 lines (the Photos switch, f419f54 - red on `main` since) and `mail_view.py` at 253, both brought under 250; `Leasha.pyproj` missing the two new 1o files (regenerated before they were tracked); `test_filters_properties` failing on Hypothesis's "ace" inside the fixed `faces` - the leak check now matches whole tokens. `test_mcp_server::test_connect_is_offered...` fails only in a worktree with no `.env` (not a code fault).
