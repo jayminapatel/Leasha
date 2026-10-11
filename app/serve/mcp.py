@@ -683,13 +683,23 @@ def _account_of_path(path: Any, accounts: dict | None) -> str:
     text = str(path or "")
     if not text.startswith(_ACCOUNT_SCHEME):
         return ""
-    from app.accounts.mail_ingest import split_account_path
-
     try:
-        ident = split_account_path(text)[0]
+        ident = _split_account_path(text)[0]
         return str((accounts or {}).get(int(ident)) or "an account that is no longer set up")
     except (ValueError, TypeError):
         return ""
+
+
+def _split_account_path(path: str) -> tuple[str, str, str]:
+    """(account, folder, remote id) of an `account://<account>/<folder>/<remote id>` path, each
+    part unescaped. The same split `app.accounts.mail_ingest.split_account_path` makes; written
+    here so this module imports nothing from the accounts but what it reads (D15)."""
+    from urllib.parse import unquote
+
+    parts = path[len(_ACCOUNT_SCHEME):].split("/")
+    if not path.startswith(_ACCOUNT_SCHEME) or len(parts) != 3 or not parts[0] or not parts[2]:
+        raise ValueError(f"not an account path: {path!r}")
+    return unquote(parts[0]), unquote(parts[1]), unquote(parts[2])
 
 
 def _account_id_for(store: Any, text: str) -> int | None:
@@ -706,14 +716,16 @@ def _account_id_for(store: Any, text: str) -> int | None:
 def _resolve_account_path(store: Any, text: str) -> str | None:
     """`text`, an `account://` path as an AI program may have quoted it, as the index keys it:
     the account by id, name or address, each part escaped as `account_path` escapes it."""
-    from app.accounts.mail_ingest import account_path, split_account_path
+    from urllib.parse import quote
 
     try:
-        ident, folder, remote = split_account_path(text)
+        ident, folder, remote = _split_account_path(text)
     except ValueError:
         return None
     found = _account_id_for(store, ident)
-    return account_path(found, folder, remote) if found is not None else None
+    if found is None:
+        return None
+    return f"{_ACCOUNT_SCHEME}{found}/{quote(folder, safe='')}/{quote(remote, safe='')}"
 
 
 #: Said when the contact tables cannot be read (an index built before contacts).
