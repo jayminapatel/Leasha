@@ -140,7 +140,8 @@ class SettingsShelves:
         # Order smarter-answers 4d: the owner's own words. Given the store by the window.
         from app.ui.widgets.my_words_box import MyWordsBox
 
-        self.my_words = MyWordsBox()
+        self.my_words = MyWordsBox(settings)
+        self.my_words.changed.connect(self.settings_changed)
         self.search_behaviour.changed.connect(self.settings_changed)
         self.editor_box = EditorBox(settings)
         self.editor_box.changed.connect(self.settings_changed)

@@ -762,6 +762,12 @@ class MainWindow(QMainWindow):
         # the page itself - engine, worker, saving - is `ChatController`.
         self.chat_ctl = ChatController(self)
         self.chat_view = self.chat_ctl.build()
+        # Order smarter-answers 3a: the Search page's answer card asks Chat's engine.
+        card = getattr(self.search_view, "answer_card", None)
+        if card is not None:
+            card.connect_chat(self.chat_ctl, enabled=self._search_answers_on)
+            card.open_requested.connect(self._open_result)
+            card.continue_requested.connect(self._continue_in_chat)
         # 2026-10-04: the Sources column's preview pins like every other pane's.
         self.chat_view.preview.pop_out_requested.connect(self._pin_document)
         chat_wrapped = wrap_if_needed(self.chat_view, scroll=False)
@@ -1157,6 +1163,19 @@ class MainWindow(QMainWindow):
 
     def _ollama_model_changed(self, enabled: bool, model: str, timeout_s: int) -> None:
         self.settings_ctl._ollama_model_changed(enabled, model, timeout_s)
+
+    def _search_answers_on(self) -> bool:
+        """Settings > Search: answer questions on the Search page (order smarter-answers
+        3b). The live override first, so a switch just turned off is off at once."""
+        value = self._settings_overrides.get(
+            "search_answers", getattr(self._settings, "search_answers", True))
+        return str(value).strip().lower() not in ("false", "0", "no", "off", "")
+
+    def _continue_in_chat(self, question: str) -> None:
+        """The answer card's "Continue in Chat": the question, asked there."""
+        self._show(self.chat_view)
+        if question.strip():
+            self.chat_ctl.ask(question)
 
     def _apply_search_preferences(self) -> None:
         self.settings_ctl._apply_search_preferences()

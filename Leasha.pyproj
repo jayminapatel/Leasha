@@ -532,6 +532,7 @@
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
     <Compile Include="app\ui\presenter\activity.py" />
+    <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
@@ -601,6 +602,7 @@
     <Compile Include="app\ui\widgets\about_dialog.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\advanced_fold.py" />
+    <Compile Include="app\ui\widgets\answer_card.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
@@ -808,6 +810,7 @@
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_ai_program_paths.py" />
+    <Compile Include="tests\unit\test_answer_card_qt.py" />
     <Compile Include="tests\unit\test_answer_model_choice.py" />
     <Compile Include="tests\unit\test_answer_model_choice_qt.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />

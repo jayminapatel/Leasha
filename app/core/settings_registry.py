@@ -196,6 +196,15 @@ SETTINGS: tuple[Setting, ...] = (
              "you looked for, and the searches you saved. Switch it off on a "
              "screen other people can see.",
     ),
+    # 2026-10-12, order smarter-answers 3b (owner: "do all of them").
+    Setting(
+        key="SEARCH_ANSWERS", label="Answer questions on the Search page",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="When what you type reads as a question, a short answer from your "
+             "files appears above the results, each sentence checked against the "
+             "document it cites. The results never wait for it. Off: the Search "
+             "page only finds, and questions go to Chat.",
+    ),
     Setting(
         key="MINI_SEARCH_ENABLED", label="Search from anywhere with a shortcut",
         kind="bool", default=True, group="Search", surface="settings.search",

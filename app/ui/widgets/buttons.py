@@ -121,6 +121,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Rescan these folders now": ("refresh-cw", "secondary"),
     # -- Settings > Search > Your words (order smarter-answers 4d, 2026-10-12) --
     "Add word": ("plus", "secondary"),
+    # Order smarter-answers 3a: the Search page's answer card, on to Chat.
+    "Continue in Chat": ("message-square", "secondary"),
     "Remove word": ("x", "secondary"),
     "Add all four": ("folder-plus", "secondary"),
     "Select all": ("list-checks", "secondary"),

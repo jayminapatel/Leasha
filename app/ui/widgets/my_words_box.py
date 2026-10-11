@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PySide6.QtCore import QThreadPool, Qt
+from PySide6.QtCore import QThreadPool, Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+    QAbstractItemView, QCheckBox, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
     QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -38,13 +38,27 @@ INTRO = ("Names only you use - “Mum”, “the house”, “my accountant” -
 
 
 class MyWordsBox(QGroupBox):
-    """A table of word -> meaning, a row to add one, and Remove."""
+    """The answers switch, then a table of word -> meaning, a row to add one, and Remove."""
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__("Your words", parent)
+    #: `{"SEARCH_ANSWERS": bool}` - the switch, written to `.env` by the window.
+    changed = Signal(dict)
+
+    def __init__(self, settings: Any = None, parent: Optional[QWidget] = None) -> None:
+        super().__init__("Answers and your words", parent)
         self.setObjectName("myWordsBox")
         self._store: Any = None
         self._load = 0
+
+        # Order smarter-answers 3b: the Search page's answer card, on or off.
+        self.answers = QCheckBox("Answer questions on the Search page")
+        self.answers.setObjectName("SEARCH_ANSWERS")
+        self.answers.setAccessibleName("Answer questions on the Search page")
+        self.answers.setToolTip(
+            "When what you type reads as a question, a short answer from your files "
+            "appears above the results, each sentence checked against the document it "
+            "cites. The results never wait for it.")
+        self.answers.setChecked(bool(getattr(settings, "search_answers", True)))
+        self.answers.toggled.connect(lambda on: self.changed.emit({"SEARCH_ANSWERS": on}))
 
         intro = QLabel(INTRO)
         intro.setWordWrap(True)
@@ -83,6 +97,7 @@ class MyWordsBox(QGroupBox):
         entry.addWidget(QLabel("means"))
         entry.addWidget(self.meaning, 2)
         layout = QVBoxLayout(self)
+        layout.addWidget(self.answers)
         layout.addWidget(intro)
         layout.addWidget(self.table)
         layout.addLayout(entry)

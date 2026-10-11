@@ -56,7 +56,9 @@ SURFACE_MODULES = {
     # it will not touch.
     "settings.search": ("settings_view.py", "widgets/search_box.py",
                         "widgets/search_behaviour_box.py",
-                        "widgets/editor_box.py"),
+                        "widgets/editor_box.py",
+                        # 2026-10-12, order smarter-answers 3b: the answer card's switch.
+                        "widgets/my_words_box.py"),
     # Only *when* a run happens - the Indexing page's Schedule shelf.
     # Everything about how fast it goes moved to `indexing.tuning` - see §4 of
     # the index-tuning order.

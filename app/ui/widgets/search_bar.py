@@ -337,6 +337,11 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     from app.ui.widgets.person_card import attach as attach_person_strip
 
     layout.addWidget(attach_person_strip(view))
+    # Order smarter-answers 3a: a question gets a short answer above the results,
+    # after the results and on a worker. Chat is connected to it by the window.
+    from app.ui.widgets.answer_card import attach as attach_answer_card
+
+    layout.addWidget(attach_answer_card(view))
     layout.addWidget(body, stretch=1)
 
     state = {"home": None}

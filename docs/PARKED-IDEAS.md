@@ -1,6 +1,6 @@
 # Parked ideas
 
-**Doc version:** 1.4 · **Updated:** 2026-10-07 · **Applies to:** app v0.3.5
+**Doc version:** 1.5 · **Updated:** 2026-10-12 · **Applies to:** app v0.3.5
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
@@ -58,6 +58,8 @@ the television, found together.
 ---
 
 ## 4. The anti-idea, recorded so it stays refused
+
+> **2026-10-12 (owner) - an answer card on the Search page; the finder is still the headline.** Order 1r (`docs/WORKORDER-smarter-answers.md`, D3), released "do all of them": a question typed into Search gets a short answer above its results, every sentence checked against the passage it cites, with numbered sources that open the files. The results are drawn first and never wait for it, a word or a name gets no card, and Settings > Search switches it off. The refusal below still holds - the answer is a card above the finder, not the finder replaced. The text below is left as written.
 
 **Chat or RAG over the index as the headline.** Pressure for this will arrive, and
 more so if the repository is ever opened. The scope-change order already cancelled it
