@@ -63,6 +63,21 @@ _EXAMPLE = (
 CARD_MARK = "(What this is, from Leasha's card - not to be quoted:"
 
 
+#: How an answer about several documents is laid out (order smarter-answers 5b, 5c).
+SHAPE_NOTES = {
+    "compare": ("The question compares documents. For each point, say what each source says, "
+                "side by side, then how they differ. Every sentence ends with its source number."),
+    "timeline": ("The question asks what happened over time. The sources are in date order. "
+                 "Write one short line per event, oldest first, each starting with its date as "
+                 "the source gives it and ending with its source number."),
+}
+
+
+def shape_note(shape: str) -> str:
+    """The layout instruction for a compare or timeline question, else ""."""
+    return SHAPE_NOTES.get(str(shape or ""), "")
+
+
 def _block(sources: Sequence) -> str:
     def one(s) -> str:
         about = str(getattr(s, "about", "") or "")

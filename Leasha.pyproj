@@ -930,6 +930,7 @@
     <Compile Include="tests\unit\test_coverage.py" />
     <Compile Include="tests\unit\test_crash_guard.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
+    <Compile Include="tests\unit\test_cross_documents.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_date_format.py" />
     <Compile Include="tests\unit\test_date_forms_every_box.py" />

@@ -40,6 +40,7 @@ from __future__ import annotations
 import re
 import time
 from dataclasses import dataclass
+from itertools import zip_longest
 from datetime import date
 from typing import Any, Callable, Optional, Sequence
 
@@ -53,8 +54,8 @@ from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, 
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
 from app.chat.reconcile import reconcile
 from app.chat.router import (
-    ABSENCE, AGGREGATE, ARCHIVE_FIND, CHAT, FIND, FOLLOWUP, LOOKUP, SYNTHESIS, Route,
-    route_question,
+    ABSENCE, AGGREGATE, ARCHIVE_FIND, CHAT, COMPARE, FIND, FOLLOWUP, LOOKUP, SYNTHESIS,
+    TIMELINE, Route, cross_shape, route_question,
 )
 from app.chat.types import (
     ChatTurn, NarrationEvent, Receipt, ShelfEvent, SourcesEvent, TokenEvent,
@@ -178,6 +179,8 @@ class _Hit:
 
 class _Retrieval:
     def __init__(self) -> None:
+        #: For a comparison: the files each side found, so both reach the sources.
+        self.sides: Optional[list[set[int]]] = None
         self.results: list[Any] = []
         self.assessment: Optional[Assessment] = None
         self.rounds = 0
@@ -497,9 +500,16 @@ class ChatEngine:
         shelf = self._shelf_ids(history) if route.kind == "FOLLOWUP" else self._pinned_ids()
         from app.chat.text import content_tokens
 
-        retrieval = self._retrieve(plan, say, stop, debug, shelf=shelf,
-                                   focus=list(dict.fromkeys(content_tokens(text))),
-                                   lenient=eff in (LOOKUP, SYNTHESIS))
+        shape, sides = cross_shape(route.question) if eff in (LOOKUP, SYNTHESIS) else ("", ())
+        if shape:
+            debug["shape"] = shape
+            debug["sides"] = list(sides)
+        if shape == COMPARE and sides:
+            retrieval = self._retrieve_sides(plan, sides, say, stop, debug)
+        else:
+            retrieval = self._retrieve(plan, say, stop, debug, shelf=shelf,
+                                       focus=list(dict.fromkeys(content_tokens(text))),
+                                       lenient=eff in (LOOKUP, SYNTHESIS))
         debug["queries"] = list(plan.tried)
         debug["rounds"] = retrieval.rounds
         if retrieval.assessment is not None:
@@ -660,6 +670,88 @@ class ChatEngine:
             return results, width                       # a reply that lost or doubled a row
         debug["reranked"] = True
         return [results[i] for i in order], width
+
+    def _retrieve_sides(self, plan: Plan, sides: Sequence[str], say: Callable,
+                        stop: Callable[[], bool], debug: dict) -> _Retrieval:
+        """A comparison: each side searched on its own (order smarter-answers 5b).
+
+        One search for "the 2023 lease and the 2024 lease" ranks whichever lease
+        says more of the question's words first, and the other can miss the
+        sources altogether - then the model compares one document with nothing.
+        So each side gets its own plan and loop, and the results are interleaved,
+        best of each first. Thin only when every side was."""
+        out = _Retrieval()
+        out.sides = []
+        per_side: list[list[Any]] = []
+        assessments = []
+        for side in sides:
+            if stop():
+                break
+            say(f"Looking for {side}...")
+            sub = make_plan(side, self.store, today=self.today)
+            sub.filters = list(dict.fromkeys(plan.filters + sub.filters))
+            got = self._retrieve(sub, say, stop, {}, lenient=True)
+            per_side.append(list(got.results))
+            out.sides.append({int(getattr(r, "file_id", 0) or 0) for r in got.results[:3]})
+            plan.tried.extend(q for q in sub.tried if q not in plan.tried)
+            out.rounds += got.rounds
+            if got.assessment is not None:
+                assessments.append(got.assessment)
+        seen: set[int] = set()
+        for row in zip_longest(*per_side):
+            for result in row:
+                if result is None:
+                    continue
+                key = int(getattr(result, "chunk_id", 0) or 0) or id(result)
+                if key not in seen:
+                    seen.add(key)
+                    out.results.append(result)
+        files = len({int(getattr(r, "file_id", 0) or 0) for r in out.results})
+        thin = not assessments or all(a.thin for a in assessments)
+        out.assessment = Assessment(
+            files=files, coverage=max((a.coverage for a in assessments), default=0.0),
+            unmatched=(), thin=thin, reason="compared side by side")
+        debug["side_files"] = [sorted(s) for s in out.sides]
+        return out
+
+    def _both_sides_first(self, results: list, sides: Optional[list]) -> list:
+        """After the rerank, each side's best document ahead of the rest, so the
+        sources cap cannot leave one side out of a comparison."""
+        if not sides:
+            return results
+        first: list[Any] = []
+        for files in sides:
+            pick = next((r for r in results if int(getattr(r, "file_id", 0) or 0) in files
+                         and r not in first), None)
+            if pick is not None:
+                first.append(pick)
+        return first + [r for r in results if r not in first]
+
+    @staticmethod
+    def _in_date_order(sources: list) -> list:
+        """A timeline's sources oldest first, renumbered (order smarter-answers 5c).
+
+        The date is the card's first date when there is a card, else the file's
+        own date; a source with neither goes last. Each source says which date
+        it was placed by, so the model can write it."""
+        from datetime import datetime, timezone
+
+        def when(source: Any) -> str:
+            about = str(getattr(source, "about", "") or "")
+            found = re.search(r"\bdated (\d{4}-\d{2}-\d{2})", about)
+            if found:
+                return found.group(1)
+            stamp = int(getattr(source, "mtime_ns", 0) or 0)
+            if stamp > 0:
+                day = datetime.fromtimestamp(stamp / 1e9, tz=timezone.utc).date().isoformat()
+                source.about = "; ".join(p for p in (about, f"file dated {day}") if p)
+                return day
+            return "9999"
+
+        ordered = sorted(sources, key=when)
+        for number, source in enumerate(ordered, start=1):
+            source.n = number
+        return ordered
 
     def _with_my_words(self, route: Route, say: Optional[Callable], debug: dict) -> Route:
         """The route with the owner's words put in place of their phrases (order
@@ -1207,11 +1299,15 @@ class ChatEngine:
         # reranker's own window around the question's words. See `_rerank_sources`.
         results, passage_chars = self._rerank_sources(route.question, results, plan.terms, debug)
         results = self._own_passages(results)
+        results = self._both_sides_first(results, getattr(retrieval, "sides", None))
         sources = build_sources(
             results, plan.terms, max_sources=self.cfg.max_sources,
             window_tokens=int(window * 0.55), question=route.question,
             metas=self._metas(results), passage_chars=passage_chars)
         self._add_about(sources)
+        if debug.get("shape") == TIMELINE:
+            sources = self._in_date_order(sources)
+            debug["sources"] = [s.name for s in sources]
         debug["sources"] = [s.name for s in sources]
         debug["models"] = {r: getattr(self._role(r), "model", "") for r in ("router", "planner", "answerer")}
         if not sources:
@@ -1254,6 +1350,9 @@ class ChatEngine:
         words_note = note_for_model(debug.get("my_words") or ())
         if words_note:
             system += "\n\n" + words_note
+        layout = prompts.shape_note(debug.get("shape", ""))
+        if layout:
+            system += "\n\n" + layout
         reserve = min(ANSWER_MAX_TOKENS, max(256, window // 3))
         packed = memory.pack(system, history, text, window_tokens=window, reserve_tokens=reserve)
         debug["memory"] = packed.as_dict()
