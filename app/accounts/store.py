@@ -350,6 +350,19 @@ class AccountStore:
                 (int(time.time()), status, added, changed, deleted, held, error_code, error_text,
                  json.dumps(plan) if plan is not None else None, run_id))
 
+    def close_stale_runs(self) -> int:
+        """Label as stopped any run still marked running that a later run of the same account and
+        kind has replaced: the app closed before it could say how it ended, and only one sync per
+        account and kind runs at a time. It never touches the newest run, so a sync that is really
+        in progress keeps its label, and a late `finish_run` still overwrites this one."""
+        with self.store.write() as conn:
+            return conn.execute(
+                "UPDATE sync_runs SET status = 'interrupted', finished_at = ?, "
+                "error_text = 'The app closed before this sync finished.' "
+                "WHERE status = 'running' AND EXISTS (SELECT 1 FROM sync_runs n "
+                "WHERE n.account_id IS sync_runs.account_id AND n.kind = sync_runs.kind AND n.id > sync_runs.id)",
+                (int(time.time()),)).rowcount
+
     @staticmethod
     def _run(r: Any) -> SyncRun:
         return SyncRun(r["id"], r["account_id"], r["account_name"] or "", r["kind"], r["trigger"],

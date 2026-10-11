@@ -266,7 +266,7 @@ def _error_message(run: Any) -> str:
 
 
 _STATUS_WORDS = {"ok": "Done", "held": "Held", "failed": "Failed", "dry-run": "Dry run",
-                 "needs-approval": "Waiting for you", "running": "Running"}
+                 "needs-approval": "Waiting for you", "running": "Running", "interrupted": "Stopped"}
 
 
 def run_row(run: Any) -> dict[str, str]:
