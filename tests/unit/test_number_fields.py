@@ -240,6 +240,15 @@ COVERED = {
     # fits it itself (number_field.fit, default 12) and is built by settings_shelves
     # on the Settings page, so the whole-window walk above reaches it.
     "widgets/window_box.py": "window",
+    # 2026-10-11, order 1k: Settings > Accounts fits its fields in `AccountsPage.ensure_built` (the
+    # page, its panel and its boxes) and the add-account wizard fits itself when opened; the label
+    # printing dialog fits its one field when it builds it (`tests/unit/test_accounts_page.py`
+    # and `test_contacts_tools_ui.py` look at each).
+    "accounts/globals_box.py": "window",
+    "accounts/panel.py": "window",
+    "accounts/parts.py": "window",
+    "accounts/wizard.py": "dialog",
+    "contacts_tools/print_dialog.py": "dialog",
 }
 
 _SPIN_TYPES = {"QSpinBox", "QDoubleSpinBox", "QTimeEdit", "QDateEdit",

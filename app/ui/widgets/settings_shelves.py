@@ -367,6 +367,11 @@ class SettingsShelves:
         storage_layout.addWidget(self.restore_defaults)
         self._nav.add_category(CATEGORY_STORAGE, storage)
 
+        # 2026-10-11, order 1k 6l: a sixth category, Accounts, built on its first show.
+        from app.ui.accounts_page import attach_accounts
+
+        self.accounts_page = attach_accounts(self._nav, getattr(self, "_store", None))
+
     def hide_emptied_boxes(self) -> int:
         """Hide any group left with nothing in it. Returns how many.
 

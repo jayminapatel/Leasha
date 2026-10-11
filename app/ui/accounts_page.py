@@ -68,6 +68,7 @@ class AccountsPage(QWidget):
         from app.ui.accounts.panel import AccountPanel  # noqa: PLC0415
         from app.ui.accounts.sync_log import SyncLog  # noqa: PLC0415
         from app.ui.widgets.no_scroll import protect_all  # noqa: PLC0415
+        from app.ui.widgets.number_field import fit_all  # noqa: PLC0415
 
         self.backend = Backend(self._factory, self)
         self.backend.changed.connect(self.refresh)
@@ -117,6 +118,7 @@ class AccountsPage(QWidget):
         self.log.approve_requested.connect(lambda aid: self.request_sync(aid, "contacts", approve=True))
         self.log.allow_requested.connect(lambda aid: self.request_sync(aid, "contacts", allow_brake=True))
         protect_all(self)
+        fit_all(self)          # typed number fields with a back-to-default button, as everywhere
 
     def showEvent(self, event: Any) -> None:              # noqa: N802 - Qt's naming
         super().showEvent(event)
@@ -212,9 +214,11 @@ class AccountsPage(QWidget):
     def open_wizard(self) -> Any:
         from app.ui.accounts.wizard import AddAccountDialog  # noqa: PLC0415
         from app.ui.widgets.no_scroll import protect_all  # noqa: PLC0415
+        from app.ui.widgets.number_field import fit_all  # noqa: PLC0415
 
         self.wizard = AddAccountDialog(self.backend, self)
         protect_all(self.wizard)
+        fit_all(self.wizard)
         self.wizard.accepted.connect(self._wizard_done)
         self.wizard.open()
         return self.wizard
@@ -240,3 +244,18 @@ class AccountsPage(QWidget):
         """Before the window closes: save anything still inside a debounce window."""
         if self._built:
             self.globals.flush()
+
+
+def attach_accounts(nav: Any, store: Any) -> Any:
+    """Settings > Accounts (order 1k 6l): add the category after the five shelves.
+
+    An empty widget until the page is first shown (`AccountsPage.ensure_built`), so the window's
+    start-up pays for nothing but this call. Without a store there is nothing to connect accounts
+    to, and no category is added (the answer is None)."""
+    if store is None:
+        return None
+    from app.ui.account_runtime import service_factory_for  # noqa: PLC0415
+
+    page = AccountsPage(service_factory_for(store))
+    nav.add_category(CATEGORY_ACCOUNTS, page)
+    return page

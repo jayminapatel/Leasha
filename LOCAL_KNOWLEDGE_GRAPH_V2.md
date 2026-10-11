@@ -163,7 +163,11 @@ own id, its version tag, and a snapshot of what the two last agreed on - the bas
 merge), groups, tags, smart groups, and `contact_journal`, which holds a whole-contact snapshot
 before and after every change, whoever made it, so any change, a merge, a clean-up or a whole sync
 can be undone. `contact_sources` is the receipt behind each field and `contacts_fts` makes a
-contact's words searchable. A contact made in Leasha goes to the default account; nothing is copied
+contact's words searchable. A search that names a contact exactly (or by the start of its name, an email
+address or a phone number) shows that contact's card above the results
+(`app/ui/widgets/person_card.py`; it reads on a worker and never touches the search), and the editor's
+*From your index* panel and the MCP tool `contact_activity` read the same facts
+(`app/contacts/activity.py`). A contact made in Leasha goes to the default account; nothing is copied
 to every account unless the person asks. Fields an account cannot hold are never removed from Leasha
 by a round trip: each account is written only what it can hold (`Capabilities`, `project()`).
 

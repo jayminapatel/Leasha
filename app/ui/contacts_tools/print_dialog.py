@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.contacts.card import display_name
+from app.ui.widgets import number_field
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, named, plural
 from app.ui.widgets.icons import icon
 
@@ -194,6 +195,7 @@ class PrintDialog(ToolDialog):
         self.address.setToolTip("Which of each contact's addresses to print")
         self.start = QSpinBox()
         self.start.setMinimum(1)
+        number_field.fit(self.start, default=1)      # typed, with a back-to-default button
         named(self.start, "First label to use", "Number of the first label to print on, counting left to right then down. "
                                                  "Use it for a part-used sheet")
         self.sheet.currentIndexChanged.connect(lambda _i: self._sheet_changed())
