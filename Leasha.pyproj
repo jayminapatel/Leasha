@@ -892,6 +892,7 @@
     <Compile Include="tests\unit\test_contacts_printing.py" />
     <Compile Include="tests\unit\test_contacts_qr.py" />
     <Compile Include="tests\unit\test_contacts_reach.py" />
+    <Compile Include="tests\unit\test_contacts_side_list.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_common.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_files.py" />

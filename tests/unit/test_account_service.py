@@ -60,7 +60,9 @@ def add(svc, name="Home", **kw):
 NOW = datetime(2026, 10, 12, 10, 0, 0)
 
 
-def test_the_default_is_manual_so_nothing_is_ever_due(svc):
+def test_a_manual_schedule_means_nothing_is_ever_due(svc):
+    # 2026-10-11: the default became hourly (see the next test); Manual is the person's choice.
+    svc.accounts.update_settings(mail=ScheduleSetting("manual"), contacts=ScheduleSetting("manual"))
     add(svc)
     assert svc.due_work(NOW) == []
     assert svc.due_work(NOW + timedelta(days=30), window_opened_at=NOW) == []     # not even a catch-up
@@ -233,3 +235,15 @@ def test_a_contact_made_in_leasha_goes_to_the_default_account(svc):
     assert svc.hub.kept_in(svc.new_contact(person("Pia", "Dunn"))) == [a]
     svc.sync_now()
     assert len(server_a.live()) == 2 and len(server_b.live()) == 1
+
+
+def test_the_default_is_automatic_hourly_with_no_approval_before_a_first_sync(svc):
+    """2026-10-11, the owner: "as automated as possible ... manual options still there"."""
+    s = svc.settings()
+    assert (s.mail.mode, s.mail.minutes) == ("interval", 60)
+    assert (s.contacts.mode, s.contacts.minutes) == ("interval", 60)
+    assert s.dry_run_first is False
+    aid, server = add(svc)
+    server.add(person("Ann", "Lee"))
+    out = svc.sync_now(aid)
+    assert out[0].status == "ok" and not out[0].needs_approval       # imported, nothing waits

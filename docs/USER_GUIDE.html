@@ -565,8 +565,8 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <h3 id="sync-how">When a sync happens</h3>
 <p>A sync starts for one of two reasons, and no others: the <b>schedule</b>, or you pressing <b>Sync now</b>. Opening Leasha, waking the computer and the network coming back start nothing. Mail and contacts have a schedule each, under <b>Sync schedule</b>:</p>
 <ul>
-  <li><b>Manual - only when I press Sync now.</b> The default for both. Nothing syncs by itself until you choose otherwise.</li>
-  <li><b>Every few minutes or hours.</b> Every 5, 10, 15 or 30 minutes, or every 1 (the usual starting point once you switch it on), 2, 4, 6 or 12 hours.</li>
+  <li><b>Manual - only when I press Sync now.</b> Nothing syncs by itself while this is chosen.</li>
+  <li><b>Every few minutes or hours.</b> Every 5, 10, 15 or 30 minutes, or every 1 (the default for both mail and contacts), 2, 4, 6 or 12 hours.</li>
   <li><b>Daily at a time.</b></li>
 </ul>
 <p><b>The same schedule for every account</b> is the default. Choose <b>Each account has its own</b> and every account's <b>General</b> tab shows its own mail and contacts schedules, starting from the ones above.</p>
@@ -577,9 +577,9 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
   <li>If a sync fails, Leasha tries again after 1, 2, 4, 8 ... minutes, up to the schedule's own interval, or as long as the provider asks if it has said. Other accounts are not slowed. An account that has failed for 24 hours shows a warning on its row.</li>
 </ul>
 
-<h3 id="sync-first">The first sync is a dry run</h3>
-<p>The first sync of every new account <b>writes nothing</b>: not to Leasha, not to the account. It reads the account and works out what it would do, then waits for you. Find the row in the <b>Sync log</b> marked <b>Waiting for you</b>; the sentence under the table says what it would do ("It would add 312 to Leasha, change 4 in Leasha, 6 look like contacts you already have, ..."). Press <b>Approve</b> to run it for real. Contacts that arrive from an account are never merged into ones you already have automatically: a look-alike is only counted, and shows up on the <a href="#contacts-duplicates">Duplicates screen</a>.</p>
-<p>The dry run can be switched off (<b>Safety › Dry run before an account's first sync</b>). Leasha says what that costs and asks first.</p>
+<h3 id="sync-first">The first sync of an account</h3>
+<p>The first sync of a new account <b>runs for real as soon as it starts</b>: its contacts are added to Leasha and its mail is fetched, with no step where you have to approve. Contacts that arrive from an account are never merged into ones you already have automatically: a look-alike is only counted, and shows up on the <a href="#contacts-duplicates">Duplicates screen</a>.</p>
+<p>If you would rather read the plan first, switch on <b>Safety › Dry run before an account's first sync</b>. The first sync then writes nothing: not to Leasha, not to the account. Find the row in the <b>Sync log</b> marked <b>Waiting for you</b>; the sentence under the table says what it would do ("It would add 312 to Leasha, change 4 in Leasha, 6 look like contacts you already have, ..."). Press <b>Approve</b> to run it for real.</p>
 
 <h3 id="sync-brake">The delete brake</h3>
 <p>A sync that would delete more than <b>20 contacts, or 5% of your book</b> (both changeable under <b>Safety</b>) stops and deletes <b>nothing</b>. The Sync log row is marked <b>Held</b> and lists what it was about to do, with a few names. If the list is right, select the row and press <b>Allow</b>; if it is not, leave it, or press <b>Undo this sync</b> on any sync that did run. A brake that fires unexpectedly usually means an account was emptied or a folder removed at the provider, so look before you press Allow.</p>
@@ -952,9 +952,9 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td>An account shows <b>Needs sign-in</b></td><td>Settings › Accounts, pick the account, <b>Reconnect</b> (or <b>Change app password…</b> for iCloud, IMAP and CardDAV). Nothing already in Leasha is lost.</td></tr>
 <tr><td>"Your organisation has not approved Leasha"</td><td>Your IT administrator has to approve the app registration you made, or allow users to consent to apps. Then <b>Reconnect</b>. See <a href="#accounts-microsoft-setup">Microsoft</a>.</td></tr>
 <tr><td>"This sync would delete (N) contacts"</td><td>The delete brake. Settings › Accounts › Sync log: select the <b>Held</b> row, read what it was about to do, then <b>Allow</b> if it is right. See <a href="#sync-brake">The delete brake</a>.</td></tr>
-<tr><td>"The first sync is a dry run"</td><td>Not a fault. Read the plan in the Sync log row marked <b>Waiting for you</b> and press <b>Approve</b>. See <a href="#sync-first">The first sync is a dry run</a>.</td></tr>
+<tr><td>"The first sync is a dry run"</td><td>Not a fault: <b>Dry run before an account's first sync</b> is switched on. Read the plan in the Sync log row marked <b>Waiting for you</b> and press <b>Approve</b>, or switch the option off. See <a href="#sync-first">The first sync of an account</a>.</td></tr>
 <tr><td>A contact is missing from an account</td><td>Open the contact: <b>Kept in</b> shows which accounts hold it. Click an account to keep it there too. See <a href="#contacts-kept-in">Kept in</a>.</td></tr>
-<tr><td>Nothing syncs by itself</td><td>The schedule starts as Manual. Choose one under Settings › Accounts › Sync schedule, or press <b>Sync now</b>. Pause and quiet hours also hold it back. See <a href="#sync-how">When a sync happens</a>.</td></tr>
+<tr><td>Nothing syncs by itself</td><td>The schedule starts as every hour, so this means it was set to Manual (or Pause is on). Choose a timed one under Settings › Accounts › Sync schedule, or press <b>Sync now</b>. Pause and quiet hours also hold it back. See <a href="#sync-how">When a sync happens</a>.</td></tr>
 <tr><td>Anything else</td><td>Settings › Storage &amp; maintenance › Run doctor, then Save a support bundle… The bundle is a zip of the logs and settings that says what went wrong.</td></tr></table>
 
 <h2 id="glossary"><span class="num">17</span>Words used in Leasha</h2>
@@ -973,7 +973,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td>Interpret</td><td>Asking the local model to turn a sentence into filters you can see and edit.</td></tr>
 <tr><td>Account</td><td>A connection to Google, Microsoft, Apple or another mail or contacts server, in your own name for it. Its secret is kept in Windows Credential Manager.</td></tr>
 <tr><td>Kept in</td><td>The accounts a contact is stored in. Nothing is copied to every account unless you ask.</td></tr>
-<tr><td>Dry run</td><td>A sync that only plans and writes nothing. The first sync of every account is one until you approve it.</td></tr>
+<tr><td>Dry run</td><td>A sync that only plans and writes nothing. The first sync of an account is one, until you approve it, only when <b>Dry run before an account's first sync</b> is switched on (it is off by default).</td></tr>
 <tr><td>Delete brake</td><td>The stop on a sync that would delete more than 20 contacts, or 5% of your book, until you press Allow.</td></tr>
 <tr><td>Changed in two places</td><td>A contact whose same detail was changed in Leasha and at an account since they last agreed. The newest edit is kept and the other is in History.</td></tr>
 <tr><td>Deleted elsewhere</td><td>A contact an account no longer has. Leasha and your other accounts keep it until you decide.</td></tr>

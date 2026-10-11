@@ -91,6 +91,7 @@ def test_contacts_sync_dry_run_then_real_then_log_and_undo(world, capsys):
     server = world.servers["me@fast.com"]
     server.add(person("Ann", "Lee", phone="07700 900123"))
     server.add(person("Bob", "Ray"))
+    assert world("accounts", "config", "--dry-run-first", "yes") == 0   # 2026-10-11: off by default now; the option stays
     capsys.readouterr()
     assert world("contacts", "sync", "--dry-run") == 0
     assert "needs-approval" in capsys.readouterr().out               # a first sync is a dry run either way

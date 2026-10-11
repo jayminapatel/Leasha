@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.20 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.21 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -361,11 +361,12 @@ before you press Allow.
 
 ### "The first sync of (account) is a dry run" - `ERR_SYNC_NEEDS_APPROVAL`
 
-Not a fault. The first sync of every account only reads and plans: nothing is written to Leasha or
+Not a fault. **Dry run before an account's first sync** is switched on (under **Safety**; it is off
+by default), so the first sync of every account only reads and plans: nothing is written to Leasha or
 to the account until you approve. Leasha says: "Read what it would add, merge and change, then press
 Approve to run it for real." Select the row marked **Waiting for you** in the Sync log, read the
 plan under the table, and press **Approve**. (`contacts sync --account X --approve-first` does the
-same from a terminal.) The dry run can be switched off under **Safety**, which asks first.
+same from a terminal.) Switching the option off under **Safety** lets a first sync run without approval.
 
 ### "(N) contact(s) changed in two places" - `ERR_SYNC_CONFLICT_HELD`
 
@@ -404,8 +405,8 @@ for 30 days and leaves every account it was kept in; restoring it from the Bin w
 
 ### Nothing syncs by itself
 
-The schedule starts as **Manual** for mail and for contacts, so nothing syncs until you press
-**Sync now** or choose a timed schedule. Nothing syncs when Leasha starts, wakes or reconnects.
+The schedule starts as **every hour** for mail and for contacts, so this means it was set to
+**Manual**: nothing syncs until you press **Sync now** or choose a timed schedule. Nothing syncs when Leasha starts, wakes or reconnects.
 **Pause all sync** (here and in the tray menu) and quiet hours each hold scheduled syncs back;
 the account's row says which one in its Notes column. `accounts due` on the command line
 prints what the schedule would start now, and why nothing is due.

@@ -232,12 +232,22 @@ class SideList(QTreeWidget):
         entry = item.data(0, _ENTRY) if item is not None else None
         if entry is None or not entry.menu:
             return
-        from app.ui.widgets.icons import icon
-
         menu = QMenu(self)
-        for label, icon_name, action in entry.menu:
-            act = (menu.addAction(icon(icon_name, self._ink("text_dim", "#888888")), label)
-                   if icon_name else menu.addAction(label))
-            act.triggered.connect(lambda _c=False, e=entry, a=action: self.menu_chosen.emit(e, a))
+        self._fill_menu(menu, entry, entry.menu)
         self.last_menu = menu
         menu.popup(self.viewport().mapToGlobal(point))
+
+    def _fill_menu(self, menu: QMenu, entry: SideEntry, items: Any) -> None:
+        """One line per `(label, icon, action[, colour])`. An `action` that is itself a tuple of
+        such lines is a submenu (Contacts' tag colours); `colour` tints the icon (a tag's own)."""
+        from app.ui.widgets.icons import icon
+
+        for line in items:
+            label, icon_name, action = line[0], line[1], line[2]
+            tint = line[3] if len(line) > 3 and line[3] else self._ink("text_dim", "#888888")
+            if isinstance(action, (tuple, list)):
+                sub = menu.addMenu(icon(icon_name, tint), label) if icon_name else menu.addMenu(label)
+                self._fill_menu(sub, entry, action)
+                continue
+            act = menu.addAction(icon(icon_name, tint), label) if icon_name else menu.addAction(label)
+            act.triggered.connect(lambda _c=False, e=entry, a=action: self.menu_chosen.emit(e, a))
