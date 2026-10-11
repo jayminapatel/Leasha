@@ -851,6 +851,18 @@ SETTINGS: tuple[Setting, ...] = (
              "collection this way can take hours of the machine's own time. "
              "Needs the photo description model above to be installed.",
     ),
+    # 2026-10-12, order smarter-answers 2d (owner: "do all of them").
+    Setting(
+        key="DOC_CARDS_ENABLED",
+        label="Write a card for every document",
+        kind="bool", default=True, group="Models", surface="settings.models",
+        help="At the end of each index run, the chat model reads the start of "
+             "every document and message once and notes what it is (an invoice, "
+             "a letter, homework), who is in it, its dates and its amounts, so a "
+             "question can find it by what it is and not only by its words. "
+             "Paced like the rest of indexing and picked up where it stopped. "
+             "A big archive takes days of the computer's spare time the first time.",
+    ),
     # 2026-10-04, the owner: the index for other AI programs, run by Leasha
     # and managed from Settings. See `app/serve/mcp.py`.
     Setting(

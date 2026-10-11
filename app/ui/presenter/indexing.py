@@ -137,6 +137,8 @@ PHASE_WORDS: dict[str, str] = {
     # 2026-10-04: Florence-2 tags, moved to the end of a run.
     "photo_tags": "Describing the photos that have no text in them…",
     "picture_text": "Reading any text in the pictures, last of all…",
+    # 2026-10-12, order smarter-answers 2c.
+    "doc_cards": "Writing a card for each document - what it is, who and when…",
     # 2026-10-08: text first - every file is findable by its words already.
     "meaning": "Words are searchable now. Working out what they mean…",
     "tidying": "Tidying up the index…",

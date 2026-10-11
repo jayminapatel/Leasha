@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 39
+CURRENT_VERSION = 40
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2067,6 +2067,49 @@ def _v39_tidy_journal(conn: sqlite3.Connection) -> None:
                  "WHERE put_back_at IS NULL")
 
 
+def _v40_cards_and_words(conn: sqlite3.Connection) -> None:
+    r"""Document cards and the owner's own words (order `smarter-answers` 2a, 4a).
+
+    `doc_cards`: one row per file a card was tried for. `content_hash` is the
+    file's hash when the card was made, so a changed file is offered again;
+    `prompt_version` likewise, so a better prompt remakes the old cards.
+    `outcome` is `made` or `nothing` (the model had nothing usable to say -
+    not offered again until the file or the prompt changes). The card's words
+    live in `chunks` as a passage labelled `AI document card`; this row holds
+    the fields a filter or Chat can read without parsing that passage.
+
+    `my_words`: "Mum" means "Jane Example". `phrase_key` is the casefolded
+    phrase, the identity; `source` is `settings` or `chat`.
+
+    Additive: two new tables, nothing existing touched.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS doc_cards (
+            file_id        INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+            content_hash   TEXT,
+            prompt_version INTEGER NOT NULL,
+            outcome        TEXT    NOT NULL,
+            kind           TEXT,
+            people         TEXT,
+            organisations  TEXT,
+            dates          TEXT,
+            amounts        TEXT,
+            summary        TEXT,
+            model          TEXT,
+            made_at        INTEGER NOT NULL
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_doc_cards_kind ON doc_cards(kind) "
+                 "WHERE outcome = 'made'")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS my_words (
+            phrase_key  TEXT PRIMARY KEY,
+            phrase      TEXT NOT NULL,
+            meaning     TEXT NOT NULL,
+            source      TEXT NOT NULL DEFAULT 'settings',
+            created_at  INTEGER NOT NULL
+        )""")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2106,6 +2149,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     37: _v37_accounts_and_contacts,
     38: _v38_live_mail,
     39: _v39_tidy_journal,
+    40: _v40_cards_and_words,
 }
 
 #: Released migrations that open and close transactions of their own -

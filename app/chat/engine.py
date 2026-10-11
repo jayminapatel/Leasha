@@ -46,7 +46,7 @@ from typing import Any, Callable, Optional, Sequence
 from app.chat import absence, memory, prompts
 from app.chat.aggregate import parse_aggregate, run_aggregate
 from app.chat.config import ChatSettings
-from app.chat.context import Piece, Source, build_sources, is_mail_archive
+from app.chat.context import Piece, Source, about_line, build_sources, is_mail_archive
 from app.chat.llm import OllamaLLM, as_llm
 from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, widen
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
@@ -656,6 +656,57 @@ class ChatEngine:
         debug["reranked"] = True
         return [results[i] for i in order], width
 
+    def _own_passages(self, results: list) -> list:
+        """Each document card hit swapped for the document's own first passage.
+
+        Order smarter-answers 2f. A card finds a document; it never answers for
+        it - a sentence must be supported by what the document says, not by what a
+        model said about it. So a hit on a card becomes the file's first passage of
+        its own, and is dropped when a passage of that file is already in hand.
+        Never fails the answer: a file whose passage cannot be had keeps nothing.
+        """
+        from dataclasses import replace
+
+        from app.index.doc_cards import CARD_LABEL
+
+        if not any(str(getattr(r, "label", "") or "") == CARD_LABEL for r in results):
+            return results
+        own = {int(getattr(r, "file_id", 0) or 0) for r in results
+               if str(getattr(r, "label", "") or "") != CARD_LABEL}
+        out = []
+        for result in results:
+            if str(getattr(result, "label", "") or "") != CARD_LABEL:
+                out.append(result)
+                continue
+            file_id = int(getattr(result, "file_id", 0) or 0)
+            if file_id in own:
+                continue
+            try:
+                passage = self.store.own_passage(file_id)
+                if passage is None:
+                    continue
+                out.append(replace(result, chunk_id=passage["id"], text=passage["text"],
+                                   page=passage["page"], label=passage["label"] or ""))
+                own.add(file_id)
+            except Exception as exc:                    # noqa: BLE001 - one source, not the answer
+                log.debug("chat: no passage of its own for a card hit ({})", exc)
+        return out
+
+    def _add_about(self, sources: Sequence[Source]) -> None:
+        """Each source's card, in a few words, for the model to find its way by."""
+        ids = [s.file_id for s in sources if s.file_id]
+        if not ids:
+            return
+        try:
+            found = self.store.doc_cards_for_files(ids)
+        except Exception as exc:                        # noqa: BLE001 - an index before cards
+            log.debug("chat: no document cards ({})", exc)
+            return
+        for source in sources:
+            card = found.get(int(source.file_id or 0))
+            if card:
+                source.about = about_line(card)
+
     def _shelf_ids(self, history: Sequence[ChatTurn]) -> list[int]:
         """Documents the conversation has touched (its receipts), plus pinned,
         minus excluded - **exactly what the shelf shows**."""
@@ -1113,10 +1164,12 @@ class ChatEngine:
         # over what is in hand, never a second retrieval - and each is cut to the
         # reranker's own window around the question's words. See `_rerank_sources`.
         results, passage_chars = self._rerank_sources(route.question, results, plan.terms, debug)
+        results = self._own_passages(results)
         sources = build_sources(
             results, plan.terms, max_sources=self.cfg.max_sources,
             window_tokens=int(window * 0.55), question=route.question,
             metas=self._metas(results), passage_chars=passage_chars)
+        self._add_about(sources)
         debug["sources"] = [s.name for s in sources]
         debug["models"] = {r: getattr(self._role(r), "model", "") for r in ("router", "planner", "answerer")}
         if not sources:

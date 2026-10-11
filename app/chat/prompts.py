@@ -57,8 +57,18 @@ _EXAMPLE = (
 )
 
 
+#: The line under a source's name that says what the document is (its card,
+#: order smarter-answers 2f). Marked so the model treats it as orientation, and
+#: so `parse_sources` - the stand-in model's reading - never quotes it.
+CARD_MARK = "(What this is, from Leasha's card - not to be quoted:"
+
+
 def _block(sources: Sequence) -> str:
-    return "\n\n".join(f"[{s.n}] {s.name}\n{s.passage}" for s in sources)
+    def one(s) -> str:
+        about = str(getattr(s, "about", "") or "")
+        card = f"{CARD_MARK} {about})\n" if about else ""
+        return f"[{s.n}] {s.name}\n{card}{s.passage}"
+    return "\n\n".join(one(s) for s in sources)
 
 
 def answer_prompt(question: str, sources: Sequence, *, strict: bool = False) -> str:
@@ -332,7 +342,7 @@ def parse_sources(prompt: str) -> dict[int, str]:
             # In a combine prompt the text is on the header line itself.
             found[current] = [header.group(2)]
             continue
-        if current is not None:
+        if current is not None and not line.startswith(CARD_MARK):
             found[current].append(line)
     return {n: "\n".join(lines).strip() for n, lines in found.items()}
 

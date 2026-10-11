@@ -91,6 +91,10 @@ class Source:
     score: float = 0.0
     #: The document's date for the receipt (`Receipt.mtime_ns`), 0 when unknown.
     mtime_ns: int = 0
+    #: What the document is, from its card (order smarter-answers 2f): "an invoice;
+    #: dated 2024-03-14". Shown to the model to find its way, **never evidence** -
+    #: it is not in `pieces`, so the verifier cannot accept a sentence it supports.
+    about: str = ""
 
     def full_text(self) -> str:
         """Every piece's text, for evidence checks that span chunks."""
@@ -227,6 +231,20 @@ def _folders_of(path: str) -> str:
     under "Leeds" or "Tenancy", and that is evidence about what a document is."""
     parts = [p for p in str(path or "").replace("\\", "/").split("/")[:-1] if p and not p.endswith(":")]
     return " ".join(parts[-3:])
+
+
+def about_line(card: dict) -> str:
+    """A document card in a few words: "an invoice; dated 2024-03-14; from Acme Ltd".
+    Order smarter-answers 2f - what the model is told a source *is*."""
+    kind = str(card.get("kind") or "").strip()
+    parts = [f"{'an' if kind[:1] in 'aeiou' else 'a'} {kind}"] if kind and kind != "other" else []
+    dates = [str(d) for d in (card.get("dates") or [])][:3]
+    if dates:
+        parts.append("dated " + ", ".join(dates))
+    orgs = [str(o) for o in (card.get("organisations") or [])][:2]
+    if orgs:
+        parts.append("involving " + ", ".join(orgs))
+    return "; ".join(parts)
 
 
 def build_sources(

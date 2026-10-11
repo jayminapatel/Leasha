@@ -358,6 +358,34 @@ def apply_saved_pst_backend(store: Any) -> Optional[str]:
 # The configuration
 # ---------------------------------------------------------------------------
 
+def card_model_factory(settings: Any) -> Any:
+    """What builds the model that writes document cards (order smarter-answers 2c).
+
+    A callable, not a model: a run with nothing to card never loads one. The
+    chat engine Settings chose (inside Leasha, or Ollama). **Inside Leasha it runs
+    on the processor.** The index run's embedder may hold the graphics card, and
+    the chat model's decode step is not under the graphics-card lock
+    (`app/core/gpu_serialize.py` covers building a session, not each token), so
+    two of them on the card at once is the overlap order 1h set out to remove.
+    """
+    if settings is None:
+        return None
+
+    def build() -> Any:
+        from app.llm.engines import text_model
+
+        chosen = settings
+        copy = getattr(settings, "model_copy", None)
+        if callable(copy):
+            try:
+                chosen = copy(update={"embed_device": "cpu"})
+            except Exception:                       # noqa: BLE001 - the settings as they are
+                chosen = settings
+        return text_model(chosen)
+
+    return build
+
+
 def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
                           workers: int | None = None, memory_mb: int | None = None,
                           cpu_percent: int | None = None, full_speed: bool = False,
@@ -501,6 +529,8 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         file_time_limit_s=int(setting("index_file_time_limit_s", 120)),
         stall_limit_s=int(setting("index_stall_limit_s", 600)),
         caption_trickle_enabled=bool(setting("caption_trickle_enabled", False)),
+        doc_cards_enabled=bool(setting("doc_cards_enabled", True)),
+        card_model=card_model_factory(settings),
         ollama_url=str(setting("ollama_url", "http://127.0.0.1:11434")),
         ollama_vision_model=str(setting("ollama_vision_model", "llava")),
         chat_engine=str(setting("chat_engine", "onnx")),

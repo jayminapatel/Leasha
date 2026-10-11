@@ -105,9 +105,15 @@ INTRO = ("These apply because Tuning is set to Manual on the Indexing page. In D
 _DESCRIBE_FALLBACK = "llava"
 
 
+#: Settings this box shows that are not named CHAT_: they are about what the chat
+#: model does, so they sit with it, always visible (order smarter-answers 2d).
+ALWAYS_SHOWN = ("DOC_CARDS_ENABLED",)
+
+
 def chat_settings() -> list[Any]:
     """The registry entries this group is responsible for."""
-    return [s for s in reg.SETTINGS if s.key.startswith(PREFIX) or s.group == "Chat"]
+    return [s for s in reg.SETTINGS
+            if s.key.startswith(PREFIX) or s.group == "Chat" or s.key in ALWAYS_SHOWN]
 
 
 def _setting(key: str) -> Optional[Any]:
@@ -206,7 +212,7 @@ class ChatBox(QGroupBox):
             control.setToolTip(setting.help or setting.label)
             control.setAccessibleName(setting.label)
             self.controls[setting.key] = control
-            target = (engine_form if setting.key == ENGINE_KEY
+            target = (engine_form if setting.key == ENGINE_KEY or setting.key in ALWAYS_SHOWN
                       else web_form if setting.key.startswith(WEB_PREFIX) else form)
             if isinstance(control, ModelCombo):
                 self.roles.add_role(setting.label, control, setting.help)
