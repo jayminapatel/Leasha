@@ -185,6 +185,7 @@ class AccountPanel(QGroupBox):
         form = QFormLayout(page)
         self.name = QLineEdit()
         self.name.setAccessibleName("Account name")
+        self.name.setToolTip("Your own name for this account, such as Work or Home. It is only shown here.")
         form.addRow("Name", self.name)
         form.addRow(hint("Your own name for it, such as Work or Home."))
         self.colour_button = btn("Colour…", "palette", tip="Choose the colour shown beside this account")

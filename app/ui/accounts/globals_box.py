@@ -134,6 +134,8 @@ class GlobalSettingsBox(QWidget):
         self.brake_percent.setSuffix(" %")
         self.brake_percent.setKeyboardTracking(False)
         self.brake_percent.setAccessibleName("Delete brake: percent of the book")
+        self.brake_percent.setToolTip("A sync that would delete more than this share of your contact book "
+                                      "stops and asks first. 5 % is the default.")
         form.addRow("Stop a sync that deletes more than", self.brake_count)
         form.addRow("or more than", self.brake_percent)
         form.addRow(hint("A sync that would delete more contacts than this (20 contacts or 5% of your book "

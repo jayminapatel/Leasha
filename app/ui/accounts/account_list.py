@@ -16,6 +16,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.ui.accounts import logic
+from app.ui.later import later
 
 __all__ = ["AccountList", "COLUMNS"]
 
@@ -104,4 +105,4 @@ class AccountList(QTreeWidget):
     def dropEvent(self, event: Any) -> None:               # noqa: N802 - Qt's naming
         super().dropEvent(event)
         # Read the order once Qt has finished moving the item.
-        QTimer.singleShot(0, lambda: self.reordered.emit(self.ids()))
+        later(self, 0, lambda: self.reordered.emit(self.ids()))
