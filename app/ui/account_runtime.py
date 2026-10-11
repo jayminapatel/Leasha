@@ -96,7 +96,7 @@ class AccountRuntime:
         run(QThreadPool.globalInstance(), worker)
 
     def sync_all(self) -> None:
-        self.scheduler.sync_now()
+        self.scheduler.sync_all_now()
 
     def open_page(self) -> None:
         tray = getattr(self.shell, "tray", None)

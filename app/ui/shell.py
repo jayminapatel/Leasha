@@ -1038,6 +1038,12 @@ class MainWindow(QMainWindow):
             # thread before the first frame.
             if settings_view is not None:
                 settings_view.refresh_slow_labels()
+            # Order 1k 10b: the account scheduler's 30 s tick and the tray's account items.
+            # Starts no sync itself (D11.2): only a due schedule or Sync now does.
+            if settings_view is not None and getattr(settings_view, "accounts_page", None) is not None:
+                from app.ui.account_runtime import start_runtime
+
+                self.account_runtime = start_runtime(self)
             mcp_ctl = getattr(self, "mcp_ctl", None)
             if mcp_ctl is not None:
                 mcp_ctl.start_if_wanted()
@@ -2670,6 +2676,14 @@ class MainWindow(QMainWindow):
         mcp_ctl = getattr(self, "mcp_ctl", None)
         if mcp_ctl is not None:
             mcp_ctl.shutdown()
+        # Order 1k: no scheduled account sync starts once the window is closing; pending
+        # settings changes on the Accounts page are saved first.
+        account_runtime = getattr(self, "account_runtime", None)
+        if account_runtime is not None:
+            account_runtime.stop()
+        accounts_page = getattr(getattr(self, "settings_view", None), "accounts_page", None)
+        if accounts_page is not None:
+            accounts_page.flush()
         # 2026-10-04: the copies "Open" made of attachments. After the hide, so
         # the person never waits on it; a copy still open in Excel is left.
         try:

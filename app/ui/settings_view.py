@@ -290,6 +290,7 @@ class SettingsView(SettingsShelves, QWidget):
         self._nav = CategoryNav()
         self._nav.category_changed.connect(self._category_selected)
         self._build_categories(pst_box, behaviour, privacy)
+        self._build_accounts_category(store)
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.filter_box)
@@ -313,6 +314,21 @@ class SettingsView(SettingsShelves, QWidget):
         # indistinguishable from a broken one.
         self.history_label.setText("Counting…")
         self.pst_status.setText("Checking how Outlook archives can be read…")
+
+    def _build_accounts_category(self, store: Any) -> None:
+        """2026-10-11, order 1k 6l: Settings > Accounts, after the five shelves.
+
+        An empty widget until the page is first shown (`AccountsPage.ensure_built`), so the
+        window's start-up pays for nothing but this line. Without a store there is nothing to
+        connect accounts to, and no category is added."""
+        self.accounts_page = None
+        if store is None:
+            return
+        from app.ui.account_runtime import service_factory_for
+        from app.ui.accounts_page import CATEGORY_ACCOUNTS, AccountsPage
+
+        self.accounts_page = AccountsPage(service_factory_for(store))
+        self._nav.add_category(CATEGORY_ACCOUNTS, self.accounts_page)
 
     def _convert_pst(self) -> None:
         """Ask for an archive and a folder, then emit `convert_pst_requested`."""

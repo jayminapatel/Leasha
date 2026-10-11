@@ -96,6 +96,7 @@ class ImportDialog(ToolDialog):
         self._mapping_path: Optional[Path] = None
         self._map_combos: dict[str, QComboBox] = {}
         self._row_combos: dict[int, QComboBox] = {}
+        self._row_options: dict[int, list] = {}
         self.accounts: list[tuple[int, str]] = []
         self.default_account: Optional[int] = None
 
@@ -362,6 +363,7 @@ class ImportDialog(ToolDialog):
         table.blockSignals(True)
         table.setRowCount(len(self.rows))
         self._row_combos = {}
+        self._row_options = {}
         for r, row in enumerate(self.rows):
             check = QTableWidgetItem("")
             check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
@@ -372,14 +374,17 @@ class ImportDialog(ToolDialog):
             table.setItem(r, 2, QTableWidgetItem(summary_line(row.card) or "(empty)"))
             if row.matches or row.same_as is not None:
                 combo = QComboBox()
-                combo.addItem("Add as new", ("new", None))
+                options: list[tuple[str, Optional[int]]] = [("new", None)]
+                combo.addItem("Add as new")
                 for cid, name in zip(row.matches, row.match_names):
-                    combo.addItem(f"Merge into existing: {name}", ("merge", cid))
+                    combo.addItem(f"Merge into existing: {name}")
+                    options.append(("merge", cid))
                 if row.same_as is not None:
-                    combo.addItem(f"Merge into the earlier copy (row {self.rows[row.same_as].source_row})",
-                                  ("merge", None))
+                    combo.addItem(f"Merge into the earlier copy (row {self.rows[row.same_as].source_row})")
+                    options.append(("merge", None))
                 want = ("merge", row.target) if row.choice == "merge" else ("new", None)
-                combo.setCurrentIndex(max(0, combo.findData(want)))
+                combo.setCurrentIndex(options.index(want) if want in options else 0)
+                self._row_options[r] = options
                 named(combo, f"What to do with row {row.source_row}", "Add as a new contact, or merge into the one it matches")
                 combo.currentIndexChanged.connect(lambda _i: self._update_summary())
                 table.setCellWidget(r, 3, combo)
@@ -407,7 +412,7 @@ class ImportDialog(ToolDialog):
                 row.choice, row.target = "skip", None
                 continue
             combo = self._row_combos.get(r)
-            choice, target = combo.currentData() if combo is not None else ("new", None)
+            choice, target = self._row_options[r][combo.currentIndex()] if combo is not None else ("new", None)
             row.choice, row.target = choice, target
         return self.rows
 
@@ -420,7 +425,8 @@ class ImportDialog(ToolDialog):
         item.setCheckState(Qt.CheckState.Checked)
         combo = self._row_combos.get(position)
         if combo is not None:
-            combo.setCurrentIndex(max(0, combo.findData((choice, target))))
+            options = self._row_options[position]
+            combo.setCurrentIndex(options.index((choice, target)) if (choice, target) in options else 0)
 
     def _update_summary(self) -> None:
         rows = self.collect_rows()

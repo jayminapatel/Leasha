@@ -18,7 +18,7 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtWidgets import (  # noqa: E402
-    QAbstractButton, QAbstractSpinBox, QComboBox, QLineEdit, QListWidget, QPlainTextEdit, QTableWidget, QTabWidget,
+    QAbstractButton, QAbstractSpinBox, QComboBox, QLineEdit, QListWidget, QPlainTextEdit, QTabBar, QTableWidget, QTabWidget,
     QTreeWidget, QWidget,
 )
 
@@ -86,13 +86,15 @@ def open_dialog(qtbot, cls, *args):
 
 def unnamed_controls(root: QWidget) -> list[str]:
     """Every control in `root` that lacks an accessible name or a tooltip."""
-    kinds = (QAbstractButton, QComboBox, QLineEdit, QListWidget, QPlainTextEdit, QTableWidget, QTabWidget,
+    kinds = (QAbstractButton, QComboBox, QLineEdit, QListWidget, QPlainTextEdit, QTabBar, QTableWidget, QTabWidget,
              QTreeWidget, QAbstractSpinBox)
     bad = []
     for w in root.findChildren(QWidget):
         if not isinstance(w, kinds):
             continue
-        if w.objectName().startswith("qt_"):                # Qt's own internals (scroll bars, tab bar)
+        if w.objectName().startswith("qt_") or type(w).__name__ == "QTableCornerButton":
+            continue                                       # Qt's own internals
+        if isinstance(w.parent(), QTabBar):                # the tab bar's scroll arrows
             continue
         if not w.accessibleName().strip():
             bad.append(f"{type(w).__name__} {w.text() if hasattr(w, 'text') and callable(w.text) else ''} has no accessible name")

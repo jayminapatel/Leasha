@@ -169,6 +169,15 @@ def install_window_icon(application: Any) -> bool:
     return True
 
 
+def _action(text: str, parent: Any, callback: Any) -> Any:
+    """A menu action that calls `callback` (QAction lives in QtGui in PySide6)."""
+    from PySide6.QtGui import QAction
+
+    action = QAction(text, parent)
+    action.triggered.connect(lambda _c=False: callback())
+    return action
+
+
 class TrayPresence:
     """A tray icon, its menu, and the preferences that govern it.
 
@@ -225,6 +234,10 @@ class TrayPresence:
 
         self._status_action = menu.addAction(IDLE_WORDS, self.show_indexing)
         self._status_action.setToolTip("Open the Indexing page")
+        # 2026-10-11, order 1k 10h/10m: the account items. Present only once the window has
+        # given the tray its callbacks (`set_account_actions`).
+        self._menu = menu
+        self._add_account_items(append=True)
         menu.addSeparator()
         # **A real quit.** Through the window's close path, so the mutex is
         # released and SQLite is flushed - see the module docstring.
@@ -233,6 +246,74 @@ class TrayPresence:
         self._tray.activated.connect(self._on_activated)
         self._tray.setToolTip("Leasha")
         self._tray.show()
+        return True
+
+    # -- order 1k: account sync (10h, 10m) ------------------------------------
+
+    _account_hooks: Optional[dict] = None
+
+    def set_account_actions(self, *, pause: Any, sync_now: Any, open_page: Any) -> None:
+        """Give the tray its account items: `pause(choice)` with 'hour' | 'tomorrow' | 'forever' |
+        'off', `sync_now()` and `open_page()`. Safe before or after `install`."""
+        self._account_hooks = {"pause": pause, "sync_now": sync_now, "open_page": open_page}
+        if self._tray is not None:
+            self._add_account_items()
+
+    def _add_account_items(self, append: bool = False) -> None:
+        """Add the account items: at the end while the menu is being built, else before Quit."""
+        from PySide6.QtWidgets import QMenu
+
+        hooks = self._account_hooks
+        menu = getattr(self, "_menu", None)
+        if hooks is None or menu is None or getattr(self, "_account_pause_menu", None) is not None:
+            return
+        before = None if append or not menu.actions() else menu.actions()[-1]
+
+        def put(action: Any) -> None:
+            menu.insertAction(before, action) if before is not None else menu.addAction(action)
+
+        if before is not None:
+            menu.insertSeparator(before)
+        else:
+            menu.addSeparator()
+        self._account_warning_action = _action("", menu, hooks["open_page"])
+        self._account_warning_action.setVisible(False)
+        put(self._account_warning_action)
+        sub = self._account_pause_menu = QMenu("Pause account sync", menu)
+        if before is not None:
+            menu.insertMenu(before, sub)
+        else:
+            menu.addMenu(sub)
+        for key, words in (("hour", "For 1 hour"), ("tomorrow", "Until tomorrow"),
+                           ("forever", "Until I turn it back on")):
+            sub.addAction(words, lambda k=key: hooks["pause"](k))
+        self._account_resume = sub.addAction("Turn account sync back on", lambda: hooks["pause"]("off"))
+        self._account_resume.setVisible(False)
+        self._account_sync = _action("Sync accounts now", menu, hooks["sync_now"])
+        put(self._account_sync)
+
+    def set_accounts_paused(self, text: Optional[str]) -> None:
+        """Say in the menu that account sync is paused (`text` is the sentence), or that it is not."""
+        menu = getattr(self, "_account_pause_menu", None)
+        if menu is None:
+            return
+        menu.setTitle("Pause account sync" if not text else f"Pause account sync ({text})")
+        self._account_resume.setVisible(bool(text))
+
+    def set_accounts_warning(self, text: str) -> None:
+        """A line in the menu while an account needs attention (failing 24 hours, sign-in expired)."""
+        action = getattr(self, "_account_warning_action", None)
+        if action is not None:
+            action.setText(text)
+            action.setVisible(bool(text))
+
+    def toast(self, title: str, text: str) -> bool:
+        """A Windows notification through the tray icon. False when the tray is not installed."""
+        if self._tray is None:
+            return False
+        from PySide6.QtWidgets import QSystemTrayIcon
+
+        self._tray.showMessage(title, text, QSystemTrayIcon.MessageIcon.Warning, 10_000)
         return True
 
     # -- behaviour ------------------------------------------------------------

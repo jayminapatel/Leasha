@@ -99,6 +99,10 @@ class AccountScheduler(QObject):
         self._start("sync-now", _now, self._factory, account_id, kind, allow_brake, approve)
         return True
 
+    def sync_all_now(self) -> bool:
+        """'Sync accounts now' from the tray: every account, both kinds."""
+        return self.sync_now()
+
     def _start(self, why: str, fn: Callable[..., Any], *args: Any) -> None:
         from app.ui.workers import CallableWorker, run  # noqa: PLC0415
 

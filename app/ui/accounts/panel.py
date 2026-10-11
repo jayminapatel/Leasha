@@ -301,12 +301,15 @@ class AccountPanel(QGroupBox):
         form.addRow(self.drop_mail)
         form.addRow(hint("Takes the fetched mail out of search. The mailbox itself is not touched."))
         self.progress = QLabel("")
+        self.sync_mail_button = btn("Sync mail now", "refresh-cw", tip="Fetch this account's mail now")
+        form.addRow(self.sync_mail_button)
         self.pause_fetch = btn("Pause fetch", "pause", tip="Pause or resume the first fetch of mail")
         form.addRow("First fetch", self.progress)
         form.addRow(self.pause_fetch)
         form.addRow(hint("Messages fetched of the total. Pausing keeps what is fetched; resuming carries on."))
         self.tabs.addTab(page, "Mail")
 
+        self.sync_mail_button.clicked.connect(lambda: self.sync_requested.emit(self._id, "mail"))
         self.mail_on.toggled.connect(lambda on: self._acct(mail_on=bool(on)))
         self.folders_all.toggled.connect(self._folders_mode)
         self.choose_folders.clicked.connect(lambda: self._pick("list_folders", "mail_folders", "Folders to fetch"))
@@ -337,6 +340,8 @@ class AccountPanel(QGroupBox):
         grow.addStretch(1)
         form.addRow("Which contacts", grow)
         form.addRow(hint("All is the default. Choosing syncs only those groups."))
+        self.sync_contacts_button = btn("Sync contacts now", "refresh-cw", tip="Sync this account's contacts now")
+        form.addRow(self.sync_contacts_button)
         self.kept = QLabel("")
         self.last_changes = QLabel("")
         self.last_changes.setWordWrap(True)
@@ -346,6 +351,7 @@ class AccountPanel(QGroupBox):
                          "in each direction."))
         self.tabs.addTab(page, "Contacts")
 
+        self.sync_contacts_button.clicked.connect(lambda: self.sync_requested.emit(self._id, "contacts"))
         self.direction.currentIndexChanged.connect(self._direction_changed)
         self.groups_all.toggled.connect(self._groups_mode)
         self.choose_groups.clicked.connect(
