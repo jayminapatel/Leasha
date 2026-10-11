@@ -5897,6 +5897,14 @@ class SqliteStore:
                 "DELETE FROM index_state WHERE key LIKE 'graph:%' "
                 "OR key LIKE 'index:%' OR key LIKE 'resume:%'"
             )
+            # Order 1k: fetched mail went with `files`, so each account's mail position goes too -
+            # or the next sync would find itself up to date over an empty index. Contacts and the
+            # accounts themselves are the person's own data, not derived from anything: a reset
+            # keeps them (`tests/unit/test_reset_keeps_accounts_and_contacts.py`).
+            try:
+                conn.execute("UPDATE account_sync_state SET token = NULL, extra = '{}' WHERE kind = 'mail'")
+            except sqlite3.OperationalError:
+                pass
             # **In the same transaction as the delete.** The search cache is
             # keyed on this, so without it a cache built from the index that was
             # just destroyed keeps answering - which is the exact failure the

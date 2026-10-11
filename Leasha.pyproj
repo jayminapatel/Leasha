@@ -1201,6 +1201,7 @@
     <Compile Include="tests\unit\test_rerank_off_by_default.py" />
     <Compile Include="tests\unit\test_rerank_reuses_candidates.py" />
     <Compile Include="tests\unit\test_rerank_window.py" />
+    <Compile Include="tests\unit\test_reset_keeps_accounts_and_contacts.py" />
     <Compile Include="tests\unit\test_reset_leaves_nothing.py" />
     <Compile Include="tests\unit\test_resolve_gpu_regression.py" />
     <Compile Include="tests\unit\test_resources.py" />
