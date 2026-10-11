@@ -16,6 +16,8 @@ from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEd
 
 from app.ui.theme import theme_colours
 from app.ui.contacts.parts import name_inner_buttons, tool_button
+from app.ui.presenter.contact_commands import CONTACT_COMMANDS, contact_matching
+from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.icons import icon
 
 __all__ = ["ContactToolbar", "TOOLS", "MORE_TOOLS", "enrich_words"]
@@ -128,6 +130,8 @@ class ContactToolbar(QWidget):
         self.filter.setMinimumWidth(240)
         self.filter.textChanged.connect(self.text_changed.emit)
         name_inner_buttons(self.filter, "Clear the search box")
+        self._popup = attach_to(self.filter, catalogue=CONTACT_COMMANDS, matcher=contact_matching,
+                                resolve=lambda n: next((c for c in CONTACT_COMMANDS if c.name == n.strip().lower().rstrip(":")), None))
         row.addWidget(self.count)
         row.addWidget(self.filter)
 
