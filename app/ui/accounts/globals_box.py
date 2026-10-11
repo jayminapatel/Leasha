@@ -221,9 +221,29 @@ class GlobalSettingsBox(QWidget):
         self.microsoft_id.editingFinished.connect(
             lambda: self._save(microsoft_client_id=self.microsoft_id.text().strip()))
         self.google_secret.editingFinished.connect(self._secret_done)
+        self._tips()
         for b, key in ((self.google_help, "google"), (self.microsoft_help, "microsoft"),
                        (self.apple_help, "apple"), (self.imap_help, "imap")):
             b.clicked.connect(lambda _c=False, k=key: parts.open_guide(logic.GUIDE_ANCHORS[k]))
+
+    def _tips(self) -> None:
+        """A sentence of what each control does (the hover text)."""
+        self.same_for_all.setToolTip('Choose one schedule for every account, or a pair of schedules for each account.')
+        self.pause.setToolTip('Hold every scheduled sync. Sync now still works.')
+        self.pause_for.setToolTip('How long to hold scheduled syncs.')
+        self.quiet.setToolTip('Do not start scheduled syncs between the two times.')
+        self.quiet_start.setToolTip('When quiet hours begin.')
+        self.quiet_end.setToolTip('When quiet hours end.')
+        self.cap.setToolTip('The most the first download of a mailbox may use, in kilobytes per second. No cap leaves it unlimited.')
+        self.conflict.setToolTip('What happens when one contact was changed in Leasha and in an account, or in two accounts.')
+        self.brake_count.setToolTip('A sync that would delete more contacts than this stops and asks.')
+        self.dry_run.setToolTip('List what the first sync of an account would do and write nothing until you approve.')
+        self.notify_brake.setToolTip('Show a Windows notification when a sync is held by the delete brake.')
+        self.notify_conflict.setToolTip('Show a Windows notification when a contact changed in two places.')
+        self.notify_signin.setToolTip('Show a Windows notification when a sign-in has expired or expires within 2 days.')
+        self.notify_failed.setToolTip('Show a Windows notification when an account has failed for 24 hours.')
+        self.default_account.setToolTip('The account a contact made in Leasha is kept in.')
+        self.maps_site.setToolTip('The site opened when you click an address.')
 
     # ------------------------------------------------------------------ helpers
     def _group(self, title: str, outer: QVBoxLayout) -> tuple[QGroupBox, QFormLayout]:

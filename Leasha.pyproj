@@ -119,6 +119,7 @@
     <Compile Include="app\accounts\http.py" />
     <Compile Include="app\accounts\mail_index.py" />
     <Compile Include="app\accounts\mail_ingest.py" />
+    <Compile Include="app\accounts\mail_sync.py" />
     <Compile Include="app\accounts\oauth.py" />
     <Compile Include="app\accounts\policy.py" />
     <Compile Include="app\accounts\provider.py" />

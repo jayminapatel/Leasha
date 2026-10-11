@@ -24,7 +24,6 @@ pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QElapsedTimer, QTimer, Qt                    # noqa: E402
-from PySide6.QtTest import QTest                                         # noqa: E402
 from PySide6.QtWidgets import QApplication                               # noqa: E402
 
 from app.accounts.store import AccountStore                              # noqa: E402
@@ -111,15 +110,17 @@ def test_ten_thousand_rows_are_read_on_a_worker_and_land_without_a_stall(big):
     t0 = time.perf_counter()
     page.refresh()
     while page._busy and _ms(t0) < 20_000:               # the event loop keeps running while the worker reads
-        QTest.qWait(2)
+        QApplication.instance().processEvents()
+        time.sleep(0.002)                                  # releases the GIL, as the real loop does
     NUMBERS["page: refresh() to rows on screen, wall (ms)"] = _ms(t0)
     beat.stop()
     settle(page)
     assert page.model.rowCount() == N
     NUMBERS["window thread: landing the rows (model + sidebar + editor setup) (ms)"] = max(landed)
     NUMBERS["window thread: longest gap between 10 ms ticks while loading (ms)"] = max(gaps)
-    assert max(landed) < 1500, landed
-    assert max(gaps) < 2000, max(gaps)
+    assert len(gaps) > 3, "the heartbeat never ran: nothing was measured"
+    assert max(landed) < 500, landed
+    assert max(gaps) < 500, max(gaps)
     big.page = page
 
 
@@ -133,7 +134,7 @@ def test_both_views_paint_and_scroll_ten_thousand_rows(big):
     page.table.scrollToBottom()
     page.table.grab()
     NUMBERS["list: scroll to the last row and paint (ms)"] = _ms(t0)
-    assert _ms(t0) < 3000
+    assert _ms(t0) < 1500
     page.set_view("cards", remember=False)
     page.show()
     QApplication.instance().processEvents()
@@ -144,7 +145,7 @@ def test_both_views_paint_and_scroll_ten_thousand_rows(big):
     page.cards.scrollToBottom()
     page.cards.grab()
     NUMBERS["cards: scroll to the last card and paint (ms)"] = _ms(t0)
-    assert _ms(t0) < 5000
+    assert _ms(t0) < 2500
     page.set_view("list", remember=False)
 
 
@@ -153,14 +154,14 @@ def test_sorting_and_selecting_everything_are_arithmetic(big):
     t0 = time.perf_counter()
     page.table.sortByColumn(1, Qt.SortOrder.DescendingOrder)
     NUMBERS["list: sort by company (ms)"] = _ms(t0)
-    assert _ms(t0) < 2500
+    assert _ms(t0) < 1000
     assert page.model.row_at(0).company == "Company 99"
     page.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
     t0 = time.perf_counter()
     page.table.selectAll()
     ids = page.selected_ids()
     NUMBERS["list: pick all 10,000 and read them back (ms)"] = _ms(t0)
-    assert len(ids) == N and _ms(t0) < 2500
+    assert len(ids) == N and _ms(t0) < 1000
     t0 = time.perf_counter()
     page.bulk.set_rows([page.model.row_for_id(i) for i in ids])
     NUMBERS["bulk bar: take 10,000 picked rows (ms)"] = _ms(t0)

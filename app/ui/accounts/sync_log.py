@@ -63,6 +63,8 @@ class SyncLog(QWidget):
         self.kind_filter.addItem("Mail and contacts", "")
         self.kind_filter.addItem("Contacts", "contacts")
         self.kind_filter.addItem("Mail", "mail")
+        self.account_filter.setToolTip("Show the syncs of one account, or of all.")
+        self.kind_filter.setToolTip("Show contact syncs, mail syncs, or both.")
         row.addWidget(QLabel("Show"))
         row.addWidget(self.account_filter)
         row.addWidget(self.kind_filter)

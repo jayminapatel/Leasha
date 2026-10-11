@@ -105,6 +105,9 @@ class ScheduleRow(QWidget):
         for w in (self.mode, self.every, self.daily_at):
             lay.addWidget(w)
         lay.addStretch(1)
+        self.mode.setToolTip("Manual syncs only when you press Sync now; the others sync on a timer.")
+        self.every.setToolTip("How long to wait between syncs.")
+        self.daily_at.setToolTip("The time of day to sync.")
         self._save = Debounced(self._emit, parent=self)
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self.every.currentIndexChanged.connect(lambda _i: self._changed())

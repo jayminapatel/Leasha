@@ -70,6 +70,7 @@ class AddAccountDialog(QDialog):
         for key, (title, _g, line, _help) in logic.PROVIDER_TEXT.items():
             r = QRadioButton(title)
             r.setAccessibleName(title)
+            r.setToolTip(line)
             self.choices[key] = r
             cl.addWidget(r)
             cl.addWidget(hint(line))
@@ -110,9 +111,13 @@ class AddAccountDialog(QDialog):
         self.addressbook = QLineEdit()
         self.addressbook.setAccessibleName("Address book address")
         self.addressbook.setPlaceholderText("Only if it cannot be found by itself")
+        self.port.setToolTip("The server's port. Automatic uses the usual one for the security chosen.")
+        self.security.setToolTip("How the connection to the server is protected. SSL/TLS is the usual choice.")
         self.contacts = QCheckBox("Sync contacts")
         self.contacts.setChecked(True)
+        self.contacts.setToolTip("Bring this account's contacts into Leasha and keep them in step.")
         self.mail = QCheckBox("Fetch mail (read only)")
+        self.mail.setToolTip("Fetch this account's mail so it can be searched. Leasha never changes the mailbox.")
         self._rows = {
             "name": ("Name", self.name), "address": ("Address", self.address),
             "password": ("App password", self.password), "server": ("Server", self.server),

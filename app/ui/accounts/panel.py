@@ -81,6 +81,8 @@ class _RemoveDialog(QDialog):
         self.keep_contacts.setChecked(True)
         self.remove_mail = QCheckBox("Remove this account's mail from the index")
         self.remove_mail.setChecked(True)
+        self.keep_contacts.setToolTip("Leave this account's contacts in your Leasha book.")
+        self.remove_mail.setToolTip("Take the mail fetched from this account out of search.")
         lay.addWidget(self.keep_contacts)
         lay.addWidget(hint("Kept contacts stay in your book with this account taken out of where they are "
                            "kept. Unticked, the contacts that only lived here go to the bin (30 days)."))
@@ -174,6 +176,7 @@ class AccountPanel(QGroupBox):
         self._build_general()
         self._build_mail()
         self._build_contacts()
+        self._tips()
         self.setVisible(False)
 
     # ============================================================= general
@@ -356,6 +359,19 @@ class AccountPanel(QGroupBox):
         self.groups_all.toggled.connect(self._groups_mode)
         self.choose_groups.clicked.connect(
             lambda: self._pick("list_contact_groups", "contact_groups", "Groups to sync"))
+
+    def _tips(self) -> None:
+        """A sentence of what each control does (the hover text)."""
+        self.idle.setToolTip('Keep a connection open while Leasha runs, so new inbox mail is fetched at once.')
+        self.mail_on.setToolTip("Fetch this account's mail, read only.")
+        self.folders_all.setToolTip('Fetch every folder or label (Spam and Trash are left out).')
+        self.folders_some.setToolTip('Fetch only the folders or labels you choose.')
+        self.back.setToolTip('How far back the first fetch goes.')
+        self.attachments.setToolTip('Search inside attachments as well as the message.')
+        self.attachment_mb.setToolTip('Attachments larger than this are listed but not read.')
+        self.direction.setToolTip('Two-way reads and writes; Into Leasha only never writes to the account; Off stops syncing contacts.')
+        self.groups_all.setToolTip('Sync every contact folder or group.')
+        self.groups_some.setToolTip('Sync only the groups you choose.')
 
     # ================================================================== show
     def show_account(self, status: Any, state: Any, same_for_all: bool) -> None:
