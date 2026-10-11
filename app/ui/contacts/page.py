@@ -88,6 +88,7 @@ class ContactsPage(QWidget):
         self.cards.setSelectionModel(self.table.selectionModel())
 
         self.editor = ContactEditor()
+        self.editor.index_panel.configure(hub)
         self.history = HistoryPanel()
         self.placeholder = QLabel("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -391,6 +392,27 @@ class ContactsPage(QWidget):
         if ids and self.model.position_of(ids[0]) >= 0:
             sm.setCurrentIndex(self.model.index(self.model.position_of(ids[0]), 0),
                                QItemSelectionModel.SelectionFlag.NoUpdate)
+
+    def show_contact(self, cid: int) -> None:
+        """Search's "Open contact": the full list, this contact picked and its editor in front."""
+        if self.editor.is_dirty() and not self._confirm_discard():
+            return
+        self._creating = False
+        self.toolbar.history_button.setChecked(False)
+        self.toolbar.filter.blockSignals(True)
+        self.toolbar.filter.clear()
+        self.toolbar.filter.blockSignals(False)
+        self._entry = Entry("all", "all", "All", "contact", section="Contacts")
+        self.sidebar.select_key("all", emit=False)
+
+        def reveal() -> None:
+            at = self.model.position_of(cid)
+            if at >= 0:
+                self.table.scrollTo(self.model.index(at, 0))
+                self.cards.scrollTo(self.model.index(at, 0))
+            self._open(cid)
+
+        self.reload(select=[cid], then=reveal)
 
     def _selection_changed(self, *_a: object) -> None:
         ids = self.selected_ids()

@@ -80,6 +80,17 @@ class IndexPanel(QWidget):
         #: How an item opens: `(path)`. Replaced in tests; the window's own route otherwise.
         self.opener: Callable[[str], Any] = self._open_path
         self.setAccessibleName("From your index")
+        self.heading = QWidget()
+        head = QHBoxLayout(self.heading)
+        head.setContentsMargins(0, 0, 0, 0)
+        head.setSpacing(6)
+        pic = QLabel()
+        pic.setPixmap(icon("search", theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
+        title = QLabel("From your index")
+        title.setObjectName("contactSectionTitle")
+        head.addWidget(pic)
+        head.addWidget(title)
+        head.addStretch(1)
         self.summary = QLabel("")
         self.summary.setObjectName("resultsSummary")
         self.summary.setWordWrap(True)
@@ -90,6 +101,7 @@ class IndexPanel(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(4)
+        outer.addWidget(self.heading)
         outer.addWidget(self.summary)
         outer.addLayout(self.body)
         self.items: list[QToolButton] = []

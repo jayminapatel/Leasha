@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QFileDialog, QFormLayout, QFrame, QHBoxLayout, QL
 
 from app.contacts.card import KINDS, SCALARS, Card, Field, Photo, display_name, field_key
 from app.ui.contacts.fields import FieldList
+from app.ui.contacts.index_panel import IndexPanel
 from app.ui.contacts.loader import Detail, read_photo, run_task
 from app.ui.contacts.logic import KIND_INFO, initials, merge_order, source_words
 from app.ui.contacts.parts import TokenEdit, retint_tools, tool_button
@@ -185,6 +186,10 @@ class ContactEditor(QWidget):
         col.addWidget(self.groups)
         col.addWidget(self._section("tag", "Tags"))
         col.addWidget(self.tags)
+        # 6f: the mail, files and photos the index holds about this person.
+        self.index_panel = IndexPanel()
+        self.index_panel.error.connect(self.error)
+        col.addWidget(self.index_panel)
         col.addStretch(1)
         self.scroll = scrollable(body, min_width=300)
 
@@ -273,6 +278,7 @@ class ContactEditor(QWidget):
         self._load(Card(), [], [], {}, {}, "")
         self.setEnabled(False)
         self.heading.setText("")
+        self.index_panel.clear()
 
     def start_new(self, default_account: Optional[int]) -> None:
         """Ctrl+N: an empty card, kept in the default account (D5)."""
@@ -280,6 +286,7 @@ class ContactEditor(QWidget):
         self.cid = None
         kept = [default_account] if default_account in self._accounts else []
         self._load(Card(), kept, [], {}, {}, "")
+        self.index_panel.clear()
         for kind in ("email", "phone"):                 # blank rows are not saved; they invite typing
             self.lists[kind].add_row(None, emit=False)
         self.heading.setText("New contact")
@@ -293,6 +300,7 @@ class ContactEditor(QWidget):
         flagged = bool((d.meta or {}).get("conflict_at")) or bool(d.conflicts)
         self._load(d.card, d.kept_in, d.tags, d.sources, d.meta, display_name(d.card))
         self.banner.setVisible(flagged)
+        self.index_panel.show_for(d.id, [f.value for f in d.card.values("email")])
 
     def _load(self, card: Card, kept: list[int], tags: list[str], sources: dict, meta: dict, name: str) -> None:
         self._loading = True

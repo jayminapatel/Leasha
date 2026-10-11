@@ -355,6 +355,7 @@ class MainWindow(QMainWindow):
         self._lend_open_context()   # 2026-10-04: the one open route, for every page
         self.search_view.reveal_requested.connect(lambda row: self._open_result(row, reveal=True))
         self.search_view.reindex_requested.connect(self._reindex_for)
+        self.search_view.person_strip.open_requested.connect(self._open_contact)   # order 1k 6f
         self.search_view.error.connect(self._show_error)
         # Restored from last time, then saved whenever it changes. Three keys in
         # one transaction - see `set_states`.
@@ -2339,6 +2340,14 @@ class MainWindow(QMainWindow):
         view = getattr(self, "contacts_view", None)
         if view is not None:
             self._show(view)
+
+    def _open_contact(self, contact_id: int) -> None:
+        """Order 1k 6f: a contact card in Search was opened - the Contacts tab, on that person."""
+        view = getattr(self, "contacts_view", None)
+        if view is None:
+            return
+        self._show(view)
+        view.show_contact(contact_id)
 
     def _new_contact(self) -> None:
         """Edit > New contact: the Contacts tab, on a blank card."""

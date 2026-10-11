@@ -1119,6 +1119,7 @@
     <Compile Include="tests\unit\test_pdf_ocr.py" />
     <Compile Include="tests\unit\test_people_during_a_run.py" />
     <Compile Include="tests\unit\test_perf_floors.py" />
+    <Compile Include="tests\unit\test_person_card.py" />
     <Compile Include="tests\unit\test_phase_progress.py" />
     <Compile Include="tests\unit\test_phash.py" />
     <Compile Include="tests\unit\test_phash_column_migration.py" />

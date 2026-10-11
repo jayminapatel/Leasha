@@ -88,6 +88,10 @@ class ContactsView(QWidget):
     def new_contact(self) -> None:
         self.ensure_built().new_contact()
 
+    def show_contact(self, contact_id: int) -> None:
+        """Select one contact and show it (a search hit's card opens here)."""
+        self.ensure_built().show_contact(int(contact_id))
+
     def retint(self, colours: dict) -> None:
         if self.page is not None:
             self.page.retint(colours)

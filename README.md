@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.2 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 4.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -8,7 +8,7 @@
 
 <p align="center">
   <strong>Search everything on your PC by describing it in plain English.</strong><br>
-  Files, Outlook mail, photos and code. One process, fully offline. Nothing leaves your machine.
+  Files, Outlook mail, photos and code. One process. Search and indexing are fully offline, and there is no telemetry.
 </p>
 
 <p align="center">
@@ -17,7 +17,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/github/license/jayminapatel/Leasha?color=2f2a6b" alt="MIT licence"></a>
   <img src="https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078d4" alt="Windows 10 and 11">
   <img src="https://img.shields.io/badge/python-3.12-3776ab" alt="Python 3.12">
-  <img src="https://img.shields.io/badge/runs-100%25%20offline-7a9a01" alt="Runs fully offline">
+  <img src="https://img.shields.io/badge/search%20and%20indexing-100%25%20offline-7a9a01" alt="Search and indexing run fully offline">
 </p>
 
 <p align="center">
@@ -73,6 +73,7 @@ Both are single self-contained files: open them in any browser, offline.
 |---|---|
 | **Search** | One box over files, mail and code. Words and meaning together; `/` for filters; a preview pane; pinned working set; saved searches |
 | **Files** | Find a file by any part of its name — `voice` finds `Invoice 2024.pdf` |
+| **Contacts** | Your people as a list or as business cards, with groups, tags, duplicates, import, export and printing - and, if you connect them, kept in step with your Google, Microsoft, Apple and other accounts |
 | **Photos** | See, find and name your pictures: by who is in them, when, where, and what they show |
 | **Mail** | Your mail as a table you can sort and filter, newest first |
 | **Code** | Every repository under your folders, with git history search (`/history`, `/introduced`, `/branch` …) |
@@ -105,9 +106,10 @@ file seconds after it is saved (off by default), and `leasha://` links.
 ## How it stays private
 
 **One process for search.** SQLite/FTS5 for metadata and keyword search, LanceDB for vectors,
-FastEmbed ONNX for embeddings — all embedded libraries. No services, no ports, no passwords,
-and nothing leaves the machine. Indexing can optionally run in a child process of its own,
-still with no ports.
+FastEmbed ONNX for embeddings — all embedded libraries. No services, no passwords, and search,
+indexing and reading files never connect to anything: they work with the network unplugged. The
+only port is the optional, keyed AI-programs server on `127.0.0.1`, off until you start it.
+Indexing can optionally run in a child process of its own.
 
 **Models run inside Leasha.** Photo tags (Florence-2), speech (Whisper) and the Chat model
 (Qwen 2.5 by default) run on ONNX Runtime in the application, downloaded once from Settings ›
@@ -115,12 +117,28 @@ Models & AI and then used offline. Ollama is an optional alternative engine for 
 and Describe (`CHAT_ENGINE=ollama`), and **no model is ever in the retrieval path**: with every
 model missing, search works exactly as it always does.
 
-**One exception, off by default and yours to switch on:** the Chat tab can look things up on
-the web to add to what your own files say. Your files always come first, only a short search
-question you can see (never a file name, a passage or your mail) is sent, and search,
-indexing and reading stay fully offline either way.
+**What can connect, and only when you set it up.** Two things, both off until you turn them on:
 
-Leasha only ever **reads** your files. It never changes, moves or deletes one.
+- **Accounts.** If you add a Google, Microsoft, Apple, IMAP or CardDAV account, Leasha signs in
+  and fetches that account's mail (read only) and contacts to this computer, and writes contact
+  changes back to the same account. It talks only to that provider's own hosts, and only when you
+  press Sync now or choose a schedule (the default is manual). Everything fetched is stored and
+  searched here; mail is never changed on the server.
+- **Enrichment.** The contact tools can propose extra details. Looking in your own mail needs no
+  connection; the three internet look-ups (Gravatar, a company's icon, Wikidata) are separate
+  switches, each off by default, and nothing is kept until you accept it.
+
+The Chat tab can also look things up on the web, off by default: only a short search question you
+can see (never a file name, a passage or your mail) is sent.
+
+There is **no telemetry**, and no index content, passage, mail or contact ever goes anywhere except
+the account it came from. Sign-in passes and app passwords are kept only in Windows Credential
+Manager, never in a file, the index or a log. Leasha ships with no sign-in key of its own: you make
+your own free Google and Microsoft registrations, and the user guide walks through them.
+
+Leasha only ever **reads** your files and your mail. It never changes, moves or deletes one. The
+one exception is your own contacts, which are kept in step with the accounts you choose, and every
+change to them can be undone.
 
 ## Install
 
@@ -272,15 +290,16 @@ run `leasha` from anywhere:
 First run: Settings › What's indexed › **Add all four** (or **Add folder…**), then Indexing ›
 **Start indexing** (`F5`). Words are searchable first; meaning catches up behind them.
 
-`leasha` with no arguments opens the window; anything else runs one of 32 headless commands
+`leasha` with no arguments opens the window; anything else runs one of 39 headless commands
 (`python -m app.cli <command>`). The full list, with every option, is in the technical
 reference.
 
 ## Your Google data
 
 Download your Google Takeout, put the zip in an indexed folder — Leasha does the rest.
-Nothing connects to Google. Every email, note, and photo is instantly searchable by content
-and date, completely offline.
+That route never connects to Google. Every email, note, and photo is instantly searchable by
+content and date, completely offline. (To keep Gmail and Google Contacts up to date instead, add the
+account in Settings › Accounts; the user guide has the steps.)
 
 The Takeout archive is processed like any other zip: Gmail is indexed as mail, Keep notes
 as text, and photos with their metadata intact. No setup, no configuration, no import wizard.
@@ -328,7 +347,7 @@ pull request, and the macOS suite once a week (`.github/workflows/ci.yml`).
 
 ```
 app/core      L0  config, settings registry, AppError, logging, locks, osbridge
-app/storage   L1  SQLite/FTS5 + LanceDB (schema v35)
+app/storage   L1  SQLite/FTS5 + LanceDB (schema v38)
 app/extract   L2  PDF, Office, plaintext, PST/EML/mbox, zip, OCR, media + chunking
 app/ort       L2  ONNX Runtime models inside Leasha: Florence-2, Whisper, chat LLM
 app/index     L3  walker, resumable pipeline, embedder, governor, folder watch
@@ -338,6 +357,8 @@ app/ui        L5  the window (PySide6, Qt 6.11)
 app/shell     L5  `leasha shell`, the terminal search prompt
 app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe
 app/chat      L8b the Chat tab's engine
+app/accounts      accounts: sign-in, the contact sync engine, live mail (the only code that talks to a provider)
+app/contacts      the contact hub: card, merge, duplicates, import, export, printing, enrichment
 app/cli           `python -m app.cli`, the headless entry point
 packaging/        the Windows installer: PyInstaller build, Inno Setup script, build.ps1
 tests/        unit, integration, and fixtures (healthy + deliberately corrupt)
