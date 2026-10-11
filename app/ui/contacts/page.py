@@ -163,6 +163,7 @@ class ContactsPage(QWidget):
             corner.setAccessibleName("Pick every contact")
             corner.setToolTip("Pick every contact")
         t.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        t.customContextMenuRequested.connect(lambda pos: self._context_menu(t, pos))
         return t
 
     def _make_cards(self) -> QListView:
@@ -181,6 +182,8 @@ class ContactsPage(QWidget):
         v.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         v.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         v.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
+        v.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        v.customContextMenuRequested.connect(lambda pos: self._context_menu(v, pos))
         v.setAccessibleName("Contact cards")
         v.setToolTip("Your contacts as business cards. Enter opens one, Delete moves it to the bin")
         self.card_delegate = CardDelegate(self.photos, v)
@@ -812,6 +815,17 @@ class ContactsPage(QWidget):
         hub = self.hub
         if name:
             loader.run_task(self, lambda: hub.rename_group(group_id, name), lambda _r: self.reload())
+
+    def _context_menu(self, view: QWidget, pos: Any) -> None:
+        """6r: right-click. The contact under the pointer joins the pick if it is not in it."""
+        index = view.indexAt(pos)
+        if index.isValid() and index.row() not in {i.row() for i in self.table.selectionModel().selectedIndexes()}:
+            row = self.model.row_at(index.row())
+            if row is not None:
+                self.select_ids([row.id])
+        from app.ui.contacts import quick
+
+        quick.show_menu(self, view.viewport().mapToGlobal(pos))
 
     # ----------------------------------------------------------------- tools
     def context(self) -> openers.Ctx:
