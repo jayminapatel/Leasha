@@ -227,8 +227,11 @@ class MailSyncer:
         provider: Optional[_ReadOnly] = None
         try:
             acc.record_attempt(account.id, "mail")
-            provider = _ReadOnly(self.provider_for(account))
-            self._sync(account, provider, out, cancel)
+            if (acc.state(account.id, "mail").extra or {}).get("paused"):
+                out.status = "paused"                             # the person's Pause: no connection is made
+            else:
+                provider = _ReadOnly(self.provider_for(account))
+                self._sync(account, provider, out, cancel)
         except Exception as exc:                                  # noqa: BLE001 - see the docstring
             err = (exc.error if isinstance(exc, AppErrorException) else
                    to_app_error(exc, "accounts.mail_sync", "ERR_SYNC_FAILED", account=account.name,
@@ -266,9 +269,6 @@ class MailSyncer:
         opts = MailOptions.from_account(account, now=self._clock())
         state = acc.state(account.id, "mail")
         extra: dict[str, Any] = dict(state.extra or {})
-        if extra.get("paused"):
-            out.status = "paused"
-            return
         token = self._follow_option_changes(account, opts, state.token, extra, out)
         restarts = 0
         while True:

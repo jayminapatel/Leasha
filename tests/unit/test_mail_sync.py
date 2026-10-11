@@ -429,7 +429,7 @@ def test_an_account_is_never_written_to(env):
 
 def test_the_syncer_holds_a_provider_that_can_only_read():
     assert set(_ReadOnly.__dict__) - {"__slots__", "__module__", "__doc__", "__init__", "__qualname__",
-                                      "__firstlineno__", "__static_attributes__"} == {"pull", "list_folders", "close"}
+                                      "__firstlineno__", "__static_attributes__", "_p"} == {"pull", "list_folders", "close"}
     wrapped = _ReadOnly(RecordingProvider(FakeMailbox()))
     for verb in RecordingProvider.WRITES:
         assert not hasattr(wrapped, verb)
