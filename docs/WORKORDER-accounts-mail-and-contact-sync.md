@@ -1,12 +1,13 @@
 # Work order (Master thread): Accounts - live mail in, and a contact book that syncs
 
-**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** Master thread with helper threads (new `app/accounts/`, new `app/contacts/`,
 `app/storage/migrations.py`, `app/ui/shell.py`, a new `app/ui/contacts_view.py` and its widgets,
 `app/cli/`, `app/serve/mcp.py`, `tests/unit/`, the user guide, `docs/GLOSSARY.md`, `docs/PROJECT_INSTRUCTIONS.md`)
 **Status:** DRAFT, written 2026-10-11 at the owner's request ("go with c, Leasha as hub, write the
-draft work order"). Nobody may start it. Decisions D1-D14 carry defaults; the ones marked
-**[FINALISE]** are the owner's. D15 is decided.
+draft work order"). Nobody may start it. Every decision, D1-D17, was taken by the owner on
+2026-10-11 (D4-D14 as the recommended defaults: "the rest do recomended"). 0c is done: the
+provider facts were checked against the providers' own documentation the same day (§0c).
 
 **Where this came from.** A conversation on 2026-10-11, in the owner's words:
 
@@ -26,10 +27,21 @@ draft work order"). Nobody may start it. Decisions D1-D14 carry defaults; the on
 7. "dont forget the mcp server updates", then "the only read for mcp"
 8. "mechanism for scheduled sync and how often how to get mail etc should be comprehensive and
    professional in settings"
+9. The owner's answers, 2026-10-11: one order in three phases; each user sets up their own
+   logins, and testing uses the owner's; three policies - indexing, mail (only mail fetched from
+   the web directly) and contacts - and a machine that was asleep syncs only once; "the sych
+   schedules when the program is not there are not considered unless you see a issue"; a sync
+   starts on the schedule or on Sync now only; IMAP "can be any not just apple"; the default
+   schedule is manual for both, 1 hour once switched on, adjustable; the schedule is chosen per
+   account or the same for all; "no battery or metered check"; "work account is two way as this
+   will be in personal contacts and not corporate contacts"
+10. "D3 take a as i need it free but people always fall back to imap for google if they wish,
+   D16 take 2, do 0c and commit"
 
 **Why option c.** Microsoft 365 and Outlook.com contacts have no CardDAV, so they can be reached
-only through Microsoft Graph (UNCONFIRMED - check against Microsoft's current documentation
-before release, item 0c). Once Microsoft has to be registered for contacts anyway, IMAP saves
+only through Microsoft Graph (checked 2026-10-11, §0c: Microsoft's own list of Exchange Online
+client protocols is Exchange ActiveSync, MAPI, Outlook on the web, IMAP and POP3, with no
+CardDAV; Graph contacts support delta for work and personal accounts). Once Microsoft has to be registered for contacts anyway, IMAP saves
 no sign-in work, and the providers' own APIs send only what changed and keep Gmail's labels as
 they are.
 
@@ -56,7 +68,7 @@ is RELEASED.
 
 1. **"Things that are deliberately not built" - Cloud APIs.** The rule reads as a rule about
    where the data lives, not where it comes from. Account connections may fetch mail and
-   contacts from Google, Microsoft and Apple. Everything fetched is stored and searched on this
+   contacts from Google, Microsoft, Apple and any IMAP or CardDAV server. Everything fetched is stored and searched on this
    machine only. Search, indexing and reading files stay offline as before. Only these may go
    out:
    1. Sign-in and the provider calls that fetch mail and contacts.
@@ -74,27 +86,47 @@ is RELEASED.
 
 ## Decisions (defaults the building thread may take; say which were taken at close-out)
 
-- **D1 One order or three. [FINALISE]** Default: one order built in phases. Each phase merges
+- **D1 One order or three. Decided (owner, 2026-10-11): one order, three phases.** Each phase merges
   and ships on its own, and §9's tests ship with each phase.
   1. **Phase A:** accounts, the contact hub and its sync, the Contacts page, and the contact
      tools on the MCP server, and Settings > Accounts for contacts (§0-§4, §6, §8b-§8g, §10
      except its mail items).
   2. **Phase B:** live mail (§5), its MCP filter (§8a) and §10's mail items.
   3. **Phase C:** enrichment (§7).
-- **D2 Who owns the app registrations. [FINALISE]** A Google Cloud project and a Microsoft Entra
-  app registration are needed, each owned by an account. Default: the owner's own accounts,
-  for the owner's own use (the install order's "no distribution for now", §5 of
-  `docs/ORDER_REGISTER.md`). Creating them is the owner's job, because they are accounts
-  (item 1a gives the steps).
-- **D3 Google's review. [FINALISE]** Full Gmail read access is a "restricted" permission;
+- **D2 Who owns the app registrations. Decided (owner, 2026-10-11): each user sets up their
+  own.** A Google Cloud project and a Microsoft Entra app registration are needed. Each person
+  using Leasha creates their own, with their own Google and Microsoft logins, and pastes the
+  client IDs into Settings > Accounts. Leasha ships with no client ID of its own. Building and
+  testing use the owner's. Item 1a's guide walks a person through both, step by step.
+- **D3 Google's review. Decided (owner, 2026-10-11): route 1 - each person's own app "In
+  production" without review, for personal use, free - with Gmail over IMAP (route 2) as a
+  choice any person may make instead.** Checked the same day (§0c): Google exempts an app "for
+  your personal use (fewer than 100 users)" from verification, including for restricted
+  permissions ("if you are the only user of your app"); the person sees an "unverified app"
+  screen at sign-in and continues past it. The 7-day sign-in expiry is documented for apps in
+  "Testing" only, so route 1 does not carry it. The paid security assessment applies when
+  restricted data is stored or sent "on servers", which Leasha never does. Not yet seen live:
+  that a refresh token from an unreviewed production app lasts beyond 7 days - acceptance A11
+  checks it. The account panel offers "Read Gmail over IMAP instead" (route 2); app passwords
+  exist only for personal Google accounts with 2-Step Verification, not for work or school
+  accounts, and the panel says so. As written before: Full Gmail read access is a "restricted" permission;
   contacts are "sensitive". UNCONFIRMED, from general knowledge: an app left in Google's
   "Testing" mode needs no review for up to 100 named test users, but its sign-ins expire after
   7 days, so the person signs in again weekly. Default: Testing mode, the owner as the only test
   user, and the weekly sign-in shown in plain words on the account's row. Publishing (review,
   plus a yearly paid security assessment for Gmail) waits until distribution is decided.
-- **D4 Which contacts go to which account.** Not every contact belongs everywhere: a work
-  account's contacts are the employer's, and work colleagues do not belong in a home Google
-  account. Default: **each contact carries a "Kept in" set of accounts**. A contact that came
+  Because each person registers their own app (D2), two more routes are checked by 0c before
+  this is decided:
+  1. Each person sets their own app to "In production" without review, as its only user.
+     UNCONFIRMED: whether Google allows this for Gmail's restricted permission, and whether it
+     ends the weekly sign-in.
+  2. Gmail's mail is read over IMAP with a Google app password (D17), so Leasha never asks for
+     the restricted Gmail permission at all. Contacts keep the People API, a "sensitive"
+     permission only.
+- **D4 Which contacts go to which account.** Not every contact belongs everywhere: work
+  colleagues do not belong in a home Google account. Every account is two-way, work accounts
+  included: the owner's ruling is that a work account's contacts here are the person's own
+  contacts, not the corporate directory, which Leasha never syncs. Default: **each contact carries a "Kept in" set of accounts**. A contact that came
   from an account is kept in that account. A contact made in Leasha goes to the default account
   (D5). Adding or removing an account from "Kept in" is an edit like any other, and removing one
   deletes the contact from that account only after the person confirms. Nothing copies every
@@ -121,11 +153,21 @@ is RELEASED.
 - **D10 Fields an account cannot hold.** Google, Microsoft and Apple each store a contact
   differently. Default: Leasha keeps every field. Each account is written only the fields it can
   hold, and a field it cannot hold is never removed from Leasha by a round trip.
-- **D11 How and how often sync runs.** The full mechanism and its Settings are §10. Defaults:
-  1. Mail every 5 minutes, and the iCloud inbox near-instantly (IMAP IDLE).
-  2. Contacts every 15 minutes.
-  3. Both on start, on wake from sleep, and on "Sync now".
-  4. Sync runs while Leasha is open or in the tray, never after it exits (single process).
+- **D11 How and how often sync runs. Decided (owner, 2026-10-11).** The full mechanism and its
+  Settings are §10.
+  1. **Three policies:** indexing (as today), mail, and contacts. The mail policy covers only
+     mail fetched from an account over the internet. Mail read from files and Outlook (`.pst`,
+     `.ost`, mbox and the rest) stays with the indexing policy.
+  2. **A sync starts on the schedule or on "Sync now", nothing else.** No sync on app start,
+     on wake or when the network returns, beyond what the schedule itself says is due.
+  3. **Default: Manual for both.** Switched to a timed schedule, the interval starts at
+     1 hour, adjustable.
+  4. **Asleep, it syncs once.** A machine that slept through several due times syncs once
+     when it wakes, never once per missed time.
+  5. **Closed, one catch-up at most (D16).** Schedules that fell due while Leasha was not
+     running are not each made up. Instead, an account whose last sync is older than its
+     interval syncs once, a minute after the window opens.
+  6. Sync runs while Leasha is open or in the tray, never after it exits (single process).
 
   Google and Microsoft push are not used: both need a public web address or a cloud service
   outside this machine. Changes are polled instead, which their change-only APIs make cheap.
@@ -138,6 +180,25 @@ is RELEASED.
 - **D14 The rail entry.** The owner's instruction: Contacts gets its own pill. Default label
   **"Contacts"** (a new label), icon `contact`, placed after Files. Search finds contacts too
   (§6f), so the pill is for managing them.
+- **D16 A timed schedule and short sessions. Decided (owner, 2026-10-11): option 2, one
+  catch-up.** With D11.5, the schedule's clock
+  starts again when Leasha opens. The issue: on a 1-hour schedule, a person who opens Leasha
+  for 40 minutes a day never syncs, and a "daily at 02:00" schedule never runs on a laptop that
+  is closed at night. Options:
+  1. **As ruled:** nothing is caught up. The account row says "next sync at 14:05" so the
+     person can see it.
+  2. **One catch-up:** at start, an account whose last sync is older than its interval syncs
+     once, a minute after the window opens - one sync, never one per missed time. This is how
+     the index schedule already behaves (`app/index/schedule.py`: "A laptop opened after a
+     fortnight away must index once").
+
+  Option 2 is the order: the same behaviour as indexing. The account row still shows the next
+  sync time.
+- **D17 Any IMAP and CardDAV server. Decided (owner, 2026-10-11: "imap can be any not just
+  apple").** Besides Google, Microsoft and Apple, an account can be any IMAP server for mail
+  (Yahoo, Fastmail, a company or hosting server) and any CardDAV server for contacts (Fastmail,
+  Nextcloud and the like), with server, port, security and an app password. iCloud is a preset
+  of the same two connectors.
 - **D15 The MCP server stays read-only (decided by the owner, 2026-10-11: "the only read for
   mcp").** Contacts, accounts and live mail are added to what AI programs can **read** (§8).
   No tool creates, changes or deletes a contact. The server keeps its rule: "nothing that
@@ -153,25 +214,60 @@ is RELEASED.
   connection) is joined by one for this order: an index run, a search and a Chat turn with web
   off open no non-loopback connection, **even with accounts connected**. Only the account worker
   and enrichment may connect, and a test pins which hosts each may reach.
-- [ ] **0c** Every provider fact this order marks UNCONFIRMED is checked against the provider's
+> *2026-10-11, 0c done* (read from the providers' own pages that day):
+> 1. **Microsoft, no CardDAV:** Exchange Online's client protocols are Exchange ActiveSync,
+>    MAPI, Outlook on the web, IMAP and POP3 (Microsoft Learn, "Managing email apps for user
+>    mailboxes"). Graph `contact: delta` and `message: delta` both work for "work or school"
+>    and "personal Microsoft account", per folder. `Contacts.ReadWrite` and `Mail.Read` are
+>    delegated permissions with **AdminConsentRequired: No** (Graph permissions reference),
+>    so a person can approve them alone unless their organisation has turned off user consent
+>    - which 1e covers.
+> 2. **Google, Testing mode:** "a publishing status of 'Testing' is issued a refresh token
+>    expiring in 7 days" (Google's OAuth 2.0 overview). Verification exemptions: personal use
+>    under 100 users, development/testing, internal, admin-trusted (Google Cloud help
+>    13464323); the restricted-scope page names "if you are the only user of your app". Unverified
+>    apps show an "unverified app" screen and are capped at 100 new users.
+> 3. **Google permissions:** `gmail.readonly` and `https://mail.google.com/` are **restricted**
+>    (Gmail API scopes page). Writing Google Contacts is Google's own example of a
+>    **sensitive** permission. The security assessment is for restricted data stored or sent
+>    "on servers".
+> 4. **Gmail over IMAP:** less secure apps and plain passwords ended for Google accounts in 2025
+>    (Google Workspace help, "Transition from less secure apps to OAuth"); app passwords remain
+>    for personal accounts with 2-Step Verification, are not offered for work, school or
+>    Advanced Protection accounts, and are revoked when the Google password changes.
+> 5. **iCloud:** app-specific passwords let a third-party app reach iCloud Mail, Contacts and
+>    Calendars; they need two-factor authentication, up to 25 at once, and all are revoked when
+>    the Apple Account password changes (Apple support 102654). A revoked password is
+>    `ERR_ACCOUNT_SIGNIN_EXPIRED`, not a failure of the account.
+>
+> Not checked from here: a live sign-in of each kind. A1 and A11 do that on the laptop.
+- [x] **0c** Every provider fact this order marks UNCONFIRMED is checked against the provider's
   current documentation before Phase A starts, and the result is written as a dated note above
   the item it affects. In particular: Microsoft contacts have no CardDAV; Google Testing mode
   and the 7-day sign-in; the scopes for Gmail read, Google contacts read-write and Graph
-  `Mail.Read` / `Contacts.ReadWrite`; iCloud CardDAV with an app-specific password.
+  `Mail.Read` / `Contacts.ReadWrite`; iCloud CardDAV with an app-specific password; D3's two
+  routes (an unreviewed app "In production" for its one user, and Gmail over IMAP with an app
+  password).
 
 ## 1. Accounts and sign-in
 
-- [ ] **1a** Owner steps, written in the user guide with screenshots taken on release: create
-  the Google Cloud project and its desktop OAuth client, and the Microsoft Entra registration
-  (personal and work accounts, a public client, a loopback redirect). Their client IDs go in
-  through Settings > Accounts, never a file (rule 11).
-- [ ] **1b** An `accounts` table (migration 37): id, provider (`google`, `microsoft`, `apple`),
-  address, the person's own name for it ("Work", "Home"), colour, mail on/off, contacts
+- [ ] **1a** Every user's own setup (D2), written in the user guide as numbered steps with
+  screenshots, for a person who has never opened a developer console: create the Google Cloud
+  project and its desktop OAuth client, and the Microsoft Entra registration (personal and work
+  accounts, a public client, a loopback redirect). Their client IDs go in through Settings >
+  Accounts, never a file (rule 11). Settings > Accounts links each step of the guide from the
+  place it is needed. The owner's own registrations are made first, for building and testing.
+- [ ] **1b** An `accounts` table (migration 37): id, provider (`google`, `microsoft`, `apple`,
+  `imap`, `carddav`), address, the person's own name for it ("Work", "Home"), for `imap` and
+  `carddav` (D17) the server, port and security, colour, mail on/off, contacts
   on/off, added and last-synced times, last error. **Any number of accounts of each provider**:
-  several Google accounts, a Microsoft work and a Microsoft home account, more than one iCloud.
+  several Google accounts, a Microsoft work and a Microsoft home account, more than one iCloud,
+  and any number of other IMAP and CardDAV servers.
 - [ ] **1c** Sign-in for Google and Microsoft through the browser, with PKCE and a loopback
-  redirect, as a desktop app does. Apple through an app-specific password the person makes at
-  Apple's account page; the page tells them where.
+  redirect, as a desktop app does. Apple, and any other IMAP or CardDAV server, through an
+  app-specific password the person makes at their provider's account page. For the known
+  providers the page tells them where. A "Test connection" step checks the server before the
+  account is saved.
 - [ ] **1d** Secrets (refresh tokens, app passwords) are kept in Windows Credential Manager
   through the `keyring` library (a wheel, rule 12; macOS Keychain through the same library).
   They are never written to SQLite, `.env`, a log or a crash report, and a test greps the log
@@ -225,7 +321,7 @@ is RELEASED.
 - [ ] **3h** CLI: `app.cli contacts sync [--account X] [--dry-run]`, `contacts log`,
   `contacts undo <journal-id>`.
 
-## 4. The three providers - contacts
+## 4. The providers - contacts
 
 - [ ] **4a** Google: People API, read and write, with `syncToken`; contact groups map to Google
   labels.
@@ -233,6 +329,9 @@ is RELEASED.
   to groups. Personal and work accounts both work.
 - [ ] **4c** Apple: CardDAV against iCloud (vCard 3.0), read and write, with sync-collection
   where the server offers it and etags otherwise; groups map to iCloud groups.
+- [ ] **4e** Any CardDAV server (D17): the same connector as 4c, with the address book found by
+  the server's own discovery (`.well-known/carddav`) or typed in. Tested against a local
+  CardDAV server in the suite.
 - [ ] **4d** Each connector is tested against recorded responses (no network in the suite),
   plus one opt-in live test per provider that the owner runs with a throwaway account.
 
@@ -240,8 +339,10 @@ is RELEASED.
 
 - [ ] **5a** Gmail API with `history` for changes; labels kept as labels, not copied as folders.
 - [ ] **5b** Graph mail with delta per folder.
-- [ ] **5c** iCloud mail over IMAP with an app-specific password: `UIDVALIDITY`, `CONDSTORE`
-  where offered, and IDLE on the inbox while the app is open.
+- [ ] **5c** Any IMAP server (D17), iCloud as its preset, with an app-specific password:
+  `UIDVALIDITY`, `CONDSTORE` where offered, and Gmail's labels read through its IMAP extension
+  when a Gmail account uses IMAP (D3 route 2). IDLE only where 10d's switch is on. Tested
+  against a local IMAP server in the suite.
 - [ ] **5d** `messages` gains `account_id`, `remote_id` and `labels` (migration); a live message
   is a `files` row with an `account://` path, so search, the Mail page, previews and
   attachments (`mail_attachments.py`) work unchanged.
@@ -392,9 +493,11 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
 
 **The mechanism.**
 
-- [ ] **10a** A `SyncPolicy` beside `app/index/schedule.py`'s `SchedulePolicy`, written the same
-  way: a pure function of the last sync, now and the policy, idempotent about the past (a laptop
-  opened after a fortnight syncs once, not 4,000 times). It needs minutes, which `SchedulePolicy`
+- [ ] **10a** Three policies, kept apart (D11): indexing (`SchedulePolicy`, unchanged), mail and
+  contacts. The two new ones are a `SyncPolicy` beside `app/index/schedule.py`'s
+  `SchedulePolicy`, written the same way: a pure function of the last sync, now and the policy,
+  idempotent about the past (a laptop that slept through twenty due times syncs once).
+  Schedules missed while Leasha was closed follow D16. It needs minutes, which `SchedulePolicy`
   (hours, and a 300 s `MIN_GAP_S` floor meant for index runs) does not have. Its own floor is
   60 s, with a comment saying why.
 - [ ] **10b** One `AccountScheduler` (the `app/ui/scheduler.py` pattern: a Qt timer that only
@@ -402,19 +505,19 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
   (mail, contacts), it holds:
   1. Last success, last attempt and next due time.
   2. The current backoff.
-- [ ] **10c** What starts a sync:
+- [ ] **10c** What starts a sync, and nothing else (D11.2):
   1. The schedule.
-  2. App start.
-  3. Wake from sleep (Qt's power-resume signal or the Windows `WM_POWERBROADCAST`).
-  4. The network coming back after being down.
-  5. "Sync now", for all accounts or one.
+  2. "Sync now", for all accounts, one account, or one kind (mail or contacts) of one account.
 
-  A trigger arriving while that account's sync runs is folded into it, never queued twice.
+  A "Sync now" arriving while that account's sync runs is folded into it, never queued twice.
+  After sleep, the schedule finds itself overdue and syncs once (D11.4).
 - [ ] **10d** How mail is fetched, per provider, stated on the account's page in one line each:
   1. **Gmail:** the History API, polled on the schedule.
   2. **Microsoft:** Graph delta per folder, polled.
-  3. **iCloud:** IMAP IDLE on the inbox while Leasha runs (new mail in seconds), other folders
-     polled.
+  3. **iCloud and any IMAP server:** polled on the schedule. Each IMAP account also has a
+     switch, "New inbox mail as it arrives" (IMAP IDLE while Leasha runs), **off by default**,
+     because D11.2 makes the schedule and Sync now the only starters. Turning it on is the
+     person's choice, account by account.
 - [ ] **10e** Backoff after a failure: 1, 2, 4, 8 ... minutes up to the schedule's own
   interval, reset by a success; a provider's `Retry-After` always wins. An account that has
   failed for 24 hours shows a warning on its row and in the tray. The other accounts are not
@@ -426,25 +529,20 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
 **Global settings (top of the page).**
 
 - [ ] **10g** **Schedule**, separately for Mail and for Contacts, each with:
-  1. Manual.
-  2. On start only.
-  3. Every 2, 5, 10, 15, 30 or 60 minutes.
-  4. Hourly.
-  5. Daily at a time.
+  1. Manual (the default for both).
+  2. Every 5, 10, 15 or 30 minutes, or every 1 (the default once timed), 2, 4, 6 or 12 hours.
+  3. Daily at a time.
 
-  Defaults are D11's.
+  A choice above it: **"The same schedule for every account"** (the default) or **"Each account
+  has its own"**. With the second, every account panel shows its own pair of schedules (10p),
+  starting from the global one.
 - [ ] **10h** **Pause all sync**: a switch, with "for 1 hour / until tomorrow / until I turn it
   back on". The tray menu has the same item.
-- [ ] **10i** **Conditions**:
-  1. Pause on battery, using `resources.py`'s battery reading. Default: off for contacts; on
-     for a mail first fetch only.
-  2. Pause on a metered connection, using Windows' network cost. Default: on. The library to
-     read it is chosen under rule 12 (UNCONFIRMED: which wheel exposes it).
-  3. Quiet hours: no scheduled sync between two times. Default: off.
-
-  Each condition says on the page when it is what is holding a sync back.
-- [ ] **10j** **First-fetch limits**: a download speed cap for a mail first fetch (default: no
-  cap), and "only on mains and an unmetered connection" (default: on).
+- [ ] **10i** **Quiet hours**: no scheduled sync between two times (default: off). Sync now
+  still works. The account row says when quiet hours are what is holding a sync back. There is
+  no battery or metered-connection check (owner, 2026-10-11).
+- [ ] **10j** **First-fetch limit**: a download speed cap for a mail first fetch (default: no
+  cap).
 - [ ] **10k** **When the same contact changed in two places** (D6): newest edit wins (default),
   an account priority order (drag to order), or ask me every time.
 - [ ] **10l** **Safety** (D7, D8):
@@ -471,8 +569,9 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
   2. Sign-in state and when it expires, with Reconnect.
   3. **Test connection**, which reports each scope granted.
   4. **Sync now**.
-  5. "Use the global schedule" or this account's own schedule (10g's choices).
-  6. **Remove account**, the flow of 1f.
+  5. Its mail and contacts schedules, shown when 10g is set to "Each account has its own".
+  6. For an IMAP account, the "New inbox mail as it arrives" switch (10d).
+  7. **Remove account**, the flow of 1f.
 - [ ] **10q** **Account panel - mail** (Phase B), headed "read only - Leasha never changes this
   mailbox":
   1. Mail on or off.
@@ -485,8 +584,8 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
      index" as a confirm flow.
   6. First-fetch progress: messages fetched of the total, rate, time left, and pause/resume.
 - [ ] **10r** **Account panel - contacts**:
-  1. Direction: **Two-way** (default), **Into Leasha only** (read the account, never write to
-     it - for a work account the person does not want written to), or **Off**.
+  1. Direction: **Two-way** (the default for every account, work included - D4), **Into Leasha
+     only** (read the account, never write to it), or **Off**.
   2. Which contact folders, labels or groups sync: all by default, or chosen.
   3. Count of contacts kept in this account, and last changes in each direction.
 - [ ] **10s** **Sync log** (a table under the list, filterable by account and kind). Each row
@@ -496,12 +595,15 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
 - [ ] **10t** The Accounts page reads its state off the UI thread (rule 5) and refreshes when
   shown and when the worker reports, never on its own timer.
 - [ ] **10u** Tests:
-  1. `SyncPolicy` across a DST change, a fortnight's sleep, a clock moved back and the 60 s floor.
-  2. Triggers folded together (10c).
+  1. `SyncPolicy` across a DST change, a fortnight's sleep (one sync), a clock moved back, the
+     60 s floor, and a start after Leasha was closed (D16).
+  2. Nothing but the schedule and Sync now starts a sync, and two Sync nows fold together (10c).
   3. Backoff and `Retry-After` (10e).
-  4. Each condition holding a sync and saying so (10i).
-  5. Direction "Into Leasha only" never writing to that account (10r).
-  6. Every control saving and reloading.
+  4. Quiet hours holding a sync and saying so (10i).
+  5. "Each account has its own" schedule: two accounts on different intervals each sync on
+     their own (10g).
+  6. Direction "Into Leasha only" never writing to that account (10r).
+  7. Every control saving and reloading.
 
 ---
 
@@ -521,21 +623,24 @@ the cost and confirms (rule 11). Everything here also has a CLI form first (rule
   and every field is there.
 - [ ] **A8** With every enrichment switch off, a network capture during a full sync shows only
   the providers' hosts.
-- [ ] **A9** Close the laptop lid for a night, open it: each account syncs once within a minute
-  of waking, and the sync log shows "wake" as the trigger.
+- [ ] **A9** On a 1-hour schedule, close the laptop lid for a night with Leasha open, then open
+  it: each account syncs once, not once per missed hour, and the sync log shows "schedule" as
+  the trigger.
 - [ ] **A10** A work account set to "Into Leasha only" is edited in Leasha: the edit stays in
   Leasha and the work account is unchanged.
+- [ ] **A11** A Google account signed in through the person's own unreviewed "In production"
+  app (D3) is still signed in 8 days later, with no weekly sign-in.
 
 ## Not in this order
 
 1. Calendars (CalDAV, Google Calendar, Graph events). A natural follow-on, not ordered.
 2. Sending or changing mail of any kind. Mail stays read-only.
-3. Other providers (Yahoo, Fastmail, generic IMAP and CardDAV). The connector shape (§4) should
-   make them small later; they are not built here.
+3. Other providers' own APIs (Yahoo's, Fastmail's JMAP). Their mail and contacts are reachable
+   through the IMAP and CardDAV connectors (D17).
 4. Distribution to other people. That needs Google's published review (D3) and the install
    order's licence decision.
 
 ## Close-out
 
 Tick each box only when built and tested. Update this order's Status line, its register row
-(`docs/ORDER_REGISTER.md` §3) and `HANDOFF.md`; name which of D1-D14 were taken as written.
+(`docs/ORDER_REGISTER.md` §3) and `HANDOFF.md`; name which of D1-D17 were taken as written.
