@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.118 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.119 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,25 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Smarter answers: an answer in Search, a card for every document, your own words (2026-10-12, order 1r)
+
+- **Ask a question in the Search box** and a short answer from your files appears above the results, every sentence
+  checked against the document it cites, its numbers opening the documents; **Continue in Chat** takes it on. The
+  results never wait for it; a word or a name gets none. Settings > Search > Answers and your words switches it off.
+- **A card for every document.** At the end of an index run the chat model notes what each document and message is
+  (an invoice, a letter, homework), who is in it, its dates and amounts, so a question can find it by what it is. AI-
+  written and labelled; a name, sum or year the document does not contain is dropped. `leasha cards` shows, makes and
+  clears them. Settings > Models & AI > Chat > Write a card for every document (on).
+- **Your own words.** Tell Chat "remember Mum is Jane Example" and it looks for Jane Example when you say Mum; "forget
+  Mum" removes it. Listed, added and removed in Settings > Search. Kept through a Reset.
+- **Comparing and timelines.** A comparison looks for each side on its own so both are read; a timeline answers in date
+  order.
+- **`evaluate --chat --questions FILE`** scores your own questions over your index.
+- **Measured:** the chat model inside Leasha (Qwen 2.5 1.5B) clears every Chat ship floor on the 96-question fixture -
+  citation validity 100%, extractive 93.5%, aggregate exactness 100%, absence honesty 100% - with a median of 6.9 s an
+  answer on this laptop's processor.
+- Index schema 40 (`doc_cards`, `my_words`): an index opened by this version cannot be opened by an older one.
 
 ### Changed in two places: review and accept, and notes are joined (2026-10-12)
 

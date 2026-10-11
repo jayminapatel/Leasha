@@ -436,3 +436,24 @@ def test_a_real_model_keeps_the_guarantee_even_when_it_answers_badly(env):
     got = run_chat_eval(env.engine(llm), subset, env.store, model=label, real_model=True)
     assert got.unreceipted_sentences == 0
     assert got.absence_honesty in (None, 1.0) and got.aggregate_exactness == 1.0
+
+
+def test_the_measured_real_model_clears_every_floor_and_the_floors_are_not_lowered():
+    """Work order 202626270611 item 4b, closed by order smarter-answers 1c (2026-10-12):
+    the model the app answers with - Qwen 2.5 1.5B inside Leasha - measured over the
+    whole fixture with the real retrieval stack. Its result file is what this reads.
+    The floors are asserted too, so meeting them can never be arranged by moving them."""
+    import json
+    from pathlib import Path
+
+    from app.chat.evaluate import FLOORS
+
+    assert FLOORS == {"citation_validity": 0.98, "aggregate_exactness": 1.0,
+                      "absence_honesty": 1.0, "extractive": 0.85}
+    measured = json.loads((Path(__file__).parents[1] / "fixtures" / "chat_eval_measured.json")
+                          .read_text(encoding="utf-8"))
+    assert measured["real_model"] is True and measured["questions"] == 96
+    assert measured["measured"]["retrieval"] == "keyword + meaning (the real stack)"
+    for name, floor in FLOORS.items():
+        assert measured["measures"][name] >= floor, name
+    assert measured["unreceipted_sentences"] == 0 and measured["below_floor"] == []

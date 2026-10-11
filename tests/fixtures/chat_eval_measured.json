@@ -1,0 +1,60 @@
+{
+  "model": "Qwen 2.5 1.5B Instruct, 4-bit (chat, Interpret) - the model inside Leasha (ONNX)",
+  "real_model": true,
+  "machine": "Windows-11-10.0.26300-SP0, 12 logical CPUs, 32 GB RAM",
+  "roles": {
+    "router": "qwen2.5-1.5b-instruct",
+    "planner": "qwen2.5-1.5b-instruct",
+    "answerer": "qwen2.5-1.5b-instruct"
+  },
+  "questions": 96,
+  "measures": {
+    "citation_validity": 1.0,
+    "extractive": 0.9355,
+    "aggregate_exactness": 1.0,
+    "absence_honesty": 1.0,
+    "absence_recall": 1.0,
+    "refusal": 0.6667,
+    "conversation": 1.0,
+    "general_fill": 1.0,
+    "traps": 0.8,
+    "router": 1.0,
+    "find": 1.0,
+    "synthesis": 0.8
+  },
+  "unreceipted_sentences": 0,
+  "sentences": 69,
+  "latency": {
+    "first_narration_s": {
+      "n": 96,
+      "p50": 0.009,
+      "p95": 0.11,
+      "max": 0.134
+    },
+    "first_token_s": {
+      "n": 57,
+      "p50": 5.861,
+      "p95": 13.945,
+      "max": 32.8
+    },
+    "total_s": {
+      "n": 96,
+      "p50": 6.874,
+      "p95": 39.158,
+      "max": 300.573
+    }
+  },
+  "below_floor": [],
+  "failures": [
+    "L09",
+    "F06",
+    "T02",
+    "S04"
+  ],
+  "measured": {
+    "date": "2026-10-12",
+    "code": "feat/smarter-answers at a26e1e0",
+    "retrieval": "keyword + meaning (the real stack)",
+    "command": "venv\\Scripts\\python.exe -m app.cli evaluate --chat --json"
+  }
+}

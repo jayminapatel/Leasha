@@ -1739,6 +1739,7 @@
     <Content Include="scripts\install-nightly.ps1" />
     <Content Include="scripts\parse-check.ps1" />
     <Content Include="tests\fixtures\README.md" />
+    <Content Include="tests\fixtures\chat_eval_measured.json" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-home.png" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-results.png" />
     <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-home.png" />
