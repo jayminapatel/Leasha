@@ -70,6 +70,33 @@ class LazyService:
         runtime = getattr(self._shell, "account_runtime", None)
         return bool(runtime is not None and runtime.scheduler.sync_all_now())
 
+    def scheduler(self) -> Any:
+        """The window's account scheduler (the Sync window listens to it), or None before it exists."""
+        return getattr(getattr(self._shell, "account_runtime", None), "scheduler", None)
+
+    def sync_overview(self) -> list:                            # worker
+        """One plain dict per account that syncs contacts: its state word and what its last contact run did,
+        for the Sync window."""
+        svc = get_service(self._shell)
+        last: dict[int, Any] = {}
+        for run in svc.accounts.runs(kind="contacts", limit=60):            # newest first
+            if not run.dry_run:
+                last.setdefault(run.account_id, run)
+        rows = []
+        for st in svc.status(datetime.now()):
+            if not st.account.syncs_contacts:
+                continue
+            run = last.get(st.account.id)
+            plan = dict(getattr(run, "plan", None) or {})
+            rows.append({
+                "id": st.account.id, "name": st.account.name or st.account.address, "word": st.word,
+                "status": getattr(run, "status", ""), "error": getattr(run, "error_text", "") or "",
+                "added": int(plan.get("add_in", 0)) + int(plan.get("create_out", 0)),
+                "changed": int(plan.get("merge_in", 0)) + int(plan.get("update_out", 0)),
+                "deleted": int(plan.get("delete_out", 0)) + int(plan.get("deleted_in", 0)),
+                "failed": int(plan.get("failed_out", 0)), "failures": plan.get("failures", []) or []})
+        return rows
+
     def push_accounts(self, account_ids: Any) -> Any:           # worker
         return get_service(self._shell).push_accounts(account_ids)
 

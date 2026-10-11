@@ -464,3 +464,19 @@ def test_the_list_can_be_read_by_a_screen_reader(qtbot, june):
               for r in range(view.list.block_count())]
     assert spoken[0] == "Wednesday 10 June 2015" and all(spoken)
     assert "1 photograph, from lake.jpg" in spoken
+
+
+def test_the_page_opens_on_the_newest_year_so_it_is_never_a_blank_list(qtbot, june):
+    """The owner (2026-10-11): "nothing is coming up there" - Browse waited for a choice on a blank list."""
+    view, _ids, _store = june
+    qtbot.waitUntil(lambda: bool(view._items), timeout=8000)
+    assert view.picker.year_box.currentData() == 2019 and view.picker.month_buttons[0].isChecked()
+    assert view._period is not None and "2019" in view.heading.text()
+
+
+def test_the_header_is_two_rows_and_the_count_line_shares_the_first(qtbot, june):
+    view, _ids, _store = june
+    picker = view.picker
+    assert picker.layout().count() == 2                                   # was four, with the count line above them
+    assert picker.top_row.indexOf(view.summary) >= 0
+    assert view.layout().indexOf(view.summary) == -1

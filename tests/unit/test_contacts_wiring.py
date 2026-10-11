@@ -37,22 +37,21 @@ def test_looking_for_a_hook_never_builds_the_service(hub):
     assert getattr(hub.store, "_account_service", None) is None
 
 
-def test_sync_now_door_asks_the_scheduler_and_nothing_else(hub):
-    asked = []
+def test_sync_door_opens_the_sync_window_and_nothing_else(hub, monkeypatch):
+    """The toolbar's Sync opens the detailed Sync window (which starts a sync if none is going)."""
+    from app.ui.contacts_tools import sync_dialog
 
-    class Scheduler:
-        def sync_all_now(self):
-            asked.append(1)
-            return True
+    opened = []
+    monkeypatch.setattr(sync_dialog, "open_sync_window", lambda parent, ctx, start=True: opened.append(start))
 
     class Runtime:
-        scheduler = Scheduler()
+        scheduler = object()
 
     service = account_runtime.LazyService(Shell(hub.store, Runtime()))
     openers.ensure_tools_loaded()
     assert openers.is_registered("sync")
     openers.OPENERS["sync"](None, openers.Ctx(hub=hub, accounts=None, service=service))
-    assert asked == [1]
+    assert opened == [True]
 
 
 def test_the_service_is_built_with_mail_attached_and_push_accounts_exists(hub):

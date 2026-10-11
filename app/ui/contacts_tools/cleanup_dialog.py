@@ -24,6 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
 )
@@ -32,9 +33,15 @@ from app.contacts import cleanup
 from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
+from app.ui.later import later
 from app.ui.widgets.icons import icon
 
 __all__ = ["CleanupDialog", "compute", "FINDERS"]
+
+#: Rows made per turn of the event loop: the window answers between turns, however long the list.
+_CHUNK = 400
+#: Column widths come from this many rows, not all of them (measuring ten thousand rows is the freeze).
+_FIT_SAMPLE = 300
 
 FINDERS = (
     ("no_name", "Contacts with no name"),
@@ -95,6 +102,15 @@ class _Tab(QWidget):
         self.table = make_table(dialog, headers, name, tip, stretch=len(headers) - 1, select="multi")
         self.layout_.addWidget(self.table, 1)
         self.computed: Optional[Computed] = None
+        self.token = 0                    # the newest read of this tab; an older answer is dropped
+
+    def any_ticked(self) -> bool:
+        """Is anything ticked? Stops at the first, so a long list costs one look."""
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                return True
+        return False
 
     def ticked(self) -> list:
         out = []
@@ -107,11 +123,18 @@ class _Tab(QWidget):
         return out
 
     def set_all(self, on: bool) -> None:
+        """Tick or untick every row in one go: the table is told once, not once per row."""
         state = Qt.CheckState.Checked if on else Qt.CheckState.Unchecked
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item is not None:
-                item.setCheckState(state)
+        self.table.blockSignals(True)
+        self.table.setUpdatesEnabled(False)
+        try:
+            for row in range(self.table.rowCount()):
+                item = self.table.item(row, 0)
+                if item is not None:
+                    item.setCheckState(state)
+        finally:
+            self.table.setUpdatesEnabled(True)
+            self.table.blockSignals(False)
 
 
 class CleanupDialog(ToolDialog):
@@ -250,7 +273,7 @@ class CleanupDialog(ToolDialog):
         """Recompute one tab (or the visible one) on a worker."""
         tab = self._tabs[kind] if kind else self.current()
         self._token += 1
-        token = self._token
+        tab.token = token = self._token
         self.busy(True, "Looking through your contacts…")
         hub, ids = self.hub, self.scope_ids()
         style = self.style_combo.currentData()
@@ -260,39 +283,73 @@ class CleanupDialog(ToolDialog):
                  lambda result, t=tab, n=token: self._computed(t, result, n))
 
     def _computed(self, tab: _Tab, result: Computed, token: int) -> None:
+        if token != tab.token:
+            return                                          # a newer read of this tab is on its way
         self.busy(False)
         tab.computed = result
         table = tab.table
+        table.blockSignals(True)                            # no handler runs per row: see `_fill_rows`
         table.setRowCount(len(result.changes))
-        for row, change in enumerate(result.changes):
-            check = QTableWidgetItem("")
-            check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
-            check.setCheckState(Qt.CheckState.Checked)
-            check.setData(Qt.ItemDataRole.UserRole, row)
-            table.setItem(row, 0, check)
-            table.setItem(row, 1, QTableWidgetItem(result.names.get(change.id, str(change.id))))
-            if tab.kind == "finders":
-                table.setItem(row, 2, QTableWidgetItem(change.reason))
-            else:
-                label = {"phone": "Phone"}.get(change.field, change.field[2:].capitalize() if change.field.startswith("s:")
-                                               else change.field)
-                table.setItem(row, 2, QTableWidgetItem(label))
-                table.setItem(row, 3, QTableWidgetItem(change.before))
-                table.setItem(row, 4, QTableWidgetItem(change.after))
-        table.resizeColumnsToContents()
-        tab.count.setText(f"{plural(len(result.changes), 'change' if tab.kind != 'finders' else 'contact')} found."
-                          if result.changes else "Nothing to do here.")
-        self._sync()
+        self.apply_button.setEnabled(False)
+        self._fill_rows(tab, 0, token)
+
+    def _fill_rows(self, tab: _Tab, start: int, token: int) -> None:
+        """Make the rows a few hundred at a time, so the window never waits on a long list.
+
+        2026-10-11, the owner: Clean up froze "not responding" with many entries. Each `setItem` fired
+        the table's change handler, which counted every ticked row again - rows squared, a minute of
+        a held window for three thousand. Now no handler runs while rows are made, the column widths
+        come from a sample, and the buttons are worked out once at the end."""
+        try:
+            result, table = tab.computed, tab.table
+            if token != tab.token or result is None:
+                return
+            n = len(result.changes)
+            end = min(start + _CHUNK, n)
+            table.setUpdatesEnabled(False)
+            for row in range(start, end):
+                self._make_row(tab, result, row)
+            table.setUpdatesEnabled(True)
+            if end < n:
+                tab.count.setText(f"Listing {end:,} of {n:,} changes...")
+                later(self, 0, lambda: self._fill_rows(tab, end, token))
+                return
+            table.blockSignals(False)
+            _fit_columns(table)
+            tab.count.setText(f"{plural(n, 'change' if tab.kind != 'finders' else 'contact')} found."
+                              if n else "Nothing to do here.")
+            self._sync()
+        except RuntimeError:
+            return                                          # the window was closed while it was listing
+
+    @staticmethod
+    def _make_row(tab: _Tab, result: Computed, row: int) -> None:
+        change, table = result.changes[row], tab.table
+        check = QTableWidgetItem("")
+        check.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
+        check.setCheckState(Qt.CheckState.Checked)
+        check.setData(Qt.ItemDataRole.UserRole, row)
+        table.setItem(row, 0, check)
+        table.setItem(row, 1, QTableWidgetItem(result.names.get(change.id, str(change.id))))
+        if tab.kind == "finders":
+            table.setItem(row, 2, QTableWidgetItem(change.reason))
+        else:
+            label = {"phone": "Phone"}.get(change.field, change.field[2:].capitalize() if change.field.startswith("s:")
+                                           else change.field)
+            table.setItem(row, 2, QTableWidgetItem(label))
+            table.setItem(row, 3, QTableWidgetItem(change.before))
+            table.setItem(row, 4, QTableWidgetItem(change.after))
 
     def _sync(self) -> None:
         tab = self.current()
         on_changes = tab.kind != "finders"
-        self.apply_button.setEnabled(on_changes and bool(tab.ticked()))
+        ticked = tab.any_ticked()
+        self.apply_button.setEnabled(on_changes and ticked)
         is_finder = tab.kind == "finders"
-        self.bin_button.setEnabled(is_finder and bool(tab.ticked()))
+        self.bin_button.setEnabled(is_finder and ticked)
         copies = is_finder and self.finder_combo.currentData() == "copies"
         self.copies_button.setVisible(copies)
-        self.copies_button.setEnabled(copies and bool(tab.ticked()))
+        self.copies_button.setEnabled(copies and ticked)
 
     # -- acting --------------------------------------------------------------
     def apply_ticked(self) -> None:
@@ -347,6 +404,20 @@ class CleanupDialog(ToolDialog):
         self.refresh_page()
         self._stale()
         self.reload()
+
+
+def _fit_columns(table: Any) -> None:
+    """Widths from the first rows and the headings, each capped: the same fit as `resizeColumnsToContents`
+    for a short list, and the same cost for any list."""
+    metrics = QFontMetrics(table.font())
+    for column in range(table.columnCount() - 1):           # the last column stretches
+        head = table.horizontalHeaderItem(column)
+        widest = metrics.horizontalAdvance(head.text()) if head is not None else 0
+        for row in range(min(table.rowCount(), _FIT_SAMPLE)):
+            item = table.item(row, column)
+            if item is not None:
+                widest = max(widest, metrics.horizontalAdvance(item.text()))
+        table.setColumnWidth(column, 36 if column == 0 else min(widest + 28, 460))
 
 
 def _row(*buttons: QWidget) -> QHBoxLayout:

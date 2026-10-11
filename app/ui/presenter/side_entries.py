@@ -11,7 +11,7 @@ kind (Browse). Ticks (`checked`) say what the box holds now.
 from __future__ import annotations
 
 from pathlib import PureWindowsPath
-from typing import Any, Iterable
+from typing import Any, Iterable, Optional
 
 from app.ui.presenter.side_entry import SideEntry
 
@@ -57,25 +57,29 @@ def folder_tree(roots: Iterable[str], counts: Iterable[tuple[str, int]],
     """`(key, parent key, folder, files under it)` for each root and the folders up to
     `depth` levels below it, parents before children, largest first at each level."""
     totals: dict[str, int] = {}
+    #: Each path's children, collected as the paths are made. (Looking for them afterwards, in every
+    #: path, for every path, was 7 seconds for 18,000 folders - on the window's thread, at every click.)
+    kids: dict[str, list[str]] = {}
     roots = [_norm(r) for r in roots if _norm(r)]
+    lowered = [r.lower() for r in roots]
     for folder, count in counts:
         folder = _norm(folder)
-        for root in roots:
-            if folder.lower() == root.lower() or folder.lower().startswith(root.lower() + "\\"):
+        low = folder.lower()
+        for root, low_root in zip(roots, lowered):
+            if low == low_root or low.startswith(low_root + "\\"):
                 parts = [p for p in folder[len(root):].split("\\") if p][:depth]
                 path = root
                 totals[path] = totals.get(path, 0) + int(count)
                 for part in parts:
-                    path = f"{path}\\{part}"
+                    parent, path = path, f"{path}\\{part}"
+                    if path not in totals:
+                        kids.setdefault(parent, []).append(path)
                     totals[path] = totals.get(path, 0) + int(count)
                 break
     out: list[tuple[str, str, str, int]] = []
 
     def walk(parent: str) -> None:
-        prefix = parent.lower() + "\\"
-        kids = [p for p in totals if p.lower().startswith(prefix)
-                and "\\" not in p[len(parent) + 1:]]
-        for kid in sorted(kids, key=lambda p: (-totals[p], p.lower())):
+        for kid in sorted(kids.get(parent, ()), key=lambda p: (-totals[p], p.lower())):
             out.append((f"place:{kid}", f"place:{parent}", kid, totals[kid]))
             walk(kid)
 
@@ -88,9 +92,11 @@ def folder_tree(roots: Iterable[str], counts: Iterable[tuple[str, int]],
 
 def files_entries(roots: Iterable[str], folders: Iterable[tuple[str, int]],
                   drives: Iterable[tuple[str, str, int]], kinds: Iterable[tuple[str, int]],
-                  box: str = "") -> list[SideEntry]:
-    """Files (D3): All files, Places, Drives, Kinds."""
-    tree = folder_tree(roots, folders)
+                  box: str = "", tree: Optional[list] = None) -> list[SideEntry]:
+    """Files (D3): All files, Places, Drives, Kinds. `tree` is `folder_tree(roots, folders)` when the
+    caller has already made it (once, on a worker): only the ticks depend on the box."""
+    if tree is None:
+        tree = folder_tree(roots, folders)
     total = sum(count for key, parent, _f, count in tree if not parent)
     entries = [SideEntry("all", "All files", icon="folder", count=total or None, kind="all",
                          tip="Take every narrowing from this list away")]

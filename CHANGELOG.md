@@ -17,6 +17,27 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Sync window, Clean up, editor, Mail and Browse (2026-10-11)
+
+- **Sync window.** The Contacts page's Sync opens a window: per account its state, step, progress bar with time left,
+  what it is working on and the count so far; **Stop**; and a list of the contacts an account refused. One refused
+  contact no longer stops the whole sync (an account-wide fault still does, and so do fifteen failures in a row).
+- **Clean up no longer freezes** on a long list (rows are made in chunks; ticking all is one pass, not one per row).
+- **Duplicates:** **Tick** (all, none, safe, look-first, by confidence) and **Merge ticked** - one batch, one undo.
+- **Enrich runs on the page**, not in its window: close the window, the page says when it is done, the suggestions
+  wait, and accepted ones are not offered again.
+- **Contact editor:** names and work details two to a row, captions above the boxes; an address is a block; the
+  country is a drop-down you can type in. **Phone numbers are from** is a flag-name-dialling-code drop-down.
+- **The Contacts box takes `/` switches** (company, title, email, phone, name, tag, group, has, quiet, favourite).
+- **Mail:** live account mail is listed by account and name instead of "(no archive)", and clicking a live folder
+  shows its mail. Messages saved as files are "Messages saved as files".
+- **Browse:** a two-row header, and the page opens on the newest year instead of a blank list.
+- **Fast navigation:** the Files "Places" tree was built in a way that took 7 s for 18,000 folders, on the window's
+  thread at every click; it is built once on a worker. A click that only changes a tick restyles rows in place.
+- **Fixed:** the side lists did not redraw their icons on a theme change; the CLI imported the UI package
+  (the book's writers moved to `app.contacts.book_actions`; `app.ui.contacts_tools.actions` is the same module).
+- **Tidy:** the Copies table fits its columns and sorts size and date by number.
+
 ### Contacts kept in step across accounts; Tidy list view (2026-10-11)
 
 - **Duplicates no longer merge people who share a landline.** A pair counts only when an email or a mobile number is shared and the names agree; landlines and shared numbers are never merged automatically, and "Not a duplicate" remembers a shared number.

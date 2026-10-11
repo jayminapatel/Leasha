@@ -93,9 +93,11 @@ class TimelineView(QWidget):
         self.status.setObjectName("resultsSummary")
         self.status.setWordWrap(True)
 
+        self.picker.add_summary(self.summary)               # the count line shares the picker's first row
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        for item in (self.summary, self.notes, self.picker, self.heading):
+        layout.setSpacing(2)
+        for item in (self.notes, self.picker, self.heading):
             layout.addWidget(item)
         layout.addWidget(self.list, 1)
         layout.addWidget(self.status)
@@ -123,6 +125,14 @@ class TimelineView(QWidget):
         self.notes.setText("  ".join(thin_data_notes(overview)))
         self.notes.setVisible(bool(self.notes.text()))
         self.picker.set_overview(overview)
+        if self._period is None and overview.years:
+            # Open on the newest year that has anything, so the page is never a blank list waiting for a
+            # choice ("nothing is coming up there" - the owner, 2026-10-11).
+            newest = max((int(y) for y, n in overview.years if n), default=None)
+            if newest is not None:
+                self.picker.show_year(newest)
+                self.picker.month_buttons[0].setChecked(True)
+                self.browse(Period.year(newest))
 
     def _kind_changed(self, _kind: str) -> None:
         """The picker's kind changed: recount and reload the period."""

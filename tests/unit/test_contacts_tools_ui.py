@@ -104,6 +104,32 @@ def test_merge_all_safe_never_touches_a_name_only_group_and_one_undo_restores_al
     assert dlg.table.rowCount() == 3                            # the groups are back on screen
 
 
+def test_ticked_groups_merge_in_one_batch_including_a_look_first_one(world, qtbot):
+    """Select all / individual / by confidence, then accept: the low-confidence groups need no dialog each."""
+    safe_a, safe_b, name_only, alone = _seed_duplicates(world)
+    before = _live_ids(world)
+    dlg = open_dialog(qtbot, DuplicatesDialog, world.ctx)
+    assert dlg.ticked_groups() == [] and not dlg.ticked_button.isEnabled()
+
+    dlg.tick(lambda g: True)                                   # Tick > All groups
+    assert len(dlg.ticked_groups()) == 3 and dlg.ticked_button.isEnabled()
+    assert dlg.ticked_label.text() == "3 ticked"
+    dlg.tick(lambda g: not g.safe)                             # only the ones to look at first
+    assert [tuple(sorted(g.ids)) for g in dlg.ticked_groups()] == [tuple(sorted(name_only))]
+    dlg.tick(None)
+    assert dlg.ticked_groups() == []
+    dlg.table.item(0, 0).setCheckState(Qt.CheckState.Checked)  # one by hand
+    assert len(dlg.ticked_groups()) == 1
+
+    dlg.tick(lambda g: not g.safe)
+    steps = actions.plan_chosen_merges(dlg.ticked_groups(), dlg.scan.cards, world.hub.region)
+    assert len(steps) == 1
+    dlg.run_merge_safe(steps)
+    settle(qtbot)
+    assert len(_live_ids(world)) == len(before) - 1 and alone in _live_ids(world)
+    assert len(_batches(world)) == 1
+
+
 def test_a_name_only_group_cannot_be_merged_by_the_batch_even_if_handed_to_it(world):
     _, _, name_only, _ = _seed_duplicates(world)
     from app.contacts import dupes

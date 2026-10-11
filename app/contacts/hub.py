@@ -1167,8 +1167,14 @@ class ContactHub:
             sg = next((s for s in self.smart_groups() if s.id == int(f.arg)), None)
             ids = sorted(self.ids_for_rules(sg.rules)) if sg else []
             where.append(f"c.id IN ({','.join(str(i) for i in ids) or '-1'})")
-        if f.text.strip():
-            hits = self.search_ids(f.text, limit=100_000)
+        from app.contacts.slash import split
+
+        free, rules = split(f.text)                           # `/company acme` and friends
+        if rules:
+            ids = sorted(self.ids_for_rules(rules))
+            where.append(f"c.id IN ({','.join(str(i) for i in ids) or '-1'})")
+        if free.strip():
+            hits = self.search_ids(free, limit=100_000)
             where.append(f"c.id IN ({','.join(str(i) for i in hits) or '-1'})")
         rows = self._rows("WHERE " + " AND ".join(where), args)
         if f.sort == "company":

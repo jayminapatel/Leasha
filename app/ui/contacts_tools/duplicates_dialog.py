@@ -23,7 +23,8 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QDialog, QHBoxLayout, QLabel, QPlainTextEdit, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
+    QDialog, QHBoxLayout, QLabel, QMenu, QPlainTextEdit, QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout,
+    QWidget,
 )
 
 from app.contacts.card import display_name
@@ -37,14 +38,14 @@ __all__ = ["DuplicatesDialog", "PlanDialog"]
 class PlanDialog(QDialog):
     """The list of what 'Merge all safe matches' is about to do, with OK / Cancel."""
 
-    def __init__(self, steps: list, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, steps: list, parent: Optional[QWidget] = None, *, title: str = "Merge all safe matches",
+                 why: str = "Only exact email or phone matches are here. You can undo all of it in one step.") -> None:
         super().__init__(parent)
-        self.setWindowTitle("Merge all safe matches")
+        self.setWindowTitle(title)
         self.setAccessibleName("What will be merged")
         self.resize(560, 420)
         layout = QVBoxLayout(self)
-        intro = QLabel(f"These {plural(len(steps), 'group')} will each become one contact. "
-                       "Only exact email or phone matches are here. You can undo all of it in one step.")
+        intro = QLabel(f"These {plural(len(steps), 'group')} will each become one contact. {why}")
         intro.setWordWrap(True)
         named(intro, "What this will do", "What this will do")
         text = QPlainTextEdit()
@@ -90,6 +91,25 @@ class DuplicatesDialog(ToolDialog):
                                 "Each row is a group of contacts that may be one person", stretch=2)
         self.table.itemDoubleClicked.connect(lambda _i: self.review())
         self.table.itemSelectionChanged.connect(self._sync_buttons)
+        self.table.itemChanged.connect(lambda _i: self._sync_buttons())
+        # Tick which groups to merge: all, none, the safe ones, the ones above a confidence - so the
+        # low-confidence ones can be reviewed and accepted in one go instead of one dialog each.
+        self.tick_button = QToolButton()
+        self.tick_button.setText("Tick")
+        self.tick_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.tick_button.setToolTip("Tick groups to merge: all, none, the safe ones, or those above a confidence")
+        self.tick_button.setAccessibleName("Tick groups")
+        menu = QMenu(self.tick_button)
+        for words, rule in (("All groups", lambda g: True), ("None", None),
+                            ("Only the safe ones", lambda g: g.safe),
+                            ("Only the ones to look at first", lambda g: not g.safe),
+                            ("Confidence 90% or more", lambda g: g.confidence >= 0.9),
+                            ("Confidence 70% or more", lambda g: g.confidence >= 0.7)):
+            menu.addAction(words).triggered.connect(lambda _c=False, r=rule: self.tick(r))
+        self.tick_button.setMenu(menu)
+        self.ticked_label = QLabel("")
+        named(self.ticked_label, "Groups ticked", "How many groups are ticked to merge")
+        gl.addLayout(_row(self.tick_button, self.ticked_label))
         gl.addWidget(self.table, 1)
         self.tabs.addTab(groups, icon("merge", ink()), "Groups")
 
@@ -113,6 +133,9 @@ class DuplicatesDialog(ToolDialog):
         self.safe_button = btn("Merge all safe matches", "merge", "primary",
                                "Merge every group matched by an exact email or phone number, after showing you the list",
                                "Merge all safe matches")
+        self.ticked_button = btn("Merge ticked", "check-check", "primary",
+                                 "Merge the groups with a tick in the first column, after showing you the list",
+                                 "Merge ticked")
         self.review_button = btn("Review", "eye", "secondary", "Open the selected group side by side", "Review")
         self.not_button = btn("Not a duplicate", "ban", "secondary",
                               "Remember that the selected group are different people", "Not a duplicate")
@@ -121,10 +144,11 @@ class DuplicatesDialog(ToolDialog):
         self.undo_button.hide()
         self.scan_button.clicked.connect(lambda: self.rescan(force=True))
         self.safe_button.clicked.connect(self.confirm_and_merge_safe)
+        self.ticked_button.clicked.connect(self.confirm_and_merge_ticked)
         self.review_button.clicked.connect(self.review)
         self.not_button.clicked.connect(self.not_a_duplicate)
         self.undo_button.clicked.connect(self.undo_merge)
-        self.add_footer_buttons(self.safe_button, self.review_button, self.not_button, self.undo_button, self.scan_button)
+        self.add_footer_buttons(self.safe_button, self.ticked_button, self.review_button, self.not_button, self.undo_button, self.scan_button)
         self._sync_buttons()
         self.rescan()
 
@@ -148,6 +172,7 @@ class DuplicatesDialog(ToolDialog):
     def _fill_groups(self) -> None:
         groups = self.scan.groups if self.scan else []
         cards = self.scan.cards if self.scan else {}
+        self.table.blockSignals(True)
         self.table.setRowCount(len(groups))
         for row, g in enumerate(groups):
             why = ", ".join(g.reasons) or "similar"
@@ -157,8 +182,12 @@ class DuplicatesDialog(ToolDialog):
             for col, text in enumerate((why, f"{round(g.confidence * 100)}%", names)):
                 item = QTableWidgetItem(text)
                 item.setData(Qt.ItemDataRole.UserRole, row)
+                if col == 0:
+                    item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    item.setCheckState(Qt.CheckState.Unchecked)
                 self.table.setItem(row, col, item)
             self.table.setItem(row, 3, safe)
+        self.table.blockSignals(False)
         if groups:
             self.table.selectRow(0)
         total = len(groups)
@@ -189,7 +218,44 @@ class DuplicatesDialog(ToolDialog):
         index = rows[0].row()
         return self.scan.groups[index] if 0 <= index < len(self.scan.groups) else None
 
+    def ticked_groups(self) -> list:
+        """The groups with a tick, in the order shown."""
+        if not self.scan:
+            return []
+        out = []
+        for row, g in enumerate(self.scan.groups):
+            item = self.table.item(row, 0)
+            if item is not None and item.checkState() == Qt.CheckState.Checked:
+                out.append(g)
+        return out
+
+    def tick(self, rule: Any) -> None:
+        """Tick the groups `rule` accepts and untick the rest; None unticks all."""
+        groups = self.scan.groups if self.scan else []
+        self.table.blockSignals(True)
+        for row, g in enumerate(groups):
+            item = self.table.item(row, 0)
+            if item is not None:
+                item.setCheckState(Qt.CheckState.Checked if rule is not None and rule(g) else Qt.CheckState.Unchecked)
+        self.table.blockSignals(False)
+        self._sync_buttons()
+
+    def confirm_and_merge_ticked(self) -> None:
+        groups = self.ticked_groups()
+        steps = actions.plan_chosen_merges(groups, self.scan.cards, self.hub.region) if groups and self.scan else []
+        if not steps:
+            self.say("Nothing is ticked: use Tick, or the box at the start of a row.")
+            return
+        plan = PlanDialog(steps, self, title="Merge ticked groups",
+                          why="You ticked these. Look at the list; you can undo all of it in one step.")
+        if plan.exec() == QDialog.DialogCode.Accepted:
+            self.run_merge_safe(steps)
+
     def _sync_buttons(self) -> None:
+        ticked = len(self.ticked_groups())
+        self.ticked_label.setText(f"{ticked} ticked" if ticked else "")
+        self.ticked_button.setEnabled(ticked > 0)
+        self.ticked_button.setText(f"Merge ticked ({ticked})" if ticked else "Merge ticked")
         group = self.selected_group()
         self.review_button.setEnabled(group is not None)
         self.not_button.setEnabled(group is not None)

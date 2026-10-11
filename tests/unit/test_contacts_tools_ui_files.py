@@ -300,6 +300,41 @@ def test_enrich_keeps_only_what_is_accepted_and_undoes_in_one_step(world, qtbot)
     assert world.hub.get_card(a).get("company") == ""
 
 
+def test_enrich_carries_on_when_its_window_closes_and_waits_to_be_accepted(world, qtbot):
+    """The look-up belongs to the page: close the window, it finishes and says so; open it, accept later."""
+    import threading
+
+    from app.contacts.enrich.base import Proposal
+
+    a = world.add("Ann", "Lee", email="ann@acme-widgets.co.uk")
+    gate, said = threading.Event(), []
+    proposals = [Proposal(a, "company", "Company", "", "Acme Widgets", "company", "from the email domain")]
+
+    def slow():
+        gate.wait(10)
+        return proposals
+
+    world.ctx.enrich = slow
+    world.ctx.notify = said.append
+    dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
+    dlg.find_button.click()
+    assert dlg.run.running and "close this window" in dlg.status.text()
+    dlg.close()
+    dlg.deleteLater()                                           # the window is gone; the run is not
+    gate.set()
+    qtbot.waitUntil(lambda: bool(said), timeout=5000)
+    assert "1 suggestion" in said[0] and "Open Enrich contacts" in said[0]
+    assert world.hub.get_card(a).get("company") == ""           # nothing kept without a say-so
+
+    again = open_dialog(qtbot, EnrichDialog, world.ctx)         # later: the suggestions are waiting
+    assert again.tree.topLevelItemCount() == 1
+    again.accept_all_button.click()
+    settle(qtbot)
+    assert world.hub.get_card(a).get("company") == "Acme Widgets"
+    third = open_dialog(qtbot, EnrichDialog, world.ctx)         # and what was accepted is not offered twice
+    assert third.tree.topLevelItemCount() == 0
+
+
 def test_enrich_accept_all_and_a_result_with_its_own_apply(world, qtbot):
     class P:
         def __init__(self, cid, label, old, new, source):

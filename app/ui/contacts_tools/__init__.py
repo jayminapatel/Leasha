@@ -90,8 +90,13 @@ def _tell(parent: Any, title: str, text: str) -> None:
 
 
 def _open_sync(parent: Any, ctx: Any) -> Any:
-    """Sync now (10c): asks the window's account scheduler, the one starter besides the schedule."""
+    """Sync (10c): the Sync window, which starts a sync if none is going. The scheduler is the one
+    starter besides the schedule; the window only asks it."""
     service = getattr(ctx, "service", None)
+    if callable(getattr(service, "scheduler", None)) and service.scheduler() is not None:
+        from app.ui.contacts_tools.sync_dialog import open_sync_window  # noqa: PLC0415
+
+        return open_sync_window(parent, ctx)
     ask = getattr(service, "request_sync", None)
     if not callable(ask):
         _tell(parent, "Sync is not available here", "Open Settings > Accounts and press Sync now.")
