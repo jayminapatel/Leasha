@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from app.reports.space import (
+    SCOPE_SENTENCE,
     DuplicateCopy,
     SpaceFindings,
     coverage_sentence,
@@ -276,4 +277,5 @@ def space_headline(findings: SpaceFindings) -> str:
         lines.append(
             f"{source.file_count:,} {noun} exist nowhere else but {source.name}"
             f"{', currently ' + note if note else ''}{f' (last seen {seen})' if seen else ''}.")
+    lines.append(SCOPE_SENTENCE)                      # order 1j 1b: what it counts
     return "\n".join(lines)

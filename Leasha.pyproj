@@ -937,6 +937,7 @@
     <Compile Include="tests\unit\test_office_full_layout.py" />
     <Compile Include="tests\unit\test_offline_media.py" />
     <Compile Include="tests\unit\test_offline_media_view.py" />
+    <Compile Include="tests\unit\test_offline_shelf.py" />
     <Compile Include="tests\unit\test_one_fact_one_function.py" />
     <Compile Include="tests\unit\test_one_qt_binding.py" />
     <Compile Include="tests\unit\test_one_unwritable_document.py" />

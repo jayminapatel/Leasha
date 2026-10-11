@@ -413,6 +413,26 @@ def _scope_sql(within: Any) -> tuple[str, list[Any]]:
         return "", []
 
 
+def _under_root_sql(column: str, root: str) -> tuple[str, list[str]]:
+    r"""`(sql, params)`: `column` is `root` or a path under it, **whichever slash
+    either was written with**.
+
+    Order 1j section 2 (2026-10-11): Qt's folder picker hands back `D:/Data`,
+    which is what `ui:roots` holds, while the index stores `D:\Data\...`, so
+    `LIKE 'D:/Data%'` matched none of the owner's 135,841 files and Digital
+    Inheritance listed every source empty. Both spellings are asked for, and a
+    separator must follow the root, so `D:\Data` no longer takes `D:\Database`.
+    `column` is a constant from this module, never anything typed.
+    """
+    cleaned = str(root or "").rstrip("\\/")
+    clauses: list[str] = []
+    params: list[str] = []
+    for form, sep in ((cleaned.replace("/", "\\"), "\\"), (cleaned.replace("\\", "/"), "/")):
+        clauses.append(f"{column} = ? OR {column} LIKE ? ESCAPE '\\'")
+        params.extend([form, like_escape(form + sep) + "%"])
+    return "(" + " OR ".join(clauses) + ")", params
+
+
 def _bucket_top_level(root: str, parent_dir_counts: list) -> list:
     r"""Reduce (deep parent_dir, count) pairs to (immediate child of root,
     total count) - the Digital Inheritance report's own "top-level folder
@@ -6608,15 +6628,12 @@ class SqliteStore:
 
         Read-only, like every report query - this never writes.
         """
-        cleaned = str(root or "").rstrip("\\/")
-        escaped = like_escape(cleaned)
-        pattern = f"{escaped}%"
+        under, params = _under_root_sql("path", root)
         row = self.conn.execute(
             "SELECT COUNT(*) AS n, COALESCE(SUM(size_bytes), 0) AS total_bytes, "
             "MAX(mtime_ns) AS newest, MIN(mtime_ns) AS oldest "
-            "FROM files WHERE volume_id IS NULL AND source_kind = 'file' "
-            "AND (path = ? OR path LIKE ? ESCAPE '\\')",
-            (cleaned, pattern),
+            f"FROM files WHERE volume_id IS NULL AND source_kind = 'file' AND {under}",
+            params,
         ).fetchone()
         if row is None:
             return {"n": 0, "total_bytes": 0, "newest": None, "oldest": None}
@@ -6634,14 +6651,12 @@ class SqliteStore:
         the first segment past it is what a source-level summary wants.
         """
         cleaned = str(root or "").rstrip("\\/")
-        escaped = like_escape(cleaned)
-        pattern = f"{escaped}%"
+        under, params = _under_root_sql("parent_dir", root)
         rows = self.conn.execute(
             "SELECT parent_dir, COUNT(*) AS n FROM files "
-            "WHERE volume_id IS NULL AND source_kind = 'file' "
-            "AND (parent_dir = ? OR parent_dir LIKE ? ESCAPE '\\') "
+            f"WHERE volume_id IS NULL AND source_kind = 'file' AND {under} "
             "GROUP BY parent_dir",
-            (cleaned, pattern),
+            params,
         ).fetchall()
         return _bucket_top_level(cleaned, [(r["parent_dir"], int(r["n"])) for r in rows])
 

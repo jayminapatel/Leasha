@@ -54,7 +54,7 @@ __all__ = [
     "ZIP_FAMILY_EXTS", "NO_SUBJECT", "ATTACHMENT_MARKER", "MAIL_KEY_SCHEME", "DAY_FORMAT",
     "suffixes", "ext_alternation",
     "format_size", "is_message_row", "has_own_size", "own_size",
-    "archived_message_sql", "message_name",
+    "archived_message_sql", "message_name", "DISK_FILE_KIND", "disk_file_sql",
     "attachment_of", "is_mail_attachment", "attachment_sql", "listed_files_sql",
     "is_message_key", "container_of", "is_synthetic_path",
     "day_words", "moment_words",
@@ -234,6 +234,18 @@ def archived_message_sql(alias: str = "f") -> str:
     files = " ".join(f"AND {a}path NOT LIKE '%.{ext}'" for ext in MESSAGE_FILE_EXTS)
     return (f"({a}source_kind IN ({kinds}) "
             f"AND NOT ({attachment_sql(alias)}) {files})")
+
+
+#: Order 1j D1 (2026-10-11): a real file on disk - on this computer or on a
+#: catalogued drive - which a person can delete to get the room back. Not a
+#: member inside a `.zip` (`archive`) and not mail (`pst_message`, `eml`).
+DISK_FILE_KIND = "file"
+
+
+def disk_file_sql(alias: str = "f") -> str:
+    """`source_kind = 'file'` as SQL, for the Space Report's every query. A constant."""
+    a = f"{alias}." if alias else ""
+    return f"{a}source_kind = '{DISK_FILE_KIND}'"
 
 
 def message_name(subject: Any) -> str:

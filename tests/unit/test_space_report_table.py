@@ -136,7 +136,10 @@ def test_by_source_and_the_only_copy_are_flat_and_sortable_on_numbers():
 def test_a_table_with_nothing_in_it_says_so_in_plain_words():
     for table in space_tables(SpaceFindings()):
         assert not table.rows and table.empty.endswith(".")
-    assert space_headline(SpaceFindings()) == "No duplicate files were found."
+    # 2026-10-11, order 1j 1b: the headline ends by saying what the report covers.
+    from app.reports.space import SCOPE_SENTENCE
+
+    assert space_headline(SpaceFindings()) == f"No duplicate files were found.\n{SCOPE_SENTENCE}"
 
 
 def test_the_headline_gives_the_plain_numbers_in_the_documents_own_words():
@@ -326,7 +329,9 @@ def test_an_empty_section_shows_its_sentence_instead_of_an_empty_table(qtbot):
     qtbot.addWidget(widget)
     widget.set_findings(SpaceFindings())
     assert widget.trees == {}
-    assert widget.headline.text() == "No duplicate files were found."
+    from app.reports.space import SCOPE_SENTENCE         # order 1j 1b
+
+    assert widget.headline.text() == f"No duplicate files were found.\n{SCOPE_SENTENCE}"
 
 
 # ---------------------------------------------------------------------------

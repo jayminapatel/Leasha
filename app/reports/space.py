@@ -36,9 +36,10 @@ from pathlib import Path
 from typing import Any, Optional, Sequence
 
 from app.core.logging import logger
-from app.core.row_facts import archived_message_sql
+from app.core.row_facts import disk_file_sql
 
 __all__ = [
+    "SCOPE_SENTENCE",
     "DuplicateCopy",
     "DuplicateGroup",
     "NearDuplicatePhotoGroup",
@@ -213,8 +214,17 @@ def _local_source_name(path: str) -> str:
     return "This computer"
 
 
-#: A message read out of a mail archive - no size of its own (2026-10-04).
-_ARCHIVED_MESSAGE = archived_message_sql("")
+#: Order 1j (2026-10-11), the owner: "the space report should not include
+#: duplicates from pst's it should be only for files". Every query here reads
+#: real files on disk only (`row_facts.disk_file_sql`): not mail, and not
+#: members inside a `.zip`, since deleting neither gives any room back. Until
+#: then only archived messages were left out (2026-10-04), so a PST's
+#: attachments still counted, and the two per-source queries filtered nothing.
+_ON_DISK = disk_file_sql("")
+#: 1b: said once, in the document and on screen.
+SCOPE_SENTENCE = ("It covers files on disk - on this computer and on catalogued drives - "
+                  "not mail, and not files inside .zip archives.")
+_ON_DISK_F = disk_file_sql("f")
 
 
 def find_duplicate_groups(
@@ -230,14 +240,12 @@ def find_duplicate_groups(
     lesson it exists to avoid repeating.
     """
     try:
-        # 2026-10-04: a message inside a mail archive carries the archive's
-        # size (`row_facts.archived_message_sql`), so two copies of one
-        # message were "reclaimable" at the size of the whole `.pst`. They are
-        # left out of every size here - there is no file of theirs to delete.
+        # Files on disk only (`_ON_DISK`, order 1j): a message carries its
+        # archive's size, and a zip member has no file of its own to delete.
         hashes = store.conn.execute(
             "SELECT content_hash, size_bytes, COUNT(*) AS n "
             "FROM files WHERE content_hash IS NOT NULL "
-            f"AND NOT {_ARCHIVED_MESSAGE} "
+            f"AND {_ON_DISK} "
             "GROUP BY content_hash HAVING COUNT(*) > 1 "
             "ORDER BY (COUNT(*) - 1) * size_bytes DESC LIMIT ?",
             (int(limit),),
@@ -253,7 +261,7 @@ def find_duplicate_groups(
         try:
             members = store.conn.execute(
                 "SELECT path, volume_id FROM files WHERE content_hash = ? "
-                f"AND NOT {_ARCHIVED_MESSAGE}",
+                f"AND {_ON_DISK}",
                 (content_hash,),
             ).fetchall()
         except Exception as exc:                  # noqa: BLE001
@@ -288,7 +296,7 @@ def total_reclaimable_bytes(store: Any) -> int:
         row = store.conn.execute(
             "SELECT SUM((n - 1) * size_bytes) AS reclaimable FROM ("
             "  SELECT size_bytes, COUNT(*) AS n FROM files "
-            f"  WHERE content_hash IS NOT NULL AND NOT {_ARCHIVED_MESSAGE} "
+            f"  WHERE content_hash IS NOT NULL AND {_ON_DISK} "
             "  GROUP BY content_hash "
             "  HAVING COUNT(*) > 1"
             ")"
@@ -382,7 +390,7 @@ def find_near_duplicate_photo_groups(
             "SELECT MIN(id) AS id, phash, MIN(path) AS path, "
             "MAX(size_bytes) AS size_bytes, MIN(volume_id) AS volume_id "
             "FROM files WHERE phash IS NOT NULL AND phash != '' "
-            "AND content_hash IS NOT NULL "
+            f"AND content_hash IS NOT NULL AND {_ON_DISK} "
             "GROUP BY content_hash"
         ).fetchall()
     except Exception as exc:                      # noqa: BLE001
@@ -435,14 +443,16 @@ def find_source_duplicate_share(store: Any) -> list[SourceDuplicateShare]:
     """
     try:
         totals = store.conn.execute(
-            "SELECT volume_id, COUNT(*) AS n FROM files GROUP BY volume_id"
+            f"SELECT volume_id, COUNT(*) AS n FROM files WHERE {_ON_DISK} GROUP BY volume_id"
         ).fetchall()
         duplicated = store.conn.execute(
             "SELECT f.volume_id AS volume_id, COUNT(*) AS n "
             "FROM files f JOIN ("
             "  SELECT content_hash FROM files WHERE content_hash IS NOT NULL "
+            f"  AND {_ON_DISK} "
             "  GROUP BY content_hash HAVING COUNT(*) > 1"
             ") d ON d.content_hash = f.content_hash "
+            f"WHERE {_ON_DISK_F} "
             "GROUP BY f.volume_id"
         ).fetchall()
     except Exception as exc:                      # noqa: BLE001
@@ -487,8 +497,10 @@ def find_source_uniqueness(store: Any) -> list[SourceUniqueness]:
             "SELECT f.volume_id AS volume_id, COUNT(*) AS n "
             "FROM files f JOIN ("
             "  SELECT content_hash FROM files WHERE content_hash IS NOT NULL "
+            f"  AND {_ON_DISK} "
             "  GROUP BY content_hash HAVING COUNT(*) = 1"
             ") u ON u.content_hash = f.content_hash "
+            f"WHERE {_ON_DISK_F} "
             "GROUP BY f.volume_id"
         ).fetchall()
     except Exception as exc:                      # noqa: BLE001
@@ -608,6 +620,7 @@ def render_space_document(
         lines.append(f"From the index as of last run, {when}.")
     else:
         lines.append("This index has nothing recorded yet.")
+    lines.append(SCOPE_SENTENCE)
     lines.append("")
     thin = coverage_sentence(files_total, files_compared)
     if thin:

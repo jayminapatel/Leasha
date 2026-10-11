@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.144 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.145 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, order 1j §1-§2 built; §3 dry run done, waiting for the owner.**
+Space Report: every query reads `row_facts.disk_file_sql` (`source_kind = 'file'`, D1), and `space.SCOPE_SENTENCE` says so in the document and on screen. Digital Inheritance: `sqlite_store._under_root_sql` matches a root saved as `D:/Data` or `D:\Data` and needs a separator after it (it also took `D:\Database` before); `ui:roots` left as Qt writes it (2b). On the owner's index, read-only: `D:/Data` 135,841 files, 441.3 GB. **§3 dry run (read-only):** under D2 (hash + subject + sender + sent time) 3,458 extra message copies in 3,313 groups plus 344 attachment rows, all within one archive each - not the 21,245 the order measured by hash alone. Nothing is deleted until the owner says yes; then 3b (backup, delete across files/FTS/vectors, `reembed --check`), 3c (the PST readers skip a repeat) and 3d. Tests: `test_space_files_only.py` (3), `test_inheritance_roots.py` (6), both red on the old code; two `test_space_report_table.py` headline assertions updated.
 
 **2026-10-11, order 1i built (11 of 13) - Offline into Indexing, the timeline on the rail as "Browse".**
 Offline is `indexing_layout.add_offline_shelf` (fifth shelf, `CATEGORY_OFFLINE`, read on `category_changed` and in `_tab_changed` when the Indexing page comes forward on it; Go > Offline is `MainWindow._show_offline`). `MainWindow.timeline_view` is the rail page "Browse" between Chat and Reports (`Rail.describe` gives it "Browse your timeline"); `ReportsView` lists two reports and no longer hosts it; `timeline_host` keeps only `REPORT_KEY` and `keep_names_readable`; `TimelineController` opens `timeline_view`. Defaults taken: D1, D3, D4 as written; D2 replaced by the owner's "Browse". `tools/grab_ui.py` surfaces moved (`offline-media` is the Indexing shelf, `timeline` the Browse page). Tests: `test_offline_shelf.py` (3), the timeline doors rewritten, rail-order tests updated; `run_suite.py --affected` then the stragglers, all green. **Open:** 2d (start-up time, unmeasured - same construction point as before) and 3d (look at the real window at 125%); the `/on` hint still says "Offline Media tab" (owner's wording to change or keep).

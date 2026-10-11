@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.109 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.110 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The Space Report counts files, and Digital Inheritance shows your folders (2026-10-11)
+
+- **The Space Report counts files on disk only** - not mail, not attachments, not files inside a .zip - and says so.
+- **Digital Inheritance lists what each folder holds.** It showed every source empty when the folder had been chosen
+  with forward slashes, which the folder picker always uses.
 
 ### Offline moves into Indexing, and the timeline gets the rail (2026-10-11)
 
