@@ -706,6 +706,23 @@ class ContactHub:
         rebuilt = self.rebuild_merged(survivor, actor=actor)
         return UnmergeResult(folded, survivor, rebuilt, res.accounts)
 
+    def merge_batches(self) -> list[str]:
+        """The merges still standing, newest first: each is one "Merge" (or "Merge all safe") batch."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT batch_id FROM contact_journal WHERE action IN ('merge', 'merged') AND undone_at IS NULL "
+            "AND batch_id IS NOT NULL GROUP BY batch_id ORDER BY MIN(id) DESC")]
+
+    def undo_all_merges(self, *, actor: str = "user") -> UndoResult:
+        """Back to square one: every standing merge undone, newest first, so each contact is again the
+        record its account sent, linked to that account alone."""
+        total = UndoResult()
+        for batch in self.merge_batches():
+            res = self.undo_batch(batch, actor=actor)
+            total.undone += res.undone
+            total.skipped += res.skipped
+            total.accounts |= res.accounts
+        return total
+
     def rebuild_merged(self, survivor: int, *, actor: str = "user") -> bool:
         """Rebuild a merge survivor's card from the card it had before the merge plus the
         contacts that are *still* folded into it (a person given back no longer counts).

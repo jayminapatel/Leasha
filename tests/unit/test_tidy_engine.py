@@ -295,3 +295,38 @@ def test_a_file_that_went_is_never_reported_left_even_when_its_record_is_slow(tm
     monkeypatch.setattr(bin, "_find", lambda p, since: found)
     bin.put_back(ref, str(path))
     assert path.read_text() == "x" and not held.exists()
+
+
+def _set(*paths_and_mtimes):
+    from types import SimpleNamespace
+
+    files = [SimpleNamespace(path=p, name=p.rsplit("\\", 1)[-1], mtime_ns=m, size_bytes=10)
+             for p, m in paths_and_mtimes]
+    return SimpleNamespace(kind="copies", files=files)
+
+
+def test_a_whole_set_under_a_temp_folder_still_has_its_spare_copy():
+    r"""Found by the full suite (2026-10-11): its scratch folders sit under AppData\Local\Temp, so both
+    copies looked spare and the older one - the Downloads one - was kept. Only what lies below the
+    folder the copies share says which is the spare."""
+    from app.tidy import keep
+
+    root = r"C:\Users\a\AppData\Local\Temp\run\t1" + "\\"
+    tset = _set((root + r"Documents\r.pdf", 5), (root + r"Downloads\r.pdf", 1))
+    assert keep.keeper(tset, "leasha").path.endswith(r"Documents\r.pdf")
+    assert keep.shared_folder([f.path for f in tset.files]).lower() == root.rstrip("\\").lower()
+
+
+def test_a_real_temp_copy_is_still_spare_against_a_document():
+    from app.tidy import keep
+
+    tset = _set((r"C:\Users\a\AppData\Local\Temp\r.pdf", 1), (r"C:\Users\a\Documents\r.pdf", 5))
+    assert keep.keeper(tset, "leasha").path.endswith(r"Documents\r.pdf")
+
+
+def test_copies_on_different_drives_share_no_folder_and_still_choose():
+    from app.tidy import keep
+
+    tset = _set((r"C:\Downloads\r.pdf", 1), (r"D:\Documents\r.pdf", 5))
+    assert keep.shared_folder([f.path for f in tset.files]) == ""
+    assert keep.keeper(tset, "leasha").path.startswith("D:")

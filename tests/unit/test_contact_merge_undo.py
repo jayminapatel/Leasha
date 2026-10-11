@@ -54,7 +54,8 @@ def _group_of_three(world):
     second copy (a right fold: same email)."""
     g, m = world.account("Google"), world.account("Work")
     world.servers[g].add(person("Yarob", "Alkassar", email="yarob@x.com", phone="07700 900111"))
-    world.servers[m].add(person("Yarob", "Alkassar", email="yarob@x.com", phone="07700 900222"))
+    # a second copy with other contact details, so the import does not join it (it is merged by hand below)
+    world.servers[m].add(person("Yarob", "Alkassar", email="yarob@work.example", phone="07700 900222"))
     world.servers[g].add(person("Pradeep", "Vishvanathan", email="pradeep@y.com", phone="07700 900333"))
     world.sync()
     rows = [(r.id, r.display_name) for r in world.hub.list_rows()]
@@ -138,3 +139,29 @@ def test_not_a_duplicate_teaches_leasha_which_numbers_are_shared(world):
     assert again == []
     world.hub.unmark_shared({"phone:+447911123456"})
     assert world.hub.shared_values() == set()
+
+
+def test_undoing_every_merge_returns_to_square_one(world):
+    """The owner (2026-10-11): "restore all the contacts which were merged today ... square 1"."""
+    g, m = world.account("Google"), world.account("Work")
+    world.servers[g].add(person("Ann", "Lee", email="ann@x.example", phone="07911 123456"))
+    world.servers[m].add(person("Ann", "Lee", email="ann.work@y.example", phone="07912 345678"))
+    world.servers[g].add(person("Bob", "Bell", email="bob@x.example"))
+    world.servers[m].add(person("Bob", "Bell", email="bob.work@y.example"))
+    world.sync()
+    world.accounts.update_settings(mirror_contacts=False)
+    rows = {}
+    for r in world.hub.list_rows():
+        rows.setdefault(r.display_name, []).append(r.id)
+    before = sorted((_links(world, i), i) for ids in rows.values() for i in ids)
+    for name in ("Ann Lee", "Bob Bell"):                                    # two separate merges
+        _merge(world, rows[name][0], rows[name][1:])
+    assert world.hub.count() == 2 and len(world.hub.merge_batches()) == 2
+    res = world.hub.undo_all_merges()
+    assert res.skipped == 0 and world.hub.merge_batches() == []
+    assert world.hub.count() == 4
+    after = sorted((_links(world, i), i) for ids in rows.values() for i in ids)
+    assert after == before                                                  # each person, their own account's record
+    assert world.store.conn.execute("SELECT COUNT(*) FROM contact_links WHERE state = 'pending_remove'").fetchone()[0] == 0
+    world.sync()                                                           # and a sync agrees: nothing to write
+    assert [len(s.writes) for s in world.servers.values()] == [0, 0]
