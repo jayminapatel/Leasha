@@ -38,6 +38,7 @@ DOORS = {
     "print": ("print_dialog", "PrintDialog"),
     "qr": ("qr_dialog", "QrDialog"),
     "enrich": ("enrich_dialog", "EnrichDialog"),
+    "conflicts": ("conflicts_dialog", "ConflictsDialog"),
 }
 
 

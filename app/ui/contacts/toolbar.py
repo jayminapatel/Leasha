@@ -39,6 +39,8 @@ MORE_TOOLS = (
     ("enrich", "wand-sparkles", "Enrich selection…", "Look for missing details in your own mail and photos "
      "(and the internet, if you switched that on) - nothing is kept until you accept it"),
     ("duplicates", "merge", "Find duplicates…", "Find people who are in your book twice, and merge them"),
+    ("conflicts", "triangle-alert", "Changed in two places…", "Review the details changed in Leasha and at an "
+     "account, and accept which value to keep - all at once or one by one"),
 )
 
 

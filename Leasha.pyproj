@@ -486,6 +486,7 @@
     <Compile Include="app\ui\contacts_tools\_common.py" />
     <Compile Include="app\ui\contacts_tools\actions.py" />
     <Compile Include="app\ui\contacts_tools\cleanup_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\conflicts_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_run.py" />
@@ -899,6 +900,7 @@
     <Compile Include="tests\unit\test_contact_sync_progress.py" />
     <Compile Include="tests\unit\test_contacts_backup_verify.py" />
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
+    <Compile Include="tests\unit\test_contacts_conflicts_ui.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
     <Compile Include="tests\unit\test_contacts_enrich_net.py" />
@@ -1105,6 +1107,7 @@
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_media_tail_end.py" />
+    <Compile Include="tests\unit\test_merge_notes.py" />
     <Compile Include="tests\unit\test_message_index_trigger.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_mini_search_box.py" />

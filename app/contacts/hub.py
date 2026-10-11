@@ -934,6 +934,18 @@ class ContactHub:
             args = (cid,)
         return [dict(r) for r in self.conn.execute(sql + " ORDER BY id", args)]
 
+    def resolve_conflict_row(self, conflict_id: int) -> None:
+        """One clash is dealt with: it leaves the list, and the contact's marker goes when it was the last."""
+        with self._write() as conn:
+            row = conn.execute("SELECT contact_id FROM contact_conflicts WHERE id = ?", (int(conflict_id),)).fetchone()
+            if row is None:
+                return
+            conn.execute("UPDATE contact_conflicts SET resolved_at = ? WHERE id = ? AND resolved_at IS NULL",
+                         (self._now(), int(conflict_id)))
+            if not conn.execute("SELECT 1 FROM contact_conflicts WHERE contact_id = ? AND resolved_at IS NULL",
+                                (row[0],)).fetchone():
+                conn.execute("UPDATE contacts SET conflict_at = NULL WHERE id = ?", (row[0],))
+
     def acknowledge_conflicts(self, cid: int) -> None:
         """The person has looked: the marker goes (D6)."""
         with self._write() as conn:
