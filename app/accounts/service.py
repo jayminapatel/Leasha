@@ -398,6 +398,7 @@ class AccountService:
             rep.error = exc.error.message
             return rep
         remote: dict[str, tuple[str, str]] = {}               # remote id -> (version, name)
+        caps = getattr(provider, "caps", None)
         try:
             for page in provider.pull(None):
                 for rc in page.changes:
@@ -414,7 +415,7 @@ class AccountService:
                 pass
         rep.remote = len(remote)
         rows = self.store.conn.execute(
-            "SELECT l.remote_id, l.version_tag, l.state, l.hub_rev, c.rev, c.display_name FROM contact_links l "
+            "SELECT l.contact_id, l.remote_id, l.version_tag, l.state, l.hub_rev, c.rev, c.display_name FROM contact_links l "
             "JOIN contacts c ON c.id = l.contact_id WHERE l.account_id = ? AND c.deleted_at IS NULL",
             (account.id,)).fetchall()
         known: set[str] = set()
@@ -433,10 +434,23 @@ class AccountService:
             else:
                 if r["state"] == "synced" and remote[r["remote_id"]][0] and r["version_tag"] != remote[r["remote_id"]][0]:
                     rep.changed_there += 1
-                if r["state"] == "synced" and r["hub_rev"] != r["rev"]:
+                if r["state"] == "synced" and r["hub_rev"] != r["rev"] and self._differs_from_account(
+                        r["contact_id"], account.id, caps):
                     rep.waiting_to_write += 1
         rep.missing_here = [name for rid, (_v, name) in remote.items() if rid not in known]
         return rep
+
+    def _differs_from_account(self, cid: int, account_id: int, caps: Any) -> bool:
+        """Would a push write anything for this contact? The same test the sync makes: what would be
+        sent, as the account can hold it, against what was last agreed with it."""
+        from app.contacts.card import ALL_CAPS, project, units  # noqa: PLC0415
+        link = self.hub.link(cid, account_id)
+        card = self.hub.get_card(cid)
+        if link is None or card is None or link.snapshot is None:
+            return True
+        caps = caps or ALL_CAPS
+        region = self.hub.region
+        return units(project(card, caps, region), caps, region) != units(link.snapshot, caps, region)
 
     def sync_now(self, account_id: Optional[int] = None, kind: Optional[str] = None, *,
                  trigger: str = "sync-now", approve_first: bool = False, allow_brake: bool = False,

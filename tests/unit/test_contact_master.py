@@ -113,3 +113,49 @@ def test_a_master_that_suddenly_returns_nothing_cannot_empty_the_book(world):
     out = world.sync(allow_brake=True)                                     # the person says yes
     world.sync(allow_brake=True)
     assert world.hub.count() == 0 and len(world.servers[m].live()) == 0
+
+
+class _KeepsTwoEmails:
+    """An account like Outlook: it quietly holds fewer values than it is sent (here two emails,
+    and no primary flag), without saying so."""
+
+    def __init__(self, inner):
+        self._inner = inner
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _trim(self, card):
+        card = card.copy()
+        emails = [f for f in card.fields if f.kind == "email"][:2]
+        card.fields = [f for f in card.fields if f.kind != "email"] + emails
+        for f in card.fields:
+            f.primary = False
+        return card
+
+    def create(self, card):
+        return self._inner.create(self._trim(card))
+
+    def update(self, remote_id, version, card):
+        return self._inner.update(remote_id, version, self._trim(card))
+
+
+def test_a_value_the_account_quietly_cannot_hold_stays_in_leasha_and_is_not_rewritten(world):
+    """Outlook keeps three emails. Leasha used to read the missing ones as 'deleted at the account'
+    on the next pull and take them out of the book."""
+    from app.contacts.card import Card, Field
+    g, m = world.account("Google"), world.account("Work")
+    world.providers[m] = _KeepsTwoEmails(world.providers[m])
+    card = Card(scalars={"given": "Ann", "family": "Lee"})
+    card.fields = [Field("email", f"ann{i}@x.example", "work", primary=(i == 0)) for i in range(4)]
+    world.servers[g].add(card)
+    world.accounts.update_settings(mirror_contacts=True)
+    world.sync()
+    for _ in range(3):
+        world.sync()
+    ann = world.hub.get_card(world.hub.list_rows()[0].id)
+    assert len([f for f in ann.fields if f.kind == "email"]) == 4          # nothing was taken out of the book
+    writes = len(world.servers[m].writes)
+    world.sync()
+    world.sync()
+    assert len(world.servers[m].writes) == writes                          # and it is not rewritten each sync

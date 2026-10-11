@@ -525,9 +525,25 @@ class ContactSyncEngine:
             return
         sent = project(card, provider.caps, self.hub.region)
         remote_id, version = provider.create(sent)
-        self.hub.set_link(cid, acct.id, remote_id=remote_id, version_tag=version, snapshot=sent,
+        self.hub.set_link(cid, acct.id, remote_id=remote_id, version_tag=version,
+                          snapshot=self._held_after_write(provider, remote_id, sent),
                           hub_rev=self.hub.contact_meta(cid)["rev"], state="synced")
         ctx.plan.create_out += 1
+
+    def _held_after_write(self, provider: ContactProvider, remote_id: str, sent: Card) -> Card:
+        """What the account now holds for the record just written, as the merge base.
+
+        An account silently keeps less than it was sent (Outlook holds three emails and one web
+        page; a primary flag is not stored). Taking `sent` as the base would make the next pull
+        read the missing values as *deleted at the account* and take them out of Leasha. The
+        read-back keeps the base honest: Leasha keeps the extra, the account never had it."""
+        try:
+            fresh = provider.get(remote_id)
+            if fresh is not None and fresh.card is not None:
+                return project(fresh.card, provider.caps, self.hub.region)
+        except Exception:                                     # noqa: BLE001 - the base falls back to what was sent
+            _log.debug("read-back of {} failed; using what was sent", remote_id, exc_info=True)
+        return sent
 
     def _remote_update(self, acct: Account, provider: ContactProvider, link: Any, cid: int, ctx: _Ctx) -> None:
         caps = provider.caps
@@ -557,7 +573,8 @@ class ContactSyncEngine:
                     return
                 self._inbound(acct, provider, fresh, ctx)
                 continue
-            hub.set_link(cid, acct.id, remote_id=link.remote_id, version_tag=version, snapshot=sent,
+            hub.set_link(cid, acct.id, remote_id=link.remote_id, version_tag=version,
+                         snapshot=self._held_after_write(provider, link.remote_id, sent),
                          hub_rev=rev, state="synced")
             ctx.plan.update_out += 1
             return
