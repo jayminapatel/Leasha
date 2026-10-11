@@ -631,11 +631,11 @@ def test_connect_is_offered_only_when_a_program_is_not_yet_connected(gui_mainwin
     import importlib
 
     import app.serve.clients as clients
-    from app.core.config import load_settings
     from app.ui.widgets.mcp_box import McpBox
 
+    _app, window, _store, _engine = gui_mainwindow
     importlib.reload(clients)                   # other tests may have swapped the list
-    box = McpBox(load_settings(create_dirs=False, check_writable=False))
+    box = McpBox(window._settings)              # the window's own settings: no .env on a CI runner
     keys = list(box._rows)
     assert len(keys) >= 3, keys
     connected, not_connected, not_installed = keys[0], keys[1], keys[2]

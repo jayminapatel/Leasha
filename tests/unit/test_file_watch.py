@@ -673,6 +673,8 @@ def test_force_skip_through_the_indexing_process(tmp_path) -> None:
                     sum(range(1000))
             return real(path, **kwargs)
         pipeline_module.extract = extract
+        # Plain-text files are read in a reader process since 2026-10-09, which this patch cannot reach.
+        pipeline_module.reads_in_process = lambda path: False
         from app.cli import main
         sys.exit(main(sys.argv[1:]))
     """)
