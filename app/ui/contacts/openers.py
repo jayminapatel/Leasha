@@ -48,6 +48,8 @@ class Ctx:
     #: selected); `caps_for(account)` -> what that kind of account can hold.
     enrich: Optional[Callable[[], Any]] = None
     caps_for: Optional[Callable[[Any], Any]] = None
+    #: Say something on the page's status line (a long job telling the person it finished).
+    notify: Optional[Callable[[str], Any]] = None
 
 
 def register(name: str, fn: Callable[[Any, Ctx], Any]) -> None:

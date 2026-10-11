@@ -25,6 +25,7 @@ from PySide6.QtWidgets import QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.contacts.card import display_name
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, named, plural
+from app.ui.contacts_tools.enrich_run import run_for
 from app.ui.widgets.icons import icon
 
 __all__ = ["EnrichDialog", "EnrichData", "gather_proposals", "apply_selected"]
@@ -85,6 +86,10 @@ class EnrichDialog(ToolDialog):
         self.hub = ctx.hub
         self.data: Optional[EnrichData] = None
         self.last_batch: Optional[str] = None
+        #: The look-up belongs to the page: closing this window leaves it running, and opening it again
+        #: shows where it got to (or what it found, waiting to be accepted).
+        self.run = run_for(parent, ctx)
+        self.run.changed.connect(self._from_run)
 
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Contact / detail", "Now", "Suggested", "Where from"])
@@ -110,13 +115,25 @@ class EnrichDialog(ToolDialog):
             self.say("Enrichment is not switched on. Turn it on in Settings > Accounts, then come back.")
             self.find_button.setEnabled(False)
         self._sync()
+        if self.run.state != "idle":
+            self._from_run()
 
     # -- finding -------------------------------------------------------------
     def find(self) -> None:
-        self.busy(True, "Looking for suggestions…")
-        self.find_button.setEnabled(False)
-        ctx = self.ctx
-        self.job(lambda: gather_proposals(ctx), self._found)
+        self.run.start(self.ctx)
+
+    def _from_run(self) -> None:
+        """Show the run's state: going (the window may be closed meanwhile), found, nothing, or stopped."""
+        run = self.run
+        if run.state == "running":
+            self.find_button.setEnabled(False)
+            self.busy(True, "Looking for suggestions... You can close this window: the look-up carries on, "
+                            "and the page says when it is done.")
+        elif run.state in ("ready", "empty") and run.data is not None:
+            self._found(run.data)
+        elif run.state == "failed":
+            self.find_button.setEnabled(self.has_source)
+            self.busy(False, "Enrichment stopped: " + run.error)
 
     def _found(self, data: EnrichData) -> None:
         self.find_button.setEnabled(self.has_source)
@@ -125,6 +142,8 @@ class EnrichDialog(ToolDialog):
         self.tree.clear()
         by_contact: dict[Any, QTreeWidgetItem] = {}
         for index, p in enumerate(data.proposals):
+            if index in self.run.done:
+                continue                                    # accepted already, from this window or an earlier one
             cid = getattr(p, "contact_id", None)
             top = by_contact.get(cid)
             if top is None:
@@ -149,7 +168,7 @@ class EnrichDialog(ToolDialog):
         self.tree.blockSignals(False)
         for col in range(4):
             self.tree.resizeColumnToContents(col)
-        n = len(data.proposals)
+        n = self.run.pending()
         self.busy(False, f"{plural(n, 'suggestion')} for {plural(len(by_contact), 'contact')}. Tick what you want to keep."
                   if n else ("Enrichment is not switched on." if not data.available else "No suggestions right now."))
         self._sync()
@@ -193,6 +212,7 @@ class EnrichDialog(ToolDialog):
         applied = getattr(result, "applied", None)
         n = len(applied) if applied is not None else len(indexes)
         done = set(applied if applied is not None else indexes)
+        self.run.done |= done                               # kept for when the window is opened again
         for i in range(self.tree.topLevelItemCount() - 1, -1, -1):
             top = self.tree.topLevelItem(i)
             for j in range(top.childCount() - 1, -1, -1):

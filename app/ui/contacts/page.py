@@ -908,7 +908,8 @@ class ContactsPage(QWidget):
             return proposals_for(hub, accounts, list(selected) or list(visible))
 
         return openers.Ctx(hub=hub, accounts=accounts, selected_ids=selected, visible_ids=visible,
-                           refresh=self.refresh, service=self.service, enrich=enrich)
+                           refresh=self.refresh, service=self.service, enrich=enrich,
+                           notify=self.notice.emit)
 
     def open_tool(self, name: str) -> None:
         openers.open(name, self, self.context())
