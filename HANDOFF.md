@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.152 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.153 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, night - distribution is on again; the release publishes a fixed-name installer (branch `feat/publish-fixed-name-installer`; owner: "make the distribution available now again from github but the version number may change so make it happen").**
+This reverses the 2026-10-04 "no distribution for now" (dated note above it in `docs/ORDER_REGISTER.md` §5). The page `leasha.co.uk/app` (built from the Leasha company folder's website scripts, not this repo) links `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe`; GitHub serves the newest release that has a file of exactly that name. **Done:** a copy of `Leasha-Setup-1.0.3.exe` uploaded to release v1.0.3 as `Leasha-Setup.exe` (SHA256 `B8454A17...9C0E`, the same file), and the link checked to serve 343,924,446 bytes. `packaging\build.ps1 -Publish` now does the release end to end: before building it checks `gh` is signed in as `jayminapatel`, HEAD is at `v<version>`, the tag is on GitHub and `CHANGELOG.md` has the section; after building it creates or adds to the release with the versioned installer, `Leasha-Setup.exe` and the `.sha256` (written to `build\installer\` now too). The pre-checks and notes extraction were run under Windows PowerShell 5.1 against v1.0.3 (36 note lines, the same as `awk` reads); the full `-Publish` has not run, because no new version is tagged. Tests: three in `tests/unit/test_installer_script.py`. Release checklist step 10 in `docs/VERSIONING.md`. **Still the owner's - licence, not decided here:** `docs/THIRD_PARTY_NOTICES.md` lists what the LGPL asks of a distributed copy; replaceable Qt and FFmpeg DLLs are met (one-folder build), but the licence texts in the installer and a source offer for Qt and FFmpeg are not, and the x264/x265 question for the `av` build is open. Copies have been public since v1.0.2. **Trap:** a release published without the fixed-name file leaves the website button on the version before, silently.
 
 **2026-10-11, night - sync window, Clean up, contact editor, Mail and Browse fixes (branch `feat/sync-progress-and-contact-ui`, owner's list of the same day).**
 **Built (all with tests):** the Sync window (`app/ui/contacts_tools/sync_dialog.py`, `app/ui/presenter/sync_status.py`; engine `progress=`, `Stop`, per-contact failure isolation: `engine._push`), Clean up in chunks (`cleanup_dialog._fill_rows`), Duplicates **Tick / Merge ticked** (`actions.plan_chosen_merges`), the enrichment run owned by the page (`enrich_run.py`; `Ctx.notify`), the contact editor layout (`editor.py`, `fields.py`), drop-downs for the phone region and address country (`widgets/region_box.py`, `presenter/regions.py`), `/` switches in the Contacts box (`contacts/slash.py`, `presenter/contact_commands.py`, `hub.list_rows`), live-mail places in the Mail list (`presenter/mail_places.py`, `sqlite_store.mail_folder_counts`), the Browse header, the Files Places tree speed (`side_entries.folder_tree`), Tidy Copies columns.

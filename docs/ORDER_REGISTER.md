@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.82 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.83 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -358,6 +358,8 @@ written while the repository had no `LICENSE`, and concluded that free code sign
 through SignPath — which requires a public codebase under a recognised OSS licence —
 was therefore unavailable. `LICENSE` now exists and is MIT. The signing question is
 open again.
+
+> **2026-10-11 (owner) - distribution is on again, from GitHub Releases.** "make the distribution available now again from github but the version number may change so make it happen". The installer has in fact been public since the v1.0.2 release (2026-10-09). The website (`leasha.co.uk/app`) downloads through `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe`, which names no version: GitHub resolves it to the newest release carrying a file of exactly that name, so every release now uploads its installer a second time as `Leasha-Setup.exe` (`packaging\build.ps1 -Publish`; v1.0.3 was given the copy by hand the same day, SHA256 unchanged). The licence question the note below defers is no longer GPL against commercial PyQt6 - Leasha has run on PySide6 under the LGPL-3.0 since 2026-10-05 - but `docs/THIRD_PARTY_NOTICES.md` names what the LGPL asks of a distributed copy and two of its three items are still open: the licence texts shipped with the installer and a source offer for Qt and FFmpeg (and the x264/x265 question for the `av` build). The note below is left as written.
 
 > **2026-10-04 (owner) - decided: no distribution for now. Leasha is built and run for the owner only, and no copy, packaged or not, goes to anyone else. A build kept for the owner's own use carries no GPL obligation, so the licence question no longer holds Layer 9. It reopens before the first copy is handed to anyone else, and the choice then is GPL-3.0 for distributed builds or a commercial PyQt6 licence.**
 
