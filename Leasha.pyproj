@@ -427,8 +427,12 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\account_scheduler.py" />
     <Compile Include="app\ui\accounts\__init__.py" />
+    <Compile Include="app\ui\accounts\backend.py" />
     <Compile Include="app\ui\accounts\logic.py" />
+    <Compile Include="app\ui\accounts\parts.py" />
+    <Compile Include="app\ui\accounts\state.py" />
     <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
     <Compile Include="app\ui\chat_view.py" />
@@ -437,8 +441,11 @@
     <Compile Include="app\ui\code_view.py" />
     <Compile Include="app\ui\commit_preview.py" />
     <Compile Include="app\ui\contacts\__init__.py" />
+    <Compile Include="app\ui\contacts\bulkbar.py" />
     <Compile Include="app\ui\contacts\delegates.py" />
+    <Compile Include="app\ui\contacts\editor.py" />
     <Compile Include="app\ui\contacts\fields.py" />
+    <Compile Include="app\ui\contacts\history.py" />
     <Compile Include="app\ui\contacts\loader.py" />
     <Compile Include="app\ui\contacts\logic.py" />
     <Compile Include="app\ui\contacts\model.py" />
@@ -451,6 +458,7 @@
     <Compile Include="app\ui\contacts_tools\actions.py" />
     <Compile Include="app\ui\contacts_tools\cleanup_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\import_dialog.py" />
     <Compile Include="app\ui\contacts_tools\merge_dialog.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
@@ -820,6 +828,7 @@
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
+    <Compile Include="tests\unit\test_contacts_enrich_net.py" />
     <Compile Include="tests\unit\test_contacts_export.py" />
     <Compile Include="tests\unit\test_contacts_import.py" />
     <Compile Include="tests\unit\test_contacts_people.py" />
