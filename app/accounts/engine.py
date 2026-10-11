@@ -175,7 +175,15 @@ class ContactSyncEngine:
         if settings.mirror_contacts and not dry_run:
             targets = [a.id for a in chosen if a.writes_contacts and outcomes[a.id].status == "running"
                        and (a.first_sync_done or not settings.dry_run_first or approve_first)]
-            if len(targets) > 1:
+            waiting = self._safe_duplicate_groups() if len(targets) > 1 else 0
+            if waiting:
+                # The same person held twice would be written to every account twice. Wait until they
+                # are merged (Contacts > Find duplicates > Merge all safe matches, or
+                # `leasha contacts merge-safe`); nothing is lost by waiting.
+                _log.warning("mirror waits: {} group(s) of safe duplicates are not merged yet", waiting)
+                for out in outcomes.values():
+                    out.plan.note("mirror_waiting", f"{waiting} duplicate groups to merge first")
+            elif len(targets) > 1:
                 self.hub.mirror_to(targets)                   # every contact, in every account that takes them
         for acct in chosen:                                  # phase 2: push
             out = outcomes[acct.id]
@@ -418,6 +426,13 @@ class ContactSyncEngine:
         self.hub.note(cid, f"account:{acct.id}", "conflict", sync_id=ctx.run_id,
                       detail={"unit": c.unit, "local": _jsonable(c.local), "remote": _jsonable(c.remote),
                               "winner": c.winner})
+
+    def _safe_duplicate_groups(self) -> int:
+        """How many groups of contacts are certainly one person held more than once."""
+        from app.contacts import dupes  # noqa: PLC0415
+        groups = dupes.scan_duplicates(self.hub.all_cards(), self.hub.rejected_pairs(), self.hub.region,
+                                       self.hub.shared_values())
+        return len(dupes.safe_groups(groups))
 
     def _same_person(self, card: Card, acct: Account) -> Optional[int]:
         """The one contact in the master that is certainly this person, or None.

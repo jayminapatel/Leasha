@@ -111,3 +111,23 @@ def test_removing_the_master_account_keeps_its_contacts_and_clears_the_master(wo
     svc.remove_account(g)                                           # the default: contacts are kept here
     assert world.accounts.settings().master_account_id is None
     assert world.hub.count() == 1 and world.hub.list_rows()[0].accounts == []
+
+
+def test_merge_safe_shows_the_groups_first_and_only_merges_with_yes(world, capsys):
+    import argparse
+
+    from app.cli.contacts import _dispatch
+
+    world.hub.create(person("Ann", "Lee", email="ann@x.example"))
+    world.hub.create(person("A.", "Lee", email="ANN@x.example"))
+    world.hub.create(person("Alaa", "Arawi", phone="020 7946 0018"))          # an office landline ...
+    world.hub.create(person("Stephen", "Tagg", phone="020 7946 0018"))        # ... shared: never a duplicate
+    svc = _service(world)
+    say = lambda yes: _dispatch(argparse.Namespace(contacts_action="merge-safe", yes=yes, json=False), svc)
+    assert say(False) == 0
+    shown = capsys.readouterr().out
+    assert "1 groups of contacts are certainly one person" in shown and "Nothing was changed" in shown
+    assert "Alaa" not in shown and world.hub.count() == 4
+    assert say(True) == 0
+    assert "Merged 1 groups" in capsys.readouterr().out
+    assert world.hub.count() == 3 and backup.backups(svc.backup_folder())          # and a copy was written first
