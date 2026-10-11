@@ -170,12 +170,15 @@ class ImportDialog(ToolDialog):
         options = QHBoxLayout()
         self.only_decisions = QCheckBox("Show only contacts that need a decision")
         named(self.only_decisions, "Only decisions", "Hide contacts that are new and have nothing to check")
+        self.only_decisions.setToolTip("Hide contacts that are new and have nothing to check")
         self.only_decisions.toggled.connect(self._filter_rows)
         keep_label = QLabel("Keep new contacts in:")
         named(keep_label, "Keep in label", "Which account new contacts are saved to")
         self.keep_combo = QComboBox()
         self.keep_combo.addItem("Leasha only", [])
         named(self.keep_combo, "Keep new contacts in", "New contacts are sent to this account at the next sync. "
+                                                       "Leasha only keeps them on this computer")
+        self.keep_combo.setToolTip("New contacts are sent to this account at the next sync. "
                                                        "Leasha only keeps them on this computer")
         options.addWidget(self.only_decisions)
         options.addStretch(1)
@@ -298,6 +301,7 @@ class ImportDialog(ToolDialog):
                 combo.addItem(want, want)
             combo.setCurrentIndex(max(0, combo.findData(want)))
             named(combo, f"Column {header}", f"What the column '{header}' holds")
+            combo.setToolTip(f"What the column '{header}' holds")
             self.map_table.setCellWidget(r, 1, combo)
             self._map_combos[header] = combo
         self.map_table.resizeColumnToContents(0)
@@ -386,6 +390,7 @@ class ImportDialog(ToolDialog):
                 combo.setCurrentIndex(options.index(want) if want in options else 0)
                 self._row_options[r] = options
                 named(combo, f"What to do with row {row.source_row}", "Add as a new contact, or merge into the one it matches")
+                combo.setToolTip("Add as a new contact, or merge into the one it matches")
                 combo.currentIndexChanged.connect(lambda _i: self._update_summary())
                 table.setCellWidget(r, 3, combo)
                 self._row_combos[r] = combo

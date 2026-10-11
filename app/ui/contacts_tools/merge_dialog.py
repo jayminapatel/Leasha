@@ -89,6 +89,7 @@ class MergeDialog(ToolDialog):
         named(label, "Main contact label", "The contact whose place in the list the merged one takes")
         self.survivor_combo = QComboBox()
         named(self.survivor_combo, "Main contact", "Which of these contacts the merged contact is stored as")
+        self.survivor_combo.setToolTip("Which of these contacts the merged contact is stored as")
         self.survivor_combo.currentIndexChanged.connect(self._survivor_changed)
         top.addWidget(label)
         top.addWidget(self.survivor_combo, 1)
@@ -200,6 +201,7 @@ class MergeDialog(ToolDialog):
                 combo.addItem(f"{v.splitlines()[0][:40]}  ({names[n]})")
                 options.append(n)
             named(combo, f"Use for {SCALAR_LABELS[key]}", f"Which contact's {SCALAR_LABELS[key].lower()} the result keeps")
+            combo.setToolTip(f"Which contact's {SCALAR_LABELS[key].lower()} the result keeps")
             combo.currentIndexChanged.connect(lambda i, k=f"s:{key}", o=options: self._picked(k, o[i]))
             self._combos[f"s:{key}"] = combo
             self._options[f"s:{key}"] = options
@@ -215,6 +217,7 @@ class MergeDialog(ToolDialog):
             check = QCheckBox("Keep")
             check.setChecked(True)
             named(check, f"Keep {KIND_LABELS.get(f.kind, f.kind)} {text}", f"Keep this {KIND_LABELS.get(f.kind, f.kind).lower()} in the result")
+            check.setToolTip(f"Keep this {KIND_LABELS.get(f.kind, f.kind).lower()} in the result")
             check.toggled.connect(lambda on, k=key: self._kept(k, on))
             self._checks[key] = check
             self.table.setCellWidget(r, last, check)
@@ -246,6 +249,7 @@ class MergeDialog(ToolDialog):
                 for n in options:
                     combo.addItem(f"Photo of {names[n]}")
                 named(combo, "Use for photo", "Which contact's photo the result keeps")
+                combo.setToolTip("Which contact's photo the result keeps")
                 combo.currentIndexChanged.connect(lambda i, o=options: self._picked("photo", o[i]))
                 self._combos["photo"] = combo
                 self._options["photo"] = options

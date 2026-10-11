@@ -384,7 +384,8 @@ class ContactsPage(QWidget):
                 sm.select(self.model.index(row, 0),
                           QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows)
         if ids and self.model.position_of(ids[0]) >= 0:
-            self.table.setCurrentIndex(self.model.index(self.model.position_of(ids[0]), 0))
+            sm.setCurrentIndex(self.model.index(self.model.position_of(ids[0]), 0),
+                               QItemSelectionModel.SelectionFlag.NoUpdate)
 
     def _selection_changed(self, *_a: object) -> None:
         ids = self.selected_ids()

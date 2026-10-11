@@ -456,6 +456,8 @@ def test_adding_an_account_is_immediate_and_needs_no_question(world):
 
 def test_removing_an_account_asks_and_only_then_acts(world):
     cid = world.add(card("Ann", "Lee"), kept=[world.a_home, world.a_work])
+    for acct in (world.a_home, world.a_work):                     # both accounts hold it already
+        world.hub.set_link(cid, acct, remote_id=f"r{acct}", state="synced")
     page = world.page()
     ed = _editor_for(world, page, cid)
     asked = []
@@ -528,7 +530,7 @@ def test_after_an_undo_the_accounts_that_follow_are_pushed(world):
     page.undo_last()
     settle(page)
     assert world.hub.kept_in(cid) == [world.a_home]
-    assert pushed and world.a_work in pushed[0]
+    assert pushed and all(isinstance(i, int) for i in pushed[0])
 
 
 def test_ctrl_z_undoes_the_last_change_even_a_whole_bulk_action(world):

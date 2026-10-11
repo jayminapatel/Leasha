@@ -129,6 +129,7 @@ class CleanupDialog(ToolDialog):
         named(scope_label, "Scope label", "Which contacts to look at")
         self.scope = QComboBox()
         named(self.scope, "Which contacts", "Clean up the whole book, the contacts in view, or the ones you selected")
+        self.scope.setToolTip("Clean up the whole book, the contacts in view, or the ones you selected")
         self.scope.addItem("The whole book", None)
         visible = list(getattr(ctx, "visible_ids", []) or [])
         selected = list(getattr(ctx, "selected_ids", []) or [])
@@ -153,6 +154,8 @@ class CleanupDialog(ToolDialog):
         self.style_combo.addItem("National  (020 7946 0018)", "national")
         named(self.style_combo, "Phone number format", "How phone numbers are written. National is used only for numbers "
                                                        "in your own country")
+        self.style_combo.setToolTip("How phone numbers are written. National is used only for numbers "
+                                                       "in your own country")
         self.style_combo.currentIndexChanged.connect(lambda _i: self.reload("phone"))
         style_label = QLabel("Write numbers as:")
         named(style_label, "Format label", "How phone numbers are written")
@@ -164,6 +167,8 @@ class CleanupDialog(ToolDialog):
         self.names = _Tab(self, "names", headers, "Name capital changes", "Every name that would be re-capitalised")
         self.force_box = QCheckBox("Capitalise every word, even ones that already have capitals (McDonald becomes Mcdonald)")
         named(self.force_box, "Capitalise everything", "Also change names that already have their own capitals, and words "
+                                                       "like van and de")
+        self.force_box.setToolTip("Also change names that already have their own capitals, and words "
                                                        "like van and de")
         self.force_box.toggled.connect(lambda _on: self.reload("names"))
         self.names.options.addWidget(self.force_box, 1)
@@ -185,6 +190,7 @@ class CleanupDialog(ToolDialog):
         for key, text in FINDERS:
             self.finder_combo.addItem(text, key)
         named(self.finder_combo, "What to look for", "Which kind of contact to list")
+        self.finder_combo.setToolTip("Which kind of contact to list")
         self.finder_combo.currentIndexChanged.connect(lambda _i: self.reload("finders"))
         look = QLabel("Find:")
         named(look, "Find label", "What to look for")

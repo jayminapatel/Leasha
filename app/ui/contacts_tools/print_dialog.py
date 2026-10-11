@@ -165,6 +165,7 @@ class PrintDialog(ToolDialog):
         named(label, "Scope label", "Which contacts to print")
         self.scope = QComboBox()
         named(self.scope, "Which contacts", "The whole book, the contacts in view, or the ones you selected")
+        self.scope.setToolTip("The whole book, the contacts in view, or the ones you selected")
         self.scope.addItem("The whole book", None)
         if visible:
             self.scope.addItem(f"The contacts in view ({len(visible)})", visible)
@@ -185,10 +186,12 @@ class PrintDialog(ToolDialog):
         for code, sheet in printing.LABEL_SHEETS.items():
             self.sheet.addItem(sheet.name, code)
         named(self.sheet, "Label sheet", "The make and size of your sticky label sheets")
+        self.sheet.setToolTip("The make and size of your sticky label sheets")
         self.address = QComboBox()
         for words, value in ADDRESS_CHOICES:
             self.address.addItem(words, value)
         named(self.address, "Which address", "Which of each contact's addresses to print")
+        self.address.setToolTip("Which of each contact's addresses to print")
         self.start = QSpinBox()
         self.start.setMinimum(1)
         named(self.start, "First label to use", "Number of the first label to print on, counting left to right then down. "
@@ -205,10 +208,12 @@ class PrintDialog(ToolDialog):
         for code, (w, h) in printing.ENVELOPE_SIZES.items():
             self.env_size.addItem(f"{code} ({w:g} x {h:g} mm)", code)
         named(self.env_size, "Envelope size", "The size of your envelopes")
+        self.env_size.setToolTip("The size of your envelopes")
         self.sender = QComboBox()
         self.sender.setEditable(False)
         self.sender.addItem("No return address", None)
         named(self.sender, "Sender", "Pick yourself from your book to print a return address")
+        self.sender.setToolTip("Pick yourself from your book to print a return address")
         eform.addRow("Envelope:", self.env_size)
         eform.addRow("Return address from:", self.sender)
         self.tabs.addTab(env, icon("mail", ink()), "Envelopes")
@@ -218,6 +223,7 @@ class PrintDialog(ToolDialog):
         self.photos = QCheckBox("Include photos")
         self.photos.setChecked(True)
         named(self.photos, "Include photos", "Print each contact's photo beside their details")
+        self.photos.setToolTip("Print each contact's photo beside their details")
         bform.addRow(self.photos)
         self.tabs.addTab(book, icon("book-open-text", ink()), "Address book")
         self.tabs.currentChanged.connect(lambda _i: self._invalidate())

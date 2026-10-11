@@ -146,6 +146,7 @@ class ExportDialog(ToolDialog):
         named(label, "Scope label", "Which contacts to export")
         self.scope = QComboBox()
         named(self.scope, "Which contacts", "Everything, the contacts you selected, or the contacts in the current view")
+        self.scope.setToolTip("Everything, the contacts you selected, or the contacts in the current view")
         self.scope.addItem("Everything in my book", None)
         if selected:
             self.scope.addItem(f"The selected contacts ({len(selected)})", selected)
@@ -162,6 +163,7 @@ class ExportDialog(ToolDialog):
         named(fmt_label, "Format label", "The file format")
         self.format = QComboBox()
         named(self.format, "File format", "What kind of file to make")
+        self.format.setToolTip("What kind of file to make")
         for words, kind, suffix, layout in FORMATS:
             self.format.addItem(words, (kind, suffix, layout))
         self.format.currentIndexChanged.connect(lambda _i: self._format_changed())
@@ -171,6 +173,7 @@ class ExportDialog(ToolDialog):
 
         self.per_contact = QCheckBox("One file for each contact")
         named(self.per_contact, "One file for each contact", "Make a separate .vcf file for every contact, in a folder you choose")
+        self.per_contact.setToolTip("Make a separate .vcf file for every contact, in a folder you choose")
         self.body.addWidget(self.per_contact)
         self.left_out = QLabel("")
         self.left_out.setWordWrap(True)
