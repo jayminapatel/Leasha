@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRect, QRectF, Qt, Signal
 from PySide6.QtGui import QPainter, QPainterPath, QPixmap
-from PySide6.QtWidgets import (QFileDialog, QFormLayout, QFrame, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QFileDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
                              QMessageBox, QPlainTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from app.contacts.card import KINDS, SCALARS, Card, Field, Photo, display_name, field_key
@@ -143,16 +143,23 @@ class ContactEditor(QWidget):
 
         # -- name and work
         self.edits: dict[str, QLineEdit] = {}
-        form = QFormLayout()
+        # Two columns, each box with its caption above it: six name parts and three work lines took
+        # fifteen rows of a narrow pane; this takes six, and a filled box still says what it is.
+        form = QGridLayout()
         form.setContentsMargins(0, 0, 0, 0)
-        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        for key, words in _NAME_PARTS:
-            form.addRow(words, self._line(key, words))
-        work = QFormLayout()
+        form.setHorizontalSpacing(8)
+        form.setVerticalSpacing(4)
+        for i, (key, words) in enumerate(_NAME_PARTS):
+            form.addWidget(self._cell(key, words), i // 2, i % 2)
+        work = QGridLayout()
         work.setContentsMargins(0, 0, 0, 0)
-        work.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
-        for key, words, glyph in _WORK:
-            work.addRow(self._icon_label(glyph, words), self._line(key, words))
+        work.setHorizontalSpacing(8)
+        work.setVerticalSpacing(4)
+        for i, (key, words, _glyph) in enumerate(_WORK):
+            work.addWidget(self._cell(key, words), i // 2, i % 2, 1, 2 if i == len(_WORK) - 1 and i % 2 == 0 else 1)
+        for grid in (form, work):
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
 
         # -- repeatable kinds
         self.lists: dict[str, FieldList] = {}
@@ -237,6 +244,18 @@ class ContactEditor(QWidget):
         edit.textChanged.connect(self._touch)
         self.edits[key] = edit
         return edit
+
+    def _cell(self, key: str, words: str) -> QWidget:
+        """One box with its caption above it."""
+        box = QWidget()
+        col = QVBoxLayout(box)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(1)
+        caption = QLabel(words)
+        caption.setObjectName("resultsSummary")
+        col.addWidget(caption)
+        col.addWidget(self._line(key, words))
+        return box
 
     @staticmethod
     def _icon_label(glyph: str, words: str) -> QWidget:

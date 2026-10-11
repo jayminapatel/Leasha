@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, set_quiet
+from app.ui.widgets.region_box import RegionBox
 
 __all__ = ["GlobalSettingsBox"]
 
@@ -201,14 +202,12 @@ class GlobalSettingsBox(QWidget):
         form.addRow("New contacts go to", self.default_account)
         form.addRow(hint("A contact you make in Leasha is kept in this account. By default it is the first "
                          "account added with contact sync on."))
-        self.phone_region = QLineEdit()
+        self.phone_region = RegionBox()
         self.phone_region.setAccessibleName("Phone number region")
-        self.phone_region.setMaxLength(2)
-        self.phone_region.setPlaceholderText("GB")
-        self.phone_region.setMaximumWidth(60)
+        self.phone_region.setToolTip("The country a phone number is from, with its dialling code")
         form.addRow("Phone numbers are from", self.phone_region)
-        form.addRow(hint("A two-letter country code, for example GB or US. A number typed without a "
-                         "country code is read as belonging to it."))
+        form.addRow(hint("Pick a country, or type its name, two-letter code or dialling code. A number typed "
+                         "without a country code is read as belonging to it."))
         self.maps_site = QComboBox()
         self.maps_site.setAccessibleName("Maps site")
         for key, text in logic.MAPS_CHOICES:

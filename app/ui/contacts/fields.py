@@ -23,6 +23,7 @@ from app.contacts.card import Field
 from app.ui.contacts.logic import KIND_INFO, LABELS, date_icon
 from app.ui.contacts.parts import tool_button
 from app.ui.theme import theme_colours
+from app.ui.widgets.region_box import CountryBox
 from app.ui.widgets.icons import icon
 
 __all__ = ["FieldRow", "FieldList", "Grip", "ADDRESS_PARTS"]
@@ -107,36 +108,49 @@ class FieldRow(QWidget):
         self.main.toggled.connect(self._main)
         self.remove = tool_button("x", f"Remove this {one}", f"Remove this {one} from the contact")
         self.remove.clicked.connect(lambda: self.remove_requested.emit(self))
-        self.parts: dict[str, QLineEdit] = {}
+        self.parts: dict[str, QWidget] = {}
         self.value = QLineEdit()
         self.value.setPlaceholderText(hint)
         self.value.setAccessibleName(f"{heading} value")
         self.value.setToolTip(f"The {one}")
         self.value.textChanged.connect(self._edited)
-        row = QHBoxLayout(self)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(4)
         row.addWidget(self.grip)
         row.addWidget(self.glyph)
         row.addWidget(self.label)
         if kind == "address":
-            box = QWidget()
-            grid = QGridLayout(box)
-            grid.setContentsMargins(0, 0, 0, 0)
-            grid.setSpacing(4)
-            for i, (key, words) in enumerate(ADDRESS_PARTS):
-                edit = QLineEdit()
+            # An address is a block, not a line: the label and the buttons on one line, and under it
+            # street across the width, then town and postcode, then county and country - each box the
+            # width it needs instead of five boxes squeezed into whatever the label left over.
+            row.addStretch(1)
+        else:
+            row.addWidget(self.value, 1)
+        row.addWidget(self.main)
+        row.addWidget(self.remove)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(3)
+        outer.addLayout(row)
+        if kind == "address":
+            grid = QGridLayout()
+            grid.setContentsMargins(46, 0, 0, 0)         # under the label, clear of the grip and the icon
+            grid.setHorizontalSpacing(4)
+            grid.setVerticalSpacing(3)
+            where = {"street": (0, 0, 1, 2), "city": (1, 0, 1, 1), "postcode": (1, 1, 1, 1),
+                     "region": (2, 0, 1, 1), "country": (2, 1, 1, 1)}
+            for key, words in ADDRESS_PARTS:
+                edit = CountryBox() if key == "country" else QLineEdit()
                 edit.setPlaceholderText(words)
                 edit.setAccessibleName(f"Address {words.lower()}")
                 edit.setToolTip(words)
                 edit.textChanged.connect(self._part_edited)
                 self.parts[key] = edit
-                grid.addWidget(edit, i // 3, i % 3)
-            row.addWidget(box, 1)
-        else:
-            row.addWidget(self.value, 1)
-        row.addWidget(self.main)
-        row.addWidget(self.remove)
+                grid.addWidget(edit, *where[key])
+            grid.setColumnStretch(0, 1)
+            grid.setColumnStretch(1, 1)
+            outer.addLayout(grid)
         if field is not None:
             self._load(field)
         self._paint_glyph()
