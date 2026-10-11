@@ -188,11 +188,10 @@ def test_the_page_lists_filters_and_searches(world):
     assert page.model.rowCount() == 2
     page.sidebar.select_key("favourites")
     settle(page)
-    assert [r.display_name for r in (page.model.row_at(0),)] == ["Ann Lee"] and page.model.rowCount() == 1
+    assert page.model.rowCount() == 1 and page.model.row_at(0).display_name == "Ann Lee"
     page.sidebar.select_key(f"account:{world.a_work}")
     settle(page)
-    assert page.model.ids() == [i for i in page.model.ids()] and page.model.rowCount() == 1
-    assert page.model.row_at(0).display_name == "Bob Bell"
+    assert page.model.rowCount() == 1 and page.model.row_at(0).display_name == "Bob Bell"
     page.sidebar.select_key("all")
     settle(page)
     page.toolbar.filter.setText("zeta")
@@ -512,7 +511,7 @@ def test_history_lists_the_journal_and_undo_puts_a_change_back(world):
     page.history.undo_requested.emit(jid)
     settle(page)
     assert world.hub.get_card(cid).get("company") == "Acme"
-    assert pushed == [] or all(isinstance(i, int) for p in pushed for i in p)
+    assert all(isinstance(i, int) for p in pushed for i in p)
 
 
 def test_after_an_undo_the_accounts_that_follow_are_pushed(world):
@@ -546,7 +545,6 @@ def test_ctrl_z_undoes_the_last_change_even_a_whole_bulk_action(world):
     assert all(world.hub.get_card(i).groups == [] for i in ids)       # one step, all three
     said = []
     page.notice.connect(said.append)
-    world.hub.conn.execute("SELECT 1")
     page.undo_last()
     settle(page)
     assert said                                                      # it says what happened either way
@@ -555,8 +553,7 @@ def test_ctrl_z_undoes_the_last_change_even_a_whole_bulk_action(world):
 def test_the_ctrl_z_shortcut_is_bound_on_the_page(world):
     page = world.page()
     keys = sorted(sc.key().toString() for sc in page.shortcuts)
-    assert keys == ["/", "Ctrl+N", "Ctrl+S", "Ctrl+Z", "Del", "Del"] or "Delete" in keys
-    assert {"/", "Ctrl+N", "Ctrl+Z"} <= set(keys)
+    assert keys == ["/", "Ctrl+N", "Ctrl+S", "Ctrl+Z", "Del", "Del"]
 
 
 # ------------------------------------------------------------------------------- bulk bar
@@ -704,7 +701,7 @@ def test_slash_focuses_the_filter_and_enter_opens_the_editor(world):
     page = world.page()
     slash = next(sc for sc in page.shortcuts if sc.key().toString() == "/")
     slash.activated.emit()
-    assert page.toolbar.filter.hasFocus() or page.toolbar.filter.hasSelectedText() or True
+    assert page.toolbar.filter.hasFocus() or page.toolbar.filter.window().focusWidget() is page.toolbar.filter
     page.select_ids([cid])
     settle(page)
     page.table.activated.emit(page.model.index(0, 0))
@@ -757,3 +754,87 @@ def test_the_menus_reach_contacts(gui_mainwindow):
     labels["Contacts"].trigger()
     assert window.rail.currentIndex() == window._tab_index[window.contacts_view]
     window.rail.setCurrentIndex(0)
+
+
+# ------------------------------------------------------------------- quick actions, theme
+def test_the_right_click_menu_copies_and_offers_the_tools(world, monkeypatch):
+    from PySide6.QtGui import QGuiApplication
+
+    from app.ui.contacts import quick
+
+    cid = world.add(card("Ann", "Lee", email="ann@x.example", phone="07700900123"))
+    page = world.page()
+    page.select_ids([cid])
+    settle(page)
+    shown = {}
+
+    def fake_open(menu, pos):
+        shown["menu"] = menu
+    monkeypatch.setattr(quick, "open_menu", fake_open)
+    quick.show_menu(page, page.mapToGlobal(page.rect().center()))
+    actions = {a.text(): a for a in shown["menu"].actions() if a.text()}
+    assert {"Copy email address", "Copy phone number", "Copy as vCard", "Show QR code or map…",
+            "Move to the bin"} <= set(actions)
+    assert all(not a.icon().isNull() for a in actions.values())
+    actions["Copy email address"].trigger()
+    assert QGuiApplication.clipboard().text() == "ann@x.example"
+    actions["Copy as vCard"].trigger()
+    settle(page)
+    assert "BEGIN:VCARD" in QGuiApplication.clipboard().text() and "Ann" in QGuiApplication.clipboard().text()
+
+
+def test_a_theme_change_redraws_the_page_without_losing_anything(world):
+    from app.ui.theme import palette_for
+
+    cid = world.add(card("Ann", "Lee", email="a@x.example"))
+    page = world.page()
+    page.select_ids([cid])
+    settle(page)
+    page.retint(palette_for("dark"))
+    page.retint(palette_for("light"))
+    assert page.selected_ids() == [cid] and page.editor.cid == cid
+
+
+def test_typing_a_slash_or_pressing_ctrl_z_inside_the_editor_belongs_to_the_editor(world):
+    from PySide6.QtTest import QTest
+
+    cid = world.add(card("Ann", "Lee"))
+    page = world.page()
+    ed = _editor_for(world, page, cid)
+    page.window().activateWindow()
+    row = ed.lists["url"].add_row(None, focus=True)
+    row.value.setFocus()
+    QTest.keyClicks(row.value, "http://x")
+    assert row.value.text() == "http://x"                                  # '/' was typed, not a shortcut
+    before = len(world.hub.history(cid))
+    QTest.keyClick(row.value, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+    settle(page)
+    assert len(world.hub.history(cid)) == before                           # text undo, not a journal undo
+
+
+# --------------------------------------------------------------- rule 5, kept by a test
+def test_the_page_never_calls_the_hub_or_the_accounts_off_a_worker():
+    """Every call on `hub` or `accounts` is inside a nested function or lambda (the worker body),
+    or in `loader.py`, whose functions exist to be run by `run_task`."""
+    import ast
+    from pathlib import Path
+
+    ui = Path(__file__).resolve().parents[2] / "app" / "ui"
+    files = [ui / "contacts_view.py", *sorted((ui / "contacts").glob("*.py"))]
+    bad = []
+    for path in files:
+        if path.name in ("loader.py", "openers.py"):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+
+        def walk(node, depth):
+            for child in ast.iter_child_nodes(node):
+                nested = depth + (1 if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)) else 0)
+                if isinstance(child, ast.Call) and isinstance(child.func, ast.Attribute):
+                    owner = child.func.value
+                    name = owner.id if isinstance(owner, ast.Name) else getattr(owner, "attr", "")
+                    if name in ("hub", "accounts") and depth < 2:
+                        bad.append(f"{path.name}:{child.lineno} {name}.{child.func.attr}()")
+                walk(child, nested)
+        walk(tree, 0)
+    assert not bad, "the window's thread must not query - hand these to a worker:\n" + "\n".join(bad)

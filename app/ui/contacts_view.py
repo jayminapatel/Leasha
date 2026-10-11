@@ -55,11 +55,8 @@ class ContactsView(QWidget):
         from app.ui.contacts.page import ContactsPage
 
         accounts = AccountStore(self._store)
-        try:
-            region = accounts.settings().phone_region or phones.DEFAULT_REGION
-        except Exception:                                  # noqa: BLE001 - a default region is fine
-            region = phones.DEFAULT_REGION
-        hub = ContactHub(self._store, region=region)
+        # The phone region is read with the first snapshot, on a worker (`loader.load_snapshot`).
+        hub = ContactHub(self._store, region=phones.DEFAULT_REGION)
         self.page = ContactsPage(self._store, hub, accounts, service=self._service, host=self._host)
         self.page.error.connect(self.error.emit)
         self.page.notice.connect(self.notice.emit)

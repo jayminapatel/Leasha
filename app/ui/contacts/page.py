@@ -328,6 +328,8 @@ class ContactsPage(QWidget):
     def _landed(self, snap: loader.Snapshot, keep: list[int], full: bool) -> None:
         if full:
             self._snap = snap
+            if snap.region:
+                self.hub.region = snap.region
             self.model.set_accounts(snap.accounts)
             self.model.set_tag_colours(snap.tags)
             self.sidebar.set_entries(build_entries(snap.counts, snap.groups, snap.tags, snap.accounts,

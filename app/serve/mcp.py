@@ -683,8 +683,10 @@ def _account_of_path(path: Any, accounts: dict | None) -> str:
     text = str(path or "")
     if not text.startswith(_ACCOUNT_SCHEME):
         return ""
+    from urllib.parse import unquote
+
     try:
-        ident = _split_account_path(text)[0]
+        ident = unquote(text[len(_ACCOUNT_SCHEME):].split("/", 1)[0])      # also a file attached to the message
         return str((accounts or {}).get(int(ident)) or "an account that is no longer set up")
     except (ValueError, TypeError):
         return ""

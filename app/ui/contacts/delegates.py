@@ -192,7 +192,7 @@ class CardDelegate(_Base):
         painter.setPen(QPen(self.tok("focus_ring" if selected else "border"), 2 if selected else 1))
         painter.drawPath(path)
         # The account colours down the left edge (6b): equal bands, top to bottom.
-        stripes = [model.chips(row, "accounts")[i][1] for i in range(len(model.chips(row, "accounts")))]
+        stripes = [chip[1] for chip in model.chips(row, "accounts")]
         painter.save()
         painter.setClipPath(path)
         band = QRectF(card.x(), card.y(), 6, card.height())
