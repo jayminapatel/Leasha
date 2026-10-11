@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.117 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.118 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Drop-downs and the default marker (2026-10-12)
+
+- **Every drop-down now shows its arrow.** The stylesheet had removed the native arrow and drawn none, so the type
+  boxes (work, home, mobile), the country boxes and every other combo looked like plain text boxes. The type boxes
+  were always editable: pick a suggestion or type your own word.
+- **The default email or phone says "Default"** in a filled button; the others say "Set default".
+
+### Microsoft updates and the bin (2026-10-12)
+
+- **Fixed: Microsoft refused every contact update (HTTP 500).** Graph answers 500 to a change that sets an address to
+  "nothing" on a contact that has no such address. Leasha sent that for every contact without a home, work or other
+  address; it now sends it only where there is an address to clear. Checked live on five contacts that had failed.
+- **Empty the bin** says which contacts it kept: those still waiting to be deleted from an account stay until a sync
+  has done that (deleting them first would lose the instruction), and the notice says so.
 
 ### One download link that is always the newest Leasha (2026-10-11)
 

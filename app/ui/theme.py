@@ -417,6 +417,9 @@ QToolButton:pressed, QToolButton:checked {{
     background: {accent_soft}; color: {accent_text};
 }}
 QToolButton:focus {{ border-color: {focus_ring}; }}
+/* The "Default" marker on an email or phone row: filled solid when this is the default, so it reads at a glance. */
+QToolButton[defaultMarker="true"] {{ border: 1px solid {border}; padding: 3px 8px; }}
+QToolButton[defaultMarker="true"]:checked {{ background: {accent}; color: {accent_on}; border-color: {accent}; font-weight: 600; }}
 /* Icon-only toggles on the Search toolbar (202626160950 §3e): a 28px square
    that fills when on. The label lives in the tooltip and accessible name. */
 QToolButton[iconToggle="true"] {{ padding: 5px; min-width: 18px; min-height: 18px; }}
@@ -730,7 +733,10 @@ QComboBox:focus, QSpinBox:focus, QTimeEdit:focus {{ border-color: {focus_ring}; 
 QComboBox:disabled, QSpinBox:disabled, QTimeEdit:disabled {{
     color: {text_faint}; background: {surface_alt};
 }}
-QComboBox::drop-down {{ border: none; width: 18px; }}
+/* The arrow. Taking the native drop-down's border away took its arrow with it, so every combo box in the
+   app looked like a plain text box (the owner, 2026-10-12: "there is no drop down"). Drawn here, once. */
+QComboBox::drop-down {{ border: none; width: 24px; subcontrol-origin: padding; subcontrol-position: center right; }}
+QComboBox::down-arrow {{ image: url({chevron}); width: 12px; height: 12px; }}
 QComboBox QAbstractItemView {{
     background: {surface}; border: 1px solid {border_strong};
     border-radius: 5px; padding: 3px;
@@ -1074,6 +1080,12 @@ def font_sizes(base: Optional[float] = None) -> dict:
             for name, factor in SCALE.items()}
 
 
+def _chevron_file(colours: dict[str, str]) -> str:
+    """The drop-down arrow, as a path a stylesheet can load (see `_tick_file`: a stylesheet cannot tint)."""
+    return _tick_file(colours).rsplit("/", 1)[0] + ("/chevron-dark.svg" if colours.get("accent_on", "").lower() != "#ffffff"
+                                                   else "/chevron-light.svg")
+
+
 def _tick_file(colours: dict[str, str]) -> str:
     """The tick drawn inside a ticked box, as a path a stylesheet can load.
 
@@ -1111,4 +1123,4 @@ def stylesheet(preference: str = "system", *, detected: Optional[str] = None,
     # `radius_pill` follows the text size (2026-10-10) - see `pill_radius`.
     radii = {**RADIUS, "radius_pill": pill_radius(base_pt)}
     return _TEMPLATE.format(**colours, **font_sizes(base_pt), **radii, **BUTTON,
-                            tick=_tick_file(colours))
+                            tick=_tick_file(colours), chevron=_chevron_file(colours))

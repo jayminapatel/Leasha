@@ -249,6 +249,19 @@ def test_update_reads_first_then_patches_and_clears_what_was_removed(tr, gc):
     assert "If-Match" not in tr.to("PATCH", "/me/contacts/id-1")[0]["headers"]
 
 
+def test_update_never_sends_a_null_address_to_a_contact_that_has_none(tr, gc):
+    """Graph answers HTTP 500 to `homeAddress: null` on a contact with no home address (found live,
+    2026-10-12: "Microsoft is refusing update"); it is sent only where there is an address to clear."""
+    tr.add("GET", f"{B}/me/contacts/id-1", {"id": "id-1", "changeKey": "ck-1", "parentFolderId": DEFAULT,
+                                            "homeAddress": {"street": "1 High St"}})
+    tr.add("PATCH", f"{B}/me/contacts/id-1", contact("1", changeKey="ck-2"))
+    gc.update("id-1", "ck-1", Card(scalars={"given": "Ann"}))
+    body = tr.to("PATCH", "/me/contacts/id-1")[0]["body"]
+    assert body["homeAddress"] is None                      # it had one: the person removed it
+    assert "businessAddress" not in body and "otherAddress" not in body
+    assert "homeAddress" in tr.to("GET", "/me/contacts/id-1")[0]["url"]
+
+
 def test_update_can_send_if_match(tr):
     gc = GraphContactsProvider(tr, lambda: "t", send_if_match=True)
     tr.add("GET", f"{B}/me/contacts/id-1", {"id": "id-1", "changeKey": "ck-1", "parentFolderId": DEFAULT})

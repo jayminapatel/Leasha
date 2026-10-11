@@ -839,8 +839,20 @@ class ContactsPage(QWidget):
                             "Empty the bin"):
             return
         hub = self.hub
-        loader.run_task(self, hub.empty_bin, lambda n: (self.notice.emit(f"Emptied the bin ({n})."),
-                                                        self.reload(select=[])))
+
+        def work() -> tuple[int, int]:
+            return hub.empty_bin(), hub.bin_waiting()
+
+        def done(result: tuple[int, int]) -> None:
+            gone, waiting = result
+            text = f"Emptied the bin ({gone})."
+            if waiting:
+                text += (f" {waiting} more {'is' if waiting == 1 else 'are'} still waiting to be deleted from "
+                         "your accounts, and will go at the next sync - press Sync, then empty the bin again.")
+            self.notice.emit(text)
+            self.reload(select=[])
+
+        loader.run_task(self, work, done)
 
     # ------------------------------------------------------- sidebar's actions
     def _smart_dialog(self, smart_id: Optional[int]) -> None:
