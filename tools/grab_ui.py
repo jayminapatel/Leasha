@@ -54,6 +54,8 @@ SURFACES: dict[str, dict[str, str]] = {
     "search-home": {"page": "Search", "state": "home"},
     "search-results": {"page": "Search", "state": "results"},
     "files": {"page": "Files"},
+    # Order 1k 6a (2026-10-11): the Contacts pill, right after Files.
+    "contacts": {"page": "Contacts"},
     "photos": {"page": "Photos"},
     "mail": {"page": "Mail"},
     "code": {"page": "Code"},

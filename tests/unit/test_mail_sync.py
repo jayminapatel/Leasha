@@ -184,7 +184,7 @@ def test_attachments_can_be_switched_off_and_limited(env):
     sync(env)
     assert paths(env.store, "%/attachments/%") == []
     # a limit: the bigger one is kept by its name, not read
-    env.svc.accounts.update(env.aid, options={"mail_attachments": True, "mail_attachment_limit_mb": 0.0001})
+    env.svc.accounts.update(env.aid, options={"mail_attachments": True, "mail_attachment_limit_mb": 0.00002})
     env.syncer.indexer.forget(env.store.file_ids_under_prefix(f"account://{env.aid}/"))
     env.svc.accounts.reset_token(env.aid, "mail")
     sync(env)

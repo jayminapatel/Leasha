@@ -819,10 +819,9 @@ class ContactsPage(QWidget):
     def _context_menu(self, view: QWidget, pos: Any) -> None:
         """6r: right-click. The contact under the pointer joins the pick if it is not in it."""
         index = view.indexAt(pos)
-        if index.isValid() and index.row() not in {i.row() for i in self.table.selectionModel().selectedIndexes()}:
-            row = self.model.row_at(index.row())
-            if row is not None:
-                self.select_ids([row.id])
+        row = self.model.row_at(index.row()) if index.isValid() else None
+        if row is not None and row.id not in self.selected_ids():
+            self.select_ids([row.id])
         from app.ui.contacts import quick
 
         quick.show_menu(self, view.viewport().mapToGlobal(pos))
