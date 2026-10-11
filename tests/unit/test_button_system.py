@@ -295,11 +295,10 @@ def test_the_dialogs_and_pop_outs_follow_the_rules_too(qapp, shown) -> None:
         DeleteVolumeDialog, RenameSuggestionDialog, ScanNameDialog,
     )
     from app.ui.widgets.pinned_panel import PinnedPanel
-    from app.ui.widgets.report_export_dialog import SourceSelectionDialog
 
+    # 1q: the Digital Inheritance source picker went with that report.
     built = [ScanNameDialog("/media/usb"), RenameSuggestionDialog("Holiday disk"),
-             DeleteVolumeDialog("Holiday disk", 12), SourceSelectionDialog([]),
-             PinnedPanel()]
+             DeleteVolumeDialog("Holiday disk", 12), PinnedPanel()]
     try:
         for dialog in built:
             dialog.show()                   # laid out, as a person sees it

@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.12 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.13 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -19,7 +19,7 @@ Eleven were numbered; three are dead. The live nine are what `HANDOFF.md` §3 co
 | Term | Means | Notes |
 |---|---|---|
 | L0 | Foundation — config, `AppError`, logging, single-instance, CLI | `app/core` |
-| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 38` (`app/storage/migrations.py`) |
+| L1 | Storage — SQLite/FTS5 and LanceDB, migrations | `app/storage`. Schema `CURRENT_VERSION = 39` (`app/storage/migrations.py`) |
 | L2 | Extraction — PDF, Office, plaintext, Outlook/PST, chunking | `app/extract`; local models in `app/ort` |
 | L3 | Indexing pipeline — walker, workers, resumable cursor | `app/index` |
 | L4 | Search — BM25 + ANN, RRF fusion, rerank, filters | `app/search`; read-only reports in `app/reports` |
@@ -217,7 +217,9 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 
 | Term | Means | Notes |
 |---|---|---|
-| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Reports, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Rail | The column of page buttons down the left of the window: Search, Mail, Photos, Files, Contacts, Code, Browse (the timeline), Chat, Tidy, then the Indexing pill and Settings | `app/ui/widgets/rail.py` |
+| Tidy | The rail page (Reports until order 1q) for what is indexed and for clearing exact copies, similar photos, large files and leftovers on this computer. It moves a file only to the Recycle Bin, only after the plan is reviewed, never the last copy, and can put a batch back | `app/tidy/`, `app/ui/tidy_view.py` |
+| Keep rule | Which file of a Tidy set stays: Leasha picks, Keep the oldest, Keep the newest, or I'll choose (nothing marked until you tick) | `app/tidy/keep.py` |
 | Indexing pill | The rail's status button: "Up to date", "Indexing", "Paused", with a coloured dot | Opens the Indexing page |
 | What gets read | The Indexing page that gathers every reading lever by place: files, email, attachments, zips, pictures, video and audio, code | `app/ui/widgets/what_gets_read.py`, `app/ui/presenter/coverage.py` |
 | `MAIL_ATTACHMENTS` | What is read from an email attachment: `names`, `documents` (default), `pictures`, `everything` | `app/extract/mail_attachments.py` |

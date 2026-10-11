@@ -272,7 +272,7 @@ def test_each_shortcut_lands_on_its_page(gui_mainwindow, qtbot, label, key, mod,
     app, window, store, engine = gui_mainwindow
     _front(app, window, qtbot)
     # From somewhere else, so "already there" cannot pass it.
-    _goto(window, "Reports" if page != "Reports" else "Search")
+    _goto(window, "Tidy" if page != "Tidy" else "Search")
     assert _page(window) != page
     _key(qtbot, app, key, mod)
     assert _page(window) == page, f"{label} landed on {_page(window)}"
@@ -286,7 +286,7 @@ def test_the_shortcuts_that_jump_to_a_box_leave_the_cursor_in_it(gui_mainwindow,
                             (KEY.Key_P, "Files", window.files_view),
                             (KEY.Key_M, "Mail", window.mail_view),
                             (KEY.Key_E, "Code", window.code_view)):
-        _goto(window, "Reports")
+        _goto(window, "Tidy")
         _key(qtbot, app, key, MOD.ControlModifier)
         assert _page(window) == page
         focus = app.focusWidget()
@@ -405,7 +405,7 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     view = window.search_view
     view.input.clear()
     _preview_off(qtbot, app, view)
-    _goto(window, "Reports")
+    _goto(window, "Tidy")
 
     # 1. Ctrl+K: from anywhere to the box, cursor ready.
     _key(qtbot, app, KEY.Key_K, MOD.ControlModifier)

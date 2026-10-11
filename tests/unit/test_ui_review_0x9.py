@@ -590,52 +590,31 @@ def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
     edge. Grabs: `after-final-1100x760/light/reports.png` and
     `settings-storage.png`.
 
-    Now the Reports list is opened with the mouse, no entry carries an icon,
-    the first painted pixel of an unselected name is within a few pixels of the
-    row's left edge, and a click on "The Space Report" still opens it (the key
-    is read back from its new role). Then Settings is opened with Ctrl+, and
+    Now the Tidy list (Reports until order 1q) is opened with the mouse, and a
+    click on "The Space Report" still opens it. Then Settings is opened with Ctrl+, and
     Storage & maintenance clicked: the card's caption and log box are inset
     from its edge like every other card's contents."""
-    from PySide6.QtGui import QColor
-    from app.ui.widgets.timeline_host import REPORT_KEY
-
+    # *Corrected 11 October 2026 (order 1q):* the Reports list became the Tidy
+    # page's `SideList`, which draws every name beside its icon on purpose and is
+    # never narrower than 180px, so the indent and the squeeze this guarded cannot
+    # come back the way they came. What is still pressed: Tidy is opened with the
+    # mouse, its names are not cut, and a click on "The Space Report" opens it.
     app, window, *_ = gui_mainwindow
     _front(app, window, qtbot, 1100, 760)
-    reports = window.reports_view
+    tidy = window.tidy_view
     with _Theme(window, scheme):
         try:
-            button = next(b for b in window.rail._buttons.values() if b.text() == "Reports")
+            button = next(b for b in window.rail._buttons.values() if b.text() == "Tidy")
             qtbot.mouseClick(button, Qt.MouseButton.LeftButton)
             gui_pump(app, 4)
-            names = reports.list
-            assert REPORT_KEY == Qt.ItemDataRole.UserRole
-            # *Corrected 4 October 2026:* the owner asked for an icon on each
-            # report ("there are no icons for the reports on the report page"),
-            # so each entry now carries one on purpose - the fault this
-            # guarded was a blank icon slot holding a string, which stays fixed
-            # (the key is still read back from `UserRole`, asserted above).
-            assert all(names.item(r).data(Qt.ItemDataRole.DecorationRole) is not None
-                       for r in range(names.count()))
-            names.setCurrentRow(0)
-            gui_pump(app, 4)
-            space = next(r for r in range(names.count())
-                         if names.item(r).data(REPORT_KEY) == "space")
-            rect = names.visualItemRect(names.item(space))
-            image = names.viewport().grab().toImage()
-            ground = image.pixelColor(rect.left() + 1, rect.top() + 1)
-
-            def differs(c: QColor) -> bool:
-                return max(abs(c.red() - ground.red()), abs(c.green() - ground.green()),
-                           abs(c.blue() - ground.blue())) > 60
-
-            first = next(x for x in range(rect.left(), rect.right())
-                         if any(differs(image.pixelColor(x, y))
-                                for y in range(rect.top(), rect.bottom())))
-            assert first - rect.left() <= 16, (scheme, first - rect.left())
-
+            names = tidy.list
+            assert names.width() >= 180, names.width()
+            space = names._find("report")
+            rect = names.visualItemRect(space)
+            assert names.fontMetrics().horizontalAdvance(space.text(0)) <= rect.width(), "the name is cut"
             qtbot.mouseClick(names.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
             gui_pump(app, 6)
-            assert reports._selected_key() == "space"
+            assert tidy.stack.currentWidget() is tidy.report
 
             qtbot.keyClick(window, KEY.Key_Comma, Qt.KeyboardModifier.ControlModifier)
             gui_pump(app, 6)

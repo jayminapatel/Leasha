@@ -12,8 +12,11 @@ The order ends with three sentences (its own words):
 
 The 0m convention (`WORKORDER-CONVENTIONS.md` 5b): a sentence that promises
 something clickable is not done until a pytest-qt scenario presses the keys.
-Each scenario below opens **Reports in the real `MainWindow`** - real store,
+Each scenario below opens **the page in the real `MainWindow`** - real store,
 real workers - and does what that person would.
+
+Sentence 1 went with Digital Inheritance (order 1q D9, 2026-10-11, at the owner's
+word); the Space Report is the "Report" entry of the Tidy page now.
 """
 
 from __future__ import annotations
@@ -26,8 +29,6 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QThreadPool, Qt                           # noqa: E402
-from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
-from PySide6.QtWidgets import QFileDialog                             # noqa: E402
 
 from tests.unit.conftest import gui_pump                            # noqa: E402
 from tests.unit.timeline_env import add_file, add_mail, noon        # noqa: E402
@@ -70,58 +71,19 @@ def family(gui_mainwindow, qtbot):
     store.set_state("ui:roots", "C:/family")
     window.resize(1200, 800)
     window.show()
-    window._show(window.reports_view)
+    window._show(window.tidy_view)
     gui_pump(app)
-    view = window.reports_view
+    window.tidy_view.show_kind("report")
+    view = window.tidy_view.report
     view._space_cached_at = None
     view._space_document = ""
-    view.list.setCurrentRow(0)
     return app, window, view, ids
-
-
-def pick(view, key: str) -> None:
-    view.list.setCurrentRow([view.list.item(i).data(REPORT_KEY) for i in range(view.list.count())].index(key))
-
-
-def test_a_family_member_can_read_the_map_and_print_it_and_know_which_drawer_holds_what(
-        family, qtbot, tmp_path, monkeypatch):
-    import app.ui.reports_view as reports_view
-    from app.ui.widgets.report_export_dialog import SourceSelectionDialog
-
-    app, _window, view, _ids = family
-    view.refresh()
-    qtbot.waitUntil(lambda: bool(view._sources), timeout=15000)
-    pick(view, "inheritance")
-    on_screen = view.body.toPlainText()
-    for name in ("Projects 2019", "LTO tape B-0042"):
-        assert name in on_screen
-    assert "fire safe, hallway cupboard" in on_screen and "the old work drive" in on_screen
-    assert SECRET not in on_screen
-
-    # Press Export, keep every source, choose where the PDF goes.
-    target = tmp_path / "map.pdf"
-    monkeypatch.setattr(SourceSelectionDialog, "exec", lambda self: SourceSelectionDialog.DialogCode.Accepted)
-    monkeypatch.setattr(QFileDialog, "getSaveFileName",
-                        staticmethod(lambda *a, **k: (str(target), "PDF files (*.pdf)")))
-    written: list = []
-    real = reports_view._write_pdf
-    monkeypatch.setattr(reports_view, "_write_pdf",
-                        lambda document, path: (written.append(str(document)), real(document, path)))
-    qtbot.mouseClick(view.export, Qt.MouseButton.LeftButton)
-    QThreadPool.globalInstance().waitForDone(20_000)
-    gui_pump(app)
-    assert target.is_file() and target.read_bytes()[:4] == b"%PDF"
-    document = written[0]
-    assert "Projects 2019" in document and "fire safe, hallway cupboard" in document
-    assert SECRET not in document                                # names and places, never contents
-    # (the printed page itself is read back in test_reports_fixtures.py, in a process with fonts)
 
 
 def test_the_owner_sees_in_one_glance_which_drive_holds_the_only_copy(family, qtbot):
     app, _window, view, _ids = family
     view.refresh()
     qtbot.waitUntil(lambda: bool(view._space_document), timeout=20000)
-    pick(view, "space")
     headline = view.space_table.headline.text().splitlines()
     first = next(line for line in headline if "exist nowhere else" in line or "exists nowhere else" in line)
     assert "Projects 2019" in first, headline                     # the drive in the drawer, first

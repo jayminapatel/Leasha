@@ -2,8 +2,8 @@ r"""Order 202626270602 (0n) section 3 - the Space Report.
 
 Layer: L4
 
-Real `SqliteStore`, real rows - the same reasoning
-`test_reports_inheritance.py` gives for doing the same: this is a set of
+Real `SqliteStore`, real rows, as the Digital Inheritance tests had (removed with
+that report, order 1q): this is a set of
 SQL queries plus formatting, and a hand-built fixture could pass while the
 real query shape does not match what `upsert_file`/`upsert_volume` write.
 """
@@ -241,8 +241,8 @@ def test_the_uniqueness_headline_names_the_source_and_count():
 
 
 def test_the_document_never_shows_file_contents():
-    r"""Same guarantee `inheritance.py`'s own test makes: names and
-    locations only, never what is inside a file."""
+    r"""Names and locations only, never what is inside a file - the guarantee
+    Digital Inheritance made too, before order 1q removed it."""
     from app.reports.space import DuplicateCopy
 
     groups = [DuplicateGroup(

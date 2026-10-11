@@ -2,7 +2,7 @@ r"""The Life Timeline: everything from a stretch of time, across every source.
 
 Layer: L4 (reports) - reads L1 (`SqliteStore`) only, never writes to it and
 never touches a user file. Non-negotiable #10 applies in full, exactly as it
-does for `app/reports/inheritance.py` and `app/reports/space.py`.
+does for `app/reports/space.py`.
 
 Order 202626270602 (0n) section 4. The Space Report says what the index holds
 twice; this says *when*. "June 2015" is a place you can go: every photograph,
@@ -682,7 +682,7 @@ def timeline_overview(store: Any, kind: str = "everything") -> Overview:
     Months with nothing in them are absent; `Overview.months_of` fills the gaps
     for a picker. Never raises.
     """
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
 
     kind = _clean_kind(kind)
     months: dict[int, int] = {}
@@ -752,7 +752,7 @@ def refresh_overview(store: Any, kind: str = "everything",
     is a scan of the whole table, and it should not run on every tab switch
     that changes nothing. **Worker only.**
     """
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
 
     now = report_generated_at(store)
     if known_generated_at is not None and now == known_generated_at:

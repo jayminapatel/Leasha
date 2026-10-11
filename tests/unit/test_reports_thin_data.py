@@ -16,7 +16,6 @@ from __future__ import annotations
 import pytest
 
 from app.reports import space
-from app.reports.inheritance import catalogue_sources, render_inheritance_document
 from app.storage.sqlite_store import SqliteStore
 from tests.unit.timeline_env import add_file, noon
 
@@ -111,7 +110,7 @@ def test_the_windows_snapshot_carries_the_coverage(tmp_path):
 
     store = _index(tmp_path, hashed=0, unhashed=2)
     try:
-        _sources, _at, document = _report_snapshot(store)
+        _at, document = _report_snapshot(store)
         assert (document.findings.files_total, document.findings.files_compared) == (2, 0)
         assert "None of the 2 files has been compared" in document
     finally:
@@ -119,13 +118,15 @@ def test_the_windows_snapshot_carries_the_coverage(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# The other two reports say what they cannot say, too
+# The timeline says what it cannot say, too (Digital Inheritance's empty-map
+# case went with it, order 1q D9)
 # ---------------------------------------------------------------------------
 
-def test_an_empty_catalogue_says_so_rather_than_printing_an_empty_map(tmp_path):
+def test_an_empty_index_says_so_rather_than_inventing_a_date(tmp_path):
+    from app.reports.common import data_timestamp_sentence, report_generated_at
+
     with SqliteStore(tmp_path / "e.db") as store:
-        doc = render_inheritance_document(catalogue_sources(store))
-    assert "This index has nothing recorded yet." in doc
+        assert data_timestamp_sentence(report_generated_at(store)) == "This index has nothing recorded yet."
 
 
 def test_a_timeline_of_photographs_with_no_camera_dates_says_so(qtbot, tmp_path):

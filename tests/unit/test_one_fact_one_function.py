@@ -287,15 +287,13 @@ def test_code_follows_the_search_tabs_register_and_files_its_own_format(register
 # -- 10. one size formatter --------------------------------------------------------
 
 def test_one_size_formatter_everywhere():
-    from app.reports.inheritance import _size_words as inheritance_words
     from app.reports.space import _size_words as space_words
     from app.reports.timeline_words import size_words
     from app.ui.presenter import format_size
 
     three_tb = 3 * 1024 ** 4
     for value in (0, 812, 4_200_000, three_tb):
-        assert (format_size(value) == size_words(value) == space_words(value)
-                == inheritance_words(value))
+        assert format_size(value) == size_words(value) == space_words(value)
     assert format_size(three_tb) == "3.0 TB"
 
 

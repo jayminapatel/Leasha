@@ -21,51 +21,44 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from tests.unit.test_ui_redesign_qt import window  # noqa: E402,F401 - the shared window
-from app.ui.widgets.timeline_host import REPORT_KEY  # noqa: E402 - the list's key role
 
 
 # ---------------------------------------------------------------------------
 # §1 - the Space Report
 # ---------------------------------------------------------------------------
 
-def test_the_space_report_is_listed_beside_digital_inheritance(window):
-    from app.ui.reports_view import REPORTS
+def test_the_space_report_is_an_entry_of_the_tidy_list(window):
+    """1q (2026-10-11): Digital Inheritance went, and the Reports page with it; the
+    Space Report is the "Report" entry of the Tidy page's list."""
     app, built, _ = window
-    keys = [key for key, _t, _d in REPORTS]
-    # 2026-09-20: "Browse your timeline" (order 0n section 4) was the third entry; on
-    # 2026-10-11 (order 1i) it left for its own rail page, "Browse".
-    assert keys == ["inheritance", "space"]
-    titles = [built.reports_view.list.item(i).text()
-              for i in range(built.reports_view.list.count())]
-    assert "The Space Report" in titles
-    item = built.reports_view.list.item(titles.index("The Space Report"))
-    assert item.toolTip(), "a plain-words description, like the other report"
+    entry = built.tidy_view.list.entry("report")
+    assert entry.label == "The Space Report" and entry.section == "Report"
+    assert entry.tip, "a plain-words description, like every other entry"
+    assert built.tidy_view.list.entry("inheritance") is None
 
 
 def test_the_snapshot_renders_the_same_document_the_cli_prints(window):
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
     from app.reports.space import (
         find_duplicate_groups, find_source_uniqueness, render_space_document,
         total_reclaimable_bytes,
     )
     from app.ui.reports_view import _report_snapshot
     app, built, store = window
-    sources, generated_at, space = _report_snapshot(store)
+    generated_at, space = _report_snapshot(store)
     expected = render_space_document(
         find_duplicate_groups(store), find_source_uniqueness(store),
         total_reclaimable=total_reclaimable_bytes(store),
         generated_at=report_generated_at(store))
     assert space == expected
-    assert space.lstrip().startswith("#"), "plain text with # headings, like Inheritance"
+    assert space.lstrip().startswith("#"), "plain text with # headings"
 
 
 def test_opening_the_space_report_shows_it_and_export_is_offered(window):
     app, built, store = window
-    view = built.reports_view
-    view._loaded(("", None, "# The Space Report\n\nNothing indexed yet."))
-    for row in range(view.list.count()):
-        if view.list.item(row).data(REPORT_KEY) == "space":
-            view.list.setCurrentRow(row)
+    built.tidy_view.show_kind("report")
+    view = built.tidy_view.report
+    view._loaded((None, "# The Space Report\n\nNothing indexed yet."))
     assert "Space Report" in view.body.toPlainText()
     assert view.export.isEnabled()
 
@@ -74,11 +67,8 @@ def test_export_writes_a_pdf_off_the_ui_thread(window, tmp_path, monkeypatch):
     from PySide6.QtCore import QThreadPool
     from PySide6.QtWidgets import QFileDialog
     app, built, store = window
-    view = built.reports_view
-    view._loaded(("", None, "# The Space Report\n\nA line."))
-    for row in range(view.list.count()):
-        if view.list.item(row).data(REPORT_KEY) == "space":
-            view.list.setCurrentRow(row)
+    view = built.tidy_view.report
+    view._loaded((None, "# The Space Report\n\nA line."))
     target = tmp_path / "space-report.pdf"
     monkeypatch.setattr(QFileDialog, "getSaveFileName",
                         staticmethod(lambda *a, **k: (str(target), "PDF files (*.pdf)")))

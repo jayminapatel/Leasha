@@ -40,16 +40,16 @@ class _Row:
 # Door 1: the rail's "Browse" (order 1i, 2026-10-11 - it was a Reports row)
 # ---------------------------------------------------------------------------
 
-def test_reports_lists_two_reports_and_no_longer_hosts_the_timeline(qtbot, tmp_path):
+def test_tidy_lists_the_space_report_and_does_not_host_the_timeline(qtbot, tmp_path):
+    """1q (2026-10-11): Reports became Tidy; the timeline stayed on Browse."""
     from app.storage.sqlite_store import SqliteStore
-    from app.ui.reports_view import REPORTS, ReportsView
+    from app.ui.tidy_view import TidyView
 
-    assert [key for key, _title, _words in REPORTS] == ["inheritance", "space"]
     with SqliteStore(tmp_path / "t.db") as store:
-        view = ReportsView(store)
+        view = TidyView(store)
         qtbot.addWidget(view)
-        titles = [view.list.item(i).text() for i in range(view.list.count())]
-        assert "Browse your timeline" not in titles and len(titles) == 2
+        labels = [e.label for e in view.list.entries()]
+        assert "The Space Report" in labels and "Browse your timeline" not in labels
         assert not hasattr(view, "timeline")
         from PySide6.QtCore import QThreadPool
         QThreadPool.globalInstance().waitForDone(5000)
@@ -58,8 +58,8 @@ def test_reports_lists_two_reports_and_no_longer_hosts_the_timeline(qtbot, tmp_p
 def test_the_rail_entry_browse_opens_the_timeline_after_code(dated_window, qtbot):
     _app, window, _store, _ids = dated_window
     titles = [window.rail.tabText(i) for i in range(window.rail.count())]
-    # 2026-10-11, the owner's order: ... Code, Browse, Chat, Reports.
-    assert titles.index("Code") + 1 == titles.index("Browse") < titles.index("Reports")
+    # 2026-10-11, the owner's order: ... Code, Browse, Chat, Tidy (Reports until order 1q).
+    assert titles.index("Code") + 1 == titles.index("Browse") < titles.index("Tidy")
     assert "Offline" not in titles
     button = next(b for b in window.rail._buttons.values() if b.text() == "Browse")
     assert button.accessibleName() == "Browse your timeline"

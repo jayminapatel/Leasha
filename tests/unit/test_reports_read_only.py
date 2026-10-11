@@ -20,7 +20,7 @@ vacuous:
    command-line reports run against an index whose files are real, and the
    folder is compared byte for byte afterwards.
 3. **The source says so** - a scan of every report module, in the style of
-   `test_the_inheritance_module_never_writes_to_disk`.
+   the source scan Digital Inheritance had (removed with it, order 1q).
 
 Each guard is shown able to fail (`test_the_..._would_notice_...`).
 """
@@ -52,7 +52,10 @@ REPORT_MODULES = sorted(
      ROOT / "app" / "ui" / "timeline_view.py",
      ROOT / "app" / "ui" / "presenter" / "timeline.py",
      ROOT / "app" / "ui" / "controllers" / "timeline_controller.py",
-     *(ROOT / "app" / "ui" / "widgets").glob("timeline_*.py")])
+     *(ROOT / "app" / "ui" / "widgets").glob("timeline_*.py"),
+     # Order 1q: Tidy's finders and keep rules read; `app/tidy/remove.py` is the
+     # one module that moves a file, and is proved by `test_tidy_engine.py`.
+     ROOT / "app" / "tidy" / "find.py", ROOT / "app" / "tidy" / "keep.py"])
 
 WRITE_PATTERNS = (
     r"\bINSERT\b", r"\bUPDATE\s+\w+\s+SET\b", r"\bDELETE\s+FROM\b", r"\bDROP\b", r"\bALTER\s+TABLE\b",
@@ -131,7 +134,6 @@ def test_the_authorizer_would_notice_a_write(tmp_path):
 
 def test_every_report_and_every_timeline_function_runs_with_the_database_read_only(family_index, qtbot):
     from app.reports import space
-    from app.reports.inheritance import catalogue_sources, render_inheritance_document, report_generated_at
     from app.reports.timeline import (
         Cursor, Period, date_of_file, refresh_overview, timeline_overview, timeline_page,
     )
@@ -145,8 +147,6 @@ def test_every_report_and_every_timeline_function_runs_with_the_database_read_on
     mail = add_mail(store, "Hello", sent=noon(2015, 6, 25), container_mtime=noon(2021, 1, 1))
     denied = deny_writes(store.conn)
 
-    sources = catalogue_sources(store, roots=[r"D:\Family"])
-    render_inheritance_document(sources, generated_at=report_generated_at(store))
     space.find_duplicate_groups(store)
     space.find_near_duplicate_photo_groups(store)
     space.find_source_duplicate_share(store)
@@ -243,7 +243,7 @@ def test_the_command_line_reports_never_touch_the_folders_they_describe(tmp_path
     capsys.readouterr()
 
     recorder = WriteRecorder(monkeypatch)
-    for argv in (["report", "inheritance"], ["report", "space"], ["report", "space", "--json"],
+    for argv in (["report", "space"], ["tidy", "copies"], ["tidy", "similar"], ["tidy", "leftovers"], ["report", "space", "--json"],
                  ["timeline"], ["timeline", "--year", "2025"], ["timeline", "--json"]):
         assert run([*argv, "--env", env]) == cli.EXIT_OK
     monkeypatch.undo()

@@ -177,9 +177,14 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Scan a drive…": ("hard-drive", "primary"),
     "Rescan": ("refresh-cw", "secondary"),
     "Delete": ("trash-2", "danger"),
-    # -- Reports ---------------------------------------------------------------
+    # -- Reports (the Space Report, on Tidy since order 1q) ----------------------
     "Export…": ("file-down", "primary"),
     "Show": ("eye", "secondary"),
+    # -- Tidy (order 1q, 2026-10-11) ---------------------------------------------
+    # Review is the page's one primary: it asks before anything moves.
+    "Review and remove…": ("trash-2", "primary"),
+    "Put back": ("undo-2", "secondary"),
+    "Mark every set by this rule": ("list-checks", "secondary"),
     # -- Code ------------------------------------------------------------------
     "Search history": ("history", "secondary"),
     "Git view": ("git-branch", "secondary"),

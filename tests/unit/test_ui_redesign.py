@@ -290,7 +290,7 @@ def test_the_rail_labels_are_the_tab_titles_verbatim():
     # 2026-10-11, order 1i: "Offline" is the Indexing page's shelf title now
     # (`indexing_layout.CATEGORY_OFFLINE`), and "Browse" is the timeline's rail entry.
     for title in ("Search", "Files", "Mail", "Code", "Browse",
-                  "Reports", "Indexing", "Settings"):
+                  "Tidy", "Indexing", "Settings"):
         assert f'"{title}"' in source, title
     assert '"Drives"' not in source, "the mockup's 'Drives' must not be built"
 

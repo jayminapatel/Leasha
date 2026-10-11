@@ -57,7 +57,7 @@ import time
 import pytest
 
 from app.reports import space
-from app.reports.inheritance import report_generated_at
+from app.reports.common import report_generated_at
 from app.search.folding import PHASH_NEAR_THRESHOLD, phash_distance
 from tests.fixtures.space_scale import build_space_scale_store
 
