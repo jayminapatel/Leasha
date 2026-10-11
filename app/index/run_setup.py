@@ -484,6 +484,9 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
     return PipelineConfig(
         walk=WalkConfig(
             roots=list(roots),
+            # 2026-10-12: this machine's Settings > File types choices, read by the walk.
+            formats_from=(Path(settings.data_path)
+                          if getattr(settings, "data_path", None) else None),
             priority_roots=[Path(p).expanduser() for p in (first or ())],
             include_cloud=include_cloud,
             cloud_content_roots=frozenset(cloud_content_roots),

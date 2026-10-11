@@ -238,6 +238,12 @@ class WalkConfig:
     #: machine, not about any one folder, so the cap has to be a session
     #: total: two opted-in folders must not each get their own full budget.
     cloud_content_cap_bytes: int = DEFAULT_CLOUD_CONTENT_CAP_BYTES
+    #: The data folder whose `extractors.toml` holds this machine's file-type
+    #: choices (Settings > File types). 2026-10-12: the walk read the packaged
+    #: file alone, so a type switched off in Settings was still read - the
+    #: owner's "turn svg and epub off now" found it. None: the packaged file
+    #: only (tests, and callers with no settings).
+    formats_from: Optional[Path] = None
     #: **Output, like `stat_failures`.** Bytes actually spent hydrating
     #: cloud placeholders so far this run - `walk()` increments it in place;
     #: nothing else writes to it. Read after the run to report what was
@@ -391,7 +397,7 @@ class WalkConfig:
 
         known = set(supported_extensions())
         try:
-            rules = load_rules()
+            rules = load_rules(self.formats_from)
         except Exception:                        # noqa: BLE001
             # A broken config must not stop the walk finding the file types the
             # code itself knows about.

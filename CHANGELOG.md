@@ -35,6 +35,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   citation validity 100%, extractive 93.5%, aggregate exactness 100%, absence honesty 100% - with a median of 6.9 s an
   answer on this laptop's processor.
 - Index schema 40 (`doc_cards`, `my_words`): an index opened by this version cannot be opened by an older one.
+- **`.svg` and `.epub` are off by default** (the owner, 2026-10-12): nothing reads them; with Index every file by name
+  on they are still found by name. Settings > File types switches either back on.
+- **Fixed: a file type switched off in Settings > File types was still read.** The walk read the packaged
+  `extractors.toml` alone and never `<DATA_PATH>\extractors.toml`; it now reads both (`WalkConfig.formats_from`).
+- Document cards are checked harder: a kind needs words in the document that support it (else `email` for a
+  message, `other` otherwise), pronouns are never people, and a summary citing a number the document lacks is dropped.
 
 ### Changed in two places: review and accept, and notes are joined (2026-10-12)
 

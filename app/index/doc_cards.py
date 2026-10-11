@@ -57,7 +57,7 @@ MIN_CHARS = 200
 #: pictures and archives are left out - a card says what a *document* is.
 DOC_EXTS = frozenset({
     "pdf", "doc", "docx", "odt", "rtf", "txt", "md", "pptx", "ppt", "odp",
-    "epub", "htm", "html", "pages", "wpd",
+    "htm", "html", "pages", "wpd",
 })
 MAIL_EXTS = frozenset({"pst", "eml", "msg", "mbox", "olm"})
 
@@ -70,6 +70,47 @@ KINDS = (
     "essay", "article", "book", "notes", "plan", "ticket", "booking", "payslip",
     "tax", "medical", "legal", "other",
 )
+
+#: What a kind must be able to point at in the document, or it is not believed.
+#: 2026-10-12, measured on the Chat fixture with the 1.5B model: two plain emails
+#: (an audit schedule, budget figures) came back as "invoice". A kind with no
+#: words listed here is taken as given. Not a setting: a list of evidence words.
+KIND_EVIDENCE: dict[str, tuple[str, ...]] = {
+    "invoice": ("invoice", "amount due", "bill"),
+    "receipt": ("receipt", "paid", "payment received"),
+    "quote": ("quote", "quotation", "estimate"),
+    "order": ("order",),
+    "statement": ("statement",),
+    "contract": ("contract",),
+    "agreement": ("agreement", "agreed"),
+    "letter": ("dear ", "yours sincerely", "yours faithfully", "kind regards"),
+    "newsletter": ("newsletter", "unsubscribe"),
+    "report": ("report", "findings", "inspection"),
+    "minutes": ("minutes", "attendees", "action points", "action items"),
+    "proposal": ("proposal", "propose"),
+    "specification": ("specification", "requirement"),
+    "manual": ("manual", "instructions", "user guide"),
+    "form": ("form",),
+    "certificate": ("certificate", "certify", "certified"),
+    "cv": ("curriculum vitae", "cv", "resume", "experience"),
+    "policy": ("policy",),
+    "homework": ("homework", "assignment", "worksheet"),
+    "essay": ("essay",),
+    "article": ("article",),
+    "book": ("chapter",),
+    "notes": ("notes", "note"),
+    "plan": ("plan",),
+    "ticket": ("ticket", "boarding"),
+    "booking": ("booking", "reservation", "booked", "check-in"),
+    "payslip": ("payslip", "pay slip", "net pay"),
+    "tax": ("tax", "hmrc", "vat"),
+    "medical": ("patient", "appointment", "doctor", "hospital", "prescription", "dentist"),
+    "legal": ("solicitor", "court", "legal"),
+}
+
+#: Never a person's name, whatever the model says (2026-10-12: "me" came back as one).
+_NOT_PEOPLE = frozenset({"me", "i", "you", "us", "we", "him", "her", "them", "sir", "madam",
+                         "team", "all", "everyone", "tenant", "landlord", "customer"})
 
 _MAX_ITEMS = 8
 _MAX_SUMMARY = 320
@@ -132,17 +173,25 @@ def read_card(reply: str, source: str, *, today: Optional[date] = None) -> Optio
     digits = re.sub(r"[^0-9]", "", source or "")
     dropped: list[str] = []
 
+    is_mail = (source or "").startswith("From: ")
     kind = str(data.get("kind") or "").strip().lower()
     if kind not in KINDS:
         if kind:
             dropped.append(f"kind:{kind}")
-        kind = "other"
+        kind = "email" if is_mail else "other"
+    evidence = KIND_EVIDENCE.get(kind, ())
+    if evidence and not any(word in folded for word in evidence):
+        dropped.append(f"kind:{kind}")           # nothing in the text says so
+        kind = "email" if is_mail else "other"
 
     people = _names(data.get("people"), folded, dropped, "person")
     orgs = _names(data.get("organisations") or data.get("organizations"), folded, dropped, "org")
     dates = _dates(data.get("dates"), source or "", today or date.today(), dropped)
     amounts = _amounts(data.get("amounts"), digits, dropped)
     summary = _summary(data.get("summary"))
+    if summary and not _numbers_in(summary) <= _numbers_in(source):
+        dropped.append("summary:a number not in the document")
+        summary = ""
     if not (summary or people or orgs or dates or amounts) and kind == "other":
         return None
     return Card(kind, people, orgs, dates, amounts, summary, tuple(dropped))
@@ -236,7 +285,7 @@ def _unique(values: Iterable[str]) -> tuple[str, ...]:
 def _names(value: Any, folded: str, dropped: list[str], what: str) -> tuple[str, ...]:
     kept = []
     for name in _items(value):
-        if len(name) < 2 or len(name) > 80:
+        if len(name) < 2 or len(name) > 80 or name.casefold() in _NOT_PEOPLE:
             dropped.append(f"{what}:{name}")
         elif _fold(name) in folded:
             kept.append(name)
@@ -291,6 +340,20 @@ def _amounts(value: Any, digits: str, dropped: list[str]) -> tuple[str, ...]:
             continue
         kept.append(f"{match[1]} {number}")
     return _unique(kept)
+
+
+_NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
+
+
+def _numbers_in(text: str) -> set[str]:
+    """Every number in `text`, commas and a trailing ".0" removed: "1,200" is "1200"."""
+    out = set()
+    for raw in _NUMBER.findall(text or ""):
+        number = raw.replace(",", "").rstrip(".")
+        if number.endswith(".0") or number.endswith(".00"):
+            number = number.split(".")[0]
+        out.add(number)
+    return out
 
 
 def _summary(value: Any) -> str:

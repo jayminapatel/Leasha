@@ -63,8 +63,32 @@ def test_a_kind_off_the_list_is_other_and_nonsense_is_nothing():
 
 
 def test_the_reply_may_have_words_around_the_json():
-    card = cards.read_card('Here you are: {"kind": "letter", "summary": "A note."} Done.', LETTER)
-    assert card is not None and card.kind == "letter"
+    card = cards.read_card('Here you are: {"kind": "invoice", "summary": "A bill."} Done.', LETTER)
+    assert card is not None and card.kind == "invoice"
+
+
+def test_a_kind_the_text_does_not_support_is_not_believed():
+    """2026-10-12, the 1.5B model on the Chat fixture: an audit schedule email came
+    back as an "invoice". With nothing in the text to say so, a message is an email."""
+    mail = "From: auditor@certbody.com\nSubject: Audit schedule\nThe surveillance audit is in March."
+    card = cards.read_card('{"kind": "invoice", "summary": "The audit is in March."}', mail)
+    assert card.kind == "email" and "kind:invoice" in card.dropped
+    other = cards.read_card('{"kind": "invoice", "summary": "Notes."}', "Some plain notes.")
+    assert other.kind == "other"
+
+
+def test_pronouns_are_not_people():
+    card = cards.read_card('{"kind": "invoice", "people": ["me", "Jordan Smith"]}', LETTER)
+    assert card.people == ("Jordan Smith",)
+
+
+def test_a_summary_with_a_number_the_document_lacks_is_dropped():
+    """The same run: "confirmed for March 2022" from an email that names no year."""
+    bad = cards.read_card('{"kind": "invoice", "summary": "Due in 2022 for 450.00."}', LETTER)
+    assert bad.summary == "" and "summary:a number not in the document" in bad.dropped
+    good = cards.read_card('{"kind": "invoice", "summary": "Invoice 1043 for 450.00, due 2024."}',
+                           LETTER)
+    assert good.summary == "Invoice 1043 for 450.00, due 2024."
 
 
 def test_a_currency_sign_becomes_its_code():

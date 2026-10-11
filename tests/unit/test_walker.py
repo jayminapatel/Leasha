@@ -952,3 +952,27 @@ def test_a_marked_folder_inside_a_repository_is_attributed(tmp_path: Path) -> No
         assert str(tmp_path / "code" / "app") in sink
     assert found == ["main.txt"]
     assert sink[str(tmp_path / "code" / "app")] == "work"
+
+
+def test_a_type_switched_off_in_settings_is_not_read(tmp_path):
+    """2026-10-12, found turning .svg and .epub off for the owner: the walk read the
+    packaged extractors.toml alone, so a type switched off in Settings > File types
+    (`<DATA_PATH>/extractors.toml`) was still read. `formats_from` is that folder."""
+    from app.index.walker import WalkConfig
+
+    choices = tmp_path / "data"
+    choices.mkdir()
+    (choices / "extractors.toml").write_text(
+        'schema_version = 1\n[extensions]\n".txt" = { enabled = false }\n', encoding="utf-8")
+
+    assert ".txt" in WalkConfig(roots=[tmp_path]).resolved_extensions()
+    assert ".txt" not in WalkConfig(roots=[tmp_path], formats_from=choices).resolved_extensions()
+
+
+def test_svg_and_epub_ship_switched_off():
+    """The owner, 2026-10-12: "turn svg and epub off now and as default"."""
+    from app.index.walker import WalkConfig
+
+    extensions = WalkConfig(roots=[]).resolved_extensions()
+    assert ".svg" not in extensions and ".epub" not in extensions
+    assert ".pdf" in extensions and ".fb2" in extensions

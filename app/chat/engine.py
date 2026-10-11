@@ -689,7 +689,11 @@ class ChatEngine:
                 break
             say(f"Looking for {side}...")
             sub = make_plan(side, self.store, today=self.today)
-            sub.filters = list(dict.fromkeys(plan.filters + sub.filters))
+            # The question's type and mail filters apply to every side; its dates do not -
+            # "the 2023 lease and the 2024 lease" read as one question is both years at once,
+            # and a side carrying both found nothing (measured 2026-10-12 with the real model).
+            shared = [f for f in plan.filters if not f.startswith(("after:", "before:"))]
+            sub.filters = list(dict.fromkeys(shared + sub.filters))
             got = self._retrieve(sub, say, stop, {}, lenient=True)
             per_side.append(list(got.results))
             out.sides.append({int(getattr(r, "file_id", 0) or 0) for r in got.results[:3]})

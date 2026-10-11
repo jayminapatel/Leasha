@@ -56,6 +56,9 @@ def test_a_comparison_brings_both_sides_to_the_model(env):
 
     assert turn.debug["shape"] == COMPARE
     assert turn.debug["sides"] == ["2023 tenancy agreement", "2024 tenancy agreement"]
+    # Each side found something of its own: the question's "2023" date filter once
+    # rode along into the 2024 side, which then found nothing (2026-10-12, real model).
+    assert all(turn.debug["side_files"]), turn.debug["side_files"]
     shown = " ".join(_names_in_prompt(llm))
     assert "tenancy-agreement-2023-expired.pdf" in shown
     assert "tenancy-agreement-2024.pdf" in shown
