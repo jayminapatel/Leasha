@@ -264,9 +264,13 @@ class LoopbackServer:
     browser is opened. `wait()` blocks, so call it from a worker thread (rule 5).
     """
 
-    def __init__(self, state: str, *, clock: Callable[[], float] = time.monotonic) -> None:
+    def __init__(self, state: str, *, clock: Callable[[], float] = time.monotonic,
+                 redirect_host: str = "127.0.0.1") -> None:
         self._state = state
         self._clock = clock
+        # What the browser is told to come back to. The socket below is bound to 127.0.0.1
+        # whatever this says: `localhost` is a name for the same machine, not another listener.
+        self._redirect_host = redirect_host
         # 127.0.0.1, never 0.0.0.0: nothing else on the network may answer or
         # inject a code.
         self._httpd = _Server(("127.0.0.1", 0), _Handler)
@@ -280,7 +284,7 @@ class LoopbackServer:
 
     @property
     def redirect_uri(self) -> str:
-        return f"http://127.0.0.1:{self.port}/"
+        return f"http://{self._redirect_host}:{self.port}/"
 
     def cancel(self) -> None:
         """Stop waiting (the person closed the dialog). Safe from any thread."""
@@ -490,7 +494,12 @@ def sign_in(config: OAuthClientConfig, transport: Transport, secrets: SecretStor
     verifier, challenge = generate_pkce()
     register_secret(verifier)
     state = _stdlib_secrets.token_urlsafe(24)
-    with LoopbackServer(state) as server:
+    # Microsoft ignores the port only when the host is `localhost` (Microsoft Learn, "Redirect URI
+    # best practices", Localhost exceptions): a registered `http://localhost` never matches
+    # `http://127.0.0.1:<port>/` and sign-in fails with invalid_request on redirect_uri. Google
+    # takes either, so it keeps the literal address.
+    host = "localhost" if config.provider == MICROSOFT else "127.0.0.1"
+    with LoopbackServer(state, redirect_host=host) as server:
         url = build_auth_url(config, redirect_uri=server.redirect_uri, state=state, challenge=challenge,
                              scopes=scopes_for(config.provider, mail=mail, contacts=contacts),
                              login_hint=login_hint)

@@ -340,3 +340,37 @@ def test_token_manager_is_a_token_source(store):
     from app.accounts.provider import TokenSource  # noqa: F401 - a Callable alias; calling it is the contract
     tm = TokenManager("x", store, FakeTransport(_ok("A")), GOOGLE)
     assert callable(tm) and callable(tm.as_source())
+
+
+class _Seen(Exception):
+    pass
+
+
+def _redirect_sent(provider, secrets):
+    """Start a sign-in and read the redirect_uri it tells the browser to use; never waits."""
+    from urllib.parse import parse_qs, urlparse
+
+    from app.accounts.oauth import OAuthClientConfig, sign_in
+
+    def grab(url):
+        raise _Seen(parse_qs(urlparse(url).query)["redirect_uri"][0])
+
+    cfg = OAuthClientConfig(provider, client_id="cid", client_secret="sec" if provider == "google" else "")
+    with pytest.raises(_Seen) as seen:
+        sign_in(cfg, None, secrets, account_id=1, open_browser=grab)
+    return str(seen.value)
+
+
+def test_microsoft_is_sent_localhost_because_it_ignores_the_port_only_there(tmp_path):
+    """2026-10-11, the owner: Microsoft sign-in said the redirect_uri was not a registered one.
+
+    Microsoft matches a registered `http://localhost` whatever the port, and never matches the
+    literal `127.0.0.1`; Google takes the literal address. The socket stays on 127.0.0.1.
+    """
+    from tests.unit.accounts_ui_fakes import MemoryKeyring
+    from app.accounts.secrets import SecretStore
+
+    secrets = SecretStore(backend=MemoryKeyring())
+    ms = _redirect_sent("microsoft", secrets)
+    assert ms.startswith("http://localhost:") and ms.endswith("/")
+    assert _redirect_sent("google", secrets).startswith("http://127.0.0.1:")
