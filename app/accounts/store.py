@@ -134,6 +134,16 @@ class AccountSettings:
     brake_count: int = 20
     brake_percent: float = 5.0
     dry_run_first: bool = False                   # True: the first sync of an account waits for Approve
+    # 2026-10-11, the owner: one account is the master list - what it deletes is deleted everywhere
+    # (to the Bin here, and from the other accounts), within the delete brake.
+    master_account_id: Optional[int] = None
+    # Keep every contact in every account that takes contacts back, so an add or an edit made in
+    # any account reaches all of them through the local master. Off: "Kept in" is chosen per contact.
+    mirror_contacts: bool = False
+    # A copy of the contact book (a vCard file and a small database of the contact tables) is
+    # written before a first sync and before a sync that deletes; the newest `contacts_backup_keep` stay.
+    backup_contacts: bool = True
+    contacts_backup_keep: int = 10
     notify_brake: bool = True
     notify_conflict: bool = True
     notify_signin: bool = True

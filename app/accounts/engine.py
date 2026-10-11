@@ -68,6 +68,7 @@ class Plan:
     merge_in: int = 0             # contacts already linked whose account side changed
     possible_duplicates: int = 0  # new from the account but matching a contact already here
     flagged_deleted: int = 0      # deleted at the account (kept here, D7.1)
+    deleted_in: int = 0           # deleted at the master account, so deleted here and at the others
     create_out: int = 0           # written to the account for the first time
     update_out: int = 0
     delete_out: int = 0
@@ -80,8 +81,8 @@ class Plan:
 
     def to_json(self) -> dict:
         return {k: getattr(self, k) for k in (
-            "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "create_out", "update_out",
-            "delete_out", "conflicts", "held_conflicts")} | {"names": self.names}
+            "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "deleted_in", "create_out",
+            "update_out", "delete_out", "conflicts", "held_conflicts")} | {"names": self.names}
 
     @property
     def added(self) -> int:
@@ -93,7 +94,7 @@ class Plan:
 
     @property
     def deleted(self) -> int:
-        return self.delete_out
+        return self.delete_out + self.deleted_in
 
     @property
     def held(self) -> int:
@@ -121,6 +122,8 @@ class _Ctx:
     trigger: str
     cancel: Callable[[], bool]
     full_seen: set[str] = field(default_factory=set)
+    master: bool = False                                      # this account is the master list
+    master_gone: set[int] = field(default_factory=set)        # contacts the master no longer has
 
 
 class ContactSyncEngine:
@@ -152,18 +155,28 @@ class ContactSyncEngine:
             run_id = self.accounts.start_run(acct, "contacts", trigger, dry_run=dry)
             out = SyncOutcome(acct.id, acct.name, run_id, "running")
             outcomes[acct.id] = out
-            ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel)
+            ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel,
+                       master=acct.id == settings.master_account_id)
             out.needs_approval = first_pending
             try:
                 self.accounts.record_attempt(acct.id, "contacts")
                 provider = self.provider_for(acct)
                 providers[acct.id] = provider
                 self._pull(acct, provider, ctx, settings)
+                if ctx.master and not ctx.dry:
+                    self._apply_master_deletes(acct, ctx, settings, allow_brake)
                 if ctx.dry:
                     self._plan_outbound(acct, provider, ctx)
                     out.status = "needs-approval" if first_pending else "dry-run"
+            except _Held as held:
+                out.status, out.error = "held", held.error
             except Exception as exc:                          # noqa: BLE001 - one account never stops the rest
                 self._fail(acct, out, exc)
+        if settings.mirror_contacts and not dry_run:
+            targets = [a.id for a in chosen if a.writes_contacts and outcomes[a.id].status == "running"
+                       and (a.first_sync_done or not settings.dry_run_first or approve_first)]
+            if len(targets) > 1:
+                self.hub.mirror_to(targets)                   # every contact, in every account that takes them
         for acct in chosen:                                  # phase 2: push
             out = outcomes[acct.id]
             if out.status != "running" or not acct.writes_contacts:
@@ -261,10 +274,47 @@ class ContactSyncEngine:
             for r in conn.execute("SELECT contact_id, remote_id FROM contact_links WHERE account_id = ? "
                                   "AND state = 'synced' AND remote_id IS NOT NULL", (acct.id,)).fetchall():
                 if r["remote_id"] not in ctx.full_seen:
+                    if ctx.master:
+                        ctx.master_gone.add(r["contact_id"])
+                        continue
                     self.hub.flag_deleted_remote(r["contact_id"], acct.id, sync_id=ctx.run_id, conn=conn)
                     ctx.plan.flagged_deleted += 1
             self.accounts.save_token(acct.id, "contacts", self.accounts.state(acct.id, "contacts").token,
                                      extra={"full_in_progress": False, "seen": []}, conn=conn)
+
+    def _apply_master_deletes(self, acct: Account, ctx: _Ctx, settings: AccountSettings,
+                              allow_brake: bool) -> None:
+        """What the master account no longer holds is deleted here (to the Bin, so it can be put
+        back) and, at the next push, at the other accounts.
+
+        The delete brake stands in front of it: a master that suddenly returns nothing - an outage,
+        a revoked permission - must not empty the book. Past the limit the contacts are only
+        flagged "deleted elsewhere" and the run is held; pressing Allow carries them out, because
+        a flagged contact of the master counts again on every later sync."""
+        hub = self.hub
+        gone = set(ctx.master_gone)
+        for r in self.store.conn.execute(
+                "SELECT l.contact_id FROM contact_links l JOIN contacts c ON c.id = l.contact_id "
+                "WHERE l.account_id = ? AND l.state = 'deleted_remote' AND c.deleted_at IS NULL", (acct.id,)):
+            gone.add(int(r[0]))
+        alive = sorted(c for c in gone if (m := hub.contact_meta(c)) is not None and m["deleted_at"] is None)
+        if not alive:
+            return
+        book = max(1, hub.count(include_bin=True))
+        too_many = len(alive) > settings.brake_count or (len(alive) > 1 and len(alive) > book * settings.brake_percent / 100.0)
+        if too_many and not allow_brake:
+            for cid in alive:
+                hub.flag_deleted_remote(cid, acct.id, sync_id=ctx.run_id)
+            ctx.plan.flagged_deleted += len(alive)
+            err = make_error("ERR_SYNC_DELETE_BRAKE", "accounts.engine", count=len(alive), account=acct.name)
+            self.accounts.finish_run(ctx.run_id, "held", error_code=err.code, error_text=err.message,
+                                     plan=ctx.plan.to_json(), held=len(alive))
+            raise _Held(err)
+        for cid in alive:
+            ctx.plan.note("deleted_in", self._name(cid))
+            hub.drop_link(cid, acct.id)                       # already gone there: nothing to delete
+            hub.delete(cid, actor=f"account:{acct.id}", sync_id=ctx.run_id)
+            ctx.plan.deleted_in += 1
 
     def _inbound(self, acct: Account, provider: ContactProvider, rc: RemoteContact, ctx: _Ctx) -> None:
         caps = provider.caps
@@ -280,6 +330,13 @@ class ContactSyncEngine:
                 return
             if link.state == "deleted_remote":
                 return
+            if ctx.master:                                    # the master's delete is everyone's
+                if ctx.dry:
+                    ctx.plan.deleted_in += 1
+                    ctx.plan.note("deleted_in", self._name(link.contact_id))
+                else:
+                    ctx.master_gone.add(link.contact_id)
+                return
             ctx.plan.flagged_deleted += 1
             ctx.plan.note("flagged_deleted", self._name(link.contact_id))
             if not ctx.dry:
@@ -287,6 +344,20 @@ class ContactSyncEngine:
             return
         remote_card = project(rc.card, caps, hub.region)
         remote_ms = int(rc.edited_at * 1000) if rc.edited_at else int(self._clock() * 1000)
+        if link is None:
+            same = self._same_person(remote_card, acct)
+            if same is not None:
+                # The master already holds this person (the same email or mobile, and a name that
+                # agrees): the account's record becomes one more link of that contact, not a second
+                # contact. Anything less certain is added as a new contact and left to the
+                # Duplicates screen (D9).
+                ctx.plan.merge_in += 1
+                ctx.plan.note("merge_in", _label(remote_card))
+                if ctx.dry:
+                    return
+                hub.set_link(same, acct.id, remote_id=rc.remote_id, version_tag=rc.version, snapshot=None,
+                             hub_rev=-1, state="synced")
+                link = hub.link_by_remote(acct.id, rc.remote_id)
         if link is None:                                      # new here: a new contact, never auto-merged (D9)
             ctx.plan.add_in += 1
             ctx.plan.note("add_in", _label(remote_card))
@@ -347,6 +418,32 @@ class ContactSyncEngine:
         self.hub.note(cid, f"account:{acct.id}", "conflict", sync_id=ctx.run_id,
                       detail={"unit": c.unit, "local": _jsonable(c.local), "remote": _jsonable(c.remote),
                               "winner": c.winner})
+
+    def _same_person(self, card: Card, acct: Account) -> Optional[int]:
+        """The one contact in the master that is certainly this person, or None.
+
+        Certain means: it shares an email address or a mobile number with `card`, that value is
+        not one marked as shared, the names agree, the account holds no record for it yet, and
+        no other contact qualifies as well (two candidates is a doubt, so nothing is joined)."""
+        from app.contacts import dupes, phone as phones  # noqa: PLC0415
+        hub = self.hub
+        shared = hub.shared_values()
+        found: set[int] = set()
+        for f in card.fields:
+            if f.kind == "email" and f.value and f"email:{f.value.strip().casefold()}" not in shared:
+                found.update(hub.find_by_email(f.value))
+            elif f.kind == "phone" and f.value and phones.is_mobile(f.value, hub.region):
+                e164 = phones.normalise(f.value, hub.region)
+                if e164 and f"phone:{e164}" not in shared:
+                    found.update(hub.find_by_phone(f.value))
+        good: list[int] = []
+        for cid in sorted(found):
+            if hub.link(cid, acct.id) is not None:
+                continue
+            other = hub.get_card(cid)
+            if other is not None and dupes.names_compatible(other, card):
+                good.append(cid)
+        return good[0] if len(good) == 1 else None
 
     def _lookalikes(self, card: Card) -> list[int]:
         out: list[int] = []
@@ -428,9 +525,25 @@ class ContactSyncEngine:
             return
         sent = project(card, provider.caps, self.hub.region)
         remote_id, version = provider.create(sent)
-        self.hub.set_link(cid, acct.id, remote_id=remote_id, version_tag=version, snapshot=sent,
+        self.hub.set_link(cid, acct.id, remote_id=remote_id, version_tag=version,
+                          snapshot=self._held_after_write(provider, remote_id, sent),
                           hub_rev=self.hub.contact_meta(cid)["rev"], state="synced")
         ctx.plan.create_out += 1
+
+    def _held_after_write(self, provider: ContactProvider, remote_id: str, sent: Card) -> Card:
+        """What the account now holds for the record just written, as the merge base.
+
+        An account silently keeps less than it was sent (Outlook holds three emails and one web
+        page; a primary flag is not stored). Taking `sent` as the base would make the next pull
+        read the missing values as *deleted at the account* and take them out of Leasha. The
+        read-back keeps the base honest: Leasha keeps the extra, the account never had it."""
+        try:
+            fresh = provider.get(remote_id)
+            if fresh is not None and fresh.card is not None:
+                return project(fresh.card, provider.caps, self.hub.region)
+        except Exception:                                     # noqa: BLE001 - the base falls back to what was sent
+            _log.debug("read-back of {} failed; using what was sent", remote_id, exc_info=True)
+        return sent
 
     def _remote_update(self, acct: Account, provider: ContactProvider, link: Any, cid: int, ctx: _Ctx) -> None:
         caps = provider.caps
@@ -460,7 +573,8 @@ class ContactSyncEngine:
                     return
                 self._inbound(acct, provider, fresh, ctx)
                 continue
-            hub.set_link(cid, acct.id, remote_id=link.remote_id, version_tag=version, snapshot=sent,
+            hub.set_link(cid, acct.id, remote_id=link.remote_id, version_tag=version,
+                         snapshot=self._held_after_write(provider, link.remote_id, sent),
                          hub_rev=rev, state="synced")
             ctx.plan.update_out += 1
             return

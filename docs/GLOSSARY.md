@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.13 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.14 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -200,6 +200,9 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Delete brake | The stop on a sync that would delete more contacts than the safety limit (20 contacts or 5% of the book by default). Nothing is deleted until the person presses Allow | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety** |
 | Deleted elsewhere | A contact an account no longer has. Leasha and the other accounts keep it; it is listed for the person to look at, never deleted on a hunch | Contacts sidebar, **Deleted elsewhere**; `contact_links.state = 'deleted_remote'` |
 | Direction | What a contact sync may do with one account: **Two-way** (read it and write to it; the default for every account, work accounts included), **Into Leasha only** (read it, never write), or **Off** | Settings > Accounts, the account's **Contacts** tab |
+| Master account | The account whose contact list is the master: what it deletes is deleted from Leasha's book (into the Bin) and from the other accounts, behind the delete brake. Leasha's own book is the master *copy*; this chooses whose deletes count | Settings > Accounts > Keeping contacts in step; `master_account_id` |
+| Mirror | Keeping every contact in every account that takes contacts back, so an add or an edit in any one reaches all | `mirror_contacts` |
+| Shared number | A phone number or email address held by different people (an office landline, a family mailbox); it never matches contacts to each other | `contacts:shared_values`; "Not a duplicate" |
 | Dry run | A sync that reads and plans and writes nothing: not Leasha, not the account, not the saved position. The first sync of an account is one until the person presses Approve, when the option "Dry run before an account's first sync" is on (it is off by default) | `ERR_SYNC_NEEDS_APPROVAL`; `contacts sync --dry-run` |
 | Enrichment | Proposed additions to a contact (a phone number from a signature, a company from an email domain, a photo from a named face, and three optional internet look-ups: Gravatar, a company's own icon, Wikidata for companies). Nothing is kept until the person accepts it, and each internet source is off by default | `app/contacts/enrich/`; hosts pinned in `app/accounts/http.py` |
 | Hub | Leasha's own master copy of the contact book. Accounts are copies that are kept in step with it, not the source | `ContactHub`, `app/contacts/hub.py`; SQLite is the authority (rule 6) |

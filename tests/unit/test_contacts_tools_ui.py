@@ -55,9 +55,9 @@ def test_every_door_is_registered():
 
 def _seed_duplicates(world):
     safe_a = [world.add("Ann", "Lee", email="ann@x.example", company="Acme"),
-              world.add("A.", "Lee", email="ANN@x.example", phone="07700 900123")]
-    safe_b = [world.add("Cy", "Reed", phone="+44 7700 900555"),
-              world.add("Cyrus", "Reed", phone="07700 900555")]
+              world.add("A.", "Lee", email="ANN@x.example", phone="07911 123456")]
+    safe_b = [world.add("Cy", "Reed", phone="+44 7912 345678"),
+              world.add("Cyrus", "Reed", phone="07912 345678")]
     name_only = [world.add("Bob", "Stone", email="bob@one.example", company="Widgets"),
                  world.add("Bob", "Stone", email="bob@two.example", company="Widgets")]
     alone = world.add("Dee", "Unique", email="dee@x.example")
@@ -186,7 +186,7 @@ def _merge_world(world):
     acc = world.accounts.add("google", "me@example.com", "Home")
     a = world.add("Ann", "Lee", email="ann@x.example", company="Acme", title="Buyer", kept_in=[acc])
     card_b = Card(scalars={"given": "Ann", "family": "Lee", "company": "Acme Ltd", "notes": "met in May"},
-                  fields=[Field("email", "ann@x.example", "home"), Field("phone", "07700 900123", "mobile"),
+                  fields=[Field("email", "ann@x.example", "home"), Field("phone", "07911 123456", "mobile"),
                           Field("social", "@annlee", "twitter")],
                   photo=Photo("image/png", b"\x89PNG-fake"))
     b = world.hub.create(card_b)
@@ -238,7 +238,7 @@ def test_each_account_in_the_kept_in_set_is_shown_what_it_will_be_sent(world, qt
     sent = dlg.sent_texts()
     assert list(sent) == [acc]
     lines = " | ".join(sent[acc])
-    assert "ann@x.example" in lines and "07700 900123" in lines
+    assert "ann@x.example" in lines and "07911 123456" in lines
     assert "@annlee" not in lines.split("Not sent to this account")[0]      # the account cannot hold a social handle
     assert "Not sent to this account" in lines and "social" in lines.lower()
     assert "Photo" not in lines.split("Not sent to this account")[0]        # nor a photo
@@ -256,7 +256,7 @@ def test_without_capabilities_the_full_card_is_shown(world, qtbot):
 
 def test_a_merge_with_no_account_says_nothing_is_sent(world, qtbot):
     a = world.add("Ann", "Lee", email="ann@x.example")
-    b = world.add("Ann", "Lee", phone="07700 900123")
+    b = world.add("Ann", "Lee", phone="07911 123456")
     dlg = open_dialog(qtbot, MergeDialog, world.ctx, [a, b])
     assert dlg.sent_tree.topLevelItemCount() == 0 and "only" in dlg.sent_note.text().lower()
 
@@ -396,7 +396,7 @@ def _vcf(tmp_path):
 
 
 def test_preview_lists_every_card_and_the_duplicates_and_adds_nothing(world, qtbot, tmp_path):
-    existing = world.add("Ann", "Lee", email="ANN@x.example", phone="07700 900123")
+    existing = world.add("Ann", "Lee", email="ANN@x.example", phone="07911 123456")
     path = _vcf(tmp_path)
     before = (hashlib.sha256(path.read_bytes()).hexdigest(), path.stat().st_mtime_ns)
     book = {i: c.dumps() for i, c in world.live().items()}
@@ -417,7 +417,7 @@ def test_preview_lists_every_card_and_the_duplicates_and_adds_nothing(world, qtb
 
 
 def test_the_import_is_one_batch_and_one_undo(world, qtbot, tmp_path):
-    existing = world.add("Ann", "Lee", email="ann@x.example", phone="07700 900123")
+    existing = world.add("Ann", "Lee", email="ann@x.example", phone="07911 123456")
     book = {i: c.dumps() for i, c in world.live().items()}
     dlg = open_dialog(qtbot, ImportDialog, world.ctx)
     dlg.load_files([_vcf(tmp_path)])
@@ -431,7 +431,7 @@ def test_the_import_is_one_batch_and_one_undo(world, qtbot, tmp_path):
     assert len(live) == 2                                      # Ann (merged), Nina (+ Nick folded in); Peter skipped
     ann = world.hub.get_card(existing)
     assert ann.get("title") == "Buyer" and ann.get("company") == "Acme"
-    assert {f.value for f in ann.values("phone")} == {"07700 900123"}      # the existing phone is kept
+    assert {f.value for f in ann.values("phone")} == {"07911 123456"}      # the existing phone is kept
     nina = next(c for i, c in live.items() if i != existing)
     assert {f.value for f in nina.values("email")} == {"nina@x.example"} and nina.values("phone")
     assert len(_batches(world)) == 1                           # ONE journal batch
@@ -459,7 +459,7 @@ def test_import_into_the_default_account_is_offered_and_chosen(world, qtbot, tmp
 
 def test_unknown_csv_asks_for_a_mapping_then_previews(world, qtbot, tmp_path):
     path = tmp_path / "odd.csv"
-    path.write_text("Full name;Mail;Mobile no;Employer;Weird\nAnn Lee;ann@x.example;07700 900123;Acme;zzz\n", encoding="utf-8")
+    path.write_text("Full name;Mail;Mobile no;Employer;Weird\nAnn Lee;ann@x.example;07911 123456;Acme;zzz\n", encoding="utf-8")
     dlg = open_dialog(qtbot, ImportDialog, world.ctx)
     dlg.load_files([path])
     settle(qtbot)

@@ -35,10 +35,27 @@ _SPARE_FOLDERS = ("\\downloads\\", "\\temp\\", "\\tmp\\", "\\$recycle.bin\\", "\
 _SPARE_NAME = re.compile(r"(^copy of )|( - copy( \(\d+\))?$)|( \(\d+\)$)", re.IGNORECASE)
 
 
-def in_spare_folder(path: str) -> bool:
-    """True for a file in a Downloads, temp or recycle folder."""
+def in_spare_folder(path: str, base: str = "") -> bool:
+    """True for a file in a Downloads, temp or recycle folder.
+
+    `base` is the folder every copy of the set shares: only what lies *below* it says which copy is
+    the spare one. A whole set that sits under `AppData\\Local\\Temp` (a scratch index, a test) has
+    no spare copy because of that - the copies differ in their own folders, not in that one."""
     low = "\\" + path.replace("/", "\\").lower()
+    if base and low.startswith("\\" + base.replace("/", "\\").lower().rstrip("\\") + "\\"):
+        low = low[len(base.rstrip("\\")):]
     return any(folder in low for folder in _SPARE_FOLDERS)
+
+
+def shared_folder(paths: list) -> str:
+    """The deepest folder all of `paths` lie in, or "" when they share none (other drives)."""
+    import ntpath
+
+    folders = [ntpath.dirname(p.replace("/", "\\")) for p in paths]
+    try:
+        return ntpath.commonpath([f.lower() for f in folders]) if len(folders) > 1 else ""
+    except ValueError:                          # different drives
+        return ""
 
 
 def named_like_a_copy(path: str) -> bool:
@@ -69,7 +86,8 @@ def keeper(tset: TidySet, rule: str,
     # The folder first, then the name on its own: when every copy is in Downloads (or
     # the whole folder sits under a temp path), "Report - Copy.pdf" still loses to
     # "Report.pdf" - found grabbing the page from a scratch index under AppData\Temp.
-    return min(files, key=lambda f: (in_spare_folder(f.path), named_like_a_copy(f.path),
+    base = shared_folder([f.path for f in files])
+    return min(files, key=lambda f: (in_spare_folder(f.path, base), named_like_a_copy(f.path),
                                      f.mtime_ns, len(f.name), f.path))
 
 

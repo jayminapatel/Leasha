@@ -90,6 +90,43 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
                   + (f"  {r.error_code}" if r.error_code else "") + ("  (undone)" if r.undone_at else ""))
         return EXIT_OK
 
+    if action == "backup":
+        path = svc.backup_contacts("manual")
+        print(f"Wrote {path.with_suffix('.vcf')} and {path}")
+        return EXIT_OK
+
+    if action == "unmerge":
+        accounts: set[int] = set()
+        if args.all:
+            batches = svc.hub.merge_batches()
+            if not args.yes:
+                print(f"This undoes all {len(batches)} merges still standing: every merged contact becomes its own "
+                      "contact again, linked to the one account it came from. Nothing is deleted at any "
+                      "account. A copy of the book is written first. Add --yes to go ahead.")
+                return EXIT_ERROR
+            print(f"Copy written: {svc.backup_contacts('before-undo-merges')}")
+            res = svc.hub.undo_all_merges(actor="cli")
+            print(f"Undid {len(batches)} merges ({res.undone} changes, {res.skipped} skipped). "
+                  f"{svc.hub.count()} contacts in the book.")
+            return EXIT_OK
+        if args.survivor:
+            for raw in args.ids:
+                done = svc.hub.rebuild_merged(int(raw), actor="cli")
+                print(f"{raw}: " + ("rebuilt from its own card and the contacts still folded into it" if done
+                                    else "left as it is (edited since the merge, or never merged)"))
+            return EXIT_OK
+        for raw in args.ids:
+            res = svc.hub.unmerge(int(raw), actor="cli")
+            if not res.restored:
+                print(f"{raw}: not a merged contact - nothing to do")
+                continue
+            accounts |= res.accounts
+            print(f"{raw}: given back as a person of their own"
+                  + (f"; contact {res.survivor} rebuilt without them" if res.survivor_rebuilt
+                     else f"; contact {res.survivor} left as it is (edited since the merge)"))
+        print("The next sync writes the change to the accounts.")
+        return EXIT_OK
+
     if action == "undo":
         if args.entry:
             res = svc.hub.undo_entry(int(args.target))
@@ -141,6 +178,13 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     u = c.add_parser("undo", parents=[common], help="undo a whole sync (or one journal entry)")
     u.add_argument("target", help="sync log id (or a journal id with --entry)")
     u.add_argument("--entry", action="store_true")
+    c.add_parser("backup", parents=[common], help="copy the contact book now (a vCard file and the contact tables)")
+    um = c.add_parser("unmerge", parents=[common], help="give a wrongly merged contact back as its own person")
+    um.add_argument("ids", nargs="*", help="the contact id(s) that were folded into another")
+    um.add_argument("--all", action="store_true", help="undo every merge still standing (needs --yes)")
+    um.add_argument("--yes", action="store_true", help="really do it")
+    um.add_argument("--survivor", action="store_true",
+                    help="the ids are the contacts others were folded into: rebuild each without the people given back")
     ls = c.add_parser("list", parents=[common], help="list or search contacts")
     ls.add_argument("--text")
     ls.add_argument("--view", default="all",

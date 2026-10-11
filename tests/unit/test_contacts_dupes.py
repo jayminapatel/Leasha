@@ -25,8 +25,8 @@ def groups_by_ids(result):
 def test_exact_email_and_exact_phone_are_safe():
     items = [(1, c("Ann", "Lee", email=["Ann@X.example"])),
              (2, c("A.", "Lee", email=[" ann@x.example "])),
-             (3, c("Bob", "Bell", phone=["07700 900123"])),
-             (4, c("Robert", "B", phone=["+44 7700 900123"])),
+             (3, c("Bob", "Bell", phone=["07911 123456"])),
+             (4, c("Bob", "B.", phone=["+44 7911 123456"])),
              (5, c("Cy", "Cox", email=["cy@x.example"]))]
     g = groups_by_ids(dupes.scan_duplicates(items, set()))
     assert set(g) == {frozenset({1, 2}), frozenset({3, 4})}
@@ -53,8 +53,8 @@ def test_name_and_company_is_a_suggestion_with_higher_confidence_than_name_alone
 
 def test_confidence_ordering_is_deterministic_and_safe_first():
     items = [(10, c("Zed", "Zulu")), (11, c("Zed", "Zulu")),
-             (20, c("A", "A", email=["e@x.example"])), (21, c("B", "B", email=["e@x.example"])),
-             (30, c("C", "C", phone=["07700 900123"])), (31, c("D", "D", phone=["07700900123"])),
+             (20, c("Ann", "Aa", email=["e@x.example"])), (21, c("A.", "Aa", email=["e@x.example"])),
+             (30, c("Cy", "Cox", phone=["07911 123456"])), (31, c("C.", "Cox", phone=["07911123456"])),
              (40, c("Ann", "Lee", company="Acme")), (41, c("Ann", "Lee", company="Acme"))]
     first = dupes.scan_duplicates(items, set())
     again = dupes.scan_duplicates(list(items), set())
@@ -90,16 +90,16 @@ def test_a_chain_through_a_name_is_not_safe_and_keeps_its_safe_core_separate():
 
 
 def test_only_exact_e164_is_safe_a_loose_digit_match_is_not():
-    items = [(1, c("A", "A", phone=["12345678901234567"])), (2, c("B", "B", phone=["1234 5678 9012 34567"]))]
+    items = [(1, c("Ann", "Aa", phone=["12345678901234567"])), (2, c("A.", "Aa", phone=["1234 5678 9012 34567"]))]
     (g,) = dupes.scan_duplicates(items, set())
     assert not g.safe and "digits" in g.reasons[0]
-    short = [(1, c("A", "A", phone=["123"])), (2, c("B", "B", phone=["123"]))]
+    short = [(1, c("Ann", "Aa", phone=["123"])), (2, c("A.", "Aa", phone=["123"]))]
     assert dupes.scan_duplicates(short, set()) == []
 
 
 def test_a_rejected_pair_is_not_suggested_again_after_a_rescan():
     items = [(1, c("Ann", "Lee", email=["a@x.example"])), (2, c("Ann", "Lee", email=["a@x.example"])),
-             (3, c("Bob", "Bell", phone=["07700 900123"])), (4, c("Bo", "B", phone=["07700 900123"]))]
+             (3, c("Bob", "Bell", phone=["07911 123456"])), (4, c("B.", "B.", phone=["07911 123456"]))]
     first = dupes.scan_duplicates(items, set())
     assert len(first) == 2
     rejected = {(2, 1)}                                                              # either order
@@ -111,8 +111,8 @@ def test_a_rejected_pair_is_not_suggested_again_after_a_rescan():
 
 
 def test_group_where_a_rejected_pair_is_linked_through_a_third_is_not_safe():
-    items = [(1, c("A", "A", email=["x@x.example"])), (2, c("B", "B", email=["x@x.example"])),
-             (3, c("C", "C", email=["x@x.example"]))]
+    items = [(1, c("Ann", "Aa", email=["x@x.example"])), (2, c("A.", "Aa", email=["x@x.example"])),
+             (3, c("A", "Aa", email=["x@x.example"]))]
     assert dupes.scan_duplicates(items, set())[0].safe
     (g,) = dupes.scan_duplicates(items, {(1, 2)})
     assert not g.safe and set(g.ids) == {1, 2, 3}
@@ -131,10 +131,10 @@ def test_blank_cards_do_not_match_each_other():
 
 def test_merge_unions_repeatable_fields_and_first_non_empty_scalar_wins():
     a = c("Ann", "Lee", email=["a@x.example"], company="Acme", title="")
-    a.fields.append(Field("phone", "07700 900123", "mobile"))
+    a.fields.append(Field("phone", "07911 123456", "mobile"))
     a.groups = ["Family"]
     b = c("Annie", "Lee", email=["A@X.example", "b@x.example"], company="Other", title="Buyer")
-    b.fields.append(Field("phone", "+44 7700 900123", "work"))
+    b.fields.append(Field("phone", "+44 7911 123456", "work"))
     b.groups = ["family", "Work"]
     b.favourite = True
     b.photo = Photo("image/png", TINY_PNG)
@@ -142,7 +142,7 @@ def test_merge_unions_repeatable_fields_and_first_non_empty_scalar_wins():
     m = pv.card
     assert (m.get("given"), m.get("company"), m.get("title")) == ("Ann", "Acme", "Buyer")
     assert [f.value for f in m.values("email")] == ["a@x.example", "b@x.example"]
-    assert [f.value for f in m.values("phone")] == ["07700 900123"]                  # same number: one value, first label
+    assert [f.value for f in m.values("phone")] == ["07911 123456"]                  # same number: one value, first label
     assert m.values("phone")[0].label == "mobile"
     assert m.groups == ["Family", "Work"] and m.favourite and m.photo is not None
     assert pv.field_sources["s:given"] == [0] and pv.field_sources["s:title"] == [1]
@@ -183,3 +183,56 @@ def test_merge_adopts_a_label_the_first_copy_lacks():
     assert f.label == "work" and f.primary
     with pytest.raises(ValueError):
         dupes.merge_cards([])
+
+
+# ---- shared lines are not people (the owner, 2026-10-11) ---------------------------
+
+OFFICE = "020 7946 0018"          # a London landline
+MOBILE = "07911 123456"           # a mobile
+
+
+def test_people_who_share_an_office_landline_are_not_duplicates():
+    items = [(1, c("Alaa", "Arawi", phone=[OFFICE, "07911 111111"])),
+             (2, c("Stephen", "Tagg", phone=[OFFICE, "07911 222222"])),
+             (3, c("Pradeep", "Vishvanathan", phone=[OFFICE]))]
+    assert dupes.scan_duplicates(items, set()) == []
+
+
+def test_the_same_person_twice_on_a_landline_is_a_suggestion_never_safe():
+    items = [(1, c("Ann", "Lee", phone=[OFFICE])), (2, c("Ann", "Lee", phone=[OFFICE]))]
+    (g,) = dupes.scan_duplicates(items, set())
+    assert not g.safe and "same landline and name" in g.reasons
+
+
+def test_different_names_on_one_mobile_or_one_email_are_not_duplicates_either():
+    items = [(1, c("Ann", "Lee", phone=[MOBILE], email=["family@x.example"])),
+             (2, c("Joe", "Lee", phone=[MOBILE], email=["family@x.example"]))]
+    assert dupes.scan_duplicates(items, set()) == []
+
+
+def test_the_same_mobile_with_the_same_person_in_two_accounts_is_still_safe():
+    items = [(1, c("Ann", "Lee", phone=[MOBILE])), (2, c("A.", "Lee", phone=["+44 7911 123456"]))]
+    (g,) = dupes.scan_duplicates(items, set())
+    assert g.safe and g.reasons == ("same phone",)
+
+
+def test_a_number_marked_shared_never_makes_a_match():
+    items = [(1, c("Ann", "Lee", phone=[MOBILE])), (2, c("Ann", "Lee", phone=[MOBILE]))]
+    assert dupes.scan_duplicates(items, set(), shared={"phone:+447911123456"})[0].reasons == ("same name",)
+    mail = [(1, c("Ann", "Lee", email=["a@x.example"])), (2, c("Ann", "Lee", email=["A@X.example"]))]
+    assert dupes.scan_duplicates(mail, set(), shared={"email:a@x.example"})[0].reasons == ("same name",)
+
+
+def test_shared_keys_names_what_two_cards_both_hold():
+    a = c("Ann", "Lee", phone=[OFFICE, MOBILE], email=["A@x.example"])
+    b = c("Joe", "Lee", phone=["+44 20 7946 0018"], email=["j@x.example"])
+    assert dupes.shared_keys(a, b) == {"phone:+442079460018"}
+
+
+def test_names_compatible_in_the_cases_that_matter():
+    n = dupes.names_compatible
+    assert n(c("Ann", "Lee"), c("A.", "Lee")) and n(c("Manoj", "Patel"), c("Manoj Bhanubhai", "Patel"))
+    assert n(c("Johar", "Bin Yusof"), c("Johar", "Yusof")) and n(Card(), c("Ann", "Lee"))
+    assert not n(c("Alaa", "Arawi"), c("Stephen", "Tagg")) and not n(c("Ann", "Lee"), c("Joe", "Lee"))
+    assert not n(c(company="Progressive Impact"), c("Johar", "Bin Yusof"))
+    assert n(c(company="Acme Ltd"), c(company="Acme"))

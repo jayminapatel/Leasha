@@ -5,11 +5,21 @@ Layer: L7
 Order 1k 6n, 6o, D9. Pure: cards in, groups out; the hub shows them and the
 person decides.
 
-**What is safe (D9).** A group is `safe` only when every member is joined to the
-others by an exact normalised email address or an exact E.164 phone number. A
-name match, a name-and-company match and a loose digit match (a number the
-phone library cannot place) are suggestions: the person looks at each. That is
-what "Merge all safe matches" (6n.2) is allowed to touch, and nothing else.
+**What is safe (D9, tightened 2026-10-11).** A group is `safe` only when every member
+is joined to the others by an exact normalised email address or an exact E.164
+**mobile** number *and the two names are compatible*. Two people who share an office
+landline, a family line or a shared mailbox are not the same person, so:
+
+* a pair whose names disagree (different family names, or different first names) is
+  **never** an edge, whatever number or address they share;
+* a landline, a toll-free or an unplaceable number never makes a safe edge - with
+  compatible names it is a suggestion ("same landline and name"), never an
+  automatic merge;
+* a value the person has said is shared ("Not a duplicate" on two people who hold
+  it, or `shared` below) never makes an edge at all.
+
+A name match, a name-and-company match and a loose digit match are suggestions: the
+person looks at each. That is what "Merge all safe matches" (6n.2) is allowed to touch.
 
 **Groups.** Union-find over matching values. Safe edges are grouped first, so a
 safe pair that is also linked to a third contact by name alone stays a safe
@@ -31,7 +41,7 @@ from typing import Any, Hashable, Iterable, Optional
 from app.contacts import phone as phones
 from app.contacts.card import Card, Field, SCALARS, field_key, units
 
-__all__ = ["DuplicateGroup", "scan_duplicates", "safe_groups", "pairs_of", "MergePreview", "merge_cards",
+__all__ = ["DuplicateGroup", "scan_duplicates", "names_compatible", "shared_keys", "safe_groups", "pairs_of", "MergePreview", "merge_cards",
            "CONFIDENCE"]
 
 #: Confidence of each reason, 0..1. Exact matches sit above 0.9, everything a
@@ -40,11 +50,14 @@ __all__ = ["DuplicateGroup", "scan_duplicates", "safe_groups", "pairs_of", "Merg
 CONFIDENCE = {
     "same email": 0.97,
     "same phone": 0.95,
+    "same landline and name": 0.75,
     "same name and company": 0.70,
     "same phone digits": 0.60,
     "same name": 0.50,
 }
 _SAFE_REASONS = frozenset({"same email", "same phone"})
+#: Reasons that only count when the two names could be one person's.
+_NEEDS_NAMES = frozenset({"same email", "same phone", "same landline and name", "same phone digits"})
 
 Id = Hashable
 
@@ -95,7 +108,47 @@ def _fold(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
-def _edges(items: list[tuple[Id, Card]], region: str) -> dict[tuple, set[str]]:
+def _tokens(text: str) -> frozenset:
+    return frozenset(t for t in _fold(text).replace("-", " ").replace(".", " ").split() if t)
+
+
+def _nested(a: frozenset, b: frozenset) -> bool:
+    return bool(a) and bool(b) and (a <= b or b <= a)
+
+
+def _agree(a: frozenset, b: frozenset) -> bool:
+    """Same words, one the other with more words, an initial ("A." / "Ann") or a short form
+    that starts the long one ("Cy" / "Cyrus", "Rob" / "Robert")."""
+    if _nested(a, b):
+        return True
+    return any(y.startswith(x) for x in a for y in b) or any(x.startswith(y) for x in a for y in b)
+
+
+def names_compatible(a: Card, b: Card) -> bool:
+    """Could these two cards be the same person's name? Unknown counts as compatible.
+
+    Family names must agree (one may be the other with more words: "Bin Yusof" and "Yusof");
+    first names must agree, or one may be an initial or the other with more words ("Manoj"
+    and "Manoj Bhanu"). A company-only contact is compared by its company. A card with no
+    name and no company at all can be anyone, so it is compatible with everyone."""
+    ga, fa = _tokens(a.get("given")), _tokens(a.get("family"))
+    gb, fb = _tokens(b.get("given")), _tokens(b.get("family"))
+    if not (ga or fa) or not (gb or fb):
+        ca, cb = _tokens(a.get("company")), _tokens(b.get("company"))
+        a_org_only, b_org_only = not (ga or fa) and bool(ca), not (gb or fb) and bool(cb)
+        if a_org_only and b_org_only:
+            return _nested(ca, cb)
+        if a_org_only or b_org_only:
+            return False                              # a company against a person
+        return True                                   # one side has no name at all
+    if fa and fb and not _agree(fa, fb):
+        return False
+    if ga and gb and not _agree(ga, gb):
+        return False
+    return True
+
+
+def _edges(items: list[tuple[Id, Card]], region: str, shared: frozenset = frozenset()) -> dict[tuple, set[str]]:
     """{(index_a, index_b): reasons} over positions in `items` (a < b)."""
     buckets: dict[tuple[str, str], list[int]] = {}
 
@@ -108,11 +161,15 @@ def _edges(items: list[tuple[Id, Card]], region: str) -> dict[tuple, set[str]]:
     for i, (_id, card) in enumerate(items):
         for f in card.fields:
             if f.kind == "email":
-                put("same email", _fold(f.value), i)
+                key = _fold(f.value)
+                if key and f"email:{key}" not in shared:
+                    put("same email", key, i)
             elif f.kind == "phone":
                 e164 = phones.normalise(f.value, region)
                 if e164:
-                    put("same phone", e164, i)
+                    if f"phone:{e164}" in shared:
+                        continue
+                    put("same phone" if phones.is_mobile(f.value, region) else "same landline and name", e164, i)
                 else:
                     put("same phone digits", phones.digits_key(f.value), i)
         given, family = _fold(card.get("given")), _fold(card.get("family"))
@@ -125,6 +182,8 @@ def _edges(items: list[tuple[Id, Card]], region: str) -> dict[tuple, set[str]]:
     edges: dict[tuple, set[str]] = {}
     for (reason, _key), members in buckets.items():
         for a, b in combinations(members, 2):
+            if reason in _NEEDS_NAMES and not names_compatible(items[a][1], items[b][1]):
+                continue                              # a shared number or address is not a person
             edges.setdefault((a, b), set()).add(reason)
     for reasons in edges.values():
         if "same name and company" in reasons:
@@ -133,7 +192,7 @@ def _edges(items: list[tuple[Id, Card]], region: str) -> dict[tuple, set[str]]:
 
 
 def scan_duplicates(items: list[tuple[Id, Card]], rejected_pairs: set[tuple],
-                    region: str = phones.DEFAULT_REGION) -> list[DuplicateGroup]:
+                    region: str = phones.DEFAULT_REGION, shared: Iterable[str] = ()) -> list[DuplicateGroup]:
     """Groups of contacts that look like one person, best first.
 
     Order: confidence (high to low), then larger groups, then position in `items`;
@@ -143,7 +202,7 @@ def scan_duplicates(items: list[tuple[Id, Card]], rejected_pairs: set[tuple],
     rejected = {frozenset(p) for p in rejected_pairs}
     n = len(items)
     ids = [i for i, _ in items]
-    edges = {k: v for k, v in _edges(items, region).items()
+    edges = {k: v for k, v in _edges(items, region, frozenset(shared)).items()
              if frozenset((ids[k[0]], ids[k[1]])) not in rejected}
 
     # 1. components joined by safe edges only
@@ -206,6 +265,22 @@ def scan_duplicates(items: list[tuple[Id, Card]], rejected_pairs: set[tuple],
 
     out.sort(key=lambda t: (-t[0], -t[1], t[2], not t[3].safe))
     return [t[3] for t in out]
+
+
+def shared_keys(a: Card, b: Card, region: str = phones.DEFAULT_REGION) -> set[str]:
+    """The emails and numbers two cards both hold, as the keys `scan_duplicates(shared=)` takes:
+    what "Not a duplicate" teaches Leasha is a shared line or mailbox."""
+    def keys(card: Card) -> set[str]:
+        out: set[str] = set()
+        for f in card.fields:
+            if f.kind == "email" and _fold(f.value):
+                out.add(f"email:{_fold(f.value)}")
+            elif f.kind == "phone":
+                e164 = phones.normalise(f.value, region)
+                if e164:
+                    out.add(f"phone:{e164}")
+        return out
+    return keys(a) & keys(b)
 
 
 def safe_groups(groups: Iterable[DuplicateGroup]) -> list[DuplicateGroup]:

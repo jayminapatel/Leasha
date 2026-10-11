@@ -131,3 +131,18 @@ def test_an_arrow_key_moves_and_picks_as_the_list_always_did(side):
     QTest.keyClick(side.tree, Qt.Key.Key_Down)
     assert picked, "an arrow key picked nothing"
     assert side.current_key() == picked[-1]
+
+
+def test_the_name_on_a_card_is_the_application_font_bold_at_12_points(qapp):
+    """2026-10-11, the owner: the name on a card was too big - the application's own font, bold, 12."""
+    from PySide6.QtGui import QFont
+
+    from app.ui.contacts.delegates import NAME_POINTS, name_font
+
+    base = QFont("Segoe UI")
+    base.setPointSizeF(9.0)
+    f = name_font(base)
+    assert f.bold() and f.family() == base.family() and f.pointSizeF() == NAME_POINTS == 12.0
+    bigger = QFont(base)
+    bigger.setPointSizeF(11.0)                                           # "Make text bigger"
+    assert name_font(bigger).pointSizeF() > 12.0 and name_font(bigger).pixelSize() == -1

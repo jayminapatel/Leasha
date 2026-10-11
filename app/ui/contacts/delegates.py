@@ -21,7 +21,7 @@ from app.ui.contacts.logic import COLUMNS, initials
 from app.ui.contacts.model import RowRole
 from app.ui.widgets.icons import icon
 
-__all__ = ["NameDelegate", "ChipsDelegate", "CardDelegate", "CARD_SIZE", "draw_avatar"]
+__all__ = ["NameDelegate", "ChipsDelegate", "CardDelegate", "CARD_SIZE", "draw_avatar", "name_font", "NAME_POINTS"]
 
 CARD_SIZE = QSize(304, 140)
 GLYPH = 14
@@ -50,6 +50,22 @@ class _Base(QStyledItemDelegate):
 
     def paint_glyph(self, painter: QPainter, name: str, colour: str, x: int, y: int, side: int = GLYPH) -> None:
         self.glyph(name, colour).paint(painter, QRect(x, y, side, side))
+
+
+#: The name on a card: the application's own font, bold, 12 points at the default text size
+#: (2026-10-11, the owner: "too big ... same as the main config, bold and size 12").
+NAME_POINTS = 12.0
+_DEFAULT_BASE_POINTS = 9.0
+
+
+def name_font(base: QFont) -> QFont:
+    """The card name's font: `base`'s family, bold, 12 points - and scaled with the person's
+    "Make text bigger" setting (a base larger than the default makes it larger in proportion)."""
+    font = QFont(base)
+    font.setBold(True)
+    points = base.pointSizeF()
+    font.setPointSizeF(NAME_POINTS * (points if points > 0 else _DEFAULT_BASE_POINTS) / _DEFAULT_BASE_POINTS)
+    return font
 
 
 def draw_avatar(painter: QPainter, rect: QRect, row: Any, photos: Any, c: dict[str, str]) -> None:
@@ -210,9 +226,7 @@ class CardDelegate(_Base):
         tx = x0 + 52 + 12
         width = int(card.right()) - tx - 10
         base = QFont(option.font)
-        big = QFont(base)
-        big.setBold(True)
-        big.setPixelSize(int(QFontMetrics(base).height() * 1.2))
+        big = name_font(base)
         painter.setFont(big)
         painter.setPen(self.tok("text"))
         fm_big = QFontMetrics(big)

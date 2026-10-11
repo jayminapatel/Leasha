@@ -188,6 +188,7 @@
     <Compile Include="app\contacts\_layouts.py" />
     <Compile Include="app\contacts\_pdf.py" />
     <Compile Include="app\contacts\activity.py" />
+    <Compile Include="app\contacts\backup.py" />
     <Compile Include="app\contacts\card.py" />
     <Compile Include="app\contacts\cleanup.py" />
     <Compile Include="app\contacts\dupes.py" />
@@ -705,6 +706,7 @@
     <Compile Include="app\ui\widgets\status_funnel.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
+    <Compile Include="app\ui\widgets\tidy_list_pane.py" />
     <Compile Include="app\ui\widgets\tidy_parts.py" />
     <Compile Include="app\ui\widgets\tidy_set_pane.py" />
     <Compile Include="app\ui\widgets\timed_out_panel.py" />
@@ -880,7 +882,11 @@
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
     <Compile Include="tests\unit\test_consumer_never_waits.py" />
+    <Compile Include="tests\unit\test_contact_import_match.py" />
+    <Compile Include="tests\unit\test_contact_master.py" />
+    <Compile Include="tests\unit\test_contact_merge_undo.py" />
     <Compile Include="tests\unit\test_contact_sync_engine.py" />
+    <Compile Include="tests\unit\test_contacts_backup_verify.py" />
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />

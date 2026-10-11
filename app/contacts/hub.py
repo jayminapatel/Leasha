@@ -115,6 +115,14 @@ class UndoResult:
 
 
 @dataclass
+class UnmergeResult:
+    restored: int                     # the contact given back as a person of their own (0: nothing to do)
+    survivor: Optional[int] = None    # who they had been folded into
+    survivor_rebuilt: bool = False    # False when the survivor was edited since the merge and is left as it is
+    accounts: set[int] = field(default_factory=set)
+
+
+@dataclass
 class Smart:
     id: int
     name: str
@@ -497,6 +505,22 @@ class ContactHub:
                 (cid, account_id, remote_id, version_tag,
                  snapshot.dumps() if snapshot is not None else "{}", hub_rev, state, int(time.time())))
 
+    def mirror_to(self, account_ids: Iterable[int]) -> int:
+        """Keep every live contact in each of these accounts: a contact with no link to one gets a
+        `pending_create` link, written there at the next push. A link in any state counts as a
+        link - one the account deleted (`deleted_remote`) or the person removed is not brought
+        back. Returns how many links were added."""
+        added = 0
+        with self._write() as conn:
+            for aid in {int(a) for a in account_ids}:
+                for r in conn.execute(
+                        "SELECT c.id FROM contacts c WHERE c.deleted_at IS NULL AND NOT EXISTS "
+                        "(SELECT 1 FROM contact_links l WHERE l.contact_id = c.id AND l.account_id = ?)",
+                        (aid,)).fetchall():
+                    self._ensure_link(conn, int(r[0]), aid, "pending_create")
+                    added += 1
+        return added
+
     def drop_link(self, cid: int, account_id: int, *, conn: Any = None) -> None:
         ctx = self._write() if conn is None else _Null(conn)
         with ctx as c:
@@ -661,6 +685,75 @@ class ContactHub:
         self._undo_ids([jid], actor, res, _batch)
         return res
 
+    def unmerge(self, folded: int, *, actor: str = "user") -> UnmergeResult:
+        """Give a folded contact back as a person of their own (order 1k, a wrong merge).
+
+        The folded contact returns with its own card and its own account records. The contact
+        it had been folded into is rebuilt from its card as it was before the merge plus every
+        *other* contact still folded into it, so what the merge brought from this person leaves
+        and what it brought from the rest stays. A survivor edited since the merge is not
+        rebuilt - its edits are the person's - and the result says so."""
+        row = self.conn.execute(
+            "SELECT id, detail FROM contact_journal WHERE contact_id = ? AND action = 'merged' "
+            "AND undone_at IS NULL ORDER BY id DESC LIMIT 1", (folded,)).fetchone()
+        if row is None:
+            return UnmergeResult(0)
+        survivor = (json.loads(row["detail"] or "{}") or {}).get("into")
+        res = self.undo_entry(int(row["id"]), actor=actor)
+        if survivor is None:
+            return UnmergeResult(folded, None, False, res.accounts)
+        survivor = int(survivor)
+        rebuilt = self.rebuild_merged(survivor, actor=actor)
+        return UnmergeResult(folded, survivor, rebuilt, res.accounts)
+
+    def merge_batches(self) -> list[str]:
+        """The merges still standing, newest first: each is one "Merge" (or "Merge all safe") batch."""
+        return [r[0] for r in self.conn.execute(
+            "SELECT batch_id FROM contact_journal WHERE action IN ('merge', 'merged') AND undone_at IS NULL "
+            "AND batch_id IS NOT NULL GROUP BY batch_id ORDER BY MIN(id) DESC")]
+
+    def undo_all_merges(self, *, actor: str = "user") -> UndoResult:
+        """Back to square one: every standing merge undone, newest first, so each contact is again the
+        record its account sent, linked to that account alone."""
+        total = UndoResult()
+        for batch in self.merge_batches():
+            res = self.undo_batch(batch, actor=actor)
+            total.undone += res.undone
+            total.skipped += res.skipped
+            total.accounts |= res.accounts
+        return total
+
+    def rebuild_merged(self, survivor: int, *, actor: str = "user") -> bool:
+        """Rebuild a merge survivor's card from the card it had before the merge plus the
+        contacts that are *still* folded into it (a person given back no longer counts).
+
+        Only while nobody has edited it since: the card must still be what the merge wrote or
+        what the last rebuild wrote. Returns whether it rebuilt."""
+        from app.contacts import dupes  # noqa: PLC0415
+        current = self.get_card(survivor)
+        merge = self.conn.execute(
+            "SELECT id, before, after FROM contact_journal WHERE contact_id = ? AND action = 'merge' "
+            "AND undone_at IS NULL ORDER BY id", (survivor,)).fetchall()
+        if current is None or not merge:
+            return False
+        last_rebuild = self.conn.execute(
+            "SELECT after FROM contact_journal WHERE contact_id = ? AND action = 'unmerge' "
+            "ORDER BY id DESC LIMIT 1", (survivor,)).fetchone()
+        written = [Card.from_json(json.loads(m["after"])["card"]).to_json() for m in merge[-1:] if m["after"]]
+        if last_rebuild is not None and last_rebuild["after"]:
+            written.append(Card.from_json(json.loads(last_rebuild["after"])["card"]).to_json())
+        if current.to_json() not in written:
+            return False
+        base = Card.from_json(json.loads(merge[0]["before"])["card"])
+        others = []
+        for r in self.conn.execute(
+                "SELECT contact_id, detail, before FROM contact_journal WHERE action = 'merged' "
+                "AND undone_at IS NULL ORDER BY id"):
+            if (json.loads(r["detail"] or "{}") or {}).get("into") == survivor and r["before"]:
+                others.append(Card.from_json(json.loads(r["before"])["card"]))
+        self.update(survivor, dupes.merge_cards([base] + others).card, actor=actor, action="unmerge")
+        return True
+
     def undo_batch(self, batch_id: str, *, actor: str = "undo") -> UndoResult:
         ids = [r[0] for r in self.conn.execute(
             "SELECT id FROM contact_journal WHERE batch_id = ? AND undone_at IS NULL "
@@ -772,6 +865,12 @@ class ContactHub:
                         conn.execute("UPDATE contact_links SET state='pending_remove' WHERE contact_id=? "
                                      "AND account_id=?", (cid, acc))
         for l in links or []:
+            if l["remote_id"] is not None:
+                # A merge moved this link to the surviving contact; undoing the fold gives it back to
+                # the person it belongs to, so the survivor's inherited row goes (an account holds a
+                # record under one contact only).
+                conn.execute("DELETE FROM contact_links WHERE account_id = ? AND remote_id = ? "
+                             "AND contact_id <> ?", (l["account_id"], l["remote_id"], cid))
             conn.execute(
                 "INSERT INTO contact_links (contact_id, account_id, remote_id, version_tag, snapshot, hub_rev, "
                 "state, last_synced_at) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(contact_id, account_id) DO UPDATE SET "
@@ -887,10 +986,33 @@ class ContactHub:
 
     # --------------------------------------------------------------- rejected
     def reject_pair(self, a: int, b: int) -> None:
+        """"Not a duplicate". What the two also hold in common - an office number, a family
+        mailbox - is remembered as shared, so it never matches anyone to anyone again."""
+        from app.contacts import dupes  # noqa: PLC0415
         a, b = sorted((int(a), int(b)))
         with self._write() as conn:
             conn.execute("INSERT OR IGNORE INTO contact_rejected (a_id, b_id, at) VALUES (?,?,?)",
                          (a, b, self._now()))
+        ca, cb = self.get_card(a), self.get_card(b)
+        if ca is not None and cb is not None:
+            keys = dupes.shared_keys(ca, cb, self.region)
+            if keys:
+                self.mark_shared(keys)
+
+    SHARED_KEY = "contacts:shared_values"
+
+    def shared_values(self) -> set[str]:
+        """Emails and numbers held by different people (`email:x@y`, `phone:+44...`)."""
+        try:
+            return {str(k) for k in json.loads(self.store.get_state(self.SHARED_KEY, "[]") or "[]")}
+        except (ValueError, TypeError):
+            return set()
+
+    def mark_shared(self, keys: Iterable[str]) -> None:
+        self.store.set_state(self.SHARED_KEY, json.dumps(sorted(self.shared_values() | set(keys))))
+
+    def unmark_shared(self, keys: Iterable[str]) -> None:
+        self.store.set_state(self.SHARED_KEY, json.dumps(sorted(self.shared_values() - set(keys))))
 
     def unreject_pair(self, a: int, b: int) -> None:
         a, b = sorted((int(a), int(b)))

@@ -56,13 +56,13 @@ def test_the_list_has_the_five_sections_with_icons_and_counts(page):
     assert copies.count == 1 and "gives back" in copies.tip
 
 
-def test_a_set_has_four_tabs_each_with_an_icon(page):
+def test_a_set_has_five_tabs_each_with_an_icon(page):
     view, *_ = page
     view.show_kind("copies")
     view.retint({"text_dim": "#777777"})
     tabs = view.sets.tabs
     segments = [tabs.button(i) for i in range(tabs.count())]
-    assert [b.text() for b in segments] == ["Compare", "Copies", "Details", "Keep rule"]
+    assert [b.text() for b in segments] == ["Compare", "Copies", "Details", "Keep rule", "List"]
     assert all(not b.icon().isNull() for b in segments)
     tabs.setCurrentIndex(1)
     assert view.sets.views.currentWidget() is view.sets.copies
@@ -183,3 +183,82 @@ def test_the_marks_are_plain_python(tmp_path):
     leasha.set_quality("similar:1", {r"C:\Docs\r.pdf": (100, 1.0), r"C:\Downloads\r.pdf": (400, 1.0)})
     assert leasha.apply_rule(photos) and leasha.marked == {r"C:\Docs\r.pdf"}
     assert TidyMarks("nonsense").rule == "leasha"
+
+
+# -- the List tab: every file of every set in the table every other list page has ----------------------
+
+def _list(view):
+    view.show_kind("copies")
+    view.sets.tabs.setCurrentIndex(4)
+    return view.sets.list_pane
+
+
+def test_the_list_tab_shows_every_file_with_the_standard_table_and_view_menu(page):
+    view, _store, files, _bin = page
+    pane = _list(view)
+    assert view.sets.views.currentWidget() is pane
+    heads = [pane.results.horizontalHeaderItem(i).text() for i in range(pane.results.columnCount() - 1)]
+    assert heads == ["Can go", "Name", "Folder", "Size", "Modified", "Set", "Type"]
+    assert pane.results.rowCount() == 2                                   # both copies, one set
+    names = {pane.results.item(r, 1).text() for r in range(2)}
+    assert names == {"r.pdf"}
+    assert pane.view_button is not None and pane.view_button.text() == "View"      # columns, density, text size
+    assert pane.preview is not None and pane.results.isSortingEnabled()
+    assert "2 files in 1 sets" in pane.summary.text() and "1 marked to go" in pane.summary.text()
+
+
+def test_a_tick_in_the_list_marks_that_file_in_its_own_set(page):
+    from PySide6.QtCore import Qt
+
+    view, _store, files, _bin = page
+    view._rule_chosen("manual")
+    pane = _list(view)
+    assert view.marks.marked == set()
+    row = next(r for r in range(pane.results.rowCount())
+               if pane.results.row_object(r).path == str(files["spare"]))
+    pane.results.item(row, 0).setCheckState(Qt.CheckState.Checked)
+    assert view.marks.marked == {str(files["spare"])}
+    assert view.queue.text().startswith("Marked: 1") and view.review.isEnabled()
+    assert "1 marked to go" in pane.summary.text()
+    pane.results.item(row, 0).setCheckState(Qt.CheckState.Unchecked)
+    assert view.marks.marked == set()
+
+
+def test_the_list_follows_marks_made_in_the_other_tabs_and_keeps_one_when_asked(page):
+    view, _store, files, _bin = page
+    pane = _list(view)
+    marked = {pane.results.row_object(r).path: pane.results.item(r, 0).checkState().value
+              for r in range(pane.results.rowCount())}
+    assert marked[str(files["spare"])] == 2 and marked[str(files["kept"])] == 0       # Leasha's rule: Downloads goes
+    pane.keep_only.emit(str(files["spare"]))                                           # "Keep this one" on the other
+    assert view.marks.marked == {str(files["kept"])}
+    now = {pane.results.row_object(r).path: pane.results.item(r, 0).checkState().value
+           for r in range(pane.results.rowCount())}
+    assert now[str(files["kept"])] == 2 and now[str(files["spare"])] == 0
+
+
+def test_the_list_filters_by_name_or_folder_and_says_how_many(page):
+    view, *_ = page
+    pane = _list(view)
+    pane.filter.setText("downloads")
+    shown = [r for r in range(pane.results.rowCount()) if not pane.results.isRowHidden(r)]
+    assert len(shown) == 1 and "Downloads" in pane.results.item(shown[0], 2).text()
+    assert pane.summary.text().startswith("Showing 1 of 2 files")
+    pane.filter.setText("")
+    assert not any(pane.results.isRowHidden(r) for r in range(pane.results.rowCount()))
+
+
+def test_the_list_sorts_sizes_as_numbers_and_columns_fit_what_they_hold(page):
+    view, *_ = page
+    pane = _list(view)
+    pane.results.sortItems(3)
+    assert pane.results.rowCount() == 2
+    widths = [pane.results.columnWidth(i) for i in range(pane.results.columnCount() - 1)
+              if not pane.results.isColumnHidden(i)]
+    assert all(w > 0 for w in widths) and len(set(widths)) > 1             # fitted, not one width for all
+
+
+def test_large_files_and_leftovers_open_on_the_list(page):
+    view, *_ = page
+    view.show_kind("large")
+    assert view.sets.views.currentWidget() is view.sets.list_pane

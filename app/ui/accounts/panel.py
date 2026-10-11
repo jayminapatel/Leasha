@@ -42,6 +42,11 @@ def _test(factory: Any, account_id: int) -> Any:
     return svc.test_connection(acct)
 
 
+def _verify(factory: Any, account_id: int) -> Any:
+    svc = factory()
+    return svc.verify_contacts(svc.accounts.get(account_id))
+
+
 def _set_password(factory: Any, account_id: int, password: str) -> None:
     factory().set_app_password(account_id, password)
 
@@ -354,6 +359,9 @@ class AccountPanel(QGroupBox):
         form.addRow(hint("All is the default. Choosing syncs only those groups."))
         self.sync_contacts_button = btn("Sync contacts now", "refresh-cw", tip="Sync this account's contacts now")
         form.addRow(self.sync_contacts_button)
+        self.verify_button = btn("Check this account's contacts", "circle-check",
+                                 tip="Compare what the account holds with what is linked here. Changes nothing")
+        form.addRow(self.verify_button)
         self.kept = QLabel("")
         self.last_changes = QLabel("")
         self.last_changes.setWordWrap(True)
@@ -364,6 +372,7 @@ class AccountPanel(QGroupBox):
         self.tabs.addTab(page, "Contacts")
 
         self.sync_contacts_button.clicked.connect(lambda: self.sync_requested.emit(self._id, "contacts"))
+        self.verify_button.clicked.connect(self._verify)
         self.direction.currentIndexChanged.connect(self._direction_changed)
         self.groups_all.toggled.connect(self._groups_mode)
         self.choose_groups.clicked.connect(
@@ -527,6 +536,11 @@ class AccountPanel(QGroupBox):
             self._say(f"Connected. Granted: {granted}.")
         else:
             self._say(f"{report.message} {report.fix}".strip(), True)
+
+    def _verify(self) -> None:
+        self._say("Checking…")
+        self.backend.call(_verify, self.backend.factory, self._id,
+                          done=lambda report: self._say(report.summary(), not report.in_sync), fail=self._error)
 
     def _remove(self) -> None:
         if self._account is None:
