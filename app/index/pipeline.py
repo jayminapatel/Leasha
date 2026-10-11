@@ -261,7 +261,9 @@ KEYWORD_ONLY_EXTS = frozenset({"xlsx", "xlsm", "xlsb", "xls", "ods", "csv", "tsv
 #: words only whatever "Find spreadsheets by meaning" says: an SVG's text is
 #: labels and attribute values, and on the owner's index it was 651,707
 #: passages, 10% of everything waiting for the model.
-WORDS_ONLY_EXTS = frozenset({"svg"})
+#: 2026-10-12, the owner: epub books too - 23% of what was waiting - and the list is now a setting
+#: (`INDEX_WORDS_ONLY_TYPES`); this is its default.
+WORDS_ONLY_EXTS = frozenset({"svg", "epub"})
 
 #: Files between free-space checks. `shutil.disk_usage` is a syscall, so this is
 #: cheap, but not free enough to do per file.
@@ -823,6 +825,8 @@ class PipelineConfig:
     #: are written and searchable by their words, marked `embedded = 2`
     #: (`KEYWORD_ONLY_EXTS`), and never queued for the model.
     spreadsheet_meaning: bool = False
+    #: File types found by their words only (`INDEX_WORDS_ONLY_TYPES`).
+    words_only_exts: frozenset = WORDS_ONLY_EXTS
     bulk_fts: str = "auto"
     min_free_gb: int = 5
     #: Where the completions sidecar goes - `DATA_PATH`, normally.
@@ -2198,7 +2202,16 @@ class Pipeline:
             # 2026-10-11: and passages of a words-only type stored before it was
             # one leave the model's queue before the repair below takes them.
             try:
-                held = self.store.mark_keyword_only_for_exts(WORDS_ONLY_EXTS)
+                words_only = getattr(self.config, "words_only_exts", WORDS_ONLY_EXTS)
+                # A type taken off the list since the last run is given meaning again, without a re-read.
+                before = {e for e in (self.store.get_state("words_only_types", "") or "").split(",") if e}
+                brought_back = before - set(words_only)
+                if brought_back:
+                    back = self.store.reset_keyword_only(brought_back)
+                    self._log.info("{} passage(s) of {} will be given meaning as well as words",
+                                   back, ", ".join(sorted(brought_back)))
+                self.store.set_state("words_only_types", ",".join(sorted(words_only)))
+                held = self.store.mark_keyword_only_for_exts(words_only)
                 if held:
                     self._log.info(
                         "{} drawing passage(s) are found by their words only, "
@@ -5936,7 +5949,7 @@ class Pipeline:
         """Is a file of this type found by its words only? See `KEYWORD_ONLY_EXTS`
         and `WORDS_ONLY_EXTS`."""
         ext = str(ext or "").lower().lstrip(".")
-        if ext in WORDS_ONLY_EXTS:
+        if ext in getattr(self.config, "words_only_exts", WORDS_ONLY_EXTS):
             return True
         if getattr(self.config, "spreadsheet_meaning", False):
             return False

@@ -99,6 +99,9 @@ def test_no_tab_offers_a_command_it_cannot_honour() -> None:
         "who": ("who", "Daddy"),
         "only": ("only", "unnamed"),
         "status": ("statuses", "skipped"),
+        "attachment": ("attachments", "*.xlsx"),
+        "mailbox": ("mailboxes", "gmail"),
+        "mailfolder": ("mailfolders", "inbox"),
     }
     for tab, names in SUBSETS.items():
         for name in names:

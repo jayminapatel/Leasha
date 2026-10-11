@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -370,20 +370,29 @@ def card_model_factory(settings: Any) -> Any:
     """
     if settings is None:
         return None
+    return _CardModel(settings)
 
-    def build() -> Any:
+
+@dataclass(frozen=True)
+class _CardModel:
+    """`card_model_factory`'s callable. A dataclass, not a closure, so two
+    configurations built from the same settings compare equal - the window's run
+    and the command line's are checked to be the same configuration
+    (`test_run_setup_window.py`), and a fresh closure is never equal to another."""
+
+    settings: Any
+
+    def __call__(self) -> Any:
         from app.llm.engines import text_model
 
-        chosen = settings
-        copy = getattr(settings, "model_copy", None)
+        chosen = self.settings
+        copy = getattr(self.settings, "model_copy", None)
         if callable(copy):
             try:
                 chosen = copy(update={"embed_device": "cpu"})
             except Exception:                       # noqa: BLE001 - the settings as they are
-                chosen = settings
+                chosen = self.settings
         return text_model(chosen)
-
-    return build
 
 
 def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
@@ -522,6 +531,10 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         dedup_chunks=bool(setting("embed_dedup", True)),
         two_phase=bool(setting("index_two_phase", True)),
         spreadsheet_meaning=bool(setting("index_spreadsheet_meaning", False)),
+        words_only_exts=frozenset(
+            e.strip().lower().lstrip(".")
+            for e in str(setting("index_words_only_types", "svg,epub")).replace(";", ",").split(",")
+            if e.strip()),
         bulk_fts=str(setting("index_bulk_fts", "auto")),
         # 0x §5b: "Read files in separate processes". The window's child
         # indexer runs through here too, so it honours the same switch.

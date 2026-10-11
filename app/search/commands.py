@@ -302,6 +302,32 @@ COMMANDS: tuple[Command, ...] = (
         icon="▫",
     ),
     Command(
+        name="attachment",
+        aliases=("attachments", "attached", "attach"),
+        summary="Only email with an attachment called this",
+        example="/attachment *.xlsx",
+        value_hint="part of an attachment's name, or a pattern: *.pdf, invoice*, q?-report",
+        icon="@",
+        values=("*.pdf", "*.xlsx", "*.docx", "*.pptx", "*.jpg", "*.png", "*.zip"),
+    ),
+    Command(
+        name="mailbox",
+        aliases=("account", "archive"),
+        summary="Only email kept in this account or archive",
+        example="/mailbox gmail",
+        value_hint="part of an account's name or address, or an archive's file name (2019)",
+        icon="▥",
+    ),
+    Command(
+        name="mailfolder",
+        aliases=("label",),
+        summary="Only email in this folder or label",
+        example="/mailfolder inbox",
+        value_hint="part of a mail folder's name: inbox, sent, projects/acme",
+        icon="▤",
+        values=("inbox", "sent", "drafts", "archive", "deleted", "junk"),
+    ),
+    Command(
         name="sort",
         aliases=("newest", "latest", "oldest"),
         summary="Newest first, instead of best match first",
@@ -558,7 +584,9 @@ _TERSE_FOR_MODEL: dict[str, str] = {
 #: Operators the model is not told about. 2026-10-05: `/only` is a Photos-tab
 #: switch, typed or clicked, never what a sentence translates to - and telling
 #: the model would take the prompt over the ceiling above (2,139 of 2,100).
-_NOT_FOR_MODEL = frozenset({"only"})
+#: 2026-10-12: nor the mail switches `/attachment`, `/mailbox` and `/mailfolder`, which a person types or picks; they
+#: would take the prompt past the same ceiling.
+_NOT_FOR_MODEL = frozenset({"only", "attachment", "mailbox", "mailfolder"})
 
 
 def grammar_for_model() -> str:

@@ -86,6 +86,7 @@ class AnswerCard(QFrame):
         self.note.setWordWrap(True)
         self.more = action_button("Continue in Chat")
         self.more.setObjectName("answerCardContinue")
+        self.more.setToolTip("Ask this in Chat, where you can follow it up")
         self.more.clicked.connect(lambda: self.continue_requested.emit(self._question))
 
         foot = QHBoxLayout()

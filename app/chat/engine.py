@@ -467,6 +467,18 @@ class ChatEngine:
         taught = learn_words(text)
         if taught is not None:
             return self._words_turn(taught, debug)
+        # `/from dave ...`: the switches are filters on the search, the rest is the question.
+        from app.chat.switches import split_switches
+
+        text, switches = split_switches(text)
+        debug["switches"] = list(switches)
+        if not switches:
+            from app.chat.contacts import contact_answer
+
+            answer = contact_answer(self.store, text)
+            if answer:
+                debug["mode"] = "contacts"
+                return ChatTurn("assistant", answer, kind="contacts", debug=debug)
 
         route = route_question(text, history)                      # rules only: instant
         route = self._with_my_words(route, say, debug)
@@ -480,6 +492,7 @@ class ChatEngine:
             return self._aggregate(route, say, send, stop, debug)
 
         plan = make_plan(route.question, self.store, today=self.today)
+        plan.filters[:0] = switches
         debug["plan"] = {"filters": list(plan.filters), "terms": list(plan.terms)}
         say(f"Looking for {plan.summary()}...")
 

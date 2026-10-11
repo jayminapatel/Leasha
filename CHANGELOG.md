@@ -42,6 +42,34 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   `extractors.toml` alone and never `<DATA_PATH>\extractors.toml`; it now reads both (`WalkConfig.formats_from`).
 - Document cards are checked harder: a kind needs words in the document that support it (else `email` for a
   message, `other` otherwise), pronouns are never people, and a summary citing a number the document lacks is dropped.
+### Faster meaning: what goes to the model, and in what order (2026-10-12)
+
+- **Found by their words only** (Settings > Index > Tuning): a comma list of file types never sent to the meaning
+  model. The default is `svg,epub` (epub books were 23% and svg drawings 10% of what was waiting). Take a type out of
+  the list and it is queued for meaning again at the next Start, without being read again.
+- **Mail first:** the meaning backlog is worked mail before documents (after the `--first` folders), newest first.
+- **Group passages by length** is on by default, also for the smaller model file: less padding, so the run is a
+  quarter to two fifths faster; vectors differ in the last decimals only.
+
+### Sync that does not give up, attachments, and Enrich progress (2026-10-12)
+
+- **Microsoft sync:** four more causes found on the owner's account and fixed. Outlook holds two home and two work
+  numbers (a third was refused, HTTP 400): the numbers are fitted to the slots and the rest stay in Leasha. A change
+  Outlook refuses as a whole (HTTP 500 with no reason) is now sent one property at a time, so one property it will
+  not take no longer stops the rest of the contact. The Sync window's Sync now button can no longer stay greyed out
+  after a run has ended.
+- **New switches** `/attachment` (wildcards allowed; `-attachment:` for the opposite), `/mailbox` and `/mailfolder`,
+  offered in Search and Mail, and everywhere the full set is offered.
+- **What an account holds is now part of the contact model.** Outlook has room for three emails, five numbers, three
+  addresses, one web page, one birthday and a spouse, a manager and an assistant; those limits are declared once
+  (`Capabilities.max_per_kind`, `kind_labels`) and used everywhere an account is compared and written, so what does
+  not fit stays in Leasha, is never read as deleted or changed there, and a freed slot is refilled from what was
+  waiting. Google documents no limit on the number of values (only one name, birthday and note), and sends one of
+  each; CardDAV holds everything.
+- **Chat** answers a question about a person in the contact book from the card ("what is Zane's number"), takes the
+  same `/` switches as every box (`/from dave what did he say...`), and offers them when you type `/`. Search
+  already shows the person's card above the results.
+- **Enrich** says "Contact 312 of 1,433 - 41 suggestions so far", and has **Stop looking**, which keeps what was found.
 
 ### Changed in two places: review and accept, and notes are joined (2026-10-12)
 
