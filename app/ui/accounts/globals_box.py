@@ -142,11 +142,42 @@ class GlobalSettingsBox(QWidget):
                          "is the default) stops and asks. Nothing is deleted until you press Allow."))
         self.dry_run = QCheckBox("Dry run before an account's first sync")
         form.addRow(self.dry_run)
-        form.addRow(hint("On by default: the first sync of an account lists what it would add, merge and "
-                         "change, and writes nothing until you press Approve."))
+        form.addRow(hint("Off by default. When on, the first sync of an account lists what it would add, "
+                         "merge and change, and writes nothing until you press Approve."))
         self.brake_count.valueChanged.connect(lambda v: self._save(brake_count=int(v)))
         self.brake_percent.valueChanged.connect(lambda v: self._save(brake_percent=float(v)))
         self.dry_run.toggled.connect(self._dry_run_toggled)
+
+        # ---- 2026-10-11: keeping every contact in step across the accounts
+        box, form = self._group("Keeping contacts in step", outer)
+        self.master = QComboBox()
+        self.master.setAccessibleName("Master account")
+        self.master.setToolTip("The account whose list is the master: a contact deleted there is deleted "
+                               "here and from your other accounts")
+        form.addRow("Master account", self.master)
+        form.addRow(hint("Leasha's own contact book is the master copy; this chooses the account whose "
+                         "deletes count. A contact deleted in it goes to the Bin here and is removed from "
+                         "the other accounts. A delete in any other account only flags the contact. A big "
+                         "batch of deletes is held by the delete brake until you press Allow."))
+        self.mirror = QCheckBox("Keep every contact in every account")
+        self.mirror.setToolTip("Adds and changes made in any account reach all of them, through Leasha")
+        form.addRow(self.mirror)
+        form.addRow(hint("Off by default. When on, every contact is written to each account that takes "
+                         "contacts back, so a person added in one appears in all."))
+        self.backup = QCheckBox("Copy the contact book before a first sync, and daily")
+        self.backup_keep = QSpinBox()
+        self.backup_keep.setRange(1, 1000)
+        self.backup_keep.setKeyboardTracking(False)
+        self.backup_keep.setAccessibleName("Contact copies to keep")
+        form.addRow(self.backup)
+        form.addRow("Copies to keep", self.backup_keep)
+        form.addRow(hint("A vCard file and a small database of the contact tables, in the backups folder "
+                         "of your data. Both can put the book back as it was."))
+        self.master.currentIndexChanged.connect(
+            lambda _i: self._save(master_account_id=self.master.currentData()))
+        self.mirror.toggled.connect(lambda on: self._save(mirror_contacts=bool(on)))
+        self.backup.toggled.connect(lambda on: self._save(backup_contacts=bool(on)))
+        self.backup_keep.valueChanged.connect(lambda v: self._save(contacts_backup_keep=int(v)))
 
         # ---- 10m notifications
         box, form = self._group("Notifications", outer)
@@ -357,6 +388,16 @@ class GlobalSettingsBox(QWidget):
             set_quiet(self.brake_count, int(s.brake_count), "setValue")
             set_quiet(self.brake_percent, float(s.brake_percent), "setValue")
             set_quiet(self.dry_run, bool(s.dry_run_first), "setChecked")
+            set_quiet(self.mirror, bool(s.mirror_contacts), "setChecked")
+            set_quiet(self.backup, bool(s.backup_contacts), "setChecked")
+            set_quiet(self.backup_keep, int(s.contacts_backup_keep), "setValue")
+            blocked_m = self.master.blockSignals(True)
+            self.master.clear()
+            self.master.addItem("None - a delete in an account is only flagged", None)
+            for row in state.statuses:
+                self.master.addItem(row.account.name, row.account.id)
+            self.master.setCurrentIndex(max(0, self.master.findData(s.master_account_id)))
+            self.master.blockSignals(blocked_m)
             for c, v in ((self.notify_brake, s.notify_brake), (self.notify_conflict, s.notify_conflict),
                          (self.notify_signin, s.notify_signin), (self.notify_failed, s.notify_failed_24h)):
                 set_quiet(c, bool(v), "setChecked")

@@ -583,3 +583,37 @@ def test_a_double_click_on_an_account_opens_its_settings(world):
     p.account_list.itemActivated.emit(item, 0)
     assert opened == [aid]
     assert p.panel.tabs.currentIndex() == 0
+
+
+def test_master_mirror_and_backup_save_and_reload(world):
+    """2026-10-11: the settings that keep contacts in step across the accounts."""
+    svc, page = world
+    a = svc.accounts.add("carddav", "a@x.com", "Home", options={"server_url": "https://x"})
+    svc.accounts.add("google", "b@x.com", "Work")
+    p = page()
+    p.globals.master.setCurrentIndex(p.globals.master.findData(a))
+    p.globals.mirror.setChecked(True)
+    p.globals.backup.setChecked(False)
+    p.globals.backup_keep.setValue(4)
+    settle(p)
+    s = svc.settings()
+    assert (s.master_account_id, s.mirror_contacts, s.backup_contacts, s.contacts_backup_keep) == (a, True, False, 4)
+    q = page()
+    assert q.globals.master.currentData() == a and q.globals.mirror.isChecked()
+    assert not q.globals.backup.isChecked() and q.globals.backup_keep.value() == 4
+    q.globals.master.setCurrentIndex(0)
+    settle(q)
+    assert svc.settings().master_account_id is None
+
+
+def test_the_check_button_reports_an_account_and_changes_nothing(world, monkeypatch):
+    from app.accounts.service import VerifyReport
+    svc, page = world
+    aid = svc.accounts.add("carddav", "a@x.com", "Home", options={"server_url": "https://x"})
+    monkeypatch.setattr(type(svc), "verify_contacts",
+                        lambda self, acct: VerifyReport(acct.id, "Home", remote=3, linked=3), raising=False)
+    p = page()
+    pn = _select(p, aid)
+    pn.verify_button.click()
+    wait_until(lambda: "in sync" in pn.notice.text())
+    assert "3 at the account" in pn.notice.text() and "in sync" in pn.notice.text()

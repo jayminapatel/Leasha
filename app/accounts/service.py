@@ -68,6 +68,43 @@ class ConnectionReport:
 
 
 @dataclass
+class VerifyReport:
+    """What a read-only check of one account's contacts found (`AccountService.verify_contacts`)."""
+
+    account_id: int
+    account: str
+    remote: int = 0                    # contacts the account holds now
+    linked: int = 0                    # contacts here linked to a record of that account
+    missing_here: list[str] = field(default_factory=list)    # at the account, not yet here: the next sync adds them
+    missing_there: list[str] = field(default_factory=list)   # linked here, gone at the account
+    changed_there: int = 0             # the account's record changed since the last sync
+    waiting_to_write: int = 0          # changes here not yet written to the account
+    error: str = ""
+
+    @property
+    def in_sync(self) -> bool:
+        return not (self.error or self.missing_here or self.missing_there or self.changed_there
+                    or self.waiting_to_write)
+
+    def summary(self) -> str:
+        if self.error:
+            return f"{self.account}: could not be checked - {self.error}"
+        head = f"{self.account}: {self.remote:,} at the account, {self.linked:,} linked here"
+        if self.in_sync:
+            return head + " - in sync."
+        bits = []
+        if self.missing_here:
+            bits.append(f"{len(self.missing_here):,} at the account not yet here")
+        if self.missing_there:
+            bits.append(f"{len(self.missing_there):,} here no longer at the account")
+        if self.changed_there:
+            bits.append(f"{self.changed_there:,} changed at the account")
+        if self.waiting_to_write:
+            bits.append(f"{self.waiting_to_write:,} changes here waiting to be written")
+        return head + " - " + ", ".join(bits) + ". The next sync settles them."
+
+
+@dataclass
 class DueWork:
     account: Account
     kind: str
@@ -316,12 +353,91 @@ class AccountService:
                 self.hub.delete(cid, actor="account-removed")
         if remove_mail and self.remove_mail_hook is not None:
             self.remove_mail_hook(account_id)
+        if self.settings().master_account_id == account_id:
+            self.accounts.update_settings(master_account_id=None)      # no account is the master any more
         self.accounts.delete_rows(account_id)
 
     #: Phase B: removes an account's mail from the index (set by the mail syncer).
     remove_mail_hook: Optional[Callable[[int], Any]] = None
 
     # --------------------------------------------------------------------- sync
+    # ---------------------------------------------------------------- backup
+    def backup_folder(self) -> Any:
+        from pathlib import Path  # noqa: PLC0415
+        db = Path(getattr(self.store, "db_path", "."))
+        data = db.parent.parent if db.parent.name == "fts" else db.parent
+        return data / "backups" / "contacts"
+
+    def backup_contacts(self, reason: str = "manual") -> Any:
+        """Write a copy of the contact book now (a vCard file and the contact tables)."""
+        from app.contacts import backup  # noqa: PLC0415
+        return backup.write_backup(self.store, self.hub, self.backup_folder(), reason=reason,
+                                   keep=max(1, int(self.settings().contacts_backup_keep or 10)))
+
+    def _backup_before_sync(self, ids: list[int]) -> None:
+        """A copy before an account's first sync and at most once a day otherwise. Never blocks a sync."""
+        settings = self.settings()
+        if not settings.backup_contacts or not ids:
+            return
+        try:
+            from app.contacts import backup  # noqa: PLC0415
+            first = any(not a.first_sync_done for a in self.accounts.list() if a.id in ids)
+            age = backup.newest_age_s(self.backup_folder(), self._clock())
+            if first or age is None or age > 20 * 3600:
+                self.backup_contacts("first-sync" if first else "daily")
+        except Exception:                                  # noqa: BLE001 - a copy is a courtesy to the sync, not a gate
+            _log.warning("the contact backup before a sync failed", exc_info=True)
+
+    # ----------------------------------------------------------------- verify
+    def verify_contacts(self, account: Account) -> VerifyReport:
+        """Read-only: compare what the account holds with what is linked here. Writes nothing."""
+        rep = VerifyReport(account.id, account.name or account.address)
+        try:
+            provider = self.engine.provider_for(account)
+        except AppErrorException as exc:
+            rep.error = exc.error.message
+            return rep
+        remote: dict[str, tuple[str, str]] = {}               # remote id -> (version, name)
+        try:
+            for page in provider.pull(None):
+                for rc in page.changes:
+                    if rc.card is not None:
+                        from app.contacts.card import display_name  # noqa: PLC0415
+                        remote[rc.remote_id] = (rc.version or "", display_name(rc.card) or "(no name)")
+        except AppErrorException as exc:
+            rep.error = exc.error.message
+            return rep
+        finally:
+            try:
+                provider.close()
+            except Exception:                              # noqa: BLE001
+                pass
+        rep.remote = len(remote)
+        rows = self.store.conn.execute(
+            "SELECT l.remote_id, l.version_tag, l.state, l.hub_rev, c.rev, c.display_name FROM contact_links l "
+            "JOIN contacts c ON c.id = l.contact_id WHERE l.account_id = ? AND c.deleted_at IS NULL",
+            (account.id,)).fetchall()
+        known: set[str] = set()
+        for r in rows:
+            if r["state"] in ("pending_create",) or r["remote_id"] is None:
+                rep.waiting_to_write += 1
+                continue
+            known.add(r["remote_id"])
+            if r["state"] == "pending_remove":
+                rep.waiting_to_write += 1
+                continue
+            rep.linked += 1
+            if r["remote_id"] not in remote:
+                if r["state"] != "deleted_remote":
+                    rep.missing_there.append(r["display_name"] or "(no name)")
+            else:
+                if r["state"] == "synced" and remote[r["remote_id"]][0] and r["version_tag"] != remote[r["remote_id"]][0]:
+                    rep.changed_there += 1
+                if r["state"] == "synced" and r["hub_rev"] != r["rev"]:
+                    rep.waiting_to_write += 1
+        rep.missing_here = [name for rid, (_v, name) in remote.items() if rid not in known]
+        return rep
+
     def sync_now(self, account_id: Optional[int] = None, kind: Optional[str] = None, *,
                  trigger: str = "sync-now", approve_first: bool = False, allow_brake: bool = False,
                  cancel: Callable[[], bool] = lambda: False) -> list[SyncOutcome]:
@@ -333,6 +449,7 @@ class AccountService:
             claimed = self._claim([(i, "contacts") for i in ids])
             try:
                 if claimed:
+                    self._backup_before_sync([i for i, _ in claimed])
                     outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger,
                                                  approve_first=approve_first, allow_brake=allow_brake,
                                                  cancel=cancel)
@@ -465,6 +582,7 @@ class AccountService:
             claimed = self._claim([(i, "contacts") for i in ids])
             try:
                 if claimed:
+                    self._backup_before_sync([i for i, _ in claimed])
                     outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger, cancel=cancel)
             finally:
                 self._release(claimed)

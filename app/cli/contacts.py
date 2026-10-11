@@ -90,6 +90,11 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
                   + (f"  {r.error_code}" if r.error_code else "") + ("  (undone)" if r.undone_at else ""))
         return EXIT_OK
 
+    if action == "backup":
+        path = svc.backup_contacts("manual")
+        print(f"Wrote {path.with_suffix('.vcf')} and {path}")
+        return EXIT_OK
+
     if action == "unmerge":
         accounts: set[int] = set()
         if args.survivor:
@@ -161,6 +166,7 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     u = c.add_parser("undo", parents=[common], help="undo a whole sync (or one journal entry)")
     u.add_argument("target", help="sync log id (or a journal id with --entry)")
     u.add_argument("--entry", action="store_true")
+    c.add_parser("backup", parents=[common], help="copy the contact book now (a vCard file and the contact tables)")
     um = c.add_parser("unmerge", parents=[common], help="give a wrongly merged contact back as its own person")
     um.add_argument("ids", nargs="+", help="the contact id(s) that were folded into another")
     um.add_argument("--survivor", action="store_true",

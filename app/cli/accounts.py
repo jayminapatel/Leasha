@@ -248,6 +248,15 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             changes["brake_percent"] = args.brake_percent
         if args.dry_run_first:
             changes["dry_run_first"] = args.dry_run_first.lower() in ("yes", "on", "true")
+        if args.master_account:
+            changes["master_account_id"] = (None if args.master_account.lower() in ("none", "off", "no")
+                                            else _resolve(svc, args.master_account).id)
+        if args.mirror:
+            changes["mirror_contacts"] = args.mirror.lower() in ("yes", "on", "true")
+        if args.backup:
+            changes["backup_contacts"] = args.backup.lower() in ("yes", "on", "true")
+        if args.backup_keep is not None:
+            changes["contacts_backup_keep"] = max(1, args.backup_keep)
         for flag, name in ENRICH_FLAGS:                       # section 7: each source its own switch
             value = getattr(args, flag)
             if value:
@@ -263,6 +272,19 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
                              __import__("app.accounts.secrets", fromlist=["x"]).client_secret_key("google")) else "not set"},
                          indent=2, default=str))
         return EXIT_OK
+
+    if action == "verify":
+        accounts = [_resolve(svc, args.account)] if args.account else [a for a in svc.accounts.list() if a.syncs_contacts]
+        bad = 0
+        for acct in accounts:
+            report = svc.verify_contacts(acct)
+            print(report.summary())
+            for label, names in (("at the account, not yet here", report.missing_here),
+                                 ("here, no longer at the account", report.missing_there)):
+                if names:
+                    print(f"  {label}: " + ", ".join(names[:8]) + (f" ... and {len(names) - 8} more" if len(names) > 8 else ""))
+            bad += 0 if report.in_sync else 1
+        return EXIT_OK if not bad else EXIT_ERROR
 
     if action == "due":
         work = svc.due_work(datetime.now())
@@ -282,6 +304,9 @@ def add_accounts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     a.add_parser("list", parents=[common], help="the accounts")
     a.add_parser("status", parents=[common], help="status, last and next sync of each account")
     a.add_parser("due", parents=[common], help="what the schedule would start now (starts nothing)")
+    vf = a.add_parser("verify", parents=[common],
+                      help="read-only: compare an account's contacts with what is linked here")
+    vf.add_argument("account", nargs="?", help="one account (default: every account that syncs contacts)")
 
     add = a.add_parser("add", parents=[common], help="connect an account")
     add.add_argument("provider", choices=["google", "microsoft", "apple", "imap", "carddav"])
@@ -327,6 +352,12 @@ def add_accounts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     cf.add_argument("--brake-count", type=int)
     cf.add_argument("--brake-percent", type=float)
     cf.add_argument("--dry-run-first", choices=["yes", "no"])
+    cf.add_argument("--master-account", metavar="ACCOUNT|none",
+                    help="the master list: what it deletes is deleted everywhere (behind the delete brake)")
+    cf.add_argument("--mirror", choices=["yes", "no"],
+                    help="keep every contact in every account that takes contacts back")
+    cf.add_argument("--backup", choices=["yes", "no"], help="copy the contact book before a first sync and daily")
+    cf.add_argument("--backup-keep", type=int, help="how many copies to keep (default 10)")
     for flag, _name in ENRICH_FLAGS:
         cf.add_argument("--" + flag.replace("_", "-"), dest=flag, choices=["yes", "no"], help=_ENRICH_HELP[flag])
     p.set_defaults(func=cmd_accounts)
