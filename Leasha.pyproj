@@ -886,6 +886,7 @@
     <Compile Include="tests\unit\test_contact_master.py" />
     <Compile Include="tests\unit\test_contact_merge_undo.py" />
     <Compile Include="tests\unit\test_contact_sync_engine.py" />
+    <Compile Include="tests\unit\test_contact_sync_progress.py" />
     <Compile Include="tests\unit\test_contacts_backup_verify.py" />
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
