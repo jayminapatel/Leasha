@@ -280,7 +280,10 @@ class ContactEditor(QWidget):
         self.cid = None
         kept = [default_account] if default_account in self._accounts else []
         self._load(Card(), kept, [], {}, {}, "")
+        for kind in ("email", "phone"):                 # blank rows are not saved; they invite typing
+            self.lists[kind].add_row(None, emit=False)
         self.heading.setText("New contact")
+        self._draw_photo()
         self._set_dirty(False)
         self.edits["given"].setFocus()
 
