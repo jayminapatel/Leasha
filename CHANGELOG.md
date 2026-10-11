@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.117 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.118 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,21 +17,6 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
-### One download link that is always the newest Leasha (2026-10-11)
-
-- **`packaging\build.ps1 -Publish`** builds the installer as `-Release` does, then publishes it as
-  the GitHub release `v<version>`: the installer, its `.sha256`, and the same installer again as
-  `Leasha-Setup.exe`, with the notes taken from this file's section for the version. GitHub
-  resolves `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe` to
-  the newest release carrying that name, so one link, the one on `leasha.co.uk/app`, keeps
-  working through every version. Sign-in, tag and notes are checked before the build starts.
-  Release 1.0.3 was given its `Leasha-Setup.exe` by hand the same day.
-
-### Docs
-
-- `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
-  install order: dated notes recording that distribution is on again (owner, 2026-10-11).
-
 ### Drop-downs and the default marker (2026-10-12)
 
 - **Every drop-down now shows its arrow.** The stylesheet had removed the native arrow and drawn none, so the type
@@ -46,6 +31,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   address; it now sends it only where there is an address to clear. Checked live on five contacts that had failed.
 - **Empty the bin** says which contacts it kept: those still waiting to be deleted from an account stay until a sync
   has done that (deleting them first would lose the instruction), and the notice says so.
+
+### One download link that is always the newest Leasha (2026-10-11)
+
+- **`packaging\build.ps1 -Publish`** builds the installer as `-Release` does, then publishes it as
+  the GitHub release `v<version>`: the installer, its `.sha256`, and the same installer again as
+  `Leasha-Setup.exe`, with the notes taken from this file's section for the version. GitHub
+  resolves `https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe` to
+  the newest release carrying that name, so one link, the one on `leasha.co.uk/app`, keeps
+  working through every version. Sign-in, tag and notes are checked before the build starts.
+  Release 1.0.3 was given its `Leasha-Setup.exe` by hand the same day.
+
+### Docs
+
+- `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
+  install order: dated notes recording that distribution is on again (owner, 2026-10-11).
 
 ### Sync window, Clean up, editor, Mail and Browse (2026-10-11)
 
