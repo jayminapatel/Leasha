@@ -29,6 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
+from app.core.date_format import format_seconds
 from app.core.row_facts import (  # noqa: F401 - ATTACHMENT_MARKER, attachment_of re-exported
     ATTACHMENT_MARKER, MESSAGE_FILE_EXTS, OUTLOOK_ARCHIVE_EXTS, attachment_of,
 )
@@ -170,7 +171,8 @@ def mail_card(message: Optional[Mapping[str, Any]], stored_text: Any = "") -> Ma
     return MailCard(
         sender_name=name, sender_address=address,
         recipients=_recipient_list(message.get("recipients")),
-        date_words=sent_in_words(message.get("sent_at")),
+        # 2026-10-11, the owner: the format chosen in Settings > Window, as the list.
+        date_words=format_seconds(message.get("sent_at")),
         subject=str(message.get("subject") or "").strip() or NO_SUBJECT,
         attachments=named,
     )
@@ -193,7 +195,7 @@ def card_from_row(row: Any) -> Optional[MailCard]:
     return MailCard(
         sender_name=name, sender_address=address,
         recipients=_recipient_list(getattr(row, "recipients", "")),
-        date_words=sent_in_words(getattr(row, "sent_at", 0)),
+        date_words=format_seconds(getattr(row, "sent_at", 0)),
         subject=str(getattr(row, "subject", "") or "").strip() or NO_SUBJECT,
         attachments=(UNNAMED_ATTACHMENT,) if getattr(row, "has_attachment", False) else (),
     )

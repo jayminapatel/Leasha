@@ -557,6 +557,23 @@ class SettingsController(QObject):
         save_state(self._w._store, "ui:text_size", str(size), component="ui.settings")
         self._w._apply_theme()
 
+    def _date_format_changed(self, pattern: str) -> None:
+        """The Files and Mail date format was changed (2026-10-11): use it, remember it
+        (a queued write) and draw both lists again, so the change shows at once."""
+        from app.core.date_format import set_date_format
+
+        chosen = set_date_format(pattern)
+        self._w._date_format = chosen
+        save_state(self._w._store, "ui:date_format", chosen, component="ui.settings")
+        for name, method in (("files_view", "_run"), ("mail_view", "refresh")):
+            redraw = getattr(getattr(self._w, name, None), method, None)
+            if redraw is None:
+                continue
+            try:
+                redraw()
+            except Exception as exc:             # noqa: BLE001 - the next page shows it
+                _log.debug("{} was not redrawn in the new date format: {}", name, exc)
+
     def _refresh_link_scheme(self) -> None:
         r"""Read whether `leasha://` is registered, off the UI thread.
 

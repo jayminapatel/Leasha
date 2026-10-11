@@ -275,6 +275,10 @@ class MainWindow(QMainWindow):
         from app.ui import theme as _text_theme
 
         self._text_size = _text_theme.set_text_size(self._read_state("ui:text_size", ""))
+        # The Files and Mail tabs' date format (2026-10-11), before their first page.
+        from app.core.date_format import set_date_format
+
+        self._date_format = set_date_format(self._read_state("ui:date_format", ""))
         self._theme_hooked = False
         #: The index's document count as last painted by the Indexing page's
         #: totals worker; the rail pill shows it when nothing is running
@@ -929,8 +933,10 @@ class MainWindow(QMainWindow):
                 self._read_state("ui:tray_minimise", "") == "on",
                 self._read_state("ui:tray_close", "") == "on",
                 theme=self._theme_preference, motion=self._motion,
-                text_size=self._text_size)
+                text_size=self._text_size, date_format=self._date_format)
             self.settings_view.window_box.motion_changed.connect(self._motion_changed)
+            self.settings_view.window_box.date_format_changed.connect(
+                self.settings_ctl._date_format_changed)
             self.settings_view.tray_changed.connect(self._tray_changed)
 
             # The two rail entries, appended in the order they always had. Indexing

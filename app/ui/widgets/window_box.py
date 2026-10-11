@@ -29,10 +29,14 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFormLayout, QGroupBox, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QSpinBox, QVBoxLayout,
+    QWidget,
 )
 
-__all__ = ["WindowBox"]
+__all__ = ["WindowBox", "CUSTOM_DATE"]
+
+#: The drop-down's last entry: type a format of your own.
+CUSTOM_DATE = "custom"
 
 
 class WindowBox(QGroupBox):
@@ -47,6 +51,8 @@ class WindowBox(QGroupBox):
     motion_changed = Signal(bool)
     #: The body text size in pixels (2026-10-10). Applied at once, no restart.
     text_size_changed = Signal(int)
+    #: The Files and Mail tabs' date format (2026-10-11), only ever a valid one.
+    date_format_changed = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__("Window", parent)
@@ -104,9 +110,41 @@ class WindowBox(QGroupBox):
         fit(self.text_size, default=_theme.DEFAULT_TEXT_PX)
         self.text_size.valueChanged.connect(self.text_size_changed.emit)
 
+        # 2026-10-11, the owner: one date format for the Files and Mail tabs. Window state
+        # (`ui:date_format`) like the text size, picked from the common ones or typed and
+        # checked as it is typed (`app.core.date_format`); only a valid one is ever sent.
+        from app.core import date_format as _dates
+
+        self.date_format = QComboBox()
+        self.date_format.setObjectName("UI_DATE_FORMAT")
+        self.date_format.setAccessibleName("Date format")
+        for pattern in _dates.PRESETS:
+            self.date_format.addItem(f"{_dates.example(pattern)}   ({pattern})", pattern)
+        self.date_format.addItem("Custom...", CUSTOM_DATE)
+        self.date_format.setToolTip(
+            "How dates are written in the Files and Mail tabs.\n"
+            "mm is the month and nn the minutes, as in Excel.")
+        self.date_custom = QLineEdit()
+        self.date_custom.setObjectName("UI_DATE_FORMAT_CUSTOM")
+        self.date_custom.setAccessibleName("Custom date format")
+        self.date_custom.setPlaceholderText(_dates.DEFAULT)
+        self.date_custom.setToolTip(
+            "yyyy yy mmmm mmm mm dddd ddd dd hh nn ss am/pm,\n"
+            "with spaces or - / . , : between them.")
+        self.date_note = QLabel()
+        self.date_note.setObjectName("UI_DATE_FORMAT_NOTE")
+        self.date_note.setWordWrap(True)
+        self.date_custom.hide()
+        self.date_note.hide()
+        self.date_format.currentIndexChanged.connect(lambda _i: self._date_picked())
+        self.date_custom.textEdited.connect(self._date_typed)
+
         appearance = QFormLayout()
         appearance.addRow("Appearance", self.theme)
         appearance.addRow("Text size", self.text_size)
+        appearance.addRow("Dates", self.date_format)
+        appearance.addRow("", self.date_custom)
+        appearance.addRow("", self.date_note)
 
         # §5c. **Off by default**, and the only perceivable motion the redesign
         # adds (the preview pane sliding open) is gated on it - the standing
@@ -130,7 +168,7 @@ class WindowBox(QGroupBox):
 
     def load(self, minimise: bool, close: bool,
              theme: Optional[Any] = None, motion: Optional[bool] = None,
-             text_size: Optional[int] = None) -> None:
+             text_size: Optional[int] = None, date_format: Optional[str] = None) -> None:
         """Show the stored preferences without emitting on the way in."""
         for box, value in ((self.minimise_to_tray, minimise),
                            (self.close_to_tray, close)):
@@ -147,6 +185,56 @@ class WindowBox(QGroupBox):
             self.text_size.blockSignals(True)
             self.text_size.setValue(int(text_size))
             self.text_size.blockSignals(False)
+        if date_format is not None:
+            self.set_date_format(date_format)
+
+    def set_date_format(self, pattern: Any) -> None:
+        """Show a stored date format without emitting: its preset, or Custom with its text."""
+        from app.core import date_format as _dates
+
+        text = str(pattern or "").strip() or _dates.DEFAULT
+        found = self.date_format.findData(text)
+        self.date_format.blockSignals(True)
+        self.date_custom.blockSignals(True)
+        try:
+            if found >= 0:
+                self.date_format.setCurrentIndex(found)
+                self.date_custom.hide()
+                self.date_note.hide()
+            else:
+                self.date_format.setCurrentIndex(self.date_format.findData(CUSTOM_DATE))
+                self.date_custom.setText(text)
+                self.date_custom.show()
+                self._date_say(text)
+        finally:
+            self.date_format.blockSignals(False)
+            self.date_custom.blockSignals(False)
+
+    def _date_picked(self) -> None:
+        choice = str(self.date_format.currentData() or "")
+        if choice != CUSTOM_DATE:
+            self.date_custom.hide()
+            self.date_note.hide()
+            self.date_format_changed.emit(choice)
+            return
+        self.date_custom.show()
+        self.date_custom.setFocus()
+        self._date_typed(self.date_custom.text())
+
+    def _date_typed(self, text: str) -> None:
+        """Check the custom format as it is typed; send it only when it can be used."""
+        if self._date_say(text):
+            self.date_format_changed.emit(str(text).strip())
+
+    def _date_say(self, text: str) -> bool:
+        """Show what the format gives, or what is wrong with it. True when it is valid."""
+        from app.core import date_format as _dates
+
+        problem = _dates.validate(text)
+        self.date_note.setText(problem or f"Shows as {_dates.example(str(text).strip())}")
+        self.date_note.setProperty("problem", problem is not None)
+        self.date_note.show()
+        return problem is None
 
     def set_theme(self, preference: Any) -> None:
         """Show a stored theme choice without emitting."""

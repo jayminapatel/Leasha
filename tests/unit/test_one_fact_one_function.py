@@ -118,7 +118,12 @@ def test_files_and_search_date_and_place_an_attachment_the_same(store):
     result = _result(ATTACHMENT, file_id=files_row.file_id, ext="docx")
     group, _row = _group(result, mail_details(store, [result]))
 
-    assert files_row.modified == group.when
+    # 2026-10-11, the owner: Files dates are written in the format chosen in
+    # Settings > Window (`app.core.date_format`), not the Search tab's way - the
+    # moment is still the one Search shows (`mtime_ns`, below).
+    from app.core.date_format import format_ns
+
+    assert files_row.modified == format_ns(files_row.mtime_ns) != ""
     assert files_row.mtime_ns == SENT * 1_000_000_000
     assert files_row.folder == group.folder == "from Dave Smith · School trip"
     from app.ui.presenter import kind_tag
@@ -136,7 +141,12 @@ def test_a_photos_date_is_one_date_on_files_search_and_the_pane():
                             "mtime_ns": COPIED_NS, "taken_at_ns": SHOT_NS,
                             "status": "INDEXED"}], now=NOW)[0]
     group, row = _group(_result("D:/Pics/a.jpg", file_id=7, ext="jpg", taken_at_ns=SHOT_NS))
-    assert files_row.modified == group.when
+    # 2026-10-11, the owner: Files dates are written in the format chosen in
+    # Settings > Window (`app.core.date_format`), not the Search tab's way - the
+    # moment is still the one Search shows (`mtime_ns`, below).
+    from app.core.date_format import format_ns
+
+    assert files_row.modified == format_ns(SHOT_NS)
     # The column sorts on the date the list is ordered by.
     assert files_row.mtime_ns == SHOT_NS
     assert dict(preview_facts(files_row))["Modified"] == dict(preview_facts(row))["Modified"]
@@ -255,7 +265,7 @@ def test_the_files_note_is_the_status_columns_sentence(status, code):
 # -- 9. the date register --------------------------------------------------------
 
 @pytest.mark.parametrize("register", ["plain", "technical"])
-def test_files_and_code_follow_the_search_tabs_register(register):
+def test_code_follows_the_search_tabs_register_and_files_its_own_format(register):
     from app.ui.presenter import file_rows, repo_file_rows, set_date_register
 
     group, _ = _group(_result("D:/a/x.py", ext="py"), register=register)
@@ -267,7 +277,11 @@ def test_files_and_code_follow_the_search_tabs_register(register):
                                     "mtime_ns": COPIED_NS}], now=NOW)[0]
     finally:
         set_date_register("plain")
-    assert files_row.modified == code_row.seen == group.when
+    assert code_row.seen == group.when
+    # 2026-10-11, the owner: Files writes the chosen format whatever the register.
+    from app.core.date_format import format_ns
+
+    assert files_row.modified == format_ns(COPIED_NS)
 
 
 # -- 10. one size formatter --------------------------------------------------------

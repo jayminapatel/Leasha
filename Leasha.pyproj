@@ -1161,6 +1161,7 @@
     <Compile Include="tests\unit\test_vector_drop_locked.py" />
     <Compile Include="tests\unit\test_vector_filters.py" />
     <Compile Include="tests\unit\test_vector_index_state.py" />
+    <Compile Include="tests\unit\test_vector_reuse.py" />
     <Compile Include="tests\unit\test_vector_store_deferred.py" />
     <Compile Include="tests\unit\test_view_menu_follows_the_tab.py" />
     <Compile Include="tests\unit\test_view_options.py" />
@@ -1382,6 +1383,7 @@
     <Content Include="docs\WORKORDER-model-sequencing.md" />
     <Content Include="docs\WORKORDER-no-text-layer-advice.md" />
     <Content Include="docs\WORKORDER-offline-drives-on-a-mac.md" />
+    <Content Include="docs\WORKORDER-offline-into-indexing-timeline-on-the-rail.md" />
     <Content Include="docs\WORKORDER-onnx-everywhere-2026-09-29.md" />
     <Content Include="docs\WORKORDER-overhaul-and-mac-ready.md" />
     <Content Include="docs\WORKORDER-owner-pst-scale-run.md" />
@@ -1391,6 +1393,7 @@
     <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
+    <Content Include="docs\WORKORDER-space-report-files-only-inheritance-pst-duplicates.md" />
     <Content Include="docs\WORKORDER-suite-speed.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />

@@ -166,7 +166,7 @@ def test_a_mail_row_fills_the_card_at_once() -> None:
 
     assert isinstance(card, MailCard)
     assert card.sender_name == "Dave Smith"
-    assert card.date_words == "Tuesday 2 January 2024, 09:00"
+    assert card.date_words == "2024-01-02 09:00"   # 2026-10-11: the chosen format
     assert card.subject == "Trip"
 
 
@@ -192,7 +192,7 @@ def test_a_message_is_previewed_as_a_card_and_its_own_words(store) -> None:
     mail = preview.meta["mail"]
     assert mail.card.sender_name == "Dave Smith"
     assert mail.card.recipients == ("priya@acme.com", "bob@x.org")
-    assert mail.card.date_words == "Tuesday 2 January 2024, 09:00"
+    assert mail.card.date_words == "2024-01-02 09:00"   # 2026-10-11: the chosen format
     assert mail.card.attachments == ("form.pdf",)
     assert mail.body == "The trip is on Friday.\n\nBring a coat."
     assert preview.title == "School trip"
@@ -442,7 +442,7 @@ def test_a_message_selected_in_the_mail_tab_shows_its_card(qapp, store) -> None:
 
         assert not view.preview.mail.isHidden()
         assert view.preview.mail.address.text() == "dave@acme.com"
-        assert view.preview.mail.date.text() == "Tuesday 2 January 2024, 09:00"
+        assert view.preview.mail.date.text() == "2024-01-02 09:00"   # 2026-10-11: the chosen format
         assert view.preview.mail.chip_texts() == ["form.pdf"]
         assert view.preview.text.toPlainText() == "The trip is on Friday."
     finally:

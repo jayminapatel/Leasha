@@ -11,10 +11,10 @@ from datetime import datetime as _datetime
 from datetime import timedelta as _timedelta
 from typing import Any, Iterable, Mapping, Optional
 
+from app.core.date_format import format_ns, format_seconds
 from app.core.file_state import derive
 from app.ui.presenter.facts import (
     attachment_context,
-    date_words,
     message_name,
     own_size,
     shown_date_ns,
@@ -25,7 +25,6 @@ from app.ui.presenter.facts import (
 from app.ui.presenter.formatting import (
     format_address,
     format_recipients,
-    format_sent,
     format_size,
     shorten_path,
 )
@@ -93,8 +92,9 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
 
     2026-10-04, the owner: **every fact the way the Search tab shows it**,
     through the one function for each (`presenter.facts`): the type badge
-    (`kind_tag`, "DOC" not "DOCX"), the date (`shown_date_ns` read by
-    `date_words`, in the Search tab's plain/technical `register`), the size
+    (`kind_tag`, "DOC" not "DOCX"), the date (`shown_date_ns`, written in the
+    format chosen in Settings > Window since 2026-10-11 - `app.core.date_format`;
+    `register` is no longer read here), the size
     (`size_words`), an attachment's folder ("from Dave · School trip", not its
     `pst://` key), a catalogued drive's ("Holiday drive > Photos") and the
     note on the name (`status_note`, the Status column's own sentence). An
@@ -127,7 +127,9 @@ def file_rows(rows: Iterable[Mapping[str, Any]], *, now: Optional[float] = None,
             # An attachment whose size is not known yet (schema 31 blanked
             # the archive's) shows nothing rather than "0 B".
             size=size_words(row.get("size_bytes"), path, source_kind),
-            modified=date_words(shown, register=register, now=now),
+            # 2026-10-11, the owner: Files dates in the format chosen in Settings >
+            # Window (`app.core.date_format`, yyyy-mm-dd hh:nn by default), not an age.
+            modified=format_ns(shown),
             size_bytes=own_size(row.get("size_bytes"), path, source_kind),
             mtime_ns=shown,
             path=path,
@@ -343,7 +345,7 @@ def mail_rows(
             file_id=int(row.get("file_id") or 0),
             sender=format_address(row.get("sender")),
             recipients=format_recipients(row.get("recipients")),
-            sent=format_sent(sent_at, now=now),
+            sent=format_seconds(sent_at),        # 2026-10-11: the chosen format, as Files
             subject=subject,
             # The same string, under the name every row consumer reads.
             name=subject,
