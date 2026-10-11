@@ -186,6 +186,8 @@ def parse_one(block: str) -> Card:
             photo = _photo(value, params)
             if photo is not None:
                 card.photo = photo
+        elif name == "X-LEASHA-FAVOURITE":
+            card.favourite = value.strip() in ("1", "true", "TRUE", "yes")
         elif name.startswith("X-DATE-"):
             card.fields.append(Field("date", _date(value), name[7:].replace("-", " ").lower()))
         elif name.startswith("X-") and value.strip() and name not in ("X-ABLABEL", "X-ABUID", "X-ABRELATEDNAMES"):
@@ -323,6 +325,8 @@ def dumps(card: Card, *, version: str = "3.0", uid: str = "") -> str:
             L.append(f"X-{re.sub(r'[^A-Za-z0-9]+', '-', f.label or 'CUSTOM').upper()}:{_esc(f.value)}")
     if s("notes"):
         L.append("NOTE:" + _esc(s("notes")))
+    if card.favourite:
+        L.append("X-LEASHA-FAVOURITE:1")        # other programs ignore it; a CardDAV round trip keeps the star
     if card.groups:
         L.append("CATEGORIES:" + ",".join(_esc(g) for g in card.groups))
     if card.photo is not None:

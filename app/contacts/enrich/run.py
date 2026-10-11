@@ -153,11 +153,12 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
         term = wikidata.company_term(card)
         if term:
             key = company.company_key(term)
-            if force or not _recent(store, "wikidata", key, now):
+            cache = _wiki if _wiki is not None else {}
+            if key in cache:                              # a colleague, looked up a moment ago in this run
+                out += wikidata.proposals_from_facts(contact_id, card, cache[key])
+            elif force or not _recent(store, "wikidata", key, now):
                 try:
-                    cache = _wiki if _wiki is not None else {}
-                    if key not in cache:
-                        cache[key] = wikidata.lookup_company(net.transport, term)
+                    cache[key] = wikidata.lookup_company(net.transport, term)
                     out += wikidata.proposals_from_facts(contact_id, card, cache[key])
                     _remember(store, "wikidata", key, now)
                 except AppErrorException:

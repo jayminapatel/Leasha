@@ -320,6 +320,7 @@ class ImportRow:
     same_as: Optional[int] = None                              # an earlier row of the same file
     choice: str = "new"                                        # new | merge | skip
     target: Optional[int] = None                               # the existing contact to merge into
+    source: str = ""                                           # the file this row came from
 
 
 def build_import_rows(hub: Any, preview: Any) -> list[ImportRow]:
@@ -390,13 +391,14 @@ def commit_import(hub: Any, rows: Sequence[ImportRow], source_name: str, *,
             if target is not None and hub.exists(target):
                 existing = hub.get_card(target)
                 merged = dupes.merge_cards([existing, row.card], region=hub.region).card
-                hub.update(target, merged, action="merge", batch_id=batch, source="import", source_ref=source_name)
+                hub.update(target, merged, action="merge", batch_id=batch, source="import", source_ref=row.source or source_name)
                 holder[row.index] = target
                 out.merged += 1
                 if target not in out.ids:
                     out.ids.append(target)
                 continue
-        cid = hub.create(row.card, kept_in=accounts, batch_id=batch, source="import", source_ref=source_name)
+        cid = hub.create(row.card, kept_in=accounts, batch_id=batch, source="import",
+                         source_ref=row.source or source_name)
         holder[row.index] = cid
         out.added += 1
         out.ids.append(cid)

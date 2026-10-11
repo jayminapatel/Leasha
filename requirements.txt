@@ -388,3 +388,9 @@ segno==1.6.6
 # tzdata: zoneinfo has no time-zone database on Windows without it. The sync
 # schedule tests (a DST change) read Europe/London through zoneinfo.
 tzdata==2025.2
+# reportlab: the PDFs of the contact book - lists, business cards, address
+# labels, envelopes and the printed address book (6j, 6q). Pure Python, drawn in
+# millimetres with no Qt, so the layout is testable headless; checked 2026-10-11.
+reportlab==5.0.1
+# charset-normalizer: reportlab's one dependency; it ships a Windows wheel.
+charset-normalizer==3.5.2
