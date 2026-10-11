@@ -94,7 +94,7 @@ def decode_bytes(data: bytes) -> str:
 
 def _text(data: Union[str, bytes]) -> str:
     text = decode_bytes(data) if isinstance(data, (bytes, bytearray)) else data
-    return text.lstrip("﻿")
+    return text.lstrip("\ufeff")
 
 
 # --------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def _read_csv(text: str) -> tuple[list[str], list[tuple[int, list[str]]]]:
     records = list(reader)
     if not records:
         return [], []
-    headers = [h.strip().lstrip("﻿") for h in records[0]]
+    headers = [h.strip().lstrip("\ufeff") for h in records[0]]
     return headers, [(n, r) for n, r in enumerate(records[1:], 2)]
 
 

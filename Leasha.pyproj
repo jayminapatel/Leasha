@@ -61,6 +61,7 @@
     <Folder Include="app\shell" />
     <Folder Include="app\storage" />
     <Folder Include="app\ui" />
+    <Folder Include="app\ui\accounts" />
     <Folder Include="app\ui\contacts" />
     <Folder Include="app\ui\contacts_tools" />
     <Folder Include="app\ui\controllers" />
@@ -426,6 +427,8 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\accounts\__init__.py" />
+    <Compile Include="app\ui\accounts\logic.py" />
     <Compile Include="app\ui\attachment_open.py" />
     <Compile Include="app\ui\chat_sessions.py" />
     <Compile Include="app\ui\chat_view.py" />

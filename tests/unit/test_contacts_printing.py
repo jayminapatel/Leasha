@@ -132,7 +132,7 @@ def test_envelope_without_sender_and_with_unaddressed_recipient(tmp_path):
 
 
 def test_address_book_is_a_to_z_with_headings(tmp_path):
-    names = [("Zed", "Zulu"), ("Ann", "Adams"), ("Bob", "baker"), ("Cy", "Émile"), ("Di", "123"),
+    names = [("Zed", "Zulu"), ("Ann", "Adams"), ("Bob", "baker"), ("Cy", "\u00c9mile"), ("Di", "123"),
              ("Ed", "Adler")]
     cards = [person(g, f, email=f"{g}@x.example", phone="+441632960001") for g, f in names]
     cards.append(Card(scalars={"company": "Acme Ltd"}))

@@ -158,13 +158,13 @@ def test_qr_decodes_to_the_cards_vcard():
 
 def test_qr_is_compact_drops_the_big_things_and_decodes_non_ascii():
     c = rich_card()
-    c.scalars["given"] = "Zoë"
+    c.scalars["given"] = "Zo\u00eb"
     c.scalars["notes"] = "n" * 3000
     text = qr.vcard_qr_text(c)
     assert len(text.encode("utf-8")) <= qr.MAX_BYTES
     assert "PHOTO" not in text and "NOTE" not in text and "\r\n " not in text      # no photo, no folding
     back = vcard.parse(decode_matrix(qr.vcard_qr_matrix(c)).decode("utf-8"))[0]
-    assert back.get("given") == "Zoë" and back.get("family") == c.get("family")
+    assert back.get("given") == "Zo\u00eb" and back.get("family") == c.get("family")
     assert back.values("email")[0].value == "ann@acme.example"
     assert back.values("phone")[0].value == "+44 7700 900123"
     assert len(qr.vcard_qr_matrix(c)) <= 117                                       # at most version 25: scannable

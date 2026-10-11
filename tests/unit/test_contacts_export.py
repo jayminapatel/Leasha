@@ -171,7 +171,7 @@ def test_pdf_cards_grid_is_ten_business_cards_a_page(tmp_path):
 
 def test_pdf_survives_non_latin_names_and_bad_photos(tmp_path):
     from app.contacts.card import Photo
-    c = person("王", "小明", email="w@x.example")
+    c = person("\u738b", "\u5c0f\u660e", email="w@x.example")
     c.photo = Photo("image/jpeg", b"not an image")
     path = tmp_path / "x.pdf"
     lay = exp.export_pdf_cards([c], path)

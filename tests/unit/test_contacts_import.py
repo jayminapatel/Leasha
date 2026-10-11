@@ -37,7 +37,7 @@ def test_vcard_21_30_40_many_per_file():
 
 
 def test_vcard_bytes_with_bom_and_latin1_fallback():
-    raw = ("﻿" + VCARD_MANY).encode("utf-8")
+    raw = ("\ufeff" + VCARD_MANY).encode("utf-8")
     assert len(imp.import_vcard(raw).contacts) == 3
     latin = "BEGIN:VCARD\r\nVERSION:2.1\r\nN:Garc\xeda;Jos\xe9\r\nEND:VCARD\r\n".encode("latin-1")
     assert imp.import_vcard(latin).contacts[0].card.get("given") == "Jos\xe9"
