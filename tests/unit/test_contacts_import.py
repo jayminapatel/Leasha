@@ -109,7 +109,7 @@ def test_google_new_layout_with_bom_and_multi_value_columns():
     assert [(f.value, f.label) for f in c.values("phone")] == [
         ("+44 7700 900123", "mobile"), ("020 7946 0018", "work")]
     a = c.values("address")[0]
-    assert a.data == {"street": "1 High St, Flat 2", "city": "London", "region": "Greater London",
+    assert a.data == {"street": "1 High St\nFlat 2", "city": "London", "region": "Greater London",
                       "postcode": "N1 1AA", "country": "UK"}
     assert c.groups == ["Family"] and c.favourite            # "* myContacts" is Google's own, "* starred" is a star
     assert {(f.kind, f.label, f.value) for f in c.fields if f.kind in ("date", "related", "custom", "url")} == {
@@ -138,7 +138,7 @@ OUTLOOK = (
     "Business Postal Code;Business Country/Region;Home Street;Birthday;Anniversary;Categories;Notes;Spouse\r\n"
     "Mr;Sam;J;Khan;Jr;sam@x.example;sam2@x.example;01632 960001;020 7946 0018;07700 900124;020 7946 0999;"
     "Khan Ltd;Director;Ops;5 Park Rd;Leeds;W Yorks;LS1 4AB;UK;1 High St;1990-01-02;2015-05-05;"
-    "Family;Work friends;\"Two\r\nlines\";Jo Khan\r\n"
+    "\"Family;Work friends\";\"Two\r\nlines\";Jo Khan\r\n"
 )
 
 

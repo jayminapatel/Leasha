@@ -168,7 +168,7 @@ def parse_one(block: str) -> Card:
             card.fields.append(Field("date", _date(value), "birthday"))
         elif name == "ANNIVERSARY":
             card.fields.append(Field("date", _date(value), "anniversary"))
-        elif name == "RELATED":
+        elif name in ("RELATED", "X-RELATED"):
             card.fields.append(Field("related", _unescape(value), _label(params)))
         elif name in ("IMPP", "X-JABBER", "X-SKYPE", "X-AIM", "X-MSN", "X-YAHOO", "X-ICQ"):
             card.fields.append(Field("im", _unescape(value).split(":", 1)[-1] if name == "IMPP" else _unescape(value),

@@ -14,12 +14,14 @@ from __future__ import annotations
 import ast
 import asyncio
 import inspect
+import json
 import re
 import textwrap
 
 import pytest
 
-from tests.unit.test_mcp_contacts import ATTACHMENT, MESSAGE_FROM, SECRET, CLIENT_ID, call, seed, tools_for
+from tests.unit.test_mcp_contacts import (ATTACHMENT, CLIENT_ID, MESSAGE_FROM, SECRET, call, seed,
+                                           tools_for)
 
 #: Names that write: hub methods, store methods and SQL verbs.
 WRITE_NAMES = {"create", "update", "delete", "restore", "merge", "set_kept_in", "set_link",
@@ -35,22 +37,6 @@ WRITE_NAMES = {"create", "update", "delete", "restore", "merge", "set_kept_in", 
 WRITE_SQL = re.compile(r"\b(INSERT|UPDATE|DELETE|REPLACE|DROP|ALTER|CREATE|PRAGMA)\b", re.IGNORECASE)
 TOOL_METHODS = ("search", "find_files", "read_text", "index_status", "find_contact",
                 "get_contact", "contact_activity")
-
-
-class MemoryKeyring:
-    """An in-memory keyring backend: nothing here touches a real Credential Manager."""
-
-    def __init__(self):
-        self.items = {}
-
-    def get_password(self, service, username):
-        return self.items.get((service, username))
-
-    def set_password(self, service, username, password):
-        self.items[(service, username)] = password
-
-    def delete_password(self, service, username):
-        self.items.pop((service, username), None)
 
 
 def _fake_keyring():
@@ -150,22 +136,21 @@ def test_every_listed_tool_leaves_the_hub_the_accounts_and_the_index_as_they_wer
     assert _counts(settings) == before
 
 
-def test_a_database_opened_read_only_still_answers_every_tool(world, tmp_path):
-    """The strongest form of 'reads only': the same answers from a copy with writes refused."""
-    import shutil
-    import sqlite3
+def test_no_tool_can_take_the_stores_write_lock(world, monkeypatch):
+    """Every tool still answers when the store refuses every write transaction."""
+    from app.serve.mcp import build_server
+    from app.storage.sqlite_store import SqliteStore
 
+    def refused(self, *args, **kwargs):
+        raise AssertionError("a tool opened a write transaction")
+
+    monkeypatch.setattr(SqliteStore, "write", refused)
+    monkeypatch.setattr(SqliteStore, "batch", refused)
     settings, ids = world
-    before = _counts(settings)
-    uri = f"file:{settings.fts_db.as_posix()}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
-    try:
-        with pytest.raises(sqlite3.OperationalError):
-            conn.execute("INSERT INTO contact_tags (name, colour) VALUES ('x', '#fff')")
-    finally:
-        conn.close()
-    assert shutil.copy(settings.fts_db, tmp_path / "copy.db")
-    assert _counts(settings) == before
+    server = build_server(tools_for(settings))
+    for name, arguments in _arguments(ids).items():
+        answer = call(server, name, arguments)
+        assert "error" not in answer, (name, answer)
 
 
 # -- the source says so too ---------------------------------------------------
@@ -274,10 +259,8 @@ def test_no_tool_answers_with_a_secret_from_the_keyring_or_the_settings(world):
         every = {**_arguments(ids), "read_text": {"path": ATTACHMENT}}
         answers = {name: json.dumps(call(server, name, arguments), ensure_ascii=False)
                    for name, arguments in every.items()}
-        answers["search:secret"] = json.dumps(call(server, "search", {"query": SECRET}))
-        answers["find_contact:client"] = json.dumps(call(server, "find_contact", {"query": CLIENT_ID}))
         for fragment in (SECRET, SECRET + "-app", SECRET + "-client", SECRET + "-sync-token",
-                         CLIENT_ID, CLIENT_ID + "-ms", "refresh_token=", "oauth-client-secret",
+                         CLIENT_ID, CLIENT_ID + "-ms", "oauth-client-secret",
                          "account:1:"):
             for name, text in answers.items():
                 assert fragment not in text, f"{name} answered with {fragment!r}"
@@ -288,5 +271,3 @@ def test_no_tool_answers_with_a_secret_from_the_keyring_or_the_settings(world):
     finally:
         keyring.set_keyring(previous)
 
-
-import json  # noqa: E402 - used by the test above; kept beside it

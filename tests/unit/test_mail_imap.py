@@ -151,9 +151,6 @@ class FakeImap:
     def args_of(self, verb: str) -> list[str]:
         return [a for v, a in self.commands if v == verb]
 
-    def seen_flags_added(self) -> list[tuple[str, int]]:
-        return [(n, u) for n, f in self.folders.items() for u, m in f.msgs.items() if "\\Seen" in m.flags and u in getattr(f, "_orig_unseen", set())]
-
     # -- protocol ------------------------------------------------------------
 
     def _caps(self, authed: bool) -> str:
@@ -199,7 +196,7 @@ class FakeImap:
             elif verb == "LOGIN":
                 parts = re.findall(r'"((?:[^"\\]|\\.)*)"|(\S+)', args)
                 user, pw = [a or b for a, b in parts][:2]
-                if user == self.user and pw == self.password and not self.oauth_only():
+                if user == self.user and pw == self.password:
                     authed = True
                     send(f"{tag} OK [CAPABILITY {self._caps(True)}] logged in\r\n")
                 else:
@@ -294,9 +291,6 @@ class FakeImap:
             else:
                 self.violations.append(f"UNKNOWN {verb} {args}")
                 send(f"{tag} BAD unknown\r\n")
-
-    def oauth_only(self) -> bool:
-        return False
 
     def _fetch(self, send, tag: str, args: str, f: FakeFolder, cond_on: bool) -> None:
         m = re.match(r"(\S+) \((.*?)\)(?: \(CHANGEDSINCE (\d+)\))?$", args)

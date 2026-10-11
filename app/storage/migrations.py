@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 37
+CURRENT_VERSION = 38
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -1993,6 +1993,48 @@ def _v37_accounts_and_contacts(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as exc:       # FTS5 is in the build; if not, search says so
         _log.warning("contacts_fts not created: {}", exc)
 
+def _v38_live_mail(conn: sqlite3.Connection) -> None:
+    r"""Mail fetched from an account lives beside mail read from files (order 1k, Phase B).
+
+    A live message is an ordinary `files` row (its path `account://<id>/<folder>/<id>`)
+    and an ordinary `messages` row, so search, the Mail page, previews and
+    attachments need no second code path. What is added is only what the account
+    knows and a file does not:
+
+    * `account_id` / `remote_id` - which account and the id the server uses (the
+      mail is followed when the server moves or deletes it, 5e);
+    * `labels` - JSON list (Gmail labels stay labels, never folders, 5a);
+    * `message_id` - the `Message-ID` header, the key D13 matches an account copy to
+      an Outlook archive copy by.
+    * `message_places` - D13: when the live copy and an archive copy are one
+      message, the live copy is the one searched and the archive copy is kept here
+      as another place it lives, so order 1j's duplicate handling is never undone.
+
+    Additive: the columns are nullable, so every mail row already indexed is
+    unchanged. `idx_messages_msgid` is partial, so an index with no live mail pays
+    nothing for it.
+    """
+    columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    for name, ddl in (("account_id", "INTEGER"), ("remote_id", "TEXT"), ("labels", "TEXT"),
+                      ("message_id", "TEXT")):
+        if name not in columns:
+            conn.execute(f"ALTER TABLE messages ADD COLUMN {name} {ddl}")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_account ON messages(account_id, remote_id) "
+                 "WHERE account_id IS NOT NULL")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_msgid ON messages(message_id) "
+                 "WHERE message_id IS NOT NULL")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS message_places (
+            id         INTEGER PRIMARY KEY,
+            file_id    INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            kind       TEXT NOT NULL CHECK (kind IN ('archive','account')),
+            ref        TEXT NOT NULL,
+            store_path TEXT,
+            entry_id   TEXT,
+            UNIQUE (kind, ref)
+        )""")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_message_places_file ON message_places(file_id)")
+
 
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
@@ -2031,6 +2073,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     35: _v35_message_read_stamp,
     36: _v36_index_upkeep,
     37: _v37_accounts_and_contacts,
+    38: _v38_live_mail,
 }
 
 #: Released migrations that open and close transactions of their own -
