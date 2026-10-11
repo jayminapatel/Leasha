@@ -782,6 +782,10 @@ def _to_document(
     )
     document.virtual_path = f"pst://{store_name}/{identifier}"
     document.meta["folder_path"] = folder_path
+    # Order 1k D13: the Internet Message-ID, so a copy of this message fetched
+    # from an account can be matched to it. Empty when the headers hold none.
+    if _header(headers, "Message-ID"):
+        document.meta["message_id"] = _header(headers, "Message-ID")
     # 2026-10-04: its position in that folder, so "Open" on one of its
     # attachments finds it without walking the archive (`pst_attachment`).
     if folder_index is not None:

@@ -104,6 +104,8 @@ class MailItem:
     conversation: Optional[str] = None
     body: str = ""
     attachments: list["MapiAttachment"] = field(default_factory=list)
+    #: Order 1k D13: the Internet Message-ID (UNVERIFIED on Windows: read through MAPI).
+    message_id: str = ""
 
     @property
     def is_empty(self) -> bool:
@@ -432,6 +434,8 @@ def _walk_folder(
         )
         document.virtual_path = key
         document.meta["folder_path"] = folder.path
+        if item.message_id:
+            document.meta["message_id"] = item.message_id
         document.meta["store_name"] = store.display_name
         document.meta["store_cached_only"] = store.cached_only
         document.warnings = (*document.warnings, *warnings)
@@ -633,9 +637,22 @@ def _com_item(entry: Any) -> Optional[MailItem]:
             conversation=conversation,
             body=body,
             attachments=attachments,
+            message_id=_com_message_id(entry),
         )
     except Exception:                                     # noqa: BLE001 - one odd item
         return None
+
+
+def _com_message_id(entry: Any) -> str:
+    """The Internet Message-ID (PR_INTERNET_MESSAGE_ID), or "" when Outlook has none.
+    UNVERIFIED on Windows: this path needs classic Outlook and has not run here."""
+    try:
+        accessor = getattr(entry, "PropertyAccessor", None)
+        if accessor is None:
+            return ""
+        return str(accessor.GetProperty("http://schemas.microsoft.com/mapi/proptag/0x1035001F") or "").strip()
+    except Exception:                                     # noqa: BLE001 - not every item has one
+        return ""
 
 
 def _com_sender(entry: Any) -> str:

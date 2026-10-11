@@ -97,5 +97,5 @@ def test_the_world_builds_a_page_that_lists_what_the_hub_holds(world):
     world.add(card("Ann", "Lee", email="ann@x.example"))
     world.add(card("Bob", "Bell"), kept=[world.a_work])
     page = world.page()
-    assert [r.display_name for r in (page.model.row_at(i) for i in range(page.model.rowCount()))] == [
-        "Bob Bell", "Ann Lee"] or page.model.rowCount() == 2
+    names = {page.model.row_at(i).display_name for i in range(page.model.rowCount())}
+    assert names == {"Ann Lee", "Bob Bell"}

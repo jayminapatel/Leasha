@@ -7955,6 +7955,11 @@ class Pipeline:
         if self._repeated_message(item):
             self._stats_ref.mail_repeats += 1
             return []
+        # Order 1k D13: an Outlook copy of a message an account also holds is the
+        # same message - the live copy is the one searched.
+        if self._covered_by_live_copy(item):
+            self._stats_ref.mail_repeats += 1
+            return []
         # Work order 0i section 4b: computed once, used by the upsert below.
         taken_at_ns, taken_at_is_hint = self._photo_taken_at(candidate)
         place = self._photo_place(candidate)
@@ -8227,6 +8232,27 @@ class Pipeline:
         repeats.add(key)
         return True
 
+    def _covered_by_live_copy(self, item: _Extracted) -> bool:
+        r"""Is this Outlook message (or a file attached to one) the second place of a
+        message an account holds? Order 1k D13, `app.accounts.mail_index`.
+
+        Recorded in `message_places` when the live copy was written or when this
+        message is met, and then left out of the index so it is not searched twice
+        and a later re-read of the archive does not bring it back. Only a
+        `pst_message`; anything unexpected answers "no", so a doubt costs a
+        duplicate row, never a message.
+        """
+        if item.source_kind != "pst_message":
+            return False
+        try:
+            from app.accounts.mail_index import archive_copy_is_covered
+
+            return archive_copy_is_covered(self.store, str(item.row_key), item.meta or {},
+                                           has_text=bool(item.chunks))
+        except Exception as exc:                 # noqa: BLE001 - see the docstring
+            self._log.debug("could not check {} for a live copy: {}", item.row_key, exc)
+            return False
+
     def _store_message_meta(self, file_id: int, meta: dict[str, Any]) -> None:
         """Write a mail message's headers (`messages` row) for `file_id`, from
         the keys the extractor put on `Document.meta`. A failure is logged and
@@ -8256,6 +8282,12 @@ class Pipeline:
         fields["has_attach"] = int(meta.get("has_attach", 0) or 0)
         try:
             self.store.set_message(file_id, **fields)
+            # Order 1k D13: the Message-ID, normalised, so an account's copy of
+            # this message can be matched to it. Only when a reader put one on.
+            if meta.get("message_id"):
+                from app.accounts.mail_ingest import normalise_message_id
+
+                self.store.set_message_id(file_id, normalise_message_id(str(meta["message_id"])))
         except Exception as exc:                # noqa: BLE001 - metadata is not worth a failed file
             self._log.warning("message metadata for file {} not stored: {}", file_id, exc)
 

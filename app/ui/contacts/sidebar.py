@@ -95,7 +95,7 @@ class ContactSidebar(QWidget):
             if e.section != last:
                 last = e.section
                 section = QTreeWidgetItem([e.section])
-                section.setFlags(Qt.ItemFlag.NoItemFlags)
+                section.setFlags(Qt.ItemFlag.ItemIsEnabled)
                 font = QFont(self.tree.font())
                 font.setBold(True)
                 section.setFont(0, font)
@@ -136,12 +136,13 @@ class ContactSidebar(QWidget):
         item = self._item(key)
         if item is None:
             return
-        if not emit:
-            self.tree.blockSignals(True)
+        if emit:
+            self.tree.setCurrentItem(item)               # `_changed` records the choice
+            return
+        self.tree.blockSignals(True)
         self.tree.setCurrentItem(item)
         self._current = key
-        if not emit:
-            self.tree.blockSignals(False)
+        self.tree.blockSignals(False)
 
     def _changed(self, item: Optional[QTreeWidgetItem], _before: Any) -> None:
         entry = item.data(0, ENTRY_ROLE) if item is not None else None

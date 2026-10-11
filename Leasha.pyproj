@@ -732,6 +732,7 @@
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\_fake_llm.py" />
     <Compile Include="tests\unit\accounts_fakes.py" />
+    <Compile Include="tests\unit\accounts_ui_fakes.py" />
     <Compile Include="tests\unit\chat_env.py" />
     <Compile Include="tests\unit\chat_fakes.py" />
     <Compile Include="tests\unit\close_scenario_child.py" />
@@ -746,6 +747,7 @@
     <Compile Include="tests\unit\test_accounts_http.py" />
     <Compile Include="tests\unit\test_accounts_network_guard.py" />
     <Compile Include="tests\unit\test_accounts_oauth.py" />
+    <Compile Include="tests\unit\test_accounts_page.py" />
     <Compile Include="tests\unit\test_accounts_policy.py" />
     <Compile Include="tests\unit\test_accounts_secrets.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
@@ -851,6 +853,8 @@
     <Compile Include="tests\unit\test_contacts_qr.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_common.py" />
+    <Compile Include="tests\unit\test_contacts_tools_ui_files.py" />
+    <Compile Include="tests\unit\test_contacts_view.py" />
     <Compile Include="tests\unit\test_contacts_view_world.py" />
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
