@@ -145,6 +145,7 @@
     <Compile Include="app\chat\evaluate.py" />
     <Compile Include="app\chat\llm.py" />
     <Compile Include="app\chat\memory.py" />
+    <Compile Include="app\chat\mine.py" />
     <Compile Include="app\chat\my_words.py" />
     <Compile Include="app\chat\plan.py" />
     <Compile Include="app\chat\prompts.py" />
@@ -1173,6 +1174,7 @@
     <Compile Include="tests\unit\test_outlook_cleanup.py" />
     <Compile Include="tests\unit\test_outlook_cleanup_ui.py" />
     <Compile Include="tests\unit\test_own_python.py" />
+    <Compile Include="tests\unit\test_owner_questions.py" />
     <Compile Include="tests\unit\test_packaging_entry.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
