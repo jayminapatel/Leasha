@@ -68,7 +68,6 @@ from __future__ import annotations
 import contextlib
 import hmac
 import json
-import re
 import secrets
 import socket
 import sqlite3
@@ -77,6 +76,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+import app.contacts.activity as _activity
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
 
@@ -653,21 +653,10 @@ def _mail_card(detail: Any, path: str, accounts: dict | None = None) -> dict | N
     """A `mail_details` entry as the tools say it, or None for a non-message.
 
     *Order 1k 8a:* a message fetched from an account also says which one (`account`, its
-    name), beside the sender and date. `accounts` is `{account id: name}`.
+    name), beside the sender and date. `accounts` is `{account id: name}`. The reading is
+    `app.contacts.activity.mail_card`, shared with the Contacts page's "From your index".
     """
-    from app.search.marks import ATTACHMENT_MARKER
-
-    if not detail:
-        return None
-    mail = {"subject": detail.get("subject") or "", "from": detail.get("sender") or "",
-            "sent": _when(detail.get("sent_at"))}
-    if detail.get("attachment_of"):
-        text = str(path or "")
-        mail["attachment"] = text[text.find(ATTACHMENT_MARKER) + len(ATTACHMENT_MARKER):]
-    named = _account_of_path(path, accounts)
-    if named:
-        mail["account"] = named
-    return mail
+    return _activity.mail_card(detail, path, accounts)
 
 
 #: Where a message fetched from an account lives in the index (order 1k 5d).
@@ -680,16 +669,7 @@ def _account_prefix(account_id: int) -> str:
 
 def _account_of_path(path: Any, accounts: dict | None) -> str:
     """The name of the account an `account://` path belongs to, or "" for any other path."""
-    text = str(path or "")
-    if not text.startswith(_ACCOUNT_SCHEME):
-        return ""
-    from urllib.parse import unquote
-
-    try:
-        ident = unquote(text[len(_ACCOUNT_SCHEME):].split("/", 1)[0])      # also a file attached to the message
-        return str((accounts or {}).get(int(ident)) or "an account that is no longer set up")
-    except (ValueError, TypeError):
-        return ""
+    return _activity.account_of_path(path, accounts)
 
 
 def _split_account_path(path: str) -> tuple[str, str, str]:
@@ -801,76 +781,30 @@ def _accounts_of(store: Any) -> list[dict]:
 
 def _is_address_in(text: Any, email: str) -> bool:
     """`email` as a whole address in `text` - `ann@x.com`, not `joann@x.com`."""
-    pattern = r"(?<![\w.+%-])" + re.escape(email) + r"(?![\w-]|\.\w)"
-    return re.search(pattern, str(text or ""), re.IGNORECASE) is not None
+    return _activity.is_address_in(text, email)
 
 
 def _messages(store: Any, emails: list[str], limit: int, *, attachments: bool = False,
               oldest: bool = False) -> list[dict]:
     """Messages from or to any of `emails`, newest first (oldest first for
     `oldest`), through the Mail tab's own read (`browse_messages`)."""
-    rows: dict[int, dict] = {}
-    fetch = 25 if oldest else min(limit * 4, 200)
-    for email in emails[:10]:
-        for side in ("sender", "recipient"):
-            found = store.browse_messages(
-                **{side: email}, has_attachment=True if attachments else None,
-                sort="oldest" if oldest else "", limit=fetch)
-            for row in found:
-                if _is_address_in(row.get(side if side == "sender" else "recipients"), email):
-                    rows.setdefault(int(row["file_id"]), {**row, "_email": email, "_side": side})
-    ordered = sorted(rows.values(), key=lambda r: (r.get("sent_at") is None, r.get("sent_at") or 0,
-                                                   int(r["file_id"])), reverse=False)
-    dated = [r for r in ordered if r.get("sent_at") is not None]
-    undated = [r for r in ordered if r.get("sent_at") is None]
-    dated = dated if oldest else dated[::-1]
-    return (dated + undated)[:limit]
+    return _activity.messages(store, emails, limit, attachments=attachments, oldest=oldest)
 
 
 def _message_entry(row: dict) -> dict:
     """One message as `contact_activity` says it: the `_mail_card` fields, the
     path to give `read_text`, and whether it came from them or went to them."""
-    card = _mail_card({"subject": row.get("subject"), "sender": row.get("sender"),
-                       "sent_at": row.get("sent_at")}, str(row.get("path") or "")) or {}
-    recipients = str(row.get("recipients") or "")
-    return {"path": str(row.get("path") or ""), **card,
-            "to": recipients if len(recipients) <= RECIPIENTS_CHARS
-            else recipients[:RECIPIENTS_CHARS - 1] + "…",
-            "direction": "from them" if row.get("_side") == "sender" else "to them"}
+    return _activity.message_entry(row)
 
 
 def _mail_with(store: Any, emails: list[str], limit: int) -> dict:
     """The latest mail with these addresses, and the first and last contact."""
-    if not emails:
-        return {"messages": [], "first_contact": "", "last_contact": "",
-                "note": "This contact has no email address, so no mail can be matched."}
-    latest = _messages(store, emails, limit)
-    first = _messages(store, emails, 1, oldest=True)
-    stamps = [r["sent_at"] for r in latest + first if r.get("sent_at")]
-    return {"messages": [_message_entry(r) for r in latest],
-            "first_contact": _when(min(stamps)) if stamps else "",
-            "last_contact": _when(max(stamps)) if stamps else ""}
+    return _activity.mail_with(store, emails, limit)
 
 
 def _files_exchanged(store: Any, emails: list[str], limit: int) -> list[dict]:
     """Files attached to messages with these addresses: each with the message it came on."""
-    from app.core.row_facts import attachment_of
-
-    out: list[dict] = []
-    if not emails:
-        return out
-    for row in _messages(store, emails, limit, attachments=True):
-        message_path = str(row.get("path") or "")
-        for file_id in store.file_ids_at_or_under(message_path):
-            record = store.get_file_by_id(file_id)
-            if record is None or attachment_of(record.path)[0] != message_path:
-                continue
-            out.append({"path": record.path, "name": attachment_of(record.path)[1],
-                        "type": record.ext, "size_bytes": record.size_bytes,
-                        "message": _message_entry(row)})
-            if len(out) >= limit:
-                return out
-    return out
+    return _activity.files_exchanged(store, emails, limit)
 
 
 def _photos_of(store: Any, contact_id: int, limit: int) -> tuple[str, list[dict]]:
@@ -879,32 +813,7 @@ def _photos_of(store: Any, contact_id: int, limit: int) -> tuple[str, list[dict]
     The match is `accepted`, `suggested` or `none`; only an accepted one lists
     photos - a suggestion is the program's guess, not the person's word.
     """
-    from app.core.row_facts import shown_date_ns
-
-    try:
-        link = store.conn.execute(
-            "SELECT l.pile_id, l.state, p.name FROM contact_pile_links l "
-            "JOIN piles p ON p.id = l.pile_id WHERE l.contact_id = ?", (contact_id,)).fetchone()
-    except sqlite3.Error:
-        return "none", []
-    if link is None or link["state"] == "declined":
-        return "none", []
-    if link["state"] != "accepted":
-        return "suggested", []
-    ids = [int(r[0]) for r in store.conn.execute(
-        "SELECT DISTINCT file_id FROM faces WHERE pile_id = ? ORDER BY file_id DESC LIMIT ?",
-        (int(link["pile_id"]), min(limit * 4, 100)))]
-    photos = []
-    for file_id in ids:
-        record = store.get_file_by_id(file_id)
-        if record is None:
-            continue
-        when = shown_date_ns(mtime_ns=record.mtime_ns, taken_at_ns=record.taken_at_ns, sent_at=None)
-        photos.append((when or 0, {"path": record.path,
-                                   "taken": _when(when / 1e9) if when else "",
-                                   "person": link["name"] or ""}))
-    photos.sort(key=lambda item: item[0], reverse=True)
-    return "accepted", [item[1] for item in photos[:limit]]
+    return _activity.photos_of(store, contact_id, limit)
 
 
 def _preferences_of(settings: Any) -> dict:
@@ -916,13 +825,7 @@ def _preferences_of(settings: Any) -> dict:
 
 def _when(seconds: Any) -> str:
     """A local date and time an AI program can read and compare, or `""`."""
-    from datetime import datetime
-
-    try:
-        value = float(seconds or 0)
-        return datetime.fromtimestamp(value).isoformat(timespec="minutes") if value > 0 else ""
-    except (TypeError, ValueError, OSError, OverflowError):
-        return ""
+    return _activity.when(seconds)
 
 
 # ---------------------------------------------------------------------------

@@ -332,6 +332,11 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     # Above the results and below the status line: a degradation is about the
     # results, so it belongs where the eye lands before reading them.
     layout.addWidget(notices)
+    # Order 1k 6f: a query that names a contact shows their card here, above the results.
+    # It reads on a worker after its own pause and never touches the search itself.
+    from app.ui.widgets.person_card import attach as attach_person_strip
+
+    layout.addWidget(attach_person_strip(view))
     layout.addWidget(body, stretch=1)
 
     state = {"home": None}

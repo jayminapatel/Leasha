@@ -185,6 +185,7 @@
     <Compile Include="app\contacts\__init__.py" />
     <Compile Include="app\contacts\_layouts.py" />
     <Compile Include="app\contacts\_pdf.py" />
+    <Compile Include="app\contacts\activity.py" />
     <Compile Include="app\contacts\card.py" />
     <Compile Include="app\contacts\cleanup.py" />
     <Compile Include="app\contacts\dupes.py" />
@@ -638,6 +639,7 @@
     <Compile Include="app\ui\widgets\number_field.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
     <Compile Include="app\ui\widgets\offline_media_rows.py" />
+    <Compile Include="app\ui\widgets\person_card.py" />
     <Compile Include="app\ui\widgets\photo_browser.py" />
     <Compile Include="app\ui\widgets\photo_info.py" />
     <Compile Include="app\ui\widgets\photo_page_parts.py" />
