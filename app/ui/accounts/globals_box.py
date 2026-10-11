@@ -186,6 +186,17 @@ class GlobalSettingsBox(QWidget):
         self.phone_region.editingFinished.connect(self._region_done)
         self.maps_site.currentIndexChanged.connect(lambda _i: self._save(maps_site=str(self.maps_site.currentData())))
 
+        # ---- 7 enrichment: what may be looked up, and where
+        box, form = self._group("Enrichment", outer)
+        form.addRow(hint("From your own index - nothing leaves this computer. On by default."))
+        self.enrich: dict[str, QCheckBox] = {}
+        for key, words, said in logic.ENRICH_OWN:
+            self._enrich_switch(form, key, words, said)
+        form.addRow(hint("From the internet - off until you switch each one on. Each says exactly what it sends."))
+        for key, words, said in logic.ENRICH_NET:
+            self._enrich_switch(form, key, words, said)
+        form.addRow(hint("Nothing is kept until you accept it."))
+
         # ---- 1a client IDs
         box, form = self._group("Sign-in set-up (Google and Microsoft)", outer)
         form.addRow(hint("Leasha ships with no sign-in key of its own: you make a free one with your own "
@@ -227,6 +238,15 @@ class GlobalSettingsBox(QWidget):
         for b, key in ((self.google_help, "google"), (self.microsoft_help, "microsoft"),
                        (self.apple_help, "apple"), (self.imap_help, "imap")):
             b.clicked.connect(lambda _c=False, k=key: parts.open_guide(logic.GUIDE_ANCHORS[k]))
+
+    def _enrich_switch(self, form: QFormLayout, key: str, words: str, said: str) -> None:
+        box = QCheckBox(words)
+        box.setAccessibleName(words)
+        box.setToolTip(said)
+        form.addRow(box)
+        form.addRow(hint(said))
+        self.enrich[key] = box
+        box.toggled.connect(lambda on, k=key: self._save(**{k: bool(on)}))
 
     def _tips(self) -> None:
         """A sentence of what each control does (the hover text)."""
@@ -340,6 +360,8 @@ class GlobalSettingsBox(QWidget):
             for c, v in ((self.notify_brake, s.notify_brake), (self.notify_conflict, s.notify_conflict),
                          (self.notify_signin, s.notify_signin), (self.notify_failed, s.notify_failed_24h)):
                 set_quiet(c, bool(v), "setChecked")
+            for key, box in self.enrich.items():
+                set_quiet(box, bool(getattr(s, key)), "setChecked")
             blocked = self.default_account.blockSignals(True)
             self.default_account.clear()
             self.default_account.addItem("The first account with contact sync on", None)

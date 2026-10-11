@@ -13,6 +13,7 @@ Order 1k 1g and section 10 (rule 8: the command line ships before the window).
     accounts set <account> <key> <value>  name | colour | direction | mail | contacts
     accounts schedule [--mail M] [--contacts M] [--same-for-all yes|no] [--pause P] [--quiet A-B|off]
     accounts config [--google-client-id ID] [--microsoft-client-id ID] [--default-account A] ...
+                    [--enrich-signatures|-company|-faces|-history|-suggest|-gravatar|-logo|-wikidata yes|no]
     accounts due                          what the schedule would start now (starts nothing)
 
 A password is never an argument (it would sit in shell history and in the run log):
@@ -33,6 +34,25 @@ from app.cli._common import EXIT_ERROR, EXIT_OK, _load
 from app.core.logging import setup_logging
 
 __all__ = ["add_accounts_parser", "cmd_accounts", "open_service"]
+
+#: (argparse dest, AccountSettings field). The first five read your own index; the last three
+#: go to the internet and are off until switched on.
+ENRICH_FLAGS = (
+    ("enrich_signatures", "enrich_signatures"), ("enrich_company", "enrich_company"),
+    ("enrich_faces", "enrich_faces"), ("enrich_history", "enrich_history"),
+    ("enrich_suggest", "enrich_suggest"), ("enrich_gravatar", "enrich_gravatar"),
+    ("enrich_logo", "enrich_logo"), ("enrich_wikidata", "enrich_wikidata"),
+)
+_ENRICH_HELP = {
+    "enrich_signatures": "own index: read phone, title and company from email signatures",
+    "enrich_company": "own index: company from a work email's domain",
+    "enrich_faces": "own index: a photo from the person's named faces",
+    "enrich_history": "own index: first and last contact, how often",
+    "enrich_suggest": "own index: suggest people who mail you often",
+    "enrich_gravatar": "internet: a SHA-256 hash of the email address is sent to Gravatar",
+    "enrich_logo": "internet: only the company's own domain is contacted",
+    "enrich_wikidata": "internet: the company name is looked up; companies only, never people",
+}
 
 _SCHEDULE_HELP = "manual | every:<minutes> | daily:HH:MM   (e.g. every:60)"
 
@@ -228,6 +248,10 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             changes["brake_percent"] = args.brake_percent
         if args.dry_run_first:
             changes["dry_run_first"] = args.dry_run_first.lower() in ("yes", "on", "true")
+        for flag, name in ENRICH_FLAGS:                       # section 7: each source its own switch
+            value = getattr(args, flag)
+            if value:
+                changes[name] = value.lower() in ("yes", "on", "true")
         if args.google_client_secret_stdin:
             from app.accounts.secrets import client_secret_key  # noqa: PLC0415
             svc.secrets.put(client_secret_key("google"), sys.stdin.readline().rstrip("\r\n"))
@@ -303,4 +327,6 @@ def add_accounts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     cf.add_argument("--brake-count", type=int)
     cf.add_argument("--brake-percent", type=float)
     cf.add_argument("--dry-run-first", choices=["yes", "no"])
+    for flag, _name in ENRICH_FLAGS:
+        cf.add_argument("--" + flag.replace("_", "-"), dest=flag, choices=["yes", "no"], help=_ENRICH_HELP[flag])
     p.set_defaults(func=cmd_accounts)

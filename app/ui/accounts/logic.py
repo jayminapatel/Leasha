@@ -25,7 +25,7 @@ __all__ = [
     "pause_value", "hold_text", "when_text", "RowView", "row_view", "provider_glyph", "kind_chips",
     "signin_text", "run_row", "plan_text", "fix_text", "runs_csv", "Toast", "toasts_for",
     "schedule_to_option", "schedule_from_option", "guide_path", "can_undo", "can_approve",
-    "can_allow", "duration_text", "trigger_text",
+    "can_allow", "duration_text", "trigger_text", "ENRICH_OWN", "ENRICH_NET",
 ]
 
 MODE_CHOICES = (("manual", "Manual - only when I press Sync now"),
@@ -38,6 +38,28 @@ PAUSE_CHOICES = (("hour", "For 1 hour"), ("tomorrow", "Until tomorrow"),
 CONFLICT_CHOICES = (("newest", "The newest edit wins"),
                     ("priority", "The account higher in the list wins"),
                     ("ask", "Ask me every time"))
+
+#: Section 7's switches: (AccountSettings field, label, the sentence under it). The first five
+#: read only your own index and are on by default; the last three go to the internet, are off by
+#: default, and each says exactly what leaves the computer.
+ENRICH_OWN = (
+    ("enrich_signatures", "Email signatures",
+     "Read phone, title, company, address and website from the newest signature in mail from the person."),
+    ("enrich_company", "Company from the email domain",
+     "Fill a blank company from a work email address (free mail such as gmail.com is skipped)."),
+    ("enrich_faces", "Photo from named faces", "Offer a photo from the person's named faces in your photos."),
+    ("enrich_history", "Contact history", "Show first and last contact, how often, and who else is on the thread."),
+    ("enrich_suggest", "Suggested contacts", "List people who mail you often and are in no contact."),
+)
+ENRICH_NET = (
+    ("enrich_gravatar", "Gravatar",
+     "A SHA-256 hash of the email address is sent to Gravatar, which may answer with the photo and public "
+     "profile the person published."),
+    ("enrich_logo", "Company logo",
+     "Fetches the website's own icon. Only the company's own domain is contacted."),
+    ("enrich_wikidata", "Wikidata",
+     "The company name is looked up; companies only, never people. Website, headquarters and industry."),
+)
 
 MAPS_CHOICES = (("openstreetmap", "OpenStreetMap"), ("google", "Google Maps"),
                 ("apple", "Apple Maps"), ("bing", "Bing Maps"))

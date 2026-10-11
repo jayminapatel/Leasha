@@ -351,6 +351,20 @@ class AccountService:
         schedule - the person pressed Undo, which is the same as pressing Sync now for them."""
         return self.engine.push(set(int(a) for a in account_ids), trigger="undo")
 
+    def resolve_conflict(self, contact_id: int, account_id: int, choose: str) -> Optional[SyncOutcome]:
+        """The person's choice for a clash held under 'ask me every time' (10k): `local` keeps
+        Leasha's value, `remote` takes the account's. Returns None when that account is mid-sync
+        (nothing was changed; ask again when it ends)."""
+        if choose not in ("local", "remote"):
+            raise ValueError("choose must be 'local' or 'remote'")
+        claimed = self._claim([(int(account_id), "contacts")])
+        if not claimed:
+            return None
+        try:
+            return self.engine.resolve_conflict(int(contact_id), int(account_id), choose)
+        finally:
+            self._release(claimed)
+
     def approve_first_sync(self, account_id: int, **kw: Any) -> list[SyncOutcome]:
         return self.sync_now(account_id, "contacts", approve_first=True, trigger="approved", **kw)
 

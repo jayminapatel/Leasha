@@ -79,6 +79,9 @@ class LazyService:
     def new_contact(self, card: Any, **kw: Any) -> Any:         # worker
         return get_service(self._shell).new_contact(card, **kw)
 
+    def resolve_conflict(self, contact_id: int, account_id: int, choose: str) -> Any:   # worker
+        return get_service(self._shell).resolve_conflict(contact_id, account_id, choose)
+
 
 def get_service(shell: Any) -> Any:
     """The service for the window's open index (`shell._store`)."""
