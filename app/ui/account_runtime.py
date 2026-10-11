@@ -73,7 +73,7 @@ class AccountRuntime:
 
         self.shell = shell
         self.factory = service_factory_for(shell._store)
-        self._owner = QObject(shell)
+        self._owner = QObject(shell if isinstance(shell, QObject) else None)
         self.scheduler = AccountScheduler(self.factory, parent=self._owner)
         self.told: set[str] = set()
         self.page: Any = getattr(getattr(shell, "settings_view", None), "accounts_page", None)

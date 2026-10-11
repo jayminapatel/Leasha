@@ -745,6 +745,7 @@
     <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_account_scheduler.py" />
+    <Compile Include="tests\unit\test_account_scheduler_static.py" />
     <Compile Include="tests\unit\test_account_service.py" />
     <Compile Include="tests\unit\test_accounts_http.py" />
     <Compile Include="tests\unit\test_accounts_network_guard.py" />
@@ -754,6 +755,7 @@
     <Compile Include="tests\unit\test_accounts_page_wizard.py" />
     <Compile Include="tests\unit\test_accounts_policy.py" />
     <Compile Include="tests\unit\test_accounts_secrets.py" />
+    <Compile Include="tests\unit\test_accounts_tray.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_ai_program_paths.py" />

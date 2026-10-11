@@ -24,6 +24,7 @@ pytest.importorskip("PySide6.QtWidgets", exc_type=ImportError)
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QElapsedTimer, QTimer, Qt                    # noqa: E402
+from PySide6.QtTest import QTest                                         # noqa: E402
 from PySide6.QtWidgets import QApplication                               # noqa: E402
 
 from app.accounts.store import AccountStore                              # noqa: E402
@@ -109,9 +110,11 @@ def test_ten_thousand_rows_are_read_on_a_worker_and_land_without_a_stall(big):
     page._landed = timed
     t0 = time.perf_counter()
     page.refresh()
-    settle(page, rounds=400)
+    while page._busy and _ms(t0) < 20_000:               # the event loop keeps running while the worker reads
+        QTest.qWait(2)
     NUMBERS["page: refresh() to rows on screen, wall (ms)"] = _ms(t0)
     beat.stop()
+    settle(page)
     assert page.model.rowCount() == N
     NUMBERS["window thread: landing the rows (model + sidebar + editor setup) (ms)"] = max(landed)
     NUMBERS["window thread: longest gap between 10 ms ticks while loading (ms)"] = max(gaps)

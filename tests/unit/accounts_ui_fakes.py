@@ -36,6 +36,7 @@ class MemoryKeyring(KeyringBackend):
 def make_service(tmp_path, **kw):
     store = SqliteStore(tmp_path / "ui.db").connect()
     svc = AccountService(store, secrets=SecretStore(backend=MemoryKeyring()), **kw)
+    store._account_service = svc          # what `account_runtime.service_for_store` hands out
     return store, svc
 
 
