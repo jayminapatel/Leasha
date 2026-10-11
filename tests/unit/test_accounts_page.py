@@ -518,14 +518,6 @@ def test_settings_has_an_accounts_category_with_an_icon_that_builds_when_first_s
     view.hide()
 
 
-def test_without_a_store_there_is_no_accounts_category():
-    from app.ui.settings_view import SettingsView
-    from types import SimpleNamespace
-    qt()
-    # a settings object is needed by the other boxes; reuse the lightest the suite builds
-    pytest.skip("SettingsView cannot be built without a store in this suite")
-
-
 def test_every_action_button_on_the_page_is_in_the_button_system(world):
     from PySide6.QtWidgets import QPushButton
     from app.ui.widgets.buttons import ICON_PX, ROLES, is_exempt

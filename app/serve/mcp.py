@@ -116,7 +116,9 @@ INSTRUCTIONS = (
     "names the file it came from - cite the path. Nothing here can change, move or open a file. "
     "Use `find_contact` and `get_contact` to look up the people in the owner's contacts and "
     "`contact_activity` for the mail, files and photos shared with one of them. "
-    "`index_status` also lists the owner's connected accounts, never their sign-in details."
+    "`index_status` also lists the owner's connected accounts, never their sign-in details. "
+    "`search` takes an optional `account` (an account's name or address) to look only at the mail "
+    "fetched from it, and a message from an account says which account in its `mail`."
 )
 
 STOPPED = ("Leasha's AI access is stopped. Open Leasha, go to Settings > Models & AI > "
@@ -275,9 +277,13 @@ class IndexTools:
 
     # -- the tools ----------------------------------------------------------
 
-    def search(self, query: str, limit: int = 10) -> dict:
+    def search(self, query: str, limit: int = 10, account: str = "") -> dict:
         """The `search` tool: `run_search` over the open index, `limit` capped at
         `SEARCH_LIMIT_MAX`. Every failure is answered as `{"error": ...}`, never raised.
+
+        *Order 1k 8a:* `account` (a name, address or id) keeps only the mail fetched from
+        that account. The search runs as usual and its best `SEARCH_LIMIT_MAX` documents
+        are filtered, so a filtered search can come back shorter than `limit`.
         """
         from app.search.policy import SEARCH
         from app.search.run import run_search
@@ -289,8 +295,18 @@ class IndexTools:
         if missing:
             return missing
         limit = max(1, min(int(limit or 10), SEARCH_LIMIT_MAX))
+        wanted_account = str(account or "").strip()
+        names: dict[int, str] = {}
+        prefix = ""
         try:
             with self._open() as index:
+                names = _account_names(index.store)
+                if wanted_account:
+                    found_id = _account_id_for(index.store, wanted_account)
+                    if found_id is None:
+                        return {"error": f"No account is called '{wanted_account}'. Use a name or "
+                                         "address as `index_status` lists them."}
+                    prefix = _account_prefix(found_id)
                 engine = index.engine_for(self._models)
                 # **The Search tab's search** (2026-10-04): slashes and saved
                 # searches, the plain-English filters, the Settings switches,
@@ -298,12 +314,16 @@ class IndexTools:
                 # history switch, one result per document with its mark. It
                 # used to be a bare engine search, one row per passage.
                 found = run_search(engine, raw, surface=SEARCH,
-                                   preferences=self._preferences(), limit=limit)
+                                   preferences=self._preferences(),
+                                   limit=SEARCH_LIMIT_MAX if prefix else limit)
         except _Closing:
             return {"error": CLOSING}
         response = found.response
+        documents = found.documents
+        if prefix:
+            documents = [d for d in documents if str(d.best.path).startswith(prefix)][:limit]
         return {"query": raw, "read_as": [a.label for a in found.applied],
-                "results": [self._result(document) for document in found.documents],
+                "results": [self._result(document, names) for document in documents],
                 "notices": [n.as_dict() for n in response.notices]}
 
     def find_files(self, name: str, type: str = "", limit: int = 25) -> dict:
@@ -374,6 +394,12 @@ class IndexTools:
             with self._open() as index:
                 store = index.store
                 record = store.get_file(key)
+                if record is None and key.startswith(_ACCOUNT_SCHEME):
+                    # Order 1k 8a: an account message quoted back with its account named by
+                    # name or address, or its parts written out unescaped.
+                    resolved = _resolve_account_path(store, key)
+                    record = store.get_file(resolved) if resolved else None
+                    key = resolved if record is not None else key
                 if record is None:
                     return {"error": f"'{key}' is not in the index. Use the path exactly as "
                                      "search returned it."}
@@ -522,7 +548,7 @@ class IndexTools:
                 "photo_match": link, "photos": photos}
 
     @staticmethod
-    def _result(document: Any) -> dict:
+    def _result(document: Any, accounts: dict | None = None) -> dict:
         """One document of a search: its best passage, how many passages
         matched, whether it can be opened now, and its mail card."""
         best = document.best
@@ -531,7 +557,7 @@ class IndexTools:
                "score": round(float(best.score), 6), "matches": document.matches,
                "status": document.status,
                "passage": text if len(text) <= SNIPPET_CHARS else text[:SNIPPET_CHARS - 1] + "…"}
-        mail = _mail_card(document.mail, best.path)
+        mail = _mail_card(document.mail, best.path, accounts)
         if mail:
             out["mail"] = mail
         return out
@@ -619,11 +645,16 @@ def _mail_of(store: Any, file_id: Any, path: str) -> dict | None:
     from app.search.marks import mail_details
 
     details = mail_details(store, [SimpleNamespace(file_id=int(file_id or 0), path=path)])
-    return _mail_card(details.get(int(file_id or 0)), path)
+    return _mail_card(details.get(int(file_id or 0)), path,
+                      _account_names(store) if str(path).startswith(_ACCOUNT_SCHEME) else None)
 
 
-def _mail_card(detail: Any, path: str) -> dict | None:
-    """A `mail_details` entry as the tools say it, or None for a non-message."""
+def _mail_card(detail: Any, path: str, accounts: dict | None = None) -> dict | None:
+    """A `mail_details` entry as the tools say it, or None for a non-message.
+
+    *Order 1k 8a:* a message fetched from an account also says which one (`account`, its
+    name), beside the sender and date. `accounts` is `{account id: name}`.
+    """
     from app.search.marks import ATTACHMENT_MARKER
 
     if not detail:
@@ -633,7 +664,56 @@ def _mail_card(detail: Any, path: str) -> dict | None:
     if detail.get("attachment_of"):
         text = str(path or "")
         mail["attachment"] = text[text.find(ATTACHMENT_MARKER) + len(ATTACHMENT_MARKER):]
+    named = _account_of_path(path, accounts)
+    if named:
+        mail["account"] = named
     return mail
+
+
+#: Where a message fetched from an account lives in the index (order 1k 5d).
+_ACCOUNT_SCHEME = "account://"
+
+
+def _account_prefix(account_id: int) -> str:
+    return f"{_ACCOUNT_SCHEME}{account_id}/"
+
+
+def _account_of_path(path: Any, accounts: dict | None) -> str:
+    """The name of the account an `account://` path belongs to, or "" for any other path."""
+    text = str(path or "")
+    if not text.startswith(_ACCOUNT_SCHEME):
+        return ""
+    from app.accounts.mail_ingest import split_account_path
+
+    try:
+        ident = split_account_path(text)[0]
+        return str((accounts or {}).get(int(ident)) or "an account that is no longer set up")
+    except (ValueError, TypeError):
+        return ""
+
+
+def _account_id_for(store: Any, text: str) -> int | None:
+    """The id of the account called `text` (id, name or address), or None."""
+    from app.accounts.store import AccountStore
+
+    try:
+        found = AccountStore(store).find(text)
+    except sqlite3.Error:
+        return None
+    return int(found.id) if found is not None else None
+
+
+def _resolve_account_path(store: Any, text: str) -> str | None:
+    """`text`, an `account://` path as an AI program may have quoted it, as the index keys it:
+    the account by id, name or address, each part escaped as `account_path` escapes it."""
+    from app.accounts.mail_ingest import account_path, split_account_path
+
+    try:
+        ident, folder, remote = split_account_path(text)
+    except ValueError:
+        return None
+    found = _account_id_for(store, ident)
+    return account_path(found, folder, remote) if found is not None else None
 
 
 #: Said when the contact tables cannot be read (an index built before contacts).
@@ -850,7 +930,7 @@ def _register(server: Any, tools: Any) -> None:
                                 idempotent_hint=True, open_world_hint=False)
 
     @server.tool(annotations=read_only)
-    async def search(query: str, limit: int = 10) -> dict:
+    async def search(query: str, limit: int = 10, account: str = "") -> dict:
         """Search the owner's files and mail by what they say, as Leasha's search box does.
 
         Plain English works ("the boiler service quote from last spring"), and so do
@@ -862,8 +942,13 @@ def _register(server: Any, tools: Any) -> None:
         many passages matched) and `status`: `ok`, `missing` (gone from disk)
         or `offline` (on a drive not connected). `read_as` lists the filters
         the words were read as, and `saved:name` runs a saved search.
+
+        2026-10-11: `account` (an account's name or address, as `index_status`
+        lists them) looks only at the mail fetched from that account. Mail from an
+        account says which one in `mail.account`, and its `path` (`account://...`)
+        is given to `read_text` as it stands.
         """
-        return await _invoke(tools.search, query, limit)
+        return await _invoke(tools.search, query, limit, account)
 
     @server.tool(annotations=read_only)
     async def find_files(name: str, type: str = "", limit: int = 25) -> dict:
@@ -1004,8 +1089,11 @@ class _Forward:
         except ValueError:
             return {"error": text or "Leasha gave no answer."}
 
-    async def search(self, query: str, limit: int = 10) -> dict:
-        return await self._call("search", {"query": query, "limit": limit})
+    async def search(self, query: str, limit: int = 10, account: str = "") -> dict:
+        arguments = {"query": query, "limit": limit}
+        if account:
+            arguments["account"] = account
+        return await self._call("search", arguments)
 
     async def find_files(self, name: str, type: str = "", limit: int = 25) -> dict:
         return await self._call("find_files", {"name": name, "type": type, "limit": limit})
