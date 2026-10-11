@@ -89,9 +89,22 @@ def _tell(parent: Any, title: str, text: str) -> None:
     box.exec()
 
 
+def _open_sync(parent: Any, ctx: Any) -> Any:
+    """Sync now (10c): asks the window's account scheduler, the one starter besides the schedule."""
+    service = getattr(ctx, "service", None)
+    ask = getattr(service, "request_sync", None)
+    if not callable(ask):
+        _tell(parent, "Sync is not available here", "Open Settings > Accounts and press Sync now.")
+        return None
+    if not ask():
+        _tell(parent, "A sync is already running", "Sync now was folded into the one in progress.")
+    return None
+
+
 def register_all() -> None:
     for name in DOORS:
         openers.register(name, _opener(name))
+    openers.register("sync", _open_sync)
 
 
 register_all()

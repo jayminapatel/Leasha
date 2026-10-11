@@ -44,6 +44,10 @@ class Ctx:
     visible_ids: list[int] = field(default_factory=list)
     refresh: Callable[[], Any] = lambda: None
     service: Optional[Any] = None
+    #: Enrichment (7): `enrich()` -> proposals for the selection (the visible list when none is
+    #: selected); `caps_for(account)` -> what that kind of account can hold.
+    enrich: Optional[Callable[[], Any]] = None
+    caps_for: Optional[Callable[[Any], Any]] = None
 
 
 def register(name: str, fn: Callable[[Any, Ctx], Any]) -> None:

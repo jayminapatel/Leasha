@@ -24,7 +24,7 @@ import threading
 from datetime import datetime
 from typing import Any, Callable, Optional
 
-__all__ = ["get_service", "service_for_store", "service_factory_for", "AccountRuntime", "start_runtime"]
+__all__ = ["LazyService", "get_service", "service_for_store", "service_factory_for", "AccountRuntime", "start_runtime"]
 
 _LOCK = threading.Lock()
 _FALLBACK: dict[int, Any] = {}
@@ -37,6 +37,12 @@ def service_for_store(store: Any) -> Any:
         if svc is None:
             from app.accounts.service import AccountService  # noqa: PLC0415 - lazy by design (start-up)
             svc = AccountService(store)
+            # Phase B: fetched mail is indexed by the same service. The window leaves the vector
+            # stores and the embedder on the store (`_account_mail_deps`) so fetched mail gets its
+            # meaning at once; without them it is searchable by its words and the next index run
+            # adds the meaning (`mail_sync.attach_mail`).
+            from app.accounts.mail_sync import attach_mail  # noqa: PLC0415
+            attach_mail(svc, **(getattr(store, "_account_mail_deps", None) or {}))
             try:
                 store._account_service = svc
             except AttributeError:
@@ -46,6 +52,32 @@ def service_for_store(store: Any) -> Any:
 
 def service_factory_for(store: Any) -> Callable[[], Any]:
     return lambda: service_for_store(store)
+
+
+class LazyService:
+    """What the Contacts page is given: the service, built only when a worker first needs it.
+
+    Every method is explicit so that merely *looking* for one (the page asks for hooks with
+    `getattr`) never builds the service on the window's thread. `request_sync` is the one
+    thing meant for the UI thread: it asks the account scheduler, the starter besides the
+    schedule (D11.2).
+    """
+
+    def __init__(self, shell: Any) -> None:
+        self._shell = shell
+
+    def request_sync(self) -> bool:
+        runtime = getattr(self._shell, "account_runtime", None)
+        return bool(runtime is not None and runtime.scheduler.sync_all_now())
+
+    def push_accounts(self, account_ids: Any) -> Any:           # worker
+        return get_service(self._shell).push_accounts(account_ids)
+
+    def contact_provider(self, account: Any) -> Any:           # worker
+        return get_service(self._shell).contact_provider(account)
+
+    def new_contact(self, card: Any, **kw: Any) -> Any:         # worker
+        return get_service(self._shell).new_contact(card, **kw)
 
 
 def get_service(shell: Any) -> Any:
@@ -72,6 +104,13 @@ class AccountRuntime:
         from app.ui.account_scheduler import AccountScheduler  # noqa: PLC0415
 
         self.shell = shell
+        engine = getattr(shell, "_engine", None)
+        shell._store._account_mail_deps = {
+            "vectors": getattr(shell, "_vectors", None),
+            "image_vectors": getattr(shell, "_image_vectors", None),
+            "embed": (lambda texts: list(engine.embedder.embed_all(texts))) if engine is not None
+                     and hasattr(engine, "embedder") else None,
+        }
         self.factory = service_factory_for(shell._store)
         self._owner = QObject(shell if isinstance(shell, QObject) else None)
         self.scheduler = AccountScheduler(self.factory, parent=self._owner)

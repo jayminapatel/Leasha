@@ -830,8 +830,16 @@ class ContactsPage(QWidget):
 
     # ----------------------------------------------------------------- tools
     def context(self) -> openers.Ctx:
-        return openers.Ctx(hub=self.hub, accounts=self.accounts, selected_ids=self.selected_ids(),
-                           visible_ids=self.model.ids(), refresh=self.refresh, service=self.service)
+        selected, visible = self.selected_ids(), self.model.ids()
+        hub, accounts = self.hub, self.accounts
+
+        def enrich() -> Any:
+            # Runs on the dialog's worker; each internet source is skipped unless its switch is on.
+            from app.contacts.enrich.run import proposals_for  # noqa: PLC0415
+            return proposals_for(hub, accounts, list(selected) or list(visible))
+
+        return openers.Ctx(hub=hub, accounts=accounts, selected_ids=selected, visible_ids=visible,
+                           refresh=self.refresh, service=self.service, enrich=enrich)
 
     def open_tool(self, name: str) -> None:
         openers.open(name, self, self.context())

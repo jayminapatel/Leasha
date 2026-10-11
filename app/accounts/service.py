@@ -344,6 +344,13 @@ class AccountService:
             self.engine.push(res.accounts, trigger="undo")
         return res
 
+    def push_accounts(self, account_ids: Iterable[int]) -> list[SyncOutcome]:
+        """Write the hub's current state to these accounts (after an undo from the Contacts page).
+
+        A push, not a sync: nothing is read from the accounts, and it is not started by the
+        schedule - the person pressed Undo, which is the same as pressing Sync now for them."""
+        return self.engine.push(set(int(a) for a in account_ids), trigger="undo")
+
     def approve_first_sync(self, account_id: int, **kw: Any) -> list[SyncOutcome]:
         return self.sync_now(account_id, "contacts", approve_first=True, trigger="approved", **kw)
 

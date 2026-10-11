@@ -729,7 +729,9 @@ class MainWindow(QMainWindow):
         # Order 1k 6a / D14 (2026-10-11): Contacts has a pill of its own, right after Files.
         # The page is built on its first show (`ContactsView.ensure_built`), so this is an
         # empty widget until somebody opens it and costs the window's start-up nothing.
-        self.contacts_view = ContactsView(store, host=self)
+        from app.ui.account_runtime import LazyService
+
+        self.contacts_view = ContactsView(store, host=self, service=LazyService(self))
         self.contacts_view.error.connect(self._show_error)
         self.contacts_view.notice.connect(self.notify)
         contacts_wrapped = wrap_if_needed(self.contacts_view, scroll=False)
@@ -2055,6 +2057,14 @@ class MainWindow(QMainWindow):
             if at == index:
                 return view
         return None
+
+    def pick_photo_from_person(self, contact_id):
+        """The Contacts editor's 'from my photos' button (6d, 2c)."""
+        from app.ui.contacts.person_photo import pick_photo_from_person
+
+        page = getattr(self.contacts_view, "page", None)
+        hub = getattr(page, "hub", None)
+        return pick_photo_from_person(self, hub, contact_id) if hub is not None else None
 
     def _tab_changed(self, index: int) -> None:
         """Refresh what the tab shows, then put the cursor where typing goes.
