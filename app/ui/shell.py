@@ -1029,9 +1029,21 @@ class MainWindow(QMainWindow):
             # and the log pane - see `_push_palette`.
             self._push_palette()
             self._wire_recorder_pages()
+            self._name_clear_buttons()
         finally:
             self._start_background_work(store, settings)
             self._replay_index_requests()
+
+    def _name_clear_buttons(self) -> None:
+        """Every search box's own clear button says what it does, the same way, for a screen reader and a hover."""
+        from PySide6.QtWidgets import QLineEdit, QToolButton
+
+        for edit in self.findChildren(QLineEdit):
+            if edit.isClearButtonEnabled():
+                for button in edit.findChildren(QToolButton):
+                    if not button.accessibleName():
+                        button.setAccessibleName("Clear this box")
+                        button.setToolTip("Clear this box")
 
     def _start_background_work(self, store: Any, settings: Any) -> None:
         """Everything that touches a thread or the store. See `__init__`.

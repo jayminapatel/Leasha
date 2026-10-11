@@ -74,6 +74,10 @@ class NoticeBar(QWidget):
         self.close_button.setObjectName("noticeDismiss")
         self.close_button.setAccessibleName("Dismiss this notice")
         self.close_button.setFlat(True)
+        from app.ui.widgets.icons import icon                       # noqa: PLC0415 - the same x as every close
+        from app.ui.theme import theme_colours                      # noqa: PLC0415
+
+        self.close_button.setIcon(icon("x", theme_colours().get("text_dim", "#888888")))
         self.close_button.clicked.connect(self._dismiss)
 
         row = QHBoxLayout(self)

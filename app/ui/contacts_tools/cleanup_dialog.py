@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from PySide6.QtCore import QTimer, Qt
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QHBoxLayout, QLabel, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget,
@@ -33,6 +33,7 @@ from app.contacts import cleanup
 from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
+from app.ui.later import later
 from app.ui.widgets.icons import icon
 
 __all__ = ["CleanupDialog", "compute", "FINDERS"]
@@ -311,7 +312,7 @@ class CleanupDialog(ToolDialog):
             table.setUpdatesEnabled(True)
             if end < n:
                 tab.count.setText(f"Listing {end:,} of {n:,} changes...")
-                QTimer.singleShot(0, lambda: self._fill_rows(tab, end, token))
+                later(self, 0, lambda: self._fill_rows(tab, end, token))
                 return
             table.blockSignals(False)
             _fit_columns(table)

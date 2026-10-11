@@ -28,7 +28,7 @@ import time
 from collections import OrderedDict
 from typing import Any, Optional
 
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QThreadPool, QTimer, Signal
+from PySide6.QtCore import QEvent, QRect, QSize, Qt, QThreadPool, Signal
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPen, QPixmap, QStandardItem, QStandardItemModel
 from PySide6.QtWidgets import (
     QAbstractItemView, QListView, QStyle, QStyledItemDelegate, QToolTip,
@@ -309,7 +309,7 @@ class TimelineList(QListView):
                           else f"{row_text(block.folds[0]).title}, {row_text(block.folds[0]).detail}")
             item.setData(spoken, int(Qt.ItemDataRole.AccessibleTextRole))
             self._model.appendRow(item)
-        QTimer.singleShot(0, self._more_once_laid_out)
+        later(self, 0, self._more_once_laid_out)
 
     def clear_blocks(self) -> None:
         self._model.clear()

@@ -224,7 +224,8 @@ def test_a_dry_run_shows_its_plan_and_approve_runs_the_first_sync_through_the_sc
     assert "add 12 to Leasha" in page.log.plan.text() and "Ada" in page.log.plan.text()
     assert not page.log.approve.isHidden()
     page.log.approve.click()
-    assert wait_until(lambda: calls == [(a.id, {"allow_brake": False})])
+    # the scheduler also hands the run its progress and stop hooks; only what the person chose matters here
+    assert wait_until(lambda: [(c[0], c[1].get("allow_brake")) for c in calls] == [(a.id, False)])
 
 
 def test_a_held_run_offers_allow_which_syncs_with_allow_brake(world, monkeypatch):
@@ -240,7 +241,7 @@ def test_a_held_run_offers_allow_which_syncs_with_allow_brake(world, monkeypatch
     assert not page.log.allow.isHidden() and "delete 30 from the account" in page.log.plan.text()
     assert "FIX" in page.log.tree.topLevelItem(0).text(10)       # the fix is added for a held run
     page.log.allow.click()
-    assert wait_until(lambda: calls == [(a.id, "contacts", {"allow_brake": True})])
+    assert wait_until(lambda: [(c[0], c[1], c[2].get("allow_brake")) for c in calls] == [(a.id, "contacts", True)])
 
 
 def test_two_sync_nows_fold_through_the_ui(world, monkeypatch):
