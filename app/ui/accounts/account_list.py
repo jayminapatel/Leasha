@@ -35,6 +35,8 @@ class AccountList(QTreeWidget):
     reordered = Signal(list)
     #: The account id selected, or 0 for none.
     account_selected = Signal(int)
+    #: A double-click (or Enter) on a row: the account id whose settings the person wants to edit.
+    account_opened = Signal(int)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -52,6 +54,7 @@ class AccountList(QTreeWidget):
         self.setToolTip("Drag an account up or down to change the order. The order is also the priority "
                         "when 'the account higher in the list wins'.")
         self.itemSelectionChanged.connect(lambda: self.account_selected.emit(self.current_id()))
+        self.itemActivated.connect(lambda *_a: self.account_opened.emit(self.current_id()))
         self._colours: dict[str, str] = {}
 
     def current_id(self) -> int:

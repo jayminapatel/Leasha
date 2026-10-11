@@ -20,7 +20,7 @@ from typing import Any, Iterable, Optional
 from app.accounts import policy as pol
 
 __all__ = [
-    "MODE_CHOICES", "PAUSE_CHOICES", "CONFLICT_CHOICES", "MAPS_CHOICES", "DIRECTION_CHOICES",
+    "MODE_CHOICES", "WHAT_CHOICES", "what_of", "PAUSE_CHOICES", "CONFLICT_CHOICES", "MAPS_CHOICES", "DIRECTION_CHOICES",
     "BACK_CHOICES", "GUIDE_ANCHORS", "PROVIDER_TEXT", "interval_text", "interval_items",
     "pause_value", "hold_text", "when_text", "RowView", "row_view", "provider_glyph", "kind_chips",
     "signin_text", "run_row", "plan_text", "fix_text", "runs_csv", "Toast", "toasts_for",
@@ -65,6 +65,15 @@ MAPS_CHOICES = (("openstreetmap", "OpenStreetMap"), ("google", "Google Maps"),
                 ("apple", "Apple Maps"), ("bing", "Bing Maps"))
 
 DIRECTION_CHOICES = (("two-way", "Two-way"), ("in-only", "Into Leasha only"), ("off", "Off"))
+
+#: Order 1k, 2026-10-11 (the owner: "edit to mail only or contacts only or both"): what an account
+#: brings in, in one choice. The Mail tab's tick box and the Contacts tab's direction stay.
+WHAT_CHOICES = (("both", "Mail and contacts"), ("mail", "Mail only"), ("contacts", "Contacts only"))
+
+
+def what_of(mail_on: bool, contacts_on: bool) -> str:
+    """The `WHAT_CHOICES` key for an account, or "" when it syncs neither."""
+    return "both" if mail_on and contacts_on else "mail" if mail_on else "contacts" if contacts_on else ""
 
 BACK_CHOICES = (("all", "Everything"), ("1y", "The last year"), ("2y", "The last 2 years"),
                 ("5y", "The last 5 years"), ("10y", "The last 10 years"), ("since", "Since a date"))

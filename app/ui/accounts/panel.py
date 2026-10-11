@@ -197,6 +197,13 @@ class AccountPanel(QGroupBox):
         row.addStretch(1)
         form.addRow("Colour", row)
         form.addRow(hint("Shown on its row, and as a stripe on its contacts."))
+        self.what = QComboBox()
+        self.what.setAccessibleName("What to sync")
+        self.what.setToolTip("Choose whether this account brings in its mail, its contacts, or both")
+        for key, text in logic.WHAT_CHOICES:
+            self.what.addItem(text, key)
+        form.addRow("What to sync", self.what)
+        form.addRow(hint("Mail is only read. Contacts follow the direction set on the Contacts tab."))
         self.signin = QLabel("")
         self.signin.setWordWrap(True)
         self.reconnect = btn("Reconnect", "key-round", tip="Sign in to this account again")
@@ -239,6 +246,7 @@ class AccountPanel(QGroupBox):
         self.tabs.addTab(page, "General")
 
         self.name.editingFinished.connect(self._name_done)
+        self.what.currentIndexChanged.connect(self._what_changed)
         self.colour_button.clicked.connect(self._colour)
         self.reconnect.clicked.connect(self._reconnect)
         self.change_password.clicked.connect(self._password)
@@ -382,6 +390,7 @@ class AccountPanel(QGroupBox):
         try:
             self.setTitle(f"Account: {a.name}")
             set_quiet(self.name, a.name, "setText")
+            set_quiet(self.what, self.what.findData(logic.what_of(a.mail_on, a.contacts_on)), "setCurrentIndex")
             self.colour_swatch.setStyleSheet(f"background: {a.colour}; border: 1px solid palette(mid);")
             self.signin.setText(logic.signin_text(a))
             oauth = a.provider in ("google", "microsoft")
@@ -454,6 +463,20 @@ class AccountPanel(QGroupBox):
         self.setVisible(False)
 
     # ============================================================== handlers
+    def _what_changed(self, _i: int) -> None:
+        key = str(self.what.currentData() or "")
+        if self._loading or not key or self._account is None:
+            return
+        values: dict[str, Any] = {"mail_on": key in ("both", "mail"), "contacts_on": key in ("both", "contacts")}
+        if values["contacts_on"] and self._account.contacts_direction == "off":
+            values["contacts_direction"] = "two-way"           # on with direction Off would still say Off
+        self._acct(**values)
+
+    def focus_settings(self) -> None:
+        """Double-click on the account's row: the settings, with the first choice ready."""
+        self.tabs.setCurrentIndex(0)
+        self.what.setFocus()
+
     def _acct(self, **values: Any) -> None:
         if self._id and not self._loading:
             self.backend.save_account(self._id, **values)

@@ -538,3 +538,46 @@ def test_every_action_button_on_the_page_is_in_the_button_system(world):
     assert p.add_button.property("buttonRole") == "primary"
     assert p.panel.remove_button.property("buttonRole") == "danger"
     p.hide()
+
+
+def test_an_account_can_be_set_to_mail_only_contacts_only_or_both(world):
+    """The owner, 2026-10-11: "edit to mail only or contacts only or both". Saved and reloaded."""
+    svc, page = world
+    aid = svc.accounts.add("google", "g@x.com", "G", mail_on=True)
+    p = page()
+    pn = _select(p, aid)
+    assert pn.what.currentData() == "both"
+    for key, want in (("mail", (True, False)), ("contacts", (False, True)), ("both", (True, True))):
+        pn.what.setCurrentIndex(pn.what.findData(key))
+        settle(p)
+        a = svc.accounts.get(aid)
+        assert (a.mail_on, a.contacts_on) == want, key
+        q = page()
+        assert _select(q, aid).what.currentData() == key, key
+        pn = _select(p, aid)
+
+
+def test_contacts_only_after_off_comes_back_two_way_not_silently_off(world):
+    svc, page = world
+    aid = svc.accounts.add("google", "g@x.com", "G", mail_on=True)
+    svc.accounts.update(aid, contacts_on=False, contacts_direction="off")
+    p = page()
+    pn = _select(p, aid)
+    pn.what.setCurrentIndex(pn.what.findData("contacts"))
+    settle(p)
+    a = svc.accounts.get(aid)
+    assert a.contacts_on and a.contacts_direction == "two-way" and not a.mail_on
+
+
+def test_a_double_click_on_an_account_opens_its_settings(world):
+    svc, page = world
+    aid = svc.accounts.add("google", "g@x.com", "G", mail_on=True)
+    p = page()
+    _select(p, aid)
+    opened = []
+    p.account_list.account_opened.connect(opened.append)
+    p.panel.tabs.setCurrentIndex(1)
+    item = p.account_list.topLevelItem(0)
+    p.account_list.itemActivated.emit(item, 0)
+    assert opened == [aid]
+    assert p.panel.tabs.currentIndex() == 0

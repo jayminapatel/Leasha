@@ -112,6 +112,7 @@ class AccountsPage(QWidget):
         self.add_button.clicked.connect(self.open_wizard)
         self.sync_all_button.clicked.connect(lambda: self.request_sync(0, ""))
         self.account_list.account_selected.connect(self._selected)
+        self.account_list.account_opened.connect(lambda _aid: self.panel.focus_settings())
         self.account_list.reordered.connect(self._reordered)
         self.panel.sync_requested.connect(self.request_sync)
         self.panel.removed.connect(self._removed)
