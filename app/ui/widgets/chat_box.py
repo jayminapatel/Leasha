@@ -82,6 +82,12 @@ CHOICE_NOTES: dict[str, dict[str, str]] = {
         "onnx": " - inside Leasha, nothing else to install",
         "ollama": " - the separate Ollama program",
     },
+    # 2026-10-12: which items get a document card.
+    "DOC_CARDS_SCOPE": {
+        "everything": " - documents and mail",
+        "documents": " - files and attachments, not the messages",
+        "mail": " - the messages only",
+    },
     "CHAT_WEB_PROVIDER": {
         "wikipedia": " (works, no account; encyclopedia questions only)",
         "duckduckgo": " (not confirmed working: it asked for proof of a person)",
@@ -107,7 +113,7 @@ _DESCRIBE_FALLBACK = "llava"
 
 #: Settings this box shows that are not named CHAT_: they are about what the chat
 #: model does, so they sit with it, always visible (order smarter-answers 2d).
-ALWAYS_SHOWN = ("DOC_CARDS_ENABLED",)
+ALWAYS_SHOWN = ("DOC_CARDS_ENABLED", "DOC_CARDS_SCOPE")
 
 
 def chat_settings() -> list[Any]:

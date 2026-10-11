@@ -74,7 +74,8 @@ def _make(store: Any, settings: Any, limit: int, as_json: bool) -> int:
             result = run_cards(
                 store, card_model_factory(settings), interrupted=stop.is_set,
                 on_card=None if as_json else (lambda name: print(f"  {name}")),
-                delete_vectors=vectors.delete_by_chunk_ids, log=logger, limit=limit)
+                delete_vectors=vectors.delete_by_chunk_ids, log=logger, limit=limit,
+                scope=str(getattr(settings, "doc_cards_scope", "documents")))
         except KeyboardInterrupt:
             stop.set()
             print("Stopped. The cards made so far are kept.")

@@ -391,3 +391,44 @@ def test_the_model_is_told_what_a_source_is_and_the_stand_in_never_quotes_it(sto
     read_back = prompts.parse_sources(system)[1]
     assert prompts.CARD_MARK not in read_back and read_back.endswith(LETTER.strip())
     assert about_line({"kind": "other"}) == ""
+
+
+# -- which items get a card (DOC_CARDS_SCOPE, owner 2026-10-12) ----------------------------
+
+
+def _message(store, name, *, mtime, ext="pst"):
+    file_id = store.upsert_file(path=f"pst://archive/{name}", size_bytes=1, mtime_ns=mtime,
+                                ext=ext, content_hash=name, source_kind="pst_message")
+    store.replace_chunks(file_id, [{"ordinal": 0, "text": LETTER}])
+    store.mark_indexed(file_id)
+    return file_id
+
+
+def _waiting_for(store, scope):
+    documents, mail = cards.scope_extensions(scope)
+    return {file_id for batch in store.iter_card_candidates(
+        documents, mail, prompt_version=cards.PROMPT_VERSION, label=cards.CARD_LABEL,
+        bare_messages=bool(mail)) for file_id, _path, _hash in batch}
+
+
+def test_the_scope_chooses_documents_mail_or_both(store):
+    report = _document(store, "report.pdf", LETTER, mtime=1)
+    message = _message(store, "1001", mtime=2)
+    bare = _message(store, "1002", mtime=3, ext="")
+    attachment = _message(store, "1003/invoice.pdf", mtime=4, ext="pdf")
+
+    assert _waiting_for(store, "everything") == {report, message, bare, attachment}
+    assert _waiting_for(store, "documents") == {report, attachment}   # an attachment is a document
+    assert _waiting_for(store, "mail") == {message, bare}
+    assert _waiting_for(store, "nonsense") == _waiting_for(store, "documents")   # the default
+
+
+def test_the_pass_obeys_the_scope(store):
+    report = _document(store, "report.pdf", LETTER, mtime=1)
+    message = _message(store, "1001", mtime=2)
+    pipeline = _pipeline(store, _Model())
+    pipeline.config.doc_cards_scope = "documents"
+
+    pipeline._drain_doc_cards(_stats())
+
+    assert store.doc_card(report) is not None and store.doc_card(message) is None

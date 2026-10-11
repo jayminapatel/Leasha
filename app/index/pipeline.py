@@ -944,6 +944,8 @@ class PipelineConfig:
     #: loads 1.5 GB, and so a test can hand in a stand-in.
     doc_cards_enabled: bool = False
     card_model: Optional[Any] = None
+    #: `DOC_CARDS_SCOPE`: "everything", "documents" (not messages) or "mail".
+    doc_cards_scope: str = "documents"
     #: Work order 0j, the whole order. OFF by default - see `app.core.
     #: settings_registry.PEOPLE_RECOGNITION_ENABLED`. Read by `_write_one`
     #: (the images-pass face step, section 1a) and `_drain_face_backfill`
@@ -6840,7 +6842,8 @@ class Pipeline:
                 self.store, factory, interrupted=lambda: self._interrupted,
                 throttle=throttle, on_card=on_card,
                 on_first=lambda: self._announce_phase(stats, on_progress, PHASE_DOC_CARDS),
-                delete_vectors=self._delete_chunk_vectors_once_committed, log=self._log)
+                delete_vectors=self._delete_chunk_vectors_once_committed, log=self._log,
+                scope=str(getattr(self.config, "doc_cards_scope", "documents") or "documents"))
         except Exception as exc:                  # noqa: BLE001 - a repair, not the job
             self._log.warning("could not finish the document cards: {}. Indexing continues.", exc)
             return

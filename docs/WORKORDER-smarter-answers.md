@@ -107,6 +107,12 @@ written against the final index.
 > **the owner's call, put to them 2026-10-12.** Not run on the owner's index (owner: "b", wait until it ships;
 > it would pin the index at schema 40).
 
+> *2026-10-12, later - decided by the owner:* "can you make this configurable", then "select only documents by
+> default". `DOC_CARDS_SCOPE` (Settings > Models & AI > Chat > Write cards for): `documents` (default - files
+> and mail attachments, not the messages), `mail`, `everything` (`doc_cards.scope_extensions`; an unknown value
+> reads as documents). Documents on the owner's test index: about 80,000, so roughly 19 days the first time at
+> 20.8 s a card (an estimate from file counts; short ones are skipped without the model).
+
 ## 3. Ask from the Search box
 
 - [x] **3a** `app/ui/widgets/answer_card.py`, attached the way the person strip is: question detection

@@ -68,13 +68,15 @@ def run_cards(
     delete_vectors: Optional[Callable[[list[int]], None]] = None,
     log: Any = None,
     limit: Optional[int] = None,
+    scope: str = "documents",
 ) -> CardRun:
     """Write cards until there are none to write, `limit` are made, or it is stopped.
 
     `throttle()` is called before each batch and returns False to stop (the
     index run's governor). `on_first()` is called once, when the first card is
     about to be asked for (the run's phase line). `delete_vectors` gets the ids
-    of card passages a new card replaced.
+    of card passages a new card replaced. `scope` is `DOC_CARDS_SCOPE`:
+    "everything", "documents" (files and attachments, not messages) or "mail".
     """
     import time
 
@@ -83,9 +85,10 @@ def run_cards(
     model_name = ""
     first = True
     running_failures = 0
+    documents, mail = cards.scope_extensions(scope)
     for batch in store.iter_card_candidates(
-            cards.DOC_EXTS, cards.MAIL_EXTS,
-            prompt_version=cards.PROMPT_VERSION, label=cards.CARD_LABEL):
+            documents, mail, prompt_version=cards.PROMPT_VERSION, label=cards.CARD_LABEL,
+            bare_messages=bool(mail)):
         if interrupted():
             return result
         if throttle is not None and not throttle():

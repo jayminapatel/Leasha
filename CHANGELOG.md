@@ -22,10 +22,11 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Ask a question in the Search box** and a short answer from your files appears above the results, every sentence
   checked against the document it cites, its numbers opening the documents; **Continue in Chat** takes it on. The
   results never wait for it; a word or a name gets none. Settings > Search > Answers and your words switches it off.
-- **A card for every document.** At the end of an index run the chat model notes what each document and message is
+- **A card for every document.** At the end of an index run the chat model notes what each document is
   (an invoice, a letter, homework), who is in it, its dates and amounts, so a question can find it by what it is. AI-
   written and labelled; a name, sum or year the document does not contain is dropped. `leasha cards` shows, makes and
-  clears them. Settings > Models & AI > Chat > Write a card for every document (on).
+  clears them. Settings > Models & AI > Chat > Write a card for every document (on), and Write cards for: documents
+  (the default - files and mail attachments), mail, or everything.
 - **Your own words.** Tell Chat "remember Mum is Jane Example" and it looks for Jane Example when you say Mum; "forget
   Mum" removes it. Listed, added and removed in Settings > Search. Kept through a Reset.
 - **Comparing and timelines.** A comparison looks for each side on its own so both are read; a timeline answers in date

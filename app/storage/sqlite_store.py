@@ -4299,6 +4299,7 @@ class SqliteStore:
     def iter_card_candidates(
         self, doc_exts: Iterable[str], mail_exts: Iterable[str], *,
         prompt_version: int, label: str, batch_size: int = 16,
+        bare_messages: bool = True,
     ) -> Iterator[list[tuple[int, str, Optional[str]]]]:
         r"""`(file_id, path, content_hash)` of documents and mail with no current card.
 
@@ -4311,18 +4312,20 @@ class SqliteStore:
         its hash, and so its row, stay the same.
 
         Extensions are passed in, as for `iter_uncaptioned_images`: storage
-        does not import `app.index`.
+        does not import `app.index`. `bare_messages`: a message read out of an
+        archive with no extension of its own counts as mail (False for
+        `DOC_CARDS_SCOPE=documents`).
         """
         kinds = sorted({str(e).lower().lstrip(".") for e in (*doc_exts, *mail_exts)
                         if str(e).strip()})
-        if not kinds:
+        if not kinds and not bare_messages:
             return
-        marks = ",".join("?" for _ in kinds)
+        marks = ",".join("?" for _ in kinds) or "NULL"
         last: Optional[tuple[int, int]] = None
         while True:
             keyset = "" if last is None else (
                 "AND (f.mtime_ns < ? OR (f.mtime_ns = ? AND f.id < ?))")
-            args: list[Any] = list(kinds)
+            args: list[Any] = list(kinds) + [1 if bare_messages else 0]
             if last is not None:
                 args += [last[0], last[0], last[1]]
             args += [int(prompt_version), label, int(batch_size)]
@@ -4331,7 +4334,7 @@ class SqliteStore:
                 SELECT f.id, f.path, f.content_hash, f.mtime_ns FROM files f
                 WHERE f.status IN ('INDEXED', 'PARTIAL')
                   AND (lower(f.ext) IN ({marks})
-                       OR (f.ext = '' AND f.source_kind = 'pst_message'))
+                       OR (? AND f.ext = '' AND f.source_kind = 'pst_message'))
                   {keyset}
                   AND NOT EXISTS (
                       SELECT 1 FROM doc_cards d

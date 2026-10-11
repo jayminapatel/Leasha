@@ -299,6 +299,8 @@ class Settings(BaseModel):
     caption_trickle_enabled: bool = False
     #: Order smarter-answers 2d: a card for every document at the end of a run.
     doc_cards_enabled: bool = True
+    #: Which items get one: everything, documents (not messages) or mail (messages only).
+    doc_cards_scope: str = "documents"
     #: 2026-10-04. AI programs (MCP): the local port Leasha's server listens on,
     #: and whether it starts with the window. See `app/serve/mcp.py`.
     mcp_port: int = 8737
@@ -564,6 +566,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "CHAT_WEB_BRAVE_KEY",
     "CAPTION_TRICKLE_ENABLED",
     "DOC_CARDS_ENABLED",
+    "DOC_CARDS_SCOPE",
     # 2026-10-04: AI programs (MCP).
     "MCP_PORT",
     "MCP_AUTOSTART",
@@ -760,6 +763,7 @@ def load_settings(
                 "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
             doc_cards_enabled=_as_bool(
                 "DOC_CARDS_ENABLED", values.get("DOC_CARDS_ENABLED", "true")),
+            doc_cards_scope=(values.get("DOC_CARDS_SCOPE") or "documents").strip().lower(),
             mcp_port=_as_int("MCP_PORT", values.get("MCP_PORT", "8737")),
             mcp_autostart=_as_bool("MCP_AUTOSTART", values.get("MCP_AUTOSTART", "false")),
             people_recognition_enabled=_as_bool(

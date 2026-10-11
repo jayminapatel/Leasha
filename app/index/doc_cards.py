@@ -30,7 +30,8 @@ from typing import Any, Iterable, Optional
 
 __all__ = [
     "Card", "KINDS", "CARD_LABEL", "PROMPT_VERSION", "MAX_CHARS", "MIN_CHARS",
-    "DOC_EXTS", "MAIL_EXTS", "build_prompt", "read_card", "card_text",
+    "DOC_EXTS", "MAIL_EXTS", "SCOPES", "scope_extensions", "build_prompt", "read_card",
+    "card_text",
 ]
 
 #: The chunk label, and the first words of the stored passage
@@ -60,6 +61,22 @@ DOC_EXTS = frozenset({
     "htm", "html", "pages", "wpd",
 })
 MAIL_EXTS = frozenset({"pst", "eml", "msg", "mbox", "olm"})
+
+#: `DOC_CARDS_SCOPE`'s values (owner, 2026-10-12: "can you make this configurable").
+SCOPES = ("everything", "documents", "mail")
+
+
+def scope_extensions(scope: str) -> tuple[frozenset[str], frozenset[str]]:
+    """`(document extensions, mail extensions)` for a `DOC_CARDS_SCOPE` value.
+    "documents" keeps a PDF attached to a message - it is a document - and leaves
+    the message itself. "documents" is the shipped default (the owner, 2026-10-12:
+    "select only documents by default"), and an unknown value is read as it."""
+    value = str(scope or "").strip().lower()
+    if value == "everything":
+        return DOC_EXTS, MAIL_EXTS
+    if value == "mail":
+        return frozenset(), MAIL_EXTS
+    return DOC_EXTS, frozenset()
 
 #: The kinds a card may name. A fixed list so a filter can rely on it; a model
 #: that answers anything else gets "other".
