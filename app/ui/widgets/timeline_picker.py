@@ -38,7 +38,12 @@ _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct",
 
 
 class TimelinePicker(QWidget):
-    """Three rows of controls. Emits what was chosen; keeps no results."""
+    """The controls, in the room two rows need. Emits what was chosen; keeps no results.
+
+    2026-10-11, the owner: the header "wastes so much space". It was five rows - the count line, Show,
+    Year, the months, "Or any dates" - and the Years list on the left says the same things. Now: the
+    first row has Show, the grouping box and the count line; the second runs Year, the months and the
+    two dates in one flowing row, wrapping only when the window is too narrow for them."""
 
     kind_changed = Signal(str)
     fold_changed = Signal(bool)
@@ -87,7 +92,6 @@ class TimelinePicker(QWidget):
         # A wrapping row (see `pick` below for why): each button keeps the
         # width of its own word, and the months that do not fit move to a
         # second line instead of being squeezed.
-        months = FlowLayout(spacing=2)
         for index, label in enumerate(("Whole year", *_MONTHS)):
             button = QToolButton()
             button.setText(label)
@@ -95,18 +99,17 @@ class TimelinePicker(QWidget):
             button.setAutoRaise(True)
             button.setToolTip("Everything from this year.")
             self.months.addButton(button, index)
-            months.addWidget(button)
             self.month_buttons.append(button)
         self.months.idClicked.connect(self._month_chosen)
 
         self.range_from = QLineEdit()
         self.range_from.setPlaceholderText("From, like 2015-06-01")
         self.range_from.setAccessibleName("From date")
-        self.range_from.setMinimumWidth(200)             # the whole placeholder, at 125% too
+        self.range_from.setMinimumWidth(170)             # the whole placeholder, at 125% too
         self.range_to = QLineEdit()
         self.range_to.setPlaceholderText("To, like 2015-08-31")
         self.range_to.setAccessibleName("To date")
-        self.range_to.setMinimumWidth(200)
+        self.range_to.setMinimumWidth(170)
         self.range_go = QPushButton("Show")
         self.range_go.setToolTip("Show everything between these two dates, both days included. "
                                  "Leave one empty to have no limit on that side.")
@@ -118,32 +121,28 @@ class TimelinePicker(QWidget):
         for widget in (QLabel("Show"), self.kind_box, self.fold_box):
             top.addWidget(widget)
         top.addStretch(1)
-        pick = QHBoxLayout()
-        pick.addWidget(QLabel("Year"))
-        pick.addWidget(self.year_box)
-        pick.addStretch(1)
-        # **The months have a row of their own** (order 0x section 9,
-        # 2026-09-27). Beside the year box, thirteen buttons wanted more room
-        # than the pane had: at a normal window "Whole year" read "Who...ear",
-        # and at a narrow one every month button was squeezed to nothing and
-        # the row was empty but for the chosen month's highlight. Under the
-        # year they get the pane's whole width, and on a narrow window they wrap
-        # onto a second line. Same buttons, same order, same words; only the
-        # line they sit on changed.
-        #
-        # The "Or any dates" row wraps the same way: its two boxes are held at
-        # 200 pixels so their examples show whole, and on a narrow window the
-        # row was narrower than the two boxes, so they were drawn on top of
-        # each other and of the word "to".
-        free = FlowLayout()
-        for widget in (QLabel("Or any dates"), self.range_from, QLabel("to"), self.range_to,
-                       self.range_go):
-            free.addWidget(widget)
+        #: The page's count line ("3 items from 1970") sits at the right end of this row (`add_summary`).
+        self.top_row = top
+        # **One flowing row for Year, the months and the dates.** Each keeps the width of its own word and
+        # moves to the next line only when it must, so "Whole year" never reads "Who...ear" and the two
+        # date boxes never draw over each other (order 0x section 9), and a wide window needs one line.
+        flow = FlowLayout(spacing=4)
+        for widget in (QLabel("Year"), self.year_box):
+            flow.addWidget(widget)
+        for button in self.month_buttons:
+            flow.addWidget(button)
+        for widget in (QLabel("   Or any dates"), self.range_from, QLabel("to"), self.range_to, self.range_go):
+            flow.addWidget(widget)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        for row in (top, pick, months, free):
+        layout.setSpacing(2)
+        for row in (top, flow):
             layout.addLayout(row)
         self._enable_months(None)
+
+    def add_summary(self, label: QWidget) -> None:
+        """Put the page's count line at the right end of the first row."""
+        self.top_row.addWidget(label, 0, Qt.AlignmentFlag.AlignRight)
 
     # -- preferences (keyed reads of `index_state`, never a scan) -----------------
 
