@@ -23,6 +23,7 @@ Contacts go before mail inside `run_due` (10f).
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from typing import Any, Callable, Optional
 
@@ -37,22 +38,24 @@ _log = logger.bind(component="ui.account_scheduler")
 TICK_MS = 30_000
 
 
-def _scheduled(factory: Callable[[], Any], window_opened_at: datetime) -> list:
+def _scheduled(factory: Callable[[], Any], window_opened_at: datetime, progress: Any = None,
+               cancel: Callable[[], bool] = lambda: False) -> list:
     """Worker: ask the schedule; run what it says is due. Starts nothing else."""
     svc = factory()
     now = datetime.now()
     if not svc.due_work(now, window_opened_at=window_opened_at):
         return []
-    return svc.run_due(now, window_opened_at=window_opened_at)
+    return svc.run_due(now, window_opened_at=window_opened_at, progress=progress, cancel=cancel)
 
 
 def _now(factory: Callable[[], Any], account_id: Optional[int], kind: Optional[str],
-         allow_brake: bool, approve: bool) -> list:
+         allow_brake: bool, approve: bool, progress: Any = None,
+         cancel: Callable[[], bool] = lambda: False) -> list:
     """Worker: "Sync now" for all accounts, one account or one kind of one account."""
     svc = factory()
     if approve and account_id is not None:
-        return svc.approve_first_sync(account_id, allow_brake=allow_brake)
-    return svc.sync_now(account_id, kind, allow_brake=allow_brake)
+        return svc.approve_first_sync(account_id, allow_brake=allow_brake, progress=progress, cancel=cancel)
+    return svc.sync_now(account_id, kind, allow_brake=allow_brake, progress=progress, cancel=cancel)
 
 
 class AccountScheduler(QObject):
@@ -60,6 +63,9 @@ class AccountScheduler(QObject):
     run_finished = Signal(object)      # the list of SyncOutcome
     run_failed = Signal(object)        # an AppError
     folded = Signal()                  # a request arrived while a run was going
+    #: What a running sync is doing now (a dict: account, phase, done, total, current, failed, ...). Sent from
+    #: the worker's thread; Qt delivers it on the window's, so a slot may touch widgets.
+    progress = Signal(object)
 
     def __init__(self, factory: Callable[[], Any], *, tick_ms: int = TICK_MS,
                  window_opened_at: Optional[datetime] = None, parent: Optional[QObject] = None) -> None:
@@ -67,6 +73,7 @@ class AccountScheduler(QObject):
         self._factory = factory
         self.window_opened_at = window_opened_at or datetime.now()
         self._busy = False
+        self._stop = threading.Event()
         self._timer = QTimer(self)
         self._timer.setInterval(tick_ms)
         self._timer.timeout.connect(self.tick)
@@ -81,6 +88,11 @@ class AccountScheduler(QObject):
     @property
     def busy(self) -> bool:
         return self._busy
+
+    def stop_run(self) -> None:
+        """Ask the sync that is going to stop after the contact it is on. What it wrote stays, and the
+        next sync carries on from there."""
+        self._stop.set()
 
     # -- the two things that start a sync
     def tick(self) -> bool:
@@ -107,7 +119,8 @@ class AccountScheduler(QObject):
         from app.ui.workers import CallableWorker, run  # noqa: PLC0415
 
         self._busy = True
-        worker = CallableWorker(fn, *args, component="ui.account_scheduler")
+        self._stop.clear()
+        worker = CallableWorker(fn, *args, self.progress.emit, self._stop.is_set, component="ui.account_scheduler")
         worker.signals.finished.connect(lambda out, w=why: self._ended(w, out))
         worker.signals.failed.connect(self._failed)
         run(QThreadPool.globalInstance(), worker)

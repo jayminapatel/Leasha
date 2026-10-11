@@ -74,15 +74,23 @@ class Plan:
     delete_out: int = 0
     conflicts: int = 0
     held_conflicts: int = 0
+    failed_out: int = 0           # contacts the account refused one by one (the sync went on without them)
+    failures: list[list[str]] = field(default_factory=list)    # [name, why], the first few
     names: dict[str, list[str]] = field(default_factory=dict)
 
     def note(self, bucket: str, name: str) -> None:
         sample(self.names.setdefault(bucket, []), name)
 
+    def fail(self, name: str, why: str) -> None:
+        self.failed_out += 1
+        if len(self.failures) < 50:
+            self.failures.append([name, why])
+
     def to_json(self) -> dict:
         return {k: getattr(self, k) for k in (
             "add_in", "merge_in", "possible_duplicates", "flagged_deleted", "deleted_in", "create_out",
-            "update_out", "delete_out", "conflicts", "held_conflicts")} | {"names": self.names}
+            "update_out", "delete_out", "conflicts", "held_conflicts", "failed_out")} | {
+                "names": self.names, "failures": self.failures}
 
     @property
     def added(self) -> int:
@@ -106,7 +114,7 @@ class SyncOutcome:
     account_id: int
     account_name: str
     run_id: int
-    status: str                    # ok | needs-approval | held | failed | skipped
+    status: str                    # ok | partial | stopped | needs-approval | held | failed | skipped
     plan: Plan = field(default_factory=Plan)
     error: Optional[AppError] = None
     accounts_to_push: set[int] = field(default_factory=set)
@@ -122,6 +130,8 @@ class _Ctx:
     trigger: str
     cancel: Callable[[], bool]
     full_seen: set[str] = field(default_factory=set)
+    progress: Optional[Callable[[dict], None]] = None         # told what is happening, for the Sync window
+    account: str = ""
     master: bool = False                                      # this account is the master list
     master_gone: set[int] = field(default_factory=set)        # contacts the master no longer has
 
@@ -139,8 +149,12 @@ class ContactSyncEngine:
     # ------------------------------------------------------------------- API
     def sync(self, account_ids: Optional[list[int]] = None, *, trigger: str = "sync-now",
              approve_first: bool = False, allow_brake: bool = False, dry_run: bool = False,
-             cancel: Callable[[], bool] = lambda: False) -> list[SyncOutcome]:
+             cancel: Callable[[], bool] = lambda: False,
+             progress: Optional[Callable[[dict], None]] = None) -> list[SyncOutcome]:
         """Pull from then push to the accounts (all with contact sync on, by default).
+
+        `progress` is called with a dict - `account`, `phase` (reading, writing, done), `done`, `total`,
+        `current`, `failed`, and the counts so far - as work goes on, from whichever thread runs the sync.
 
         `dry_run` plans without writing, for any account (`contacts sync --dry-run`);
         the first sync of an account is a dry run by itself until approved (D8)."""
@@ -156,8 +170,9 @@ class ContactSyncEngine:
             out = SyncOutcome(acct.id, acct.name, run_id, "running")
             outcomes[acct.id] = out
             ctx = _Ctx(run_id, out.plan, dry, settings.conflict_policy, trigger, cancel,
-                       master=acct.id == settings.master_account_id)
+                       progress=progress, account=acct.name, master=acct.id == settings.master_account_id)
             out.needs_approval = first_pending
+            self._tell(ctx, "reading", 0, 0, acct.id)
             try:
                 self.accounts.record_attempt(acct.id, "contacts")
                 provider = self.provider_for(acct)
@@ -189,10 +204,11 @@ class ContactSyncEngine:
             out = outcomes[acct.id]
             if out.status != "running" or not acct.writes_contacts:
                 continue
-            ctx = _Ctx(out.run_id, out.plan, False, settings.conflict_policy, trigger, cancel)
+            ctx = _Ctx(out.run_id, out.plan, False, settings.conflict_policy, trigger, cancel,
+                       progress=progress, account=acct.name)
             try:
-                self._push(acct, providers[acct.id], ctx, settings, allow_brake=allow_brake)
-                out.status = "ok"
+                completed = self._push(acct, providers[acct.id], ctx, settings, allow_brake=allow_brake)
+                out.status = ("stopped" if not completed else "partial" if out.plan.failed_out else "ok")
             except _Held as held:
                 out.status, out.error = "held", held.error
             except Exception as exc:                          # noqa: BLE001
@@ -202,6 +218,8 @@ class ContactSyncEngine:
             if out.status == "running":                       # in-only account: nothing to push
                 out.status = "ok"
             self._finish(acct, out)
+            self._tell(_Ctx(out.run_id, out.plan, False, "", "", cancel, progress=progress, account=acct.name),
+                       "done", 0, 0, acct.id, status=out.status)
         for p in providers.values():
             try:
                 p.close()
@@ -258,9 +276,12 @@ class ContactSyncEngine:
 
     def _pull_pages(self, acct: Account, provider: ContactProvider, ctx: _Ctx, token: Optional[str],
                     full: bool) -> bool:
+        read = 0
         for page in provider.pull(token):
             if ctx.cancel():
                 return False
+            read += len(page.changes)
+            self._tell(ctx, "reading", read, 0, acct.id)
             if ctx.dry:
                 for rc in page.changes:
                     self._inbound(acct, provider, rc, ctx)
@@ -502,7 +523,14 @@ class ContactSyncEngine:
         return out
 
     def _push(self, acct: Account, provider: ContactProvider, ctx: _Ctx, settings: AccountSettings, *,
-              allow_brake: bool) -> None:
+              allow_brake: bool) -> bool:
+        """Write what is waiting. Returns False when the person stopped it part-way.
+
+        **One contact the account refuses never stops the rest** (2026-10-11: one Microsoft record
+        answering HTTP 500 aborted the whole account, so nothing after it was ever written). It is
+        listed in the plan with the account's reason, stays waiting, and the next sync tries it again;
+        only a failure that is the account's as a whole (sign-in, rate limit, no connection), or
+        fifteen refusals in a row, ends the run."""
         work = self._dirty(acct)
         deletes = [w for w in work if w[0] == "delete"]
         # D7.3: more than N contacts, or more than P% of the book. A single
@@ -515,9 +543,11 @@ class ContactSyncEngine:
             self.accounts.finish_run(ctx.run_id, "held", error_code=err.code, error_text=err.message,
                                      plan=ctx.plan.to_json(), held=len(deletes))
             raise _Held(err)
-        for kind, link, cid in work:
+        in_a_row = 0
+        for done, (kind, link, cid) in enumerate(work, 1):
             if ctx.cancel():
-                return
+                return False
+            self._tell(ctx, "writing", done - 1, len(work), acct.id, current=self._name(cid))
             try:
                 if kind == "delete":
                     self._remote_delete(acct, provider, link, ctx)
@@ -525,8 +555,36 @@ class ContactSyncEngine:
                     self._remote_create(acct, provider, link, cid, ctx)
                 else:
                     self._remote_update(acct, provider, link, cid, ctx)
+                in_a_row = 0
             except VersionConflict:
                 _log.warning("gave up on {} for {}: it keeps changing; next sync tries again", cid, acct.name)
+            except AppErrorException as exc:
+                if exc.error.code in _ACCOUNT_WIDE or in_a_row >= _GIVE_UP_AFTER:
+                    raise
+                in_a_row += 1
+                ctx.plan.fail(self._name(cid), exc.error.message)
+                _log.warning("{} could not be written to {}: {}", cid, acct.name, exc.error.code)
+        self._tell(ctx, "writing", len(work), len(work), acct.id)
+        return True
+
+    def _tell(self, ctx: _Ctx, phase: str, done: int, total: int, account_id: int, *, current: str = "",
+              status: str = "") -> None:
+        """Say what is happening to whoever listens (the Sync window). Never raises, never waits."""
+        if ctx.progress is None:
+            return
+        now = time.monotonic()
+        last = getattr(ctx, "_told_at", 0.0)
+        if phase == "writing" and 0 < done < total and now - last < 0.25:
+            return                                            # a window needs a few updates a second, not thousands
+        ctx._told_at = now                                    # type: ignore[attr-defined]
+        p = ctx.plan
+        try:
+            ctx.progress({"account": ctx.account, "account_id": account_id, "phase": phase, "done": done,
+                          "total": total, "current": current, "status": status, "failed": p.failed_out,
+                          "added": p.add_in + p.create_out, "changed": p.merge_in + p.update_out,
+                          "deleted": p.delete_out + p.deleted_in, "failures": list(p.failures[-5:])})
+        except Exception:                                     # noqa: BLE001 - a listener never breaks a sync
+            _log.debug("progress listener failed", exc_info=True)
 
     def _remote_delete(self, acct: Account, provider: ContactProvider, link: Any, ctx: _Ctx) -> None:
         if link.remote_id:
@@ -626,9 +684,22 @@ class ContactSyncEngine:
                                      deleted=p.deleted, held=p.held, error_code=err.code,
                                      error_text=_with_fix(err), plan=p.to_json())
             return
+        if out.status == "stopped":
+            self.accounts.finish_run(
+                out.run_id, "interrupted", added=p.added, changed=p.changed, deleted=p.deleted, held=p.held,
+                error_text="You stopped this sync. What was written stays; the next sync carries on from there.",
+                plan=p.to_json())
+            return
         self.accounts.record_success(acct.id, "contacts")
         if not acct.first_sync_done:
             self.accounts.update(acct.id, first_sync_done=True)
+        if out.status == "partial":
+            first = "; ".join(f"{n}: {w}" for n, w in p.failures[:3])
+            self.accounts.finish_run(
+                out.run_id, "partial", added=p.added, changed=p.changed, deleted=p.deleted, held=p.held,
+                error_text=f"{p.failed_out} contact(s) could not be written ({first}). They stay waiting; "
+                           "the next sync tries them again.", plan=p.to_json())
+            return
         self.accounts.finish_run(out.run_id, "ok", added=p.added, changed=p.changed, deleted=p.deleted,
                                  held=p.held, plan=p.to_json())
 
@@ -660,6 +731,13 @@ class ContactSyncEngine:
             provider.close()
         self._finish(acct, out)
         return out
+
+
+#: Failures that are the account's as a whole: the run ends and says so, instead of listing every contact.
+_ACCOUNT_WIDE = frozenset({"ERR_ACCOUNT_SIGNIN_EXPIRED", "ERR_PROVIDER_LIMIT", "ERR_ACCOUNT_UNREACHABLE",
+                           "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED"})
+#: Fifteen contacts refused one after another means the account is not working, not that fifteen records are bad.
+_GIVE_UP_AFTER = 15
 
 
 class _Held(Exception):

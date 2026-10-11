@@ -112,7 +112,8 @@ def test_sync_now_for_one_account_and_one_kind_reaches_the_service(svc, monkeypa
     assert wait_until(lambda: not s.busy)
     assert s.sync_now() is True
     assert wait_until(lambda: not s.busy)
-    assert seen == [(7, "mail", {"allow_brake": False}), (None, None, {"allow_brake": False})]
+    assert [(a, k, kw["allow_brake"]) for a, k, kw in seen] == [(7, "mail", False), (None, None, False)]
+    assert all(callable(kw["progress"]) and callable(kw["cancel"]) for _a, _k, kw in seen)   # for the Sync window
 
 
 def test_two_sync_nows_fold_into_one_run(svc, monkeypatch):
@@ -144,3 +145,23 @@ def test_a_failing_run_reports_and_frees_the_gate(svc, monkeypatch):
 def test_the_tick_is_coarse():
     from app.ui.account_scheduler import TICK_MS
     assert 15_000 <= TICK_MS <= 60_000
+
+
+def test_progress_and_stop_travel_between_the_worker_and_the_window(svc, monkeypatch, qtbot):
+    got = []
+    stop_seen = []
+
+    def fake(aid=None, kind=None, *, allow_brake=False, progress=None, cancel=None):
+        progress({"account": "Work", "phase": "writing", "done": 1, "total": 2})
+        stop_seen.append(cancel())
+        return []
+    monkeypatch.setattr(svc, "sync_now", fake)
+    s = make(svc)
+    s.progress.connect(got.append)
+    assert s.sync_now() is True
+    qtbot.waitUntil(lambda: (not s.busy) and bool(got), timeout=5000)
+    assert got[0]["phase"] == "writing" and stop_seen == [False]
+    s.stop_run()                                   # a Stop pressed between runs does not leak into the next
+    assert s.sync_now() is True
+    qtbot.waitUntil(lambda: not s.busy, timeout=5000)
+    assert stop_seen == [False, False]

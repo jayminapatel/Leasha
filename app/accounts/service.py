@@ -454,7 +454,8 @@ class AccountService:
 
     def sync_now(self, account_id: Optional[int] = None, kind: Optional[str] = None, *,
                  trigger: str = "sync-now", approve_first: bool = False, allow_brake: bool = False,
-                 cancel: Callable[[], bool] = lambda: False) -> list[SyncOutcome]:
+                 cancel: Callable[[], bool] = lambda: False,
+                 progress: Optional[Callable[[dict], None]] = None) -> list[SyncOutcome]:
         """'Sync now' for all accounts, one account, or one kind of one account (10c)."""
         kinds = (kind,) if kind else KINDS
         outcomes: list[SyncOutcome] = []
@@ -466,7 +467,7 @@ class AccountService:
                     self._backup_before_sync([i for i, _ in claimed])
                     outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger,
                                                  approve_first=approve_first, allow_brake=allow_brake,
-                                                 cancel=cancel)
+                                                 cancel=cancel, progress=progress)
             finally:
                 self._release(claimed)
         if "mail" in kinds and self.mail_sync is not None:
@@ -586,7 +587,8 @@ class AccountService:
         return out
 
     def run_due(self, now: Optional[datetime] = None, *, window_opened_at: Optional[datetime] = None,
-                cancel: Callable[[], bool] = lambda: False) -> list[SyncOutcome]:
+                cancel: Callable[[], bool] = lambda: False,
+                progress: Optional[Callable[[dict], None]] = None) -> list[SyncOutcome]:
         work = self.due_work(now, window_opened_at=window_opened_at)
         outcomes: list[SyncOutcome] = []
         contacts = [w for w in work if w.kind == "contacts"]
@@ -597,7 +599,8 @@ class AccountService:
             try:
                 if claimed:
                     self._backup_before_sync([i for i, _ in claimed])
-                    outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger, cancel=cancel)
+                    outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger, cancel=cancel,
+                                                 progress=progress)
             finally:
                 self._release(claimed)
         for w in work:

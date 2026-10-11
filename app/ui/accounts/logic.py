@@ -265,7 +265,8 @@ def _error_message(run: Any) -> str:
     return (run.error_text or "").split(" FIX: ", 1)[0]
 
 
-_STATUS_WORDS = {"ok": "Done", "held": "Held", "failed": "Failed", "dry-run": "Dry run",
+_STATUS_WORDS = {"ok": "Done", "partial": "Done, with problems", "held": "Held", "failed": "Failed",
+                 "dry-run": "Dry run",
                  "needs-approval": "Waiting for you", "running": "Running", "interrupted": "Stopped"}
 
 
@@ -299,7 +300,7 @@ def plan_text(run: Any) -> str:
 
 
 def can_undo(run: Any) -> bool:
-    return run.status == "ok" and not run.dry_run and not run.undone_at and (run.added or run.changed or run.deleted)
+    return run.status in ("ok", "partial") and not run.dry_run and not run.undone_at and (run.added or run.changed or run.deleted)
 
 
 def can_approve(run: Any, latest_for_account: bool = True) -> bool:
