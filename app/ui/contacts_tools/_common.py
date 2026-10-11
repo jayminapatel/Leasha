@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 
 from app.contacts.card import SCALARS, Card, display_name
 from app.ui.theme import theme_colours
-from app.ui.widgets.buttons import action_button, button_row
+from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 from app.ui.workers import CallableWorker, run
 

@@ -30,7 +30,7 @@ from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel, QScrollArea, QSpinBox, QTabWidget,
-    QVBoxLayout, QWidget,
+    QWidget,
 )
 
 from app.contacts.card import display_name

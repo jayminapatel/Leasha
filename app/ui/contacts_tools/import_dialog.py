@@ -32,10 +32,8 @@ from PySide6.QtWidgets import (
     QStackedWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
-from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
-from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural, summary_line
-from app.ui.widgets.icons import icon
+from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named, plural, summary_line
 
 __all__ = ["ImportDialog", "MAPPING_TARGETS", "find_indexed_vcards"]
 
@@ -399,7 +397,9 @@ class ImportDialog(ToolDialog):
             table.setItem(r, 4, QTableWidgetItem("; ".join(row.reasons)))
             table.setItem(r, 5, QTableWidgetItem("; ".join(row.warnings)))
         table.blockSignals(False)
-        table.resizeColumnsToContents()
+        # Fixed widths: sizing ten thousand rows to their contents would freeze the window.
+        for column, width in enumerate((64, 56, 300, 280, 240)):
+            table.setColumnWidth(column, width)
         table.horizontalHeader().setStretchLastSection(True)
         self._filter_rows()
         self._update_summary()
