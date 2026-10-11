@@ -24,7 +24,7 @@ _ID = Qt.ItemDataRole.UserRole
 
 
 def _swatch(colour: str) -> QIcon:
-    pix = QPixmap(14, 14)
+    pix = QPixmap(QSize(14, 14))
     pix.fill(QColor(colour) if QColor(colour).isValid() else QColor("#888888"))
     return QIcon(pix)
 
