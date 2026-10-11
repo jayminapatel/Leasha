@@ -143,7 +143,13 @@ def generate_pkce() -> tuple[str, str]:
 
 
 def scopes_for(provider: str, *, mail: bool = False, contacts: bool = True) -> list[str]:
-    """The permissions to ask for. Mail is asked for only when mail is switched on."""
+    """The permissions to ask for. Mail is asked for only when mail is switched on.
+
+    leasha.co.uk/app and /app/privacy list these permissions, and why, for Google's OAuth
+    review, which compares the page with what the app requests. They are built from the
+    Leasha company folder's website scripts (gen_pages.py, APP_PERMISSIONS), not from this
+    repository: change one, change the other.
+    """
     if provider == GOOGLE:
         scopes = ["openid", "email"]
         if contacts:

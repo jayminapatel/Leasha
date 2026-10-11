@@ -1,6 +1,6 @@
 # Leasha
 
-**Doc version:** 4.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.5 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 <p align="center">
   <img src="assets/leasha-lockup.png" width="420" alt="Leasha">
@@ -155,8 +155,11 @@ supported.
 
 ### Windows - the installer (most people)
 
-1. Download `Leasha-Setup-<version>.exe` from the project's
-   [GitHub Releases page](https://github.com/jayminapatel/Leasha/releases) and run it. Every
+1. Download the newest installer,
+   [`Leasha-Setup.exe`](https://github.com/jayminapatel/Leasha/releases/latest/download/Leasha-Setup.exe)
+   (the same link is on [leasha.co.uk/app](https://www.leasha.co.uk/app)), or a particular
+   version, `Leasha-Setup-<version>.exe`, from the
+   [GitHub Releases page](https://github.com/jayminapatel/Leasha/releases), and run it. Every
    release carries a `.sha256` file to check the download against. (The
    `Leasha\Releases\<version>` folder on Google Drive is the owner's own archive of the
    same builds.)
