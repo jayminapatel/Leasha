@@ -537,6 +537,7 @@
     <Compile Include="app\ui\presenter\log_filter.py" />
     <Compile Include="app\ui\presenter\mail.py" />
     <Compile Include="app\ui\presenter\mail_archives.py" />
+    <Compile Include="app\ui\presenter\mail_places.py" />
     <Compile Include="app\ui\presenter\needed_models.py" />
     <Compile Include="app\ui\presenter\offline.py" />
     <Compile Include="app\ui\presenter\opening.py" />
@@ -1108,6 +1109,7 @@
     <Compile Include="tests\unit\test_name_of.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
+    <Compile Include="tests\unit\test_navigation_is_instant.py" />
     <Compile Include="tests\unit\test_needed_models_box.py" />
     <Compile Include="tests\unit\test_nightly.py" />
     <Compile Include="tests\unit\test_nightly_scale.py" />

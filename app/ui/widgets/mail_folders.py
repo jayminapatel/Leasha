@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QThreadPool, Signal
 
+from app.ui.presenter import mail_places as places
 from app.ui.widgets.side_list import SideList
 
 __all__ = ["MailFolderList", "attach", "STATE_KEY", "FOLDERS_TIP", "folder_tree", "in_folder",
@@ -53,12 +54,16 @@ def folder_tree(rows: Any) -> dict:
     return tree
 
 
+#: `{account id: name}` for the live mailboxes, set when the list is drawn; the summary line reads it.
+_NAMES: dict[str, str] = {}
+
+
 def in_folder(summary: str, choice: Any) -> str:
     """D2: the summary line says which mailbox or folder the list is narrowed to."""
     if not choice:
         return summary
     archive, path = choice
-    where = path.rsplit("/", 1)[-1] if path else (PureWindowsPath(archive).name or archive)
+    where = path.rsplit("/", 1)[-1] if path else places.place_label(archive, _NAMES)
     return f"{summary} - in {where}" if summary else f"In {where}"
 
 
@@ -74,15 +79,21 @@ class MailFolderList(SideList):
         self.picked.connect(lambda entry: self.chosen.emit(entry.value))
         self.show_rows(())
 
-    def show_rows(self, rows: Any) -> None:
-        self.set_entries(mail_entries(folder_tree(rows)))
+    def show_rows(self, rows: Any, names: Optional[dict] = None) -> None:
+        """`rows` as `mail_folder_counts` gives them; `names` the live accounts' names, by id."""
+        if isinstance(rows, tuple) and len(rows) == 2 and isinstance(rows[1], dict):
+            rows, names = rows                                   # the worker hands both over together
+        _NAMES.clear()
+        _NAMES.update(names or {})
+        self.set_entries(mail_entries(folder_tree(rows), names or {}))
 
     def _clicked(self, item: Any, column: int) -> None:          # kept for tests that click
         super()._clicked(item, column)
 
 
-def mail_entries(tree: dict) -> list:
-    """All mail, then Mailboxes: each archive and its folders, nested, with counts."""
+def mail_entries(tree: dict, names: Optional[dict] = None) -> list:
+    """All mail, then Mailboxes: each archive or account and its folders, nested, with counts."""
+    names = names or {}
     from app.ui.presenter.side_entry import SideEntry
 
     total = sum(node["count"] for node in tree.values())
@@ -97,14 +108,19 @@ def mail_entries(tree: dict) -> list:
                                      value=(archive, node["path"]), tip=node["path"]))
             add(archive, key, node["folders"])
 
-    for archive in sorted(tree, key=lambda a: PureWindowsPath(a).name.lower()):
+    for archive in sorted(tree, key=lambda a: (not places.is_account(a), places.place_label(a, names).lower())):
         node = tree[archive]
         key = f"{archive}|"
-        entries.append(SideEntry(key, PureWindowsPath(archive).name or archive or "(no archive)",
-                                 section="Mailboxes", icon="archive", count=node["count"],
-                                 value=(archive, ""), tip=archive))
+        entries.append(SideEntry(key, places.place_label(archive, names), section="Mailboxes",
+                                 icon=places.place_icon(archive), count=node["count"],
+                                 value=(archive, ""), tip=places.place_tip(archive, names)))
         add(archive, key, node["folders"])
     return entries
+
+
+def _read_places(store: Any) -> tuple:
+    """On a worker: the folders with their counts, and the live accounts' names."""
+    return store.mail_folder_counts(), store.mail_account_names()
 
 
 def attach(view: Any, top: Any) -> MailFolderList:
@@ -135,7 +151,7 @@ def attach(view: Any, top: Any) -> MailFolderList:
         mail = ref()
         if mail is None:
             return
-        worker = CallableWorker(mail._store.mail_folder_counts, component="ui.mail")
+        worker = CallableWorker(_read_places, mail._store, component="ui.mail")
         worker.signals.finished.connect(folders.show_rows)
         worker.signals.failed.connect(lambda _e: None)          # the list stays as it was
         run(QThreadPool.globalInstance(), worker)

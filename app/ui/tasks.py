@@ -253,12 +253,11 @@ def browse_messages_typed(store: Any, raw: str, *, limit: int, preferences: Any 
         # with its sub-folders ("" for the whole archive).
         from app.storage.like import like_escape
 
-        archive, path = str(folder[0]), str(folder[1] or "")
-        filters["file_where"] = (str(filters.get("file_where") or "")
-                                 + " AND m.store_path = ? AND (? = '' OR m.folder_path = ?"
-                                   " OR m.folder_path LIKE ? ESCAPE '\\')")
-        filters["file_params"] = [*(filters.get("file_params") or ()), archive, path, path,
-                                  like_escape(path + "/") + "%"]
+        from app.ui.presenter.mail_places import folder_sql
+
+        sql, args = folder_sql(str(folder[0]), str(folder[1] or ""))
+        filters["file_where"] = str(filters.get("file_where") or "") + sql
+        filters["file_params"] = [*(filters.get("file_params") or ()), *args]
     words = _words_of(parsed)
     if words:
         filters["words"] = words

@@ -2599,9 +2599,32 @@ class SqliteStore:
         schema 32); a message read before folders were kept has folder "".
         """
         rows = self.conn.execute(
-            "SELECT COALESCE(store_path, ''), COALESCE(folder_path, ''), COUNT(*) "
-            "FROM messages GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
-        return [(str(a), str(f), int(n)) for a, f, n in rows]
+            "SELECT COALESCE(m.store_path, ''), COALESCE(m.folder_path, ''), COUNT(*) "
+            "FROM messages m JOIN files f ON f.id = m.file_id "
+            "WHERE f.path NOT LIKE 'account://%' GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+        out = [(str(a), str(f), int(n)) for a, f, n in rows]
+        # Live account mail has no `store_path`: it is `account://<id>/<folder>/<remote id>` (the folder
+        # percent-encoded as one part), so it is grouped by that - one mailbox per account.
+        from urllib.parse import unquote
+
+        live = self.conn.execute(
+            "WITH a AS (SELECT m.folder_path AS own, substr(f.path, 11) AS rest FROM messages m "
+            "JOIN files f ON f.id = m.file_id WHERE f.path LIKE 'account://%'), "
+            "b AS (SELECT own, substr(rest, 1, instr(rest, '/') - 1) AS acct, "
+            "substr(rest, instr(rest, '/') + 1) AS tail FROM a) "
+            "SELECT acct, COALESCE(NULLIF(own, ''), substr(tail, 1, instr(tail, '/') - 1)), COUNT(*) "
+            "FROM b GROUP BY 1, 2 ORDER BY 1, 2").fetchall()
+        out += [(f"account://{unquote(str(a))}", unquote(str(f or "")), int(n)) for a, f, n in live]
+        return out
+
+    def mail_account_names(self) -> dict[str, str]:
+        """`{account id: "Name - address"}` for the Mail list's live mailboxes."""
+        try:
+            rows = self.conn.execute("SELECT id, COALESCE(name, ''), COALESCE(address, '') FROM accounts").fetchall()
+        except Exception:                                 # noqa: BLE001 - an index from before accounts
+            return {}
+        return {str(i): (f"{n} - {a}" if n and a and not a.startswith("pending-") and a != n else (n or a))
+                for i, n, a in rows}
 
     def count_messages_matching(
         self,
