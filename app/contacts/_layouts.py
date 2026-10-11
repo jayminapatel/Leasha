@@ -74,7 +74,7 @@ OUTLOOK_PHONE_IN = {
     "mobile phone": "mobile", "car phone": "car", "other phone": "other", "primary phone": "main",
     "pager": "pager", "business fax": "work fax", "home fax": "home fax", "other fax": "fax",
     "company main phone": "main", "callback": "callback", "radio phone": "radio", "telex": "telex",
-    "tty/tdd phone": "tty", "assistant's phone": "assistant",
+    "tty/tdd phone": "tty", "assistant's phone": "assistant", "isdn": "isdn",
 }
 OUTLOOK_PHONE_OUT = {
     "mobile": ["Mobile Phone", "Other Phone"],

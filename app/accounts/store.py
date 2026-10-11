@@ -398,7 +398,7 @@ class AccountStore:
         s = self.settings()
         if s.default_account_id is not None:
             a = self.get(s.default_account_id)
-            if a is not None and a.syncs_contacts:
+            if a is not None and a.writes_contacts:        # a default must be somewhere a contact can be written
                 return a
         for a in self.list():
             if a.writes_contacts:

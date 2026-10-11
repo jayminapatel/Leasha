@@ -217,3 +217,19 @@ def test_no_secret_reaches_sqlite_or_the_log_after_adding_a_password_account(svc
     raw = b"".join(p.read_bytes() for p in tmp_path.glob("k.db*"))
     assert b"p4ssw0rd-SECRET" not in raw
     assert svc.secrets.get(account_key(acct.id, "app_password")) == "p4ssw0rd-SECRET"
+
+
+def test_a_contact_made_in_leasha_goes_to_the_default_account(svc):
+    """D4, D5."""
+    a, server_a = add(svc, "A")
+    b, server_b = add(svc, "B")
+    ro, _ = add(svc, "ReadOnly", direction="in-only")
+    cid = svc.new_contact(person("Nina", "Bell", email="n@x.com"))
+    assert svc.hub.kept_in(cid) == [a]                                 # the first two-way account
+    svc.accounts.update_settings(default_account_id=b)
+    cid2 = svc.new_contact(person("Omar", "Cole"))
+    assert svc.hub.kept_in(cid2) == [b]
+    svc.accounts.update_settings(default_account_id=ro)               # an Into-Leasha-only account is not written to
+    assert svc.hub.kept_in(svc.new_contact(person("Pia", "Dunn"))) == [a]
+    svc.sync_now()
+    assert len(server_a.live()) == 2 and len(server_b.live()) == 1

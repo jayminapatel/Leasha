@@ -414,9 +414,11 @@ def _outlook_card(row: Row) -> Card:
     for slot, label in L.OUTLOOK_PHONE_IN.items():
         _add(card, "phone", row.get(slot), label)
     for block, label in L.OUTLOOK_ADDR.items():
-        parts = {key: row.get(f"{block} {part}".lower()) for part, key in
-                 (("Street", "street"), ("City", "city"), ("State", "region"), ("Postal Code", "postcode"),
-                  ("Country/Region", "country"))}
+        b = block.lower()
+        street = "\n".join(x for x in (row.get(f"{b} street"), row.get(f"{b} street 2"), row.get(f"{b} street 3")) if x)
+        parts = {"street": street, "city": row.get(f"{b} city"), "region": row.get(f"{b} state"),
+                 "postcode": row.get(f"{b} postal code"),
+                 "country": row.get(f"{b} country/region", f"{b} country")}      # classic Outlook says "Country"
         _address(card, label, parts)
     for col in ("web page", "personal web page"):
         _add(card, "url", row.get(col))
@@ -527,13 +529,10 @@ _BUILDERS = {"google": _google_card, "outlook": _outlook_card, "apple": _apple_c
 def _mapped_card(row: Row, headers: list[str], mapping: dict[str, str]) -> Card:
     card = Card()
     addresses: dict[str, dict[str, str]] = {}
-    seen_header: dict[str, int] = {}
     for h in headers:
         target = (mapping.get(h) or "").strip()
         if not target or target.lower() == "ignore":
             continue
-        # a header that is repeated is read once per occurrence in its own column
-        seen_header[h] = seen_header.get(h, 0) + 1
         value = row.cells.get(h.strip().lower(), "")
         if not value:
             continue

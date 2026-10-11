@@ -48,6 +48,7 @@
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />
     <Folder Include="app\contacts" />
+    <Folder Include="app\contacts\enrich" />
     <Folder Include="app\core" />
     <Folder Include="app\core\osbridge" />
     <Folder Include="app\extract" />
@@ -61,6 +62,7 @@
     <Folder Include="app\storage" />
     <Folder Include="app\ui" />
     <Folder Include="app\ui\contacts" />
+    <Folder Include="app\ui\contacts_tools" />
     <Folder Include="app\ui\controllers" />
     <Folder Include="app\ui\presenter" />
     <Folder Include="app\ui\widgets" />
@@ -105,6 +107,7 @@
     <Folder Include="tests\golden\ui-redesign\light-1920x1080" />
     <Folder Include="tests\golden\ui-redesign\light-1920x1080\light" />
     <Folder Include="tests\integration" />
+    <Folder Include="tests\live" />
     <Folder Include="tests\unit" />
     <Folder Include="tools" />
   </ItemGroup>
@@ -113,6 +116,7 @@
     <Compile Include="app\accounts\__init__.py" />
     <Compile Include="app\accounts\engine.py" />
     <Compile Include="app\accounts\http.py" />
+    <Compile Include="app\accounts\mail_ingest.py" />
     <Compile Include="app\accounts\oauth.py" />
     <Compile Include="app\accounts\policy.py" />
     <Compile Include="app\accounts\provider.py" />
@@ -124,6 +128,7 @@
     <Compile Include="app\accounts\providers\google_people.py" />
     <Compile Include="app\accounts\providers\graph_contacts.py" />
     <Compile Include="app\accounts\providers\graph_mail.py" />
+    <Compile Include="app\accounts\providers\imap_mail.py" />
     <Compile Include="app\accounts\secrets.py" />
     <Compile Include="app\accounts\service.py" />
     <Compile Include="app\accounts\store.py" />
@@ -180,9 +185,25 @@
     <Compile Include="app\contacts\card.py" />
     <Compile Include="app\contacts\cleanup.py" />
     <Compile Include="app\contacts\dupes.py" />
+    <Compile Include="app\contacts\enrich\__init__.py" />
+    <Compile Include="app\contacts\enrich\base.py" />
+    <Compile Include="app\contacts\enrich\company.py" />
+    <Compile Include="app\contacts\enrich\faces.py" />
+    <Compile Include="app\contacts\enrich\gravatar.py" />
+    <Compile Include="app\contacts\enrich\history.py" />
+    <Compile Include="app\contacts\enrich\logo.py" />
+    <Compile Include="app\contacts\enrich\run.py" />
+    <Compile Include="app\contacts\enrich\signatures.py" />
+    <Compile Include="app\contacts\enrich\suggest.py" />
+    <Compile Include="app\contacts\enrich\wikidata.py" />
     <Compile Include="app\contacts\exporters.py" />
     <Compile Include="app\contacts\hub.py" />
+    <Compile Include="app\contacts\importers.py" />
+    <Compile Include="app\contacts\people.py" />
     <Compile Include="app\contacts\phone.py" />
+    <Compile Include="app\contacts\printing.py" />
+    <Compile Include="app\contacts\qr.py" />
+    <Compile Include="app\contacts\quick_actions.py" />
     <Compile Include="app\contacts\vcard.py" />
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
@@ -413,7 +434,20 @@
     <Compile Include="app\ui\code_view.py" />
     <Compile Include="app\ui\commit_preview.py" />
     <Compile Include="app\ui\contacts\__init__.py" />
+    <Compile Include="app\ui\contacts\delegates.py" />
+    <Compile Include="app\ui\contacts\fields.py" />
+    <Compile Include="app\ui\contacts\loader.py" />
+    <Compile Include="app\ui\contacts\logic.py" />
+    <Compile Include="app\ui\contacts\model.py" />
     <Compile Include="app\ui\contacts\openers.py" />
+    <Compile Include="app\ui\contacts\parts.py" />
+    <Compile Include="app\ui\contacts\photos.py" />
+    <Compile Include="app\ui\contacts\sidebar.py" />
+    <Compile Include="app\ui\contacts_tools\__init__.py" />
+    <Compile Include="app\ui\contacts_tools\_common.py" />
+    <Compile Include="app\ui\contacts_tools\actions.py" />
+    <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\merge_dialog.py" />
     <Compile Include="app\ui\controllers\__init__.py" />
     <Compile Include="app\ui\controllers\chat_controller.py" />
     <Compile Include="app\ui\controllers\index_controller.py" />
@@ -664,6 +698,9 @@
     <Compile Include="tests\integration\test_layer4_acceptance.py" />
     <Compile Include="tests\integration\test_repos_acceptance.py" />
     <Compile Include="tests\integration\test_takeout_acceptance.py" />
+    <Compile Include="tests\live\test_live_carddav.py" />
+    <Compile Include="tests\live\test_live_google_contacts.py" />
+    <Compile Include="tests\live\test_live_graph_contacts.py" />
     <Compile Include="tests\private_locks.py" />
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\_fake_llm.py" />
@@ -680,6 +717,7 @@
     <Compile Include="tests\unit\test_accessible_names.py" />
     <Compile Include="tests\unit\test_account_service.py" />
     <Compile Include="tests\unit\test_accounts_http.py" />
+    <Compile Include="tests\unit\test_accounts_network_guard.py" />
     <Compile Include="tests\unit\test_accounts_oauth.py" />
     <Compile Include="tests\unit\test_accounts_policy.py" />
     <Compile Include="tests\unit\test_accounts_secrets.py" />
@@ -779,6 +817,7 @@
     <Compile Include="tests\unit\test_contacts_dupes.py" />
     <Compile Include="tests\unit\test_contacts_export.py" />
     <Compile Include="tests\unit\test_contacts_import.py" />
+    <Compile Include="tests\unit\test_contacts_people.py" />
     <Compile Include="tests\unit\test_contacts_printing.py" />
     <Compile Include="tests\unit\test_contacts_qr.py" />
     <Compile Include="tests\unit\test_converter.py" />
@@ -948,10 +987,12 @@
     <Compile Include="tests\unit\test_mail_graph.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
     <Compile Include="tests\unit\test_mail_imap.py" />
+    <Compile Include="tests\unit\test_mail_ingest.py" />
     <Compile Include="tests\unit\test_mail_list_order.py" />
     <Compile Include="tests\unit\test_mail_open_original.py" />
     <Compile Include="tests\unit\test_mail_preview_card.py" />
     <Compile Include="tests\unit\test_mail_preview_marks.py" />
+    <Compile Include="tests\unit\test_mail_readonly.py" />
     <Compile Include="tests\unit\test_mail_sent_date_filter.py" />
     <Compile Include="tests\unit\test_match_marker.py" />
     <Compile Include="tests\unit\test_mcp_contacts.py" />

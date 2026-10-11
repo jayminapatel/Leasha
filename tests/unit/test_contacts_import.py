@@ -253,3 +253,20 @@ def test_delimiter_and_encoding_helpers():
     assert imp.import_csv("a\tb\n1\t2\n").headers == ["a", "b"]
     utf16 = ("First Name,Last Name,Email\nAnn,Lee,a@x.example\n").encode("utf-16")
     assert imp.import_csv(utf16, imp.suggest_mapping(["First Name", "Last Name", "Email"])).contacts
+
+
+def test_classic_outlook_headers_country_and_street_lines():
+    headers = ["First Name", "Last Name", "E-mail Address", "Business Phone", "ISDN", "Home Street", "Home Street 2",
+               "Home City", "Home Postal Code", "Home Country", "Birthday", "Anniversary", "Company"]
+    text = _csv_text(headers, {"First Name": "Ann", "Last Name": "Lee", "E-mail Address": "a@x.example",
+                               "Business Phone": "020 7946 0018", "ISDN": "020 7946 0100",
+                               "Home Street": "1 High St", "Home Street 2": "Flat 2", "Home City": "London",
+                               "Home Postal Code": "N1 1AA", "Home Country": "UK", "Birthday": "0/0/00",
+                               "Anniversary": "2010-06-01", "Company": "Acme"})
+    p = imp.import_csv(text)
+    c = p.contacts[0].card
+    assert p.format == "outlook"
+    assert c.values("address")[0].data == {"street": "1 High St\nFlat 2", "city": "London", "postcode": "N1 1AA",
+                                           "country": "UK"}
+    assert {(f.label, f.value) for f in c.values("phone")} == {("work", "020 7946 0018"), ("isdn", "020 7946 0100")}
+    assert [(f.label, f.value) for f in c.values("date")] == [("anniversary", "2010-06-01")]   # "0/0/00" is Outlook's "none"

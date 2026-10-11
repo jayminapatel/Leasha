@@ -154,6 +154,8 @@ def wikidata_proposals(transport: Transport, cid: int, card: Card, facts: Option
     term = company_term(card)
     if not term:
         return []
+    # A person's name must never get this far: company_term already refused it.
+    assert company_key(term) not in _person_names(card), "Wikidata is for companies only, never people"
     facts = facts if facts is not None else lookup_company(transport, term)
     return proposals_from_facts(cid, card, facts)
 

@@ -163,6 +163,17 @@ class AccountService:
         raise AppErrorException(make_error("ERR_ACCOUNT_REJECTED", "accounts.service", account=account.name,
                                            reason=f"{account.provider} accounts have no contacts connector"))
 
+    # ----------------------------------------------------------------- contacts
+    def new_contact(self, card: Any, *, actor: str = "user", kept_in: Optional[Iterable[int]] = None) -> int:
+        """A contact made in Leasha (D4, D5): it goes to the default account unless the caller says where.
+
+        The default is the account chosen in Settings, else the first with two-way
+        contact sync on. With no such account the contact simply lives in Leasha."""
+        if kept_in is None:
+            default = self.accounts.default_account()
+            kept_in = [default.id] if default is not None and default.writes_contacts else []
+        return self.hub.create(card, actor=actor, kept_in=kept_in)
+
     # ----------------------------------------------------------------- accounts
     def add_oauth_account(self, provider: str, name: str = "", *, mail: bool = False, contacts: bool = True,
                           direction: str = "two-way", login_hint: str = "",
