@@ -427,6 +427,7 @@
     <Compile Include="app\storage\sqlite_store.py" />
     <Compile Include="app\storage\vector_store.py" />
     <Compile Include="app\ui\__init__.py" />
+    <Compile Include="app\ui\account_runtime.py" />
     <Compile Include="app\ui\account_scheduler.py" />
     <Compile Include="app\ui\accounts\__init__.py" />
     <Compile Include="app\ui\accounts\account_list.py" />
@@ -848,7 +849,9 @@
     <Compile Include="tests\unit\test_contacts_people.py" />
     <Compile Include="tests\unit\test_contacts_printing.py" />
     <Compile Include="tests\unit\test_contacts_qr.py" />
+    <Compile Include="tests\unit\test_contacts_tools_ui.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_common.py" />
+    <Compile Include="tests\unit\test_contacts_view_world.py" />
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
