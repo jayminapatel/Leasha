@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.115 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.116 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Contacts kept in step across accounts; Tidy list view (2026-10-11)
+
+- **Duplicates no longer merge people who share a landline.** A pair counts only when an email or a mobile number is shared and the names agree; landlines and shared numbers are never merged automatically, and "Not a duplicate" remembers a shared number.
+- **One contact per person across accounts.** A contact arriving from a second account joins the one already in Leasha when it shares an email or mobile and the name agrees.
+- **Master account** (a delete there is a delete everywhere, behind the delete brake), **mirror** (every contact in every account, off by default; it waits until duplicates are merged), **copies** of the contact book before a first sync and daily, **Check this account's contacts**, and the commands `contacts backup`, `merge-safe`, `unmerge`, `accounts verify`.
+- **Automatic by default:** a first sync needs no approval, and mail and contacts sync every hour. Manual, daily and the dry run are still settings.
+- **Fixed:** extra emails were taken out of the book after syncing to Outlook (which keeps three); undoing a merge failed; a Microsoft account's address stayed a placeholder; syncs left "running" by a closed app; the Tidy keep rule kept the wrong copy under a Temp folder.
+- **Tidy:** a List tab with every file of every set in the standard table. **Contact cards:** the name is bold, 12 pt.
 
 ### Reports is now Tidy: clear copies, similar photos and leftovers (2026-10-11)
 
