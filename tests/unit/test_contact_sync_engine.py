@@ -340,19 +340,20 @@ def test_first_sync_is_a_dry_run_that_writes_nothing(world):
     world.accounts.update_settings(dry_run_first=True)
     g = world.account("Google")
     world.servers[g].add(person("Ann", "Lee", email="ann@x.com"))
-    world.hub.create(person("Ann", "Lee", email="ann@x.com"))             # a look-alike already here
+    world.hub.create(person("Ann", "Lee", email="ann@x.com"))             # the same person, already here
+    # 2026-10-11: the same email and a matching name is the same person - joined, not a second copy
     world.hub.create(person("Only", "Local"), kept_in=[g])
     out = only(world.sync(), g)
     assert out.status == "needs-approval"
-    assert out.plan.add_in == 1 and out.plan.possible_duplicates == 1 and out.plan.create_out == 1
+    assert out.plan.add_in == 0 and out.plan.merge_in == 1 and out.plan.create_out == 1
     assert world.hub.count() == 2                                         # hub untouched
     assert len(world.servers[g].live()) == 1 and world.servers[g].writes == []   # account untouched
     assert world.accounts.state(g).token is None                          # not even the token
     assert not world.accounts.get(g).first_sync_done
     run = world.accounts.runs(account_id=g)[0]
-    assert run.dry_run and run.plan["add_in"] == 1
+    assert run.dry_run and run.plan["merge_in"] == 1
     out = only(world.sync(approve_first=True), g)
-    assert out.status == "ok" and world.hub.count() == 3
+    assert out.status == "ok" and world.hub.count() == 2
     assert world.accounts.get(g).first_sync_done
     assert len(world.servers[g].live()) == 2
 

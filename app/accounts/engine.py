@@ -287,6 +287,20 @@ class ContactSyncEngine:
             return
         remote_card = project(rc.card, caps, hub.region)
         remote_ms = int(rc.edited_at * 1000) if rc.edited_at else int(self._clock() * 1000)
+        if link is None:
+            same = self._same_person(remote_card, acct)
+            if same is not None:
+                # The master already holds this person (the same email or mobile, and a name that
+                # agrees): the account's record becomes one more link of that contact, not a second
+                # contact. Anything less certain is added as a new contact and left to the
+                # Duplicates screen (D9).
+                ctx.plan.merge_in += 1
+                ctx.plan.note("merge_in", _label(remote_card))
+                if ctx.dry:
+                    return
+                hub.set_link(same, acct.id, remote_id=rc.remote_id, version_tag=rc.version, snapshot=None,
+                             hub_rev=-1, state="synced")
+                link = hub.link_by_remote(acct.id, rc.remote_id)
         if link is None:                                      # new here: a new contact, never auto-merged (D9)
             ctx.plan.add_in += 1
             ctx.plan.note("add_in", _label(remote_card))
@@ -347,6 +361,32 @@ class ContactSyncEngine:
         self.hub.note(cid, f"account:{acct.id}", "conflict", sync_id=ctx.run_id,
                       detail={"unit": c.unit, "local": _jsonable(c.local), "remote": _jsonable(c.remote),
                               "winner": c.winner})
+
+    def _same_person(self, card: Card, acct: Account) -> Optional[int]:
+        """The one contact in the master that is certainly this person, or None.
+
+        Certain means: it shares an email address or a mobile number with `card`, that value is
+        not one marked as shared, the names agree, the account holds no record for it yet, and
+        no other contact qualifies as well (two candidates is a doubt, so nothing is joined)."""
+        from app.contacts import dupes, phone as phones  # noqa: PLC0415
+        hub = self.hub
+        shared = hub.shared_values()
+        found: set[int] = set()
+        for f in card.fields:
+            if f.kind == "email" and f.value and f"email:{f.value.strip().casefold()}" not in shared:
+                found.update(hub.find_by_email(f.value))
+            elif f.kind == "phone" and f.value and phones.is_mobile(f.value, hub.region):
+                e164 = phones.normalise(f.value, hub.region)
+                if e164 and f"phone:{e164}" not in shared:
+                    found.update(hub.find_by_phone(f.value))
+        good: list[int] = []
+        for cid in sorted(found):
+            if hub.link(cid, acct.id) is not None:
+                continue
+            other = hub.get_card(cid)
+            if other is not None and dupes.names_compatible(other, card):
+                good.append(cid)
+        return good[0] if len(good) == 1 else None
 
     def _lookalikes(self, card: Card) -> list[int]:
         out: list[int] = []
