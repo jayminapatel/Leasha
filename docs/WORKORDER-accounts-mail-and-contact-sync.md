@@ -1,11 +1,13 @@
 # Work order (Master thread): Accounts - live mail in, and a contact book that syncs
 
-**Doc version:** 1.3 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** Master thread with helper threads (new `app/accounts/`, new `app/contacts/`,
 `app/storage/migrations.py`, `app/ui/shell.py`, a new `app/ui/contacts_view.py` and its widgets,
 `app/cli/`, `app/serve/mcp.py`, `tests/unit/`, the user guide, `docs/GLOSSARY.md`, `docs/PROJECT_INSTRUCTIONS.md`)
-**Status:** DRAFT, written 2026-10-11 at the owner's request ("go with c, Leasha as hub, write the
-draft work order"). Nobody may start it. Every decision, D1-D17, was taken by the owner on
+**Status:** RELEASED by the owner 2026-10-11 ("release it and push but wait for my go ahead to
+implement"). **Not to be started until the owner says go** - the release authorises it, the
+go-ahead starts it. Written the same day as a DRAFT at the owner's request ("go with c, Leasha as
+hub, write the draft work order"). Every decision, D1-D17, was taken by the owner on
 2026-10-11 (D4-D14 as the recommended defaults: "the rest do recomended"). 0c is done: the
 provider facts were checked against the providers' own documentation the same day (§0c).
 
@@ -37,6 +39,8 @@ provider facts were checked against the providers' own documentation the same da
    will be in personal contacts and not corporate contacts"
 10. "D3 take a as i need it free but people always fall back to imap for google if they wish,
    D16 take 2, do 0c and commit"
+11. "release it and push but wait for my go ahead to implement .. also add the icon rich ui like
+   our current app"
 
 **Why option c.** Microsoft 365 and Outlook.com contacts have no CardDAV, so they can be reached
 only through Microsoft Graph (checked 2026-10-11, §0c: Microsoft's own list of Exchange Online
@@ -208,6 +212,9 @@ is RELEASED.
 
 ## 0. Records and rules
 
+> *2026-10-11, on release:* the owner asked for the go-ahead to be waited for, so 0a's two notes
+> in `docs/PROJECT_INSTRUCTIONS.md` are written as the first step after it, not at release. Until
+> then the rules there stand unchanged, and nothing this order describes exists.
 - [ ] **0a** Write the two dated notes above into `docs/PROJECT_INSTRUCTIONS.md` (the Cloud APIs
   line and rule 10), and a `HANDOFF.md` entry, on release.
 - [ ] **0b** The Chat order's guard (a turn with the web switch off opens no non-loopback
@@ -403,6 +410,33 @@ is RELEASED.
 - [ ] **6k** Keyboard throughout: `/` to filter, arrows, Enter to open, `Ctrl+N` new,
   `Ctrl+Z` undo, `Del` to the bin. Screen-reader names on every control.
 - [ ] **6l** Settings > Accounts is built to §10.
+- [ ] **6m** **Icon-rich, like the rest of the app** (owner, 2026-10-11). Every icon comes from
+  the app's one icon function, `icon(name, colour)` in `app/ui/widgets/icons.py`: Lucide (ISC)
+  SVGs under `assets/icons/`, drawn in the theme's colour, so light and dark both work. Each
+  new glyph is added to `ICON_NAMES` and its file shipped beside the others; the existing test
+  that every name has a file covers them. Where icons appear:
+  1. **The pill:** `contact` (D14).
+  2. **Field rows in the editor and on the cards:** `mail` email, `phone` phone, `map-pin`
+     address, `globe` website, `building-2` company, `briefcase` title, `cake` birthday,
+     `calendar` other dates, `users` related people, `at-sign` social handle, `sticky-note`
+     notes, `tag` groups.
+  3. **The toolbar:** `user-plus` new, `list` / `layout-grid` the two views, `upload` import,
+     `download` export, `printer` print, `merge` duplicates, `refresh-cw` Sync now, `history`
+     history, `trash-2` bin, `star` favourite.
+  4. **The sidebar:** each group, smart group, account and state ("Changed in two places",
+     "Deleted elsewhere") has its icon beside its name.
+  5. **Accounts:** a chip with the account's colour and a provider glyph. Google, Microsoft and
+     Apple logos are their trademarks and Lucide ships none, so the chip shows the account's
+     own name and `mail` / `contact` / `server` (for IMAP and CardDAV), never a copied logo.
+  6. **Status words** on account rows and in the sync log carry an icon too: `circle-check` up
+     to date, `refresh-cw` syncing, `clock` waiting, `pause` paused, `key-round` needs sign-in,
+     `circle-alert` failed.
+  7. **Settings > Accounts (§10)** uses the same glyphs as the Contacts page for the same
+     things.
+
+  Every icon-only control has its tooltip and accessible name, as the rail does. Exact glyph
+  names are checked against the Lucide release `assets/icons/` already ships when they are
+  added; a name Lucide lacks is replaced by its nearest, and the substitute recorded here.
 
 ## 7. Enrichment - free of charge (Phase C)
 

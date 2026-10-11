@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.145 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 7.146 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,9 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-11, order 1k released, not started - accounts, live mail and contact sync (owner: "release it and push but wait for my go ahead to implement").**
+`docs/WORKORDER-accounts-mail-and-contact-sync.md`, written and decided in one conversation. Google, Microsoft, Apple and any IMAP or CardDAV accounts; mail read-only; contacts two-way with Leasha as the hub; a Contacts pill (list and business cards, import and export, icons through `icons.icon()`); read-only MCP tools; Settings > Accounts with mail and contacts schedules (manual by default). **Nobody starts it until the owner says go.** Two standing rules change only then (0a): "Cloud APIs" in `docs/PROJECT_INSTRUCTIONS.md` and non-negotiable 10, for contacts. Until 0a is written those rules stand as they are. The order's first version went in with `5f27874` by accident; `d2cdddc` is the decided one. Also fixed: `5f27874` added two tests without regenerating `Leasha.pyproj`, so `test_vs_project.py` was red on main; regenerated in `d2cdddc`.
 
 **2026-10-11, order 1j §1-§2 built; §3 dry run done, waiting for the owner.**
 Space Report: every query reads `row_facts.disk_file_sql` (`source_kind = 'file'`, D1), and `space.SCOPE_SENTENCE` says so in the document and on screen. Digital Inheritance: `sqlite_store._under_root_sql` matches a root saved as `D:/Data` or `D:\Data` and needs a separator after it (it also took `D:\Database` before); `ui:roots` left as Qt writes it (2b). On the owner's index, read-only: `D:/Data` 135,841 files, 441.3 GB. **§3 dry run (read-only):** under D2 (hash + subject + sender + sent time) 3,458 extra message copies in 3,313 groups plus 344 attachment rows, all within one archive each - not the 21,245 the order measured by hash alone. Nothing is deleted until the owner says yes; then 3b (backup, delete across files/FTS/vectors, `reembed --check`), 3c (the PST readers skip a repeat) and 3d. Tests: `test_space_files_only.py` (3), `test_inheritance_roots.py` (6), both red on the old code; two `test_space_report_table.py` headline assertions updated.
