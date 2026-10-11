@@ -532,6 +532,10 @@ class MainWindow(QMainWindow):
                 wrapped, title, icon=icon_name,
                 foot=placement == "foot", pill=placement == "pill")
         self.rail.describe(self._tab_index[self.timeline_view], "Browse your timeline")
+        # Order 1m: pages dragged or moved from their menu, remembered and reset.
+        from app.ui.widgets import rail_order
+
+        rail_order.wire(self)
         # Refresh a panel when it comes forward rather than on a timer: an
         # index run between visits changes what it should show, and polling a
         # table nobody is looking at is work for nothing. Safe to connect
@@ -757,6 +761,10 @@ class MainWindow(QMainWindow):
         # existed by then; Mail's and Code's controls did not, so it runs
         # again for exactly what it missed. Safe to call twice - a widget
         # guarded a second time is guarded harmlessly, see `protect`.
+        # Order 1m: every movable page exists now, so the remembered order applies.
+        from app.ui.widgets import rail_order
+
+        rail_order.restore(self)
         guarded = protect_all(self)
         _log.debug("wheel-guarded {} controls (second pass, Mail + Code)", guarded)
         fit_number_fields(self)
@@ -1499,6 +1507,9 @@ class MainWindow(QMainWindow):
         view = bar.addMenu("&View")
         add(view, "Preview pane", self._toggle_preview, "Ctrl+Shift+P",
             icon="panel-right", tip="Show or hide the preview pane beside the results")
+        # Order 1m: the rail back in Leasha's order (D3).
+        add(view, "Reset page order", lambda: getattr(self, "reset_page_order", lambda: None)(),
+            icon="rotate-ccw", tip="Put the pages on the left back in Leasha's order")
         # 2026-10-04, the owner: the tab's View options here too, changing with the tab.
         view.aboutToShow.connect(lambda menu=view: self._fill_view_menu(menu))
 

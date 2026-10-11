@@ -256,6 +256,11 @@ class Rail(QWidget):
     """A page rail and the stack it drives. See the module docstring."""
 
     currentChanged = Signal(int)          # noqa: N815 - QTabWidget's name
+    #: Order 1m (2026-10-11): a page moved `(from, to)`; the titles of the movable
+    #: pages, top to bottom, after it; and "Reset page order" chosen on a button.
+    tabMoved = Signal(int, int)           # noqa: N815 - QTabWidget's name
+    order_changed = Signal(list)
+    reset_requested = Signal()
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -361,6 +366,11 @@ class Rail(QWidget):
             self._icons[index] = icon
             if foot:
                 self._foot.add(index)
+            else:
+                # Order 1m: dragged, or moved from its right-click menu.
+                from app.ui.widgets.rail_order import make_movable
+
+                make_movable(self, button)
         self._relayout()
         self._retint_buttons()
         if self.stack.count() == 1:
@@ -522,6 +532,58 @@ class Rail(QWidget):
         self._sync_checked(index)
         self._retint_buttons()
         self.currentChanged.emit(index)
+
+    # -- order 1m: pages in any order -----------------------------------------------
+
+    def movable(self, index: int) -> bool:
+        """A page with a button in the top group: not the pill's, not Settings."""
+        return index in self._buttons and index not in self._foot
+
+    def index_of_button(self, button: Any) -> int:
+        for index, candidate in self._buttons.items():
+            if candidate is button:
+                return index
+        return -1
+
+    def page_order(self) -> list[str]:
+        """The movable pages' titles, top to bottom."""
+        return [self._titles[i] for i in sorted(self._buttons) if self.movable(i)]
+
+    def moveTab(self, source: int, target: int) -> bool:                # noqa: N802
+        """Move page `source` to position `target`; both must be movable pages.
+
+        Every map keyed by position follows (titles, buttons, icons, the foot and
+        the pill), the page in front stays in front, and no `currentChanged`
+        fires for the move itself - nothing was chosen. `tabMoved` and
+        `order_changed` say so instead. Returns whether anything moved.
+        """
+        if source == target or not (self.movable(source) and self.movable(target)):
+            return False
+        order = list(range(self.stack.count()))
+        order.insert(target, order.pop(source))
+        new_of = {old: new for new, old in enumerate(order)}
+        shown = self.stack.currentWidget()
+        widget = self.stack.widget(source)
+        self.stack.blockSignals(True)
+        try:
+            self.stack.removeWidget(widget)
+            self.stack.insertWidget(target, widget)
+            if shown is not None:
+                self.stack.setCurrentWidget(shown)
+        finally:
+            self.stack.blockSignals(False)
+        self._titles = [self._titles[old] for old in order]
+        self._buttons = {new_of[i]: b for i, b in self._buttons.items()}
+        self._icons = {new_of[i]: n for i, n in self._icons.items()}
+        self._foot = {new_of[i] for i in self._foot}
+        if self._pill_index is not None:
+            self._pill_index = new_of[self._pill_index]
+        self._relayout()
+        self._retint_buttons()
+        self._sync_checked(self.stack.currentIndex())
+        self.tabMoved.emit(source, target)
+        self.order_changed.emit(self.page_order())
+        return True
 
     def describe(self, index: int, words: str) -> None:
         """A longer tooltip and accessible name for one entry than its short title
