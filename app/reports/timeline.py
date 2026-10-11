@@ -682,7 +682,7 @@ def timeline_overview(store: Any, kind: str = "everything") -> Overview:
     Months with nothing in them are absent; `Overview.months_of` fills the gaps
     for a picker. Never raises.
     """
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
 
     kind = _clean_kind(kind)
     months: dict[int, int] = {}
@@ -752,7 +752,7 @@ def refresh_overview(store: Any, kind: str = "everything",
     is a scan of the whole table, and it should not run on every tab switch
     that changes nothing. **Worker only.**
     """
-    from app.reports.inheritance import report_generated_at
+    from app.reports.common import report_generated_at
 
     now = report_generated_at(store)
     if known_generated_at is not None and now == known_generated_at:

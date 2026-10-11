@@ -2,17 +2,14 @@ r"""Order 202626270602 (0n) section 5 - the fixture tests.
 
 Layer: L4 + L5
 
-"inheritance PDF contains every fixture source's name and location text, and NO
-file contents; space report finds the planted cross-source duplicates and the
+"space report finds the planted cross-source duplicates and the
 planted unique-to-one-drive file; timeline June-2015 fixture shows the photo
 (EXIF), the letter (mtime), and the offline drive's item with badge; thin-data
 degradation states itself."
 
 One shared fixture (`family_index`) is a small family's index: a computer, a
-drive in a drawer, a tape in a safe, a share. The **PDF is really written by
-`reports_view._write_pdf` and really read back** (PyMuPDF), because a document
-that reads well as Markdown and loses a name in the print layout is the failure
-that matters to the person holding the printout.
+drive in a drawer, a tape in a safe, a share. (Its Digital Inheritance half went
+with that report, order 1q D9, 2026-10-11.)
 
 The timeline and thin-data halves live where their subject is
 (`test_reports_timeline.py::test_june_2015_shows_the_photo_the_letter_the_drive_and_the_mail_oldest_first`,
@@ -23,11 +20,9 @@ would actually use, so the four fixture sentences of the order are all asserted.
 
 from __future__ import annotations
 
-import os
 
 import pytest
 
-from app.reports.inheritance import catalogue_sources, render_inheritance_document, report_generated_at
 from app.reports.space import (
     document_for, find_duplicate_groups, find_source_uniqueness, hash_coverage,
     SpaceFindings, total_reclaimable_bytes,
@@ -77,87 +72,6 @@ def family_index(tmp_path):
     store.close()
 
 
-# ---------------------------------------------------------------------------
-# The inheritance PDF
-# ---------------------------------------------------------------------------
-
-def _write_the_pdf(document: str, target) -> None:
-    r"""`reports_view._write_pdf`, in a fresh process - the way `test_grab_ui.py`
-    makes its pictures. The offscreen platform reads its font directory once,
-    when the first `QApplication` of a process is built, and a test run that
-    has already built one without it would print a page with no letters on it
-    (measured: an empty page, not an error)."""
-    import subprocess
-    import sys
-    from pathlib import Path
-
-    fonts = Path(os.environ.get("WINDIR", r"C:\Windows")) / "Fonts"
-    env = {**os.environ, "QT_QPA_PLATFORM": "offscreen"}
-    if fonts.is_dir():
-        env["QT_QPA_FONTDIR"] = str(fonts)
-    source = Path(target).with_suffix(".md")
-    source.write_text(document, encoding="utf-8")
-    script = ("import sys; from pathlib import Path; from PySide6.QtWidgets import QApplication;"
-              "app = QApplication([]); from app.ui.reports_view import _write_pdf;"
-              "_write_pdf(Path(sys.argv[1]).read_text(encoding='utf-8'), sys.argv[2])")
-    done = subprocess.run([sys.executable, "-c", script, str(source), str(target)], env=env,
-                          capture_output=True, text=True, timeout=120,
-                          cwd=str(Path(__file__).resolve().parents[2]))
-    assert done.returncode == 0, done.stderr[-800:]
-
-
-def _pdf_text(path) -> str:
-    import pymupdf
-
-    with pymupdf.open(str(path)) as document:
-        return "\n".join(page.get_text() for page in document)
-
-
-def test_the_printed_map_names_every_source_and_where_it_is_kept_and_none_of_what_is_inside(
-        tmp_path, family_index):
-    store, _ids = family_index
-    sources = catalogue_sources(store, roots=[r"D:\Family"])
-    document = render_inheritance_document(
-        sources, generated_at=report_generated_at(store), owner_name="Aunt Meera")
-    target = tmp_path / "map.pdf"
-    _write_the_pdf(document, target)
-    text = _pdf_text(target)
-    # NFKC (2026-10-05): Linux's fonts set "fi" as one ligature character, so
-    # the extracted text read "ﬁre safe" and the words were not found. The
-    # page was right; reading it back has to unfold ligatures first.
-    import unicodedata
-
-    flat = " ".join(unicodedata.normalize("NFKC", text).split())
-
-    assert "A map of Aunt Meera" in flat
-    # every source's name...
-    for name in ("Family", "Projects 2019", "LTO tape B-0042", "Family NAS"):
-        assert name in flat, f"{name!r} is missing from the printed map"
-    # ...and where it is kept (the location text a family member needs to find the drawer):
-    assert "fire safe, hallway cupboard" in flat
-    assert "the old work drive" in flat
-    # what it is, in words a reader who is not the owner can act on:
-    assert "Drives" in flat and "Network shares" in flat
-    # NEVER what is inside a file:
-    for secret in SECRETS:
-        assert secret not in flat and secret not in document
-    assert "holiday.jpg" not in flat                      # not even a file name - folders only
-
-
-def test_a_source_left_out_is_left_out_of_the_print_too(tmp_path, family_index):
-    from dataclasses import replace
-
-    store, _ids = family_index
-    sources = [replace(s, include=s.name != "LTO tape B-0042")
-               for s in catalogue_sources(store, roots=[r"D:\Family"])]
-    target = tmp_path / "map.pdf"
-    _write_the_pdf(render_inheritance_document(sources), target)
-    flat = " ".join(_pdf_text(target).split())
-    assert "Projects 2019" in flat and "LTO tape" not in flat and "fire safe" not in flat
-
-
-# ---------------------------------------------------------------------------
-# The Space Report
 # ---------------------------------------------------------------------------
 
 def test_the_space_report_finds_the_planted_duplicates_across_sources(family_index):

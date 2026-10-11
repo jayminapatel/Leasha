@@ -462,7 +462,7 @@ def test_reading_the_timeline_changes_nothing(tmp_path):
 
 
 def test_the_timeline_module_never_writes():
-    """Source-scan, in the style of `test_the_inheritance_module_never_writes_to_disk`."""
+    """Source-scan, in the style of the one Digital Inheritance had (removed with it, order 1q)."""
     source = Path(T.__file__).read_text(encoding="utf-8")
     for pattern in (r"\bINSERT\b", r"\bUPDATE\b", r"\bDELETE\b", r"\bDROP\b", r"\bALTER\b",
                     r"\.write\(", r"\bopen\(", r"write_text", r"write_bytes", r"os\.remove",
