@@ -18,7 +18,7 @@ from app.contacts.hub import ContactFilter, ContactRow, JournalRow
 
 __all__ = [
     "STATE_VIEW", "STATE_SORT", "COLUMNS", "column_key", "sort_rows", "initials",
-    "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for", "actor_words", "source_words",
+    "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for", "actor_words", "source_words", "merge_order",
     "account_glyph", "describe_entry", "KIND_INFO", "LABELS", "date_icon", "RULE_FIELDS",
     "RULE_OPS", "SMART_EXAMPLES", "rule_text", "TAG_COLOURS", "parse_sort", "hub_error_text",
 ]
@@ -293,3 +293,22 @@ def rule_text(rule: dict, account_names: Optional[dict[int, str]] = None) -> str
     op = ops.get(rule.get("op", "is"), rule.get("op", ""))
     tail = "" if rule.get("op") in ("empty", "not_empty") else f" {value}"
     return f"{fields.get(rule.get('field', ''), rule.get('field', ''))} {op}{tail}".strip()
+
+
+def merge_order(original: list, per_kind: dict[str, list]) -> list:
+    """The card's fields in one list, the way the card had them.
+
+    The editor shows one list per kind, so it hands back a list per kind. Putting them back in
+    the sequence of kinds the card started with means a card nobody edited compares equal to
+    itself (no journal entry for a Save that changed nothing); kinds the card did not have, and
+    values added at the end of a kind, follow in the editor's order.
+    """
+    queues = {k: list(v) for k, v in per_kind.items()}
+    out = []
+    for f in original:
+        q = queues.get(f.kind)
+        if q:
+            out.append(q.pop(0))
+    for kind in KIND_INFO:
+        out += queues.get(kind, [])
+    return out

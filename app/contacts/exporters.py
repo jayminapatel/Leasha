@@ -38,12 +38,12 @@ import csv
 import io
 import re
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Iterable
 
 from app.contacts import _layouts as L
 from app.contacts import _pdf as P
 from app.contacts import vcard
-from app.contacts.card import Card, Field, KINDS, display_name
+from app.contacts.card import Card, Field, display_name
 from app.contacts._layouts import LAYOUT_CAPS, MULTI, label_out
 from app.contacts._pdf import NothingToPrint, PdfLayout, Placement
 

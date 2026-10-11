@@ -16,9 +16,8 @@ number twice is changed in both places.
 from __future__ import annotations
 
 import re
-import unicodedata
 from dataclasses import dataclass, field
-from typing import Any, Hashable, Iterable, Optional
+from typing import Any, Hashable, Optional
 
 from app.contacts import phone as phones
 from app.contacts.card import Card, Field, field_key

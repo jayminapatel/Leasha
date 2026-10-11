@@ -13,7 +13,7 @@ import pytest
 from app.contacts import exporters as exp
 from app.contacts import importers as imp
 from app.contacts.card import Card, Field, units
-from tests.unit.contacts_samples import (addr, google_card, outlook_card, person, rich_card)
+from tests.unit.contacts_samples import google_card, outlook_card, person, rich_card
 
 
 def _same(a: list[Card], b: list[Card], caps) -> None:

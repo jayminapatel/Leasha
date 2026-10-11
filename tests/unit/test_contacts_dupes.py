@@ -9,7 +9,7 @@ import pytest
 
 from app.contacts import dupes
 from app.contacts.card import Card, Field, Photo, units
-from tests.unit.contacts_samples import TINY_PNG, person
+from tests.unit.contacts_samples import TINY_PNG
 
 
 def c(given="", family="", *, email=(), phone=(), company="", **more) -> Card:

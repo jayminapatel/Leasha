@@ -67,6 +67,11 @@ def vcard_qr_text(card: Card, max_bytes: int = MAX_BYTES) -> str:
         if len(_text(trial).encode("utf-8")) > max_bytes:
             break
         out = trial
+    has_content = any(card.get(n).strip() for n in (*_NAME, "company", "nickname")) or any(
+        f.value.strip() or any(f.data.values()) for f in card.fields)
+    if has_content and not out.scalars and not out.fields:
+        raise ValueError("This contact's name and company are too long to fit in a QR code. Shorten them, or share "
+                         "the contact as a vCard file instead.")
     if not out.scalars and not out.fields:
         raise ValueError("There is nothing to put in a QR code: this contact has no name, company, email "
                          "address or phone number.")

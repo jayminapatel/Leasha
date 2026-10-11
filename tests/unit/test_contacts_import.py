@@ -13,8 +13,6 @@ import hashlib
 import os
 import stat
 
-import pytest
-
 from app.contacts import importers as imp
 from app.contacts.card import Card, Field, display_name
 

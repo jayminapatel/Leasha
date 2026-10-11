@@ -13,7 +13,7 @@ import re
 import pytest
 
 from app.contacts import printing as pr
-from app.contacts.card import Card, Field
+from app.contacts.card import Card
 from tests.unit.contacts_samples import addr, person, rich_card
 
 

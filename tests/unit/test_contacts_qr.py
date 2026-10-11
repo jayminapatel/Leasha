@@ -15,8 +15,8 @@ import pytest
 from segno import consts
 
 from app.contacts import qr, quick_actions as qa, vcard
-from app.contacts.card import Card, Field, Photo, units
-from tests.unit.contacts_samples import TINY_PNG, addr, person, rich_card
+from app.contacts.card import Card, Field, units
+from tests.unit.contacts_samples import addr, person, rich_card
 
 
 # --------------------------------------------------------------------------
@@ -237,3 +237,8 @@ def test_card_as_vcard_matches_the_exporter():
     from app.contacts import importers
     assert units(importers.import_vcard(text).contacts[0].card) == units(c)
     assert "VERSION:4.0" in qa.card_as_vcard(c, version="4.0")
+
+
+def test_qr_of_an_over_long_name_says_so():
+    with pytest.raises(ValueError, match="too long"):
+        qr.vcard_qr_text(Card(scalars={"company": "x" * 5000}))
