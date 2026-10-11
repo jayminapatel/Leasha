@@ -218,7 +218,7 @@ class MailView(QWidget):
     def refresh(self) -> None:
         """Re-run the current filter, and count the folders again. Called when an index run finishes."""
         self._run()
-        getattr(self, "load_folders", lambda: None)()
+        self.load_folders()
 
     # -- querying -------------------------------------------------------------
 
@@ -281,13 +281,9 @@ class MailView(QWidget):
             len(page["rows"]), leftover, page.get("total")) + (f"  ·  {said}" if said else ""))
 
     def _summary_text(self, shown: int, leftover: str, total: Optional[int] = None) -> str:
-        """The wording lives in `presenter.mail_summary` - this file had one
-        line of headroom under the 250-line guard, and three branches of string
-        formatting inside a widget can only be checked by a person looking at a
-        mail tab at the right moment."""
-        return in_folder(with_date_problems(
-            mail_summary(shown, leftover, page_size=PAGE_SIZE, total=total),
-            getattr(self, "_parsed", None)), getattr(self, "mail_folder", None))
+        """Worded by `presenter.mail_summary` and `mail_folders.in_folder`: this view is at its line guard."""
+        return in_folder(with_date_problems(mail_summary(shown, leftover, page_size=PAGE_SIZE, total=total),
+                                            getattr(self, "_parsed", None)), getattr(self, "mail_folder", None))
 
     # -- how it looks ----------------------------------------------------------
 

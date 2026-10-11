@@ -146,9 +146,10 @@ def tree_toggle(view: Any) -> QToolButton:
     lit while the tree is shown, kept in step by `view.show_tree`."""
     from app.ui.widgets.side_toggle import side_toggle
 
-    return side_toggle("People, years and places", tip=TREE_TIP,
-                       accessible="People, years and places list", name="toggle_photo_tree",
-                       on_click=lambda on: view.show_tree(on))
+    view.tree_button = side_toggle(
+        "People, years and places", tip=TREE_TIP, accessible="People, years and places list",
+        name="toggle_photo_tree", on_click=lambda on: view.show_tree(on))
+    return view.tree_button
 
 
 class ViewButton(QToolButton):
