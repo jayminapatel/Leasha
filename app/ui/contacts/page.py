@@ -914,10 +914,11 @@ class ContactsPage(QWidget):
         selected, visible = self.selected_ids(), self.model.ids()
         hub, accounts = self.hub, self.accounts
 
-        def enrich() -> Any:
-            # Runs on the dialog's worker; each internet source is skipped unless its switch is on.
+        def enrich(on_progress: Any = None, cancelled: Any = None) -> Any:
+            # Runs on a worker; each internet source is skipped unless its switch is on.
             from app.contacts.enrich.run import proposals_for  # noqa: PLC0415
-            return proposals_for(hub, accounts, list(selected) or list(visible))
+            return proposals_for(hub, accounts, list(selected) or list(visible), on_progress=on_progress,
+                                 cancelled=cancelled)
 
         return openers.Ctx(hub=hub, accounts=accounts, selected_ids=selected, visible_ids=visible,
                            refresh=self.refresh, service=self.service, enrich=enrich,

@@ -74,6 +74,10 @@ _FIELD_ALIASES = {
     # 2026-10-05: what a picture has - faces named, text read ... (`ONLY_VALUES`).
     "only": "only",
     "status": "status", "state": "status",
+    # 2026-10-12: mail. What an email carries, and where it is kept.
+    "attachment": "attachment", "attachments": "attachment", "attached": "attachment", "attach": "attachment",
+    "mailbox": "mailbox", "account": "mailbox", "archive": "mailbox",
+    "mailfolder": "mailfolder", "label": "mailfolder",
 }
 
 #: `/status` words -> `files.status` values. **The Status column's own words**
@@ -274,6 +278,12 @@ class ParsedQuery:
     #: answers "which folder"; this answers "what is it called", and they are
     #: different questions that people ask for different reasons.
     names: tuple[str, ...] = ()
+    #: `/attachment *.xlsx` - email that has an attachment of this name (wildcards allowed); `-attachment:` the
+    #: opposite. `/mailbox` is the account or archive it is kept in; `/mailfolder` the folder or label inside.
+    attachments: tuple[str, ...] = ()
+    not_attachments: tuple[str, ...] = ()
+    mailboxes: tuple[str, ...] = ()
+    mailfolders: tuple[str, ...] = ()
     #: `/status skipped` - `files.status` values, from `STATUS_WORDS`.
     statuses: tuple[str, ...] = ()
     #: The negated halves of the filters above - `-type:pdf`, `-from:noreply`,
@@ -361,6 +371,7 @@ class ParsedQuery:
             or self.who or self.only
             or self.senders or self.recipients or self.subjects
             or self.names or self.sizes or self.statuses
+            or self.attachments or self.not_attachments or self.mailboxes or self.mailfolders
             or self.has_attachment is not None or self.scope != "all"
         )
 
@@ -785,6 +796,10 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
     recipients: list[str] = []
     subjects: list[str] = []
     names: list[str] = []
+    attachments: list[str] = []
+    not_attachments: list[str] = []
+    mailboxes: list[str] = []
+    mailfolders: list[str] = []
     statuses: list[str] = []
     # The negated halves. Separate lists rather than a sign on each value: every
     # consumer has to build a different SQL clause for them, and a tuple of
@@ -840,6 +855,7 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
                 "volume": not_volumes,
                 "sender": not_senders, "recipient": not_recipients,
                 "subject": not_subjects, "name": not_names,
+                "attachment": not_attachments,
             }.get(fld or "")
             if target is not None:
                 if fld == "ext":
@@ -915,6 +931,15 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         elif fld == "name":
             if val:
                 names.append(val.lower())
+        elif fld == "attachment":
+            if val:
+                attachments.append(val.lower())
+        elif fld == "mailbox":
+            if val:
+                mailboxes.append(val.lower())
+        elif fld == "mailfolder":
+            if val:
+                mailfolders.append(val.lower())
         elif fld == "status":
             for part in val.split(","):
                 found = STATUS_WORDS.get(part.strip().lower().replace(" ", ""))
@@ -1101,6 +1126,10 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
         recipients=tuple(recipients),
         subjects=tuple(subjects),
         names=tuple(names),
+        attachments=tuple(attachments),
+        not_attachments=tuple(not_attachments),
+        mailboxes=tuple(mailboxes),
+        mailfolders=tuple(mailfolders),
         statuses=tuple(statuses),
         not_phrases=tuple(not_phrases),
         not_ext=tuple(dict.fromkeys(not_ext)),

@@ -8,6 +8,7 @@ suggestions wait here until they are accepted or looked for again.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
@@ -28,6 +29,9 @@ class EnrichRun(QObject):
         self.error = ""
         #: Indexes into `data.proposals` already accepted: they stay put so the others keep their numbers.
         self.done: set[int] = set()
+        #: How far a look-up has got: `{"done", "total", "found"}`, or None before the first contact.
+        self.progress: Any = None
+        self._stop = threading.Event()
 
     @property
     def running(self) -> bool:
@@ -42,11 +46,23 @@ class EnrichRun(QObject):
             return False
         from app.ui.contacts_tools.enrich_dialog import gather_proposals     # noqa: PLC0415
 
-        self.state, self.data, self.error, self.done = "running", None, "", set()
+        self.state, self.data, self.error, self.done, self.progress = "running", None, "", set(), None
         self._notify = getattr(ctx, "notify", None)
-        Job(self, lambda: gather_proposals(ctx), self._finished, self._failed)
+        self._stop.clear()
+        stop = self._stop
+        Job(self, lambda on_progress: gather_proposals(ctx, on_progress, stop.is_set), self._finished, self._failed,
+            self._progressed)
         self.changed.emit()
         return True
+
+    def stop(self) -> None:
+        """Stop looking at the next contact; what was found so far is kept and shown."""
+        self._stop.set()
+
+    def _progressed(self, stage: Any) -> None:
+        if isinstance(stage, dict):
+            self.progress = stage
+            self.changed.emit()
 
     def _say(self, text: str) -> None:
         notify = getattr(self, "_notify", None)
@@ -60,10 +76,11 @@ class EnrichRun(QObject):
         self.data = data
         n = len(data.proposals)
         self.state = "ready" if n else "empty"
+        stopped = self._stop.is_set()
         if n:
             people = len({getattr(p, "contact_id", None) for p in data.proposals})
-            self._say(f"Enrichment found {n} suggestion{'s' if n != 1 else ''} for {people} "
-                      f"contact{'s' if people != 1 else ''}. Open Enrich contacts to accept them.")
+            self._say(f"Enrichment {'stopped' if stopped else 'found'} {n} suggestion{'s' if n != 1 else ''} for "
+                      f"{people} contact{'s' if people != 1 else ''}. Open Enrich contacts to accept them.")
         else:
             self._say("Enrichment finished: no suggestions this time.")
         self.changed.emit()

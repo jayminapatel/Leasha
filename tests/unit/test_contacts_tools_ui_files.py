@@ -366,3 +366,34 @@ def test_every_control_in_the_file_dialogs_has_a_name_and_a_tooltip(world, qtbot
         dlg = open_dialog(qtbot, cls, world.ctx)
         assert unnamed_controls(dlg) == [], cls.__name__
         assert dlg.windowTitle() and dlg.accessibleName()
+
+
+def test_enrich_shows_how_far_it_has_got_and_stop_keeps_what_was_found(world, qtbot):
+    """The owner (2026-10-12): "enrich has been going for a while and no results" - a thousand contacts at a second
+    each, with nothing shown until the end. Now: contact N of M, suggestions so far, and a Stop that keeps them."""
+    from app.contacts.enrich.base import Proposal
+
+    ids = [world.add(f"P{i}", "Q", email=f"p{i}@acme-widgets.co.uk") for i in range(6)]
+    gate = {"stop_after": 3}
+
+    def enrich(on_progress=None, cancelled=None):
+        found = []
+        for n, cid in enumerate(ids):
+            if cancelled and cancelled():
+                break
+            found.append(Proposal(cid, "company", "Company", "", "Acme", "company", "x"))
+            on_progress({"done": n + 1, "total": len(ids), "found": len(found)})
+            if n + 1 == gate["stop_after"]:
+                dlg_run.stop()                                   # the person presses Stop
+        return found
+
+    world.ctx.enrich = enrich
+    dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
+    dlg_run = dlg.run
+    seen = []
+    dlg.run.changed.connect(lambda: seen.append(dict(dlg.run.progress) if dlg.run.progress else None))
+    dlg.find_button.click()
+    qtbot.waitUntil(lambda: dlg.run.state in ("ready", "empty"), timeout=5000)
+    assert any(p and p["total"] == 6 for p in seen)              # it said how far it had got
+    assert dlg.tree.topLevelItemCount() == 3                     # stopped after 3: those 3 are there to accept
+    assert dlg.stop_button.isHidden()

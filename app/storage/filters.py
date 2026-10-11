@@ -274,6 +274,18 @@ def _name_clause(value: str, *, negated: bool = False) -> tuple[str, str]:
     return f"{_BASENAME} {word} ?{ESCAPE}", contains(value)
 
 
+def _attachment_exists(name: str, *, negated: bool, params: list) -> str:
+    """SQL for "this message has (or has not) an attachment called `name`"; appends its parameter.
+
+    `f.path || '/attachments/'` to the same with `0` after the slash is the range of every attachment of this
+    message, found through the path index. The glob is applied to the part after the last slash."""
+    pattern = glob(name) if has_wildcard(name) else contains(name)
+    params.append(pattern)
+    inner = ("SELECT 1 FROM files a WHERE a.path >= f.path || '/attachments/' AND a.path < f.path || '/attachments0' "
+             "AND LOWER(SUBSTR(a.path, LENGTH(f.path) + 14)) LIKE ?" + ESCAPE)
+    return f"{'NOT ' if negated else ''}EXISTS ({inner})"
+
+
 def _ext_clause(exts: Any, *, negated: bool = False) -> tuple[str, list]:
     """`/type` as SQL: the plain extensions in one `IN`, each wildcard a `LIKE`.
 
@@ -596,6 +608,27 @@ def file_filter_sql(parsed: Any) -> tuple[str, list[Any]]:
             f"WHERE COALESCE(subject_lc, subject) LIKE ?{ESCAPE})"
         )
         params.append(contains(subject))
+
+    # `/attachment *.xlsx`: an email with an attachment of that name. An attachment is a file of its own, filed
+    # as `<message path>/attachments/<name>`, so this looks for such a file by its path - a range on the path
+    # index, not a scan - and takes the name from what follows the last slash (a wildcard is a glob over it).
+    for name in getattr(parsed, "attachments", ()):
+        clauses.append(_attachment_exists(name, negated=False, params=params))
+    for name in getattr(parsed, "not_attachments", ()):
+        clauses.append(_attachment_exists(name, negated=True, params=params))
+
+    # `/mailbox gmail` (an account's name or address, or an archive's file name) and `/mailfolder inbox`.
+    for box in getattr(parsed, "mailboxes", ()):
+        clauses.append(
+            "(f.id IN (SELECT file_id FROM messages WHERE LOWER(store_path) LIKE ?" + ESCAPE + ") "
+            "OR EXISTS (SELECT 1 FROM accounts ac WHERE (LOWER(ac.name) LIKE ?" + ESCAPE
+            + " OR LOWER(ac.address) LIKE ?" + ESCAPE + ") AND f.path LIKE 'account://' || ac.id || '/%'))")
+        pattern = glob(box) if has_wildcard(box) else contains(box)
+        params.extend([pattern, pattern, pattern])
+    for folder in getattr(parsed, "mailfolders", ()):
+        clauses.append(
+            "f.id IN (SELECT file_id FROM messages WHERE LOWER(folder_path) LIKE ?" + ESCAPE + ")")
+        params.append(glob(folder) if has_wildcard(folder) else contains(folder))
 
     if parsed.has_attachment is not None:
         clauses.append(

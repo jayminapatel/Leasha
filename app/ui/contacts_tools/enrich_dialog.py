@@ -39,15 +39,20 @@ class EnrichData:
     available: bool = True
 
 
-def gather_proposals(ctx: Any) -> EnrichData:
-    """Ask the host for proposals and the names of the contacts they are about. A worker's job."""
+def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None) -> EnrichData:
+    """Ask the host for proposals and the names of the contacts they are about. A worker's job.
+
+    `on_progress` and `cancelled` are given to a host that takes them, and left out for one that does not."""
     fn = getattr(ctx, "enrich", None)
     if not callable(fn):
         return EnrichData(available=False)
     try:
-        result = fn()
+        result = fn(on_progress=on_progress, cancelled=cancelled)
     except TypeError:
-        result = fn(list(getattr(ctx, "selected_ids", []) or []))
+        try:
+            result = fn()
+        except TypeError:
+            result = fn(list(getattr(ctx, "selected_ids", []) or []))
     proposals = getattr(result, "proposals", None)
     if proposals is None:
         proposals = list(result or [])
@@ -105,11 +110,16 @@ class EnrichDialog(ToolDialog):
         self.accept_all_button = btn("Accept all", "list-checks", "secondary", "Keep every suggestion", "Accept all")
         self.undo_button = btn("Undo these", "undo-2", "secondary", "Take back what was just accepted", "Undo these")
         self.undo_button.hide()
+        self.stop_button = btn("Stop looking", "square", "secondary",
+                               "Stop at the next contact; the suggestions found so far are kept to accept",
+                               "Stop looking")
+        self.stop_button.hide()
+        self.stop_button.clicked.connect(lambda: self.run.stop())
         self.find_button.clicked.connect(self.find)
         self.accept_button.clicked.connect(self.accept_selected)
         self.accept_all_button.clicked.connect(self.accept_every)
         self.undo_button.clicked.connect(self.undo)
-        self.add_footer_buttons(self.find_button, self.accept_button, self.accept_all_button, self.undo_button)
+        self.add_footer_buttons(self.find_button, self.stop_button, self.accept_button, self.accept_all_button, self.undo_button)
         self.has_source = callable(getattr(ctx, "enrich", None))
         if not self.has_source:
             self.say("Enrichment is not switched on. Turn it on in Settings > Accounts, then come back.")
@@ -127,9 +137,14 @@ class EnrichDialog(ToolDialog):
         run = self.run
         if run.state == "running":
             self.find_button.setEnabled(False)
-            self.busy(True, "Looking for suggestions... You can close this window: the look-up carries on, "
+            self.stop_button.setVisible(True)
+            p = run.progress
+            where = (f"Contact {p['done']:,} of {p['total']:,} - {plural(p['found'], 'suggestion')} so far. "
+                     if p else "")
+            self.busy(True, f"Looking for suggestions... {where}You can close this window: the look-up carries on, "
                             "and the page says when it is done.")
         elif run.state in ("ready", "empty") and run.data is not None:
+            self.stop_button.setVisible(False)
             self._found(run.data)
         elif run.state == "failed":
             self.find_button.setEnabled(self.has_source)
