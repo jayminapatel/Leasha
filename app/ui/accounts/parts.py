@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.widgets.buttons import action_button, style_button
 
-__all__ = ["hint", "btn", "confirm", "notice", "ScheduleRow", "set_quiet", "restyle_hints"]
+__all__ = ["hint", "btn", "confirm", "notice", "ScheduleRow", "set_quiet", "restyle_hints", "open_guide"]
 
 
 def _dim() -> str:
@@ -163,3 +163,18 @@ class ScheduleRow(QWidget):
 
     def flush(self) -> None:
         self._save.flush()
+
+
+def open_guide(anchor: str) -> bool:
+    """Open the user guide at the section for a set-up step (1a). Tests replace this function."""
+    from PySide6.QtCore import QUrl  # noqa: PLC0415
+    from PySide6.QtGui import QDesktopServices  # noqa: PLC0415
+
+    from app.ui.accounts import logic  # noqa: PLC0415
+
+    path = logic.guide_path()
+    if path is None:
+        return False
+    url = QUrl.fromLocalFile(str(path))
+    url.setFragment(anchor)
+    return bool(QDesktopServices.openUrl(url))

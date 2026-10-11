@@ -34,7 +34,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Iterator, Optional, Sequence
 
 from app.contacts import phone as phones
-from app.contacts.card import (SCALARS, Card, Field, Photo, display_name, field_key)
+from app.contacts.card import (SCALARS, Card, Field, Photo, display_name, field_key, units)
 
 __all__ = [
     "BIN_DAYS", "ContactHub", "ContactRow", "ContactFilter", "LinkRow", "JournalRow",
@@ -318,7 +318,11 @@ class ContactHub:
             if touch_edit:
                 conn.execute("UPDATE contacts SET edited_at = ? WHERE id = ?", (edited_at or now, cid))
             if source:
-                self._set_sources(conn, cid, card, source, source_ref)
+                # only what this update added or changed is credited to `source`
+                was = units(Card.from_json(before["card"]), region=self.region)
+                now_units = units(card, region=self.region)
+                fresh = {k for k, v in now_units.items() if was.get(k) != v}
+                self._set_sources(conn, cid, card, source, source_ref, only=fresh)
             self._record(conn, cid, actor, action, before=before, after=self.snapshot(cid, conn),
                          sync_id=sync_id, batch_id=batch_id)
         return True
@@ -449,10 +453,15 @@ class ContactHub:
         except Exception:                                    # noqa: BLE001 - search is a convenience
             pass                                              # FTS5 missing: list and filters still work
 
-    def _set_sources(self, conn: Any, cid: int, card: Card, source: str, ref: str) -> None:
+    def _set_sources(self, conn: Any, cid: int, card: Card, source: str, ref: str,
+                     only: Optional[set] = None) -> None:
         now = int(time.time())
         keys = [f"s:{k}" for k in SCALARS if card.get(k)] + ["f:" + field_key(f, self.region)
                                                               for f in card.fields]
+        if card.photo is not None:
+            keys.append("photo")
+        if only is not None:
+            keys = [k for k in keys if k in only]
         for key in keys:
             have = conn.execute("SELECT 1 FROM contact_sources WHERE contact_id = ? AND field_key = ? "
                                 "AND source = ?", (cid, key, source)).fetchone()
