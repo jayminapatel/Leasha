@@ -54,7 +54,7 @@ def book_version(hub: Any) -> tuple:
         "SELECT COUNT(*), COALESCE(SUM(rev), 0), COALESCE(MAX(updated_at), 0), COALESCE(MAX(id), 0) "
         "FROM contacts WHERE deleted_at IS NULL").fetchone()
     rejected = hub.conn.execute("SELECT COUNT(*) FROM contact_rejected").fetchone()[0]
-    return (tuple(int(x) for x in row), int(rejected))
+    return (tuple(int(x) for x in row), int(rejected), len(hub.shared_values()))
 
 
 @dataclass
@@ -81,7 +81,7 @@ def scan_book(hub: Any, *, use_cache: bool = True) -> ScanResult:
     if use_cache and held is not None and held.version == version:
         return ScanResult(held.groups, held.version, held.cards, cached=True)
     items = hub.all_cards()
-    groups = dupes.scan_duplicates(items, hub.rejected_pairs(), hub.region)
+    groups = dupes.scan_duplicates(items, hub.rejected_pairs(), hub.region, hub.shared_values())
     wanted = {i for g in groups for i in g.ids}
     cards = {i: c for i, c in items if i in wanted}
     result = ScanResult(groups, version, cards)

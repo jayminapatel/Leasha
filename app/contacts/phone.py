@@ -39,6 +39,25 @@ def normalise(raw: str, region: str = DEFAULT_REGION) -> str:
     return ""
 
 
+def is_mobile(raw: str, region: str = DEFAULT_REGION) -> bool:
+    """True only for a number the phone library places as a mobile (or a number that may be one,
+    where the country does not tell mobile from fixed). A landline, a toll-free or an unplaceable
+    number is False: those are shared by a whole office or household."""
+    text = (raw or "").strip()
+    if not text:
+        return False
+    try:
+        import phonenumbers  # noqa: PLC0415
+        parsed = phonenumbers.parse(text, region or None)
+        if not phonenumbers.is_possible_number(parsed):
+            return False
+        kind = phonenumbers.number_type(parsed)
+        return kind in (phonenumbers.PhoneNumberType.MOBILE,
+                        phonenumbers.PhoneNumberType.FIXED_LINE_OR_MOBILE)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def digits_key(raw: str) -> str:
     """The digits of `raw` when it is long enough to match on, else `""`."""
     digits = re.sub(r"\D", "", raw or "")

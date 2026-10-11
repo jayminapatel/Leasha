@@ -123,3 +123,18 @@ def test_giving_back_two_people_one_after_the_other_leaves_neither_in_the_surviv
     assert _phones(world, yarob) == ["07700 900111"]
     assert world.hub.rebuild_merged(yarob) in (True, False)          # asking again changes nothing
     assert _phones(world, yarob) == ["07700 900111"]
+
+
+def test_not_a_duplicate_teaches_leasha_which_numbers_are_shared(world):
+    from app.contacts import dupes
+    world.account("Google")
+    cid = [world.hub.create(person("Ann", "Lee", phone="07911 123456")),
+           world.hub.create(person("Ann", "Lee", phone="07911 123456"))]
+    items = world.hub.all_cards()
+    assert dupes.scan_duplicates(items, set())[0].safe                      # looks like one person
+    world.hub.reject_pair(*cid)
+    assert world.hub.shared_values() == {"phone:+447911123456"}
+    again = dupes.scan_duplicates(items, world.hub.rejected_pairs(), world.hub.region, world.hub.shared_values())
+    assert again == []
+    world.hub.unmark_shared({"phone:+447911123456"})
+    assert world.hub.shared_values() == set()

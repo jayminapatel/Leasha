@@ -953,10 +953,33 @@ class ContactHub:
 
     # --------------------------------------------------------------- rejected
     def reject_pair(self, a: int, b: int) -> None:
+        """"Not a duplicate". What the two also hold in common - an office number, a family
+        mailbox - is remembered as shared, so it never matches anyone to anyone again."""
+        from app.contacts import dupes  # noqa: PLC0415
         a, b = sorted((int(a), int(b)))
         with self._write() as conn:
             conn.execute("INSERT OR IGNORE INTO contact_rejected (a_id, b_id, at) VALUES (?,?,?)",
                          (a, b, self._now()))
+        ca, cb = self.get_card(a), self.get_card(b)
+        if ca is not None and cb is not None:
+            keys = dupes.shared_keys(ca, cb, self.region)
+            if keys:
+                self.mark_shared(keys)
+
+    SHARED_KEY = "contacts:shared_values"
+
+    def shared_values(self) -> set[str]:
+        """Emails and numbers held by different people (`email:x@y`, `phone:+44...`)."""
+        try:
+            return {str(k) for k in json.loads(self.store.get_state(self.SHARED_KEY, "[]") or "[]")}
+        except (ValueError, TypeError):
+            return set()
+
+    def mark_shared(self, keys: Iterable[str]) -> None:
+        self.store.set_state(self.SHARED_KEY, json.dumps(sorted(self.shared_values() | set(keys))))
+
+    def unmark_shared(self, keys: Iterable[str]) -> None:
+        self.store.set_state(self.SHARED_KEY, json.dumps(sorted(self.shared_values() - set(keys))))
 
     def unreject_pair(self, a: int, b: int) -> None:
         a, b = sorted((int(a), int(b)))
