@@ -939,6 +939,7 @@
     <Compile Include="tests\unit\test_doctor.py" />
     <Compile Include="tests\unit\test_doctor_onnxruntime.py" />
     <Compile Include="tests\unit\test_drag_out.py" />
+    <Compile Include="tests\unit\test_dropdown_and_default_marks.py" />
     <Compile Include="tests\unit\test_dwg_preview.py" />
     <Compile Include="tests\unit\test_dynamic_workers.py" />
     <Compile Include="tests\unit\test_e2e_pywinauto.py" />
@@ -1600,6 +1601,8 @@
     <Content Include="assets\leasha-tray.ico" />
     <Content Include="assets\leasha.ico" />
     <Content Include="assets\social-preview.png" />
+    <Content Include="assets\ui\chevron-dark.svg" />
+    <Content Include="assets\ui\chevron-light.svg" />
     <Content Include="assets\ui\tick-dark.svg" />
     <Content Include="assets\ui\tick-light.svg" />
     <Content Include="config\extractors.toml" />

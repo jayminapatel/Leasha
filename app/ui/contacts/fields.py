@@ -102,8 +102,12 @@ class FieldRow(QWidget):
         if not (field and field.label):
             self.label.setCurrentText(LABELS[kind][0])
         self.label.currentTextChanged.connect(self._edited)
-        self.main = tool_button("badge-check", f"Main {one}", f"Make this the main {one}", checkable=True)
+        # A word, not just an icon: "Default" filled in when it is this one, "Set default" when it is not.
+        self.main = tool_button("badge-check", f"Main {one}", f"Make this the default {one}", checkable=True)
+        self.main.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.main.setProperty("defaultMarker", True)
         self.main.setChecked(self._primary)
+        self._paint_default()
         self.main.setVisible(kind in ("email", "phone"))
         self.main.toggled.connect(self._main)
         self.remove = tool_button("x", f"Remove this {one}", f"Remove this {one} from the contact")
@@ -194,8 +198,17 @@ class FieldRow(QWidget):
         self._touched = True
         self.changed.emit()
 
+    def _paint_default(self) -> None:
+        on = self.main.isChecked()
+        colours = theme_colours()
+        self.main.setIcon(icon("badge-check", colours.get("accent_on", "#ffffff") if on else colours.get("text_dim", "#888888")))
+        self.main.setText("Default" if on else "Set default")
+        self.main.setToolTip(f"This is the default {self.kind}. Pick another row's button to change it." if on
+                             else f"Make this the default {self.kind}")
+
     def _main(self, on: bool) -> None:
         self._primary = on
+        self._paint_default()
         self.main_toggled.emit(self, on)
         self.changed.emit()
 
@@ -204,6 +217,7 @@ class FieldRow(QWidget):
         self.main.blockSignals(True)
         self.main.setChecked(on)
         self.main.blockSignals(False)
+        self._paint_default()
 
     def is_blank(self) -> bool:
         if self.kind == "address":
