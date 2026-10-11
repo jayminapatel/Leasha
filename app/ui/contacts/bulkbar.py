@@ -14,9 +14,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import QLabel, QMenu, QToolButton, QWidget
 
 from app.ui.contacts.parts import tool_button
+from app.ui.widgets.flow_layout import FlowLayout
 from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
 
@@ -70,15 +71,15 @@ class BulkBar(QWidget):
         for b in (self.add_group, self.remove_group, self.add_tag, self.remove_tag, self.add_account,
                   self.remove_account):
             b.menu().aboutToShow.connect(self._fill)
-        row = QHBoxLayout(self)
+        # A flow, not a row: eleven buttons side by side are wider than the list they sit over,
+        # and a bar that wide pushes the editor out of the window.
+        row = FlowLayout(self, spacing=4)
         row.setContentsMargins(8, 4, 8, 4)
-        row.setSpacing(4)
         row.addWidget(self.count)
         for b in (self.add_group, self.remove_group, self.add_tag, self.remove_tag, self.add_account,
                   self.remove_account, self.company, self.favourite, self.export, self.delete, self.restore,
                   self.empty_bin):
             row.addWidget(b)
-        row.addStretch(1)
         self.set_mode(bin_view=False)
 
     def set_mode(self, *, bin_view: bool) -> None:
