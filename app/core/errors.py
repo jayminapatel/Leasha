@@ -965,6 +965,70 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         ),
         action_type=ActionType.USER_RETRY,
     ),
+    # --- Accounts and sync (order 1k) --------------------------------------
+    "ERR_ACCOUNT_SIGNIN_EXPIRED": _Spec(
+        message="The sign-in for {account} has expired or was revoked.",
+        suggestion=("Open Settings > Accounts, choose {account} and press Reconnect. "
+                    "Nothing already in Leasha is lost."),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_ACCOUNT_ADMIN_CONSENT": _Spec(
+        message=("Your organisation has not approved Leasha for {account}, so the sign-in "
+                 "was refused."),
+        suggestion=("Ask your IT administrator to approve the app registration you made "
+                    "(or to allow users to consent to apps) for the permissions Mail.Read "
+                    "and Contacts.ReadWrite, then press Reconnect."),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_ACCOUNT_NOT_CONFIGURED": _Spec(
+        message="There is no app registration (client ID) for {provider} yet.",
+        suggestion=("Open Settings > Accounts and follow the step-by-step guide to make "
+                    "your own, then paste its client ID there."),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_ACCOUNT_UNREACHABLE": _Spec(
+        message="{account} could not be reached ({reason}).",
+        suggestion="Check the internet connection and the server details, then press Sync now.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_ACCOUNT_SECRET_STORE": _Spec(
+        message="Windows Credential Manager could not be used to keep the sign-in secret ({reason}).",
+        suggestion=("Leasha never keeps a password or token anywhere else. Unlock or repair "
+                    "Credential Manager and try again."),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_ACCOUNT_REJECTED": _Spec(
+        message="{account} refused the request ({reason}).",
+        suggestion="Press Test connection in the account's panel; if it keeps happening, send the log file.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_PROVIDER_LIMIT": _Spec(
+        message="{account} asked Leasha to slow down ({reason}).",
+        suggestion="Nothing to do - Leasha waits as long as the provider asks and tries again.",
+        action_type=ActionType.AUTO_FIX,
+    ),
+    "ERR_SYNC_CONFLICT_HELD": _Spec(
+        message="{count} contact(s) changed in two places and are waiting for your choice.",
+        suggestion="Open Contacts > Changed in two places and choose which value to keep.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_SYNC_DELETE_BRAKE": _Spec(
+        message=("This sync would delete {count} contacts from {account} - more than your "
+                 "safety limit - so nothing was changed."),
+        suggestion=("Check the list in the sync log. If it is right, press Allow in the "
+                    "sync log and sync again; if not, press Undo."),
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_SYNC_NEEDS_APPROVAL": _Spec(
+        message="The first sync of {account} is a dry run: nothing has been written.",
+        suggestion="Read what it would add, merge and change, then press Approve to run it for real.",
+        action_type=ActionType.USER_RETRY,
+    ),
+    "ERR_SYNC_FAILED": _Spec(
+        message="Syncing {account} failed ({reason}).",
+        suggestion="Press Sync now to try again; the other accounts were not affected.",
+        action_type=ActionType.USER_RETRY,
+    ),
 }
 
 
