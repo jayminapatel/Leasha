@@ -73,5 +73,8 @@ def folder_sql(archive: str, path: str) -> tuple[str, list[Any]]:
                 " OR f.path LIKE ? ESCAPE '\\' OR f.path LIKE ? ESCAPE '\\')",
                 [base, path, like_escape(path + "/") + "%", own, inside])
     if not archive:
-        return (" AND m.store_path IS NULL AND f.path NOT LIKE 'account://%' AND " + folder, folder_args)
+        # Not the attachments inside an archive (`pst://<archive>/.../attachments/...`): those are not messages
+        # saved as files, and the Mail list had 4,000 of them under that name (the owner, 2026-10-12).
+        return (" AND m.store_path IS NULL AND f.path NOT LIKE 'account://%' AND f.path NOT LIKE 'pst://%' AND "
+                + folder, folder_args)
     return " AND m.store_path = ? AND " + folder, [archive, *folder_args]
