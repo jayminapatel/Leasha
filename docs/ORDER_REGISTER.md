@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.77 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.78 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -86,7 +86,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1l | `outlook-duplicate-cleanup` | Copies of a message in a mailbox are moved to its Deleted Items, from a button on its line | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "yes write the order for the outlook clean-up and execute")* | 10 / 10 | Follows 1j: the index holds one copy, the `.pst` still two. Read and moved through Outlook; never deleted outright; moving is the owner's press of the button |
 | 1m | `rail-order-by-drag` | The rail's pages can be put in any order, by dragging or from a menu | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all")* | 6 / 6 | Default order the owner's; Indexing and Settings fixed |
 | 1n | `mail-folder-list` | Mail shows the mailboxes and their folders on the left, and a click narrows the list | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all")* | 5 / 5 | Data already stored (`messages.store_path`, `folder_path`) |
-| 1o | `chat-like-claude` | Chat looks and works like a modern assistant: one calm column, actions on hover and right-click | RELEASED *(owner, 2026-10-11: "b do them all")* | 0 / 6 | Layout only; every existing action kept |
+| 1o | `chat-like-claude` | Chat looks and works like a modern assistant: one calm column, actions on hover and right-click | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all"; Search and "consistent across tabs" added the same day)* | 5 / 6 | Layout only; every existing action kept |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

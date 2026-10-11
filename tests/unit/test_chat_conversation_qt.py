@@ -189,6 +189,10 @@ def test_edit_brings_the_last_message_back_into_the_box_and_takes_the_exchange_o
     _answer_pair(c, "first question", "First answer.")
     _answer_pair(c, "wrong question", "An answer to the wrong thing.")
     users = [b for b in c.view.bubbles.bubbles() if hasattr(b, "edit_button")]
+    # Order 1o: Edit is the newest message's, shown while the pointer is over it.
+    assert not users[0].is_last and users[1].is_last
+    users[1].set_hover(True)
+    users[0].set_hover(True)
     assert users[0].edit_button.isHidden() and not users[1].edit_button.isHidden()
 
     c.qtbot.mouseClick(users[1].edit_button, Qt.MouseButton.LeftButton)

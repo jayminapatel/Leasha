@@ -807,6 +807,18 @@ QComboBox QAbstractItemView {{
     background: transparent; color: {text};
     border: none;
 }}
+/* Order 1o (2026-10-11), the owner: Chat "like claude". The question box is one
+   rounded box - the Search box's own corners - with its own controls along the bottom; the text inside it has no
+   frame of its own; Send looks like every primary button. */
+#chatComposer {{
+    background: {surface}; border: 1px solid {border}; border-radius: {radius_input};
+}}
+#chatComposer QPlainTextEdit#chatMessage {{
+    background: transparent; border: none; padding: 4px 2px;
+}}
+#chatSend, #chatStop {{ border-radius: {radius_pill}; padding: 4px 14px; }}
+#chatSend {{ background: {accent_soft}; color: {accent_text}; border: 1px solid {accent}; }}
+#chatSend:disabled {{ background: {surface}; color: {text_faint}; border-color: {divider}; }}
 #chatAction {{
     background: transparent; color: {text_faint}; border: none;
     padding: 2px 8px; border-radius: {radius_control}; font-size: {small};

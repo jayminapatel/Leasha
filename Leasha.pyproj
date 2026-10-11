@@ -524,6 +524,7 @@
     <Compile Include="app\ui\widgets\machine_card.py" />
     <Compile Include="app\ui\widgets\mail_archives_box.py" />
     <Compile Include="app\ui\widgets\mail_card.py" />
+    <Compile Include="app\ui\widgets\mail_folders.py" />
     <Compile Include="app\ui\widgets\mail_open.py" />
     <Compile Include="app\ui\widgets\mcp_box.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
@@ -553,6 +554,7 @@
     <Compile Include="app\ui\widgets\preview.py" />
     <Compile Include="app\ui\widgets\preview_window.py" />
     <Compile Include="app\ui\widgets\rail.py" />
+    <Compile Include="app\ui\widgets\rail_order.py" />
     <Compile Include="app\ui\widgets\repo_health_note.py" />
     <Compile Include="app\ui\widgets\repo_ignore.py" />
     <Compile Include="app\ui\widgets\report_export_dialog.py" />
@@ -574,6 +576,7 @@
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
+    <Compile Include="app\ui\widgets\side_toggle.py" />
     <Compile Include="app\ui\widgets\skeleton.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
@@ -896,6 +899,7 @@
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
     <Compile Include="tests\unit\test_mail_duplicates.py" />
+    <Compile Include="tests\unit\test_mail_folders.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
     <Compile Include="tests\unit\test_mail_list_order.py" />
     <Compile Include="tests\unit\test_mail_open_original.py" />
@@ -1026,6 +1030,7 @@
     <Compile Include="tests\unit\test_query_plans.py" />
     <Compile Include="tests\unit\test_query_vector_cache.py" />
     <Compile Include="tests\unit\test_quoting.py" />
+    <Compile Include="tests\unit\test_rail_order.py" />
     <Compile Include="tests\unit\test_raw_extractor.py" />
     <Compile Include="tests\unit\test_read_order.py" />
     <Compile Include="tests\unit\test_read_order_ui.py" />

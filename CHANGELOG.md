@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.112 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 4.113 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Pages in any order, Mail folders, and a calmer Chat (2026-10-11)
+
+- **Drag a page up or down the rail** to put it where you want it, or right-click it for Move up, Move down and
+  Reset page order (also in View). Leasha remembers the order.
+- **Mail shows your mailboxes and their folders on the left**; click one to see only its mail. View > Folders, or the
+  panel icon, hides it.
+- **Chat is one calm column**, like the Search page: a rounded box with the model and speed inside it, actions on
+  hover, and every action in a message's right-click menu.
+- A deleted conversation no longer comes back if Chat was still loading when it was deleted.
 
 ### Duplicates in a mailbox, the rail's order, and the Photos list switch (2026-10-11)
 

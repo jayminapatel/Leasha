@@ -27,7 +27,7 @@ from typing import Optional
 
 from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QKeyEvent, QTextCursor
-from PySide6.QtWidgets import QHBoxLayout, QPlainTextEdit, QPushButton, QWidget
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QPlainTextEdit, QPushButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import PLACEHOLDER, WEB_LABEL, WEB_OFF_TIP, WEB_ON_TIP
 
@@ -126,16 +126,35 @@ class MessageBox(QWidget):
         self.web.setVisible(False)
         self.web.toggled.connect(self._web_toggled)
 
+        # Order 1o D4: one rounded box - the words on top, and along its bottom edge a
+        # quiet row: the web chip, the model and speed (`add_to_footer`), then Send/Stop.
+        self.frame = QFrame()
+        self.frame.setObjectName("chatComposer")
+        inside = QVBoxLayout(self.frame)
+        inside.setContentsMargins(12, 8, 8, 8)
+        inside.setSpacing(4)
+        inside.addWidget(self.edit)
+        self.footer = QHBoxLayout()
+        self.footer.setSpacing(6)
+        self.footer.addWidget(self.web)
+        self.footer.addStretch(1)
+        self.footer.addWidget(self.send_button)
+        self.footer.addWidget(self.stop_button)
+        inside.addLayout(self.footer)
+        self.send_button.setObjectName("chatSend")
+        self.stop_button.setObjectName("chatStop")
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setAlignment(Qt.AlignmentFlag.AlignBottom)
-        row.addWidget(self.web, alignment=Qt.AlignmentFlag.AlignBottom)
-        row.addWidget(self.edit, stretch=1)
-        row.addWidget(self.send_button)
-        row.addWidget(self.stop_button)
+        row.addWidget(self.frame)
         self._busy = False
         self._reason = ""
         self._fit()
+
+    def add_to_footer(self, *widgets: QWidget) -> None:
+        """Order 1o D4: the box's own controls, after the web chip, before Send."""
+        at = self.footer.indexOf(self.web) + 1
+        for offset, widget in enumerate(widgets):
+            self.footer.insertWidget(at + offset, widget)
 
     def _fit(self) -> None:
         """Height for the wrapped text as it stands: one line up to `MAX_LINES`."""

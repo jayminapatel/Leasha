@@ -50,6 +50,9 @@ INLINE_ROWS = 6
 _ROW_GUESS = 68
 #: How wide the person's own message may be, as a share of the conversation.
 USER_SHARE = 0.8
+#: Order 1o D1: the conversation is one centred column at most this wide, with
+#: the space either side left calm, however wide the window is.
+COLUMN_MAX = 760
 #: How long a Copy button says "Copied".
 COPIED_MS = 1500
 
@@ -136,6 +139,12 @@ class UserBubble(QFrame):
         layout.addWidget(self.label)
         layout.addWidget(self.edit_button, alignment=Qt.AlignmentFlag.AlignRight)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # Order 1o: Edit shows while the pointer is over the message, and is in its menu.
+        self.is_last = False
+        self._hover = False
+        from app.ui.widgets.chat_message_menu import install, user_menu
+
+        install(self, user_menu, self.edit_button)
 
     def setMaximumWidth(self, width: int) -> None:                 # noqa: N802 - Qt
         super().setMaximumWidth(width)
@@ -143,7 +152,12 @@ class UserBubble(QFrame):
 
     def set_last(self, last: bool) -> None:
         """Only the newest message of the person's can be edited."""
-        self.edit_button.setVisible(bool(last))
+        self.is_last = bool(last)
+        self.edit_button.setVisible(self.is_last and self._hover)
+
+    def set_hover(self, over: bool) -> None:
+        self._hover = bool(over)
+        self.edit_button.setVisible(self.is_last and self._hover)
 
 
 class AnswerBubble(QFrame):
@@ -239,6 +253,12 @@ class AnswerBubble(QFrame):
         self._copied.setInterval(COPIED_MS)
         self._copied.timeout.connect(lambda: self.copy_button.setText(COPY_LABEL))
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
+        # Order 1o: the actions show while the pointer is over the answer, and every
+        # one of them is in its right-click menu (`chat_message_menu`).
+        self._hover = False
+        from app.ui.widgets.chat_message_menu import answer_menu, install
+
+        install(self, answer_menu, self.actions)
         self._refresh_actions()
 
     # -- while it is being written ------------------------------------------
@@ -279,6 +299,9 @@ class AnswerBubble(QFrame):
         self.body.set_text(self.raw, show_number=self.numbering.display,
                            linkable=frozenset(self._linkable), final=final)
         self.body.setVisible(bool(self.raw.strip()))
+        from app.ui.widgets.chat_message_menu import watch_text
+
+        watch_text(self)                 # the prose made by this redraw gets the menu too
 
     # -- text the person can take away -------------------------------------------
     def body_text(self) -> str:
@@ -321,16 +344,29 @@ class AnswerBubble(QFrame):
         self._is_last = bool(last)
         self._refresh_actions()
 
-    def _refresh_actions(self) -> None:
-        """Which action buttons show: Copy with text, Retry on a stopped or failed
-        last answer, Regenerate on a whole last answer.
-        """
+    def offers(self, button: Any) -> bool:
+        """Does this answer offer that action now: Copy with text, Retry on a stopped
+        or failed last answer, Regenerate on a whole last answer. Hover aside."""
         has_text = bool(self.raw.strip())
-        self.copy_button.setVisible(has_text)
-        self.retry_button.setVisible(self.done and self._is_last and self._retryable)
-        self.regenerate_button.setVisible(
-            self.done and self._is_last and has_text and not self._retryable)
-        self.actions.setVisible(self.done and (has_text or self._retryable))
+        return {
+            self.copy_button: has_text,
+            self.retry_button: self.done and self._is_last and self._retryable,
+            self.regenerate_button: (self.done and self._is_last and has_text
+                                     and not self._retryable),
+        }.get(button, False)
+
+    def set_hover(self, over: bool) -> None:
+        self._hover = bool(over)
+        self._refresh_actions()
+
+    def _refresh_actions(self) -> None:
+        """The buttons the answer offers (`offers`), in a row that shows while the
+        pointer is over it (order 1o) - the same actions are in its menu always."""
+        for button in (self.copy_button, self.retry_button, self.regenerate_button):
+            button.setVisible(self.offers(button))
+        self.actions.setVisible(self.done and getattr(self, "_hover", False) and any(
+            self.offers(b) for b in (self.copy_button, self.retry_button,
+                                     self.regenerate_button)))
 
     def show_results(self, results: list) -> None:
         """A FIND answer's rows as a real `ResultsView` inline, sized to a few rows
@@ -351,6 +387,26 @@ class AnswerBubble(QFrame):
         self.results.setFixedHeight(total)
 
 
+def centred(*widgets: QWidget) -> QWidget:
+    """Order 1o D1: these widgets, stacked, in a column as wide as the conversation's
+    (`COLUMN_MAX`) and centred under it."""
+    outer = QWidget()
+    row = QHBoxLayout(outer)
+    row.setContentsMargins(16, 0, 16, 8)
+    row.addStretch(1)
+    inner = QWidget()
+    inner.setMaximumWidth(COLUMN_MAX)
+    inner.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    column = QVBoxLayout(inner)
+    column.setContentsMargins(0, 0, 0, 0)
+    column.setSpacing(6)
+    for widget in widgets:
+        column.addWidget(widget)
+    row.addWidget(inner, 100)
+    row.addStretch(1)
+    return outer
+
+
 class BubbleList(QScrollArea):
     """A vertical run of messages that follows new text only from the bottom."""
 
@@ -363,12 +419,36 @@ class BubbleList(QScrollArea):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self._stick = True
         self._holder = QWidget()
-        self._column = QVBoxLayout(self._holder)
-        self._column.setSpacing(14)
-        self.empty = QLabel(EMPTY_HEADING + "\n\n" + EMPTY_HINT)
+        # Order 1o D1: the messages in a centred column (`COLUMN_MAX`), stretch either side.
+        centring = QHBoxLayout(self._holder)
+        centring.setContentsMargins(16, 12, 16, 12)
+        centring.addStretch(1)
+        self.column_widget = QWidget()
+        self.column_widget.setMaximumWidth(COLUMN_MAX)
+        self.column_widget.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                         QSizePolicy.Policy.Preferred)
+        centring.addWidget(self.column_widget, 100)
+        centring.addStretch(1)
+        self._column = QVBoxLayout(self.column_widget)
+        self._column.setContentsMargins(0, 0, 0, 0)
+        self._column.setSpacing(18)
+        # Order 1o (2026-10-11), "consistent across tabs depending on function": an
+        # empty conversation reads like the Search page's empty box - its headline
+        # and its greeting, in the same styles (`emptyHeadline`, `emptyGreeting`).
+        self.empty = QWidget()
         self.empty.setObjectName("chatEmpty")
-        self.empty.setWordWrap(True)
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stack = QVBoxLayout(self.empty)
+        stack.setContentsMargins(0, 48, 0, 0)
+        stack.setSpacing(10)
+        heading = QLabel(EMPTY_HEADING)
+        heading.setObjectName("emptyHeadline")
+        hint = QLabel(EMPTY_HINT)
+        hint.setObjectName("emptyGreeting")
+        for label in (heading, hint):
+            label.setWordWrap(True)
+            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            stack.addWidget(label)
+        self.empty_heading, self.empty_hint = heading, hint
         self._column.addWidget(self.empty)
         self._column.addStretch(1)
         self.setWidget(self._holder)
@@ -390,12 +470,16 @@ class BubbleList(QScrollArea):
         if self._stick:
             self.verticalScrollBar().setValue(high)
 
+    def _width(self) -> int:
+        """The column's width: the viewport's, less the margins, up to `COLUMN_MAX`."""
+        return min(COLUMN_MAX, max(1, self.viewport().width() - 32))
+
     def follows_newest(self) -> bool:
         return self._stick
 
     def resizeEvent(self, event: Any) -> None:                    # noqa: N802 - Qt
         super().resizeEvent(event)
-        limit = int(self.viewport().width() * USER_SHARE)
+        limit = int(self._width() * USER_SHARE)
         for bubble in self.bubbles():
             if isinstance(bubble, UserBubble):
                 bubble.setMaximumWidth(limit)
@@ -403,7 +487,7 @@ class BubbleList(QScrollArea):
     def add(self, bubble: QWidget) -> None:
         self.empty.setVisible(False)
         if isinstance(bubble, UserBubble):
-            bubble.setMaximumWidth(int(self.viewport().width() * USER_SHARE))
+            bubble.setMaximumWidth(int(self._width() * USER_SHARE))
             self._column.insertWidget(self._column.count() - 1, bubble,
                                       alignment=Qt.AlignmentFlag.AlignRight)
         else:
