@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.80 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.81 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -88,6 +88,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1n | `mail-folder-list` | Mail shows the mailboxes and their folders on the left, and a click narrows the list | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all")* | 5 / 5 | Data already stored (`messages.store_path`, `folder_path`) |
 | 1o | `chat-like-claude` | Chat looks and works like a modern assistant: one calm column, actions on hover and right-click | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "b do them all"; Search and "consistent across tabs" added the same day)* | 5 / 6 | Layout only; every existing action kept |
 | 1p | `side-lists-everywhere` | One left-hand list for every page, drawn the Contacts way | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "yes write the order and build it for all and build it")* | 8 / 8 | Files, Code and Browse gain lists; Mail and Photos move onto the shared widget; Contacts moves after the 1k merge |
+| 1q | `tidy-page` | Tidy - find what is indexed, and clear copies, similar photos and leftovers | RELEASED *(owner, 2026-10-11: "option a, rename to Tidy, write the order and build it")* | 0 / 14 | Reports becomes Tidy; Digital Inheritance removed; local files only, to the Recycle Bin, never the last copy; a third exception to rule 10 |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and
