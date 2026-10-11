@@ -414,7 +414,13 @@ class ContactsPage(QWidget):
                                             else self.placeholder)
 
     def _confirm_discard(self) -> bool:
-        """Unsaved edits: keep them (and stay), or throw them away."""
+        """Unsaved edits: throw them away (True) or keep editing (False, and the pick goes back)."""
+        if self._ask_discard():
+            return True
+        self.select_ids([self.editor.cid] if self.editor.cid is not None else [])
+        return False
+
+    def _ask_discard(self) -> bool:
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Question)
         box.setWindowTitle("Unsaved changes")
@@ -422,10 +428,7 @@ class ContactsPage(QWidget):
         discard = box.addButton("Discard them", QMessageBox.ButtonRole.DestructiveRole)
         box.addButton("Keep editing", QMessageBox.ButtonRole.RejectRole)
         box.exec()
-        if box.clickedButton() is discard:
-            return True
-        self.select_ids([self.editor.cid] if self.editor.cid is not None else [])
-        return False
+        return box.clickedButton() is discard
 
     def _activated(self, _index: QModelIndex) -> None:
         if self.editor.isEnabled():

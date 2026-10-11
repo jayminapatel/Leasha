@@ -413,7 +413,8 @@ def test_the_remove_dialog_defaults_keep_contacts_and_remove_mail(world):
     aid = svc.accounts.add("carddav", "me@x.com", "Dav")
     d = _RemoveDialog(svc.accounts.get(aid))
     assert d.keep_contacts.isChecked() and d.remove_mail.isChecked()
-    assert "Credential Manager" in d.findChildren(type(d.keep_contacts.parent().findChild(__import__("PySide6.QtWidgets", fromlist=["QLabel"]).QLabel)))[0].text() or True
+    assert d.keep_contacts.text() == "Keep this account's contacts in Leasha"
+    assert d.remove_mail.text() == "Remove this account's mail from the index"
 
 
 def test_mail_tab_says_read_only_and_folder_choice_persists(world, monkeypatch):

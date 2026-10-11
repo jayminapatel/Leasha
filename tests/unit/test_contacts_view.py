@@ -724,7 +724,7 @@ def test_unsaved_changes_are_not_lost_by_picking_someone_else(world):
     ed = _editor_for(world, page, a)
     ed.edits["company"].setText("Unsaved Ltd")
     asked = []
-    page._confirm_discard = lambda: (asked.append(1), False)[1]
+    page._ask_discard = lambda: (asked.append(1), False)[1]
     page.select_ids([b])
     settle(page)
     assert asked and page.selected_ids() == [a] and ed.edits["company"].text() == "Unsaved Ltd"

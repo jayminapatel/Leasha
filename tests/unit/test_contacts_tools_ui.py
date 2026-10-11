@@ -517,3 +517,62 @@ def test_every_control_in_these_dialogs_has_a_name_and_a_tooltip(world, qtbot, t
     for dlg in dialogs:
         assert unnamed_controls(dlg) == [], type(dlg).__name__
         assert dlg.windowTitle() and dlg.accessibleName()
+
+
+# --------------------------------------------------------------------------
+# Workers (rule 5) and the doors, end to end
+# --------------------------------------------------------------------------
+
+def test_work_runs_off_the_ui_thread_and_answers_on_it(world, qtbot):
+    import threading
+
+    from PySide6.QtWidgets import QDialog
+
+    from app.ui.contacts_tools._common import ToolDialog
+
+    seen = {}
+    dlg = ToolDialog(world.ctx, None, title="T", glyph="merge", subtitle="s")
+    qtbot.addWidget(dlg)
+    assert isinstance(dlg, QDialog)
+    dlg.job(lambda: seen.setdefault("worker", threading.get_ident()),
+            lambda _r: seen.setdefault("answer", threading.get_ident()))
+    settle(qtbot)
+    assert seen["worker"] != threading.get_ident() and seen["answer"] == threading.get_ident()
+
+
+def test_a_failing_worker_shows_a_plain_message_not_a_traceback(world, qtbot):
+    from app.ui.contacts_tools._common import ToolDialog
+
+    dlg = ToolDialog(world.ctx, None, title="T", glyph="merge", subtitle="s")
+    qtbot.addWidget(dlg)
+
+    def boom():
+        raise RuntimeError("disk exploded")
+
+    dlg.job(boom)
+    settle(qtbot)
+    assert dlg.status.text() and "Traceback" not in dlg.status.text()
+
+
+@pytest.mark.parametrize("door", ["import", "export", "duplicates", "cleanup", "print", "qr", "enrich"])
+def test_the_page_opens_each_tool_through_its_door(world, qtbot, monkeypatch, door):
+    from PySide6.QtWidgets import QDialog
+
+    shown = []
+    monkeypatch.setattr(QDialog, "exec", lambda self: shown.append(type(self).__name__) or 0)
+    world.ctx.selected_ids = [world.add("Ann", "Lee", email="ann@x.example")]
+    openers.open(door, None, world.ctx)
+    settle(qtbot)
+    assert len(shown) == 1 and shown[0].endswith("Dialog")
+    assert world.refreshed >= 1                                  # the page is told to re-read afterwards
+
+
+def test_the_merge_door_opens_the_merge_dialog_for_the_selection(world, qtbot, monkeypatch):
+    from PySide6.QtWidgets import QDialog
+
+    shown = []
+    monkeypatch.setattr(QDialog, "exec", lambda self: shown.append(self) or 0)
+    world.ctx.selected_ids = [world.add("Ann", "Lee", email="a@x.example"), world.add("Ann", "Lee", email="b@x.example")]
+    openers.open("merge", None, world.ctx)
+    settle(qtbot)
+    assert isinstance(shown[0], MergeDialog) and shown[0].ids == world.ctx.selected_ids
