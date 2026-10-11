@@ -44,6 +44,9 @@ def test_start_alone_starts_nothing_and_no_tick_means_no_sync(svc, monkeypatch):
 
 
 def test_a_manual_schedule_runs_nothing_even_with_accounts(svc):
+    from app.accounts.store import ScheduleSetting
+    # 2026-10-11: the default is hourly now; Manual is the person's choice, so it is chosen here.
+    svc.accounts.update_settings(mail=ScheduleSetting("manual"), contacts=ScheduleSetting("manual"))
     svc.accounts.add("carddav", "a@x.com", "Home")
     s = make(svc)
     done = []

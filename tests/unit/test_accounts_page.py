@@ -222,7 +222,9 @@ def test_every_global_control_has_a_name_and_a_sentence(world):
 # ---------------------------------------------------------------------------- the list
 def test_the_list_shows_status_words_and_dates_in_the_window_format(world):
     from app.core import date_format
+    from app.accounts.store import ScheduleSetting
     svc, page = world
+    svc.accounts.update_settings(contacts=ScheduleSetting("manual"), mail=ScheduleSetting("manual"))   # hourly is the default now
     a = svc.accounts.add("carddav", "a@x.com", "Home", options={"server_url": "https://x"})
     b = svc.accounts.add("google", "b@x.com", "Work")
     svc.accounts.update(b, last_error_code="ERR_ACCOUNT_SIGNIN_EXPIRED", last_error="expired")

@@ -119,8 +119,11 @@ class ScheduleSetting:
 class AccountSettings:
     """Everything at the top of Settings > Accounts, and what the account worker reads."""
 
-    mail: ScheduleSetting = field(default_factory=ScheduleSetting)
-    contacts: ScheduleSetting = field(default_factory=ScheduleSetting)
+    # 2026-10-11, the owner: "as automated as possible, with the manual options still there as
+    # options". Mail and contacts sync on their own every hour, and a first sync runs without
+    # waiting to be approved; Manual, "Daily", and the dry run first are each one setting away.
+    mail: ScheduleSetting = field(default_factory=lambda: ScheduleSetting(mode="interval", minutes=60))
+    contacts: ScheduleSetting = field(default_factory=lambda: ScheduleSetting(mode="interval", minutes=60))
     same_for_all: bool = True
     paused_until: Optional[float] = None          # epoch seconds; None: not paused; inf: until turned back on
     quiet_on: bool = False
@@ -130,7 +133,7 @@ class AccountSettings:
     conflict_policy: str = "newest"               # newest | priority | ask
     brake_count: int = 20
     brake_percent: float = 5.0
-    dry_run_first: bool = True
+    dry_run_first: bool = False                   # True: the first sync of an account waits for Approve
     notify_brake: bool = True
     notify_conflict: bool = True
     notify_signin: bool = True
