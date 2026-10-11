@@ -541,7 +541,7 @@ class MailIndexer:
             released.append(int(row["file_id"]))
             doomed += self.store.attachment_file_ids(row["path"])
         places = self.store.places_of_files(released)
-        count = self.forget(doomed)
+        self.forget(doomed)
         if places:
             self.store.reopen_archives([p["store_path"] for p in places if p["store_path"]])
         return len(released)
