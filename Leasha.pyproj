@@ -163,6 +163,7 @@
     <Compile Include="app\cli\_progress.py" />
     <Compile Include="app\cli\accounts.py" />
     <Compile Include="app\cli\bench.py" />
+    <Compile Include="app\cli\cards.py" />
     <Compile Include="app\cli\contacts.py" />
     <Compile Include="app\cli\desktop.py" />
     <Compile Include="app\cli\evaluate.py" />
@@ -328,9 +329,11 @@
     <Compile Include="app\index\archives.py" />
     <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
+    <Compile Include="app\index\card_pass.py" />
     <Compile Include="app\index\child_run.py" />
     <Compile Include="app\index\clip_embedder.py" />
     <Compile Include="app\index\device_test.py" />
+    <Compile Include="app\index\doc_cards.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
@@ -937,6 +940,7 @@
     <Compile Include="tests\unit\test_diagnostics.py" />
     <Compile Include="tests\unit\test_diagrams.py" />
     <Compile Include="tests\unit\test_distinct_values.py" />
+    <Compile Include="tests\unit\test_doc_cards.py" />
     <Compile Include="tests\unit\test_docs_versioned.py" />
     <Compile Include="tests\unit\test_doctor.py" />
     <Compile Include="tests\unit\test_doctor_onnxruntime.py" />
@@ -1687,6 +1691,7 @@
     <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-side-lists-everywhere.md" />
+    <Content Include="docs\WORKORDER-smarter-answers.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-space-report-files-only-inheritance-pst-duplicates.md" />
     <Content Include="docs\WORKORDER-suite-speed.md" />
