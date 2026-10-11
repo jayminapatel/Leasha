@@ -755,6 +755,7 @@
     <Compile Include="tests\unit\test_account_scheduler.py" />
     <Compile Include="tests\unit\test_account_scheduler_static.py" />
     <Compile Include="tests\unit\test_account_service.py" />
+    <Compile Include="tests\unit\test_accounts_enrich_switches.py" />
     <Compile Include="tests\unit\test_accounts_http.py" />
     <Compile Include="tests\unit\test_accounts_network_guard.py" />
     <Compile Include="tests\unit\test_accounts_oauth.py" />
@@ -866,6 +867,7 @@
     <Compile Include="tests\unit\test_contacts_people.py" />
     <Compile Include="tests\unit\test_contacts_printing.py" />
     <Compile Include="tests\unit\test_contacts_qr.py" />
+    <Compile Include="tests\unit\test_contacts_reach.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_common.py" />
     <Compile Include="tests\unit\test_contacts_tools_ui_files.py" />

@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QMenu
 
 from app.contacts import vcard
 from app.ui.contacts import loader
+from app.ui.contacts.toolbar import enrich_words
 from app.ui.qtsip import open_menu
 from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
@@ -53,6 +54,7 @@ def show_menu(page: Any, global_pos: Any) -> QMenu:
             menu.addSeparator()
         menu.addAction(icon("star", dim), "Favourite (or not)", lambda: page._bulk("favourite", None))
         menu.addAction(icon("download", dim), "Export…", lambda: page.open_tool("export"))
+        menu.addAction(icon("wand-sparkles", dim), enrich_words(len(rows)), lambda: page.open_tool("enrich"))
         menu.addSeparator()
         menu.addAction(icon("trash-2", c.get("danger", "#a32020")), "Move to the bin",
                        lambda: page._bulk("delete", None))

@@ -286,6 +286,7 @@ class ContactsPage(QWidget):
         self.sidebar.retint(colours)
         self.editor.retint(colours)
         retint_tools(self, colours)
+        self.toolbar.retint(colours)
         # The theme's sheet names QTableWidget and not QTableView, so the table gets its
         # surface, its edge and its selected row from the same tokens here.
         self.table.setStyleSheet(
@@ -346,7 +347,6 @@ class ContactsPage(QWidget):
         elif self._snap is not None:
             self._snap.rows = snap.rows
         self.toolbar.favourite_button.setEnabled(self._entry.kind != "bin")
-        self.toolbar.set_picked(len(keep))
         self.bulk.set_mode(bin_view=self._entry.kind == "bin")
         sm = self.table.selectionModel()
         sm.blockSignals(True)
@@ -421,6 +421,7 @@ class ContactsPage(QWidget):
 
     def _selection_changed(self, *_a: object) -> None:
         ids = self.selected_ids()
+        self.toolbar.set_picked(len(ids))
         rows = [r for r in (self.model.row_for_id(i) for i in ids) if r is not None]
         self.bulk.set_rows(rows)
         in_bin = self._entry.kind == "bin"

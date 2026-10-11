@@ -12,11 +12,13 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QWidget
+from PySide6.QtWidgets import QButtonGroup, QFrame, QHBoxLayout, QLabel, QLineEdit, QMenu, QToolButton, QWidget
 
+from app.ui.theme import theme_colours
 from app.ui.contacts.parts import name_inner_buttons, tool_button
+from app.ui.widgets.icons import icon
 
-__all__ = ["ContactToolbar", "TOOLS"]
+__all__ = ["ContactToolbar", "TOOLS", "MORE_TOOLS", "enrich_words"]
 
 #: (openers name, glyph, words, tooltip)
 TOOLS = (
@@ -26,6 +28,25 @@ TOOLS = (
     ("duplicates", "merge", "Find duplicates", "Find people who are in your book twice, and merge them"),
     ("sync", "refresh-cw", "Sync now", "Sync the accounts that keep contacts now"),
 )
+
+#: The "More tools" menu (6p, 7): (openers name, glyph, words, tooltip). The toolbar is full, so the
+#: tools that need a person's look first sit behind one button. "Enrich" says what it will run on.
+MORE_TOOLS = (
+    ("cleanup", "eraser", "Clean up contacts…", "Tidy phone numbers and names, fill blank companies, "
+     "and find contacts that are empty or have repeated values - you see every change first"),
+    ("enrich", "wand-sparkles", "Enrich selection…", "Look for missing details in your own mail and photos "
+     "(and the internet, if you switched that on) - nothing is kept until you accept it"),
+    ("duplicates", "merge", "Find duplicates…", "Find people who are in your book twice, and merge them"),
+)
+
+
+def enrich_words(picked: int) -> str:
+    """The words of the Enrich entry for how many contacts are picked (7i)."""
+    if picked == 1:
+        return "Enrich this contact…"
+    if picked > 1:
+        return "Enrich selection…"
+    return "Enrich the contacts shown…"
 
 
 class ContactToolbar(QWidget):
@@ -65,6 +86,26 @@ class ContactToolbar(QWidget):
             b.clicked.connect(lambda _c=False, n=name: self.tool_requested.emit(n))
             self.tools[name] = b
             row.addWidget(b)
+        self.more_button = QToolButton()
+        self.more_button.setAutoRaise(True)
+        self.more_button.setIconSize(self.new_button.iconSize())
+        self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
+        self.more_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
+        self.more_button.setAccessibleName("More tools")
+        self.more_button.setToolTip("More tools: clean up, enrich and find duplicates")
+        self.more_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.more_button.setProperty("glyph", "ellipsis")
+        self.more_button.setIcon(icon("ellipsis", theme_colours().get("text_dim", "#888888")))
+        self.more_menu = QMenu(self.more_button)
+        self.more_actions: dict[str, object] = {}
+        for name, glyph, words, tip in MORE_TOOLS:
+            act = self.more_menu.addAction(icon(glyph, theme_colours().get("text_dim", "#888888")), words)
+            act.setToolTip(tip)
+            act.setStatusTip(tip)
+            act.triggered.connect(lambda _c=False, n=name: self.tool_requested.emit(n))
+            self.more_actions[name] = act
+        self.more_button.setMenu(self.more_menu)
+        row.addWidget(self.more_button)
         row.addWidget(self._bar())
         self.history_button = tool_button("history", "History", "Show the changes made to the picked contact",
                                           checkable=True)
@@ -97,6 +138,16 @@ class ContactToolbar(QWidget):
         line.setFrameShadow(QFrame.Shadow.Plain)
         line.setFixedHeight(18)
         return line
+
+    def set_picked(self, picked: int) -> None:
+        """How many contacts are picked: the Enrich entry says what it will run on."""
+        self.more_actions["enrich"].setText(enrich_words(picked))
+
+    def retint(self, colours: dict[str, str]) -> None:
+        ink = colours.get("text_dim", "#888888")
+        self.more_button.setIcon(icon("ellipsis", ink))
+        for name, glyph, _w, _t in MORE_TOOLS:
+            self.more_actions[name].setIcon(icon(glyph, ink))
 
     def set_view(self, mode: str) -> None:
         (self.cards_button if mode == "cards" else self.list_button).setChecked(True)
