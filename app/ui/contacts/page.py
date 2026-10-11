@@ -223,6 +223,9 @@ class ContactsPage(QWidget):
         ed.cancel_requested.connect(self._cancel)
         ed.acknowledge_requested.connect(self._acknowledge)
         ed.kept_in_requested.connect(self._kept_in)
+        ed.delete_here_requested.connect(self._delete_here_too)
+        ed.put_back_requested.connect(self._put_back)
+        ed.resolve_requested.connect(self._resolve_conflict)
         ed.person_photo_requested.connect(self._person_photo)
         ed.error.connect(self.error.emit)
         self.history.undo_requested.connect(self._undo_entry)
@@ -332,6 +335,7 @@ class ContactsPage(QWidget):
             if snap.region:
                 self.hub.region = snap.region
             self.model.set_accounts(snap.accounts)
+            self.editor.set_account_names({a.id: (a.name or a.address) for a in snap.accounts})
             self.model.set_tag_colours(snap.tags)
             self.sidebar.set_entries(build_entries(snap.counts, snap.groups, snap.tags, snap.accounts,
                                                     snap.smarts, snap.account_counts))
@@ -342,6 +346,7 @@ class ContactsPage(QWidget):
         elif self._snap is not None:
             self._snap.rows = snap.rows
         self.toolbar.favourite_button.setEnabled(self._entry.kind != "bin")
+        self.toolbar.set_picked(len(keep))
         self.bulk.set_mode(bin_view=self._entry.kind == "bin")
         sm = self.table.selectionModel()
         sm.blockSignals(True)
@@ -553,6 +558,47 @@ class ContactsPage(QWidget):
         hub = self.hub
         loader.run_task(self, lambda: hub.acknowledge_conflicts(cid),
                         lambda _r: self.reload(then=lambda: self._open(cid)))
+
+    # ------------------------------------------- deleted elsewhere (D7.1) and clashes (10k)
+    def _delete_here_too(self, cid: int) -> None:
+        if not self.confirm("Delete this contact here too?",
+                            "It goes to the Bin, where it waits 30 days, and it leaves its other accounts "
+                            "at the next sync. Ctrl+Z undoes it.", "Delete here too"):
+            return
+        hub = self.hub
+
+        def work() -> bool:
+            return bool(hub.confirm_deleted_elsewhere(cid))
+
+        loader.run_task(self, work, lambda _ok: (self.notice.emit("Moved to the bin. It leaves its other "
+                                                                  "accounts at the next sync."),
+                                                 self.reload(select=[])))
+
+    def _put_back(self, cid: int, account_id: int) -> None:
+        hub = self.hub
+        name = self._names().get(account_id, "that account")
+        loader.run_task(self, lambda: hub.restore_to_account(cid, account_id),
+                        lambda _r: (self.notice.emit(f"It will be written to {name} again at the next sync."),
+                                    self.reload(select=[cid], then=lambda: self._reopen([cid]))))
+
+    def _resolve_conflict(self, cid: int, account_id: int, choose: str) -> None:
+        service = self.service
+        ask = getattr(service, "resolve_conflict", None)
+        if not callable(ask):
+            self.notice.emit("This needs the account service, which is not connected here. Nothing was changed.")
+            return
+
+        def done(out: Any) -> None:
+            if out is None:
+                self.notice.emit("That account is syncing right now. Try again when it has finished.")
+            elif getattr(out, "status", "ok") not in ("ok", "running"):
+                self.notice.emit("The choice could not be finished. See the sync log in Settings > Accounts.")
+            else:
+                self.notice.emit("Done: " + ("kept Leasha's values." if choose == "local" else "took the account's values."))
+            self.photos.forget(cid)
+            self.reload(select=[cid], then=lambda: self._reopen([cid]))
+
+        loader.run_task(self, lambda: ask(cid, account_id, choose), done)
 
     def _kept_in(self, cid: int, account_ids: list, confirmed: bool) -> None:
         hub = self.hub

@@ -21,6 +21,7 @@ __all__ = [
     "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for", "actor_words", "source_words", "merge_order",
     "account_glyph", "describe_entry", "KIND_INFO", "LABELS", "date_icon", "RULE_FIELDS",
     "RULE_OPS", "SMART_EXAMPLES", "rule_text", "TAG_COLOURS", "parse_sort", "hub_error_text",
+    "unit_words", "value_words", "conflict_items",
 ]
 
 #: `index_state` keys (namespaced `ui:` like every remembered choice).
@@ -311,4 +312,64 @@ def merge_order(original: list, per_kind: dict[str, list]) -> list:
             out.append(q.pop(0))
     for kind in KIND_INFO:
         out += queues.get(kind, [])
+    return out
+
+
+# ----------------------------------------------------------------- conflicts (D6, 10k)
+_SCALAR_WORDS = {"prefix": "Title", "given": "First name", "additional": "Middle name", "family": "Last name",
+                 "suffix": "Suffix", "nickname": "Nickname", "company": "Company", "department": "Department",
+                 "title": "Job title", "notes": "Notes"}
+
+
+def unit_words(unit: str) -> str:
+    """A conflict's unit key in plain words: `s:company` is "Company", `f:phone:mobile:0771..` is
+    "Phone (mobile)"."""
+    kind, _, rest = unit.partition(":")
+    if kind == "s":
+        return _SCALAR_WORDS.get(rest, rest.replace("_", " ").capitalize())
+    if kind == "f":
+        field_kind, _, more = rest.partition(":")
+        name = KIND_INFO.get(field_kind, (field_kind.capitalize(),))[0]
+        label = more.partition(":")[0] if ":" in more else ""
+        return f"{name} ({label})" if label else name
+    if kind == "g":
+        return "Group"
+    return {"favourite": "Favourite", "photo": "Photo"}.get(unit, unit)
+
+
+def value_words(unit: str, raw: Any) -> str:
+    """One side of a conflict as it reads to a person. `raw` is the JSON text the hub stored."""
+    import json
+
+    try:
+        value = json.loads(raw) if isinstance(raw, (str, bytes)) else raw
+    except ValueError:
+        value = raw
+    if value is None:
+        return "nothing (removed)"
+    if unit == "photo":
+        return "a different photo"
+    if unit == "favourite":
+        return "a favourite" if value else "not a favourite"
+    if isinstance(value, list) and len(value) >= 2 and unit.startswith("f:"):
+        data = value[2] if len(value) > 2 and isinstance(value[2], list) else []
+        parts = [str(v) for _k, v in data if v] if unit.startswith("f:address") else []
+        text = ", ".join(parts) if parts else str(value[1])
+        label = str(value[0] or "")
+        return f"{text} ({label})" if label else text
+    return str(value)
+
+
+def conflict_items(conflicts: list[dict], names: dict[int, str]) -> list[dict]:
+    """The open clashes of one contact, ready to show: unit and both values in words, who won
+    (`Leasha` or the account's name), and the account. `held` winners wait for the person."""
+    out = []
+    for c in conflicts:
+        unit = str(c.get("unit") or "")
+        aid = c.get("account_id")
+        account = names.get(aid, "the account") if aid is not None else "the account"
+        out.append({"id": c.get("id"), "account_id": aid, "account": account, "unit": unit,
+                    "what": unit_words(unit), "winner": str(c.get("winner") or ""),
+                    "local": value_words(unit, c.get("local_value")),
+                    "remote": value_words(unit, c.get("remote_value"))})
     return out

@@ -27,6 +27,7 @@ from app.ui.contacts.index_panel import IndexPanel
 from app.ui.contacts.loader import Detail, read_photo, run_task
 from app.ui.contacts.logic import KIND_INFO, initials, merge_order, source_words
 from app.ui.contacts.parts import TokenEdit, retint_tools, tool_button
+from app.ui.contacts.review import ReviewBox
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import action_button, button_row
 from app.ui.widgets.flow_layout import FlowLayout
@@ -61,6 +62,10 @@ class ContactEditor(QWidget):
     #: (contact id, the accounts it should be kept in, removals confirmed). Immediate (D4).
     kept_in_requested = Signal(int, list, bool)
     person_photo_requested = Signal(int)
+    #: D7.1 and D6/10k, passed on from the review box: the page does the work on a worker.
+    delete_here_requested = Signal(int)
+    put_back_requested = Signal(int, int)
+    resolve_requested = Signal(int, int, str)
     dirty_changed = Signal(bool)
     error = Signal(object)
 
@@ -83,7 +88,8 @@ class ContactEditor(QWidget):
         self.banner = QFrame()
         self.banner.setObjectName("contactBanner")
         self.banner_icon = QLabel()
-        self.banner_text = QLabel("Changed in two places. The newest edit won; the other is kept in History.")
+        self._banner_default = "Changed in two places. The newest edit won; the other is kept in History."
+        self.banner_text = QLabel(self._banner_default)
         self.banner_text.setWordWrap(True)
         self.acknowledge = action_button("Acknowledge", "check", "secondary")
         self.acknowledge.setToolTip("I have looked: take the 'changed in two places' marker off this contact")
@@ -94,6 +100,16 @@ class ContactEditor(QWidget):
         bl.addWidget(self.banner_text, 1)
         bl.addWidget(self.acknowledge)
         self.banner.hide()
+        self.banner_detail = QLabel("")
+        self.banner_detail.setWordWrap(True)
+        self.banner_detail.setObjectName("resultsSummary")
+        self.banner_detail.setAccessibleName("Which value won")
+        self.banner_detail.hide()
+        self.review = ReviewBox()
+        self.review.delete_here_requested.connect(self.delete_here_requested)
+        self.review.put_back_requested.connect(self.put_back_requested)
+        self.review.resolve_requested.connect(self.resolve_requested)
+        self._names: dict[int, str] = {}
 
         # -- the head: photo, name, favourite
         self.photo_label = QLabel()
@@ -168,7 +184,9 @@ class ContactEditor(QWidget):
         col = QVBoxLayout(body)
         col.setContentsMargins(10, 8, 10, 12)
         col.setSpacing(10)
+        col.addWidget(self.review)
         col.addWidget(self.banner)
+        col.addWidget(self.banner_detail)
         col.addLayout(head)
         col.addLayout(form)
         col.addLayout(work)
@@ -176,8 +194,8 @@ class ContactEditor(QWidget):
         col.addWidget(self._section("sticky-note", "Notes"))
         col.addWidget(self.notes)
         col.addWidget(self._section("cloud", "Kept in"))
-        hint = QLabel("Where this contact is stored. Adding an account writes it there now; "
-                      "taking one away asks first.")
+        hint = QLabel("Where this contact is stored. Adding an account puts it there at the next "
+                      "sync (or Sync now); taking one away asks first.")
         hint.setWordWrap(True)
         hint.setObjectName("resultsSummary")
         col.addWidget(hint)
@@ -273,8 +291,14 @@ class ContactEditor(QWidget):
                                      "Not available: this needs Leasha's photo index, which is not connected here")
         self._build_kept_buttons()
 
+    def set_account_names(self, names: dict[int, str]) -> None:
+        """Every account's name (also those that no longer sync contacts), for the review bars."""
+        self._names = dict(names)
+
     def clear(self) -> None:
         self.cid = None
+        self.review.clear()
+        self.banner_detail.hide()
         self._load(Card(), [], [], {}, {}, "")
         self.setEnabled(False)
         self.heading.setText("")
@@ -300,6 +324,19 @@ class ContactEditor(QWidget):
         flagged = bool((d.meta or {}).get("conflict_at")) or bool(d.conflicts)
         self._load(d.card, d.kept_in, d.tags, d.sources, d.meta, display_name(d.card))
         self.banner.setVisible(flagged)
+        names = {**{i: (a.name or a.address) for i, a in self._accounts.items()}, **self._names}
+        self.review.show_for(d.id, list(d.links), list(d.conflicts), names)
+        # Under "Ask me every time" the choice is the review box's; the newest-edit banner keeps its
+        # words and its Acknowledge, and says which value won and where the other one is kept.
+        held = self.review.has_held
+        self.acknowledge.setVisible(not held)
+        if held:
+            self.banner_text.setText("Changed in two places. You chose to be asked: pick which value to keep "
+                                     "in the box above.")
+        else:
+            self.banner_text.setText(self._banner_default)
+        self.banner_detail.setText("\n".join(self.review.decided))
+        self.banner_detail.setVisible(flagged and bool(self.review.decided))
         self.index_panel.show_for(d.id, [f.value for f in d.card.values("email")])
 
     def _load(self, card: Card, kept: list[int], tags: list[str], sources: dict, meta: dict, name: str) -> None:
@@ -331,6 +368,8 @@ class ContactEditor(QWidget):
             self._kept = set(kept)
             self._orig_kept = set(kept)
             self.banner.hide()
+            self.banner_detail.hide()
+            self.review.clear()
             self.heading.setText(name)
             self._draw_photo()
             self._paint_kept()

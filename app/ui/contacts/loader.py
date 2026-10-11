@@ -85,6 +85,7 @@ class Detail:
     meta: dict
     conflicts: list
     row: Optional[ContactRow] = None
+    links: list = field(default_factory=list)       # D7.1: which account deleted it
 
 
 def load_detail(hub: Any, cid: int) -> Optional[Detail]:
@@ -92,7 +93,7 @@ def load_detail(hub: Any, cid: int) -> Optional[Detail]:
     if card is None:
         return None
     return Detail(cid, card, hub.kept_in(cid), hub.tags_of(cid), hub.sources(cid),
-                  hub.contact_meta(cid) or {}, hub.open_conflicts(cid), hub.get_row(cid))
+                  hub.contact_meta(cid) or {}, hub.open_conflicts(cid), hub.get_row(cid), hub.links(cid))
 
 
 def load_history(hub: Any, cid: int) -> list:

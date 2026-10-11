@@ -466,6 +466,7 @@
     <Compile Include="app\ui\contacts\person_photo.py" />
     <Compile Include="app\ui\contacts\photos.py" />
     <Compile Include="app\ui\contacts\quick.py" />
+    <Compile Include="app\ui\contacts\review.py" />
     <Compile Include="app\ui\contacts\sidebar.py" />
     <Compile Include="app\ui\contacts\smart.py" />
     <Compile Include="app\ui\contacts\toolbar.py" />
