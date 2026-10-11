@@ -36,26 +36,36 @@ def test_every_indexing_and_settings_category_has_an_icon(gui_mainwindow):
     assert not missing, f"no icon for {missing}"
 
 
-def test_every_report_has_an_icon_once_the_page_is_tinted():
-    from app.ui.reports_view import REPORTS, ReportsView
+def _side_rows(side):
+    """Every entry line of a `SideList` (its section headings are not entries)."""
+    rows = []
+    for t in range(side.topLevelItemCount()):
+        top = side.topLevelItem(t)
+        rows += [top.child(c) for c in range(top.childCount())]
+    return rows
+
+
+def test_every_tidy_entry_has_an_icon_once_the_page_is_tinted():
+    """1q: the Reports list became Tidy's `SideList` - every entry still has its icon."""
     from app.ui.theme import theme_colours
+    from app.ui.tidy_view import TidyView
 
     _qt()
-    view = ReportsView(None)
-    view.list.retint(theme_colours())
-    rows = [view.list.item(i) for i in range(view.list.count())]
-    assert [r.text() for r in rows] == [title for _k, title, _d in REPORTS]
-    bare = [r.text() for r in rows if r.icon().isNull()]
+    view = TidyView(None)
+    view.retint(theme_colours())
+    rows = _side_rows(view.list)
+    assert len(rows) == len(view.list.entries()) == 8
+    bare = [r.text(0) for r in rows if r.icon(0).isNull()]
     assert not bare, f"no icon on {bare}"
 
 
-def test_the_window_tints_the_report_list_with_the_rest(gui_mainwindow):
+def test_the_window_tints_the_tidy_list_with_the_rest(gui_mainwindow):
     from PySide6.QtGui import QIcon
 
     app, window, _store, _engine = gui_mainwindow
-    rows = [window.reports_view.list.item(i) for i in range(window.reports_view.list.count())]
-    for row in rows:
-        row.setIcon(QIcon())                                   # blank them
+    for row in _side_rows(window.tidy_view.list):
+        row.setIcon(0, QIcon())                                # blank them
     window._apply_theme()
     gui_pump(app)
-    assert all(not row.icon().isNull() for row in rows), "the theme change did not redraw them"
+    rows = _side_rows(window.tidy_view.list)
+    assert rows and all(not row.icon(0).isNull() for row in rows), "the theme change did not redraw them"

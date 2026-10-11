@@ -155,7 +155,10 @@ def make_movable(rail: Any, button: Any) -> None:
 # -- the window's side: remembered, applied at start, reset ----------------------
 
 #: The owner's order (2026-10-11), and what Reset page order goes back to.
-DEFAULT_ORDER = ("Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Reports")
+DEFAULT_ORDER = ("Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Tidy")
+#: Order 1q D8 (2026-10-11): "Reports" became "Tidy"; a saved order that names the old
+#: title keeps the page where the owner put it.
+RENAMED = {"Reports": "Tidy"}
 
 #: Where the order is remembered: titles, `|`-separated (D2).
 STATE_KEY = "ui:rail_order"
@@ -215,6 +218,6 @@ def restore(window: Any) -> None:
     except Exception:                                  # noqa: BLE001 - the default order stands
         saved = ""
     if saved:
-        apply_order(window.rail, saved.split("|"))
+        apply_order(window.rail, [RENAMED.get(t, t) for t in saved.split("|")])
         for view, wrapped in window._tab_wrapped.items():
             window._tab_index[view] = window.rail.indexOf(wrapped)

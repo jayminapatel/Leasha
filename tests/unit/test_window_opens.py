@@ -914,7 +914,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Reports",
+            "Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Tidy",
             "Indexing", "Settings",
         ]
         # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
@@ -925,7 +925,7 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
             (built.mail_view, "Mail"), (built.code_view, "Code"),
             (built.chat_view, "Chat"),
             (built.timeline_view, "Browse"),
-            (built.reports_view, "Reports"),
+            (built.tidy_view, "Tidy"),
             (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
         ):
             index = built._tab_index[view]
@@ -1153,7 +1153,7 @@ def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path
         # Search and Files (kept synchronous on purpose) plus Browse and
         # Reports are all that is in the rail before the loop turns (order 1i).
         assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Browse", "Reports"]
+            "Search", "Files", "Browse", "Tidy"]
 
         _pump(app)
 
@@ -1176,7 +1176,7 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
         # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
         # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
         assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
-                          "Reports", "Indexing", "Settings"]
+                          "Tidy", "Indexing", "Settings"]
         assert built.rail._pill_index == titles.index("Indexing"), (
             "the pill must open the Indexing page")
         assert built.rail._foot == {titles.index("Settings")}, (

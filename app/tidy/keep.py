@@ -15,12 +15,12 @@ once, so there is nothing for a rule to keep instead.
 from __future__ import annotations
 
 import re
-from typing import Any, Mapping, Optional
+from typing import Mapping, Optional
 
 from app.tidy.find import TidyFile, TidySet
 
 __all__ = ["RULES", "RULE_WORDS", "DEFAULT_RULE", "keeper", "marked_by_rule", "photo_quality",
-           "looks_spare", "qualities", "describe"]
+           "looks_spare", "in_spare_folder", "named_like_a_copy", "qualities"]
 
 RULES = ("leasha", "oldest", "newest", "manual")
 RULE_WORDS = {
@@ -35,13 +35,21 @@ _SPARE_FOLDERS = ("\\downloads\\", "\\temp\\", "\\tmp\\", "\\$recycle.bin\\", "\
 _SPARE_NAME = re.compile(r"(^copy of )|( - copy( \(\d+\))?$)|( \(\d+\)$)", re.IGNORECASE)
 
 
+def in_spare_folder(path: str) -> bool:
+    """True for a file in a Downloads, temp or recycle folder."""
+    low = "\\" + path.replace("/", "\\").lower()
+    return any(folder in low for folder in _SPARE_FOLDERS)
+
+
+def named_like_a_copy(path: str) -> bool:
+    """True for "Copy of Report.docx", "Report - Copy.docx", "Report (1).docx"."""
+    stem = path.replace("/", "\\").rsplit("\\", 1)[-1].rsplit(".", 1)[0]
+    return bool(_SPARE_NAME.search(stem))
+
+
 def looks_spare(path: str) -> bool:
     """True for a copy in a Downloads/temp/recycle folder, or one named like a copy."""
-    low = "\\" + path.replace("/", "\\").lower()
-    if any(folder in low for folder in _SPARE_FOLDERS):
-        return True
-    stem = low.rsplit("\\", 1)[-1].rsplit(".", 1)[0]
-    return bool(_SPARE_NAME.search(stem))
+    return in_spare_folder(path) or named_like_a_copy(path)
 
 
 def keeper(tset: TidySet, rule: str,
@@ -58,7 +66,11 @@ def keeper(tset: TidySet, rule: str,
         q = quality or {}
         return max(files, key=lambda f: (q.get(f.path, (0, 0.0))[0], q.get(f.path, (0, 0.0))[1],
                                          f.size_bytes, -f.mtime_ns))
-    return min(files, key=lambda f: (looks_spare(f.path), f.mtime_ns, f.path))
+    # The folder first, then the name on its own: when every copy is in Downloads (or
+    # the whole folder sits under a temp path), "Report - Copy.pdf" still loses to
+    # "Report.pdf" - found grabbing the page from a scratch index under AppData\Temp.
+    return min(files, key=lambda f: (in_spare_folder(f.path), named_like_a_copy(f.path),
+                                     f.mtime_ns, len(f.name), f.path))
 
 
 def marked_by_rule(tset: TidySet, rule: str,
@@ -97,20 +109,3 @@ def qualities(tset: TidySet) -> dict[str, tuple[int, float]]:
     if tset.kind != "similar":
         return {}
     return {f.path: photo_quality(f.path) for f in tset.files}
-
-
-def describe(tset: TidySet, rule: str, kept: Optional[TidyFile],
-             quality: Optional[Mapping[str, Any]] = None) -> str:
-    """One sentence on why that file stays, for the page under the set."""
-    if tset.kind in ("large", "leftovers"):
-        return "Nothing here is marked for you - each of these may be the only copy. Tick what can go."
-    if kept is None:
-        return "Nothing is marked. Click the copy to keep, or tick the ones that can go."
-    if rule == "oldest":
-        return f"Keeping the oldest: {kept.name}."
-    if rule == "newest":
-        return f"Keeping the newest: {kept.name}."
-    if tset.kind == "similar":
-        return f"Keeping the one with the most detail: {kept.name}. Click another to keep it instead."
-    return (f"Keeping {kept.path}: it is not in Downloads or a temporary folder, and it is the "
-            "oldest. Click another to keep it instead.")

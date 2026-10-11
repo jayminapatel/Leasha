@@ -40,7 +40,7 @@ from typing import Iterator, Optional
 
 from app.core.osbridge._platform import is_macos, is_windows
 
-__all__ = ["BinRecord", "RecycleBin", "read_bin_record"]
+__all__ = ["BinRecord", "RecycleBin", "read_bin_record", "LAZY"]
 
 _FO_DELETE = 0x0003
 _FOF_SILENT = 0x0004
@@ -51,6 +51,13 @@ _FOF_WANTNUKEWARNING = 0x4000
 _DRIVE_FIXED = 3
 #: FILETIME counts 100 ns steps from 1601; Unix time counts seconds from 1970.
 _FILETIME_UNIX_OFFSET = 116444736000000000
+#: How long `send` looks for the `$I` record of a file it just moved. Found within 0.11 s
+#: in four probes on the owner's D: drive (2026-10-11); one pytest run under load found
+#: nothing at once - the record was there 24 s later, most likely held open for a moment.
+_FIND_FOR_S = 2.0
+#: A record for a file that went to the bin but whose `$I` was not found in time: Put
+#: back looks it up again by its original path (`_find`, any time since `deleted at`).
+LAZY = "lazy:"
 
 
 @dataclass(frozen=True)
@@ -98,16 +105,29 @@ class RecycleBin:
         return is_macos() and Path(path).is_absolute()
 
     def send(self, path: str) -> str:
-        """Move `path` to the Recycle Bin; returns where it went (the record for `put_back`)."""
+        """Move `path` to the Recycle Bin; returns where it went (the record for `put_back`).
+
+        Raises `OSError` only while the file is still where it was - a file that has
+        gone is never reported as left. If its `$I` record is not found in time, the
+        record is `LAZY` + when it went, and `put_back` finds it then.
+        """
         started = time.time()
         if is_windows():
-            self._send_windows(path)
-            record = self._find(path, since=started - 2)
-            if record is None:
+            try:
+                self._send_windows(path)
+            except OSError:
+                if os.path.exists(path):
+                    raise
+            deadline = started + _FIND_FOR_S
+            while True:
+                record = self._find(path, since=started - 2)
+                if record is not None:
+                    return record.bin_path
                 if os.path.exists(path):
                     raise OSError(f"Windows left {path} where it was.")
-                raise OSError(f"{path} went, but it is not in the Recycle Bin.")
-            return record.bin_path
+                if time.time() >= deadline:
+                    return f"{LAZY}{started - 2:.3f}"
+                time.sleep(0.05)
         if is_macos():
             trash = Path.home() / ".Trash"
             target = _free_name(trash / Path(path).name)
@@ -117,6 +137,11 @@ class RecycleBin:
 
     def put_back(self, bin_ref: str, path: str) -> None:
         """Return the file at `bin_ref` to `path`. Never over another file."""
+        if bin_ref.startswith(LAZY) and is_windows():
+            record = self._find(path, since=float(bin_ref[len(LAZY):]))
+            if record is None:
+                raise OSError("It is no longer in the Recycle Bin - the bin may have been emptied.")
+            bin_ref = record.bin_path
         if os.path.exists(path):
             raise OSError(f"Another file is at {path} now, so it was left in the Recycle Bin.")
         if not os.path.exists(bin_ref):

@@ -117,14 +117,15 @@ def _visible_strings(root: QWidget) -> dict:
 def built(qtbot, tmp_path):
     from PySide6.QtWidgets import QHBoxLayout, QWidget
 
-    from app.ui.reports_view import ReportsView
+    from app.ui.tidy_view import TidyView
     from app.ui.timeline_view import TimelineView
 
     store, _ids = june_2015(tmp_path)
     # Order 1i (2026-10-11): the timeline is its own rail page now, not a pane
     # of Reports - so both are built, side by side, and read as one surface.
+    # Order 1q: Reports became Tidy, whose list is a `SideList`.
     view = QWidget()
-    reports, timeline = ReportsView(store), TimelineView(store)
+    reports, timeline = TidyView(store), TimelineView(store)
     row = QHBoxLayout(view)
     row.addWidget(reports)
     row.addWidget(timeline)
@@ -140,9 +141,9 @@ def built(qtbot, tmp_path):
 
 def test_every_label_tooltip_and_placeholder_on_the_reports_page_and_timeline_passes(built):
     strings = _visible_strings(built)
-    for row in range(built.list.count()):
-        strings[f"reports row {row}"] = built.list.item(row).text()
-        strings[f"reports row {row} tip"] = built.list.item(row).toolTip()
+    for n, entry in enumerate(built.list.entries()):
+        strings[f"tidy row {n}"] = entry.label
+        strings[f"tidy row {n} tip"] = entry.tip
     assert len(strings) > 40
     assert not offenders(strings), offenders(strings)
 

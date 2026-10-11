@@ -174,7 +174,7 @@ def _launch_journey(running) -> None:
     # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
     # 2026-10-11, order 1i: Browse took Offline's rail slot.
     # 2026-10-11, order 1k 6a: Contacts after Files.
-    for page in ("Search", "Files", "Contacts", "Photos", "Mail", "Code", "Chat", "Browse", "Reports",
+    for page in ("Search", "Files", "Contacts", "Photos", "Mail", "Code", "Chat", "Browse", "Tidy",
                  "Settings"):
         assert page in rail, f"{page!r} is missing from the rail: {sorted(rail)}"
     assert e2e.by_id(window, "searchBox", "Edit").is_visible()

@@ -140,7 +140,7 @@ def test_chat_is_a_rail_tab_after_browse_and_before_reports(chat):
     titles = [rail.tabText(i) for i in range(rail.count())]
     # 2026-10-11, the owner's order: ... Code, Browse, Chat, Reports.
     assert titles.index("Chat") == titles.index("Browse") + 1
-    assert titles.index("Reports") == titles.index("Chat") + 1
+    assert titles.index("Tidy") == titles.index("Chat") + 1
     assert rail.tabText(chat.window._tab_index[chat.view]) == "Chat"
     assert rail.currentIndex() == chat.window._tab_index[chat.view]
 

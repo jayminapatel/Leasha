@@ -46,7 +46,7 @@ from app.ui.mail_view import MailView
 from app.ui.contacts_view import ContactsView
 from app.ui.photos_view import PhotosView
 from app.ui.offline_media_view import OfflineMediaView
-from app.ui.reports_view import ReportsView
+from app.ui.tidy_view import TidyView
 from app.ui.timeline_view import TimelineView
 from app.ui.search_view import SearchView
 from app.ui.settings_view import SettingsView
@@ -439,6 +439,7 @@ class MainWindow(QMainWindow):
         self.files_view.error.connect(self._show_error)
         self.files_view.search_inside_requested.connect(self._search_inside)
         self.files_view.index_file_requested.connect(self._index_file_now)
+        self.files_view.find_copies_requested.connect(self._find_copies)
 
         # Order 202626270513 Â§2. Read-only refresh is the view's own - see
         # `OfflineMediaView.refresh` - but Scan/Rescan/Delete run a real
@@ -451,12 +452,12 @@ class MainWindow(QMainWindow):
         self.offline_media_view.rescan_requested.connect(self._offline_media_rescan)
         self.offline_media_view.delete_requested.connect(self._offline_media_delete)
 
-        # Order 202626270602 (0n) §1. Read-only, like every report -
-        # `ReportsView.refresh` is the only thing it ever asks the store
-        # for, and `_export_to` writes a PDF the person chose the location
-        # for, never a user's own file.
-        self.reports_view = ReportsView(store)
-        self.reports_view.error.connect(self._show_error)
+        # Order 1q (2026-10-11): Tidy took the Reports page's place - what is
+        # indexed, the copies and leftovers to clear, and the Space Report as one
+        # entry of its list. It moves files only through `app.tidy.remove`, after
+        # the owner has seen the plan and said yes.
+        self.tidy_view = TidyView(store)
+        self.tidy_view.error.connect(self._show_error)
         # Order 1i (2026-10-11): the Life Timeline is a rail page of its own,
         # "Browse", where Offline was - no longer a row in the Reports list.
         self.timeline_view = TimelineView(store)
@@ -526,7 +527,7 @@ class MainWindow(QMainWindow):
             # Order 1i (2026-10-11): Offline is a shelf of the Indexing page now
             # (`indexing_layout.add_offline_shelf`), and the timeline has its slot.
             (self.timeline_view, "Browse", False, "calendar", ""),
-            (self.reports_view, "Reports", False, "chart-column", ""),
+            (self.tidy_view, "Tidy", False, "wand-sparkles", ""),
         ):
             wrapped = wrap_if_needed(view, scroll=scroll)
             self._tab_wrapped[view] = wrapped
@@ -1553,7 +1554,8 @@ class MainWindow(QMainWindow):
         add(go, "Offline", self._show_offline, icon="hard-drive")
         add(go, "Browse", lambda: self._show(self.timeline_view), icon="calendar",
             tip="Browse your timeline")
-        add(go, "Reports", lambda: self._show(self.reports_view), icon="chart-column")
+        add(go, "Tidy", lambda: self._show(self.tidy_view), icon="wand-sparkles",
+            tip="What is indexed, and the copies, similar photos and leftovers to clear")
         add(go, "Indexing", lambda: self._show(getattr(self, "indexing_view", None)),
             "Ctrl+I", icon="database")
         add(go, "People in photos", self._open_photo_tagger, icon="image",
@@ -1933,7 +1935,7 @@ class MainWindow(QMainWindow):
         # takes the primary's ink rather than every icon the same grey.
         for view in (self.files_view, getattr(self, "mail_view", None),
                      getattr(self, "code_view", None), getattr(self, "contacts_view", None),
-                     indexing_view, settings_view, self.reports_view):
+                     indexing_view, settings_view, self.tidy_view):
             for target in (view, getattr(view, "_nav", None), getattr(view, "list", None)):
                 retint = getattr(target, "retint", None)
                 if callable(retint):
@@ -2127,8 +2129,8 @@ class MainWindow(QMainWindow):
             self.files_view.refresh_summary()
         elif index == self._tab_index.get(self.timeline_view):
             self.timeline_view.refresh()
-        elif index == self._tab_index.get(self.reports_view):
-            self.reports_view.refresh()
+        elif index == self._tab_index.get(self.tidy_view):
+            self.tidy_view.refresh()
         elif index == self._tab_index.get(getattr(self, "photos_view", None)):
             # 2026-10-05: on the way in - a run, or a name given, changes it.
             self.photos_view.refresh()
@@ -2227,6 +2229,11 @@ class MainWindow(QMainWindow):
             self, "_tray_state", ("idle", 0, 0, False, False))
         if state != "running":
             self._paint_tray(state, 0, value, total, paused, stopped_early, "")
+
+    def _find_copies(self, path: str) -> None:
+        """Order 1q D5: Files' "Find copies of this..." - Tidy, on that file's sets."""
+        self._show(self.tidy_view)
+        self.tidy_view.open_file(path)
 
     def show_indexing_page(self) -> None:
         """The tray status line's click."""

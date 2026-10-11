@@ -257,3 +257,41 @@ def test_the_real_recycle_bin_takes_a_file_and_gives_it_back(tmp_path):
     assert path.read_text() == "mine, made by this test" and not os.path.exists(ref)
     unc = "\\\\server\\share\\x.txt"
     assert recycle.on_fixed_drive(unc) is False
+
+
+def test_a_name_like_a_copy_loses_even_when_every_copy_is_in_downloads(store, tmp_path):
+    """Found grabbing the page from a scratch index under AppData\Temp: every copy
+    was "in a temp folder", and the tie went to "Report - Copy.pdf" by its path."""
+    real(store, tmp_path / "Downloads", "Report - Copy.pdf", b"r", mtime=1 * NS)
+    plain = real(store, tmp_path / "Downloads" / "x", "Report.pdf", b"r", mtime=1 * NS)
+    real(store, tmp_path / "Downloads", "Report (1).pdf", b"r", mtime=1 * NS)
+    (tset,) = find.copy_sets(store)
+    assert keep.keeper(tset, "leasha").path == str(plain)
+
+
+def test_large_files_are_only_the_ones_over_the_floor(store, tmp_path):
+    small = real(store, tmp_path, "small.bin", b"x" * 10)
+    assert find.large_files(store).files == ()
+    assert [f.path for f in find.large_files(store, at_least=1).files] == [str(small)]
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="the Windows Recycle Bin's record")
+def test_a_file_that_went_is_never_reported_left_even_when_its_record_is_slow(tmp_path, monkeypatch):
+    """One run under load found no `$I` record at once (it was there 24 s later), and the
+    file that had gone was reported "left where it was", with no journal row."""
+    from app.core.osbridge import recycle
+
+    held = tmp_path / "bin" / "$RSLOW.txt"
+    held.parent.mkdir()
+    path = tmp_path / "f.txt"
+    path.write_text("x")
+    monkeypatch.setattr(recycle, "_FIND_FOR_S", 0.1)
+    bin = recycle.RecycleBin()
+    monkeypatch.setattr(bin, "_send_windows", lambda p: os.replace(p, held))
+    monkeypatch.setattr(bin, "_find", lambda p, since: None)
+    ref = bin.send(str(path))
+    assert ref.startswith(recycle.LAZY) and not path.exists()
+    found = recycle.BinRecord(str(path), str(held), 0.0, 1)
+    monkeypatch.setattr(bin, "_find", lambda p, since: found)
+    bin.put_back(ref, str(path))
+    assert path.read_text() == "x" and not held.exists()

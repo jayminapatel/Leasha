@@ -1,11 +1,11 @@
 # Work order (One thread): Tidy - find what is indexed, and clear copies, similar photos and leftovers
 
-**Doc version:** 1.0 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/tidy/`, `app/core/osbridge/recycle.py`, `app/reports/`, `app/cli/tidy.py`,
 `app/cli/report.py`, `app/storage/migrations.py`, `app/storage/sqlite_store.py`, `app/ui/tidy_view.py`,
 `app/ui/reports_view.py`, `app/ui/presenter/tidy.py`, `app/ui/controllers/tidy_controller.py`, `app/ui/widgets/tidy_*.py`,
 `app/ui/shell.py`, `tests/unit/`, the user guide and technical reference)
-**Status:** RELEASED by the owner 2026-10-11 ("option a, rename to Tidy, write the order and build it also for
+**Status:** BUILT 2026-10-11, all 14 (on `feat/tidy-1q`); RELEASED by the owner 2026-10-11 ("option a, rename to Tidy, write the order and build it also for
 duplicates there should be a method to do it manually too ?"), after the thread's design for the page.
 
 **Where this came from.** The owner, 2026-10-11: "Remove digital inheritance, i dont see the value in it no more,
@@ -57,37 +57,55 @@ Recycle Bin, and Tidy can put it back. Nothing moves until the owner has seen th
 
 ## 1. The engine (L4, CLI first - non-negotiable 8)
 
-- [ ] **1a** `app/reports/common.py` holds the shared helpers (D9); Digital Inheritance removed from `app/reports/`,
+> *2026-10-11, built:* `app/reports/common.py`; `app/tidy/find.py`, `keep.py`, `remove.py`; `app/core/osbridge/recycle.py`;
+> `app/cli/tidy.py`; migration `_v39_tidy_journal`. **D3 changed in one place:** the index row is *not* dropped when a file
+> moves - the watcher or the next index run forgets it, exactly as for a file deleted in Explorer (one deletion path,
+> vectors included), and `find.LOCAL` hides every journalled path that has not been put back. The keep rule's tie-break
+> was split (folder, then a copy-like name) after the page was grabbed from a scratch index under `AppData\Temp`, where
+> "Leasha picks" kept "Tax return 2024 - Copy.pdf". Large files are 100 MB and over (`LARGE_MIN_BYTES`): with no floor
+> a small index listed every file. Empty folders, in the design, were not built - the index holds files, not folders.
+- [x] **1a** `app/reports/common.py` holds the shared helpers (D9); Digital Inheritance removed from `app/reports/`,
   `leasha report`, the Reports list and the tests.
-- [ ] **1b** `app/tidy/find.py`: what is indexed (by kind and by place, with sizes); exact copies and similar photos
+- [x] **1b** `app/tidy/find.py`: what is indexed (by kind and by place, with sizes); exact copies and similar photos
   on this computer, with any copies elsewhere named but never offered; large files; leftovers (D10); files that
   exist only once. Reads only.
-- [ ] **1c** `app/tidy/keep.py`: the keep rules (D4), Qt-free; a photo's pixels and sharpness read from the file
+- [x] **1c** `app/tidy/keep.py`: the keep rules (D4), Qt-free; a photo's pixels and sharpness read from the file
   on a worker. Reads only.
-- [ ] **1d** `app/tidy/remove.py` and `app/core/osbridge/recycle.py`: a plan checked by D1-D3 and D7, each file sent
+- [x] **1d** `app/tidy/remove.py` and `app/core/osbridge/recycle.py`: a plan checked by D1-D3 and D7, each file sent
   to the Recycle Bin and found there afterwards, the journal row written (D6), the index row dropped.
-- [ ] **1e** Put back (D6): a batch read from the journal, each file returned from the Recycle Bin to its path.
-- [ ] **1f** `leasha tidy copies|similar|large|leftovers` lists with the keep rule's choice; `--remove` prints the
+- [x] **1e** Put back (D6): a batch read from the journal, each file returned from the Recycle Bin to its path.
+- [x] **1f** `leasha tidy copies|similar|large|leftovers` lists with the keep rule's choice; `--remove` prints the
   plan and moves only with `--yes`; `leasha tidy history` and `leasha tidy put-back <batch>`.
 
 ## 2. The page
 
-- [ ] **2a** The rail's Reports becomes Tidy (D8); the page's `SideList` with counts read on a worker.
-- [ ] **2b** Compare (photos side by side, the kept one marked, a click to keep another), Copies (every path, with
+> *2026-10-11, built:* `app/ui/tidy_view.py`, `widgets/tidy_set_pane.py`, `widgets/tidy_parts.py`, `presenter/tidy.py`;
+> `ReportsView` is now the Space Report pane inside Tidy. **D8 changed in one place:** the four views are the app's
+> `SegmentedControl` over a stack, not a `QTabWidget` - the window has no tab widget (its pages are the rail's, guarded by
+> `test_ui_redesign_qt`). A saved rail order naming "Reports" puts Tidy in that slot (`rail_order.RENAMED`). Sets load
+> 200 at a time, the most room first; the heading says how many there are in all.
+- [x] **2a** The rail's Reports becomes Tidy (D8); the page's `SideList` with counts read on a worker.
+- [x] **2b** Compare (photos side by side, the kept one marked, a click to keep another), Copies (every path, with
   the kept one starred), Details, Keep rule (D4) - each tab with its icon.
-- [ ] **2c** Marked files collect across sets ("Marked: 37 - 1.8 GB"); **Review and remove...** shows the plan,
+- [x] **2c** Marked files collect across sets ("Marked: 37 - 1.8 GB"); **Review and remove...** shows the plan,
   asks (twice for D7), moves on a worker and says what moved and what was left.
-- [ ] **2d** Report: the Space Report as it is today, with Export. History: each batch, with Put back.
-- [ ] **2e** Files' right-click "Find copies of this..." (D5).
+- [x] **2d** Report: the Space Report as it is today, with Export. History: each batch, with Put back.
+- [x] **2e** Files' right-click "Find copies of this..." (D5).
 
 ## 3. Tests and documents
 
-- [ ] **3a** Tests: the last copy is never offered; a changed file is left; "I'll choose" marks nothing; leftovers
+> *2026-10-11:* `test_tidy_engine.py` (18) and `test_tidy_page.py` (11); twenty existing test files moved from Reports and
+> Inheritance to Tidy. **3b on the owner's laptop:** a file made in the thread's scratch folder went to the real Recycle
+> Bin in 0.68 s (`C:\$Recycle.Bin\<SID>\$R7MLR79.txt`) and was put back, `$R` and `$I` both gone afterwards;
+> `test_the_real_recycle_bin_takes_a_file_and_gives_it_back` repeats it on every Windows run. None of the owner's files
+> was touched. The guide's Tidy picture was grabbed from a scratch index (`D:\Demo\leasha-guide`, the guide tool's
+> store, is not on this laptop).
+- [x] **3a** Tests: the last copy is never offered; a changed file is left; "I'll choose" marks nothing; leftovers
   are never marked by a rule; a big batch asks twice; nothing outside D1 is ever in a plan; put back; the finders
   run with the database read-only; the Recycle Bin faked.
-- [ ] **3b** On the owner's laptop: one round trip through the real Recycle Bin, on a file the thread made itself in
+- [x] **3b** On the owner's laptop: one round trip through the real Recycle Bin, on a file the thread made itself in
   its scratch folder. **Removing the owner's files is the owner's press of the button**, never a thread's.
-- [ ] **3c** The user guide's Reports section becomes Tidy; the technical reference, README and glossary say the
+- [x] **3c** The user guide's Reports section becomes Tidy; the technical reference, README and glossary say the
   same; a dated note above non-negotiable 10 records the owner's third exception.
 
 ## Close-out

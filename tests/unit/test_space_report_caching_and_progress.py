@@ -42,7 +42,7 @@ def test_a_first_call_has_no_cache_and_returns_the_full_snapshot(tmp_path):
         snapshot = _report_snapshot(store)
 
         assert snapshot is not None
-        sources, generated_at, space = snapshot
+        generated_at, space = snapshot
         assert generated_at == 1000
         assert "Space Report" in space
 
@@ -66,7 +66,7 @@ def test_a_new_index_run_invalidates_the_cache(tmp_path):
 
         stale_result = _report_snapshot(store, last_known_generated_at=999)
         assert stale_result is not None, "999 is not today's data timestamp - must recompute"
-        assert stale_result[1] == 1000
+        assert stale_result[0] == 1000
 
 
 # ---------------------------------------------------------------------------

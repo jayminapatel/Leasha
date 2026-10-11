@@ -857,17 +857,28 @@ def test_scan_does_not_warn_when_repositories_sit_below_the_root(tmp_path, capsy
 # report - order 202626270602 (0n)
 # ---------------------------------------------------------------------------
 
-def test_report_inheritance_runs_on_an_empty_index(tmp_path, capsys):
-    """No sources catalogued and nothing indexed is not an error - a fresh
-    install has exactly this shape. Ships before the Reports page per
-    non-negotiable 8, order 202626270602."""
+def test_report_inheritance_is_gone_and_says_which_report_there_is(tmp_path, capsys):
+    """Order 1q D9 (2026-10-11): Digital Inheritance was removed at the owner's word.
+    Asking for it is a clean error naming the one report left."""
     env = env_file(tmp_path)
     cli.cmd_init(parser_for(["init", "--env", env]))
     capsys.readouterr()
 
     assert cli.cmd_report(
-        parser_for(["report", "inheritance", "--env", env])) == cli.EXIT_OK
-    assert "map of" in capsys.readouterr().out.lower()
+        parser_for(["report", "inheritance", "--env", env])) != cli.EXIT_OK
+    said = capsys.readouterr()
+    assert "leasha report space" in said.out + said.err
+
+
+def test_tidy_runs_on_an_empty_index_and_moves_nothing_without_yes(tmp_path, capsys):
+    """Order 1q 1f: `leasha tidy` ships before the Tidy page (non-negotiable 8)."""
+    env = env_file(tmp_path)
+    cli.cmd_init(parser_for(["init", "--env", env]))
+    capsys.readouterr()
+    for what in ("copies", "similar", "large", "leftovers", "history"):
+        assert cli.cmd_tidy(parser_for(["tidy", what, "--env", env])) == cli.EXIT_OK
+    assert cli.cmd_tidy(parser_for(["tidy", "copies", "--remove", "--env", env])) == cli.EXIT_OK
+    assert "Tidy has not moved anything yet." in capsys.readouterr().out
 
 
 def test_report_unknown_name_is_a_clean_error(tmp_path, capsys):
@@ -877,34 +888,6 @@ def test_report_unknown_name_is_a_clean_error(tmp_path, capsys):
 
     assert cli.cmd_report(
         parser_for(["report", "not-a-real-report", "--env", env])) != cli.EXIT_OK
-
-
-def test_report_json_is_machine_readable(tmp_path, capsys):
-    import json as _json
-
-    env = env_file(tmp_path)
-    cli.cmd_init(parser_for(["init", "--env", env]))
-    capsys.readouterr()
-
-    assert cli.cmd_report(
-        parser_for(["report", "inheritance", "--env", env, "--json"])) == cli.EXIT_OK
-    out = capsys.readouterr().out
-    assert out.lstrip().startswith("{"), f"a human preamble came first: {out[:80]!r}"
-    payload = _json.loads(out)
-    assert payload == {"sources": [], "generated_at": None}
-
-
-def test_report_out_writes_to_a_file(tmp_path, capsys):
-    env = env_file(tmp_path)
-    cli.cmd_init(parser_for(["init", "--env", env]))
-    capsys.readouterr()
-
-    out_file = tmp_path / "map.md"
-    assert cli.cmd_report(
-        parser_for(["report", "inheritance", "--env", env,
-                   "--out", str(out_file)])) == cli.EXIT_OK
-    assert out_file.is_file()
-    assert "map of" in out_file.read_text(encoding="utf-8").lower()
 
 
 # --- report space - order 202626270602 (0n) section 3 ----------------------

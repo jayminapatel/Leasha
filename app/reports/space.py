@@ -1,8 +1,8 @@
 r"""The Space Report: duplicates and uniqueness, across every source.
 
 Layer: L4 (reports) - reads L1 (`SqliteStore`) only, never writes to it and
-never touches a user file. Non-negotiable #10 applies in full, the same
-guarantee `app/reports/inheritance.py` keeps.
+never touches a user file. Non-negotiable #10 applies in full. (Acting on
+what it finds is the Tidy page's, `app/tidy/`, order 1q.)
 
 Order 202626270602 (0n) section 3. Two questions, from the same
 `content_hash` column, answered in opposite directions:
@@ -66,14 +66,14 @@ _log = logger.bind(component="reports.space")
 #: How many of the largest duplicate groups are named individually - a
 #: corpus with thousands of duplicate groups (a photo library synced
 #: twice, say) must not turn one report into a document nobody reads to
-#: the end. Mirrors `inheritance.TOP_FOLDERS_SHOWN`'s own reasoning.
+#: the end.
 DUPLICATE_GROUPS_SHOWN = 25
 
 
 @dataclass(frozen=True)
 class DuplicateCopy:
-    """One copy of a duplicated file - where it lives, told the same way
-    `inheritance.SourceSummary` already tells a source."""
+    """One copy of a duplicated file - where it lives: its path, and the source
+    (this computer, or a catalogued drive) that holds it."""
 
     path: str
     source_name: str

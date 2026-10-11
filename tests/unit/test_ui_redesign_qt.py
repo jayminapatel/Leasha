@@ -94,7 +94,7 @@ def test_every_page_is_reachable_by_click_and_by_index(window):
     # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
     # 2026-10-11: the owner's order ("search, mail, photos, file, code, browse, chat and reports").
     assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
-                      "Reports", "Indexing", "Settings"]
+                      "Tidy", "Indexing", "Settings"]
     for index in range(rail.count()):
         rail.setCurrentIndex(index)
         _pump(app)
@@ -155,14 +155,14 @@ def test_the_last_page_is_remembered_under_ui_page(window):
     built.rail.setCurrentIndex(1)
     _pump(app)
     # Queued on the ordered state writer since bug 3a - wait for it, and for
-    # the switch back below, so neither lands on top of "Reports".
+    # the switch back below, so neither lands on top of "Tidy".
     assert pool().waitForDone(5000)
     assert store.get_state("ui:page", "") == "Mail"     # 2026-10-11: the second page now
     built.rail.setCurrentIndex(0)
     assert pool().waitForDone(5000)
-    store.set_state("ui:page", "Reports")
+    store.set_state("ui:page", "Tidy")
     built._restore_last_page()
-    assert built.rail.tabText(built.rail.currentIndex()) == "Reports"
+    assert built.rail.tabText(built.rail.currentIndex()) == "Tidy"
     built.rail.setCurrentIndex(0)
 
 

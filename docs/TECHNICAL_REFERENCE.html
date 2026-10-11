@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha Technical Reference</h1>
   <p>How Leasha is built: its layers and processes, the data it keeps, how a file becomes searchable, how a search is answered, and every command-line entry point.</p>
-  <div class="meta">App v1.0.3 · schema v38 · Reference updated 11 October 2026 · Accounts, contacts and live mail checked against <code>feat/accounts-1k</code> at 9f7cde6; the rest against <code>main</code> at 0a39a5e</div>
+  <div class="meta">App v1.0.3 · schema v39 · Reference updated 11 October 2026 · Accounts, contacts and live mail checked against <code>feat/accounts-1k</code> at 9f7cde6; the rest against <code>main</code> at 0a39a5e</div>
 </header>
 
 <h2 id="overview"><span class="num">1</span>Overview</h2>
@@ -139,12 +139,13 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 
 <h2 id="repo"><span class="num">2</span>Repository layout</h2>
 <pre><code>app/core      L0  settings and registry, AppError, logging, locks, run logs, osbridge (all platform-specific calls)
-app/storage   L1  SQLite/FTS5 store, migrations (schema v38), LanceDB vector stores
+app/storage   L1  SQLite/FTS5 store, migrations (schema v39), LanceDB vector stores
 app/extract   L2  readers for every format, chunker, OCR ladder, mail (PST, mbox, eml, msg), zip, media
 app/ort       L2  Leasha's own ONNX Runtime models: Florence-2, Whisper, chat LLM; model catalogue
 app/index     L3  walker, pipeline, embedder, governor, child processes, folder watch, offline media
 app/search    L4  query grammar, BM25 + ANN, RRF fusion, rerank, spelling, git search, evaluation
-app/reports   L4  read-only reports: Digital Inheritance, Space Report, Life Timeline
+app/reports   L4  read-only reports: Space Report, Life Timeline
+app/tidy      L4  Tidy: copies, similar photos, large files, leftovers; remove.py, the one writer
 app/ui        L5  PySide6 window, views, widgets, Qt-free presenter, workers, controllers
 app/shell     L5  `leasha shell`: prompt_toolkit REPL over the same presenter
 app/llm       L8  engine choice (ONNX or Ollama) for Interpret, Chat and Describe; Ollama client
@@ -259,10 +260,11 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td><code>sessions\</code></td><td>recordings made with <code>--debug</code> or "Record what I do"</td></tr>
 <tr><td><code>install\</code>, <code>crash\</code>, <code>diagnostics\</code></td><td>installer transcripts, crash reports, support bundles</td></tr></table>
 <h3 id="sqlite">SQLite (<code>FTS_DB</code>)</h3>
-<p>WAL, <code>synchronous=NORMAL</code>, foreign keys on. <b>Schema version 38</b> (<code>app/storage/migrations.py</code>, <code>CURRENT_VERSION</code>). <code>schema.sql</code> seeds version 4 on purpose so every fresh database runs migrations 5 to 38. The write-ahead log is cut back to 64 MiB when it starts over (<code>journal_size_limit</code>) and checkpointed at the end of every ordinary run (<code>SqliteStore.checkpoint_wal</code>: TRUNCATE, PASSIVE when a reader is in the way). <code>optimize_fts</code> merges the keyword indexes in short steps (<code>'merge'</code>, 250 pages a step), so the write lock is never held for more than a fraction of a second. A database with a higher version than the app understands is refused with an <code>AppError</code>, never opened.</p>
+<p>WAL, <code>synchronous=NORMAL</code>, foreign keys on. <b>Schema version 39</b> (<code>app/storage/migrations.py</code>, <code>CURRENT_VERSION</code>). <code>schema.sql</code> seeds version 4 on purpose so every fresh database runs migrations 5 to 39. The write-ahead log is cut back to 64 MiB when it starts over (<code>journal_size_limit</code>) and checkpointed at the end of every ordinary run (<code>SqliteStore.checkpoint_wal</code>: TRUNCATE, PASSIVE when a reader is in the way). <code>optimize_fts</code> merges the keyword indexes in short steps (<code>'merge'</code>, 250 pages a step), so the write lock is never held for more than a fraction of a second. A database with a higher version than the app understands is refused with an <code>AppError</code>, never opened.</p>
 <div class="tablewrap"><table class="wrap">
 <tr><th>Table</th><th>Holds</th></tr>
 <tr><td><code>files</code></td><td>One row per file, message, attachment or archive member: path, parent_dir, ext, size, mtime_ns, content_hash (blake2b; for a <code>.pst</code> the archive's header marker <code>pst-header:…</code> from <code>email_pst.archive_marker</code>, not a hash of its bytes: 564 bytes are read and the numbers that move when mail does are kept), <code>status</code> (PENDING, INDEXED, SKIPPED, FAILED, NAME_ONLY, PARTIAL), skip_code and detail, source_kind, repo_id, volume_id + relative_path, phash, taken_at_ns, place. An attachment's or archive member's row carries its own <code>ext</code> and size, never its archive's.</td></tr>
+<tr><td><code>tidy_journal</code></td><td>Every file Tidy moved to the Recycle Bin: batch, time, path, size, mtime_ns, content_hash, the kept copy, where in the bin (<code>bin_ref</code>), and <code>put_back_at</code> once returned (v39).</td></tr>
 <tr><td><code>chunks</code></td><td>Passages: file_id, ordinal, text, offsets, page, <code>embedded</code> flag, identifier symbols, label.</td></tr>
 <tr><td><code>chunks_fts</code></td><td>FTS5 over chunks (text, symbols), <code>porter unicode61</code>. <code>chunks_vocab</code> feeds wildcard expansion.</td></tr>
 <tr><td><code>files_fts</code></td><td>FTS5 trigram over (name, folder): the Files page. Mail attachment names since v30.</td></tr>
@@ -438,9 +440,10 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
 <tr><td>Gemma 3 1B, Llama 3.2 1B (4-bit)</td><td>chat alternatives</td><td>820 MB / 1,614 MB</td></tr></table>
 <p class="small muted">Measured on the owner's i7-1365U with Iris Xe: Florence fp32 3.6 to 5.8 s a photo with its vision graph on the graphics card; Whisper base 4.1 s for an 80 s clip; Qwen q4 about 5 tokens a second, Interpret 9 to 15 s.</p>
 
-<h2 id="reports"><span class="num">9</span>Reports, timeline and offline media</h2>
+<h2 id="reports"><span class="num">9</span>Tidy, reports, timeline and offline media</h2>
 <ul>
-  <li><code>app/reports</code> never writes to a user file or to the stores. <code>inheritance.py</code> (Digital Inheritance), <code>space.py</code> (duplicates and only-copy warnings by <code>content_hash</code>, per volume; its rows are shaped on the worker by <code>presenter.space_rows.shape</code> and the widget draws from them), <code>timeline.py</code> (dates by precedence: camera taken-at, folder-year hint, mail sent date, file mtime).</li>
+  <li><code>app/reports</code> never writes to a user file or to the stores. <code>common.py</code> (the data timestamp every report states), <code>space.py</code> (duplicates and only-copy warnings by <code>content_hash</code>, per volume; its rows are shaped on the worker by <code>presenter.space_rows.shape</code> and the widget draws from them), <code>timeline.py</code> (dates by precedence: camera taken-at, folder-year hint, mail sent date, file mtime).</li>
+  <li><b>Tidy</b> (<code>app/tidy</code>, the rail page that replaced Reports): <code>find.py</code> and <code>keep.py</code> read only - exact copies by <code>content_hash</code> and similar photos by pHash (the Space Report's clustering), large files (100 MB and over), leftovers, all on this computer only (<code>source_kind = 'file'</code>, <code>volume_id IS NULL</code>); keep rules Leasha picks, oldest, newest, I'll choose. <code>remove.py</code> is the one module that changes anything: a plan never holds every file of a set; each file's size, mtime and (for a copy) blake2b are read again, and a copy moves only once a kept twin reads the same; over 500 files or 20 GB needs a second yes; each file goes to the Recycle Bin through <code>app/core/osbridge/recycle.py</code> (<code>SHFileOperationW</code>, <code>FOF_ALLOWUNDO</code>, fixed local drives only), is found again by its <code>$I</code> record, and is journalled in <code>tidy_journal</code>. The index row is not edited: the watcher or the next run forgets the file, and Tidy hides journalled paths meanwhile. Put back moves <code>$R</code> to the old path and never over another file.</li>
   <li><b>Offline Media</b>: <code>volumes</code> rows keyed by volume GUID on Windows (hardware serial advisory) and by the mounted volume's UUID on macOS (<code>macos-volume:&lt;UUID&gt;</code>, <code>app/core/osbridge/volumes.py</code>; <code>app/core/volumes_win.py</code> hands its identify and mount functions to it there). Network shares are Windows-only. Files are stored as <code>(volume_id, relative_path)</code> with a synthetic letter-free path; the mount point is resolved fresh on every call. "Offline" outranks every other state.</li>
 </ul>
 
@@ -607,8 +610,14 @@ docs/         rules, register, work orders, glossary, these guides</code></pre>
                 [--kind KIND] [--limit N] [--cursor CURSOR] [--no-fold]</code></pre>
 <p>Kinds: everything (not code), photos, videos, documents, mail, code. 200 items a page; <code>--cursor</code> continues. With no dates it says what there is.</p>
 <h4>report</h4>
-<pre><code>leasha report [--out FILE] [--exclude NAME,NAME] {inheritance|space}</code></pre>
-<p>Also accepts <code>digital-inheritance</code> and <code>space-report</code>. Writes only the <code>--out</code> file.</p>
+<pre><code>leasha report [--out FILE] [space]</code></pre>
+<p>The Space Report, the one report there is (also <code>space-report</code>). Writes only the <code>--out</code> file.</p>
+<h4>tidy</h4>
+<pre><code>leasha tidy {copies|similar|large|leftovers} [--keep leasha|oldest|newest|manual] [--path PATH ...]
+            [--limit N] [--remove [--yes [--yes-big]]]
+leasha tidy history
+leasha tidy put-back BATCH</code></pre>
+<p>Lists what the keep rule keeps and marks; reads only. <code>--remove</code> prints the plan; <code>--yes</code> moves the marked files to the Recycle Bin, and a plan over 500 files or 20 GB also needs <code>--yes-big</code>. Large files and leftovers are never marked by a rule: name them with <code>--path</code>.</p>
 </div>
 
 <h3 id="cli-indexing">Indexing</h3>
@@ -791,7 +800,7 @@ leasha contacts history ID</code></pre>
   <li>Fixed while writing: the Search home suggestion "photos from the Lake District" typed <code>/type image</code>, which was not a kind and matched nothing. <code>image</code>, <code>photo</code> and <code>picture</code> (and plurals) are now kinds (commit <code>31edaea</code>).</li>
 </ul>
 
-<footer>Leasha Technical Reference · for app v1.0.3, schema v38 · 11 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
+<footer>Leasha Technical Reference · for app v1.0.3, schema v39 · 11 October 2026. Built from the source; the user guide is <a href="USER_GUIDE.html">USER_GUIDE.html</a>.</footer>
 
 </main>
 </div>

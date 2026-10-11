@@ -57,6 +57,7 @@ class FileActions:
         similar: Optional[Callable[[], None]] = None,
         explain: Optional[Callable[[], None]] = None,
         same_period: Optional[Callable[[], None]] = None,
+        find_copies: Optional[Callable[[], None]] = None,
         copy: Optional[list[tuple[str, str]]] = None,
         extra: Optional[list[tuple[str, str, Callable[[], None]]]] = None,
         view: Optional[Callable[[], None]] = None,
@@ -101,6 +102,10 @@ class FileActions:
         #: Life Timeline at the month this file is from. Offered only where a
         #: caller can honour it; a file with no date simply has nothing to open.
         self.same_period = same_period
+        #: Order 1q D5 (2026-10-11), the owner: "for duplicates there should be a
+        #: method to do it manually too". Opens Tidy on this file's copies, with
+        #: nothing marked. Offered only for a file that is itself on disk.
+        self.find_copies = find_copies
         #: `(label, text)` pairs to offer alongside "Copy path". For mail:
         #: subject and sender are what people actually want on the clipboard,
         #: and a message's "file name" is a synthetic key nobody would
@@ -190,6 +195,14 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
             "Open your timeline at the month this file is from - photos, files and "
             "mail from then, wherever they are kept now.")
         action.triggered.connect(lambda: actions.same_period())
+        menu.addAction(action)
+
+    if actions.find_copies is not None and _is_a_file_on_disk(path, actions.row):
+        action = QAction("Find copies of this…", parent)
+        action.setToolTip(
+            "Open Tidy on this file's copies on this computer - and its similar photos, for a "
+            "picture - with nothing marked, so you choose what goes.")
+        action.triggered.connect(lambda: actions.find_copies())
         menu.addAction(action)
 
     menu.addSeparator()

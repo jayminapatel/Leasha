@@ -22,7 +22,7 @@ from app.core.logging import logger
 
 __all__ = [
     "TidyFile", "TidySet", "Overview", "LOCAL", "LEFTOVER_EXTS", "INSTALLER_EXTS",
-    "LARGE_SHOWN", "SETS_SHOWN",
+    "LARGE_SHOWN", "LARGE_MIN_BYTES", "SETS_SHOWN",
     "copy_sets", "copy_totals", "similar_sets", "large_files", "leftovers", "overview",
     "sets_for_file", "is_leftover",
 ]
@@ -42,6 +42,9 @@ INSTALLER_EXTS = frozenset({"msi", "msix", "exe"})
 SETS_SHOWN = 200
 #: How many of the biggest files "Large files" lists.
 LARGE_SHOWN = 200
+#: Below this a file is not "large", however few files there are: on a small index the
+#: top 200 is every file, which says nothing (seen grabbing the page, 2026-10-11).
+LARGE_MIN_BYTES = 100 * 1024 ** 2
 _COLUMNS = "f.id, f.path, f.size_bytes, f.mtime_ns, f.content_hash, f.phash, f.taken_at_ns, f.ext"
 
 
@@ -185,11 +188,11 @@ def similar_sets(store: Any, *, limit: int = SETS_SHOWN) -> list[TidySet]:
     return sets[:limit]
 
 
-def large_files(store: Any, *, limit: int = LARGE_SHOWN) -> TidySet:
-    """The biggest files on this computer, as one list to choose from (D10)."""
+def large_files(store: Any, *, limit: int = LARGE_SHOWN, at_least: int = LARGE_MIN_BYTES) -> TidySet:
+    """The biggest files on this computer, `at_least` each, as one list to choose from (D10)."""
     rows = store.conn.execute(
-        f"SELECT {_COLUMNS} FROM files f WHERE {LOCAL} ORDER BY f.size_bytes DESC, f.path LIMIT ?",
-        (int(limit),)).fetchall()
+        f"SELECT {_COLUMNS} FROM files f WHERE {LOCAL} AND f.size_bytes >= ? "
+        "ORDER BY f.size_bytes DESC, f.path LIMIT ?", (int(at_least), int(limit))).fetchall()
     return TidySet(key="large", kind="large", files=tuple(_file(r) for r in rows))
 
 

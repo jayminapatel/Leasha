@@ -60,7 +60,7 @@ SURFACES: dict[str, dict[str, str]] = {
     "mail": {"page": "Mail"},
     "code": {"page": "Code"},
     "chat": {"page": "Chat"},
-    "reports": {"page": "Reports"},
+    "reports": {"page": "Tidy"},
     # Order 0n section 4: the Life Timeline, opened at June 2015 over a small
     # seeded index (real thumbnails, a drive in a drawer, a burst). Its own
     # rail page, "Browse", since order 1i (2026-10-11).

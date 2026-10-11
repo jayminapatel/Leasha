@@ -2,7 +2,7 @@ r"""The Life Timeline: everything from a stretch of time, across every source.
 
 Layer: L4 (reports) - reads L1 (`SqliteStore`) only, never writes to it and
 never touches a user file. Non-negotiable #10 applies in full, exactly as it
-does for `app/reports/inheritance.py` and `app/reports/space.py`.
+does for `app/reports/space.py`.
 
 Order 202626270602 (0n) section 4. The Space Report says what the index holds
 twice; this says *when*. "June 2015" is a place you can go: every photograph,
