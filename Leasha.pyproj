@@ -43,8 +43,11 @@
     <Folder Include=".github\workflows" />
     <Folder Include=".vscode" />
     <Folder Include="app" />
+    <Folder Include="app\accounts" />
+    <Folder Include="app\accounts\providers" />
     <Folder Include="app\chat" />
     <Folder Include="app\cli" />
+    <Folder Include="app\contacts" />
     <Folder Include="app\core" />
     <Folder Include="app\core\osbridge" />
     <Folder Include="app\extract" />
@@ -106,6 +109,20 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="app\__init__.py" />
+    <Compile Include="app\accounts\__init__.py" />
+    <Compile Include="app\accounts\engine.py" />
+    <Compile Include="app\accounts\http.py" />
+    <Compile Include="app\accounts\oauth.py" />
+    <Compile Include="app\accounts\policy.py" />
+    <Compile Include="app\accounts\provider.py" />
+    <Compile Include="app\accounts\providers\__init__.py" />
+    <Compile Include="app\accounts\providers\_common.py" />
+    <Compile Include="app\accounts\providers\_mailcommon.py" />
+    <Compile Include="app\accounts\providers\gmail_api.py" />
+    <Compile Include="app\accounts\providers\google_people.py" />
+    <Compile Include="app\accounts\providers\graph_contacts.py" />
+    <Compile Include="app\accounts\secrets.py" />
+    <Compile Include="app\accounts\store.py" />
     <Compile Include="app\chat\__init__.py" />
     <Compile Include="app\chat\absence.py" />
     <Compile Include="app\chat\aggregate.py" />
@@ -151,6 +168,11 @@
     <Compile Include="app\cli\search.py" />
     <Compile Include="app\cli\timeline.py" />
     <Compile Include="app\cli\watch.py" />
+    <Compile Include="app\contacts\__init__.py" />
+    <Compile Include="app\contacts\card.py" />
+    <Compile Include="app\contacts\hub.py" />
+    <Compile Include="app\contacts\phone.py" />
+    <Compile Include="app\contacts\vcard.py" />
     <Compile Include="app\core\__init__.py" />
     <Compile Include="app\core\branding.py" />
     <Compile Include="app\core\code_types.py" />
@@ -632,15 +654,21 @@
     <Compile Include="tests\private_locks.py" />
     <Compile Include="tests\unit\__init__.py" />
     <Compile Include="tests\unit\_fake_llm.py" />
+    <Compile Include="tests\unit\accounts_fakes.py" />
     <Compile Include="tests\unit\chat_env.py" />
     <Compile Include="tests\unit\chat_fakes.py" />
     <Compile Include="tests\unit\close_scenario_child.py" />
     <Compile Include="tests\unit\conftest.py" />
+    <Compile Include="tests\unit\contacts_samples.py" />
     <Compile Include="tests\unit\e2e_support.py" />
     <Compile Include="tests\unit\fake_index_child.py" />
     <Compile Include="tests\unit\interrupted_run_child.py" />
     <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_accounts_http.py" />
+    <Compile Include="tests\unit\test_accounts_oauth.py" />
+    <Compile Include="tests\unit\test_accounts_policy.py" />
+    <Compile Include="tests\unit\test_accounts_secrets.py" />
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_ai_program_paths.py" />
@@ -731,6 +759,12 @@
     <Compile Include="tests\unit\test_config.py" />
     <Compile Include="tests\unit\test_connection_per_thread.py" />
     <Compile Include="tests\unit\test_consumer_never_waits.py" />
+    <Compile Include="tests\unit\test_contact_sync_engine.py" />
+    <Compile Include="tests\unit\test_contacts_dupes.py" />
+    <Compile Include="tests\unit\test_contacts_export.py" />
+    <Compile Include="tests\unit\test_contacts_import.py" />
+    <Compile Include="tests\unit\test_contacts_printing.py" />
+    <Compile Include="tests\unit\test_contacts_qr.py" />
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
@@ -894,6 +928,8 @@
     <Compile Include="tests\unit\test_mail_browse.py" />
     <Compile Include="tests\unit\test_mail_conversation.py" />
     <Compile Include="tests\unit\test_mail_duplicates.py" />
+    <Compile Include="tests\unit\test_mail_gmail_api.py" />
+    <Compile Include="tests\unit\test_mail_graph.py" />
     <Compile Include="tests\unit\test_mail_grouping.py" />
     <Compile Include="tests\unit\test_mail_list_order.py" />
     <Compile Include="tests\unit\test_mail_open_original.py" />
@@ -1008,6 +1044,8 @@
     <Compile Include="tests\unit\test_preview_window.py" />
     <Compile Include="tests\unit\test_privacy_defaults.py" />
     <Compile Include="tests\unit\test_prompt_examples.py" />
+    <Compile Include="tests\unit\test_provider_google_people.py" />
+    <Compile Include="tests\unit\test_provider_graph_contacts.py" />
     <Compile Include="tests\unit\test_pst_backend_is_shown.py" />
     <Compile Include="tests\unit\test_pst_change_marker.py" />
     <Compile Include="tests\unit\test_pst_folder_resume.py" />

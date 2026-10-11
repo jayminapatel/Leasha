@@ -1014,7 +1014,7 @@ ERROR_REGISTRY: dict[str, _Spec] = {
     ),
     "ERR_SYNC_DELETE_BRAKE": _Spec(
         message=("This sync would delete {count} contacts from {account} - more than your "
-                 "safety limit - so nothing was changed."),
+                 "safety limit - so no contact was deleted."),
         suggestion=("Check the list in the sync log. If it is right, press Allow in the "
                     "sync log and sync again; if not, press Undo."),
         action_type=ActionType.USER_RETRY,
