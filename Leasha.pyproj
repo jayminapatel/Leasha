@@ -1106,6 +1106,7 @@
     <Compile Include="tests\unit\test_mcp_contacts.py" />
     <Compile Include="tests\unit\test_mcp_contacts_readonly.py" />
     <Compile Include="tests\unit\test_mcp_server.py" />
+    <Compile Include="tests\unit\test_meaning_scope.py" />
     <Compile Include="tests\unit\test_media.py" />
     <Compile Include="tests\unit\test_media_backlog_ocr_helper.py" />
     <Compile Include="tests\unit\test_media_open.py" />

@@ -62,6 +62,7 @@ def utf8_safe(text: Any) -> Any:
         return text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
 from app.core.logging import logger
 from app.core.row_facts import is_mail_attachment, listed_files_sql  # noqa: F401 - re-exported
+from app.core.row_facts import MAIL_SOURCE_KINDS as _MAIL_KINDS
 from app.storage.migrations import (
     CONTENT_TRIGGERS, CURRENT_VERSION, apply_migrations, read_version,
 )
@@ -4393,6 +4394,7 @@ class SqliteStore:
         """
         groups: dict[int, list[tuple[int, int]]] = {}
         modified: dict[int, int] = {}
+        mail: dict[int, int] = {}
         # Plain tuples, not `sqlite3.Row`, and `fetchall()` rather than a loop
         # over the cursor: `_GuardedCursor.__next__` takes its guard once per
         # row, which profiled at half this method's time over 120k rows.
@@ -4402,7 +4404,7 @@ class SqliteStore:
             # LEFT: a passage whose file row is missing (foreign keys off in a
             # repair or a test) is still handed back, as it always was - last,
             # with no date.
-            "SELECT c.id, c.file_id, f.mtime_ns FROM chunks c "
+            "SELECT c.id, c.file_id, f.mtime_ns, f.source_kind FROM chunks c "
             "LEFT JOIN files f ON f.id = c.file_id WHERE c.embedded = 0").fetchall()
         # Rows arrive in passage-id order, and one file's passages are written
         # together (`replace_chunks`), so they come as runs: grouped a run at a
@@ -4415,12 +4417,14 @@ class SqliteStore:
             if found is None:
                 groups[file_id] = pairs
                 modified[file_id] = int(run_rows[0][2] or 0)
+                # Mail is what is searched most: after the `--first` folders, before documents.
+                mail[file_id] = 0 if run_rows[0][3] in _MAIL_KINDS else 1
             else:
                 found.extend(pairs)
                 found.sort()
         rank = self._first_folder_ranks(groups, first_folders)
         unranked = len(tuple(first_folders))         # after every first folder
-        order = sorted(groups, key=lambda f: (rank.get(f, unranked), -modified[f], f))
+        order = sorted(groups, key=lambda f: (rank.get(f, unranked), mail[f], -modified[f], f))
         batches: list[list[tuple[int, int]]] = []
         batch: list[tuple[int, int]] = []
         for file_id in order:
