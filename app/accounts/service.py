@@ -112,6 +112,10 @@ class AccountService:
         self.mail_sync: Optional[Callable[..., Any]] = None
         self._lock = threading.Lock()
         self._running: set[tuple[int, str]] = set()
+        try:
+            self.accounts.close_stale_runs()          # a run the last session never finished says so
+        except Exception:                             # noqa: BLE001 - a label; never stops the service
+            pass
 
     # ---------------------------------------------------------------- plumbing
     def settings(self) -> AccountSettings:
@@ -199,7 +203,29 @@ class AccountService:
         address = tokens.email or login_hint or placeholder
         self.accounts.update(aid, address=address, name=name or address)
         self._token_managers[aid] = manager
+        self.resolve_address(self.accounts.get(aid))      # type: ignore[arg-type] - Microsoft gives no id_token email
         return self.accounts.get(aid)  # type: ignore[return-value]
+
+    def resolve_address(self, account: Account) -> str:
+        """Fill in a Microsoft account's address when sign-in left the placeholder (`pending-...`).
+
+        Microsoft's sign-in carries no email in what Leasha asks for, so the address is read once
+        from the signed-in profile (`User.Read` is already granted). Returns the address now held;
+        a failure leaves the placeholder and never stops what the caller was doing."""
+        if account.provider != "microsoft" or not account.address.startswith("pending-"):
+            return account.address
+        try:
+            resp = self.transport_for(account).request(
+                "GET", "https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName",
+                headers={"Authorization": f"Bearer {self.token_source(account)()}", "Accept": "application/json"})
+            data = (resp.json() or {}) if resp.status == 200 else {}
+        except Exception:                                  # noqa: BLE001 - the address is a label
+            return account.address
+        address = str(data.get("mail") or data.get("userPrincipalName") or "")
+        if address:
+            self.accounts.update(account.id, address=address)
+            return address
+        return account.address
 
     def add_password_account(self, provider: str, address: str, password: str, name: str = "", *,
                              server: Optional[str] = None, port: Optional[int] = None,
@@ -232,6 +258,7 @@ class AccountService:
 
     def test_connection(self, account: Account) -> ConnectionReport:
         """'Test connection' (10p.3): reaches the server and reports what was granted."""
+        self.resolve_address(account)
         try:
             if account.contacts_on:
                 provider = self.contact_provider(account)
