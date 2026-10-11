@@ -1579,3 +1579,22 @@ def interpret_client(settings: Any, value: str, *, warm: bool = False,
     if warm and hasattr(client, "warm"):
         warm_if_fits(client.warm, size_bytes, what="Interpret's model")
     return client
+
+
+# -- Your words (order smarter-answers 4d) -------------------------------------
+
+def my_words_read(store: Any) -> list[tuple[str, str, str]]:
+    """Worker body: every word the owner has defined."""
+    return list(store.my_words())
+
+
+def my_words_set(store: Any, phrase: str, meaning: str) -> list[tuple[str, str, str]]:
+    """Worker body: add or change one word, then the whole list."""
+    store.set_my_word(phrase, meaning, source="settings")
+    return list(store.my_words())
+
+
+def my_words_remove(store: Any, phrase: str) -> list[tuple[str, str, str]]:
+    """Worker body: forget one word, then the whole list."""
+    store.remove_my_word(phrase)
+    return list(store.my_words())

@@ -5987,8 +5987,6 @@ class SqliteStore:
         than raising, because losing a conversation to a stale id is worse than
         keeping a duplicate.
         """
-        import json
-
         now = int(time.time())
         cleaned = " ".join(str(title or "").split())[:120] or "New conversation"
         payload = (cleaned, str(model or ""), json.dumps(list(turns), ensure_ascii=False),
@@ -6015,8 +6013,6 @@ class SqliteStore:
         A row whose JSON is damaged comes back with empty turns rather than
         raising: one bad session never hides the others.
         """
-        import json
-
         out: list[dict[str, Any]] = []
         for row in self.conn.execute(
                 "SELECT id, title, model, turns_json, shelf_json, created_at, updated_at "

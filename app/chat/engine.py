@@ -48,6 +48,7 @@ from app.chat.aggregate import parse_aggregate, run_aggregate
 from app.chat.config import ChatSettings
 from app.chat.context import Piece, Source, about_line, build_sources, is_mail_archive
 from app.chat.llm import OllamaLLM, as_llm
+from app.chat.my_words import apply as apply_words, learn as learn_words, note_for_model
 from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, widen
 from app.chat.roles import RoleModels, resolve_roles, suggest_modes
 from app.chat.reconcile import reconcile
@@ -460,8 +461,12 @@ class ChatEngine:
         if not text:
             return ChatTurn("assistant", "Type a question and I will look through your files.",
                             kind="clarify")
+        taught = learn_words(text)
+        if taught is not None:
+            return self._words_turn(taught, debug)
 
         route = route_question(text, history)                      # rules only: instant
+        route = self._with_my_words(route, say, debug)
         debug["route"] = route.as_dict()
         eff = route.effective
 
@@ -480,7 +485,7 @@ class ChatEngine:
             if router_llm is not None and self._reachable(router_llm):
                 refined = route_question(text, history, llm=router_llm, should_stop=stop)
                 if refined.by == "model":
-                    route = refined
+                    route = self._with_my_words(refined, None, debug)
                     debug["route"] = route.as_dict()
                     eff = route.effective
                     if eff == AGGREGATE:
@@ -655,6 +660,43 @@ class ChatEngine:
             return results, width                       # a reply that lost or doubled a row
         debug["reranked"] = True
         return [results[i] for i in order], width
+
+    def _with_my_words(self, route: Route, say: Optional[Callable], debug: dict) -> Route:
+        """The route with the owner's words put in place of their phrases (order
+        smarter-answers 4b): "emails from Mum" is searched as "emails from Jane
+        Example". Said once in the narration, so the person sees what was searched."""
+        from dataclasses import replace
+
+        try:
+            words = list(self.store.my_words())
+        except Exception:                               # noqa: BLE001 - an index before them
+            return route
+        searched, used = apply_words(route.question, words)
+        if not used:
+            return route
+        debug["my_words"] = used
+        if say is not None:
+            say("Reading " + "; ".join(f'"{p}" as {m}' for p, m in used) + ".")
+        return replace(route, question=searched)
+
+    def _words_turn(self, taught: Any, debug: dict) -> ChatTurn:
+        """"remember Mum is Jane Example" / "forget Mum" (order smarter-answers 4c).
+        Saved at once and said back, so a wrong reading is seen and undone."""
+        debug["my_words_taught"] = {"action": taught.action, "phrase": taught.phrase}
+        try:
+            if taught.action == "set":
+                self.store.set_my_word(taught.phrase, taught.meaning, source="chat")
+                text = (f'I will remember that "{taught.phrase}" means {taught.meaning}, and look '
+                        f"for {taught.meaning} whenever you say it. Settings > Search lists the "
+                        f'words I know; say "forget {taught.phrase}" to undo this.')
+            elif self.store.remove_my_word(taught.phrase):
+                text = f'I have forgotten what "{taught.phrase}" means.'
+            else:
+                text = f'I had nothing saved for "{taught.phrase}".'
+        except Exception as exc:                        # noqa: BLE001 - the contract: never raises
+            return self._error_turn("I could not save that.", "Try again in a moment.",
+                                    debug, detail=str(exc))
+        return ChatTurn("assistant", text, kind="chat", debug=dict(debug))
 
     def _own_passages(self, results: list) -> list:
         """Each document card hit swapped for the document's own first passage.
@@ -1209,6 +1251,9 @@ class ChatEngine:
             web=[(s.n, s.name, s.path, s.passage) for s in web_sources])
         if route.kind == FOLLOWUP:
             system += f"\n\nQuestion: {route.question}"     # the follow-up, made standalone
+        words_note = note_for_model(debug.get("my_words") or ())
+        if words_note:
+            system += "\n\n" + words_note
         reserve = min(ANSWER_MAX_TOKENS, max(256, window // 3))
         packed = memory.pack(system, history, text, window_tokens=window, reserve_tokens=reserve)
         debug["memory"] = packed.as_dict()

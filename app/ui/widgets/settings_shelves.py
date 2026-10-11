@@ -137,6 +137,10 @@ class SettingsShelves:
             lambda _s: self.rerank_toggled.emit(self.rerank.isChecked()))
 
         self.search_behaviour = SearchBehaviourBox(settings)
+        # Order smarter-answers 4d: the owner's own words. Given the store by the window.
+        from app.ui.widgets.my_words_box import MyWordsBox
+
+        self.my_words = MyWordsBox()
         self.search_behaviour.changed.connect(self.settings_changed)
         self.editor_box = EditorBox(settings)
         self.editor_box.changed.connect(self.settings_changed)
@@ -330,7 +334,7 @@ class SettingsShelves:
         shelves = (
             (CATEGORY_WHATS_INDEXED, (self.roots_box, self.code_types, pst_box,
                                       self.mail_archives, behaviour, self.file_types)),
-            (CATEGORY_SEARCH, (self.search_box, self.search_behaviour,
+            (CATEGORY_SEARCH, (self.search_box, self.search_behaviour, self.my_words,
                                self.editor_box, privacy)),
             (CATEGORY_MODELS, (self.needed_models, self.model_manager, self.models,
                                self.photo_people_box,

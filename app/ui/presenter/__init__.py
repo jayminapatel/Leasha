@@ -382,6 +382,9 @@ from app.ui.presenter.snippets import (
 #: Worker bodies live in `app.ui.tasks`; they are re-exported lazily because
 #: `tasks` imports the modules above and an eager import here would be a cycle.
 _TASK_NAMES = frozenset({
+    "my_words_read",
+    "my_words_set",
+    "my_words_remove",
     "filter_offer_notices",
     "repo_health_notes",
     "search_check_lines",

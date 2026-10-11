@@ -119,6 +119,9 @@ BUTTONS: dict[str, tuple[str, str]] = {
     # 2026-10-02: on each line of the folder list - that folder, now.
     "Index now": ("play", "secondary"),
     "Rescan these folders now": ("refresh-cw", "secondary"),
+    # -- Settings > Search > Your words (order smarter-answers 4d, 2026-10-12) --
+    "Add word": ("plus", "secondary"),
+    "Remove word": ("x", "secondary"),
     "Add all four": ("folder-plus", "secondary"),
     "Select all": ("list-checks", "secondary"),
     "Select none": ("list-x", "secondary"),

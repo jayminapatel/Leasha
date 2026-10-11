@@ -889,6 +889,8 @@ class MainWindow(QMainWindow):
                 self.outlook_cleanup_ctl.request)
             self.indexing_view.finished.connect(self.settings_ctl._load_mail_archives)
             self.settings_ctl._load_mail_archives()
+            # Order smarter-answers 4d: Your words reads and writes the index itself.
+            self.settings_view.my_words.set_store(self._store)
             self.settings_view.code_types_changed.connect(self._save_code_types)
             self.settings_view.code_types.load(*self._load_code_types())
             # 2026-10-05: the drop-down shows what was saved. Before the
