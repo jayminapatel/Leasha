@@ -65,6 +65,11 @@ class SideList(QTreeWidget):
         self._shown = shown
         self._colours: dict[str, str] = {}
         self._entries: list[SideEntry] = []
+        #: What the list was last drawn from, and its rows by key: when only the ticks changed (a click
+        #: edits the filter box, the box redraws the list), the rows are restyled in place instead of
+        #: rebuilt - a long folder list took a second to rebuild, at every click.
+        self._shape: tuple = ()
+        self._by_key: dict[str, QTreeWidgetItem] = {}
         self._current = ""
         self._more: set[str] = set()
         #: The sections that open by default; any other starts folded. None: all open.
@@ -76,7 +81,15 @@ class SideList(QTreeWidget):
     # -- what the page says ----------------------------------------------------------
 
     def set_entries(self, entries: Iterable[SideEntry]) -> None:
-        """Draw these entries, keeping the current one and which sections are open."""
+        """Draw these entries, keeping the current one and which sections and folders are open."""
+        entries = list(entries)
+        shape = tuple((e.key, e.label, e.count, e.parent, e.section, e.icon, e.colour, e.kind, e.tip)
+                      for e in entries)
+        if self._by_key and shape == self._shape:
+            self._entries = entries
+            self._restyle(entries)
+            return
+        opened = {key for key, row in self._by_key.items() if row.isExpanded()}
         for i in range(self.topLevelItemCount()):
             heading = self.topLevelItem(i)
             name = heading.data(0, _SECTION)
@@ -117,11 +130,31 @@ class SideList(QTreeWidget):
             for name, heading in sections.items():
                 default = self._default_open is None or name in self._default_open
                 heading.setExpanded(self._folded.get(name, default))
+            for key in opened:
+                if key in items:
+                    items[key].setExpanded(True)
+            self._by_key, self._shape = items, shape
             current = items.get(self._current)
             if current is not None:
                 self.setCurrentItem(current)
         finally:
             self.blockSignals(False)
+
+    def _restyle(self, entries: list[SideEntry]) -> None:
+        """Only the ticks differ: restyle the rows whose tick changed, and touch nothing else."""
+        self.setUpdatesEnabled(False)
+        try:
+            for entry in entries:
+                row = self._by_key.get(entry.key)
+                if row is None:
+                    continue
+                old = row.data(0, _ENTRY)
+                if old is None or bool(old.checked) != bool(entry.checked):
+                    self._style(row, entry)
+                else:
+                    row.setData(0, _ENTRY, entry)
+        finally:
+            self.setUpdatesEnabled(True)
 
     def entries(self) -> list[SideEntry]:
         return list(self._entries)
@@ -177,24 +210,25 @@ class SideList(QTreeWidget):
         item.setTextAlignment(1, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         item.setForeground(1, QBrush(QColor(self._ink("text_faint", "#888888"))))
         item.setToolTip(0, entry.tip or entry.label)
-        item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
-                     entry.label if not count else f"{entry.label}, {count}")
-        if entry.icon:
-            from app.ui.widgets.icons import icon
-
-            item.setIcon(0, icon(entry.icon, entry.colour or self._ink("text_dim", "#888888")))
-        if entry.checked:
-            # In force: bold, its icon in the accent - no tick box, as on Contacts.
-            font = QFont(self.font())
-            font.setBold(True)
-            item.setFont(0, font)
-            if entry.icon:
-                from app.ui.widgets.icons import icon
-
-                item.setIcon(0, icon(entry.icon, self._ink("accent", "#5b4bd5")))
-            item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
-                         f"{entry.label}, chosen" + (f", {count}" if count else ""))
+        self._style(item, entry)
         return item
+
+    def _style(self, item: QTreeWidgetItem, entry: SideEntry) -> None:
+        """What depends on the tick: bold and the accent icon when in force, and the words a screen
+        reader says. No tick box - the Contacts panel the owner liked has none."""
+        from app.ui.widgets.icons import icon
+
+        count = item.text(1)
+        item.setData(0, _ENTRY, entry)
+        font = QFont(self.font())
+        font.setBold(bool(entry.checked))
+        item.setFont(0, font)
+        if entry.icon:
+            item.setIcon(0, icon(entry.icon, self._ink("accent", "#5b4bd5") if entry.checked
+                                 else (entry.colour or self._ink("text_dim", "#888888"))))
+        label = entry.label if not count else f"{entry.label}, {count}"
+        item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
+                     f"{entry.label}, chosen" + (f", {count}" if count else "") if entry.checked else label)
 
     def _find(self, key: str) -> Optional[QTreeWidgetItem]:
         stack = [self.topLevelItem(i) for i in range(self.topLevelItemCount())]

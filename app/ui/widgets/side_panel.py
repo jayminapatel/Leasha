@@ -17,7 +17,7 @@ from __future__ import annotations
 import weakref
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QThreadPool, Qt
+from PySide6.QtCore import QEvent, QObject, QThreadPool, QTimer, Qt
 from PySide6.QtWidgets import QLayout, QSplitter, QWidget
 
 from app.ui.widgets.side_list import SideList
@@ -153,7 +153,12 @@ def _box_side(view: Any, side: SideList, *, page: str, words: str, tip: str,
             page_view.input.setText(toggle_in_box(text, switch, value))
 
     side.picked.connect(picked)
-    view.input.textChanged.connect(lambda _t: draw())
+    #: Typing and clicking both change the box; one redraw after they settle, not one per keystroke.
+    settle = QTimer(view)
+    settle.setSingleShot(True)
+    settle.setInterval(120)
+    settle.timeout.connect(draw)
+    view.input.textChanged.connect(lambda _t: settle.start())
     toggles = getattr(view, "toggles", {})
     before = toggles.get("inspector") or getattr(view, "view_button", None)
     attach(view, side, target=target, row=holder_of(view.layout(), before), before=before,
@@ -166,10 +171,12 @@ def _box_side(view: Any, side: SideList, *, page: str, words: str, tip: str,
 
 
 def _files_counts(store: Any) -> tuple:
+    """On a worker: the counts, and the Places tree built from them - once, not at every click."""
     from app.storage import side_counts as c
+    from app.ui.presenter.side_entries import folder_tree
 
-    return (c.saved_roots(store), c.folder_counts(store), c.drive_counts(store),
-            c.kind_counts(store))
+    roots, folders = c.saved_roots(store), c.folder_counts(store)
+    return (roots, folders, c.drive_counts(store), c.kind_counts(store), folder_tree(roots, folders))
 
 
 def _code_counts(store: Any) -> tuple:
@@ -193,7 +200,7 @@ def wire_files(view: Any) -> SideList:
     side = SideList("filesSide", accessible="Folders, drives and kinds",
                     tip="Click to narrow the files; click again to take it away", shown=12)
     return _box_side(view, side, page="files", words="Places", tip=FILES_TIP, read=_files_counts,
-                     build=lambda counts, box: files_entries(*counts, box=box),
+                     build=lambda counts, box: files_entries(*counts[:4], box=box, tree=counts[4]),
                      switches=("path", "on", "type"), target=view.split)
 
 

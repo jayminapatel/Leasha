@@ -199,3 +199,53 @@ def test_a_browse_click_opens_that_month(gui_mainwindow, monkeypatch):
     from app.reports.timeline import Period
 
     assert opened == [Period.month(2015, 6)]
+
+
+# -- speed: the Files list froze for seconds at a click (2026-10-11, the owner) -----------------
+
+def test_the_folder_tree_of_a_big_index_builds_at_once_and_in_the_right_order():
+    import time
+
+    from app.ui.presenter.side_entries import folder_tree
+
+    counts = [(rf"D:\Data\Company {a}\Project {b}\Docs {c}", 3)
+              for a in range(30) for b in range(25) for c in range(25)]            # 18,750 folders
+    counts += [(r"D:\Data", 5), (r"D:\Data\Company 0", 2)]
+    began = time.perf_counter()
+    tree = folder_tree([r"D:\Data"], counts)
+    assert time.perf_counter() - began < 1.5                                        # it was 7 s at this size
+    assert tree[0] == ("place:D:\Data", "", "D:\Data", sum(c for _f, c in counts))
+    by_parent: dict = {}
+    for key, parent, _folder, total in tree[1:]:
+        by_parent.setdefault(parent, []).append(total)
+    assert all(v == sorted(v, reverse=True) for v in by_parent.values())          # largest first at each level
+    assert len(by_parent["place:D:\Data"]) == 30 and max(len(v) for v in by_parent.values()) == 30
+    assert tree.index(next(r for r in tree if r[2] == r"D:\Data\Company 0")) < tree.index(
+        next(r for r in tree if r[2] == r"D:\Data\Company 0\Project 0"))               # parents before children
+
+
+def test_a_tick_change_restyles_the_rows_in_place_and_keeps_folders_open(qtbot):
+    from app.ui.presenter.side_entry import SideEntry
+    from app.ui.widgets.side_list import SideList
+
+    def make(ticked):
+        return [SideEntry("a", "A", section="Places", icon="folder", count=3, value=("path", "A"), checked=ticked == "a"),
+                SideEntry("a/b", "B", section="Places", icon="folder", count=2, parent="a", value=("path", "A/B"),
+                          checked=ticked == "b")]
+
+    side = SideList("t", accessible="t")
+    qtbot.addWidget(side)
+    side.set_entries(make(""))
+    row_a, row_b = side._by_key["a"], side._by_key["a/b"]
+    row_a.setExpanded(True)
+    side.set_entries(make("b"))                                              # only the tick moved
+    assert side._by_key["a"] is row_a and side._by_key["a/b"] is row_b      # the same rows: nothing rebuilt
+    assert row_a.isExpanded() and row_b.font(0).bold() and not row_a.font(0).bold()
+    from PySide6.QtCore import Qt
+
+    assert "chosen" in row_b.data(0, Qt.ItemDataRole.AccessibleTextRole)
+    changed = make("b")
+    changed[1] = SideEntry("a/b", "B", section="Places", icon="folder", count=9, parent="a", value=("path", "A/B"),
+                           checked=True)                                    # a count moved: a real rebuild
+    side.set_entries(changed)
+    assert side._by_key["a"] is not row_a and side._by_key["a"].isExpanded()   # rebuilt, and still open
