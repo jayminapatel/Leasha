@@ -92,6 +92,9 @@ class PhotoModel(QAbstractTableModel):
         self._fading.setInterval(16)
         self._fading.timeout.connect(self._fade_step)
         thumbs.ready.connect(self._thumb_ready)
+        #: `(column, order)` of the Details heading last clicked, or None while
+        #: the page's own order (the View menu's sort) is followed.
+        self.heading: Optional[tuple[int, Qt.SortOrder]] = None
 
     @staticmethod
     def _blank(edge: int) -> QIcon:
@@ -160,7 +163,10 @@ class PhotoModel(QAbstractTableModel):
         same photos come back in the same order - names or places changed,
         the pictures did not - the rows are swapped under the view and only
         their words repaint. Anything else is a new list, and resets."""
-        rows = list(rows)
+        # A heading clicked in Details holds across a new read of the library:
+        # the page hands its rows over in the View menu's order, and without
+        # this the person's sort was undone every 45 seconds (2026-10-12).
+        rows = self._in_heading_order(list(rows))
         if rows and len(rows) == len(self._rows) and all(
                 str(new.path) == str(old.path) for new, old in zip(rows, self._rows, strict=True)):
             self._rows = rows
@@ -235,21 +241,36 @@ class PhotoModel(QAbstractTableModel):
         return None
 
     def sort(self, column: int, order: Qt.SortOrder = Qt.SortOrder.AscendingOrder) -> None:
-        """Sort the rows in place by the column's own value; the selection follows."""
-        key = COLUMNS[column][0] if 0 <= column < len(COLUMNS) else "date"
-        reverse = order == Qt.SortOrder.DescendingOrder
+        """Sort the rows in place by the column's own value; the selection follows.
+        Qt calls it for a heading click, and it is remembered (`heading`)."""
+        self.heading = (column, order)
+        self.layoutAboutToBeChanged.emit()
+        self._rows = self._in_heading_order(self._rows)
+        self._index = {str(row.path): n for n, row in enumerate(self._rows)}
+        self.layoutChanged.emit()
+
+    def heading_key(self) -> Optional[str]:
+        """The `COLUMNS` key of the heading sorted by, or None."""
+        if self.heading is None:
+            return None
+        column = self.heading[0]
+        return COLUMNS[column][0] if 0 <= column < len(COLUMNS) else "date"
+
+    def _in_heading_order(self, rows: list) -> list:
+        """`rows` sorted by the clicked heading, or as they came when there is none."""
+        key = self.heading_key()
+        if key is None:
+            return rows
+        reverse = self.heading[1] == Qt.SortOrder.DescendingOrder
 
         def value(row: Any) -> Any:
             if key == "date":
-                return row.when_ns
+                return row.when_ns or 0
             if key == "size":
                 return row.size_bytes
             return column_text(row, key).casefold()
 
-        self.layoutAboutToBeChanged.emit()
-        self._rows.sort(key=value, reverse=reverse)
-        self._index = {str(row.path): n for n, row in enumerate(self._rows)}
-        self.layoutChanged.emit()
+        return sorted(rows, key=value, reverse=reverse)
 
     def _thumb_ready(self, path: str) -> None:
         """A thumbnail landed: start its fade-in. Its cell is repainted by the next
@@ -455,7 +476,10 @@ class PhotoBrowser(QWidget):
             view.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
             view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
             view.customContextMenuRequested.connect(self._menu)
-            view.doubleClicked.connect(self._open_index)
+            # `activated` alone: on Windows a double-click emits `doubleClicked`
+            # and then `activated` (no Windows style activates on one click), and
+            # Enter emits `activated` - so listening to both opened the viewer
+            # twice for one double-click (2026-10-12).
             view.activated.connect(self._open_index)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # One selection for both, so a switch of view keeps it.
@@ -497,7 +521,8 @@ class PhotoBrowser(QWidget):
         """Show `rows`, keeping the current picture selected when it is still there."""
         current = self.current_row()
         scroll = self.active_view().verticalScrollBar().value()
-        self._month_follows = dated
+        # The month label only means something while the rows run by date.
+        self._month_follows = dated and self.model.heading_key() in (None, "date")
         self.model.set_rows(rows)
         if current is not None:
             self.select_path(str(current.path))
@@ -537,6 +562,15 @@ class PhotoBrowser(QWidget):
         if current.isValid():
             view.scrollTo(current, QAbstractItemView.ScrollHint.PositionAtCenter)
 
+    def follow_order(self) -> None:
+        """Drop the clicked heading: a sort chosen from the View menu takes over.
+        The heading's arrow goes too, without Qt sorting again on the way."""
+        self.model.heading = None
+        header = self.table.horizontalHeader()
+        blocked = header.blockSignals(True)
+        header.setSortIndicator(-1, Qt.SortOrder.AscendingOrder)
+        header.blockSignals(blocked)
+
     def active_view(self) -> QAbstractItemView:
         return self.table if self.mode == "details" else self.grid
 
@@ -561,6 +595,17 @@ class PhotoBrowser(QWidget):
             | QItemSelectionModel.SelectionFlag.Rows)
         self.active_view().scrollTo(index)
         return True
+
+    def position(self) -> tuple[int, int]:
+        """`(n, total)`: the current picture's place, 1-based (0 for none), and the count."""
+        index = self.grid.selectionModel().currentIndex()
+        return (index.row() + 1 if index.isValid() else 0), self.model.rowCount()
+
+    def neighbour(self, delta: int) -> Optional[Any]:
+        """The row `delta` from the current one, without moving to it - for the
+        viewer to decode ahead."""
+        index = self.grid.selectionModel().currentIndex()
+        return self.model.row_at((index.row() if index.isValid() else -1) + delta)
 
     def step(self, delta: int) -> Optional[Any]:
         """Move the current picture by `delta` rows, for the viewer's arrows."""

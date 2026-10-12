@@ -275,8 +275,8 @@ def test_the_tab_shows_narrows_switches_view_and_opens_naming(qapp, qtbot, store
 
     from PySide6.QtWidgets import QMenu
 
-    menu = QMenu()
-    view.view_button.menu_for(menu)
+    holder = QMenu()
+    menu = view.view_button.menu_for(holder)        # a menu of its own, as every tab's
     labels = [a.text() for a in menu.actions() if a.text()]
     assert labels[:4] == ["Details", "Small thumbnails", "Medium thumbnails",
                           "Large thumbnails"]
