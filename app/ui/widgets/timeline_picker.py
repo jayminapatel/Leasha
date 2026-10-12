@@ -103,10 +103,16 @@ class TimelinePicker(QWidget):
         self.months.idClicked.connect(self._month_chosen)
 
         self.range_from = QLineEdit()
+        self.range_from.setClearButtonEnabled(True)
+        for b in self.range_from.findChildren(QToolButton):
+            b.setToolTip("Clear the From date")
         self.range_from.setPlaceholderText("From, like 2015-06-01")
         self.range_from.setAccessibleName("From date")
         self.range_from.setMinimumWidth(170)             # the whole placeholder, at 125% too
         self.range_to = QLineEdit()
+        self.range_to.setClearButtonEnabled(True)
+        for b in self.range_to.findChildren(QToolButton):
+            b.setToolTip("Clear the To date")
         self.range_to.setPlaceholderText("To, like 2015-08-31")
         self.range_to.setAccessibleName("To date")
         self.range_to.setMinimumWidth(170)

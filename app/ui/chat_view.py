@@ -264,7 +264,7 @@ class ChatView(QWidget):
     def _answer_bubble(self) -> AnswerBubble:
         bubble = AnswerBubble()
         bubble.receipt_activated.connect(lambda n, b=bubble: self._activate(b, n))
-        bubble.receipt_hovered.connect(self._hovered)
+        bubble.receipt_hovered.connect(lambda n, b=bubble: self._hovered(b, n))
         bubble.result_opened.connect(self._opened)
         bubble.result_revealed.connect(self.result_revealed)
         bubble.result_selected.connect(self.panel.preview_result)
@@ -299,6 +299,11 @@ class ChatView(QWidget):
         if self._owner is bubble:
             return
         self._owner = bubble
+        # An answer still streaming adds its cards to the pane as they come; while
+        # an older answer's sources are up it keeps them to itself (`bubble.shown`),
+        # and they are all drawn again when its own sources come back.
+        if self._run is not None and not self._run.finished:
+            self._run.sources = self.sources if bubble is self._run.bubble else None
         self.sources.clear()
         self.sources.set_details(bubble.details)
         for number in sorted(bubble.shown):
@@ -311,7 +316,10 @@ class ChatView(QWidget):
         if self.sources.select_number(number):
             self.panel.show_tab(PREVIEW_TAB)
 
-    def _hovered(self, number: int) -> None:
+    def _hovered(self, bubble: AnswerBubble, number: int) -> None:
+        # 2026-10-12: wired with its bubble, as a click is. Without it a number in
+        # an older answer showed the passage the newest answer gave that number.
+        self._show_sources_of(bubble)
         self.sources.hover_number(number)
 
     def _back_to_conversation(self) -> None:

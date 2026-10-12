@@ -158,11 +158,16 @@ class AnswerRun:
         if turn is not None and getattr(turn, "text", "") and self._placed \
                 and not self._streamed_agrees_with(receipts):
             self._restart_numbering()
+        # 2026-10-12: a FIND or list answer has its own inline list, and the engine
+        # has already put its first few (`_FIND_SHELF`) on the shelf by ShelfEvent.
+        # Pouring all its receipts into Sources and onto the shelf too showed the
+        # same files in four places and filled the shelf to its cap.
+        listed = bool(getattr(turn, "result_set", None))
         if receipts:
             self.known = list(receipts)
             self._place_new_sources(receipts)
-            # Sources the prose never pointed at still belong to the answer.
-            for engine_number, receipt in enumerate(receipts, start=1):
+            # Sources the prose never pointed at still belong to a written answer.
+            for engine_number, receipt in enumerate(receipts if not listed else (), start=1):
                 if engine_number not in self._placed:
                     self._placed.add(engine_number)
                     self._add(self.numbering.display(engine_number), receipt)

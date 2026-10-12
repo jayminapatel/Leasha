@@ -324,7 +324,8 @@ def closing_line(turn: Any, *, stopped: bool = False) -> str:
 
     A FIND answer's grid says "That's all - N results." itself (the results
     list ends that way). What is left is the edge nothing else states: a
-    search that found nothing, and an answer somebody cut short.
+    search that found nothing, an answer somebody cut short, and the engine's
+    own word on how it answered (quoted because no model was running).
     """
     if stopped:
         return STOPPED_LINE
@@ -335,7 +336,16 @@ def closing_line(turn: Any, *, stopped: bool = False) -> str:
         return notes[-1] if notes else STOPPED_LINE
     if getattr(turn, "kind", "") == "find" and not getattr(turn, "result_set", None):
         return "Nothing in what Leasha has indexed matches that."
-    return ""
+    # 2026-10-12: a finished answer's notes held the engine's own explanation ("No
+    # AI model is running, so these are ... quoted exactly") and it never reached
+    # the screen. The search log beside it is for the debug view, not the reader.
+    notes = [n for n in (getattr(turn, "notes", None) or [])
+             if n and n != "stopped" and not n.startswith(_LOG_NOTES)]
+    return notes[-1] if notes else ""
+
+
+#: Notes that record what the engine did rather than tell the reader anything.
+_LOG_NOTES = ("Searched for:", "Counted:", "Filters:", "Sources currently indexed:")
 
 
 def plain_answer_text(text: str) -> str:
@@ -398,7 +408,9 @@ _PANEL_MIN, _PANEL_MAX = 220, 1400
 class PanelState:
     """Whether the side panel shows, which tab it shows, and how wide it is."""
 
-    open: bool = True
+    #: Away until wanted (2026-10-12): open on the first run it took a third of the
+    #: window before anything was asked. A citation click brings it out at Preview.
+    open: bool = False
     tab: str = SOURCES_TAB
     width: int = PANEL_WIDTH
 

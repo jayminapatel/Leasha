@@ -275,7 +275,9 @@ class AnswerBubble(QFrame):
         """Show the exact search phrase and wait for Allow or Skip."""
         self.web_question.setText(f'Search the web for: "{query}"?')
         self.web_prompt.setVisible(True)
-        self.web_allow.setFocus()
+        # Skip has the focus (2026-10-12): an Enter meant for the message box must
+        # never send a phrase off this computer. Allow is a deliberate click.
+        self.web_skip.setFocus()
 
     def _web_answered(self, allowed: bool) -> None:
         self.web_prompt.setVisible(False)
