@@ -13,7 +13,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QAbstractItemView, QHBoxLayout, QListWidget, QListWidgetItem, QMessageBox,
+    QAbstractItemView, QHBoxLayout, QListWidget, QListWidgetItem,
     QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -104,11 +104,14 @@ class SessionList(QWidget):
 
     def confirm_delete(self, title: str) -> bool:
         """Asked before a conversation goes. Overridable so tests need no dialog."""
-        answer = QMessageBox.question(
+        # Cancel the default and "Delete" on the button (`widgets/confirm.py`): Qt's
+        # Yes/No left Yes the default on Windows, so Enter deleted the conversation.
+        from app.ui.widgets.confirm import confirm
+
+        return confirm(
             self, "Delete this conversation?",
             f"Delete \"{title}\"? It is removed from this computer. "
-            "Your files are not touched.")
-        return answer == QMessageBox.StandardButton.Yes
+            "Your files are not touched.", "Delete")
 
     def _delete(self) -> None:
         item = self.list.currentItem()

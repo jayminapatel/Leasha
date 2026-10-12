@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import style_all
 
 __all__ = ["ScanNameDialog", "DeleteVolumeDialog", "RenameSuggestionDialog"]
@@ -70,7 +71,8 @@ class ScanNameDialog(QDialog):
 
         self.problem = QLabel("")
         self.problem.setWordWrap(True)
-        self.problem.setStyleSheet("color: #c62828;")
+        # The theme's danger, read at build (the dialog is modal): #c62828 was 2.9:1 on a dark card.
+        self.problem.setStyleSheet(f"color: {theme_colours()['danger']};")
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
@@ -172,7 +174,12 @@ class DeleteVolumeDialog(QDialog):
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
         )
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Forget this source")
+        # "Delete", the word on the page's button. The page said Delete and the
+        # dialog it opened said "Forget this source", which reads as a second,
+        # different action (owner-approved, 2026-10-12). Cancel is the default.
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Delete")
+        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setAutoDefault(False)
+        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setDefault(True)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
 

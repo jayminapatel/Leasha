@@ -207,9 +207,11 @@ class CodeResults(QWidget):
             # offering a command that fails.
             open_file=self.open_selected if path else None,
             reveal=(lambda: self.reveal_requested.emit(path)) if path else None,
+            # It searches the whole repository, not this file, so it says so (the owner, 2026-10-12).
             search_inside=((lambda: self.search_repo_requested.emit(name))
-                           if name else None),
-            copy=[("Copy repository name", name), ("Copy full path", path)]
+                           if name else None), search_words="Search this repository",
+            # No "Copy full path": the shared "Copy path" above it copies the same text.
+            copy=[("Copy repository name", name)]
             # Order 0y §2c: what the Settings note has long promised - `path:line`,
             # which pastes into a terminal, a chat message or another editor.
             + ([("Copy path and line", copyable(path, line))] if path and line else []),

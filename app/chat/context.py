@@ -247,6 +247,20 @@ def about_line(card: dict) -> str:
     return "; ".join(parts)
 
 
+def source_key(result: Any) -> Any:
+    """What makes two hits the same document: the file id, or - for a hit with
+    none - its path, else its chunk id.
+
+    2026-10-12: keyed by `int(file_id or 0)` alone, every hit without a file id
+    was document 0, so a dozen different files came back as one source.
+    """
+    file_id = int(getattr(result, "file_id", 0) or 0)
+    if file_id:
+        return file_id
+    path = str(getattr(result, "path", "") or "")
+    return ("path", path) if path else ("chunk", getattr(result, "chunk_id", None) or id(result))
+
+
 def build_sources(
     results: Sequence[Any],
     terms: Sequence[str],
@@ -276,10 +290,10 @@ def build_sources(
     the stored text, never against the window.
     """
     metas = metas or {}
-    order: list[int] = []
-    by_file: dict[int, list[Any]] = {}
+    order: list[Any] = []
+    by_file: dict[Any, list[Any]] = {}
     for result in results:
-        key = int(getattr(result, "file_id", 0) or 0)
+        key = source_key(result)
         if key not in by_file:
             if len(order) >= max_sources:
                 continue
@@ -299,12 +313,13 @@ def build_sources(
                         text=str(getattr(r, "text", "") or ""),
                         page=getattr(r, "page", None), label=str(getattr(r, "label", "") or ""))
                   for r in chunk_results]
-        meta_row = metas.get(key) or {}
+        file_id = key if isinstance(key, int) else None
+        meta_row = (metas.get(file_id) if file_id else None) or {}
         meta = " ".join(str(x) for x in (
             _name_of(head.path), _folders_of(head.path), meta_row.get("sender", ""),
             meta_row.get("recipients", ""), meta_row.get("subject", "")) if x)
         sources.append(Source(
-            n=first_number + offset, file_id=key or None, path=str(head.path),
+            n=first_number + offset, file_id=file_id, path=str(head.path),
             name=source_title(head.path, meta_row), pieces=pieces,
             passage=window_of(pieces[0].text, terms, per_source), meta=meta,
             score=float(getattr(head, "score", 0.0) or 0.0),

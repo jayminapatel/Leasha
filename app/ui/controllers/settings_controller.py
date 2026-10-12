@@ -1120,12 +1120,22 @@ def _apply_written_settings(window: Any, values: dict) -> None:
     test that drives `_settings_changed` through a `SimpleNamespace`
     stand-in reaches it too (2026-10-08).
     """
+    # **`None` means the line was removed**, so the code default applies - and
+    # the live overrides below read None as *off*: restoring "Offer what you
+    # searched for before" or the shortcut switched it off until the next start.
+    # The override takes the registry default instead, which is what `.env` now
+    # means. `values` itself keeps the None for the restart notice below.
+    from app.core.settings_registry import by_key
+
+    live = {key: (getattr(by_key(key), "default", None) if value is None else value)
+            for key, value in values.items()}
+
     # §1a. **The search behaviours take effect on the very next search**,
     # not at the next launch. For a switch somebody has just turned off,
     # the difference is between a working control and one they conclude is
     # broken - and they would be right to.
     if any(key.startswith("SEARCH_") for key in values):
-        for key, value in values.items():
+        for key, value in live.items():
             if key.startswith("SEARCH_"):
                 # `Settings` is frozen, so the live object cannot be
                 # updated - the preferences dictionary is built from these
@@ -1138,7 +1148,7 @@ def _apply_written_settings(window: Any, values: dict) -> None:
     # somebody has just typed and cannot try until the next launch is a
     # control they will conclude does not work.
     if any(key.startswith("MINI_SEARCH") for key in values):
-        for key, value in values.items():
+        for key, value in live.items():
             if key.startswith("MINI_SEARCH"):
                 window._settings_overrides[key.lower()] = value
         window._apply_hotkey()
@@ -1146,7 +1156,7 @@ def _apply_written_settings(window: Any, values: dict) -> None:
     # Order 0y §2c: the editor a code result opens in is read at the moment
     # of opening (`MainWindow._open_code_at`), so a choice just made applies
     # to the very next Enter.
-    for key, value in values.items():
+    for key, value in live.items():
         if key.startswith("CODE_EDITOR"):
             window._settings_overrides[key.lower()] = value
 
@@ -1159,7 +1169,7 @@ def _apply_written_settings(window: Any, values: dict) -> None:
                                ("RERANK_WINDOW_CHARS", "window_chars")):
             if key in values:
                 try:
-                    setattr(reranker, attribute, int(values[key]))
+                    setattr(reranker, attribute, int(live[key]))
                 except Exception as exc:     # noqa: BLE001 - never fatal
                     _log.debug("could not apply {} live: {}", key, exc)
 
@@ -1169,20 +1179,18 @@ def _apply_written_settings(window: Any, values: dict) -> None:
             "the next time the app opens.", 8_000)
 
     # 2026-10-10 (A4): Describe asks the model and the address saved, from the next press.
-    describe = {field: values[key] for key, field in (("OLLAMA_URL", "ollama_url"),
+    describe = {field: live[key] for key, field in (("OLLAMA_URL", "ollama_url"),
                                                        ("OLLAMA_VISION_MODEL", "ollama_vision_model"))
-                if key in values and str(values[key] or "").strip()}
+                if key in live and str(live[key] or "").strip()}
     if describe:
         _describe_follows(**describe)
 
     if "CHAT_ENGINE" in values:
-        _apply_engine_change(window, values["CHAT_ENGINE"])
+        _apply_engine_change(window, live["CHAT_ENGINE"])
 
     # 2026-10-10. Eighteen settings only take effect at the next start, and a change that
     # looks applied and is not is the worst kind. Only the rerank model said so when it
     # was saved; the rest relied on a line in a tooltip.
-    from app.core.settings_registry import by_key
-
     waiting = [setting.label for setting in (by_key(key) for key in values)
                if setting is not None and setting.restart and setting.key != "RERANK_MODEL"]
     if waiting:

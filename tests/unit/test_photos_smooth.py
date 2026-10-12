@@ -174,7 +174,7 @@ def test_a_combine_shows_before_the_store_answers(qapp, store, tmp_path, monkeyp
 
     items = _items(page)
     assert [item.data(ROLE_PILE_ID) for item in items] == [big]
-    assert "4 photo(s)" in items[0].text()
+    assert "4 face(s)" in items[0].text()
 
 
 def test_a_combine_then_its_reload_keeps_the_tile_that_stayed(qapp, store, tmp_path):
@@ -189,7 +189,7 @@ def test_a_combine_then_its_reload_keeps_the_tile_that_stayed(qapp, store, tmp_p
     _settle(qapp)
 
     assert _items(page) == [kept]
-    assert "4 photo(s)" in kept.text()
+    assert "4 face(s)" in kept.text()
 
 
 # -- the "Is this ...?" strip ----------------------------------------------------------

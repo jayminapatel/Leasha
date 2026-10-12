@@ -48,6 +48,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 
@@ -95,7 +96,8 @@ class AddFileTypeWizard(QDialog):
 
         self.problem = QLabel("")
         self.problem.setWordWrap(True)
-        self.problem.setStyleSheet("color: #c62828;")
+        # The theme's danger, read at build (the dialog is modal): #c62828 was 2.9:1 on a dark card.
+        self.problem.setStyleSheet(f"color: {theme_colours()['danger']};")
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel

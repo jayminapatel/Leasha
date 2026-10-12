@@ -286,7 +286,10 @@ def score_case(qa: Any, turn: ChatTurn, store: Any) -> CaseResult:
     elif qa.outcome == "find":
         found = {p for p in (r.path.replace("\\", "/").lower() for r in (turn.result_set or []))}
         missing = [f for f in qa.find if not any(f.lower() in p for p in found)]
-        result.terminated = "that's all" in text or "best" in text
+        # 2026-10-12: "That's all" is said by the inline list under the prose (its
+        # last row, `results_terminator`), not by the prose too, so a find with rows
+        # ends by saying so; a full one still says "These are the best N."
+        result.terminated = bool(turn.result_set) or "that's all" in text or "best" in text
         result.correct = turn.kind == "find" and not missing and bool(result.terminated)
         if not result.correct:
             result.detail = f"kind={turn.kind} missing results={missing}"

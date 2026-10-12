@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.120 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.121 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -44,6 +44,41 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   is matched by whole names, so a person's own label ("about") is never removed.
 - **A daily sync missed while the app was closed was not caught up before the day's slot time** (opened at 00:39, a
   three-day-old sync waited for 02:00). `policy.due_at` compares with the latest slot that has come.
+
+### One app, phase A: the faults the UI review found (2026-10-12)
+
+The owner's review ("every screen and settings look and feel like using different apps") found these by reading
+the code; each is fixed with a test. Not yet seen in the real window.
+
+- **Chat says each file once.** A "find" answer listed the same files in its words, a list under it, the Sources
+  tab and the shelf. The list is now the one place; the prose no longer repeats "That's all"; the shelf keeps the
+  engine's five, not every file; the side panel starts closed and opens when a number is clicked. A quoted
+  answer says why it is quoted. Hovering a number in an older answer shows that answer's passage. The web
+  question puts the keyboard on Skip, not Allow.
+- **Photos** opens one viewer per double-click, keeps a column sort through a refresh, keeps one total in its
+  count, shows the photo when the info pane comes back, loads the next photo ahead, and its View items no longer
+  pile up in the window's View menu. Piles count faces and now say "face(s)".
+- **Lists.** Enter does what a click does in every side list, the Browse table and the Tidy list; a removed
+  filter no longer stays highlighted; Contacts opens one editor per double-click. Ctrl+F opens find in a preview
+  and goes to Search everywhere else (both were bound, so neither worked). "That's all - N results" counts the
+  rows shown. A failed read while typing in Mail, Files or Code goes on the page's summary line, not a modal box.
+  The menu says "Search inside this message" on mail and "Search this repository" in Code, which is what they do.
+- **Settings and dialogs.** "What search may do for you" writes only the setting changed, and its reset removes
+  values rather than pinning the defaults. Restore defaults asks first, says how many settings change, and shows
+  the defaults on screen. Deleting a model, a conversation, an account, a contact, a file type's settings, and
+  Tidy's move to the Recycle Bin all ask with Cancel as the default and a named button. Add account sets the
+  mail and contacts ticks again for each kind. Report export says it saved. The cloud download limit no longer
+  writes on every keystroke.
+
+### Every state colour in the window comes from the theme (2026-10-12)
+
+- **Status words were colours picked for one theme.** "Cannot read" and every dialog's problem line (`#c62828`) were 2.9:1 on
+  the dark card, "Ready" 3.2:1, "Off" 3.5:1, "Limited" 3.8:1 on white, and a commit diff's added and removed lines 3.2:1 and
+  3.7:1 on white - all under 4.5:1. They now use the theme's tokens, measured in both themes; a new `success` token (5.3:1
+  light, 6.0:1 dark) carries "Ready" and added lines. The file-types Status column now follows a theme switch.
+- The photo viewer and month pill use a `backdrop` token; the splash's faint text is the brand's chrome-on-dark,
+  and its progress bar a chrome track (3.3:1 on the navy) with a white fill (5.4:1 on the track), so the bar's whole
+  length shows. `test_ui_one_app_colours` fails on any new hex colour literal in `app/ui` outside the theme.
 
 ### Enrich contacts can look again, and says when the internet was not asked (2026-10-12)
 

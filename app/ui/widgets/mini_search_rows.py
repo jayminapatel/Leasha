@@ -57,6 +57,7 @@ class MiniRowDelegate(QStyledItemDelegate):
 
     def retint(self, colours: Any = None) -> None:
         """Take the theme's colours and draw the badge icons for them. Off the paint path."""
+        from app.ui.result_delegate import BADGE_INK
         from app.ui.theme import theme_colours
         from app.ui.widgets.icons import icon
 
@@ -64,7 +65,9 @@ class MiniRowDelegate(QStyledItemDelegate):
         dim = self._colours.get("text_dim", "#888888")
         self._icons = {}
         for bucket, glyph in BADGE_ICONS.items():
-            ink = dim if bucket in ("recent", "saved") else "#ffffff"
+            # On a kind fill, the results list's own badge ink - one value, measured
+            # on every fill by test_brand_colours, rather than a second copy of it.
+            ink = dim if bucket in ("recent", "saved") else BADGE_INK
             self._icons[bucket] = icon(glyph, ink)
 
     # -- sizes -------------------------------------------------------------------

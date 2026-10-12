@@ -160,6 +160,9 @@ class StorageBox(QGroupBox):
             "each - once spent, the rest of that run's cloud-only files "
             "stay names-only, whichever folder they are in."
         )
+        # Typing 2048 wrote 2, 20, 204 and 2048 to `.env`, the first three limits
+        # nobody chose. Arrows still save at once; typing saves on Enter or leaving.
+        self.cloud_content_cap.setKeyboardTracking(False)
         self.cloud_content_cap.valueChanged.connect(
             lambda value: self.changed.emit({"CLOUD_CONTENT_CAP_MB": value}))
 

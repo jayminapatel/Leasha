@@ -506,7 +506,8 @@ def test_browse_can_be_shown_as_thumbnails_or_as_a_table_and_remembers_which(qtb
 
     opened = []
     view.opened.connect(opened.append)
-    view.table.results.itemDoubleClicked.emit(view.table.results.item(0, 1))
+    # `activated` is what Qt sends for a double-click and for Enter (2026-10-12: Enter opens too).
+    view.table.results.activated.emit(view.table.results.model().index(0, 1))
     assert len(opened) == 1                                                        # a double-click opens, as in the thumbnails
 
     view.browse(Period.month(2015, 7))                                             # another period: the table follows

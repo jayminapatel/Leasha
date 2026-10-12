@@ -17,6 +17,7 @@ from PySide6.QtWidgets import QAbstractItemView, QTreeWidget, QTreeWidgetItem, Q
 
 from app.ui.accounts import logic
 from app.ui.later import later
+from app.ui.theme import theme_colours
 
 __all__ = ["AccountList", "COLUMNS"]
 
@@ -26,7 +27,8 @@ _ID = Qt.ItemDataRole.UserRole
 
 def _swatch(colour: str) -> QIcon:
     pix = QPixmap(QSize(14, 14))
-    pix.fill(QColor(colour) if QColor(colour).isValid() else QColor("#888888"))
+    # An account with no usable colour gets the theme's faint grey, not a literal one.
+    pix.fill(QColor(colour) if QColor(colour).isValid() else QColor(theme_colours()["text_faint"]))
     return QIcon(pix)
 
 
@@ -73,7 +75,6 @@ class AccountList(QTreeWidget):
     def set_rows(self, statuses: list[Any], colours: Optional[dict] = None,
                  doing: Optional[dict[int, str]] = None) -> None:
         from app.ui.widgets.icons import icon  # noqa: PLC0415
-        from app.ui.theme import theme_colours  # noqa: PLC0415
 
         c = colours or theme_colours()
         ink = c.get("text_dim", "#888888")

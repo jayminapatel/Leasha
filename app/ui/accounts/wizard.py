@@ -50,6 +50,11 @@ def _add(factory: Any, spec: dict, on_progress: Any = None) -> Any:
     return acct
 
 
+#: `kind -> (fetch mail, sync contacts)` as the wizard first ticks them. A kind not
+#: named keeps the dialog's own start: contacts on, mail left for the person to tick.
+_TICKS = {"google-imap": (True, False), "imap": (True, False), "carddav": (False, True)}
+
+
 class AddAccountDialog(QDialog):
     def __init__(self, backend: Backend, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -58,6 +63,8 @@ class AddAccountDialog(QDialog):
         self.account: Any = None
         self._busy = False
         self.kind = "google"
+        #: The kind the mail and contacts ticks were last set for (`_layout_for`).
+        self._ticks_for = ""
         outer = QVBoxLayout(self)
         self.stack = QStackedWidget()
         outer.addWidget(self.stack)
@@ -187,15 +194,15 @@ class AddAccountDialog(QDialog):
         for key, (lab, w) in self.row_widgets.items():
             lab.setVisible(key in shown)
             w.setVisible(key in shown)
-        if kind == "google-imap":
-            self.contacts.setChecked(False)
-            self.mail.setChecked(True)
-        elif kind in ("imap",):
-            self.contacts.setChecked(False)
-            self.mail.setChecked(True)
-        elif kind == "carddav":
-            self.contacts.setChecked(True)
-            self.mail.setChecked(False)
+        # Every kind sets both ticks, but only when the kind changes. Only three kinds
+        # set them, so picking IMAP (contacts off), going Back and picking Google kept
+        # contacts off for an account whose contacts are half the point. Back and Next
+        # on the same kind keeps what the person ticked.
+        if kind != self._ticks_for:
+            mail, contacts = _TICKS.get(kind, (False, True))
+            self.mail.setChecked(mail)
+            self.contacts.setChecked(contacts)
+            self._ticks_for = kind
         self.contacts.setVisible(kind not in ("google-imap", "imap"))
         self.mail.setVisible(kind not in ("carddav",))
         self.address.setPlaceholderText("Optional - helps pick the right account in the browser" if oauth

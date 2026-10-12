@@ -221,6 +221,8 @@ class SettingsShelves:
             self, getattr(settings, "env_file", None),
             lambda values: self.settings_changed.emit(values))
         attach_resets(self, lambda values: self.settings_changed.emit(values))
+        # Every change pins or unpins a key, so the button's count follows them.
+        self.settings_changed.connect(self.restore_defaults.note_written)
 
     # -- roots ----------------------------------------------------------------
 

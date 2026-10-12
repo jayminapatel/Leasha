@@ -2,7 +2,7 @@ r"""The preview pane: read a result without opening the application that owns it
 
 Layer: L5
 
-Off by default, `Ctrl+P` or the View menu, and persisted like every other view
+Off by default, `Ctrl+Shift+P` or the View menu, and persisted like every other view
 preference.
 
 **No `QWebEngineView`, and the reason is not performance.** It is a full
@@ -78,7 +78,7 @@ def attach_preview(results: Any, on_open: Any, on_error: Any, *, store: Any = No
 
     **The splitter exists whether or not the pane is shown.** Toggling
     visibility is then a repaint rather than a relayout, which is what makes
-    `Ctrl+P` feel instant - and the divider somebody dragged is still where they
+    `Ctrl+Shift+P` feel instant - and the divider somebody dragged is still where they
     left it when the pane comes back.
 
     `store` is Offline Media §3b: a row on a catalogued volume previews from
@@ -328,7 +328,8 @@ class PreviewPane(QWidget):
         from app.ui.widgets.find_bar import attach_find
 
         # The main window's Escape closes this bar (`MainWindow._clear_search`); a
-        # second Escape shortcut here made the two ambiguous and neither fired.
+        # second Escape shortcut here made the two ambiguous and neither fired. Ctrl+F
+        # the same way: the window's asks this pane first (`MainWindow._find_or_search`).
         self.find = attach_find(self, self.text, window_escape=False)
 
         # Order 0y section 4b: the searched words, highlighted in whatever text
