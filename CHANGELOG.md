@@ -56,6 +56,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### A Microsoft account is named by its address (2026-10-12)
+
+- **Fixed:** the Accounts list showed "pending-1791709065" as the Microsoft account's address. Sign-in does not carry
+  an address, so a placeholder is kept until Leasha reads it from the signed-in profile - which it only did when you
+  pressed Test connection. Every sync now reads it first for an account still holding a placeholder, so any account added
+  before that was fixed is named by its next sync.
+
 ### Adding a CardDAV server such as dav.privateemail.com (2026-10-12)
 
 - **Fixed:** adding `dav.privateemail.com` failed with "the server did not say where the address books are". Leasha

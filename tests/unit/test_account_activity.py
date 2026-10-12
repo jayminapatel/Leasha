@@ -238,3 +238,29 @@ def test_the_table_follows_the_theme_icons_in_theme_tokens_and_buttons_rebuilt_w
     monkeypatch.setattr(at, "theme_colours", lambda: dark)
     table.set_snapshots([snap(kind="contacts")], NOW)
     assert table.cellWidget(0, 6) is not first                     # a new theme: repainted in its ink
+
+
+def test_a_microsoft_account_added_before_its_address_was_read_is_named_by_its_next_sync(tmp_path):
+    """"Why does the MS mail say pending - should say the mail address" (the owner, 2026-10-12)."""
+    from types import SimpleNamespace
+
+    from tests.unit.accounts_ui_fakes import make_service
+
+    store, svc = make_service(tmp_path)
+    try:
+        aid = svc.accounts.add("microsoft", "pending-1791709065", "MS Main", mail_on=False)
+        asked = []
+
+        class Transport:
+            def request(self, method, url, headers=None, **_k):
+                asked.append(url)
+                return SimpleNamespace(status=200, json=lambda: {"mail": None, "userPrincipalName": "Jaymin@Jaymin.co.uk"})
+
+        svc.transport_for = lambda account: Transport()
+        svc.token_source = lambda account: (lambda: "token")
+        svc._name_pending(None)
+        assert svc.accounts.get(aid).address == "Jaymin@Jaymin.co.uk" and len(asked) == 1
+        svc._name_pending(None)
+        assert len(asked) == 1                                       # named: nothing more is asked
+    finally:
+        store.close()
