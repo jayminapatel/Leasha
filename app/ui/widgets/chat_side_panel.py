@@ -35,6 +35,7 @@ from app.ui.presenter.chat import (
     panel_state_from_text, panel_state_text,
 )
 from app.ui.state_writes import save_state
+from app.ui.theme import PALETTES, Theme
 from app.ui.widgets.icons import icon
 
 __all__ = ["SideTabs", "PanelSwitch", "panel_toggle", "side_toggles", "TAB_ICONS",
@@ -67,9 +68,8 @@ def _colours(colours: Optional[Mapping[str, str]] = None) -> dict:
         from app.ui.theme import theme_colours
 
         colours = theme_colours()
-    base = {"window": "#f7f7f8", "divider": "#ebecef", "text_dim": "#585e66",
-            "text": "#1b1d20", "surface_hover": "#e8eaed", "accent_soft": "#e9e4fb",
-            "accent_text": "#15084b", "focus_ring": "#4a37b0"}
+    # The light palette itself, not a copy of its values that could drift from it.
+    base = dict(PALETTES[Theme.LIGHT])
     return {**base, **{k: v for k, v in dict(colours).items() if isinstance(v, str)}}
 
 
@@ -335,8 +335,9 @@ def panel_toggle(name: str, icon_name: str, *, tip: str, accessible: str,
 
     def paint(colours: Any = None) -> None:
         palette = _colours(colours)
-        ink = palette.get("accent_text") if toggle.isChecked() else palette.get("text_dim")
-        toggle.setIcon(icon(icon_name, ink or "#888888"))
+        # `_colours` fills every token from the light palette, so both are always there.
+        ink = palette["accent_text"] if toggle.isChecked() else palette["text_dim"]
+        toggle.setIcon(icon(icon_name, ink))
 
     def quietly(on: bool) -> None:
         if toggle.isChecked() != bool(on):

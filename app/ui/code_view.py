@@ -44,7 +44,7 @@ from app.ui.widgets.repo_ignore import ignore_repository
 from app.ui.view_options import button as view_button, weak_slot
 from app.ui.widgets.code_commands import CODE_CATALOGUE, code_command_for, code_matching, git_values
 from app.ui.widgets.code_results import COLUMNS, CodeResults
-from app.ui.widgets.chips import list_chips, show_page
+from app.ui.widgets.chips import list_chips, say_failed, say_skipped, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.git_tree import (
     GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
@@ -217,7 +217,7 @@ class CodeView(QWidget):
         """
         route = code_route(self.input.text())
         if route.engine == "git":
-            self.summary.setText(
+            say_skipped(self,
                 f"{route.because} searches history — press Enter or "
                 f"“Search history”. git diffs every commit it walks, so this "
                 f"one takes seconds rather than milliseconds.")
@@ -242,7 +242,7 @@ class CodeView(QWidget):
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show_files(rows, g)))
-        worker.signals.failed.connect(self.error.emit)
+        worker.signals.failed.connect(weak_slot(self, lambda v, e, g=generation: say_failed(v, e, g)))
         run(QThreadPool.globalInstance(), worker)
 
     def _git_view_toggled(self, on: bool) -> None:

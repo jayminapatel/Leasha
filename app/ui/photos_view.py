@@ -36,7 +36,8 @@ from app.ui.widgets.photo_info import PhotoInfo
 # the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
 # lines test_presenter allows a view.
 from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, follow_index, arrange_rows, photo_menu,
-                                             read_library, read_the_box, same_day_box, tree_toggle)
+                                             open_viewer, read_library, read_the_box, same_day_box,
+                                             tree_toggle)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
 from app.ui.qtsip import open_menu
@@ -98,6 +99,7 @@ class PhotosView(QWidget):
         self.browser.selection_changed.connect(self._selection)
         self.browser.opened.connect(self.view_photo)
         self.browser.menu_requested.connect(self._menu)
+        self._position = self.browser.position  # "n of total", for the viewer's caption
         self.info = PhotoInfo(store)
         self.info.open_requested.connect(self._open)
         self.info.reveal_requested.connect(self._reveal)
@@ -175,9 +177,11 @@ class PhotosView(QWidget):
     def _drawn(self, result: Any, applied: Any, arranging: int) -> None:
         if arranging != getattr(self, "_arranging", 0):
             return
-        shown, order, shown_count, scope = result
+        # The "of N" is kept, so a click on a photo (`_selection`) says the same total.
+        shown, order, shown_count, self._scope = result
         self.browser.set_rows(shown, dated=order in ("newest", "oldest"))
-        show_page(self, applied, summary(shown_count, scope, len(self.browser.selected_rows())))
+        show_page(self, applied, summary(shown_count, self._scope,
+                                         len(self.browser.selected_rows())))
 
     # -- the choices -----------------------------------------------------------------
 
@@ -189,9 +193,13 @@ class PhotosView(QWidget):
     def set_sort(self, key: str) -> None:
         self.sort_key = key
         self._remember("sort", key)
+        self.browser.follow_order()             # the menu's sort takes over from a heading
         self._show()
 
     def show_info(self, on: bool, *, remember: bool = True) -> None:
+        # Hidden, the panel missed every click (`_current`); back, it shows the photo now.
+        if on and self.info.isHidden():
+            self.info.show_row(self.browser.current_row())
         self.info.setVisible(bool(on))
         if remember:
             self._remember("info", "1" if on else "0")
@@ -231,7 +239,8 @@ class PhotosView(QWidget):
 
     def _selection(self) -> None:
         shown = self.browser.model.rowCount()
-        self.summary.setText(summary(shown, len(self._all), len(self.browser.selected_rows())))
+        self.summary.setText(summary(shown, getattr(self, "_scope", len(self._all)),
+                                     len(self.browser.selected_rows())))
 
     def _open(self, row: Any) -> None:
         self.open_requested.emit(str(row.path))
@@ -240,16 +249,7 @@ class PhotosView(QWidget):
         self.reveal_requested.emit(str(row.path))
 
     def view_photo(self, row: Any) -> None:
-        from app.ui.widgets.photo_viewer import PhotoViewer
-
-        self.browser.select_path(str(row.path))
-        viewer = PhotoViewer(row, self.browser.step, self._position, self)
-        viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        viewer.show()
-
-    def _position(self) -> tuple[int, int]:
-        index = self.browser.grid.selectionModel().currentIndex()
-        return (index.row() + 1 if index.isValid() else 0), self.browser.model.rowCount()
+        open_viewer(self, row)                  # one viewer; its neighbours read ahead
 
     def _menu(self, row: Any, point: Any) -> None:
         day = same_day_box(row)

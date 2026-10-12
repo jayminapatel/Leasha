@@ -121,6 +121,19 @@ PALETTES: dict[str, dict[str, str]] = {
         # a wall of text, and a saturated red at 12px vibrates against a dark
         # ground. See `ui/log_lines.TOKENS`, which names it and never a value.
         "danger": "#d97070",
+        # **The fine state** (2026-10-12). "Ready" in the file-types table and
+        # a diff's added lines had no token, so each had its own green -
+        # `#2e7d32` and `#2da44e`, 3.2 to 1 on a dark card, both under the 4.5
+        # a word in a table needs. A muted green to sit beside `danger`: 6.0 to
+        # 1 on a card, 6.5 on the window, 5.5 on `surface_alt`.
+        "success": "#5fae73",
+        # **The photo viewer's ground, the same in both palettes** (2026-10-12).
+        # A photograph is judged against near-black whatever the window's theme
+        # is, so this is a fixed backdrop like the kind badges are fixed labels.
+        # White on it is 18.9 to 1; the month pill is this at alpha 150 over a
+        # thumbnail, and over a white one the white word still measures 4.7.
+        "backdrop": "#111111",
+        "backdrop_text": "#ffffff",
         # Text on `accent` where a line edit selects. The dark theme's accent is a
         # light violet, so the text on it is dark (2026-10-08, the owner: white on
         # it, and dark on the light theme's near-black indigo, could not be read).
@@ -191,6 +204,13 @@ PALETTES: dict[str, dict[str, str]] = {
         # the same token needs a different value on a white ground, which is
         # why these are two palettes rather than one with a flag.
         "danger": "#a32020",
+        # Darker than the dark theme's green for the same reason again: 5.3 to
+        # 1 on white, 5.0 on the window, 4.7 on `surface_alt`. The old diff
+        # green `#2da44e` was 3.2 on white. See the dark palette's note.
+        "success": "#2a7a3b",
+        # Identical to the dark palette's - see the note there.
+        "backdrop": "#111111",
+        "backdrop_text": "#ffffff",
         "selection_text": "#ffffff",
     },
 }

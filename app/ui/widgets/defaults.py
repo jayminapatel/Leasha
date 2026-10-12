@@ -42,7 +42,7 @@ from PySide6.QtWidgets import QMenu, QPushButton, QWidget
 from app.core.settings_registry import by_key, keys
 from app.ui.qtsip import open_menu
 
-__all__ = ["attach_resets", "restore_button", "pinned_in", "RESET_LABEL"]
+__all__ = ["attach_resets", "restore_button", "pinned_in", "show_default", "RESET_LABEL"]
 
 RESET_LABEL = "Restore defaults"
 
@@ -100,8 +100,12 @@ def attach_resets(panel: QWidget, on_reset: Any) -> int:
 
     `on_reset` is called with `{key: None}`, ready for `apply_values`.
     """
+    from app.core.settings_registry import protected
+
     wired = 0
-    known = keys()
+    # Not the locations: `env_writer` refuses to remove them, so a menu offering
+    # "Reset the index location" would be a reset that silently does nothing.
+    known = set(keys()) - protected()
     for child in panel.findChildren(QWidget):
         key = child.objectName()
         if key not in known:
@@ -130,18 +134,74 @@ def _show_menu(widget: QWidget, point: Any, key: str, on_reset: Any) -> None:
         # **`None` removes. The default *value* would re-pin it**, which looks
         # identical on screen and is the bug rather than the fix.
         on_reset({key: None})
+        # And the control shows the default now, not the old value until a restart.
+        show_default(widget.parentWidget(), [key])
 
 
-def restore_button(parent: Optional[QWidget], env_file: Any,
-                   on_reset: Any) -> QPushButton:
-    """The visible affordance: restore every pinned setting at once.
+def show_default(panel: Optional[QWidget], keys_shown: Any) -> int:
+    """Put each control in `panel` named by one of `keys_shown` back to its default.
 
-    Disabled, with a reason, when nothing is pinned - rather than present and
-    doing nothing, which is how somebody concludes the button is broken.
+    Returns how many changed. **Shown, not written**: signals are blocked, because
+    a control that announced the change would write the default back and re-pin
+    it. The line is already gone from `.env`; this is so the screen agrees, rather
+    than showing the old value until the next start.
+
+    There is no reload of the Settings page from `.env` - each box has its own
+    `load` with its own shape - so this works the same way `attach_resets` does,
+    by object name, from the registry's default. A control of a kind it does not
+    know is left as it was.
     """
-    button = QPushButton(RESET_LABEL, parent)
-    pinned = pinned_in(env_file)
+    from PySide6.QtWidgets import QAbstractButton, QComboBox, QLineEdit, QSpinBox
 
+    from app.core.settings_registry import protected
+
+    if panel is None:
+        return 0
+    # A location is never reset (`env_writer` refuses it), so it is never blanked.
+    wanted = set(keys_shown) - protected()
+    done = 0
+    owners: dict[int, tuple[Any, set]] = {}
+    for child in panel.findChildren(QWidget):
+        setting = by_key(child.objectName()) if child.objectName() in wanted else None
+        if setting is None:
+            continue
+        default = setting.default
+        blocked = child.blockSignals(True)
+        try:
+            if isinstance(child, QAbstractButton) and child.isCheckable():
+                child.setChecked(bool(default))
+            elif isinstance(child, QSpinBox) and isinstance(default, (int, float)):
+                child.setValue(int(default))
+            elif isinstance(child, QComboBox):
+                found = child.findData(default)
+                if found < 0:
+                    found = child.findText(str(default))
+                if found < 0:
+                    continue
+                child.setCurrentIndex(found)
+            elif isinstance(child, QLineEdit):
+                child.setText("" if default is None else str(default))
+            else:
+                continue
+            done += 1
+            owner = child.parentWidget()
+            while owner is not None and not callable(getattr(owner, "defaults_shown", None)):
+                owner = owner.parentWidget()
+            if owner is not None:
+                owners.setdefault(id(owner), (owner, set()))[1].add(setting.key)
+        finally:
+            child.blockSignals(blocked)
+    # The signals were blocked, so a box that keeps its own record of what it last sent, or greys one
+    # control by another, never heard of the change: tell it (CodeRabbit on #68 - an untick after a
+    # reset was taken for no change and not saved).
+    for owner, keys in owners.values():
+        owner.defaults_shown(sorted(keys))
+    return done
+
+
+def _say_pinned(button: QPushButton, pinned: list[str]) -> None:
+    """The button's state and tooltip for what is pinned now."""
+    button.setEnabled(bool(pinned))
     if pinned:
         button.setToolTip(
             f"{len(pinned)} setting{'s' if len(pinned) != 1 else ''} in this "
@@ -152,11 +212,65 @@ def restore_button(parent: Optional[QWidget], env_file: Any,
             "where things are stored is never changed by this.\n\n"
             "Right-click any single control to restore just that one."
         )
-        button.clicked.connect(
-            lambda _c=False: on_reset({key: None for key in pinned}))
     else:
-        button.setEnabled(False)
         button.setToolTip(
             "Nothing is pinned: every setting is already using the "
             "application's own default.")
+
+
+def restore_button(parent: Optional[QWidget], env_file: Any,
+                   on_reset: Any) -> QPushButton:
+    """The visible affordance: restore every pinned setting at once.
+
+    Disabled, with a reason, when nothing is pinned - rather than present and
+    doing nothing, which is how somebody concludes the button is broken.
+
+    **It asks first, with the count.** One press changed every category at once
+    with no question, and Enter on a focused button is a press. Cancel is the
+    default.
+
+    **The list is kept current, not read once.** It was computed when the page
+    was built, so after a press the button still offered the settings it had
+    just removed, and a setting changed afterwards was not offered at all.
+    `.env` is written on a worker, so re-reading the file straight after would
+    race it: the list is updated from what is sent instead - `note_written`,
+    which the Settings page calls with every change.
+    """
+    from app.core.settings_registry import protected
+
+    button = QPushButton(RESET_LABEL, parent)
+    pinned = pinned_in(env_file)
+    known, guarded = set(keys()), protected()
+
+    def note_written(values: dict) -> None:
+        for key, value in values.items():
+            if value is None and key in pinned:
+                pinned.remove(key)
+            elif value is not None and key in known and key not in guarded \
+                    and key not in pinned:
+                pinned.append(key)
+        _say_pinned(button, pinned)
+
+    def press() -> None:
+        from app.ui.widgets.confirm import confirm
+
+        if not pinned:
+            return
+        count = f"{len(pinned)} setting{'s' if len(pinned) != 1 else ''}"
+        if not confirm(
+                button.window() if button.window() is not button else None,
+                RESET_LABEL, f"Restore {count} to the application's own defaults?",
+                RESET_LABEL, danger=False,
+                informative=("They are: " + ", ".join(pinned) + ".\n\nYour index, "
+                             "folders and documents are untouched, and where things "
+                             "are stored is never changed by this.")):
+            return
+        removed = {key: None for key in pinned}
+        on_reset(removed)
+        show_default(parent, removed)
+        note_written(removed)
+
+    button.note_written = note_written          # type: ignore[attr-defined]
+    button.clicked.connect(lambda _c=False: press())
+    _say_pinned(button, pinned)
     return button

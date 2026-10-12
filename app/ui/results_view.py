@@ -267,7 +267,7 @@ class ResultsView(QWidget):
 
         items: list = []           # 2026-10-04, code review: built first, inserted once
         if self._prefs.group_by_document:
-            for group in group_results(self._rows, details=self._details, register=self._register, conversations=self._prefs.group_by_conversation):
+            for group in (groups := group_results(self._rows, details=self._details, register=self._register, conversations=self._prefs.group_by_conversation)):
                 expanded = group.file_id in self._expanded
                 self._append(group, items, expanded=expanded)
                 if expanded and group.match_count > 1:
@@ -278,8 +278,10 @@ class ResultsView(QWidget):
                 self._append(row, items)
         # Item 5c: a quiet, unselectable row of its own, so reaching it by
         # scrolling is what answers "are there more" - see `Terminator`.
+        # It counts what is shown: grouped by file, one result per file, not one per passage -
+        # three passages of one report said "3 results" under a single row (2026-10-12).
         if self._rows:
-            self._append_terminator(results_terminator(len(self._rows)), items)
+            self._append_terminator(results_terminator(len(groups if self._prefs.group_by_document else self._rows)), items)
         refill(self, items, anchor)
 
         if bar is not None:

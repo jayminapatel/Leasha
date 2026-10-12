@@ -403,7 +403,12 @@ def _phrase(spec: AggregateSpec, count: int, total_bytes: int, rows: tuple,
             text = (f"{count:,} {_describe(spec, count)} - {edges}. "
                     f"Here are the newest {shown:,}.")
         else:
-            text = f"{count:,} {_describe(spec, count)} - {edges}. That's all {count:,}."
+            # 2026-10-12 (owner: "the ai chat gives file list which seems odd and duplicate"):
+            # no "That's all N." here. The rows go under the answer as an inline list, and that
+            # list ends "That's all - N results." itself, so the prose saying it too was the
+            # same sentence twice, one above the other. The engine's find answer dropped it the
+            # same day for the same reason.
+            text = f"{count:,} {_describe(spec, count)} - {edges}."
     else:
         text = f"{count:,} {_describe(spec, count)} - {edges}."
     if count == 0:
