@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget,
 )
 
-__all__ = ["FindBar", "attach_find", "match_count", "summary"]
+__all__ = ["FindBar", "attach_find", "focused_find", "match_count", "summary"]
 
 
 def match_count(text: Any, needle: Any) -> int:
@@ -274,6 +274,15 @@ def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
     `MainWindow._clear_search` - so a single press closes the bar and only the
     next one empties the box. A window of its own (the pop-out) keeps this
     shortcut: it has no other Escape to collide with.
+
+    **Ctrl+F follows the same rule (2026-10-12).** The main window binds
+    Ctrl+F to Search, and this bound it window-wide again, so while a preview
+    pane was showing the two were ambiguous and Ctrl+F did nothing anywhere -
+    measured offscreen: neither fired, outside the pane or in it. A narrower
+    context does not cure it: with focus in the pane both still match. So a
+    bar inside the main window binds no Ctrl+F of its own, and the window's
+    one asks `focused_find` first - see `MainWindow._focus_search` - so Ctrl+F
+    in a preview opens its find and anywhere else goes to Search.
     """
     from PySide6.QtGui import QShortcut, QKeySequence
 
@@ -291,8 +300,9 @@ def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
             return
 
     bar.dismissed.connect(dismiss)
-    shortcut = QShortcut(QKeySequence.StandardKey.Find, host)
-    shortcut.activated.connect(bar.focus)
+    if window_escape:
+        shortcut = QShortcut(QKeySequence.StandardKey.Find, host)
+        shortcut.activated.connect(bar.focus)
     # Escape from the *document* closes it too, which is what everybody
     # expects and what makes the bar feel like part of the window rather than
     # a widget parked in it.
@@ -307,3 +317,19 @@ def attach_find(host: Any, view: Any, *, window_escape: bool = True) -> FindBar:
         bar.visibilityChanged.connect(away.setEnabled)
         away.activated.connect(dismiss)
     return bar
+
+
+def focused_find(widget: Any) -> Optional[FindBar]:
+    """The find bar of the pane `widget` sits in, or None - what the main window's Ctrl+F asks first.
+
+    Walks up from the focused widget to its window, looking for a host whose `find` is a
+    `FindBar` it owns (a preview pane). Stops at the window: a pop-out has a Ctrl+F of its own.
+    """
+    while widget is not None:
+        bar = getattr(widget, "find", None)
+        if isinstance(bar, FindBar) and bar.parentWidget() is widget:
+            return bar
+        if widget.isWindow():
+            return None
+        widget = widget.parentWidget()
+    return None

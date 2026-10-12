@@ -194,10 +194,10 @@ class ContactsPage(QWidget):
     def _wire(self) -> None:
         sm = self.table.selectionModel()
         sm.selectionChanged.connect(self._selection_changed)
+        # `activated` alone: on Windows Qt sends it for Enter and for a double-click, so wiring
+        # `doubleClicked` as well opened the contact twice for one double-click (2026-10-12).
         self.table.activated.connect(self._activated)
         self.cards.activated.connect(self._activated)
-        self.table.doubleClicked.connect(self._activated)
-        self.cards.doubleClicked.connect(self._activated)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._sort_changed)
         self.photos.loaded.connect(lambda _c: (self.table.viewport().update(), self.cards.viewport().update()))
         tb = self.toolbar
@@ -827,11 +827,15 @@ class ContactsPage(QWidget):
     def confirm(self, title: str, detail: str, yes: str) -> bool:
         box = QMessageBox(self)
         box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle(title)
+        # The question once, as the box's main words; the window's title bar names the page. It used
+        # to carry the question too, so the box said it twice (2026-10-12).
+        box.setWindowTitle("Contacts")
         box.setText(title)
         box.setInformativeText(detail)
         go = box.addButton(yes, QMessageBox.ButtonRole.DestructiveRole)
-        box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        cancel = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
+        # Enter on a box that deletes must not delete: Cancel is the default, as `accounts.parts.confirm`.
+        box.setDefaultButton(cancel)
         box.exec()
         return box.clickedButton() is go
 

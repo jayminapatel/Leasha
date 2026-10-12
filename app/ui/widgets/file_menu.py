@@ -51,6 +51,7 @@ class FileActions:
         open_file: Optional[Callable[[], None]] = None,
         reveal: Optional[Callable[[], None]] = None,
         search_inside: Optional[Callable[[], None]] = None,
+        search_words: Optional[str] = None,
         reindex: Optional[Callable[[], None]] = None,
         index_file: Optional[Callable[[], None]] = None,
         pin: Optional[Callable[[], None]] = None,
@@ -78,6 +79,9 @@ class FileActions:
         self.offline = offline
         self.reveal = reveal
         self.search_inside = search_inside
+        #: What `search_inside` is called when "inside this file" is not what it does: the Code
+        #: list's searches the whole repository (the owner, 2026-10-12). None: worded from the row.
+        self.search_words = search_words
         self.reindex = reindex
         #: 2026-10-07, the owner: "in the files list i want a option to index
         #: the selected file". Read this one file again, now, whatever the
@@ -152,7 +156,7 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     if actions.search_inside is not None:
         # The bridge between the two lists: found it by name, now find what is
         # in it. Without this, the filename browser is a dead end.
-        action = QAction("Search inside this file", parent)
+        action = QAction(actions.search_words or _search_inside_words(actions.row), parent)
         action.triggered.connect(lambda: actions.search_inside())
         menu.addAction(action)
 
@@ -238,6 +242,14 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
         menu.addAction(action)
 
     return menu
+
+
+def _search_inside_words(row: Any) -> str:
+    """"Search inside this message" on a Mail row, where "this file" read wrong (the owner,
+    2026-10-12); "Search inside this file" everywhere else."""
+    from app.ui.presenter.rows import MailRow
+
+    return "Search inside this message" if isinstance(row, MailRow) else "Search inside this file"
 
 
 def _is_a_file_on_disk(path: str, row: Any) -> bool:
