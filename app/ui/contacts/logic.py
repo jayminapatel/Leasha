@@ -19,7 +19,7 @@ from app.contacts.hub import ContactFilter, ContactRow, JournalRow
 __all__ = [
     "STATE_VIEW", "STATE_SORT", "COLUMNS", "column_key", "sort_rows", "initials",
     "last_contacted_text", "where_it_lives", "Entry", "build_entries", "filter_for", "actor_words", "source_words", "merge_order",
-    "account_glyph", "describe_entry", "KIND_INFO", "LABELS", "date_icon", "RULE_FIELDS",
+    "account_glyph", "describe_entry", "KIND_INFO", "LABELS", "date_icon", "label_icon", "RULE_FIELDS",
     "RULE_OPS", "SMART_EXAMPLES", "rule_text", "TAG_COLOURS", "parse_sort", "hub_error_text",
     "unit_words", "value_words", "conflict_items",
 ]
@@ -267,6 +267,22 @@ LABELS = {
 
 def date_icon(label: str) -> str:
     return "cake" if (label or "").strip().casefold() == "birthday" else "calendar"
+
+
+#: What each label of a phone, email or address looks like. A label not listed (or "other") keeps the kind's own.
+_LABEL_ICONS = {
+    "phone": {"mobile": "smartphone", "cell": "smartphone", "work": "briefcase", "home": "house", "fax": "printer"},
+    "email": {"work": "briefcase", "home": "house"},
+    "address": {"home": "house", "work": "building-2"},
+}
+
+
+def label_icon(kind: str, label: str, default: str = "") -> str:
+    """The picture for one row: a house for home, a briefcase for work, a handset for mobile, a printer for fax."""
+    if kind == "date":
+        return date_icon(label)
+    text = (label or "").strip().casefold()
+    return _LABEL_ICONS.get(kind, {}).get(text) or default or KIND_INFO.get(kind, ("", "tag"))[1]
 
 
 # ----------------------------------------------------------------- smart groups

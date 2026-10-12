@@ -20,7 +20,7 @@ from PySide6.QtWidgets import (QComboBox, QGridLayout, QHBoxLayout, QLabel, QLin
                              QVBoxLayout, QWidget)
 
 from app.contacts.card import Field
-from app.ui.contacts.logic import KIND_INFO, LABELS, date_icon
+from app.ui.contacts.logic import KIND_INFO, LABELS, label_icon
 from app.ui.contacts.parts import tool_button
 from app.ui.theme import theme_colours
 from app.ui.widgets.region_box import CountryBox
@@ -102,6 +102,7 @@ class FieldRow(QWidget):
         if not (field and field.label):
             self.label.setCurrentText(LABELS[kind][0])
         self.label.currentTextChanged.connect(self._edited)
+        self.label.currentTextChanged.connect(lambda _t: self._paint_glyph())
         # A word, not just an icon: "Default" filled in when it is this one, "Set default" when it is not.
         self.main = tool_button("badge-check", f"Main {one}", f"Make this the default {one}", checkable=True)
         self.main.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
@@ -180,9 +181,7 @@ class FieldRow(QWidget):
             w.blockSignals(False)
 
     def _paint_glyph(self) -> None:
-        name = KIND_INFO[self.kind][1]
-        if self.kind == "date":
-            name = date_icon(self.label.currentText())
+        name = label_icon(self.kind, self.label.currentText())
         self.glyph.setPixmap(icon(name, theme_colours().get("text_dim", "#888888")).pixmap(16, 16))
 
     def retint(self) -> None:

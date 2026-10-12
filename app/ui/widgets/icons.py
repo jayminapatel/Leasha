@@ -71,6 +71,8 @@ ICON_NAMES = (
     # 2026-10-05: "Force skip reader n" on the Indexing page (owner: "the
     # force skip needs icons too"). Lucide skip-forward, as above.
     "skip-forward",
+    # 2026-10-12: a different picture for a home, a mobile, a work phone or address (owner). Lucide, as above.
+    "house", "smartphone",
     # 2026-10-11, order 1k 6m (the owner: "add also the icon rich ui like our current app"):
     # the Contacts pill, field rows, toolbar, sidebar, account chips and status words.
     # Lucide 1.48.0 (ISC), copied from its npm package, same licence file beside them.

@@ -243,6 +243,7 @@ class ContactsPage(QWidget):
             key("Ctrl+N", self.new_contact),
             key("Ctrl+Z", self.undo_last),
             key("Ctrl+S", self.editor.save_if_dirty),
+            key("Ctrl+A", self.select_all, self.table, Qt.ShortcutContext.WidgetShortcut),
             key("Delete", self.delete_selected, self.table, Qt.ShortcutContext.WidgetShortcut),
             key("Delete", self.delete_selected, self.cards, Qt.ShortcutContext.WidgetShortcut),
         ]
@@ -925,11 +926,17 @@ class ContactsPage(QWidget):
                            notify=self.notice.emit)
 
     def open_tool(self, name: str) -> None:
+        if name == "select_all":
+            return self.select_all()
         openers.open(name, self, self.context())
 
     # ----------------------------------------------------------------- upkeep
     def focus_filter(self) -> None:
         self.toolbar.focus_filter()
+
+    def select_all(self) -> None:
+        """Pick every contact shown; the cards view shares the table's selection."""
+        self.table.selectAll()
 
     def shutdown(self) -> None:
         self._timer.stop()

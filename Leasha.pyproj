@@ -715,6 +715,7 @@
     <Compile Include="app\ui\widgets\search_home.py" />
     <Compile Include="app\ui\widgets\search_marks.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
+    <Compile Include="app\ui\widgets\select_all.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
     <Compile Include="app\ui\widgets\side_list.py" />
@@ -1321,6 +1322,7 @@
     <Compile Include="tests\unit\test_search_run.py" />
     <Compile Include="tests\unit\test_search_scale_bounds.py" />
     <Compile Include="tests\unit\test_search_view.py" />
+    <Compile Include="tests\unit\test_select_all.py" />
     <Compile Include="tests\unit\test_setting_defaults.py" />
     <Compile Include="tests\unit\test_settings_are_used.py" />
     <Compile Include="tests\unit\test_settings_layout.py" />
@@ -1541,6 +1543,7 @@
     <Content Include="assets\icons\heart.svg" />
     <Content Include="assets\icons\history.svg" />
     <Content Include="assets\icons\hourglass.svg" />
+    <Content Include="assets\icons\house.svg" />
     <Content Include="assets\icons\id-card.svg" />
     <Content Include="assets\icons\image-plus.svg" />
     <Content Include="assets\icons\image.svg" />

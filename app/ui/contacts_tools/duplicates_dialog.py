@@ -31,6 +31,7 @@ from app.contacts.card import display_name
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
 from app.ui.widgets.icons import icon
+from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["DuplicatesDialog", "PlanDialog"]
 
@@ -119,6 +120,9 @@ class DuplicatesDialog(ToolDialog):
         self.rejected_table = make_table(self, ["Contact", "Not the same as"], "Rejected pairs",
                                          "Pairs you said are not duplicates", stretch=1, select="multi")
         self.rejected_table.itemSelectionChanged.connect(self._sync_buttons)
+        self.reject_select = SelectBar(self.rejected_table, "rejected pairs")
+        self.reject_select.changed.connect(lambda _n: self._sync_buttons())
+        rl.addWidget(self.reject_select)
         rl.addWidget(self.rejected_table, 1)
         self.suggest_button = btn("Suggest again", "undo-2", "secondary",
                                   "Put the selected pairs back so they can be suggested again", "Suggest again")

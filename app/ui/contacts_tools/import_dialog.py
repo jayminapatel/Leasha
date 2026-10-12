@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named, plural, summary_line
+from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["ImportDialog", "MAPPING_TARGETS", "find_indexed_vcards"]
 
@@ -136,12 +137,14 @@ class ImportDialog(ToolDialog):
         layout.addLayout(row)
         self.file_list = QListWidget()
         named(self.file_list, "Files to import", "The files that will be read. Untick one to leave it out")
+        layout.addWidget(SelectBar(self.file_list, "files to import"))
         layout.addWidget(self.file_list, 1)
         box = QGroupBox("vCard files already in your index (one-time import)")
         named(box, "Indexed vCard files", "Contacts files Leasha has already found while indexing")
         bl = QVBoxLayout(box)
         self.indexed_list = QListWidget()
         named(self.indexed_list, "vCard files in your index", "Tick any you would like to import once")
+        bl.addWidget(SelectBar(self.indexed_list, "vCard files in your index"))
         bl.addWidget(self.indexed_list)
         layout.addWidget(box, 1)
         return page
@@ -186,6 +189,9 @@ class ImportDialog(ToolDialog):
         self.table = make_table(self, ["Import", "Row", "Contact", "What to do", "Why", "Check"],
                                 "Contacts to import", "Every contact in the files, with the duplicates found", stretch=2)
         self.table.itemChanged.connect(lambda _i: self._update_summary())
+        self.select_rows = SelectBar(self.table, "contacts to import")
+        self.select_rows.changed.connect(lambda _n: self._update_summary())
+        layout.addWidget(self.select_rows)
         layout.addWidget(self.table, 1)
         return page
 

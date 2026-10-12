@@ -17,6 +17,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Select all on every list; a picture for each kind of phone and address; Reconnect on an app-password account (2026-10-12)
+
+- **Select all / Select none** on every list that has ticks or a selection: Enrich suggestions, Rejected pairs, the
+  Import file lists and its contact preview, and the pick-folders lists in Accounts; Clean up, Duplicates and Changed in
+  two places keep theirs (Tick menus). In Contacts, **More tools > Select all contacts** or Ctrl+A picks every contact.
+- **Different pictures** for different kinds: a handset for mobile, a house for home, a briefcase for work, a printer
+  for fax, a building for a work address - in the editor rows (they change as you change the label) and the previews.
+- **Reconnect works on Apple, IMAP and CardDAV accounts.** They have no browser sign-in, so it failed with "enter the new
+  app password instead"; it now asks for the new app password, saves it in Credential Manager and tests it.
+
 ### Smarter answers: an answer in Search, a card for every document, your own words (2026-10-12, order 1r)
 
 - **Ask a question in the Search box** and a short answer from your files appears above the results, every sentence

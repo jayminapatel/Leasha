@@ -27,6 +27,7 @@ from app.contacts.card import display_name
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, named, plural
 from app.ui.contacts_tools.enrich_run import run_for
 from app.ui.widgets.icons import icon
+from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["EnrichDialog", "EnrichData", "gather_proposals", "apply_selected"]
 
@@ -102,6 +103,9 @@ class EnrichDialog(ToolDialog):
         self.tree.setAlternatingRowColors(True)
         named(self.tree, "Suggestions", "Details enrichment would add. Tick the ones to keep")
         self.tree.itemChanged.connect(lambda _i, _c: self._sync())
+        self.select_bar = SelectBar(self.tree, "suggestions")
+        self.select_bar.changed.connect(lambda _n: self._sync())
+        self.body.addWidget(self.select_bar)
         self.body.addWidget(self.tree, 1)
 
         self.find_button = btn("Look for suggestions", "sparkles", "secondary",

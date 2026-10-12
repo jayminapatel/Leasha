@@ -59,7 +59,9 @@ _SCALAR_ICON = {"company": "building-2", "department": "building-2", "title": "b
 def kind_icon(kind: str, label: str = "") -> str:
     if kind == "date" and "birth" in label.lower():
         return "cake"
-    return _KIND_ICON.get(kind, "tag")
+    from app.ui.contacts.logic import label_icon           # noqa: PLC0415 - the one table of label pictures
+
+    return label_icon(kind, label, _KIND_ICON.get(kind, "tag"))
 
 
 def scalar_icon(name: str) -> str:
