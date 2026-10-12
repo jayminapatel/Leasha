@@ -78,6 +78,9 @@ _YEAR_S = 365.25 * 86400
 #: Restarts of one sync after the provider drops its change token. Two is enough for a
 #: token that expired; more would be a loop against a server that never settles.
 _TOKEN_RESTARTS = 2
+#: A first fetch gives way to a due contact sync only after it has had this long to work. Without it, contacts that
+#: never finish (held by the delete brake, so always due) stopped the mail after its first page, every time.
+MIN_SLICE_S = 90.0
 
 
 # --------------------------------------------------------------------------
@@ -212,6 +215,7 @@ class MailSyncer:
         self.indexer = indexer or MailIndexer(service.store)
         self.provider_for = provider_for or (lambda account: build_mail_provider(service, account))
         self._should_yield = should_yield or self._contacts_due
+        self._min_slice_s = MIN_SLICE_S
         self._sleep = sleep
         self._mono = monotonic
         self._clock = clock
@@ -351,7 +355,7 @@ class MailSyncer:
                 if cancel():
                     self._pause(account, out, ff if first else None, extra, last_token, "stopped")
                     return
-                if first and self._should_yield():
+                if first and self._mono() - run_started >= self._min_slice_s and self._should_yield():
                     self._pause(account, out, ff, extra, last_token, "a contact sync is due")
                     return
         finally:

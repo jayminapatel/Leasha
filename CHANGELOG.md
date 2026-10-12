@@ -17,6 +17,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Microsoft mail first fetch no longer gives way after one page (2026-10-12)
+
+- A first mail fetch yields to a due contact sync, but only after it has worked for 90 seconds. Microsoft contacts held by the
+  delete brake never finish, so they were due on every tick and the mail paused after its first page each time (0 of 6,253).
+- **Browse thumbnails could vanish** when the Years and months sidebar attached: it took the thumbnail list out of its
+  Thumbnails/Table stack. It now holds the whole stack. The screenshot tool and the timeline wording test caught it on Windows CI.
+
 ### Select all on every list; a picture for each kind of phone and address; Reconnect on an app-password account (2026-10-12)
 
 - **Select all / Select none** on every list that has ticks or a selection: Enrich suggestions, Rejected pairs, the

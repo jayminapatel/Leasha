@@ -312,7 +312,7 @@ def wire_browse(view: Any) -> SideList:
     view._overview_ready = ready
     view.picker.kind_changed.connect(lambda _k: draw())
     top_row = view.picker.layout().itemAt(0).layout()
-    attach(view, side, target=view.list, row=top_row, before=None, page="browse",
+    attach(view, side, target=view.stack, row=top_row, before=None, page="browse",
            words="Years and months", tip=BROWSE_TIP)
     top_row.removeWidget(view.toggles["side"])
     top_row.insertWidget(0, view.toggles["side"])

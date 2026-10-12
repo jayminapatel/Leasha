@@ -89,7 +89,7 @@ class FindBar(QWidget):
 
         for clear in self.box.findChildren(QToolButton):
             clear.setAccessibleName("Clear the find box")
-            clear.setToolTip("Clear")
+            clear.setToolTip("Clear the find box")
         self.box.textChanged.connect(self._retype)
         self.box.returnPressed.connect(self.next_match)
 

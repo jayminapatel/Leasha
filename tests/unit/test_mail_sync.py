@@ -72,6 +72,7 @@ def env(tmp_path):
     class Env:
         pass
 
+    syncer._min_slice_s = 0.0                      # most tests ask the yield question after every page
     e = Env()
     e.store, e.svc, e.box, e.provider, e.clock, e.vectors, e.syncer = store, svc, box, provider, clock, vectors, syncer
     e.aid = svc.accounts.add("google", "me@x.com", "Home", mail_on=True, contacts_on=False)
@@ -539,3 +540,13 @@ def test_keeping_the_mail_when_removing_the_account(env):
 
 def test_attach_mail_installs_the_two_seams(env):
     assert env.svc.mail_sync is env.syncer and env.svc.remove_mail_hook == env.syncer.remove_account_mail
+
+
+def test_a_first_fetch_works_for_its_slice_before_giving_way_to_contacts_that_are_always_due(env):
+    """The owner (2026-10-12): "the microsoft mail is still failing". Contacts held by the delete brake never
+    succeed, so they are due all the time, and mail paused after its first page on every run: 0 of 6,253 fetched."""
+    for n in range(6):
+        env.box.add(f"Message number {n}", f"Body {n} narwhal{n}.", received_at=1000 - n)
+    env.syncer._min_slice_s = 90.0
+    env.syncer._should_yield = lambda: True
+    assert sync(env).status == "ok" and len(paths(env.store)) == 6      # no time has passed: it carries on
