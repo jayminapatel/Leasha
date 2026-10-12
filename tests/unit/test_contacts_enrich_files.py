@@ -312,3 +312,160 @@ def test_the_linkedin_button_stores_the_chosen_file_and_shows_its_name(qtbot, tm
     s = AccountSettings(enrich_linkedin_file="")
     enrich_settings.load(ctl, s)
     assert len(saved) == n and "Connections.csv" not in ctl.linkedin_label.text()
+
+
+# ---------------------------------------------------------------- order 1s round 3: what the index really holds
+#
+# On the owner's index every .vcf and .ics on disk was PARTIAL (text indexed, vectors still to come in a
+# text-first run), and most vCards and invitations are attachments, not files on disk. Both were skipped.
+
+ARCHIVE = "C:/mail/archive.pst"
+
+
+def put_partial(hub, path, text, *, when=None):
+    """A file on disk the way a text-first run leaves it: read, its vectors not made yet."""
+    put(hub, path, text, when=when)
+    hub.store.conn.execute("UPDATE files SET status = 'PARTIAL' WHERE path = ?", (str(path),))
+    hub.store.conn.commit()
+    return path
+
+
+def _chunks_of(text):
+    """The passages the indexer would store for `text`, with their offsets - the real chunker's."""
+    from app.extract.base import normalise_whitespace
+    from app.extract.chunker import chunk_text
+
+    return [{"ordinal": i, "text": c.text, "char_start": c.char_start, "char_end": c.char_end}
+            for i, c in enumerate(chunk_text(normalise_whitespace(text)))]
+
+
+_mid = [400]
+
+
+def attach(hub, name, text=None, *, sent, subject="Contact details", status="PARTIAL", chunks=None):
+    """A message in an Outlook archive with `name` attached, indexed as the direct reader leaves it."""
+    import json
+
+    _mid[0] += 1
+    store = hub.store
+    key = f"pst://{ARCHIVE}/{_mid[0]}"
+    mid = store.upsert_file(key, parent_dir=ARCHIVE, ext="msg", size_bytes=10, mtime_ns=1, status="INDEXED",
+                            source_kind="pst_message")
+    store.set_message(mid, subject=subject, sender="Avery Quill <avery.quill@northwind.example>",
+                      recipients=json.dumps(["me@home.example"]), sent_at=sent, store_path=ARCHIVE,
+                      entry_id=str(_mid[0]), folder_path="Inbox", folder_index=3)
+    fid = store.upsert_file(f"{key}/attachments/{name}", parent_dir=key, ext=name.rsplit(".", 1)[-1],
+                            size_bytes=len(text or ""), mtime_ns=epoch(2026, 10, 1) * 1_000_000_000,
+                            status=status, source_kind="pst_message")
+    store.replace_chunks(fid, chunks if chunks is not None else _chunks_of(text))
+    return fid
+
+
+def test_a_partial_vcard_on_disk_is_read(hub, tmp_path):
+    put_partial(hub, tmp_path / "avery.vcf", CARD)
+    cid = person(hub, email="avery.quill@northwind.example")
+    assert any(p.field_kind == "title" for p in
+               enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"]))
+
+
+def test_a_partial_invitation_on_disk_is_read(hub, tmp_path):
+    put_partial(hub, tmp_path / "a.ics", INVITE)
+    cid = person(hub, email="rowan@vale.example")
+    assert {p.new for p in enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["calendar"])} == \
+        {"Rowan", "Vale"}
+
+
+def test_a_vcard_attachment_is_read_from_its_indexed_text_with_the_message_as_receipt(hub):
+    attach(hub, "avery.vcf", CARD, sent=epoch(2026, 8, 14), subject="My new details")
+    cid = person(hub, email="avery.quill@northwind.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+    assert ("title", "Commissioning Lead") in {(p.field_kind, p.new) for p in props}
+    for p in props:
+        assert "My new details" in p.receipt and "2026-08-14" in p.receipt and "avery.vcf" in p.receipt
+        assert p.when == epoch(2026, 8, 14)
+
+
+def test_the_age_window_applies_to_the_attachments_message_date(hub):
+    attach(hub, "avery.vcf", CARD, sent=epoch(2019, 2, 1))       # the attachment row itself is new
+    cid = person(hub, email="avery.quill@northwind.example")
+    assert enrich_selection(hub, AccountSettings(enrich_max_months=6), [cid], sources=["vcard"]) == []
+    assert enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+
+
+def _many_cards(n=60):
+    return "".join(f"BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Person{i} Example\r\nN:Example;Person{i};;;\r\n"
+                   f"ORG:Firm {i} Ltd\r\nTITLE:Senior Engineer {i}\r\nTEL;TYPE=CELL:+44 7700 900{i:03d}\r\n"
+                   f"EMAIL:p{i}@firm{i}.example\r\nEND:VCARD\r\n" for i in range(n))
+
+
+def test_a_long_attachment_is_rebuilt_from_overlapping_passages_by_their_offsets(hub):
+    """The chunker's passages overlap and end mid-line: joined in order they repeat text and break lines;
+    stitched by their offsets they are the extracted text exactly, and every card in it is read."""
+    from app.extract.base import normalise_whitespace
+
+    text = _many_cards()
+    chunks = _chunks_of(text)
+    assert len(chunks) > 2 and "".join(c["text"] for c in chunks) != normalise_whitespace(text)
+    fid = attach(hub, "team.vcf", text, sent=epoch(2026, 9, 1), chunks=chunks)
+    assert localfiles.indexed_text(hub.store, fid, "BEGIN:VCARD", "END:VCARD") == normalise_whitespace(text)
+    for i in (0, 31, 59):
+        cid = person(hub, email=f"p{i}@firm{i}.example")
+        titles = {p.new for p in enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+                  if p.field_kind == "title"}
+        assert titles == {f"Senior Engineer {i}"}
+
+
+def test_passages_with_a_gap_or_no_offsets_are_not_trusted(hub):
+    text = _many_cards(30)
+    chunks = _chunks_of(text)
+    gap = [c for k, c in enumerate(chunks) if k != 1]
+    fid = attach(hub, "gap.vcf", text, sent=epoch(2026, 9, 1), chunks=gap)
+    assert localfiles.indexed_text(hub.store, fid, "BEGIN:VCARD", "END:VCARD") is None
+    bare = [{"ordinal": c["ordinal"], "text": c["text"]} for c in chunks]
+    fid = attach(hub, "bare.vcf", text, sent=epoch(2026, 9, 1), chunks=bare)
+    assert localfiles.indexed_text(hub.store, fid, "BEGIN:VCARD", "END:VCARD") is None
+
+
+def test_an_attachment_indexed_by_name_only_is_read_again_from_its_archive(hub, monkeypatch):
+    from app.extract import pst_attachment
+
+    calls = []
+
+    def reader(archive, entry_id, name, **kw):
+        calls.append((archive, entry_id, name, kw.get("search"), kw.get("folder_index")))
+        return CARD.encode()
+
+    monkeypatch.setattr(pst_attachment, "read_attachment", reader)
+    attach(hub, "avery.vcf", sent=epoch(2026, 9, 2), chunks=[{"ordinal": 0, "text": "avery.vcf"}])
+    cid = person(hub, email="avery.quill@northwind.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+    assert any(p.field_kind == "title" for p in props)
+    assert calls and calls[0][0] == ARCHIVE and calls[0][2] == "avery.vcf" and calls[0][3] is False
+
+
+def test_an_attachment_its_archive_cannot_give_back_is_skipped_quietly(hub, monkeypatch):
+    from app.core.errors import AppErrorException, make_error
+    from app.extract import pst_attachment
+
+    def reader(*a, **k):
+        raise AppErrorException(make_error("ERR_ATTACHMENT_OPEN", "test", path=ARCHIVE, name="x"))
+
+    monkeypatch.setattr(pst_attachment, "read_attachment", reader)
+    attach(hub, "avery.vcf", sent=epoch(2026, 9, 2), chunks=[{"ordinal": 0, "text": "avery.vcf"}])
+    cid = person(hub, email="avery.quill@northwind.example")
+    assert enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"]) == []
+
+
+def test_an_invitation_attachment_names_a_contact_with_its_message_as_receipt(hub):
+    attach(hub, "invite.ics", INVITE, sent=epoch(2026, 9, 9), subject="Pump trial review")
+    cid = person(hub, email="rowan@vale.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["calendar"])
+    assert {p.new for p in props} == {"Rowan", "Vale"}
+    assert all("Pump trial review" in p.receipt and p.when == epoch(2026, 9, 9) for p in props)
+
+
+def test_an_attachments_card_of_someone_else_is_still_not_used_by_phone(hub):
+    attach(hub, "avery.vcf", CARD, sent=epoch(2026, 9, 2))
+    person(hub, "Avery", "Quill", email="avery.quill@northwind.example")
+    shared_line = person(hub, "Front", "Desk", phone="+44 7700 900123")
+    assert enrich_selection(hub, AccountSettings(**ANY_AGE), [shared_line], sources=["vcard"]) == []

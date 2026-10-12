@@ -259,6 +259,12 @@ def _read_phones(block: list[str], sig: Signature, used: set[int], region: str, 
             used.add(i)
             if num and label not in ("f", "fax"):
                 found.append((_phone_label(label), num))
+    # Round 3: a number that is also the local part of an address in the block ("dial 1717...@x.webex.com",
+    # a fax-to-mail gateway) is a meeting or a mailbox, never a phone.
+    in_addresses = {re.sub(r"\D", "", m.group(0).split("@", 1)[0]) for ln in block for m in _EMAIL.finditer(ln)}
+    in_addresses = {d for d in in_addresses if len(d) >= 6}
+    found = [(lb, n) for lb, n in found
+             if not any(d in re.sub(r"\D", "", n) or re.sub(r"\D", "", n) in d for d in in_addresses)]
     uniq: list[tuple[str, str]] = []
     for label, num in found:
         if all(phones.match_key(num, region) != phones.match_key(n, region) for _, n in uniq):
@@ -355,7 +361,8 @@ def _is_place(part: str) -> bool:
 
 
 def _parts(text: str) -> list[str]:
-    return [p.strip(" .;") for p in text.split(",") if p.strip(" .;")]
+    """The comma parts of an address line. A part with no letter or digit ("+", "(") is not one (round 3)."""
+    return [p.strip(" .;") for p in text.split(",") if re.search(r"[^\W_]", p)]
 
 
 def _postcode_in(text: str):

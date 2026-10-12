@@ -35,7 +35,7 @@ from typing import Any, Optional
 from app.contacts import importers
 from app.contacts.card import Card, field_key
 from app.contacts.enrich import localfiles
-from app.contacts.enrich.base import Proposal, emails_of, format_day
+from app.contacts.enrich.base import Proposal, emails_of
 from app.contacts.enrich.company import company_key
 
 __all__ = ["vcard_proposals", "EXTS", "match_rule"]
@@ -95,7 +95,7 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
             if rule is None or (rule != "email" and _someone_else(hub, cid, other)):
                 continue
             conf = _CONFIDENCE[rule]
-            receipt = f"{f.shown} - modified {format_day(f.mtime)}"
+            receipt = f.receipt
             for name in _SCALARS:
                 new = other.get(name).strip()
                 if new and not card.get(name).strip() and f"s:{name}" not in offered:

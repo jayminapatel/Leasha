@@ -440,3 +440,27 @@ def test_an_indian_pin_after_its_city_is_kept_with_the_city():
     assert sig["address_text"] == "Plot No.48, Phase III, Kharadi, Pune 411014, India"
     assert sig["address"]["city"] == "Pune" and sig["address"]["postcode"] == "411014"
     assert sig["address"]["country"] == "India"
+
+
+# =====================================================================================================================
+# Round 3 of 9b (98/100): the last two.
+# =====================================================================================================================
+
+def test_a_line_of_only_symbols_is_dropped_and_never_part_of_an_address():
+    assert clean_tail("Ann Lee\n+\n(\n- - -\nUnit 4, Mill Road").splitlines() == ["Ann Lee", "Unit 4, Mill Road"]
+    sig = parse_block(["Bader Saleh", "Crescent Complex, Building 2/2A, 3 rd Floor, +, P. O. Box: 18001 Farwaniya "
+                                      "81004, Kuwait"], name_tokens=["bader"])
+    assert "+" not in sig["address_text"] and sig["address_text"].endswith("Kuwait")
+
+
+@pytest.mark.parametrize("marker", ["* Join from a video conferencing system or application",
+                                    "For SIP enabled Device dial 5551230000@x.webex.example",
+                                    "Join with Lync", "meet.webex.com/acme"])
+def test_more_meeting_markers_end_the_tail(marker):
+    assert clean_tail(f"Ann Lee\n{marker}\nT: 020 7946 0101") == "Ann Lee"
+
+
+def test_a_number_inside_an_address_in_the_block_is_never_a_phone():
+    sig = parse_block(["Ann Lee", "5551230000", "dial 5551230000@video.acme-widgets.example"], name_tokens=["ann"],
+                      sender_email="ann@acme-widgets.example")
+    assert "phone" not in sig

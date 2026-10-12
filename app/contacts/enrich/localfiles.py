@@ -8,8 +8,33 @@ can trust, because the chunker cuts text at passage boundaries, not at `END:VCAR
 re-read the file itself from disk, **read-only** (non-negotiable 10: opened with `open(..., "rb")`,
 never written, moved or touched).
 
-Only `source_kind = 'file'` rows are read: a vCard inside a zip or attached to a message has no path
-on disk to open. A file on an external drive is resolved through `offline_media.resolve_file_path`,
+**Which rows (order 1s, round 3).** A row whose text is indexed: `INDEXED`, and `PARTIAL` - text
+indexed, vectors still to come in a text-first run, which `Pipeline._classify` and
+`known_read_stamps` count as read (HANDOFF 2026-10-10). On the owner's index every `.vcf` and `.ics`
+on disk was `PARTIAL`, so reading `INDEXED` alone found none of them.
+
+**Attachments.** Most of a person's vCards and invitations arrive attached to a message (on the
+owner's index 139 of 146 vCards and 921 of 966 invitations). An attachment has no path on disk, so
+it is read from what the index kept of it, and failing that from its archive:
+
+* **Its passages, stitched by their offsets** (`indexed_text`). The chunker's passages overlap
+  (~64 tokens) and end at a word, not a line - checked 2026-10-13: joined in ordinal order they
+  repeat a few hundred characters at every seam and break lines in the middle
+  ("TEL;TYPE=CELL:+44 7700" then "N:Example..."). Each passage is `text[char_start:char_end]` of the
+  extracted text, so stitched by those offsets they are that text exactly (whitespace-normalised:
+  CRLF to LF, blank-line runs collapsed, trailing spaces gone - none of which a vCard or calendar
+  line depends on). Trusted only when every offset is there, they start at 0 and leave no gap, and
+  the text holds its BEGIN and a last END after it - a text cut at the extractor's size ceiling, or
+  a passage missing, is not.
+* **Else the archive** (`pst_attachment.read_attachment`, read-only through libpff, never the slow
+  search), because under the default attachment rule a `.vcf` or `.ics` is indexed by its name only
+  (`mail_attachments.rule`: not a content type), so its passages hold the file name and nothing else.
+  A message with no archive to go back to (account mail, one read through Outlook) is skipped.
+
+An attachment's receipt names its message (subject and date, as a signature's does); its date - the
+receipt's, `Proposal.when` and the age window's - is the message's.
+
+A file on an external drive is resolved through `offline_media.resolve_file_path`,
 the one place that turns a volume row into today's drive letter; a drive that is not connected is
 skipped. A file that has gone or cannot be read is skipped and logged, never an error: enrichment is
 a convenience, and one stale row must not cost the person every other suggestion.
@@ -22,14 +47,17 @@ one that did not is never re-read.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable, Optional, Sequence, TypeVar
 
+from app.contacts.enrich.base import format_day
 from app.core.logging import logger
+from app.core.row_facts import ATTACHMENT_MARKER, MAIL_SOURCE_KINDS
 
-__all__ = ["LocalFile", "indexed_files", "read_bytes", "cached", "MAX_FILE_BYTES", "clear_cache"]
+__all__ = ["LocalFile", "indexed_files", "read_bytes", "cached", "MAX_FILE_BYTES", "clear_cache", "indexed_text",
+           "READ_STATUSES"]
 
 _log = logger.bind(component="contacts.enrich.files")
 
@@ -40,6 +68,12 @@ MAX_FILE_BYTES = 16 * 1024 * 1024
 
 T = TypeVar("T")
 
+#: A row whose text the index holds (see the module docstring): PARTIAL only lacks its vectors.
+READ_STATUSES = ("INDEXED", "PARTIAL")
+#: What an attachment's stitched text must hold before it is trusted, by extension.
+_ENVELOPE = {"vcf": ("BEGIN:VCARD", "END:VCARD"), "vcard": ("BEGIN:VCARD", "END:VCARD"),
+             "ics": ("BEGIN:VCALENDAR", "END:VCALENDAR")}
+
 
 @dataclass(frozen=True)
 class LocalFile:
@@ -47,6 +81,18 @@ class LocalFile:
     shown: str                                           # what the receipt names: the indexed path
     mtime: int                                           # Unix seconds, the receipt's date and `Proposal.when`
     size: int
+    #: An attachment: its message's subject (the receipt names it), and how its bytes are read.
+    subject: str = ""
+    reader: Optional[Callable[[], Optional[bytes]]] = field(default=None, compare=False, repr=False)
+
+    @property
+    def receipt(self) -> str:
+        """What a proposal from this file shows as proof: the file and its date, or for an attachment its
+        message - subject and date, as a signature's receipt - and the attachment's name."""
+        if self.reader is None:
+            return f"{self.shown} - modified {format_day(self.mtime)}"
+        name = self.shown.rsplit(ATTACHMENT_MARKER, 1)[-1]
+        return f"{(self.subject or '(no subject)')[:80]} - {format_day(self.mtime)} (attached {name})"
 
 
 def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = None) -> list[LocalFile]:
@@ -59,7 +105,7 @@ def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = Non
         return []
     marks = ",".join("?" for _ in wanted)
     sql = (f"SELECT id, path, mtime_ns, size_bytes, volume_id, relative_path FROM files "
-           f"WHERE ext IN ({marks}) AND source_kind = 'file' AND status = 'INDEXED' ")
+           f"WHERE ext IN ({marks}) AND source_kind = 'file' AND status IN ('INDEXED', 'PARTIAL') ")
     params: list[Any] = list(wanted)
     if since is not None:
         sql += "AND mtime_ns >= ? "
@@ -84,11 +130,100 @@ def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = Non
             continue
         out.append(LocalFile(path, str(r["path"]), int(r["mtime_ns"] or 0) // 1_000_000_000,
                              int(r["size_bytes"] or 0)))
+    out += _attachments(store, wanted, since)
+    out.sort(key=lambda f: -f.mtime)                     # newest first, files and attachments together
     return out
 
 
+def _attachments(store: Any, wanted: Sequence[str], since: Optional[int]) -> list[LocalFile]:
+    """The attachments with one of `wanted` extensions, each with its message; the window is the message's."""
+    marks = ",".join("?" for _ in wanted)
+    kinds = ",".join("?" for _ in MAIL_SOURCE_KINDS)
+    sql = (f"SELECT f.id, f.path, f.ext, f.size_bytes, m.subject, m.sent_at, m.store_path, m.entry_id, "
+           f"m.folder_path, m.folder_index FROM files f "
+           f"JOIN files p ON p.path = substr(f.path, 1, instr(f.path, ?) - 1) "
+           f"JOIN messages m ON m.file_id = p.id "
+           f"WHERE f.ext IN ({marks}) AND f.source_kind IN ({kinds}) AND f.status IN ('INDEXED', 'PARTIAL') "
+           f"AND instr(f.path, ?) > 1 ")
+    params: list[Any] = [ATTACHMENT_MARKER, *wanted, *MAIL_SOURCE_KINDS, ATTACHMENT_MARKER]
+    if since is not None:
+        sql += "AND m.sent_at >= ? "
+        params.append(int(since))
+    out: list[LocalFile] = []
+    try:
+        rows = store.conn.execute(sql, params).fetchall()
+    except Exception as exc:                             # noqa: BLE001 - an index without the mail columns
+        _log.info("enrichment could not list attachments: {}", exc)
+        return out
+    for r in rows:
+        envelope = _ENVELOPE.get(str(r["ext"] or "").lower(), ("", ""))
+        out.append(LocalFile(Path(str(r["path"])), str(r["path"]), int(r["sent_at"] or 0),
+                             int(r["size_bytes"] or 0), str(r["subject"] or ""),
+                             _attachment_reader(store, int(r["id"]), str(r["path"]), dict(r), envelope)))
+    return out
+
+
+def indexed_text(store: Any, file_id: int, begin: str, end: str) -> Optional[str]:
+    """An attachment's extracted text rebuilt from its passages by their offsets, or None when it cannot
+    be trusted (see the module docstring): an offset or a passage missing, no `begin`, or no `end` after
+    the last `begin` (a text cut at the size ceiling)."""
+    rows = store.conn.execute(
+        "SELECT text, char_start, char_end FROM chunks WHERE file_id = ? AND COALESCE(label, '') <> 'Headers' "
+        "ORDER BY ordinal", (int(file_id),)).fetchall()
+    if not rows or any(r["char_start"] is None or r["char_end"] is None for r in rows):
+        return None
+    if int(rows[0]["char_start"]) != 0:
+        return None
+    text, reach = "", 0
+    for r in rows:
+        start, stop, piece = int(r["char_start"]), int(r["char_end"]), str(r["text"])
+        if start > reach or len(piece) != stop - start:
+            return None                                  # a gap between passages, or one not as it was cut
+        if stop > reach:
+            text += piece[reach - start:]
+            reach = stop
+    if begin and (begin not in text or text.rfind(end) < text.rfind(begin)):
+        return None
+    return text
+
+
+def _attachment_reader(store: Any, file_id: int, path: str, message: dict,
+                       envelope: tuple[str, str]) -> Callable[[], Optional[bytes]]:
+    def read() -> Optional[bytes]:
+        try:
+            text = indexed_text(store, file_id, *envelope)
+        except Exception as exc:                         # noqa: BLE001 - an index without offsets
+            _log.info("enrichment could not read the passages of {}: {}", path, exc)
+            text = None
+        if text is not None:
+            return text.encode("utf-8")
+        return _from_archive(path, message)
+    return read
+
+
+def _from_archive(path: str, message: dict) -> Optional[bytes]:
+    """The attachment's bytes out of its Outlook archive, read-only, or None (logged)."""
+    archive = str(message.get("store_path") or "")
+    name = path.split(ATTACHMENT_MARKER, 1)[-1]
+    if not archive.lower().endswith(".pst") or "/" in name:
+        return None                                      # no archive to go back to, or inside a zip
+    try:
+        from app.extract import pst_attachment  # noqa: PLC0415 - only a re-read needs the reader
+
+        index = message.get("folder_index")
+        return pst_attachment.read_attachment(
+            archive, str(message.get("entry_id") or ""), name, folder_path=message.get("folder_path"),
+            folder_index=int(index) if index is not None else None, search=False, max_bytes=MAX_FILE_BYTES)
+    except Exception as exc:                             # noqa: BLE001 - one unreadable attachment is skipped
+        _log.info("enrichment could not read {} from its archive: {}", path, exc)
+        return None
+
+
 def read_bytes(f: LocalFile) -> Optional[bytes]:
-    """The file's bytes, read-only, or None (logged) when it is gone, unreadable or too big."""
+    """The file's bytes, read-only, or None (logged) when it is gone, unreadable or too big. An attachment's
+    come from its passages or its archive (`_attachment_reader`)."""
+    if f.reader is not None:
+        return f.reader()
     try:
         size = f.path.stat().st_size
         if size > MAX_FILE_BYTES:

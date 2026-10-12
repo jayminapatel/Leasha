@@ -121,9 +121,12 @@ _SEPARATOR = re.compile(r"\s+\|\s*|\s*\|\s+|\s*\|(?=,)|\s*[\u2022\u00b7\u25aa\u2
 #: "can you call in tomorrow" is prose above a signature.
 _MEETING = re.compile(
     r"\b(?:or\s+call\s+in|call[- ]in\s+(?:numbers?|\(audio)|conference\s+id|join\s+by\s+phone|"
-    r"meeting\s+options|join\s+(?:microsoft\s+)?teams\s+meeting|join\s+from\s+a\s+video\s+system|reset\s+pin|"
-    r"find\s+a\s+local\s+number|join\s+(?:zoom|webex)\s+meeting|meeting\s+id\s*:|toll\s*(?:number\s*)?(?::|$))"
-    r"|,{2,}\s*\d|\d{4,}#", re.I)
+    r"meeting\s+options|join\s+(?:microsoft\s+)?teams\s+meeting|join\s+from\s+a\s+video(?:\s+conferencing)?\s+"
+    r"system|reset\s+pin|find\s+a\s+local\s+number|join\s+(?:zoom|webex)\s+meeting|meeting\s+id\s*:|"
+    r"toll\s*(?:number\s*)?(?::|$)|sip\s+enabled\b|lync\b)"
+    # Round 3: a WebEx meeting number was offered as a work phone - its "dial 1717...@x.webex.com" line.
+    r"|webex\.com|,{2,}\s*\d|\d{4,}#", re.I)
+_ALNUM = re.compile(r"[^\W_]")
 
 
 def is_meeting(line: str) -> bool:
@@ -167,8 +170,11 @@ def clean_tail(body: str) -> str:
             in_paragraph = False
             continue
         stripped = _IMAGE.sub("", _ANNOTATION.sub("", line)).strip().lstrip("\ufffd ")
-        if not stripped:
-            continue                                       # gone, not blank: it was never a gap in the text
+        if not stripped or (not _ALNUM.search(stripped) and not stripped.startswith("--")):
+            # Gone, not blank: it was never a gap in the text. A line of nothing but symbols ("+", "(") is
+            # what a lost icon or a broken table leaves, and it rode into an address ("3 rd Floor, +, P. O.
+            # Box", 9b round 3); the "--" delimiter is the one symbol line that means something.
+            continue
         if is_meeting(stripped):
             break                                          # a meeting invitation: the rest is the invitation
         if is_legal(stripped):

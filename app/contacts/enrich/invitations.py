@@ -26,7 +26,7 @@ from typing import Any, Iterable, Optional
 from app.contacts import vcard
 from app.contacts.card import Card
 from app.contacts.enrich import localfiles
-from app.contacts.enrich.base import Proposal, emails_of, format_day
+from app.contacts.enrich.base import Proposal, emails_of
 from app.contacts.enrich.suggest import (DEFAULT_MIN_COUNT, SuggestedContact, _known_addresses, _split_name,
                                          looks_automatic)
 from app.contacts.importers import decode_bytes
@@ -128,7 +128,7 @@ def calendar_proposals(hub: Any, cid: int, card: Card, *, since: Optional[int] =
         conf -= 0.1
     f = newest[key]
     more = sum(names.values()) - 1
-    receipt = (f"{f.shown} - modified {format_day(f.mtime)}"
+    receipt = (f.receipt
                + (f" (and {more} more invitation{'s' if more != 1 else ''})" if more else ""))
     parts = _split_name(spelling[key])
     return [Proposal(cid, part, "", "", value, "calendar", receipt, round(conf, 2), when=f.mtime)

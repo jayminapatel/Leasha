@@ -218,3 +218,19 @@ def test_the_command_takes_read_originals(book, tmp_path, capsys, monkeypatch):
     assert main(["contacts", "enrich", "--measure", "--any-age", "--read-originals", "--env", str(env)]) == 0
     out = capsys.readouterr().out
     assert "Originals re-read" in out and "median" in out
+
+
+def test_the_funnel_counts_a_vcard_that_came_attached_to_a_message(book):
+    """Round 3: the local sources reach attachments, and the measuring command counts them (`_LOCAL`)."""
+    store = SqliteStore(book).connect()
+    key = "pst://C:/mail/a.pst/77"
+    mid = store.upsert_file(key, parent_dir="C:/mail/a.pst", ext="msg", size_bytes=1, mtime_ns=1,
+                            status="INDEXED", source_kind="pst_message")
+    store.set_message(mid, subject="Card", sender="x@y.example", recipients="[]", sent_at=int(time.time()) - 86400,
+                      store_path="C:/mail/a.pst", entry_id="77")
+    fid = store.upsert_file(key + "/attachments/ann.vcf", parent_dir=key, ext="vcf", size_bytes=1, mtime_ns=1,
+                            status="PARTIAL", source_kind="pst_message")
+    card = "BEGIN:VCARD\nVERSION:3.0\nFN:Ann Lee\nEMAIL:ann@acme-widgets.co.uk\nTITLE:Plant Lead\nEND:VCARD"
+    store.replace_chunks(fid, [{"ordinal": 0, "text": card, "char_start": 0, "char_end": len(card)}])
+    store.close()
+    assert _run(book).sources.get("vcard file") == 1
