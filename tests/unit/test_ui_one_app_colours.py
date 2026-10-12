@@ -220,10 +220,13 @@ def test_the_splash_faint_text_is_the_brands_chrome_on_dark():
 
     assert splash.BRAND_TEXT_FAINT.lower() == "#cdcbd8"
     assert contrast(splash.BRAND_TEXT_FAINT, splash.BRAND_NAVY) >= 4.5
-    # The progress track is the brand's dark ground (accent4); the blue fill must
-    # stand out from it as a graphic, 3:1.
-    assert splash.BRAND_DARK_GROUND.lower() == "#0c0429"
-    assert contrast(splash.BRAND_STRIPE_BLUE, splash.BRAND_DARK_GROUND) >= 3.0
+    # A progress bar is two graphics, and each needs 3:1 (WCAG 1.4.11): the empty
+    # track against the navy, or the bar's length can't be seen, and the fill
+    # against the track, or how far it has got can't be. The dark ground under the
+    # blue fill gave 4.5 for the fill and 1.1 for the track - a bar with no visible
+    # end. No track colour serves the blue fill both ways, so the fill is white.
+    assert contrast(splash.PROGRESS_TRACK, splash.BRAND_NAVY) >= 3.0
+    assert contrast(splash.PROGRESS_FILL, splash.PROGRESS_TRACK) >= 3.0
 
 
 # --- the guard ------------------------------------------------------------------------
@@ -242,7 +245,8 @@ ALLOWED_NAMES = {
     # and is the brand's ground in both themes (test_brand_colours pins them).
     ("app/ui/splash.py", "BRAND_NAVY"), ("app/ui/splash.py", "BRAND_STRIPE_GREEN"),
     ("app/ui/splash.py", "BRAND_STRIPE_BLUE"), ("app/ui/splash.py", "BRAND_STRIPE_ORANGE"),
-    ("app/ui/splash.py", "BRAND_TEXT_FAINT"), ("app/ui/splash.py", "BRAND_DARK_GROUND"),
+    ("app/ui/splash.py", "BRAND_TEXT_FAINT"), ("app/ui/splash.py", "PROGRESS_TRACK"),
+    ("app/ui/splash.py", "PROGRESS_FILL"),
     # White on the brand's text-safe kind fills, the same in both themes by design
     # and measured on every fill by test_brand_colours.
     ("app/ui/result_delegate.py", "BADGE_INK"),

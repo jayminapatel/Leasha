@@ -59,7 +59,15 @@ BRAND_STRIPE_ORANGE = "#FF9933"
 # 11.2 to 1 on the indigo ground (the old tint was 6.4), and its dark ground
 # (accent4) under the blue progress fill lifts that fill from 3.2 to 4.5 to 1.
 BRAND_TEXT_FAINT = "#CDCBD8"        # brand.json accent3, chrome on dark grounds
-BRAND_DARK_GROUND = "#0C0429"       # brand.json accent4, the dark ground
+# **The progress bar is two graphics, and each must be seen** (2026-10-12). The
+# dark ground above made the blue fill pass (4.5) and the empty track vanish: 1.1
+# to 1 on the navy, a bar with no visible end, so nobody could tell how far a
+# download had to go. No track serves the blue fill both ways (measured: every
+# brand colour that shows on the navy is too close to the blue), so the track is
+# the brand's chrome (accent2, 3.3 to 1 on the navy) and the fill is the white the
+# brand puts on indigo (5.4 to 1 on that track). The blue stays in the stripes.
+PROGRESS_TRACK = "#6C6685"          # brand.json accent2, chrome
+PROGRESS_FILL = "#FFFFFF"           # brand.json lt1, on indigo
 
 #: §1b: how long the closing fade takes. Not a number from §0 (which only
 #: says "a quick fade") - chosen short enough that a fast, cache-warm start
@@ -670,9 +678,7 @@ class SplashScreen:
         bar_x = (w - bar_width) // 2
         bar_y = int(y)
 
-        # Background (dark)
-        painter.fillRect(bar_x, bar_y, bar_width, bar_height, QColor(BRAND_DARK_GROUND))
-
-        # Foreground (blue, based on progress)
+        # The whole length first, then how far it has got - see PROGRESS_TRACK.
+        painter.fillRect(bar_x, bar_y, bar_width, bar_height, QColor(PROGRESS_TRACK))
         progress_width = int(bar_width * self._progress_value / 100.0)
-        painter.fillRect(bar_x, bar_y, progress_width, bar_height, QColor(BRAND_STRIPE_BLUE))
+        painter.fillRect(bar_x, bar_y, progress_width, bar_height, QColor(PROGRESS_FILL))
