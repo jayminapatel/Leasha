@@ -397,6 +397,16 @@ def body_text(store: Any, file_id: int) -> str:
     return "\n".join(parts)
 
 
+def full_text(store: Any, file_id: int, *, read_original: bool = False) -> str:
+    """Everything enrichment may read of one message: the indexed body, then the tail the index cut.
+
+    Order 1s section 4. The signature reader (section 3) reads this, never `body_text` directly, so
+    a message's cut-off signature (4a, `message_tails`) and, when the person switched it on, the
+    original message read again (4b, `read_original`) reach it without the reader knowing where the
+    text came from. Section 4 fills in the tail and the original; until then this is `body_text`."""
+    return body_text(store, file_id)
+
+
 def window_start(months: int, today: Any = None) -> Optional[int]:
     """Unix seconds at the start of the age window (order 1s D1): `months` calendar months before today, at
     midnight UTC, or None for any age. Calendar months, so six months before 12 October is 12 April."""
