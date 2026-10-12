@@ -51,9 +51,10 @@ from typing import Any, Iterator, Optional
 from urllib.parse import quote, urlencode
 
 from app.accounts.provider import (ContactPage, HttpResponse, RemoteContact, TokenExpired,
-                                   TokenSource, Transport, VersionConflict)
+                                   TokenSource, Transport, VersionConflict, WriteResult)
 from app.accounts.providers import _common
 from app.contacts.card import Capabilities, Card, Field, project
+from app.core.errors import AppErrorException, make_error
 
 __all__ = ["GooglePeopleProvider", "GOOGLE_CAPS", "API_BASE"]
 
@@ -71,7 +72,7 @@ _WRITE_FIELDS = ("names,nicknames,organizations,biographies,emailAddresses,phone
 
 GOOGLE_CAPS = Capabilities(
     kinds=frozenset({"email", "phone", "address", "url", "date", "related", "im", "custom"}),
-    groups=True, favourite=True, photo=False, date_labels=None)
+    groups=True, favourite=True, photo=False, date_labels=None, primary=False)
 
 _MY_CONTACTS = "contactGroups/myContacts"
 _STARRED = "contactGroups/starred"
@@ -114,7 +115,7 @@ class GooglePeopleProvider:
     caps = GOOGLE_CAPS
 
     def __init__(self, transport: Transport, token_source: TokenSource, *, account: str = "Google",
-                 base_url: str = API_BASE, page_size: int = 200) -> None:
+                 base_url: str = API_BASE, page_size: int = 1000) -> None:
         self._t = transport
         self._token = token_source
         self._account = account
@@ -423,5 +424,179 @@ class GooglePeopleProvider:
         if resp.status not in (200, 204, 404):
             raise self._fail(resp, "delete a contact")
 
+    # -- batches (order 1t 5c) -------------------------------------------------------------------
+    #: people:batchCreateContacts and people:batchUpdateContacts take 200 contacts a request; a delete is a
+    #: people:batchGet (the etag check, rule 3c) and a people:batchDeleteContacts. Google asks that writes for
+    #: one user go one after another, so a batch is never sent while another is in flight.
+    batch_size = 200
+    one_by_one_cost = {"create": 2, "update": 2, "delete": 2}
+    batch_cost = {"create": 1, "update": 1, "delete": 2}
+
+    def _item_error(self, status: dict, what: str) -> Any:
+        return make_error("ERR_ACCOUNT_REJECTED", _COMPONENT, account=self._account,
+                          reason=f"{what}: {status.get('message') or status.get('code')}", details=str(status)[:500])
+
+    def _one_each(self, items: list, write: Any) -> list[WriteResult]:
+        """The batch was refused as a whole for a reason that is not the account's: each contact on its own, so
+        one bad contact costs only itself."""
+        out: list[WriteResult] = []
+        for item in items:
+            try:
+                out.append(write(item))
+            except VersionConflict:
+                out.append(WriteResult(conflict=True))
+            except AppErrorException as exc:
+                if exc.error.code in _common.ACCOUNT_WIDE:
+                    raise
+                out.append(WriteResult(error=exc.error))
+        return out
+
+    def _batch_refused(self, resp: HttpResponse, what: str) -> bool:
+        """True when a batch request was refused for its content (fall back to one at a time); raises when the
+        account itself is the problem (sign-in, limits)."""
+        if resp.status in (401, 403, 429, 503):
+            raise self._fail(resp, what)
+        return resp.status != 200
+
+    def create_many(self, cards: list[Card]) -> list[WriteResult]:
+        if not cards:
+            return []
+        body = {"contacts": [{"contactPerson": self._to_person(c)} for c in cards], "readMask": _READ_FIELDS}
+        resp = self._call("POST", "people:batchCreateContacts", body=body)
+        if self._batch_refused(resp, "create contacts"):
+            def one(card: Card) -> WriteResult:
+                rid, etag = self.create(card)
+                return WriteResult(ok=True, remote_id=rid, version=etag)
+            return self._one_each(cards, one)
+        made = (resp.json() or {}).get("createdPeople") or []
+        out: list[WriteResult] = []
+        for i in range(len(cards)):
+            r = made[i] if i < len(made) else {}
+            status, person = r.get("status") or {}, r.get("person") or {}
+            if status.get("code") or not person.get("resourceName"):
+                out.append(WriteResult(error=self._item_error(status or {"message": "no answer"}, "create a contact")))
+                continue
+            rc = self._remote(person)
+            out.append(WriteResult(ok=True, remote_id=rc.remote_id, version=rc.version, card=rc.card))
+        return out
+
+    def update_many(self, items: list[tuple[str, str, Card]]) -> list[WriteResult]:
+        if not items:
+            return []
+        contacts = {}
+        for rid, version, card in items:
+            person = self._to_person(card)
+            person["etag"] = version
+            contacts[rid] = person
+        body = {"contacts": contacts, "updateMask": _WRITE_FIELDS, "readMask": _READ_FIELDS}
+        resp = self._call("POST", "people:batchUpdateContacts", body=body)
+        if self._batch_refused(resp, "update contacts"):
+            def one(item: tuple[str, str, Card]) -> WriteResult:
+                return WriteResult(ok=True, remote_id=item[0], version=self.update(*item))
+            return self._one_each(items, one)
+        results = (resp.json() or {}).get("updateResult") or {}
+        out: list[WriteResult] = []
+        for rid, _version, _card in items:
+            r = results.get(rid) or {}
+            status, person = r.get("status") or {}, r.get("person") or {}
+            code = status.get("code") or 0
+            if code in (5, 9) or "etag" in str(status.get("message") or "").lower():   # NOT_FOUND, FAILED_PRECONDITION
+                out.append(WriteResult(conflict=True))
+            elif code or not person:
+                out.append(WriteResult(error=self._item_error(status or {"message": "no answer"}, "update a contact")))
+            else:
+                person.setdefault("resourceName", rid)
+                rc = self._remote(person)
+                out.append(WriteResult(ok=True, remote_id=rid, version=rc.version, card=rc.card))
+        return out
+
+    def get_many(self, remote_ids: list[str]) -> dict[str, Optional[RemoteContact]]:
+        """people:batchGet, 200 a request, with the same fields as every other read (the etag depends on them)."""
+        found: dict[str, Optional[RemoteContact]] = {}
+        self._get_errors: dict[str, dict] = {}
+        for start in range(0, len(remote_ids), 200):
+            chunk = remote_ids[start:start + 200]
+            resp = self._call("GET", "people:batchGet", params={"resourceNames": chunk, "personFields": _READ_FIELDS})
+            if resp.status != 200:
+                raise self._fail(resp, "read contacts")
+            for r in (resp.json() or {}).get("responses") or []:
+                rid = r.get("requestedResourceName") or (r.get("person") or {}).get("resourceName") or ""
+                status, person = r.get("status") or {}, r.get("person") or {}
+                if not rid:
+                    continue
+                code = status.get("code") or 0
+                if code and code != 5:                         # an error, not "gone" (5 is NOT_FOUND)
+                    self._get_errors[rid] = status
+                    continue
+                if code == 5 or not person:
+                    found[rid] = None
+                    continue
+                person.setdefault("resourceName", rid)
+                found[rid] = self._remote(person)
+        return found
+
+    def delete_many(self, items: list[tuple[str, str]]) -> list[WriteResult]:
+        if not items:
+            return []
+        current = self.get_many([rid for rid, _v in items])
+        out: list[WriteResult] = []
+        doomed: list[str] = []
+        errors = dict(getattr(self, "_get_errors", {}) or {})
+        for rid, version in items:
+            now = current.get(rid)
+            if rid in errors or rid not in current:            # could not be read: never taken for gone
+                out.append(WriteResult(error=self._item_error(errors.get(rid) or {"message": "no answer"},
+                                                              "read a contact before deleting it")))
+            elif now is None or now.card is None:
+                out.append(WriteResult(ok=True, remote_id=rid))        # already gone
+            elif version and now.version != version:
+                out.append(WriteResult(conflict=True))                 # changed since: never deleted blind (3c)
+            else:
+                doomed.append(rid)
+                out.append(WriteResult(ok=True, remote_id=rid))
+        for start in range(0, len(doomed), 500):
+            chunk = doomed[start:start + 500]
+            resp = self._call("POST", "people:batchDeleteContacts", body={"resourceNames": chunk})
+            if self._batch_refused(resp, "delete contacts"):
+
+                for rid in chunk:
+                    try:
+                        self.delete(rid, "")
+                    except AppErrorException as exc:
+                        if exc.error.code in _common.ACCOUNT_WIDE:
+                            raise
+
+                        for i, (r_id, _v) in enumerate(items):
+                            if r_id == rid:
+                                out[i] = WriteResult(error=exc.error)
+        return out
+
+    def list_ids(self) -> dict[str, tuple[str, str]]:
+        """Every contact with its etag and name (the check after a sync, 1t 3c): connections.list, 1,000 a page,
+        with the read fields, so an etag here is the etag a write compares."""
+        out: dict[str, tuple[str, str]] = {}
+        page = ""
+        self._load_groups()
+        while True:
+            params: dict[str, Any] = {"personFields": _READ_FIELDS, "pageSize": 1000,
+                                      "sources": "READ_SOURCE_TYPE_CONTACT"}
+            if page:
+                params["pageToken"] = page
+            resp = self._call("GET", "people/me/connections", params=params)
+            if resp.status != 200:
+                raise self._fail(resp, "list contacts")
+            data = resp.json() or {}
+            for person in data.get("connections") or []:
+                rid = person.get("resourceName")
+                if not rid or (person.get("metadata") or {}).get("deleted"):
+                    continue
+                names = person.get("names") or []
+                name = (names[0].get("displayName") if names else "") or ""
+                out[rid] = (person.get("etag", ""), name)
+            page = data.get("nextPageToken") or ""
+            if not page:
+                return out
+
     def close(self) -> None:
         self._by_resource = None
+        _common.close_transport(self._t)

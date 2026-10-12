@@ -28,8 +28,8 @@ default one. Writing goes the other way: every group name becomes a category
 (Outlook creates the category on first use), except a name equal to the
 contact's own folder, which is already said by where it is. Creating a contact
 whose group names a folder that exists puts it in that folder. A contact is never
-moved between folders by an update. Only top-level contact folders are walked
-(child folders are not); a folder deleted at Microsoft takes its contacts with it
+moved between folders by an update. Every contact folder is walked, child folders
+included (order 1t 3d); a folder deleted at Microsoft takes its contacts with it
 without delta saying so, which the engine finds on the next full pull.
 
 **A contact moved from one folder to another** shows as a removal in the first
@@ -58,9 +58,10 @@ from typing import Any, Iterator, Optional
 from urllib.parse import quote, urlencode
 
 from app.accounts.provider import (ContactPage, HttpResponse, RemoteContact, TokenExpired,
-                                   TokenSource, Transport, VersionConflict)
+                                   TokenSource, Transport, VersionConflict, WriteResult)
 from app.accounts.providers import _common
 from app.contacts.card import Capabilities, Card, Field, project
+from app.core.errors import AppErrorException, make_error
 
 __all__ = ["GraphContactsProvider", "GRAPH_CAPS", "API_BASE", "MAX_EMAILS"]
 
@@ -77,7 +78,7 @@ GRAPH_CAPS = Capabilities(
     kinds=frozenset({"email", "phone", "address", "url", "date", "related", "im"}),
     groups=True, favourite=False, photo=False, date_labels=frozenset({"birthday"}),
     max_per_kind=(("email", 3), ("phone", 5), ("address", 3), ("url", 1), ("date", 1), ("related", 3)),
-    kind_labels=(("related", frozenset({"spouse", "manager", "assistant"})),))
+    kind_labels=(("related", frozenset({"spouse", "manager", "assistant"})),), primary=False)
 
 #: Graph answers HTTP 500 (ErrorInternalServerError) to a PATCH that sets an address to null on a contact that has
 #: no such address - found 2026-10-12 against the owner's account, one property at a time. So a null address is
@@ -159,19 +160,31 @@ class GraphContactsProvider:
     # -- folders ------------------------------------------------------------
 
     def _load_folders(self, force: bool = False) -> dict[str, str]:
+        """Every contact folder, child folders included (order 1t 3d: Outlook counts the contacts in a child
+        folder, and a sync that walked only the top level could never agree with it). Id -> display name."""
         if self._folders is not None and not force:
             return self._folders
         out: dict[str, str] = {}
-        url = "me/contactFolders?" + urlencode({"$top": 100})
-        while url:
-            resp = self._call("GET", url)
-            if resp.status != 200:
-                raise self._fail(resp, "list contact folders")
-            data = resp.json() or {}
-            for f in data.get("value") or []:
-                if f.get("id"):
-                    out[f["id"]] = f.get("displayName") or f["id"]
-            url = data.get("@odata.nextLink") or ""
+        queue = ["me/contactFolders?" + urlencode({"$top": 100})]
+        depth = 0
+        while queue and depth < 6:                            # Outlook nests a few levels at most
+            nxt: list[str] = []
+            for start in queue:
+                url = start
+                while url:
+                    resp = self._call("GET", url)
+                    if resp.status == 404 and depth:
+                        break                                 # a folder removed while it was being walked
+                    if resp.status != 200:
+                        raise self._fail(resp, "list contact folders")
+                    data = resp.json() or {}
+                    for f in data.get("value") or []:
+                        if f.get("id") and f["id"] not in out:
+                            out[f["id"]] = f.get("displayName") or f["id"]
+                            nxt.append(f"me/contactFolders/{quote(f['id'], safe='')}/childFolders?"
+                                       + urlencode({"$top": 100}))
+                    url = data.get("@odata.nextLink") or ""
+            queue, depth = nxt, depth + 1
         self._folders = out
         return out
 
@@ -468,5 +481,216 @@ class GraphContactsProvider:
         if resp.status not in (200, 204, 404):
             raise self._fail(resp, "delete a contact")
 
+    # -- batches (order 1t 5d) -------------------------------------------------------------------
+    #: Graph's $batch carries 20 requests; Outlook runs up to four of them at a time per mailbox. A write is
+    #: guarded by a batch of reads of the change keys first (rule 3c), and the answer to a PATCH or POST is the
+    #: contact as Outlook now holds it - the read-back - so nothing is read twice.
+    batch_size = 20
+    one_by_one_cost = {"create": 2, "update": 3, "delete": 2}
+    batch_cost = {"create": 1, "update": 2, "delete": 2}
+    #: A request inside a batch answered 429 is sent again in the next batch after the wait Graph asks for, up to
+    #: this many rounds; beyond that the account is busy and the run says so.
+    _THROTTLE_ROUNDS = 3
+
+    def _batch(self, requests: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Send `requests` (each `method`, `url`, optional `body`) as $batch calls of 20; the answers in the same
+        order, each {"status", "body", "headers"}. A request throttled inside a batch (429) is sent again."""
+        answers: list[Optional[dict[str, Any]]] = [None] * len(requests)
+        pending = list(range(len(requests)))
+        for _round in range(self._THROTTLE_ROUNDS + 1):
+            throttled: list[int] = []
+            wait = 0.0
+            for start in range(0, len(pending), self.batch_size):
+                chunk = pending[start:start + self.batch_size]
+                body = {"requests": []}
+                for n, i in enumerate(chunk):
+                    r = requests[i]
+                    sub: dict[str, Any] = {"id": str(n), "method": r["method"], "url": "/" + r["url"].lstrip("/"),
+                                           "headers": {"Prefer": 'IdType="ImmutableId"'}}
+                    if r.get("body") is not None:
+                        sub["body"] = r["body"]
+                        sub["headers"]["Content-Type"] = "application/json"
+                    if r.get("headers"):
+                        sub["headers"].update(r["headers"])
+                    body["requests"].append(sub)
+                resp = self._call("POST", "$batch", body=body)
+                if resp.status != 200:
+                    raise self._fail(resp, "send a batch")
+                for a in (resp.json() or {}).get("responses") or []:
+                    try:
+                        i = chunk[int(a.get("id"))]
+                    except (TypeError, ValueError, IndexError):
+                        continue
+                    status = int(a.get("status") or 0)
+                    if status == 429:
+                        throttled.append(i)
+                        hdr = {str(k).lower(): v for k, v in (a.get("headers") or {}).items()}
+                        try:
+                            wait = max(wait, float(hdr.get("retry-after") or 1))
+                        except ValueError:
+                            wait = max(wait, 1.0)
+                        continue
+                    answers[i] = {"status": status, "body": a.get("body") or {}, "headers": a.get("headers") or {}}
+            if not throttled:
+                break
+            if _round == self._THROTTLE_ROUNDS:
+                raise AppErrorException(make_error(
+                    "ERR_PROVIDER_LIMIT", _COMPONENT, account=self._account,
+                    reason=f"too many requests, HTTP 429 inside a batch ({len(throttled)} left)",
+                    retry_after_s=wait))
+            import time  # noqa: PLC0415
+            time.sleep(min(wait, 60.0))
+            pending = throttled
+        return [a or {"status": 0, "body": {}, "headers": {}} for a in answers]
+
+    def _item_error(self, answer: dict[str, Any], what: str) -> Any:
+        err = (answer.get("body") or {}).get("error") or {}
+        return make_error("ERR_ACCOUNT_REJECTED", _COMPONENT, account=self._account,
+                          reason=f"{what}: HTTP {answer.get('status')} {err.get('code') or ''}".strip(),
+                          details=str(err.get("message") or "")[:500])
+
+    def _currents(self, remote_ids: list[str]) -> list[dict[str, Any]]:
+        sel = urlencode({"$select": "changeKey,parentFolderId," + ",".join(_ADDRESS_SLOTS)})
+        return self._batch([{"method": "GET", "url": f"me/contacts/{quote(r, safe='')}?{sel}"} for r in remote_ids])
+
+    def create_many(self, cards: list[Card]) -> list[WriteResult]:
+        if not cards:
+            return []
+        self._ensure_default_id()
+        folders = self._load_folders()
+        reqs, names = [], []
+        for card in cards:
+            target, folder_name = "me/contacts", ""
+            for g in card.groups:
+                fid = next((i for i, n in folders.items() if n.casefold() == g.casefold() and i != self._default_id), "")
+                if fid:
+                    target, folder_name = f"me/contactFolders/{quote(fid, safe='')}/contacts", g
+                    break
+            body = {k: v for k, v in self._to_body(card, folder_name).items() if v not in (None, [], {})}
+            reqs.append({"method": "POST", "url": target, "body": body})
+            names.append(folder_name)
+        out: list[WriteResult] = []
+        for answer, folder_name in zip(self._batch(reqs), names):
+            if answer["status"] in (200, 201) and (answer["body"] or {}).get("id"):
+                c = answer["body"]
+                out.append(WriteResult(ok=True, remote_id=c["id"], version=c.get("changeKey", ""),
+                                       card=self._to_card(c, folder_name)))
+            else:
+                out.append(WriteResult(error=self._item_error(answer, "create a contact")))
+        return out
+
+    def update_many(self, items: list[tuple[str, str, Card]]) -> list[WriteResult]:
+        if not items:
+            return []
+        self._ensure_default_id()
+        currents = self._currents([rid for rid, _v, _c in items])
+        out: list[Optional[WriteResult]] = [None] * len(items)
+        reqs, where, bodies = [], [], []
+        for i, ((rid, version, card), cur) in enumerate(zip(items, currents)):
+            if cur["status"] == 404:
+                out[i] = WriteResult(conflict=True)
+                continue
+            if cur["status"] != 200:
+                out[i] = WriteResult(error=self._item_error(cur, "read a contact before changing it"))
+                continue
+            c = cur["body"] or {}
+            if version and c.get("changeKey", "") != version:
+                out[i] = WriteResult(conflict=True)            # changed since it was read: never written blind
+                continue
+            folder_name = self._folder_name(c.get("parentFolderId", ""))
+            body = self._to_body(card, folder_name)
+            for slot in _ADDRESS_SLOTS:
+                if body.get(slot) is None and not c.get(slot):
+                    del body[slot]                              # nothing to clear, and Graph answers 500
+            reqs.append({"method": "PATCH", "url": f"me/contacts/{quote(rid, safe='')}", "body": body,
+                         "headers": self._write_headers(version)})
+            where.append((i, folder_name))
+            bodies.append(body)
+        for (i, folder_name), answer, body in zip(where, self._batch(reqs) if reqs else [], bodies):
+            rid, version, _card = items[i]
+            if answer["status"] == 200:
+                c = answer["body"] or {}
+                out[i] = WriteResult(ok=True, remote_id=rid, version=c.get("changeKey", ""),
+                                     card=self._to_card(c, folder_name) if c.get("id") else None)
+            elif answer["status"] in (409, 412, 404):
+                out[i] = WriteResult(conflict=True)
+            elif answer["status"] in (400, 500):
+                try:                                            # one property Outlook will not take: piece by piece
+                    key = self._update_piecewise(rid, version, body, HttpResponse(answer["status"], {}, b""))
+                    out[i] = WriteResult(ok=True, remote_id=rid, version=key)
+                except VersionConflict:
+                    out[i] = WriteResult(conflict=True)
+                except AppErrorException as exc:
+                    if exc.error.code in _common.ACCOUNT_WIDE:
+                        raise
+                    out[i] = WriteResult(error=exc.error)
+            else:
+                out[i] = WriteResult(error=self._item_error(answer, "update a contact"))
+        return [o or WriteResult(error=make_error("ERR_ACCOUNT_REJECTED", _COMPONENT, account=self._account,
+                                                  reason="no answer for this contact")) for o in out]
+
+    def delete_many(self, items: list[tuple[str, str]]) -> list[WriteResult]:
+        if not items:
+            return []
+        currents = self._currents([rid for rid, _v in items])
+        out: list[Optional[WriteResult]] = [None] * len(items)
+        reqs, where = [], []
+        for i, ((rid, version), cur) in enumerate(zip(items, currents)):
+            if cur["status"] == 404:
+                out[i] = WriteResult(ok=True, remote_id=rid)    # already gone
+            elif cur["status"] != 200:
+                out[i] = WriteResult(error=self._item_error(cur, "read a contact before deleting it"))
+            elif version and (cur["body"] or {}).get("changeKey", "") != version:
+                out[i] = WriteResult(conflict=True)             # changed since: the engine looks before deleting
+            else:
+                reqs.append({"method": "DELETE", "url": f"me/contacts/{quote(rid, safe='')}",
+                             "headers": self._write_headers(version)})
+                where.append(i)
+        for i, answer in zip(where, self._batch(reqs) if reqs else []):
+            if answer["status"] in (200, 204, 404):
+                out[i] = WriteResult(ok=True, remote_id=items[i][0])
+            elif answer["status"] in (409, 412):
+                out[i] = WriteResult(conflict=True)
+            else:
+                out[i] = WriteResult(error=self._item_error(answer, "delete a contact"))
+        return [o or WriteResult(conflict=True) for o in out]
+
+    def get_many(self, remote_ids: list[str]) -> dict[str, Optional[RemoteContact]]:
+        self._ensure_default_id()
+        found: dict[str, Optional[RemoteContact]] = {}
+        answers = self._batch([{"method": "GET", "url": f"me/contacts/{quote(r, safe='')}"} for r in remote_ids])
+        for rid, answer in zip(remote_ids, answers):
+            c = answer["body"] or {}
+            if answer["status"] != 200 or not c.get("id"):
+                found[rid] = None
+                continue
+            found[rid] = self._remote(c, self._folder_name(c.get("parentFolderId", "")))
+        return found
+
+    def list_ids(self) -> dict[str, tuple[str, str]]:
+        """Every contact in every folder, child folders included, with its change key and name (the check after
+        a sync, 1t 3c). Ids, keys and names only: a few requests for a whole book."""
+        folders = self._load_folders(force=True)
+        default_id = self._ensure_default_id()
+        out: dict[str, tuple[str, str]] = {}
+        sel = urlencode({"$select": "id,changeKey,displayName", "$top": 999})
+        starts = [f"me/contacts?{sel}"] + [f"me/contactFolders/{quote(f, safe='')}/contacts?{sel}"
+                                           for f in folders if f != default_id]
+        for start in starts:
+            url = start
+            while url:
+                resp = self._call("GET", url, paged=True)
+                if resp.status == 404:
+                    break
+                if resp.status != 200:
+                    raise self._fail(resp, "list contacts")
+                data = resp.json() or {}
+                for c in data.get("value") or []:
+                    if c.get("id"):
+                        out[c["id"]] = (c.get("changeKey", ""), c.get("displayName") or "")
+                url = data.get("@odata.nextLink") or ""
+        return out
+
     def close(self) -> None:
         self._folders = None
+        _common.close_transport(self._t)

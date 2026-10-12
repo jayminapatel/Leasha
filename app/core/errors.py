@@ -1029,6 +1029,14 @@ ERROR_REGISTRY: dict[str, _Spec] = {
         suggestion="Press Sync now to try again; the other accounts were not affected.",
         action_type=ActionType.USER_RETRY,
     ),
+    # Order 1t 4c: one account returned most of its contacts changed in the same way.
+    "ERR_SYNC_CHANGES_HELD": _Spec(
+        message=("{account} returned {count} of its {linked} contacts changed in the same way ({what}), so "
+                 "nothing was written to any account."),
+        suggestion=("Look at a few of them in Contacts. If the change is right, press Allow and sync again; "
+                    "if it is not, undo this sync in the sync log."),
+        action_type=ActionType.USER_RETRY,
+    ),
 }
 
 

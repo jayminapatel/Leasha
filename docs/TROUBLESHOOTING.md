@@ -1,6 +1,6 @@
 # Troubleshooting
 
-**Doc version:** 1.21 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.22 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 Written for someone who codes as a hobby: no assumed knowledge, just where to look and what
 things mean.
@@ -352,12 +352,32 @@ a file.
 ### "This sync would delete (N) contacts" - `ERR_SYNC_DELETE_BRAKE`
 
 The delete brake. A sync that would delete more contacts than your limit (20 contacts or 5% of the
-book, changed under Settings > Accounts > **Safety**) stops and deletes nothing. Leasha says: "Check
-the list in the sync log. If it is right, press Allow in the sync log and sync again; if not, press
-Undo." Select the row marked **Held**: it lists what the sync was about to do, with a few names.
-**Allow** lets it go ahead; **Undo this sync** is for a sync that already ran. A brake that keeps
-firing usually means an account was emptied or a folder was unsubscribed at the provider: look
-before you press Allow.
+book, changed under Settings > Accounts > **Safety**; either limit stops it) deletes nothing from that
+account, and writes every other change. Leasha says: "Check the list in the sync log. If it is right,
+press Allow in the sync log and sync again; if not, press Undo." The account's row in the Sync window
+says **Waiting for you**; the Sync log row marked **Held** names the contacts it was about to delete.
+**Allow** (on either) lets the deletes go ahead; **Undo this sync** is for a sync that already ran. A
+brake that keeps firing usually means an account was emptied or a folder was unsubscribed at the
+provider: look before you press Allow.
+
+### "(account) returned (N) of its contacts changed in the same way" - `ERR_SYNC_CHANGES_HELD`
+
+One account sent back most of its contacts changed in one and the same way (more than the share set
+under **Safety**, half by default) - almost always the server rewriting its cards, not a person. Nothing
+was written to any account, so the change has not spread. Open a few of those contacts: if the change
+is right, press **Allow** on the account's row in the Sync window and it goes through; if not, undo
+that sync in the Sync log. `accounts config --churn-guard 0` turns the guard off.
+
+### "My contact counts are different in Google, Outlook and Leasha"
+
+Each counts something different. Google Contacts and Outlook count what they hold. Leasha's number
+beside an account is the contacts you keep there. The **check after every sync** compares the two and
+says on the account's row, and under **At the account** in its settings, either *in step with Leasha*
+or by name what differs: not at the account, not in Leasha, changed there since. The usual reasons:
+contacts waiting to be written or deleted (a held delete brake, a refused contact - both listed in
+the Sync window), contacts deleted at the account (kept in Leasha under **Deleted elsewhere**), and
+Google's *Other contacts*, which are not contacts. **Fix these** reads the whole account again at the
+next sync. `contacts log --timing` shows what each run did and how long it took.
 
 ### "The first sync of (account) is a dry run" - `ERR_SYNC_NEEDS_APPROVAL`
 
