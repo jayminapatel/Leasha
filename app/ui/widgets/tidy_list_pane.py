@@ -290,12 +290,12 @@ class TidyListPane(QWidget):
         if row is None:
             return
         # The first line is what a double-click does here, so it is the bold one.
-        keeps, Item = row.kind in ("copies", "similar"), menus.Item
-        lines = [Item("Keep this one", lambda p=row.path: self.keep_only.emit(p), group="open", default=True,
-                      shortcut="Enter")] if keeps else []
-        lines += [Item("Compare this set", lambda i=row.set_index: self.open_set.emit(i), group="open",
-                       default=not keeps, shortcut="" if keeps else "Enter"),
-                  Item("Show in folder", lambda p=row.path: self._reveal(p), group="open")]
+        keeps = row.kind in ("copies", "similar")
+        lines = [menus.Item("Keep this one", lambda p=row.path: self.keep_only.emit(p), group="open",
+                            default=True, shortcut="Enter")] if keeps else []
+        lines += [menus.Item("Compare this set", lambda i=row.set_index: self.open_set.emit(i), group="open",
+                             default=not keeps, shortcut="" if keeps else "Enter"),
+                  menus.Item("Show in folder", lambda p=row.path: self._reveal(p), group="open")]
         menus.show(menus.build(self, lines), self.results, point, wait=False, keep=self)
 
     @staticmethod

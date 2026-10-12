@@ -402,7 +402,7 @@ def test_the_timeline_menu_shows_and_copies_every_selected_browse_row(
     view.deleteLater()
 
 
-def test_the_timeline_list_opens_once_per_enter(qapp) -> None:
+def test_the_timeline_list_installs_the_list_keys(qapp) -> None:
     from app.ui.widgets.timeline_list import TimelineList
 
     timeline = TimelineList()
@@ -438,7 +438,7 @@ def test_search_results_open_once_per_double_click_and_space_previews(qapp, monk
     page.deleteLater()
 
 
-def test_tidy_keeps_its_double_click_and_answers_enter_the_same_way(qapp) -> None:
+def test_the_tidy_list_installs_the_list_keys(qapp) -> None:
     from app.ui.widgets.tidy_list_pane import TidyListPane
 
     pane = TidyListPane()
@@ -446,7 +446,7 @@ def test_tidy_keeps_its_double_click_and_answers_enter_the_same_way(qapp) -> Non
     pane.deleteLater()
 
 
-def test_offline_keeps_rescan_on_double_click(qapp) -> None:
+def test_the_offline_list_installs_the_list_keys(qapp) -> None:
     from app.ui.offline_media_view import OfflineMediaView
 
     view = OfflineMediaView(None)
