@@ -141,6 +141,24 @@ class GlobalSettingsBox(QWidget):
         form.addRow("or more than", self.brake_percent)
         form.addRow(hint("A sync that would delete more contacts than this (20 contacts or 5% of your book "
                          "is the default) stops and asks. Nothing is deleted until you press Allow."))
+        self.check_after = QCheckBox("Check each account after every sync")
+        self.check_after.setToolTip("After a sync, read the account's own list of contacts and compare it with "
+                                    "Leasha's. It changes nothing; it says In step, or which contacts differ")
+        form.addRow(self.check_after)
+        self.churn = QSpinBox()
+        self.churn.setRange(0, 100)
+        self.churn.setSuffix(" %")
+        self.churn.setSpecialValueText("Off")
+        self.churn.setKeyboardTracking(False)
+        self.churn.setAccessibleName("Hold a sync when an account changes this share of its contacts the same way")
+        self.churn.setToolTip("When an account returns more than this share of its contacts changed in one and "
+                              "the same way, nothing is written to any account until you press Allow. 50 % is "
+                              "the default; Off turns it off.")
+        form.addRow("Hold a sync when an account changes more than", self.churn)
+        form.addRow(hint("of its contacts in the same way - a server rewriting every card, not you. Nothing is "
+                         "written to any account until you look and press Allow."))
+        self.check_after.toggled.connect(lambda on: self._save(check_after_sync=bool(on)))
+        self.churn.valueChanged.connect(lambda v: self._save(churn_guard_percent=int(v)))
         self.dry_run = QCheckBox("Dry run before an account's first sync")
         form.addRow(self.dry_run)
         form.addRow(hint("Off by default. When on, the first sync of an account lists what it would add, "
@@ -390,6 +408,8 @@ class GlobalSettingsBox(QWidget):
             set_quiet(self.brake_percent, float(s.brake_percent), "setValue")
             set_quiet(self.dry_run, bool(s.dry_run_first), "setChecked")
             set_quiet(self.mirror, bool(s.mirror_contacts), "setChecked")
+            set_quiet(self.check_after, bool(s.check_after_sync), "setChecked")
+            set_quiet(self.churn, int(s.churn_guard_percent), "setValue")
             set_quiet(self.backup, bool(s.backup_contacts), "setChecked")
             set_quiet(self.backup_keep, int(s.contacts_backup_keep), "setValue")
             blocked_m = self.master.blockSignals(True)

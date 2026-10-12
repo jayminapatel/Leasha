@@ -143,3 +143,64 @@ class FakeProvider:
 
     def close(self) -> None:
         self.closed = True
+
+    # -- order 1t 3b: the check after a sync
+    def list_ids(self) -> dict[str, tuple[str, str]]:
+        from app.contacts.card import display_name  # noqa: PLC0415
+        return {k: (str(r.version), display_name(r.card) or "") for k, r in self.server.recs.items()
+                if r.card is not None}
+
+
+class BatchFakeProvider(FakeProvider):
+    """A `FakeProvider` with the batch methods (order 1t 5b): counts the calls, can refuse or race named records."""
+
+    batch_size = 3
+
+    def __init__(self, server: FakeServer, caps: Capabilities = ALL_CAPS, *, page_size: int = 2) -> None:
+        super().__init__(server, caps, page_size=page_size)
+        self.batch_calls: list[tuple[str, int]] = []
+        self.refuse: set[str] = set()            # remote ids (or "new:<given>") answered as refused
+        self.race: set[str] = set()              # remote ids answered as a conflict once
+
+    def create_many(self, cards):
+        from app.accounts.provider import WriteResult  # noqa: PLC0415
+        self.batch_calls.append(("create", len(cards)))
+        out = []
+        for card in cards:
+            if f"new:{card.get('given')}" in self.refuse:
+                out.append(WriteResult(error=make_error("ERR_ACCOUNT_REJECTED", "fake", account="F", reason="no")))
+                continue
+            rid, version = self.create(card)
+            out.append(WriteResult(ok=True, remote_id=rid, version=version, card=self.server.recs[rid].card.copy()))
+        return out
+
+    def update_many(self, items):
+        from app.accounts.provider import WriteResult  # noqa: PLC0415
+        self.batch_calls.append(("update", len(items)))
+        out = []
+        for rid, version, card in items:
+            if rid in self.refuse:
+                out.append(WriteResult(error=make_error("ERR_ACCOUNT_REJECTED", "fake", account="F", reason="no")))
+            elif rid in self.race:
+                self.race.discard(rid)
+                out.append(WriteResult(conflict=True))
+            else:
+                try:
+                    v = self.update(rid, version, card)
+                    out.append(WriteResult(ok=True, remote_id=rid, version=v))
+                except VersionConflict:
+                    out.append(WriteResult(conflict=True))
+        return out
+
+    def delete_many(self, items):
+        from app.accounts.provider import WriteResult  # noqa: PLC0415
+        self.batch_calls.append(("delete", len(items)))
+        out = []
+        for rid, version in items:
+            self.delete(rid, version)
+            out.append(WriteResult(ok=True, remote_id=rid))
+        return out
+
+    def get_many(self, ids):
+        self.batch_calls.append(("get", len(ids)))
+        return {i: self.get(i) for i in ids}

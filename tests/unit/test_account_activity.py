@@ -284,3 +284,28 @@ def test_a_folder_the_scanner_still_holds_does_not_cost_the_message(monkeypatch)
     rules = type("R", (), {"name_only_document": staticmethod(lambda *a, **k: "by-name")})()
     mail_index.MailIndexer._read_attachment("a.txt", b"hello", "msg", "digest", lambda path: [], lambda *a: "k", rules)
     assert asked.get("ignore_cleanup_errors") is True
+
+
+# ---------------------------------------------------------------------------------------- order 1t: held, check
+def test_a_held_contact_run_waits_for_you_with_allow_not_up_to_date():
+    from app.ui.presenter.account_activity import actions_for
+    snap = {"account_id": 1, "name": "G", "kind": "contacts", "enabled": True, "last_success": 1000.0,
+            "run": {"status": "held", "error_text": "This sync would delete 45 contacts from G - more than your "
+                    "safety limit - so no contact was deleted. FIX: Check the list in the sync log."}}
+    a = describe(snap, 2000.0)
+    assert a.state == "held" and a.word == "Waiting for you" and "45 contacts" in a.headline
+    assert [x.key for x in actions_for(a)] == ["allow", "settings"]
+
+
+def test_the_check_after_a_sync_is_on_the_row_and_out_of_step_offers_fix():
+    from app.ui.presenter.account_activity import actions_for, check_words
+    base = {"account_id": 1, "name": "G", "kind": "contacts", "enabled": True, "last_success": 1000.0,
+            "run": {"status": "ok"}}
+    ok = describe(dict(base, check={"at": 1990.0, "count": 1444, "in_step": True}), 2000.0)
+    assert ok.detail.startswith("At the account: 1,444 - in step with Leasha")
+    assert [x.key for x in actions_for(ok)] == ["sync", "settings"]
+    off = describe(dict(base, check={"at": 1990.0, "count": 1436, "in_step": False, "missing_there_n": 9,
+                                     "missing_there": ["Ann Lee", "Bob Ray"]}), 2000.0)
+    assert "9 not at the account (Ann Lee, Bob Ray, ...)" in off.detail
+    assert [x.key for x in actions_for(off)] == ["sync", "fix", "settings"]
+    assert check_words(None, 2000.0) == ""

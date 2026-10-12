@@ -112,3 +112,18 @@ def test_contacts_sync_dry_run_then_real_then_log_and_undo(world, capsys):
     assert world("contacts", "undo", run_id) == 0
     assert world("contacts", "list") == 0
     assert "Ann" not in capsys.readouterr().out                      # the sync was put back
+
+
+def test_contacts_sync_measure_and_log_timing(world, capsys):
+    """Order 1t 1a, 1b: what the waiting writes would cost, and where a real run's time went."""
+    world("accounts", "add", "carddav", "--address", "me@fast.com", "--name", "Fast", "--server",
+          "carddav.fast.com", "--password-stdin", stdin="pw\n")
+    world.servers.setdefault("me@fast.com", FakeServer()).add(person("Ann", email="ann@x.com"))
+    assert world("accounts", "config", "--check-after-sync", "yes", "--churn-guard", "40") == 0
+    capsys.readouterr()
+    assert world("contacts", "sync", "--measure") == 0
+    out = capsys.readouterr().out
+    assert "requests one at a time" in out or "dry-run" in out
+    assert world("contacts", "sync") == 0
+    assert world("contacts", "log", "--timing") == 0
+    assert " s" in capsys.readouterr().out
