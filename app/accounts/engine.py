@@ -588,7 +588,25 @@ class ContactSyncEngine:
 
     def _remote_delete(self, acct: Account, provider: ContactProvider, link: Any, ctx: _Ctx) -> None:
         if link.remote_id:
-            provider.delete(link.remote_id, link.version_tag)
+            version = link.version_tag
+            for attempt in range(RACE_RETRIES + 1):
+                try:
+                    provider.delete(link.remote_id, version)
+                    break
+                except VersionConflict:
+                    # The record's version moved. If what it holds is still what Leasha last saw, only the
+                    # version changed (the account re-saved it): delete with the new one. If its content
+                    # changed, rule 3c holds - nothing that changed meanwhile is deleted blind.
+                    fresh = provider.get(link.remote_id)
+                    if fresh is None or fresh.card is None:
+                        break                                       # already gone
+                    held = link.snapshot
+                    now = project(fresh.card, provider.caps, self.hub.region)
+                    same = held is not None and units(now, provider.caps, self.hub.region) == units(
+                        held, provider.caps, self.hub.region)
+                    if not same or attempt == RACE_RETRIES:
+                        raise
+                    version = fresh.version
         self.hub.drop_link(link.contact_id, acct.id)
         ctx.plan.delete_out += 1
 

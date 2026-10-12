@@ -249,6 +249,10 @@ def test_delete_checks_the_etag_first(tr, gp):
     tr.add("DELETE", "/v1/people/c6:deleteContact", {}, status=200)
     gp.delete("people/c6", "same")
     assert len(tr.to("DELETE", "/v1/people/c6:deleteContact")) == 1
+    # the etag is compared with one read for the same fields as every other read: Google's etag changes with them
+    from app.accounts.providers.google_people import _READ_FIELDS
+
+    assert tr.to("GET", "/v1/people/c6")[0]["query"]["personFields"] == [_READ_FIELDS]
 
 
 def test_delete_of_a_contact_already_gone_is_quiet(tr, gp):

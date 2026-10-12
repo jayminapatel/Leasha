@@ -42,6 +42,14 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   `extractors.toml` alone and never `<DATA_PATH>\extractors.toml`; it now reads both (`WalkConfig.formats_from`).
 - Document cards are checked harder: a kind needs words in the document that support it (else `email` for a
   message, `other` otherwise), pronouns are never people, and a summary citing a number the document lacks is dropped.
+### Gmail: deleted contacts now leave Google (2026-10-12)
+
+- **Fixed:** four contacts deleted in Leasha stayed in Gmail, and every sync logged "gave up ... it keeps changing".
+  The delete checked the record's version with a read of its metadata alone, and Google's version changes with the
+  fields asked for, so it never matched. It now reads the same fields as every other read; and a delete refused
+  because only the version moved is retried with the new one (a record whose content changed meanwhile is still
+  not deleted blind).
+
 ### A vector table with nothing readable in it no longer breaks the window (2026-10-12)
 
 - **Fixed:** the window opened with an error and Reset index failed with "Table 'chunks' exists but could not be

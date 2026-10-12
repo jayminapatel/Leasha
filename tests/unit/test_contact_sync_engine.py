@@ -204,6 +204,53 @@ def test_a_contact_deleted_in_leasha_leaves_its_accounts_and_restores_from_the_b
     assert len(world.servers[g].live()) == 1                              # written back (D7.2)
 
 
+def test_a_delete_refused_only_because_the_version_moved_is_retried_with_the_new_one(world):
+    """Four contacts folded by a merge stayed in Gmail: the delete compared a stale etag, was taken for a race,
+    and "gave up ... next sync tries again" - for ever (the owner, 2026-10-12)."""
+    from app.accounts.provider import VersionConflict
+
+    g = world.account("Google")
+    rid = world.servers[g].add(person("Ann", "Lee"))
+    world.sync()
+    cid = world.hub.list_rows()[0].id
+    world.servers[g].recs[rid].version += 1               # the account re-saved the record: same content, new etag
+    provider = world.providers[g]
+    seen: list[str] = []
+    real_delete = provider.delete
+
+    def delete(remote_id, version):
+        seen.append(version)
+        if version != str(world.servers[g].recs[remote_id].version):
+            raise VersionConflict(remote_id)
+        real_delete(remote_id, version)
+
+    provider.delete = delete
+    world.hub.delete(cid)
+    world.sync()
+    assert world.servers[g].live() == {} and len(seen) == 2 and seen[0] != seen[1]
+
+
+def test_a_delete_of_a_record_whose_content_changed_meanwhile_is_still_held_back(world):
+    from app.accounts.provider import VersionConflict
+
+    g = world.account("Google")
+    rid = world.servers[g].add(person("Ann", "Lee"))
+    world.sync()
+    cid = world.hub.list_rows()[0].id
+    changed = person("Ann", "Lee")
+    changed.scalars["company"] = "Edited At The Account"
+    world.servers[g].edit(rid, changed)
+    provider = world.providers[g]
+
+    def delete(remote_id, version):
+        raise VersionConflict(remote_id)
+
+    provider.delete = delete
+    world.hub.delete(cid)
+    world.sync()
+    assert len(world.servers[g].live()) == 1               # rule 3c: nothing that changed meanwhile is deleted blind
+
+
 def test_the_delete_brake_stops_a_mass_delete_until_allowed(world):
     """9a.3 - D7.3."""
     g = world.account("Google")
