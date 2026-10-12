@@ -162,6 +162,12 @@ class AccountSettings:
     enrich_gravatar: bool = False
     enrich_logo: bool = False
     enrich_wikidata: bool = False
+    # order 1t (owner, 2026-10-12): after every contact sync, a read-only check that each account holds what
+    # Leasha thinks it holds ("In step", or the contacts that differ, by name).
+    check_after_sync: bool = True
+    # order 1t 4c: when more than this share of an account's contacts arrive changed in the same way on one
+    # sync, nothing is written back to that account until the person looks (0 turns the guard off).
+    churn_guard_percent: int = 50
 
     @classmethod
     def from_json(cls, raw: Optional[str]) -> "AccountSettings":
@@ -363,18 +369,97 @@ class AccountStore:
                 (int(time.time()), status, added, changed, deleted, held, error_code, error_text,
                  json.dumps(plan) if plan is not None else None, run_id))
 
+    def save_progress(self, run_id: int, plan: dict, *, added: int = 0, changed: int = 0, deleted: int = 0,
+                      held: int = 0, conn: Any = None) -> None:
+        """What a running run has done so far, written as it goes (order 1t 2a), with a heartbeat (`beat`) so a
+        run whose app went away can be told from one still working. Only a run still marked running is touched."""
+        plan = dict(plan)
+        plan["beat"] = int(time.time())
+        sql = ("UPDATE sync_runs SET added = ?, changed = ?, deleted = ?, held = ?, plan = ? "
+               "WHERE id = ? AND status = 'running'")
+        args = (added, changed, deleted, held, json.dumps(plan), run_id)
+        if conn is not None:
+            conn.execute(sql, args)
+            return
+        with self.store.write() as c:
+            c.execute(sql, args)
+
+    #: A running run that has not written its progress for this long belongs to an app that went away (a batch
+    #: is seconds; the longest wait the transport sleeps through is five minutes).
+    STALE_AFTER_S = 30 * 60
+
     def close_stale_runs(self) -> int:
         """Label as stopped any run still marked running that a later run of the same account and
         kind has replaced: the app closed before it could say how it ended, and only one sync per
         account and kind runs at a time. It never touches the newest run, so a sync that is really
         in progress keeps its label, and a late `finish_run` still overwrites this one."""
+        now = int(time.time())
         with self.store.write() as conn:
-            return conn.execute(
+            closed = conn.execute(
                 "UPDATE sync_runs SET status = 'interrupted', finished_at = ?, "
                 "error_text = 'The app closed before this sync finished.' "
                 "WHERE status = 'running' AND EXISTS (SELECT 1 FROM sync_runs n "
                 "WHERE n.account_id IS sync_runs.account_id AND n.kind = sync_runs.kind AND n.id > sync_runs.id)",
-                (int(time.time()),)).rowcount
+                (now,)).rowcount
+            # Order 1t 2b: also the newest run, when its heartbeat stopped long ago - its counts, written as it
+            # went, stay on the row.
+            for r in conn.execute("SELECT id, plan FROM sync_runs WHERE status = 'running' AND plan IS NOT NULL"
+                                  ).fetchall():
+                try:
+                    beat = int((json.loads(r["plan"]) or {}).get("beat") or 0)
+                except (ValueError, TypeError, AttributeError):
+                    beat = 0
+                if beat and now - beat > self.STALE_AFTER_S:
+                    closed += conn.execute(
+                        "UPDATE sync_runs SET status = 'interrupted', finished_at = ?, "
+                        "error_text = 'The app closed before this sync finished.' WHERE id = ? AND status = 'running'",
+                        (beat, r["id"])).rowcount
+            return closed
+
+    # ------------------------------------------------- refused contacts, and the check (order 1t 2c, 3c)
+    #: Kept in `index_state` as one small JSON list per account (no new table, so a database written by this
+    #: build still opens in the one before it).
+    @staticmethod
+    def _failures_key(account_id: int) -> str:
+        return f"contacts:failures:{int(account_id)}"
+
+    def failures(self, account_id: int) -> list[dict]:
+        """Contacts the account refused one by one and that still wait: contact id, name, what was tried, the
+        account's reason, first and last seen, attempts."""
+        try:
+            data = json.loads(self.store.get_state(self._failures_key(account_id)) or "[]")
+            return [d for d in data if isinstance(d, dict)]
+        except ValueError:
+            return []
+
+    def record_failures(self, account_id: int, failed: list[dict], written: set[int]) -> None:
+        """After a push: add or refresh what was refused this time, drop what went through."""
+        now = int(time.time())
+        by_id = {int(d.get("contact_id") or 0): d for d in self.failures(account_id)}
+        for cid in written:
+            by_id.pop(int(cid), None)
+        for f in failed:
+            cid = int(f.get("contact_id") or 0)
+            cur = by_id.get(cid) or {"contact_id": cid, "first_seen": now, "attempts": 0}
+            cur.update(name=str(f.get("name") or ""), kind=str(f.get("kind") or ""), reason=str(f.get("reason") or ""),
+                       last_seen=now, attempts=int(cur.get("attempts") or 0) + 1)
+            by_id[cid] = cur
+        rows = sorted(by_id.values(), key=lambda d: (-int(d.get("last_seen") or 0), str(d.get("name") or "")))[:500]
+        self.store.set_state(self._failures_key(account_id), json.dumps(rows))
+
+    def clear_failures(self, account_id: int) -> None:
+        self.store.set_state(self._failures_key(account_id), "[]")
+
+    def save_check(self, account_id: int, result: dict) -> None:
+        self.store.set_state(f"contacts:check:{int(account_id)}", json.dumps(result))
+
+    def check(self, account_id: int) -> Optional[dict]:
+        """The last check of this account against Leasha (order 1t 3c), or None if it was never checked."""
+        raw = self.store.get_state(f"contacts:check:{int(account_id)}")
+        try:
+            return json.loads(raw) if raw else None
+        except ValueError:
+            return None
 
     @staticmethod
     def _run(r: Any) -> SyncRun:

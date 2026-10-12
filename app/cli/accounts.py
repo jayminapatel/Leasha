@@ -248,6 +248,10 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             changes["brake_percent"] = args.brake_percent
         if args.dry_run_first:
             changes["dry_run_first"] = args.dry_run_first.lower() in ("yes", "on", "true")
+        if getattr(args, "check_after_sync", None):
+            changes["check_after_sync"] = args.check_after_sync == "yes"
+        if getattr(args, "churn_guard", None) is not None:
+            changes["churn_guard_percent"] = max(0, min(100, int(args.churn_guard)))
         if args.master_account:
             changes["master_account_id"] = (None if args.master_account.lower() in ("none", "off", "no")
                                             else _resolve(svc, args.master_account).id)
@@ -352,6 +356,11 @@ def add_accounts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     cf.add_argument("--brake-count", type=int)
     cf.add_argument("--brake-percent", type=float)
     cf.add_argument("--dry-run-first", choices=["yes", "no"])
+    cf.add_argument("--check-after-sync", choices=["yes", "no"],
+                    help="after every contact sync, compare each account with Leasha (read-only; on by default)")
+    cf.add_argument("--churn-guard", type=int, metavar="PERCENT",
+                    help="hold a sync when an account changes more than this share of its contacts the same way "
+                         "(0 turns it off; default 50)")
     cf.add_argument("--master-account", metavar="ACCOUNT|none",
                     help="the master list: what it deletes is deleted everywhere (behind the delete brake)")
     cf.add_argument("--mirror", choices=["yes", "no"],

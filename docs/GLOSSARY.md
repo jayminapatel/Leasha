@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.15 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.16 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -197,7 +197,11 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Changed in two places | A contact whose same field was edited in Leasha and at an account (or at two accounts) since the last sync. Under the default rule the newest edit wins, the other value stays in History, and the contact carries a marker until the person presses Acknowledge | `ERR_SYNC_CONFLICT_HELD`; Contacts sidebar, **Changed in two places**; Settings > Accounts, **When the same contact changed in two places** |
 | Client ID | The code that identifies the sign-in registration a person makes in their own name at Google or Microsoft. Leasha ships with none | Settings > Accounts, **Sign-in set-up**; the user guide walks through making one |
 | Contact | One person (or company) in Leasha's contact book: typed, repeatable fields (email, phone, address, website, dates, related people, handles), a photo, notes, groups, tags and the accounts it is kept in | `contacts`, `contact_fields`; `app/contacts/card.py` |
-| Delete brake | The stop on a sync that would delete more contacts than the safety limit (20 contacts or 5% of the book by default). Nothing is deleted until the person presses Allow | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety** |
+| Delete brake | The hold on a sync's deletes when they are more than the safety limit (20 contacts or 5% of the book by default). Those deletes wait until the person presses Allow; every other change is written | `ERR_SYNC_DELETE_BRAKE`; Settings > Accounts > **Safety** |
+| Churn guard | The hold on a whole sync when one account returns more than a set share of its contacts (half, by default) changed in the same way: nothing is written to any account until the person presses Allow | `ERR_SYNC_CHANGES_HELD`; `churn_guard_percent`; Settings > Accounts > **Safety** |
+| In step | An account holds exactly the contacts Leasha has linked there, at the versions last read, with nothing waiting to be written - what the check after every sync looks for | `ContactSyncEngine.check`; `check_after_sync` |
+| Kept (contacts) | The live contacts kept in an account: the number beside it in the Contacts list and under **Kept here**. One definition for every screen | `ContactHub.account_counts()["kept"]` |
+| Waiting (to be written) | Contacts kept in an account but not written there yet, and contacts in the Bin not yet removed from it | `waiting_create`, `waiting_delete` |
 | Deleted elsewhere | A contact an account no longer has. Leasha and the other accounts keep it; it is listed for the person to look at, never deleted on a hunch | Contacts sidebar, **Deleted elsewhere**; `contact_links.state = 'deleted_remote'` |
 | Direction | What a contact sync may do with one account: **Two-way** (read it and write to it; the default for every account, work accounts included), **Into Leasha only** (read it, never write), or **Off** | Settings > Accounts, the account's **Contacts** tab |
 | Master account | The account whose contact list is the master: what it deletes is deleted from Leasha's book (into the Bin) and from the other accounts, behind the delete brake. Leasha's own book is the master *copy*; this chooses whose deletes count | Settings > Accounts > Keeping contacts in step; `master_account_id` |

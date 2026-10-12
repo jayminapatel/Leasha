@@ -15,6 +15,11 @@ Order 1k, items 3f, 0b and 10e. Three small pieces, each testable alone:
 * `RetryingTransport` - wraps any transport and waits as long as the provider
   asks on 429 and 503. The server's `Retry-After` always beats our own
   backoff, because it is the only party that knows its own limit.
+* `KeepAliveTransport` - the same contract as `UrllibTransport` over one kept
+  `http.client` connection per host (order 1t 5a): a contact sync made a new
+  TCP and TLS connection for every request, two or three per contact.
+* `Meter` - counts what a transport did (requests by method, bytes, seconds,
+  retries, seconds slept), so a run can say where its time went (order 1t 1a).
 
 Plus the pure `backoff_minutes` of item 10e, used by the sync scheduler after a
 failed run (not per request - that is `RetryingTransport`'s seconds-scale
@@ -31,6 +36,7 @@ and calls `request` again, so every hop is checked.
 from __future__ import annotations
 
 import email.utils
+import http.client
 import ipaddress
 import re
 import socket
@@ -46,11 +52,14 @@ from urllib.parse import urlsplit
 from app.accounts.provider import HttpResponse, Transport
 from app.accounts.secrets import redact
 from app.core.errors import AppErrorException, make_error
+from app.core.logging import logger
 
 __all__ = [
     "PROVIDER_HOSTS", "ENRICHMENT_HOSTS", "AllowedHosts", "UrllibTransport", "RetryingTransport",
-    "backoff_minutes", "parse_retry_after", "retry_after_of",
+    "KeepAliveTransport", "Meter", "backoff_minutes", "parse_retry_after", "retry_after_of",
 ]
+
+_log = logger.bind(component="accounts.http")
 
 # --------------------------------------------------------------------------
 # The allow-list
@@ -285,6 +294,171 @@ class UrllibTransport:
                             body=data or b"")
 
 
+class Meter:
+    """What a transport did, counted (order 1t 1a). Thread-safe; `snapshot` is a plain dict for a run's plan."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self.requests: dict[str, int] = {}
+        self.bytes_out = self.bytes_in = 0
+        self.seconds = self.slept_s = 0.0
+        self.retries = self.connections = 0
+
+    def count(self, method: str, sent: int, got: int, seconds: float) -> None:
+        with self._lock:
+            m = method.upper()
+            self.requests[m] = self.requests.get(m, 0) + 1
+            self.bytes_out += sent
+            self.bytes_in += got
+            self.seconds += seconds
+
+    def retried(self, slept: float) -> None:
+        with self._lock:
+            self.retries += 1
+            self.slept_s += max(0.0, slept)
+
+    def connected(self) -> None:
+        with self._lock:
+            self.connections += 1
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            return {"requests": dict(self.requests), "total": sum(self.requests.values()),
+                    "bytes_out": self.bytes_out, "bytes_in": self.bytes_in, "seconds": round(self.seconds, 2),
+                    "retries": self.retries, "slept_s": round(self.slept_s, 2), "connections": self.connections}
+
+
+class KeepAliveTransport:
+    """`provider.Transport` over kept `http.client` connections: one per host, per thread. TLS verified, the
+    allow-list checked on every request, redirects returned and not followed - the contract of
+    `UrllibTransport`, which it hands a request to for a loopback host and when a proxy is set for the host.
+
+    **A dropped connection.** A connection idle for longer than `idle_s` is closed before it is used again
+    (servers drop idle connections after a minute or so), and before a write after `write_idle_s`, so a write
+    rarely meets a connection the server has already let go. When a kept connection fails while the request
+    is being sent, it is sent once more on a new one - a write too, since the server never had it. When it
+    fails after the request went out, only a read or a delete is sent again (either is harmless twice); a
+    create or an update may already have been applied, so that is an error and the engine's next sync
+    re-reads before it writes."""
+
+    def __init__(self, allowed: AllowedHosts, *, account: str = "the account",
+                 context: Optional[ssl.SSLContext] = None, idle_s: float = 30.0, write_idle_s: float = 10.0,
+                 meter: Optional[Meter] = None, clock: Callable[[], float] = time.monotonic,
+                 connect: Optional[Callable[..., "http.client.HTTPConnection"]] = None) -> None:
+        self._allowed = allowed
+        self._account = account
+        self._ctx = context or ssl.create_default_context()
+        self._idle = idle_s
+        self._write_idle = write_idle_s
+        self._clock = clock
+        self.meter = meter
+        self._connect = connect or (lambda host, port, timeout: http.client.HTTPSConnection(
+            host, port, timeout=timeout, context=self._ctx))
+        self._local = threading.local()
+        self._fallback = UrllibTransport(allowed, account=account, context=self._ctx)
+
+    def _pool(self) -> dict:
+        pool = getattr(self._local, "pool", None)
+        if pool is None:
+            pool = self._local.pool = {}
+        return pool
+
+    def _drop(self, key: tuple) -> None:
+        held = self._pool().pop(key, None)
+        if held is not None:
+            try:
+                held[0].close()
+            except Exception:                                 # noqa: BLE001 - closing is best effort
+                pass
+
+    def _held(self, host: str, port: int, timeout: float, fresh: bool, idle: float) -> list:
+        key = (host, port)
+        held = self._pool().get(key)
+        if held is not None and (fresh or self._clock() - held[1] > idle):
+            self._drop(key)
+            held = None
+        if held is None:
+            held = self._pool()[key] = [self._connect(host, port, timeout), self._clock(), False]
+            if self.meter is not None:
+                self.meter.connected()
+        conn = held[0]
+        conn.timeout = timeout
+        if getattr(conn, "sock", None) is not None:
+            conn.sock.settimeout(timeout)
+        return held
+
+    def close(self) -> None:
+        for key in list(self._pool()):
+            self._drop(key)
+
+    def request(self, method: str, url: str, *, headers: Optional[dict[str, str]] = None,
+                body: Optional[bytes] = None, timeout: float = 30.0) -> HttpResponse:
+        host = self._allowed.check(url)
+        parts = urlsplit(url)
+        started = time.monotonic()
+        if _is_loopback(host) or parts.scheme != "https" or _proxied(host):
+            resp = self._fallback.request(method, url, headers=headers, body=body, timeout=timeout)
+            if self.meter is not None:
+                self.meter.count(method, len(body or b""), len(resp.body), time.monotonic() - started)
+            return resp
+        port = parts.port or 443
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        sent = dict(headers or {})
+        if not any(k.lower() == "user-agent" for k in sent):
+            sent["User-Agent"] = _user_agent()
+        repeatable = method.upper() in _REPEATABLE
+        idle = self._idle if repeatable else min(self._idle, self._write_idle)
+        for attempt in (1, 2):
+            held = self._held(host, port, timeout, fresh=attempt == 2, idle=idle)
+            conn, reused = held[0], held[2]
+            sent_it = False
+            try:
+                conn.request(method.upper(), path, body=body, headers=sent)
+                sent_it = True
+                raw = conn.getresponse()
+                data = raw.read()
+                held[1], held[2] = self._clock(), True
+                if raw.will_close:
+                    self._drop((host, port))
+                resp = HttpResponse(status=int(raw.status), headers={k.lower(): v for k, v in raw.getheaders()},
+                                    body=data or b"")
+                if self.meter is not None:
+                    self.meter.count(method, len(body or b""), len(resp.body), time.monotonic() - started)
+                return resp
+            except AppErrorException:
+                raise
+            except (OSError, http.client.HTTPException, ValueError) as exc:
+                self._drop((host, port))
+                if attempt == 1 and reused and isinstance(exc, _GONE_WHILE_IDLE) and (repeatable or not sent_it):
+                    _log.info("{}: a kept connection to {} had closed ({}); sending again on a new one",
+                              self._account, host, type(exc).__name__)
+                    continue
+                reason = getattr(exc, "reason", None) or exc
+                raise AppErrorException(make_error(
+                    "ERR_ACCOUNT_UNREACHABLE", "accounts.http", account=self._account,
+                    reason=redact(str(reason))[:120] or type(exc).__name__,
+                    details=redact(f"{method} {host}: {type(exc).__name__}: {exc}"))) from None
+        raise AssertionError("unreachable")                          # pragma: no cover
+
+
+#: Requests that do no harm sent twice: a read, and a delete (the second finds nothing to delete).
+_REPEATABLE = ("GET", "HEAD", "OPTIONS", "PROPFIND", "REPORT", "DELETE")
+
+#: How a connection the server closed while it sat idle shows itself on the next request.
+_GONE_WHILE_IDLE = (http.client.RemoteDisconnected, ConnectionResetError, ConnectionAbortedError, BrokenPipeError,
+                    http.client.CannotSendRequest, http.client.BadStatusLine)
+
+
+def _proxied(host: str) -> bool:
+    """A proxy set in the environment for https and not bypassed for `host`: `http.client` would ignore it, so
+    such a request goes through urllib, which honours it."""
+    try:
+        proxies = urllib.request.getproxies()
+        return bool(proxies.get("https")) and not urllib.request.proxy_bypass(host)
+    except Exception:                                         # noqa: BLE001
+        return False
+
+
 # --------------------------------------------------------------------------
 # Retry-After and backoff
 # --------------------------------------------------------------------------
@@ -338,8 +512,10 @@ class RetryingTransport:
     def __init__(self, inner: Transport, *, sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time, max_attempts: int = 5,
                  base_delay_s: float = 1.0, max_backoff_s: float = 60.0,
-                 max_wait_s: float = 300.0, account: str = "the account") -> None:
+                 max_wait_s: float = 300.0, account: str = "the account",
+                 meter: Optional[Meter] = None) -> None:
         self._inner = inner
+        self.meter = meter if meter is not None else getattr(inner, "meter", None)
         self._sleep = sleep
         self._clock = clock
         self._max_attempts = max(1, int(max_attempts))
@@ -364,6 +540,10 @@ class RetryingTransport:
             # The server's number wins even when it is shorter than ours: it
             # knows when its window reopens, we are only guessing.
             delay = told if told is not None else min(self._base * (2 ** attempt), self._max_backoff)
+            _log.info("{}: HTTP {} on {} - waiting {:.1f} s before try {} (Retry-After {})", self._account,
+                      resp.status, method.upper(), delay, attempt + 2, resp.header("retry-after") or "not given")
+            if self.meter is not None:
+                self.meter.retried(delay)
             self._sleep(delay)
         assert last is not None
         self._give_up(last, parse_retry_after(last.header("retry-after"), now_epoch=self._clock()))
@@ -382,8 +562,19 @@ class RetryingTransport:
                 if (exc.error.code != "ERR_ACCOUNT_UNREACHABLE" or attempt == tries - 1
                         or not _TRANSIENT.search(str(exc.error.message))):
                     raise                    # offline, a name that does not resolve, a refused port: not repeated
-                self._sleep(min(self._base * (2 ** attempt), self._max_backoff))
+                wait = min(self._base * (2 ** attempt), self._max_backoff)
+                _log.info("{}: {} lost its connection ({}) - trying again in {:.0f} s", self._account,
+                          method.upper(), str(exc.error.message)[:80], wait)
+                if self.meter is not None:
+                    self.meter.retried(wait)
+                self._sleep(wait)
         raise AssertionError("unreachable")                          # pragma: no cover
+
+    def close(self) -> None:
+        """Close the kept connections of the transport inside, if it keeps any."""
+        close = getattr(self._inner, "close", None)
+        if callable(close):
+            close()
 
     def _give_up(self, resp: HttpResponse, retry_after_s: Optional[float]) -> None:
         kind = "too many requests" if resp.status == 429 else "temporarily unavailable"

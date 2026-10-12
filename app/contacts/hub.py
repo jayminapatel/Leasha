@@ -1205,6 +1205,42 @@ class ContactHub:
             rows.sort(key=lambda r: -(r.last_contacted_at or 0))
         return rows
 
+    def account_counts(self) -> dict[int, dict[str, int]]:
+        """Per account, the one set of numbers every screen shows (order 1t 3a, D3):
+
+        * `kept` - live contacts kept in the account: the ones its entry in the Contacts list shows;
+        * `linked` - of those, written there and agreed (what Leasha believes the account holds now);
+        * `waiting_create` - kept, not written there yet;
+        * `waiting_delete` - in the Bin here and still at the account, to be removed at the next push;
+        * `deleted_there` - live here, deleted at the account (flagged, never deleted here on a hunch);
+        * `not_kept` - live contacts the account does not keep at all.
+        """
+        out: dict[int, dict[str, int]] = {}
+        alive = int(self.conn.execute("SELECT COUNT(*) FROM contacts WHERE deleted_at IS NULL").fetchone()[0])
+        for r in self.conn.execute(
+                "SELECT l.account_id AS a, l.state AS s, c.deleted_at IS NOT NULL AS binned, COUNT(*) AS n "
+                "FROM contact_links l JOIN contacts c ON c.id = l.contact_id GROUP BY 1, 2, 3"):
+            d = out.setdefault(int(r["a"]), {"kept": 0, "linked": 0, "waiting_create": 0, "waiting_delete": 0,
+                                             "deleted_there": 0, "not_kept": 0})
+            n, state, binned = int(r["n"]), r["s"], bool(r["binned"])
+            if binned:
+                if state in ("synced", "pending_remove"):
+                    d["waiting_delete"] += n
+                continue
+            if state == "pending_remove":
+                d["waiting_delete"] += n
+                continue
+            d["kept"] += n
+            if state == "synced":
+                d["linked"] += n
+            elif state == "pending_create":
+                d["waiting_create"] += n
+            elif state == "deleted_remote":
+                d["deleted_there"] += n
+        for d in out.values():
+            d["not_kept"] = max(0, alive - d["kept"])
+        return out
+
     def counts(self) -> dict[str, int]:
         c = self.conn
         one = lambda sql: int(c.execute(sql).fetchone()[0])   # noqa: E731

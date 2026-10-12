@@ -68,6 +68,17 @@ class SyncDialog(ToolDialog):
         self.problems.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.problems.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.problem_title = QLabel("")
+        # Order 1t 2c: what was refused stays listed across runs, and can be acted on.
+        self.problems.itemDoubleClicked.connect(self._open_problem)
+        self.open_problem_button = btn("Open contact", "user", "secondary",
+                                       "Open the chosen contact in Contacts, to see what the account would not take",
+                                       "Open contact")
+        self.retry_button = btn("Retry these", "rotate-cw", "secondary",
+                                "Sync again - the one account that refused them, or every account if several did; "
+                                "each refused contact is sent again", "Retry these")
+        self.open_problem_button.clicked.connect(lambda: self._open_problem(self.problems.currentItem()))
+        self.retry_button.clicked.connect(self._retry_problems)
+        self.retry_button.setEnabled(False)
         self.body.addWidget(self.summary)
         self.body.addWidget(self.activity, 3)
         self.body.addWidget(self.activity_summary)
@@ -81,7 +92,7 @@ class SyncDialog(ToolDialog):
                                "Stop")
         self.sync_button.clicked.connect(self.start_sync)
         self.stop_button.clicked.connect(self.stop_sync)
-        self.add_footer_buttons(self.sync_button, self.stop_button)
+        self.add_footer_buttons(self.sync_button, self.stop_button, self.retry_button, self.open_problem_button)
         if self.scheduler is not None:
             self.scheduler.progress.connect(self._progress)
             self.scheduler.run_started.connect(self._started_run)
@@ -136,6 +147,19 @@ class SyncDialog(ToolDialog):
             call = getattr(service, "pause_mail" if action == "pause" else "resume_mail", None)
             if callable(call):
                 self.job(lambda: call(account_id), lambda _r: self._ask_activity())
+        elif action == "allow":
+            if self.scheduler is None:
+                return
+            self._trust_the_scheduler()
+            if self.scheduler.sync_now(account_id, "contacts", allow_brake=True):
+                self._running, self._stopping = True, False
+                self._show_buttons()
+            else:
+                self.say("A sync is already running; press Allow again when it has finished.")
+        elif action == "fix":
+            fix = getattr(service, "fix_check", None)
+            if callable(fix) and self.scheduler is not None:
+                self.job(lambda: fix(account_id), lambda _r: self.do(account_id, "contacts", "sync"))
         elif action in ("settings", "test", "reconnect"):
             opener = getattr(service, "open_account", None)
             if callable(opener):
@@ -152,9 +176,30 @@ class SyncDialog(ToolDialog):
 
     def _overview(self, rows: list) -> None:
         for r in rows:
-            for name, why in r.get("failures", []) or []:
-                self._problem(str(r["name"]), str(name), str(why))
+            for entry in r.get("failures", []) or []:
+                name, why = entry[0], entry[1]
+                cid = entry[2] if len(entry) > 2 else None
+                self._problem(str(r["name"]), str(name), str(why), cid, int(r.get("id") or 0))
         self._summarise()
+
+    def _open_problem(self, item: QTreeWidgetItem, _column: int = 0) -> None:
+        """Double-click (or Open contact): the contact the account refused, in Contacts."""
+        cid = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        opener = getattr(getattr(self.ctx, "service", None), "open_contact", None)
+        if cid and callable(opener):
+            opener(int(cid))
+
+    def _retry_problems(self) -> None:
+        """Try again: a sync of the accounts that refused something; each refused contact is sent again."""
+        ids = sorted({int(i.data(1, Qt.ItemDataRole.UserRole) or 0)
+                      for i in (self.problems.topLevelItem(n) for n in range(self.problems.topLevelItemCount()))})
+        ids = [i for i in ids if i]
+        if self.scheduler is None or not ids:
+            return
+        if len(ids) == 1:
+            self.do(ids[0], "contacts", "sync")
+        else:
+            self.start_sync()
 
     # -- live ---------------------------------------------------------------------------------------
 
@@ -165,6 +210,7 @@ class SyncDialog(ToolDialog):
         if self.scheduler.sync_now():
             self._problems.clear()
             self.problems.clear()
+            self.retry_button.setEnabled(False)
             self._running, self._stopping = True, False
             self._show_buttons()
         else:
@@ -215,13 +261,19 @@ class SyncDialog(ToolDialog):
 
     # -- drawing ------------------------------------------------------------------------------------
 
-    def _problem(self, account: str, contact: str, why: str) -> None:
+    def _problem(self, account: str, contact: str, why: str, contact_id: Any = None, account_id: int = 0) -> None:
         key = (account, contact, why)
         if key in self._problems or len(self._problems) >= _FAILURES_SHOWN:
             return
         self._problems[key] = True
         item = QTreeWidgetItem([account, contact, why])
         item.setToolTip(2, why)
+        if contact_id:
+            item.setData(0, Qt.ItemDataRole.UserRole, int(contact_id))
+            item.setToolTip(1, "Double-click to open this contact")
+        if account_id:
+            item.setData(1, Qt.ItemDataRole.UserRole, int(account_id))
+        self.retry_button.setEnabled(True)
         self.problems.addTopLevelItem(item)
         self.problem_title.setText(f"<b>Could not be written ({len(self._problems):,})</b> - the account refused "
                                    "these one by one. The rest was written; Sync now tries them again.")
