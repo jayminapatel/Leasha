@@ -95,6 +95,21 @@ def test_a_written_answer_still_puts_what_it_cites_on_the_shelf(qapp):
     assert sources.added == [1, 2]
 
 
+
+def test_a_quoted_answer_with_a_list_still_shelves_what_it_cites(qapp):
+    """CodeRabbit on #68: a quoted answer (`_quoted_turn`) carries an inline list but sends no ShelfEvent, so
+    skipping every answer with a list left its cited documents off the shelf. Only find and counted-list
+    answers, whose shelf the engine fills itself, are skipped."""
+    from app.ui.widgets.chat_answer_run import AnswerRun
+    from app.ui.widgets.chat_bubbles import AnswerBubble
+
+    receipts = _receipts(3)
+    shelf, sources = _Shelf(), _Sources()
+    turn = ChatTurn("assistant", "The deposit is held [1].", receipts=receipts, kind="answer",
+                    result_set=[SimpleNamespace(path=r.path) for r in receipts])
+    AnswerRun(AnswerBubble(), sources, shelf).finish(turn)
+    assert shelf.added == [r.path for r in receipts]
+
 # -- 2: the engine's explanation reaches a finished answer -------------------------
 
 def test_a_finished_answer_says_why_it_is_quoted_and_not_what_it_searched_for():

@@ -242,7 +242,7 @@ class CodeView(QWidget):
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show_files(rows, g)))
-        worker.signals.failed.connect(weak_slot(self, say_failed))   # never a dialog while typing
+        worker.signals.failed.connect(weak_slot(self, lambda v, e, g=generation: say_failed(v, e, g)))
         run(QThreadPool.globalInstance(), worker)
 
     def _git_view_toggled(self, on: bool) -> None:

@@ -340,7 +340,7 @@ class FilesView(QWidget):
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show(rows, g, text)))
-        worker.signals.failed.connect(weak_slot(self, say_failed))   # never a dialog while typing
+        worker.signals.failed.connect(weak_slot(self, lambda v, e, g=generation: say_failed(v, e, g)))
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, rows: Any, generation: int, text: str) -> None:

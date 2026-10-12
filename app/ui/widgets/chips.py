@@ -190,8 +190,11 @@ def show_page(view: Any, applied: Any, line: str) -> None:
     view.summary.setText(line)
 
 
-def say_failed(view: Any, error: Any) -> None:
+def say_failed(view: Any, error: Any, generation: Any = None) -> None:
     """A list's as-you-type read that failed: what happened and what to do, on its summary line.
+
+    `generation` is the read's number: a failure from a read a newer one has replaced is dropped, as a
+    late success already is, so it can never overwrite the newer result's summary (CodeRabbit, #68).
 
     Never a dialog (2026-10-12). Mail, Files and Code sent this to the window's modal box, so a
     read that failed at every keystroke stopped the typing with a box each time; Search had long
@@ -200,6 +203,8 @@ def say_failed(view: Any, error: Any) -> None:
     """
     from app.core.logging import logger
 
+    if generation is not None and generation != getattr(view, "_generation", generation):
+        return
     message = str(getattr(error, "message", "") or error)
     suggestion = str(getattr(error, "suggestion", "") or "")
     logger.bind(component="ui.lists").warning("a list's read failed: {} {}", getattr(error, "code", ""), message)

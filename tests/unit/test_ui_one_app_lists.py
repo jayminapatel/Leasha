@@ -202,6 +202,10 @@ def test_ctrl_f_inside_a_preview_opens_its_find_bar(qapp):
     assert focused_find(pane.text) is pane.find
     assert focused_find(outside) is None
     assert focused_find(None) is None
+    # CodeRabbit on #68: the bar searches the text view, so on an EPUB chapter it would search text that is
+    # not on screen - Ctrl+F goes to Search there.
+    pane.stack.setCurrentWidget(pane.epub)
+    assert focused_find(pane.epub) is None
 
 
 def test_a_window_of_its_own_keeps_its_ctrl_f(qapp):
@@ -295,8 +299,20 @@ def test_a_failed_read_while_typing_is_said_on_the_pages_own_line(qapp):
     assert error.message in view.summary.text() and "Try again." in view.summary.text()
 
 
+def test_a_failure_from_a_superseded_read_never_overwrites_the_newer_result(qapp):
+    """CodeRabbit on #68: a late success was dropped by its generation, a late failure was not."""
+    from app.ui.widgets.chips import say_failed
+
+    error = SimpleNamespace(code="X", message="The index could not be read.", suggestion="")
+    view = SimpleNamespace(summary=QLabel("12 messages"), _generation=5)
+    say_failed(view, error, 4)
+    assert view.summary.text() == "12 messages"
+    say_failed(view, error, 5)
+    assert error.message in view.summary.text()
+
+
 @pytest.mark.parametrize("name", ["mail_view.py", "files_view.py", "code_view.py"])
 def test_the_typed_lists_send_a_failed_read_to_their_line_not_a_dialog(name):
     source = (ROOT / "app/ui" / name).read_text(encoding="utf-8")
     assert "worker.signals.failed.connect(self.error.emit)" not in source
-    assert "say_failed" in source
+    assert "say_failed(v, e, g)" in source, "the failure must carry its read's generation"

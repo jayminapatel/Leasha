@@ -328,6 +328,12 @@ def focused_find(widget: Any) -> Optional[FindBar]:
     while widget is not None:
         bar = getattr(widget, "find", None)
         if isinstance(bar, FindBar) and bar.parentWidget() is widget:
+            # The bar searches the pane's text view. Showing something else - an EPUB chapter, a PDF,
+            # a picture - it would search text that is not on screen, so Ctrl+F goes to Search instead
+            # (CodeRabbit on #68).
+            stack, text = getattr(widget, "stack", None), getattr(widget, "text", None)
+            if stack is not None and text is not None and stack.currentWidget() is not text:
+                return None
             return bar
         if widget.isWindow():
             return None

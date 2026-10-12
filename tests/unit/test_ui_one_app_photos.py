@@ -113,6 +113,19 @@ def test_opening_a_photo_again_reuses_the_viewer_already_open(view):
         viewer.close()
 
 
+
+def test_a_minimised_viewer_comes_back_when_a_photo_is_opened_again(view):
+    """CodeRabbit on #68: a minimised viewer is still "visible", and raise_() does not restore it."""
+    row = view.browser.model.row_at(0)
+    view.view_photo(row)
+    viewer = view._viewer
+    viewer.showMinimized()
+    if not viewer.isMinimized():
+        pytest.skip("this platform plugin keeps no minimised state")
+    view.view_photo(row)
+    assert view._viewer is viewer and not viewer.isMinimized()
+    viewer.close()
+
 # -- 2. the window's View menu empties itself ---------------------------------------------
 
 def test_the_view_button_hands_the_window_a_menu_of_its_own(view):
@@ -177,11 +190,35 @@ def test_a_heading_sort_survives_the_next_read(qapp):
     name = next(n for n, (key, *_rest) in enumerate(COLUMNS) if key == "name")
     browser.table.sortByColumn(name, Qt.SortOrder.AscendingOrder)
     assert [r.file_id for r in browser.model.rows()] == [3, 1, 2]
-    browser.set_rows([*rows, _row(4, "d", 2018)])      # the library read again
+    # The library read again: the page's worker sorts by the heading (CodeRabbit on #68 - never on the
+    # window's thread), and the browser keeps the order it is handed.
+    from app.ui.presenter.photos import arrange
+
+    shown = arrange([*rows, _row(4, "d", 2018)], None, "", "newest", browser.model.heading_order())[0]
+    browser.set_rows(shown)
     assert [r.file_id for r in browser.model.rows()] == [3, 1, 2, 4]
     browser.follow_order()                             # a sort chosen from the menu
+    assert browser.model.heading_order() is None
     browser.set_rows(rows)
     assert [r.file_id for r in browser.model.rows()] == [1, 2, 3]
+
+
+def test_set_rows_never_sorts_on_the_windows_thread(qapp, monkeypatch):
+    """CodeRabbit on #68: with a heading held, every periodic read re-sorted the library on the UI thread."""
+    from PySide6.QtCore import Qt
+
+    from app.ui.presenter import photos as presenter
+    from app.ui.widgets import photo_browser
+
+    browser = _browser(qapp)
+    rows = [_row(1, "b", 2021), _row(2, "c", 2020), _row(3, "a", 2019)]
+    browser.set_rows(rows)
+    browser.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+    calls = []
+    monkeypatch.setattr(photo_browser, "heading_sorted", lambda *a, **k: calls.append(a) or list(a[0]))
+    monkeypatch.setattr(presenter, "heading_sorted", lambda *a, **k: calls.append(a) or list(a[0]))
+    browser.set_rows(list(reversed(rows)))
+    assert calls == [] and [r.file_id for r in browser.model.rows()] == [3, 2, 1]
 
 
 def test_a_sort_from_the_menu_takes_over_from_the_heading(view, monkeypatch):

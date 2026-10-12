@@ -50,7 +50,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLa
                              QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                              QTableView, QVBoxLayout, QWidget)
 
-from app.ui.presenter.photos import COLUMNS, column_text, date_text, month_heading, people_text
+from app.ui.presenter.photos import (COLUMNS, column_text, date_text, heading_sorted, month_heading,
+                                     people_text)
 from app.ui.theme import theme_colours
 
 __all__ = ["PhotoModel", "PhotoBrowser", "MODES", "ROLE_ROW"]
@@ -167,10 +168,10 @@ class PhotoModel(QAbstractTableModel):
         same photos come back in the same order - names or places changed,
         the pictures did not - the rows are swapped under the view and only
         their words repaint. Anything else is a new list, and resets."""
-        # A heading clicked in Details holds across a new read of the library:
-        # the page hands its rows over in the View menu's order, and without
-        # this the person's sort was undone every 45 seconds (2026-10-12).
-        rows = self._in_heading_order(list(rows))
+        # A heading clicked in Details holds across a new read of the library (2026-10-12): the page's
+        # worker sorts by it (`heading_order`, `presenter.photos.arrange`), so the rows arrive in its
+        # order - never sorted here, on the window's thread (CodeRabbit on #68).
+        rows = list(rows)
         if rows and len(rows) == len(self._rows) and all(
                 str(new.path) == str(old.path) for new, old in zip(rows, self._rows, strict=True)):
             self._rows = rows
@@ -260,21 +261,17 @@ class PhotoModel(QAbstractTableModel):
         column = self.heading[0]
         return COLUMNS[column][0] if 0 <= column < len(COLUMNS) else "date"
 
-    def _in_heading_order(self, rows: list) -> list:
-        """`rows` sorted by the clicked heading, or as they came when there is none."""
+    def heading_order(self) -> Optional[tuple[str, bool]]:
+        """`(COLUMNS key, descending)` of the clicked heading, for the page's worker, or None."""
         key = self.heading_key()
         if key is None:
-            return rows
-        reverse = self.heading[1] == Qt.SortOrder.DescendingOrder
+            return None
+        return key, self.heading[1] == Qt.SortOrder.DescendingOrder
 
-        def value(row: Any) -> Any:
-            if key == "date":
-                return row.when_ns or 0
-            if key == "size":
-                return row.size_bytes
-            return column_text(row, key).casefold()
-
-        return sorted(rows, key=value, reverse=reverse)
+    def _in_heading_order(self, rows: list) -> list:
+        """`rows` sorted by the clicked heading (a click: one sort, at the person's own request)."""
+        order = self.heading_order()
+        return heading_sorted(rows, *order) if order else rows
 
     def _thumb_ready(self, path: str) -> None:
         """A thumbnail landed: start its fade-in. Its cell is repainted by the next

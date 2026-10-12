@@ -321,6 +321,14 @@ class SearchBehaviourBox(QGroupBox):
         self._sync_mini()
         self._sent = self.values()
 
+    def defaults_shown(self, keys: list) -> None:
+        """Some of this box's controls were put back to their defaults with their signals held
+        (`defaults.show_default`): the defaults are what is in force now, so they are what was last
+        sent, and the shortcut's dependent controls follow its switch again."""
+        shown = self.values()
+        self._sent.update({key: shown[key] for key in keys if key in shown})
+        self._sync_mini()
+
     def _sync_mini(self) -> None:
         """The shortcut's combination and pre-fill are greyed out while the shortcut is
         switched off (2026-10-10)."""

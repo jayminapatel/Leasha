@@ -101,6 +101,26 @@ def test_one_switch_writes_one_key(app):
     box.deleteLater()
 
 
+def test_a_right_click_reset_keeps_the_box_in_step_with_what_it_shows(app):
+    """CodeRabbit on #68: a reset sets the control with its signals held, so the box's record of what it
+    last sent stayed old - unticking a reset switch was taken for no change and never saved - and the
+    shortcut's dependent controls stayed greyed after its switch came back on."""
+    from app.ui.widgets.defaults import show_default
+
+    box, sent = _behaviour_box()
+    box.offer_recent.setChecked(False)
+    box.mini_search.setChecked(False)
+    assert not box.mini_hotkey.isEnabled()
+    sent.clear()
+    show_default(box, ["SEARCH_OFFER_RECENT", "MINI_SEARCH_ENABLED"])
+    assert box.offer_recent.isChecked() and box.mini_search.isChecked()
+    assert box.mini_hotkey.isEnabled(), "the shortcut's controls follow its switch again"
+    assert sent == [], "showing a default writes nothing"
+    box.offer_recent.setChecked(False)
+    assert sent == [{"SEARCH_OFFER_RECENT": False}], "an untick after the reset is saved"
+    box.deleteLater()
+
+
 def test_the_reset_removes_the_lines_rather_than_writing_the_defaults(app):
     box, sent = _behaviour_box()
     box.controls["recency_blend"].setChecked(False)

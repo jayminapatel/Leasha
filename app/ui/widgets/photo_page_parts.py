@@ -107,7 +107,10 @@ def arrange_rows(owner: Any, rows: list, parsed: Any, words: str, sort_key: str,
     from app.ui.presenter.photos import arrange
     from app.ui.workers import CallableWorker
 
-    _start(owner, CallableWorker(arrange, rows, parsed, words, sort_key,
+    # The heading is read here, on the window's thread, and the sort by it is done on the worker.
+    model = getattr(getattr(owner, "browser", None), "model", None)
+    heading = model.heading_order() if model is not None else None
+    _start(owner, CallableWorker(arrange, rows, parsed, words, sort_key, heading,
                                  component="ui.photos"), finished, failed)
 
 
@@ -203,6 +206,8 @@ def open_viewer(view: Any, row: Any) -> Any:
     viewer = getattr(view, "_viewer", None)
     if viewer is not None and not qtsip.isdeleted(viewer) and viewer.isVisible():
         viewer.show_row(row)
+        if viewer.isMinimized():                  # still "visible" when minimised; raise_ alone leaves it so
+            viewer.showNormal()
         viewer.raise_()
         viewer.activateWindow()
         return viewer

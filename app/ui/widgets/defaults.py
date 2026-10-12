@@ -160,6 +160,7 @@ def show_default(panel: Optional[QWidget], keys_shown: Any) -> int:
     # A location is never reset (`env_writer` refuses it), so it is never blanked.
     wanted = set(keys_shown) - protected()
     done = 0
+    owners: dict[int, tuple[Any, set]] = {}
     for child in panel.findChildren(QWidget):
         setting = by_key(child.objectName()) if child.objectName() in wanted else None
         if setting is None:
@@ -183,8 +184,18 @@ def show_default(panel: Optional[QWidget], keys_shown: Any) -> int:
             else:
                 continue
             done += 1
+            owner = child.parentWidget()
+            while owner is not None and not callable(getattr(owner, "defaults_shown", None)):
+                owner = owner.parentWidget()
+            if owner is not None:
+                owners.setdefault(id(owner), (owner, set()))[1].add(setting.key)
         finally:
             child.blockSignals(blocked)
+    # The signals were blocked, so a box that keeps its own record of what it last sent, or greys one
+    # control by another, never heard of the change: tell it (CodeRabbit on #68 - an untick after a
+    # reset was taken for no change and not saved).
+    for owner, keys in owners.values():
+        owner.defaults_shown(sorted(keys))
     return done
 
 

@@ -162,7 +162,9 @@ class AnswerRun:
         # has already put its first few (`_FIND_SHELF`) on the shelf by ShelfEvent.
         # Pouring all its receipts into Sources and onto the shelf too showed the
         # same files in four places and filled the shelf to its cap.
-        listed = bool(getattr(turn, "result_set", None))
+        # Only the answers whose shelf the engine fills itself (find and counted lists): a quoted answer
+        # carries a list too but sends no ShelfEvent, so its cited documents go on as before (#68 review).
+        listed = bool(getattr(turn, "result_set", None)) and getattr(turn, "kind", "") in ("find", "aggregate")
         if receipts:
             self.known = list(receipts)
             self._place_new_sources(receipts)
