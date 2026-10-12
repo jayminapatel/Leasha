@@ -56,6 +56,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### The folder lists follow the index (2026-10-12)
+
+- **Fixed:** Mail's tree said "All mail 2,491" beside a list that said "38,830 messages in the index", and showed none
+  of the Outlook archives the index run had read since. The folders were counted when the window opened and when a run
+  finished; a run takes days. While a list is on screen the index's write counter is now looked at every 15 seconds
+  and the folders are counted again when it moved - for Mail, and for the Files and Code lists too.
+
 ### What each account is doing, with buttons (2026-10-12)
 
 - **Command buttons on every row**, for what makes sense in that state: *Sync now* (that account, that kind - not
