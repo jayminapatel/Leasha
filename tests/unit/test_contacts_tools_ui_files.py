@@ -424,3 +424,20 @@ def test_enrich_look_again_asks_with_force_and_the_notes_are_shown(world, qtbot)
     dlg.again_button.click()
     qtbot.waitUntil(lambda: len(calls) == 2 and dlg.run.state in ("ready", "empty"), timeout=5000)
     assert calls == [False, True] and "not asked again" not in dlg.status.text()
+
+
+def test_look_again_keeps_force_for_a_host_that_takes_force_but_not_progress():
+    """CodeRabbit on #67 (2026-10-12): a host taking `force` but not `on_progress`/`cancelled` raised TypeError
+    on the first call, and the fallback then called it with nothing - so Look again ran an ordinary lookup."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    calls = []
+
+    def enrich(force=False):
+        calls.append(force)
+        return SimpleNamespace(proposals=[], notes=[])
+
+    gather_proposals(SimpleNamespace(enrich=enrich), force=True)
+    assert calls == [True]

@@ -53,13 +53,21 @@ def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, f
     kwargs: dict = {"on_progress": on_progress, "cancelled": cancelled}
     if force:
         kwargs["force"] = True
-    try:
-        result = fn(**kwargs)
-    except TypeError:
+    # Each fallback drops what an older host does not take - but `force` is dropped last: a host that takes it
+    # without the progress keywords would otherwise run Look again as an ordinary lookup (CodeRabbit, #67).
+    attempts = [kwargs, {"force": True} if force else None, {}]
+    result, last = None, None
+    for attempt in [a for a in attempts if a is not None]:
         try:
-            result = fn()
-        except TypeError:
+            result = fn(**attempt)
+            break
+        except TypeError as exc:
+            last = exc
+    else:
+        try:
             result = fn(list(getattr(ctx, "selected_ids", []) or []))
+        except TypeError:
+            raise last  # noqa: B904 - the first refusal names the real mismatch
     proposals = getattr(result, "proposals", None)
     if proposals is None:
         proposals = list(result or [])
