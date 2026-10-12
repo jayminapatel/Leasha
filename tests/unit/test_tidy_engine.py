@@ -26,7 +26,7 @@ NS = 1_000_000_000
 
 
 class FakeBin:
-    """The three methods of `RecycleBin`, over a folder."""
+    """The RecycleBin prepare/send/restore contract, over a temporary folder."""
 
     def __init__(self, folder: Path, fixed: bool = True) -> None:
         self.folder, self.fixed, self.sent = folder, fixed, []
@@ -34,6 +34,14 @@ class FakeBin:
 
     def on_fixed_drive(self, path: str) -> bool:
         return self.fixed
+
+    def prepare(self, path: str) -> str:
+        return str(self.folder / f"$R{len(self.sent)}{Path(path).suffix}")
+
+    def send_prepared(self, path: str, ref: str) -> str:
+        actual = self.send(path)
+        assert actual == ref
+        return actual
 
     def send(self, path: str) -> str:
         target = self.folder / f"$R{len(self.sent)}{Path(path).suffix}"

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import secrets
+import sqlite3
 import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Iterable, Optional
@@ -147,12 +148,24 @@ def carry_out(store: Any, plan: Plan, *, yes: bool, second_yes: bool = False, bi
             outcome.left.append((path, reason))
             continue
         try:
-            ref = bin.send(path)
+            ref = bin.prepare(path)
+            row_id = _journal(store, outcome.batch_id, item, "pending:" + ref)
+        except (OSError, sqlite3.Error) as exc:
+            outcome.left.append((path, f"The undo record could not be saved: {exc}"))
+            continue
+        try:
+            actual_ref = bin.send_prepared(path, ref)
         except OSError as exc:
+            # The intent remains recoverable even if the OS moved the file before
+            # reporting an error. Never remove it on an ambiguous failure.
             outcome.left.append((path, str(exc)))
             continue
-        _journal(store, outcome.batch_id, item, ref)
         outcome.moved.append(item)
+        try:
+            with store.write() as conn:
+                conn.execute("UPDATE tidy_journal SET bin_ref = ? WHERE id = ?", (actual_ref, row_id))
+        except (OSError, sqlite3.Error):
+            _log.warning("move completed; durable undo intent retained for {}", path)
     _log.info("tidy batch {}: {} moved ({} bytes), {} left", outcome.batch_id,
               len(outcome.moved), outcome.size_moved, len(outcome.left))
     return outcome
@@ -185,23 +198,28 @@ def _why_it_stays(item: PlanItem, bin: Any, hasher: Callable[[str], str],
 
 
 def _copy_still_there(copy: TidyFile, hasher: Callable[[str], str], verified: dict[str, bool]) -> bool:
-    """D2: a copy that stays is there and has the same bytes - read once per batch."""
+    """D2: a copy that stays is there and has the same bytes - the bytes read once per batch, the file's presence
+    asked again before every move (a keeper deleted part way through must stop the removals that rest on it)."""
+    if not os.path.isfile(copy.path):
+        verified.pop(copy.path, None)
+        return False
     if copy.path not in verified:
         try:
-            verified[copy.path] = os.path.isfile(copy.path) and hasher(copy.path) == copy.content_hash
+            verified[copy.path] = hasher(copy.path) == copy.content_hash
         except OSError:
             verified[copy.path] = False
     return verified[copy.path]
 
 
-def _journal(store: Any, batch_id: str, item: PlanItem, ref: str) -> None:
+def _journal(store: Any, batch_id: str, item: PlanItem, ref: str) -> int:
     kept = item.stays[0].path if item.stays else None
     with store.write() as conn:
-        conn.execute(
+        cursor = conn.execute(
             "INSERT INTO tidy_journal (batch_id, at, kind, path, size_bytes, mtime_ns, content_hash, "
             "kept_path, bin_ref) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (batch_id, int(time.time()), item.kind, item.file.path, item.file.size_bytes,
              item.file.mtime_ns, item.file.content_hash, kept, ref))
+        return int(cursor.lastrowid)
 
 
 def batches(store: Any, *, limit: int = 200) -> list[Batch]:
@@ -232,8 +250,19 @@ def put_back(store: Any, batch_id: str, *, bin: Any = None) -> Outcome:
     for row in rows:
         f = TidyFile(id=0, path=str(row["path"]), size_bytes=int(row["size_bytes"]),
                      mtime_ns=int(row["mtime_ns"]), content_hash=row["content_hash"])
+        ref = str(row["bin_ref"])
         try:
-            bin.put_back(str(row["bin_ref"]), f.path)
+            if ref.startswith("pending:") and os.path.exists(f.path):
+                # A crash before the OS move (or after undo) needs no second move.
+                from pathlib import Path
+
+                from app.index.walker import content_hash
+                st = os.stat(f.path)
+                if st.st_size != f.size_bytes or st.st_mtime_ns != f.mtime_ns or (
+                        f.content_hash and content_hash(Path(f.path)) != f.content_hash):
+                    raise OSError("Another file is at the original path; check the Recycle Bin before retrying.")
+            else:
+                bin.put_back(ref.removeprefix("pending:"), f.path)
         except OSError as exc:
             outcome.left.append((f.path, str(exc)))
             continue

@@ -70,6 +70,10 @@ FRESH = "fresh"
 #: The five directories that make up an index, in `config._INDEX_SUBDIRS` order.
 INDEX_SUBDIRS = ("vectors", "fts", "cache", "models", "state")
 
+#: What a move carries: the five directories, and the two things that live beside them in the data folder - the
+#: owner's `extractors.toml` (Settings > File types) and `backups`. Left behind, the first stops reaching an index run.
+MOVE_ASSETS = INDEX_SUBDIRS + ("extractors.toml", "backups")
+
 #: The `.env` keys that must be removed so they derive from `DATA_PATH` again.
 #: See the module docstring - leaving any one of them behind silently keeps that
 #: part of the index on the old drive.
@@ -295,8 +299,8 @@ def plan_move(
     size = 0
     if action == MOVE:
         present = tuple(
-            name for name in INDEX_SUBDIRS
-            if (source / name).is_dir() and not (keep_models and name == "models")
+            name for name in MOVE_ASSETS
+            if (source / name).exists() and not (keep_models and name == "models")
         )
         if not present:
             raise_error(

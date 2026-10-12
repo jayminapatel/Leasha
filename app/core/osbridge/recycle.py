@@ -31,6 +31,7 @@ as left where it was and carries on (non-negotiable 3).
 from __future__ import annotations
 
 import os
+import secrets
 import shutil
 import struct
 import time
@@ -91,7 +92,7 @@ def read_bin_record(info_file: Path) -> Optional[BinRecord]:
 
 
 class RecycleBin:
-    """The real Recycle Bin. Tests use a fake with the same three methods."""
+    """The real Recycle Bin, with a prepare/send/restore contract for durable undo."""
 
     def on_fixed_drive(self, path: str) -> bool:
         """True when `path` is on a drive that has a Recycle Bin Leasha will use."""
@@ -104,13 +105,19 @@ class RecycleBin:
             return ctypes.windll.kernel32.GetDriveTypeW(root) == _DRIVE_FIXED
         return is_macos() and Path(path).is_absolute()
 
-    def send(self, path: str) -> str:
-        """Move `path` to the Recycle Bin; returns where it went (the record for `put_back`).
+    def prepare(self, path: str) -> str:
+        """A restore reference that can be durably journalled before the OS move."""
+        if is_windows():
+            return f"{LAZY}{time.time() - 2:.3f}"
+        if is_macos():
+            return str(Path.home() / ".Trash" / (secrets.token_hex(16) + "-" + Path(path).name))
+        raise OSError("Moving to the Recycle Bin works on Windows and macOS only.")
 
-        Raises `OSError` only while the file is still where it was - a file that has
-        gone is never reported as left. If its `$I` record is not found in time, the
-        record is `LAZY` + when it went, and `put_back` finds it then.
-        """
+    def send(self, path: str) -> str:
+        return self.send_prepared(path, self.prepare(path))
+
+    def send_prepared(self, path: str, ref: str) -> str:
+        """Move using the previously journalled restore reference."""
         started = time.time()
         if is_windows():
             try:
@@ -120,19 +127,19 @@ class RecycleBin:
                     raise
             deadline = started + _FIND_FOR_S
             while True:
-                record = self._find(path, since=started - 2)
+                record = self._find(path, since=float(ref[len(LAZY):]))
                 if record is not None:
                     return record.bin_path
                 if os.path.exists(path):
                     raise OSError(f"Windows left {path} where it was.")
                 if time.time() >= deadline:
-                    return f"{LAZY}{started - 2:.3f}"
+                    return ref
                 time.sleep(0.05)
         if is_macos():
-            trash = Path.home() / ".Trash"
-            target = _free_name(trash / Path(path).name)
-            shutil.move(path, target)
-            return str(target)
+            if os.path.exists(ref):
+                raise OSError("The reserved Trash location is occupied; try again.")
+            shutil.move(path, ref)
+            return ref
         raise OSError("Moving to the Recycle Bin works on Windows and macOS only.")
 
     def put_back(self, bin_ref: str, path: str) -> None:
