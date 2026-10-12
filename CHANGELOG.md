@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.121 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.122 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
