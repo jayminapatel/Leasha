@@ -34,6 +34,11 @@ def _activity(factory: Any) -> Any:
     return factory().activity_snapshot(datetime.now())
 
 
+def _pause_mail(factory: Any, account_id: int, paused: bool) -> bool:
+    svc = factory()
+    return svc.pause_mail(account_id) if paused else svc.resume_mail(account_id)
+
+
 def _reconnect(factory: Any, account_id: int, on_progress: Any = None) -> Any:
     svc = factory()
     acct = svc.reconnect(account_id, on_url=on_progress)
@@ -169,6 +174,8 @@ class AccountPanel(QGroupBox):
     sync_requested = Signal(int, str)
     #: The account was removed; the page reads its state again.
     removed = Signal()
+    #: Stop the sync that is running (the page's scheduler does it).
+    stop_requested = Signal()
 
     def __init__(self, backend: Backend, parent: Optional[QWidget] = None) -> None:
         super().__init__("Account", parent)
@@ -181,11 +188,13 @@ class AccountPanel(QGroupBox):
         # What this account's contacts and mail are doing, above its settings: state, progress, next step.
         self.activity = ActivityTable(single_account=True)
         self.activity.setMaximumHeight(150)
+        self.activity.action_requested.connect(self._row_action)
         lay.addWidget(self.activity)
         self._poll = QTimer(self)
         self._poll.setInterval(4000)
         self._poll.timeout.connect(self.refresh_activity)
         self._asking = False
+        self._paused_now = False
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Account settings")
         lay.addWidget(self.tabs)
@@ -443,13 +452,17 @@ class AccountPanel(QGroupBox):
             set_quiet(self.attachment_mb, int(a.options.get("mail_attachment_mb", 0)), "setValue")
             used = state.mail_space.get(a.id)
             self.space.setText("Nothing fetched yet." if not used else f"{used / 1_048_576:,.1f} MB")
-            prog = state.mail_progress.get(a.id) or {}
+            extra = state.mail_progress.get(a.id) or {}
+            prog = extra.get("first_fetch") if isinstance(extra.get("first_fetch"), dict) else {}
             if prog.get("total"):
                 self.progress.setText(f"{prog.get('fetched', 0):,} of {prog['total']:,} messages"
-                                      + (f" ({prog['rate']}/s)" if prog.get("rate") else ""))
+                                      + (f" ({prog['rate_per_s']:.1f}/s)" if prog.get("rate_per_s") else ""))
+            elif prog.get("fetched"):
+                self.progress.setText(f"{prog['fetched']:,} messages so far")
             else:
                 self.progress.setText("Not started." if not a.mail_on else "Waiting for the first fetch.")
-            paused = bool(a.options.get("mail_paused", False))
+            paused = bool(extra.get("paused"))
+            self._paused_now = paused
             self.pause_fetch.setText("Resume fetch" if paused else "Pause fetch")
             parts_ = [self.pause_fetch, self.progress]
             for w in parts_:
@@ -480,6 +493,22 @@ class AccountPanel(QGroupBox):
         return (f"{when}. Into Leasha: {p.get('add_in', 0)} added, {p.get('merge_in', 0)} changed. "
                 f"To this account: {p.get('create_out', 0)} created, {p.get('update_out', 0)} changed, "
                 f"{p.get('delete_out', 0)} deleted.")
+
+    def _row_action(self, account_id: int, kind: str, action: str) -> None:
+        """A button on the activity rows above the settings."""
+        if action in ("sync", "retry"):
+            self.sync_requested.emit(account_id, kind)
+        elif action == "stop":
+            self.stop_requested.emit()
+        elif action in ("pause", "resume"):
+            self.backend.call(_pause_mail, self.backend.factory, account_id, action == "pause",
+                              done=lambda _r: self.refresh_activity(), fail=self._error)
+        elif action == "test":
+            self._test()
+        elif action == "reconnect":
+            self._reconnect()
+        elif action == "settings":
+            self.focus_settings()
 
     def refresh_activity(self) -> None:
         """Ask what this account's contacts and mail are doing (a worker), and show it."""
@@ -627,7 +656,19 @@ class AccountPanel(QGroupBox):
                           fail=self._error, refresh=True)
 
     def _toggle_fetch(self) -> None:
-        self._opt(mail_paused=not bool(self._account.options.get("mail_paused", False)))
+        """Pause or resume the mail fetch. This used to set an option (`mail_paused`) that nothing reads, so the
+        button did nothing (found 2026-10-12); the pause is the mail syncer's own, kept with the account's mail
+        position, and the next sync returns `paused` at once until Resume."""
+        if self._account is None:
+            return
+        paused = not bool(self._paused_now)
+        self.backend.call(_pause_mail, self.backend.factory, self._id, paused, done=lambda _r: self._after_pause(paused),
+                          fail=self._error, refresh=True)
+
+    def _after_pause(self, paused: bool) -> None:
+        self._paused_now = paused
+        self.pause_fetch.setText("Resume fetch" if paused else "Pause fetch")
+        self.refresh_activity()
 
     # -- contacts
     def _direction_note(self) -> None:

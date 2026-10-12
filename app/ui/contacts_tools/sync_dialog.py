@@ -1,17 +1,21 @@
-r"""The Sync window: every account's sync, live, with Stop and Sync now.
+r"""The Sync window: what every account's contacts and mail are doing, live, with buttons for what you can do.
 
 Layer: L5, driving the window's `AccountScheduler`.
 
 Order 1k, the owner (2026-10-11): "when you press sync should open a detailed synch status window, where
-you can control and see the detailed progress". One row per account: where it is (reading the account,
-writing 120 of 1,436 - about 12 min left), a progress bar, the contact it is on, and what it has
-added, changed, deleted and been refused. Under it, the contacts an account refused, and why - they
-stay waiting and the next sync tries them again. **Closing the window does not stop the sync**; Stop
-does, after the contact it is on, and what was written stays. It is not modal, and there is only ever
-one of it (`open_sync_window`).
+you can control and see the detailed progress"; and 2026-10-12: contacts and mail sync progress and status for
+each account "is a must", with "command buttons there for functions". One table (`ActivityTable`) with a row for
+each account's contacts and one for its mail: its status, a bar, a sentence (reading the account, writing 120 of
+1,436 - about 12 min left, fetching mail 15% - 4 hours left, waiting for another account's mail), what comes
+next, and the buttons that make sense for that state: Sync now, Stop, Pause or Resume the mail fetch, Try again,
+Test connection, Reconnect, Settings. Under it a line for everything, and the contacts an account refused, and
+why - they stay waiting and the next sync tries them again. **Closing the window does not stop the sync**; Stop
+does, after the contact it is on, and what was written stays. It is not modal, and there is only ever one of
+it (`open_sync_window`).
 
-What the words say is `presenter/sync_status.py`; what a run did and what the accounts last said comes
-from `LazyService.sync_overview`, on a worker. This only draws.
+The words are `presenter/account_activity.py` (and `sync_status.py` for the line above the table); the data is
+`AccountService.activity_snapshot`, read on a worker every few seconds, with the running contact sync's own events
+laid over it as they arrive. This only draws and passes a button press on.
 """
 
 from __future__ import annotations
@@ -20,43 +24,40 @@ import time
 from typing import Any, Optional
 
 from PySide6.QtCore import QTimer, Qt
-from PySide6.QtWidgets import (
-    QHeaderView, QLabel, QProgressBar, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QWidget,
-)
+from PySide6.QtWidgets import QHeaderView, QLabel, QTreeWidget, QTreeWidgetItem, QWidget
 
-from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named
+from app.ui.contacts_tools._common import ToolDialog, btn, named
 from app.ui.presenter import sync_status as words
 from app.ui.presenter.account_activity import overall_line
 from app.ui.widgets.activity_table import ActivityTable
 
 __all__ = ["SyncDialog", "open_sync_window"]
 
-COLUMNS = ("Account", "State", "Step", "Progress", "Working on", "So far")
 _FAILURES_SHOWN = 200
 
 
 class SyncDialog(ToolDialog):
     def __init__(self, ctx: Any, parent: Optional[QWidget] = None) -> None:
-        super().__init__(ctx, parent, title="Sync", glyph="refresh-cw", size=(1020, 600), name="contacts-sync",
-                         subtitle="Your contacts here and at every account, brought level. You can close this "
-                                  "window while it works.")
+        super().__init__(ctx, parent, title="Sync", glyph="refresh-cw", size=(1100, 620), name="contacts-sync",
+                         subtitle="Your contacts and mail, at every account: what each is doing, how far it has "
+                                  "got, and what comes next. You can close this window while it works.")
         service = getattr(ctx, "service", None)
         get = getattr(service, "scheduler", None)
         self.scheduler: Any = get() if callable(get) else None
-        self._row_of: dict[int, int] = {}
-        self._started: dict[int, float] = {}
         self._problems: dict[tuple, bool] = {}
         self._running = self._stopping = False
+        self._snaps: list = []
+        self._live: dict[int, dict] = {}
+        self._asking = False
 
         self.summary = QLabel("")
         self.summary.setWordWrap(True)
         named(self.summary, "Sync status", "What the sync is doing and what to do next")
-        self.table = make_table(self, list(COLUMNS), "Accounts", "One row for each account that keeps contacts",
-                                stretch=4)
-        head = self.table.horizontalHeader()
-        for column in (0, 1, 2, 3, 5):
-            head.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setMaximumHeight(210)
+        self.activity = ActivityTable(self)
+        self.activity.action_requested.connect(self.do)
+        self.activity_summary = QLabel("")
+        self.activity_summary.setWordWrap(True)
+        self.activity_summary.setAccessibleName("Summary of every account")
         self.problems = QTreeWidget()
         self.problems.setHeaderLabels(["Account", "Contact", "Why the account refused it"])
         self.problems.setRootIsDecorated(False)
@@ -67,23 +68,9 @@ class SyncDialog(ToolDialog):
         self.problems.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.problems.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.problem_title = QLabel("")
-        # What every account's contacts AND mail are doing - the table people read. The one above it keeps the
-        # contact run's own live numbers (and is what the tests and the run's events feed); it is not shown.
-        self.activity = ActivityTable(self)
-        self.activity_title = QLabel("<b>What each account is doing</b> - contacts and mail, refreshed every few seconds")
-        self.activity_title.setAccessibleName("What each account is doing")
-        self._snaps: list = []
-        self._live: dict[int, dict] = {}
-        self._asking = False
-        self.table.setVisible(False)
         self.body.addWidget(self.summary)
-        self.body.addWidget(self.activity_title)
-        self.body.addWidget(self.activity, 2)
-        self.activity_summary = QLabel("")
-        self.activity_summary.setWordWrap(True)
-        self.activity_summary.setAccessibleName("Summary of every account")
+        self.body.addWidget(self.activity, 3)
         self.body.addWidget(self.activity_summary)
-        self.body.addWidget(self.table)
         self.body.addWidget(self.problem_title)
         self.body.addWidget(self.problems, 1)
 
@@ -126,23 +113,45 @@ class SyncDialog(ToolDialog):
     def _draw_activity(self) -> None:
         shown = self.activity.set_snapshots(self._snaps, time.time(), self._live)
         self.activity_summary.setText(overall_line(shown, self._snaps))
+        self._summarise()
 
-    # -- what the accounts last said ----------------------------------------------------------------
+    # -- the buttons on a row -------------------------------------------------------------------------
+
+    def do(self, account_id: int, kind: str, action: str) -> None:
+        """A row's button. Sync and Stop go to the scheduler; Pause and Resume to the mail syncer (on a worker);
+        Test, Reconnect and Settings open the account in Settings > Accounts, where those live."""
+        service = getattr(self.ctx, "service", None)
+        if action in ("sync", "retry"):
+            if self.scheduler is None:
+                return
+            self._trust_the_scheduler()
+            if self.scheduler.sync_now(account_id, kind):
+                self._running, self._stopping = True, False
+                self._show_buttons()
+            else:
+                self.say("A sync is already running; this window shows it, and this one starts after it.")
+        elif action == "stop":
+            self.stop_sync()
+        elif action in ("pause", "resume"):
+            call = getattr(service, "pause_mail" if action == "pause" else "resume_mail", None)
+            if callable(call):
+                self.job(lambda: call(account_id), lambda _r: self._ask_activity())
+        elif action in ("settings", "test", "reconnect"):
+            opener = getattr(service, "open_account", None)
+            if callable(opener):
+                opener(account_id, action)
+
+    # -- what the accounts last refused -----------------------------------------------------------------
 
     def reload(self) -> None:
+        """Ask for each account's last contact run: what it refused. The table above has everything else."""
         read = getattr(getattr(self.ctx, "service", None), "sync_overview", None)
         if callable(read):
             self.job(read, self._overview)
+        self._ask_activity()
 
     def _overview(self, rows: list) -> None:
         for r in rows:
-            row = self._row(int(r["id"]), str(r["name"]))
-            if self._running and int(r["id"]) in self._started:
-                continue                                   # live progress is newer than the last run
-            self._set(row, state=str(r.get("word", "")), step=words.result_words(
-                str(r.get("status", "")), str(r.get("error", ""))), now="", sofar=words.counts_words(r))
-            self.table.cellWidget(row, 3).setRange(0, 1)
-            self.table.cellWidget(row, 3).setValue(0)
             for name, why in r.get("failures", []) or []:
                 self._problem(str(r["name"]), str(name), str(why))
         self._summarise()
@@ -172,49 +181,26 @@ class SyncDialog(ToolDialog):
         self._running = True
         self._show_buttons()
         self._summarise()
+        self._ask_activity()
 
     def _progress(self, e: dict) -> None:
         aid = int(e.get("account_id") or 0)
-        self._live[aid] = dict(e)
-        row = self._row(aid, str(e.get("account", "")))
-        self._started.setdefault(aid, time.monotonic())
-        elapsed = time.monotonic() - self._started[aid]
         phase = str(e.get("phase", ""))
-        total, done = int(e.get("total") or 0), int(e.get("done") or 0)
-        bar: QProgressBar = self.table.cellWidget(row, 3)
-        if phase == "writing" and total:
-            bar.setRange(0, total)
-            bar.setValue(done)
-        elif phase == "reading":
-            bar.setRange(0, 0)                              # no total yet: a moving bar, not a number
-        elif phase == "done":
-            bar.setRange(0, 1)
-            bar.setValue(1 if e.get("status") in ("ok", "partial") else 0)
-        self._set(row, state={"reading": "Reading", "writing": "Writing", "done": ""}.get(phase, ""),
-                  step=words.step_words(e, elapsed), now=str(e.get("current", "")),
-                  sofar=words.counts_words(e) if phase != "reading" else "")
+        live = self._live.setdefault(aid, {"started": time.time()})
+        live.update(e)
         for name, why in e.get("failures", []) or []:
             self._problem(str(e.get("account", "")), str(name), str(why))
         self._running = phase != "done" or self._running
-        self._summarise()
         if self._snaps:
             self._draw_activity()
+        else:
+            self._summarise()
 
     def _finished_run(self, outcomes: Any) -> None:
         self._running = self._stopping = False
-        self._started.clear()
         self._live.clear()
-        self._ask_activity()
         for out in outcomes or []:
-            row = self._row(int(out.account_id), str(out.account_name))
-            err = getattr(getattr(out, "error", None), "message", "") or ""
-            plan = out.plan
-            self._set(row, state=words.STATUS_WORDS.get(out.status, out.status), step=words.result_words(out.status, err),
-                      now="", sofar=words.counts_words({"added": plan.add_in + plan.create_out,
-                                                        "changed": plan.merge_in + plan.update_out,
-                                                        "deleted": plan.delete_out + plan.deleted_in,
-                                                        "failed": plan.failed_out}))
-            for name, why in plan.failures:
+            for name, why in out.plan.failures:
                 self._problem(str(out.account_name), str(name), str(why))
         self._show_buttons()
         self._summarise()
@@ -222,35 +208,12 @@ class SyncDialog(ToolDialog):
 
     def _failed_run(self, error: Any) -> None:
         self._running = self._stopping = False
-        self._started.clear()
+        self._live.clear()
         self._show_buttons()
         self.say(getattr(error, "message", None) or str(error))
+        self._ask_activity()
 
     # -- drawing ------------------------------------------------------------------------------------
-
-    def _row(self, account_id: int, name: str) -> int:
-        row = self._row_of.get(account_id)
-        if row is not None:
-            return row
-        row = self.table.rowCount()
-        self.table.insertRow(row)
-        self._row_of[account_id] = row
-        self.table.setItem(row, 0, QTableWidgetItem(name))
-        bar = QProgressBar()
-        bar.setTextVisible(False)
-        bar.setMaximumHeight(10)
-        bar.setRange(0, 1)
-        self.table.setCellWidget(row, 3, bar)
-        for column in (1, 2, 4, 5):
-            self.table.setItem(row, column, QTableWidgetItem(""))
-        return row
-
-    def _set(self, row: int, *, state: str, step: str, now: str, sofar: str) -> None:
-        for column, text in ((1, state), (2, step), (4, now), (5, sofar)):
-            item = self.table.item(row, column)
-            if item is not None and item.text() != text:
-                item.setText(text)
-                item.setToolTip(text)
 
     def _problem(self, account: str, contact: str, why: str) -> None:
         key = (account, contact, why)
@@ -268,7 +231,7 @@ class SyncDialog(ToolDialog):
         progress note, a window opened mid-run) must not leave Sync now greyed out for good."""
         if self.scheduler is not None and self._running and not self.scheduler.busy:
             self._running = self._stopping = False
-            self._started.clear()
+            self._live.clear()
 
     def _show_buttons(self) -> None:
         self._trust_the_scheduler()
@@ -276,8 +239,8 @@ class SyncDialog(ToolDialog):
         self.stop_button.setEnabled(self._running and not self._stopping)
 
     def _summarise(self) -> None:
-        self.summary.setText(words.summary_words(self._running, self._stopping, self.table.rowCount(),
-                                                 len(self._problems)))
+        accounts = len({a.account_id for a in self.activity.activities})
+        self.summary.setText(words.summary_words(self._running, self._stopping, accounts, len(self._problems)))
 
 
 def open_sync_window(parent: Any, ctx: Any, *, start: bool = True) -> Any:
