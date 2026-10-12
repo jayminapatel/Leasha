@@ -284,3 +284,28 @@ def test_a_card_field_survives_the_microsoft_body():
     c = Card(scalars={"given": "Ann"})
     c.fields.append(Field("email", "a@x.com"))
     assert GraphContactsProvider(Fake(), lambda: "t")._to_body(c)["emailAddresses"][0]["address"] == "a@x.com"
+
+
+def test_google_never_takes_a_contact_it_could_not_read_for_deleted(gfake):
+    gfake.add("GET", f"{G}/people:batchGet", {"responses": [
+        {"requestedResourceName": "people/c1", "status": {"code": 7, "message": "permission denied"}},
+        {"requestedResourceName": "people/c2", "status": {"code": 5}}]})
+    gfake.add("POST", f"{G}/people:batchDeleteContacts", {})
+    p = GooglePeopleProvider(gfake, lambda: "t")
+    out = p.delete_many([("people/c1", "e1"), ("people/c2", "e2")])
+    assert out[0].error is not None and not out[0].ok
+    assert out[1].ok
+
+
+def test_carddav_keeps_the_contacts_written_when_a_group_card_fails(monkeypatch):
+    from app.accounts.provider import VersionConflict
+    from app.accounts.providers.carddav import CardDavProvider
+    p = CardDavProvider(Fake(), lambda: "Basic x", server_url="https://dav.example.com", group_mode="cards")
+
+    def boom(_wanted):
+        raise VersionConflict("group")
+    monkeypatch.setattr(p, "_set_memberships", boom)
+    card = person("Ann")
+    card.groups = ["Family"]
+    out = p._many([card], lambda c: ("a.vcf", "e1", "UID-A"))
+    assert out[0].ok and out[0].remote_id == "a.vcf"

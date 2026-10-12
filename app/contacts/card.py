@@ -163,10 +163,14 @@ ALL_CAPS = Capabilities()
 #: `X-` properties a server or another program keeps for its own bookkeeping (order 1t 4b). Not something a person
 #: wrote: `X-FC-CLUSTER-ID`, a server's id for a card, was read as the custom value "fc cluster id" on every contact,
 #: compared, and written on to Google. A custom value whose label is one of these is never read, compared or sent.
+#: Prefixes end in a separator and the rest are whole names, so a person's own label ("about", "sync notes",
+#: "image url") never matches (CodeRabbit on #70).
 SERVER_INTERNAL_PREFIXES = (
-    "X-AB", "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-",
-    "X-MOZILLA-", "X-CARDDAV-", "X-WR-", "X-SYNC", "X-IMAGE", "X-SHOWAS", "X-OUTLOOK-",
+    "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-", "X-MOZILLA-",
+    "X-CARDDAV-", "X-OUTLOOK-",
 )
+SERVER_INTERNAL_NAMES = frozenset({"X-ABADR", "X-ABUID", "X-ABLABEL", "X-ABRELATEDNAMES", "X-ABSHOWAS",
+                                   "X-SHOWAS"})
 
 
 def is_server_internal(name: str) -> bool:
@@ -174,7 +178,7 @@ def is_server_internal(name: str) -> bool:
     text = name.strip().upper()
     if not text.startswith("X-"):
         text = "X-" + "-".join(text.split())
-    return text.startswith(SERVER_INTERNAL_PREFIXES)
+    return text in SERVER_INTERNAL_NAMES or text.startswith(SERVER_INTERNAL_PREFIXES)
 
 
 def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:

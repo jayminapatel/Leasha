@@ -38,6 +38,12 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   listed across syncs, with **Open contact** and **Retry these**.
 - **Fixed:** six contacts binned while a push was writing them were marked synced again and stayed at Google; Microsoft
   contacts in child folders were never read.
+- **From the review of #70:** a churn hold now stands until Allow (it lasted one sync); a dry run never writes; a batch
+  that gives up first commits what the account accepted (no contact created twice); a CardDAV group-card failure no
+  longer loses the contacts written; Google never takes a contact it could not read for deleted; server bookkeeping
+  is matched by whole names, so a person's own label ("about") is never removed.
+- **A daily sync missed while the app was closed was not caught up before the day's slot time** (opened at 00:39, a
+  three-day-old sync waited for 02:00). `policy.due_at` compares with the latest slot that has come.
 
 ### Enrich contacts can look again, and says when the internet was not asked (2026-10-12)
 

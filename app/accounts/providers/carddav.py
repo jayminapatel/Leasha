@@ -690,7 +690,16 @@ class CardDavProvider:
             wanted[uid] = list(card.groups)
             out.append(WriteResult(ok=True, remote_id=remote_id, version=version))
         if wanted and self._use_cards():
-            self._set_memberships(wanted)
+            # Membership is secondary to the contact: a group card that fails is logged and fixed by a later sync
+            # (the `_sig` mismatch), and the contacts already written are still reported as written - losing those
+            # results would leave creates waiting and write them again (CodeRabbit on #70).
+            try:
+                self._set_memberships(wanted)
+            except (VersionConflict, AppErrorException) as exc:
+                from app.core.logging import logger  # noqa: PLC0415
+                logger.bind(component=_COMPONENT).warning(
+                    "{}: group cards not updated for {} contact(s): {}", self._account, len(wanted),
+                    getattr(getattr(exc, "error", None), "code", type(exc).__name__))
         return out
 
     def create_many(self, cards: list[Card]) -> list[WriteResult]:

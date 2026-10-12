@@ -213,6 +213,11 @@ class ContactSyncEngine:
         if not dry_run and chosen:
             self._repair_vendor_fields()
         churn_hold: Optional[AppError] = None
+        if not dry_run:
+            if allow_brake:
+                self._set_churn_hold(None)                    # the person looked and pressed Allow
+            else:
+                churn_hold = self._churn_hold()               # a hold from an earlier sync stands until Allow
         for acct in chosen:                                  # phase 1: pull, one account after another
             first_pending = (not acct.first_sync_done) and settings.dry_run_first and not approve_first
             dry = first_pending or dry_run
@@ -236,6 +241,8 @@ class ContactSyncEngine:
                     out.status = "needs-approval" if first_pending else "dry-run"
                 elif churn_hold is None and not allow_brake:
                     churn_hold = self._churn(acct, ctx, settings)
+                    if churn_hold is not None:
+                        self._set_churn_hold(churn_hold)
             except _Held as held:
                 out.status, out.error = "held", held.error
             except Exception as exc:                          # noqa: BLE001 - one account never stops the rest
@@ -288,7 +295,9 @@ class ContactSyncEngine:
                 ctx = _Ctx(out.run_id, out.plan, False, "", trigger, cancel, progress=progress, account=acct.name)
                 started = time.monotonic()
                 self._tell(ctx, "checking", 0, 0, acct.id)
+                self._save(out)                               # the heartbeat, before the account is read
                 out.check = self.check(acct, providers[acct.id])
+                self._save(out)
                 out.plan.timing["check_s"] = round(time.monotonic() - started, 2)
 
         busy = [a for a in chosen if not outcomes[a.id].status in ("needs-approval", "dry-run")]
@@ -483,6 +492,27 @@ class ContactSyncEngine:
             hub.drop_link(cid, acct.id)                       # already gone there: nothing to delete
             hub.delete(cid, actor=f"account:{acct.id}", sync_id=ctx.run_id)
             ctx.plan.deleted_in += 1
+
+    _CHURN_KEY = "contacts:churn-hold"
+
+    def _churn_hold(self) -> Optional[AppError]:
+        """A churn hold from an earlier sync, until Allow: the changes it held are already in the book, so a sync
+        that simply carried on would spread them (CodeRabbit on #70)."""
+        try:
+            raw = self.store.get_state(self._CHURN_KEY)
+            ctx = json.loads(raw) if raw else None
+        except Exception:                                     # noqa: BLE001 - no hold readable: none
+            return None
+        if not ctx:
+            return None
+        return make_error("ERR_SYNC_CHANGES_HELD", "accounts.engine", **{k: str(v) for k, v in ctx.items()})
+
+    def _set_churn_hold(self, err: Optional[AppError]) -> None:
+        try:
+            self.store.set_state(self._CHURN_KEY, json.dumps(
+                {k: err.context.get(k) for k in ("account", "count", "linked", "what")} if err is not None else {}))
+        except Exception:                                     # noqa: BLE001
+            _log.debug("churn hold not saved", exc_info=True)
 
     def _churn(self, acct: Account, ctx: _Ctx, settings: AccountSettings) -> Optional[AppError]:
         """1t 4c: did this account return most of its linked contacts changed in one and the same way?"""
@@ -712,14 +742,14 @@ class ContactSyncEngine:
         if not acct.writes_contacts:
             return
         n = Counter()
-        for kind, link, cid in self._dirty(acct):
+        for kind, link, cid in self._dirty(acct, heal=False):
             bucket = {"create": "create_out", "update": "update_out", "delete": "delete_out"}[kind]
             setattr(ctx.plan, bucket, getattr(ctx.plan, bucket) + 1)
             ctx.plan.note(bucket, self._name(cid))
             n[kind] += 1
         ctx.plan.timing["estimate"] = estimate_requests(provider, n["create"], n["update"], n["delete"])
 
-    def _dirty(self, acct: Account) -> list[tuple[str, Any, int]]:
+    def _dirty(self, acct: Account, *, heal: bool = True) -> list[tuple[str, Any, int]]:
         """What would be written to `acct`: (kind, link, contact id).
 
         A link still marked synced to a contact in the Bin is on its way out: binning leaves every account
@@ -732,7 +762,7 @@ class ContactSyncEngine:
             "AND l.state IN ('pending_create','synced','pending_remove')", (acct.id,)).fetchall()
         healed = [r["contact_id"] for r in rows
                   if r["state"] == "synced" and r["deleted_at"] is not None and r["remote_id"]]
-        if healed:
+        if healed and heal:                                   # a dry run plans them as deletes, writes nothing
             with self.store.write() as conn:
                 conn.executemany("UPDATE contact_links SET state = 'pending_remove' WHERE contact_id = ? "
                                  "AND account_id = ? AND state = 'synced'", [(c, acct.id) for c in healed])
@@ -1038,14 +1068,19 @@ class _Pusher:
         self.written: set[int] = set()
 
     # -- the bookkeeping every write shares
-    def _refuse(self, kind: str, cid: int, err: AppError) -> None:
+    def _refuse(self, kind: str, cid: int, err: AppError, *, defer: bool = False) -> Optional[AppError]:
+        """Record a refusal. A refusal that ends the run (the account's as a whole, or too many in a row) is raised -
+        or, with `defer`, returned, so a batch first commits what the account already accepted."""
         if err.code in _ACCOUNT_WIDE or self.in_a_row >= _GIVE_UP_AFTER:
+            if defer:
+                return err
             raise AppErrorException(err)
         self.in_a_row += 1
         name = self.e._name(cid)
         self.ctx.plan.fail(name, err.message)
         self.refused.append({"contact_id": cid, "name": name, "kind": kind, "reason": err.message})
         _log.warning("{} could not be written to {}: {}", cid, self.acct.name, err.code)
+        return None
 
     def _wrote(self, cid: int) -> None:
         self.in_a_row = 0
@@ -1163,6 +1198,7 @@ class _Pusher:
             else:
                 bases.append(e._held_after_write(provider, rid, sent))
         retry: list[tuple[Any, int]] = []
+        give_up: Optional[AppError] = None
         with e.store.batch() as conn:
             for (link, cid, payload, rev), r, held in zip(jobs, results, bases):
                 if r.conflict:
@@ -1171,7 +1207,8 @@ class _Pusher:
                 if not r.ok:
                     err = r.error if r.error is not None else make_error(
                         "ERR_ACCOUNT_REJECTED", "accounts.engine", account=self.acct.name, reason="refused")
-                    self._refuse(kind, cid, err)
+                    if give_up is None:
+                        give_up = self._refuse(kind, cid, err, defer=True)
                     continue
                 if kind == "delete":
                     e.hub.drop_link(cid, self.acct.id, conn=conn)
@@ -1187,6 +1224,8 @@ class _Pusher:
                     self.ctx.plan.update_out += 1
                 self._wrote(cid)
             e._save_ctx(self.ctx, conn=conn, force=True)
+        if give_up is not None:                               # what the account accepted is committed first
+            raise AppErrorException(give_up)
         for link, cid in retry:                               # 3c, on its own: re-read, re-merge, retry
             self._one(kind, e.hub.link(cid, self.acct.id) or link, cid)
 

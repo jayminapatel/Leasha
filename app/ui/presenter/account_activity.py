@@ -58,6 +58,7 @@ class Activity:
     detail: str                    # the second line: last run, next run, what is searchable
     fraction: Optional[float]      # 0..1 when a number is known, None when not
     busy: bool                     # True: a moving bar, there is work and no total yet
+    out_of_step: bool = False      # contacts: the check after the last sync found differences (order 1t 3c)
 
     @property
     def what(self) -> str:
@@ -191,7 +192,12 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
         return done("queued", "Due now - it starts within a minute", tail)
     headline = "Up to date" + (f" ({counts} last time)" if counts else "")
     checked = check_words(snap.get("check"), now) if kind == "contacts" else ""
-    return done("idle", headline, (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else ""))
+    check = snap.get("check") or {}
+    act = done("idle", headline, (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else ""))
+    if kind == "contacts" and check and not check.get("in_step") and not check.get("error"):
+        from dataclasses import replace as _replace  # noqa: PLC0415
+        act = _replace(act, out_of_step=True)
+    return act
 
 
 def check_words(check: Optional[Mapping[str, Any]], now: float) -> str:
@@ -259,8 +265,7 @@ def actions_for(a: Activity) -> "list[Action]":
         keys = ["retry", "test"]
     elif a.state == "held":
         keys = ["allow"]
-    elif a.kind == "contacts" and " - checked " in a.detail and "in step" not in a.detail \
-            and "Could not check" not in a.detail:
+    elif a.out_of_step:
         keys = ["sync", "fix"]
     elif a.state == "signin":
         keys = ["reconnect"]

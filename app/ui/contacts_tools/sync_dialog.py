@@ -74,7 +74,8 @@ class SyncDialog(ToolDialog):
                                        "Open the chosen contact in Contacts, to see what the account would not take",
                                        "Open contact")
         self.retry_button = btn("Retry these", "rotate-cw", "secondary",
-                                "Sync the accounts that refused these contacts; each is sent again", "Retry these")
+                                "Sync again - the one account that refused them, or every account if several did; "
+                                "each refused contact is sent again", "Retry these")
         self.open_problem_button.clicked.connect(lambda: self._open_problem(self.problems.currentItem()))
         self.retry_button.clicked.connect(self._retry_problems)
         self.retry_button.setEnabled(False)

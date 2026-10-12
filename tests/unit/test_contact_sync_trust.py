@@ -470,3 +470,62 @@ def test_the_owners_upgrade_does_not_trip_the_guard_and_cleans_google_once(tmp_p
         assert len(w.servers[g].writes) == writes, "settled: the next sync writes nothing"
     finally:
         w.store.close()
+
+
+# ------------------------------------------------------------------------- review of #70 (CodeRabbit)
+def test_a_churn_hold_stands_on_the_next_sync_until_allow(world):
+    home, other = world.account("Home"), world.account("Other")
+    for i in range(60):
+        world.servers[home].add(person(f"P{i}", email=f"p{i}@x.com"))
+    world.accounts.update_settings(mirror_contacts=True)
+    world.sync()
+    world.sync()
+    for rid, rec in list(world.servers[home].recs.items()):
+        card = rec.card.copy()
+        card.fields.append(Field("custom", "zzz", "server tag"))
+        world.servers[home].edit(rid, card)
+    world.sync()
+    writes = len(world.servers[other].writes)
+    again = world.sync()                                     # nothing new to pull: the hold must still stand
+    assert again[other].status == "held" and again[other].error.code == "ERR_SYNC_CHANGES_HELD"
+    assert len(world.servers[other].writes) == writes
+    world.sync(allow_brake=True)
+    assert len(world.servers[other].writes) > writes
+    assert world.sync()[other].status == "ok", "Allow clears the hold"
+
+
+def test_a_dry_run_writes_nothing_even_to_heal_a_link(world):
+    aid = world.account("Home")
+    world.servers[aid].add(person("Ann", email="ann@x.com"))
+    world.sync()
+    cid = world.hub.list_rows()[0].id
+    world.hub.delete(cid)
+    with world.store.write() as conn:
+        conn.execute("UPDATE contact_links SET state = 'synced' WHERE contact_id = ?", (cid,))
+    out = world.sync(dry_run=True)[aid]
+    assert out.plan.delete_out == 1
+    assert world.hub.link(cid, aid).state == "synced", "the dry run changed nothing"
+
+
+def test_giving_up_inside_a_batch_keeps_what_the_account_already_took(world):
+    aid = world.account("Home", BatchFakeProvider)
+    world.providers[aid].batch_size = 40
+    for i in range(20):
+        world.hub.create(person(f"N{i:02d}", email=f"n{i}@x.com"), kept_in=[aid])
+    world.providers[aid].refuse = {f"new:N{i:02d}" for i in range(2, 20)}
+    out = world.sync()[aid]
+    assert out.status == "failed"
+    written = [r for r in world.hub.list_rows() if world.hub.link(r.id, aid).state == "synced"]
+    assert len(written) == 2 and len(world.servers[aid].live()) == 2
+    world.providers[aid].refuse = set()
+    world.sync()
+    assert len(world.servers[aid].live()) == 20, "no contact was created twice"
+
+
+def test_a_persons_own_labels_are_never_taken_for_server_bookkeeping():
+    from app.contacts.card import is_server_internal
+    for mine in ("about", "about me", "abbreviation", "sync notes", "image url", "wrist size", "showing"):
+        assert not is_server_internal(mine), mine
+    for theirs in ("fc cluster id", "abadr", "abshowas", "apple ol mapping info", "evolution file as",
+                   "X-FC-CLUSTER-ID", "X-ABUID"):
+        assert is_server_internal(theirs), theirs

@@ -212,7 +212,8 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     s.add_argument("--account")
     s.add_argument("--dry-run", action="store_true", help="plan only; write nothing anywhere")
     s.add_argument("--measure", action="store_true",
-                   help="plan only, and say how many requests the waiting writes cost one at a time and in batches")
+                   help="plan only (a dry run: --approve-first and --allow-brake are ignored), and say how many "
+                        "requests the waiting writes cost one at a time and in batches")
     s.add_argument("--approve-first", action="store_true", help="run an account's first sync for real")
     s.add_argument("--allow-brake", action="store_true", help="allow a sync the delete brake stopped")
     lg = c.add_parser("log", parents=[common], help="the sync log")

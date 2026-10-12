@@ -316,3 +316,14 @@ def test_state_backoff_uses_the_policy_interval(failures, interval, expected):
     for _ in range(failures):
         s = record_failure(s, now)
     assert next_retry_at(s, interval) == now + timedelta(minutes=expected)
+
+
+def test_a_daily_slot_missed_on_earlier_days_is_due_before_todays_time():
+    """2026-10-13, found at 00:39: a sync three days old was not due until today's 02:00."""
+    from datetime import datetime as _dt
+    from app.accounts.policy import SyncPolicy, due_at
+    daily = SyncPolicy.from_values("daily", 60, "02:00")
+    now = _dt(2026, 10, 16, 0, 39)
+    assert due_at(daily, _dt(2026, 10, 13, 0, 39), now) == _dt(2026, 10, 15, 2, 0)      # overdue: yesterday's slot
+    assert due_at(daily, _dt(2026, 10, 15, 3, 0), now) == _dt(2026, 10, 16, 2, 0)       # yesterday's served
+    assert due_at(daily, _dt(2026, 10, 16, 2, 30), _dt(2026, 10, 16, 9, 0)) == _dt(2026, 10, 17, 2, 0)

@@ -513,6 +513,7 @@ class GooglePeopleProvider:
     def get_many(self, remote_ids: list[str]) -> dict[str, Optional[RemoteContact]]:
         """people:batchGet, 200 a request, with the same fields as every other read (the etag depends on them)."""
         found: dict[str, Optional[RemoteContact]] = {}
+        self._get_errors: dict[str, dict] = {}
         for start in range(0, len(remote_ids), 200):
             chunk = remote_ids[start:start + 200]
             resp = self._call("GET", "people:batchGet", params={"resourceNames": chunk, "personFields": _READ_FIELDS})
@@ -523,7 +524,11 @@ class GooglePeopleProvider:
                 status, person = r.get("status") or {}, r.get("person") or {}
                 if not rid:
                     continue
-                if status.get("code") or not person:
+                code = status.get("code") or 0
+                if code and code != 5:                         # an error, not "gone" (5 is NOT_FOUND)
+                    self._get_errors[rid] = status
+                    continue
+                if code == 5 or not person:
                     found[rid] = None
                     continue
                 person.setdefault("resourceName", rid)
@@ -536,9 +541,13 @@ class GooglePeopleProvider:
         current = self.get_many([rid for rid, _v in items])
         out: list[WriteResult] = []
         doomed: list[str] = []
+        errors = dict(getattr(self, "_get_errors", {}) or {})
         for rid, version in items:
             now = current.get(rid)
-            if now is None or now.card is None:
+            if rid in errors or rid not in current:            # could not be read: never taken for gone
+                out.append(WriteResult(error=self._item_error(errors.get(rid) or {"message": "no answer"},
+                                                              "read a contact before deleting it")))
+            elif now is None or now.card is None:
                 out.append(WriteResult(ok=True, remote_id=rid))        # already gone
             elif version and now.version != version:
                 out.append(WriteResult(conflict=True))                 # changed since: never deleted blind (3c)
