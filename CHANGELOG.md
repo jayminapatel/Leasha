@@ -56,6 +56,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### What each account is doing, with buttons (2026-10-12)
+
+- **Command buttons on every row**, for what makes sense in that state: *Sync now* (that account, that kind - not
+  everything), *Stop*, *Pause* / *Resume* the mail fetch, *Try again*, *Test connection*, *Reconnect*, and *Settings*
+  (opens Settings > Accounts on that account). In the Sync window and at the top of each account's panel.
+- **Fixed: "Pause fetch" did nothing.** The account panel's button set an option that nothing reads; the pause is the
+  mail syncer's own. It now pauses and resumes the real fetch, and the panel's fetch progress ("12,300 of 80,000")
+  reads the right record - it said "Waiting for the first fetch" for ever.
+- **An account's panel shows the live contact count too** ("Writing 120 of 1,436 contacts - about 3 min left"), not
+  only the Sync window: the running sync's last event is kept for any view that was not listening when it began.
+- **One table.** The Sync window's old contacts-only table is gone; its numbers are in the rows.
+- Icons and colours are theme tokens (red for what needs you, amber for stopped or waiting, the accent for what is
+  moving) and repaint on a theme change.
+
 ### What each account is doing, second pass (2026-10-12)
 
 - **A "Doing" column on the Accounts list** ("Contacts: up to date - Mail: fetching 15%"), and the list now refreshes

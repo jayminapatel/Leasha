@@ -23,11 +23,14 @@ without a window.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
-__all__ = ["Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS", "short_status",
+from app.ui.presenter.sync_status import eta_words
+
+__all__ = ["Action", "actions_for", "Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS", "short_status",
            "account_line", "overall_line"]
 
 STATE_WORDS = {
@@ -154,7 +157,7 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
     if snap.get("live"):
         return _running(snap, base, tail, searchable)
     if snap.get("paused_by_person"):
-        return done("paused", "You paused the fetch for this account", "Press Resume fetch to carry on.")
+        return done("paused", "You paused the fetch for this account", "Press Resume to carry on.")
     if snap.get("hold"):
         return done("paused", f"Held back: {snap['hold']}", tail)
     failures = int(snap.get("failures") or 0)
@@ -181,6 +184,45 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
         return done("queued", "Due now - it starts within a minute", tail)
     headline = "Up to date" + (f" ({counts} last time)" if counts else "")
     return done("idle", headline, tail + (f". {searchable}" if searchable else ""))
+
+
+@dataclass(frozen=True)
+class Action:
+    key: str            # sync | stop | pause | resume | retry | test | reconnect | settings
+    label: str
+    icon: str
+    tip: str
+
+
+_ACTIONS = {
+    "sync": Action("sync", "Sync now", "refresh-cw", "Sync this now, whatever the schedule says"),
+    "retry": Action("retry", "Try again", "refresh-cw", "Try this again now"),
+    "stop": Action("stop", "Stop", "square", "Stop after the item it is on; what was done stays and Sync now carries on"),
+    "pause": Action("pause", "Pause", "pause", "Pause this account's mail fetch; Resume carries on where it stopped"),
+    "resume": Action("resume", "Resume", "play", "Carry on fetching this account's mail where it stopped"),
+    "test": Action("test", "Test connection", "circle-check", "Check that Leasha can still reach this account"),
+    "reconnect": Action("reconnect", "Reconnect", "key-round", "Sign in to this account again"),
+    "settings": Action("settings", "Settings", "settings", "Open this account's settings"),
+}
+
+
+def actions_for(a: Activity) -> "list[Action]":
+    """The buttons a row offers, for its state: the one thing most likely wanted first, Settings last. Few, so the
+    row stays a row - the rest is in the account's settings."""
+    keys: list[str]
+    if a.state == "running":
+        keys = ["stop"] + (["pause"] if a.kind == "mail" else [])
+    elif a.state == "paused" and a.headline.startswith("You paused"):
+        keys = ["resume"]
+    elif a.state == "failed":
+        keys = ["retry", "test"]
+    elif a.state == "signin":
+        keys = ["reconnect"]
+    elif a.state == "off":
+        keys = []
+    else:
+        keys = ["sync"]
+    return [_ACTIONS[k] for k in keys + ["settings"]]
 
 
 def short_status(a: Activity) -> str:
@@ -252,7 +294,11 @@ def _running(snap: Mapping[str, Any], base: Mapping[str, Any], tail: str, search
     phase = str(live.get("phase") or "")
     done, total = int(live.get("done") or 0), int(live.get("total") or 0)
     if phase == "writing" and total:
-        return Activity(state="running", headline=f"Writing {done:,} of {total:,} contacts to the account",
+        elapsed = max(0.0, float(snap.get("now") or time.time()) - float(live.get("started") or 0)) \
+            if live.get("started") else 0.0
+        eta = eta_words(done, total, elapsed)
+        return Activity(state="running",
+                        headline=f"Writing {done:,} of {total:,} contacts to the account" + (f" - {eta}" if eta else ""),
                         detail=(f"On {live['current']}. " if live.get("current") else "") + tail,
                         fraction=min(1.0, done / total), busy=False, **base)
     if phase == "reading":

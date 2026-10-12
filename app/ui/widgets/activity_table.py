@@ -8,21 +8,27 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping, Optional
 
-from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QHeaderView, QProgressBar, QTableWidget, QTableWidgetItem,
-                               QWidget)
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (QAbstractItemView, QHBoxLayout, QHeaderView, QProgressBar, QTableWidget,
+                               QTableWidgetItem, QToolButton, QWidget)
 
-from app.ui.presenter.account_activity import Activity, STATE_ICONS, describe
+from app.ui.presenter.account_activity import Activity, STATE_ICONS, actions_for, describe
 from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
 
 __all__ = ["ActivityTable", "COLUMNS"]
 
-COLUMNS = ("Account", "What", "Status", "Progress", "What it is doing", "Details")
-_TONE = {"failed": "danger", "signin": "danger", "running": "accent", "idle": "success"}
+COLUMNS = ("Account", "What", "Status", "Progress", "What it is doing", "Details", "Do")
+#: A state's icon colour, as a theme token (`app.ui.theme`): red for what needs you, amber for what stopped or waits,
+#: the accent for what is moving, the quiet text colour for the rest. Never a literal colour: a theme change repaints.
+_TONE = {"failed": "danger", "signin": "danger", "stopped": "warning", "paused": "warning", "queued": "warning",
+         "running": "accent_text"}
 
 
 class ActivityTable(QTableWidget):
+    #: (account id, "contacts" | "mail", an `Action.key`): a button on a row was pressed.
+    action_requested = Signal(int, str, str)
+
     def __init__(self, parent: Optional[QWidget] = None, *, single_account: bool = False) -> None:
         super().__init__(0, len(COLUMNS), parent)
         self.setHorizontalHeaderLabels(list(COLUMNS))
@@ -39,6 +45,7 @@ class ActivityTable(QTableWidget):
         head.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         head.setSectionResizeMode(4, QHeaderView.ResizeMode.Stretch)
         head.setSectionResizeMode(5, QHeaderView.ResizeMode.Stretch)
+        head.setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.setColumnWidth(3, 130)
         self.setColumnHidden(0, single_account)
         self._rows: dict[tuple[int, str], int] = {}
@@ -66,6 +73,33 @@ class ActivityTable(QTableWidget):
             self.setUpdatesEnabled(True)
         return shown
 
+    def _buttons(self, row: int, a: Activity) -> None:
+        """The row's command buttons, rebuilt only when the set changes - the table is redrawn every few seconds
+        and a button must not vanish under the pointer."""
+        acts = actions_for(a)
+        ink = theme_colours().get("text_dim", "#888888")
+        key = (tuple(x.key for x in acts), ink)                   # the ink too: a theme change rebuilds them
+        holder = self.cellWidget(row, 6)
+        if holder is not None and holder.property("actions") == key:
+            return
+        holder = QWidget()
+        holder.setProperty("actions", key)
+        box = QHBoxLayout(holder)
+        box.setContentsMargins(2, 0, 2, 0)
+        box.setSpacing(2)
+        for action in acts:
+            button = QToolButton()
+            button.setAutoRaise(True)
+            button.setText(action.label)
+            button.setIcon(icon(action.icon, ink))
+            button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+            button.setToolTip(f"{action.tip} ({a.what.lower()}, {a.name})")
+            button.setAccessibleName(f"{action.label}: {a.name} {a.what.lower()}")
+            button.clicked.connect(lambda _c=False, i=a.account_id, k=a.kind, x=action.key:
+                                   self.action_requested.emit(i, k, x))
+            box.addWidget(button)
+        self.setCellWidget(row, 6, holder)
+
     def _draw(self, shown: list[Activity]) -> None:
         keys = [(a.account_id, a.kind) for a in shown]
         if keys != list(self._rows):
@@ -74,8 +108,7 @@ class ActivityTable(QTableWidget):
         colours = theme_colours()
         previous = None
         for row, a in enumerate(shown):
-            ink = colours.get({"danger": "danger", "accent": "accent", "success": "success"}.get(
-                _TONE.get(a.state, ""), "text_dim"), colours.get("text_dim", "#888888"))
+            ink = colours.get(_TONE.get(a.state, "text_dim"), colours.get("text_dim", "#888888"))
             status = QTableWidgetItem(icon(STATE_ICONS.get(a.state, "clock"), ink), a.word)
             status.setToolTip(a.headline)
             # An account's two rows read as one: its name once, then blank under it.
@@ -108,4 +141,5 @@ class ActivityTable(QTableWidget):
             more.setToolTip(a.detail)
             self.setItem(row, 4, doing)
             self.setItem(row, 5, more)
+            self._buttons(row, a)
         self.resizeRowsToContents()

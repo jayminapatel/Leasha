@@ -97,6 +97,27 @@ class LazyService:
                 "failed": int(plan.get("failed_out", 0)), "failures": plan.get("failures", []) or []})
         return rows
 
+    def pause_mail(self, account_id: int) -> bool:               # worker
+        return get_service(self._shell).pause_mail(account_id)
+
+    def resume_mail(self, account_id: int) -> bool:              # worker
+        return get_service(self._shell).resume_mail(account_id)
+
+    def open_account(self, account_id: int, action: str = "") -> None:   # UI thread
+        """Show Settings > Accounts with this account selected; "reconnect" and "test" then run that button."""
+        runtime = getattr(self._shell, "account_runtime", None)
+        if runtime is None:
+            return
+        runtime.open_page()
+        page = getattr(getattr(self._shell, "settings_view", None), "accounts_page", None)
+        if page is None:
+            return
+        page.ensure_built()
+        page.account_list.select(int(account_id))
+        panel = getattr(page, "panel", None)
+        if panel is not None and action in ("reconnect", "test"):
+            getattr(panel, "_reconnect" if action == "reconnect" else "_test")()
+
     def activity_overview(self) -> list:                        # worker
         """What each account's contacts and mail are doing: `AccountService.activity_snapshot`."""
         return get_service(self._shell).activity_snapshot(datetime.now())

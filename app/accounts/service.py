@@ -149,6 +149,8 @@ class AccountService:
         self.mail_sync: Optional[Callable[..., Any]] = None
         self._lock = threading.Lock()
         self._running: set[tuple[int, str]] = set()
+        #: The latest progress event of each account's running contact sync (`_track`).
+        self._live_progress: dict[int, dict] = {}
         try:
             self.accounts.close_stale_runs()          # a run the last session never finished says so
         except Exception:                             # noqa: BLE001 - a label; never stops the service
@@ -467,7 +469,7 @@ class AccountService:
                     self._backup_before_sync([i for i, _ in claimed])
                     outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger,
                                                  approve_first=approve_first, allow_brake=allow_brake,
-                                                 cancel=cancel, progress=progress)
+                                                 cancel=cancel, progress=self._track(progress))
             finally:
                 self._release(claimed)
         if "mail" in kinds and self.mail_sync is not None:
@@ -600,7 +602,7 @@ class AccountService:
                 if claimed:
                     self._backup_before_sync([i for i, _ in claimed])
                     outcomes += self.engine.sync([i for i, _ in claimed], trigger=trigger, cancel=cancel,
-                                                 progress=progress)
+                                                 progress=self._track(progress))
             finally:
                 self._release(claimed)
         for w in work:
@@ -643,6 +645,8 @@ class AccountService:
                 status = run.status if run else ""
                 if status == "running" and not snap["live"]:
                     status = "interrupted"                 # a run the last session never finished
+                if kind == "contacts" and snap["live"]:
+                    snap["live_progress"] = dict(self._live_progress.get(a.id) or {})
                 snap.update(
                     mode=policy.mode, next=nxt.timestamp() if nxt else None, last_success=st.last_success_at,
                     failures=st.failures,
@@ -669,6 +673,41 @@ class AccountService:
                         snap["messages"] = None
                     snap["meaning_waiting"] = waiting_meaning
         return out
+
+    def pause_mail(self, account_id: int) -> bool:
+        """Pause an account's mail fetch (what the Pause button and the table's Pause do). The syncer's own pause:
+        every mail sync of the account answers `paused` until `resume_mail`."""
+        syncer = self.mail_sync
+        if syncer is None or not hasattr(syncer, "pause"):
+            return False
+        syncer.pause(int(account_id))
+        return True
+
+    def resume_mail(self, account_id: int) -> bool:
+        syncer = self.mail_sync
+        if syncer is None or not hasattr(syncer, "resume"):
+            return False
+        syncer.resume(int(account_id))
+        return True
+
+    def _track(self, progress: Optional[Callable[[dict], None]]) -> Callable[[dict], None]:
+        """A progress callback that also remembers each account's latest contact-sync event, so a view that was not
+        listening when the run started (an account's panel, the Accounts list) can still say "writing 120 of
+        1,436". `activity_snapshot` reads it back while the run is live."""
+        def wrapped(event: dict) -> None:
+            try:
+                aid = int(event.get("account_id") or 0)
+                if aid:
+                    if event.get("phase") == "done":
+                        self._live_progress.pop(aid, None)
+                    else:
+                        cur = self._live_progress.setdefault(aid, {"started": time.time()})
+                        cur.update(event)
+            except Exception:                              # noqa: BLE001 - a label; never stops a sync
+                pass
+            if progress is not None:
+                progress(event)
+        return wrapped
 
     def _meaning_waiting(self) -> Optional[int]:
         """Passages still waiting for the meaning model - read from the partial index that holds only them, and

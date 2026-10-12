@@ -157,3 +157,84 @@ def test_a_failure_puts_what_to_do_in_the_details_not_the_headline():
     a = describe(snap(run={"status": "failed", "error_text": "MS Main refused the request (HTTP 500). FIX: Press Test connection."},
                       failures=2), NOW)
     assert a.headline == "Failed: MS Main refused the request (HTTP 500)." and "What to do: Press Test connection." in a.detail
+
+
+# ------------------------------------------------------------------------------------------------ the buttons
+def _keys(**kw):
+    from app.ui.presenter.account_activity import actions_for
+
+    return [a.key for a in actions_for(describe(snap(**kw), NOW))]
+
+
+def test_the_buttons_a_row_offers_follow_its_state():
+    assert _keys() == ["sync", "settings"]                                         # up to date
+    assert _keys(live=True, mail={"fetched": 5, "total": 10}) == ["stop", "pause", "settings"]
+    assert _keys(kind="contacts", live=True) == ["stop", "settings"]
+    assert _keys(paused_by_person=True) == ["resume", "settings"]
+    assert _keys(hold="Quiet hours until 07:00") == ["sync", "settings"]           # Sync now ignores quiet hours
+    assert _keys(run={"status": "failed", "error_text": "no"}, failures=1) == ["retry", "test", "settings"]
+    assert _keys(signin_expired=True) == ["reconnect", "settings"]
+    assert _keys(enabled=False) == ["settings"]
+
+
+def test_a_service_pauses_and_resumes_mail_through_the_syncer_and_says_so_when_there_is_none(tmp_path):
+    from tests.unit.accounts_ui_fakes import make_service
+
+    store, svc = make_service(tmp_path)
+    try:
+        assert svc.pause_mail(1) is False and svc.resume_mail(1) is False        # no mail syncer attached
+        seen = []
+        svc.mail_sync = SimpleNamespaceSyncer(seen)
+        assert svc.pause_mail(7) and svc.resume_mail(7) and seen == [("pause", 7), ("resume", 7)]
+    finally:
+        store.close()
+
+
+class SimpleNamespaceSyncer:
+    def __init__(self, seen):
+        self.seen = seen
+
+    def pause(self, account_id):
+        self.seen.append(("pause", account_id))
+
+    def resume(self, account_id):
+        self.seen.append(("resume", account_id))
+
+
+def test_the_live_contact_sync_events_reach_the_snapshot_for_an_account_panel_that_was_not_listening(tmp_path):
+    from tests.unit.accounts_ui_fakes import make_service
+
+    store, svc = make_service(tmp_path)
+    try:
+        a = svc.accounts.add("google", "a@x.com", "Home")
+        track = svc._track(None)
+        svc._running.add((a, "contacts"))
+        track({"account_id": a, "phase": "writing", "done": 120, "total": 1436, "current": "Waqas Khan"})
+        snap_c = next(s for s in svc.activity_snapshot(datetime.fromtimestamp(NOW))
+                      if s["account_id"] == a and s["kind"] == "contacts")
+        assert snap_c["live_progress"]["done"] == 120
+        act = describe(dict(snap_c, now=time.time() + 30), time.time())
+        assert "Writing 120 of 1,436 contacts" in act.headline and "Waqas Khan" in act.detail
+        track({"account_id": a, "phase": "done"})                                 # the run ended: nothing is kept
+        svc._running.discard((a, "contacts"))
+        assert "live_progress" not in next(s for s in svc.activity_snapshot(datetime.fromtimestamp(NOW))
+                                           if s["account_id"] == a and s["kind"] == "contacts")
+    finally:
+        store.close()
+
+
+def test_the_table_follows_the_theme_icons_in_theme_tokens_and_buttons_rebuilt_when_the_ink_changes(qtbot, monkeypatch):
+    from app.ui.widgets import activity_table as at
+    from app.ui.widgets.activity_table import ActivityTable
+
+    assert all(token in {"danger", "warning", "accent_text"} for token in at._TONE.values())   # tokens, not colours
+    table = ActivityTable()
+    qtbot.addWidget(table)
+    table.set_snapshots([snap(kind="contacts")], NOW)
+    first = table.cellWidget(0, 6)
+    table.set_snapshots([snap(kind="contacts")], NOW)
+    assert table.cellWidget(0, 6) is first                         # same state, same theme: the buttons stay put
+    dark = dict(at.theme_colours(), text_dim="#123456")
+    monkeypatch.setattr(at, "theme_colours", lambda: dark)
+    table.set_snapshots([snap(kind="contacts")], NOW)
+    assert table.cellWidget(0, 6) is not first                     # a new theme: repainted in its ink

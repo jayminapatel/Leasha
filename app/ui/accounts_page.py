@@ -129,6 +129,7 @@ class AccountsPage(QWidget):
         self.account_list.account_opened.connect(lambda _aid: self.panel.focus_settings())
         self.account_list.reordered.connect(self._reordered)
         self.panel.sync_requested.connect(self.request_sync)
+        self.panel.stop_requested.connect(self._stop_run)
         self.panel.removed.connect(self._removed)
         self.log.approve_requested.connect(lambda aid: self.request_sync(aid, "contacts", approve=True))
         self.log.allow_requested.connect(lambda aid: self.request_sync(aid, "contacts", allow_brake=True))
@@ -156,6 +157,10 @@ class AccountsPage(QWidget):
             poll.stop()
 
     # --------------------------------------------------------------- scheduler
+    def _stop_run(self) -> None:
+        if self._scheduler is not None:
+            self._scheduler.stop_run()
+
     def attach_scheduler(self, scheduler: Any) -> None:
         self._scheduler = scheduler
         scheduler.run_finished.connect(self._run_done)
