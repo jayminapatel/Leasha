@@ -65,11 +65,8 @@ def load_snapshot(hub: Any, accounts: Any, flt: ContactFilter, *, full: bool = T
     default = accounts.default_account()
     snap.default_account_id = default.id if default is not None else None
     snap.region = accounts.settings().phone_region or ""
-    snap.account_counts = {
-        int(r[0]): int(r[1]) for r in hub.conn.execute(
-            "SELECT l.account_id, COUNT(DISTINCT l.contact_id) FROM contact_links l "
-            "JOIN contacts c ON c.id = l.contact_id WHERE c.deleted_at IS NULL "
-            "AND l.state IN ('synced','pending_create','deleted_remote') GROUP BY l.account_id")}
+    # Order 1t 3a: the one definition (`ContactHub.account_counts`), the same number Settings > Accounts shows.
+    snap.account_counts = {aid: d["kept"] for aid, d in hub.account_counts().items()}
     return snap
 
 

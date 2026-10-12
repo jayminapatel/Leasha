@@ -67,6 +67,8 @@ def tr():
     t.add("GET", f"{B}/me/contactFolders", {"value": [
         {"id": DEFAULT, "displayName": "Contacts"}, {"id": FOLDER_A, "displayName": "Family"}]})
     t.add("GET", f"{B}/me/contacts", {"value": [contact("probe")]})        # the default-folder probe
+    for fid in (DEFAULT, FOLDER_A):                                          # order 1t 3d: child folders too
+        t.add("GET", f"{B}/me/contactFolders/{fid}/childFolders", {"value": []})
     return t
 
 

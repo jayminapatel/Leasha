@@ -21,6 +21,10 @@ class PageState:
     statuses: list = field(default_factory=list)
     runs: list = field(default_factory=list)
     kept: dict = field(default_factory=dict)          # account id -> contacts kept there
+    #: account id -> `ContactHub.account_counts()[id]` (order 1t 3a): kept, linked, waiting, deleted there.
+    contact_counts: dict = field(default_factory=dict)
+    #: account id -> the last check against the account (`AccountStore.check`), or absent if never checked.
+    checks: dict = field(default_factory=dict)
     last_runs: dict = field(default_factory=dict)     # account id -> last real contacts SyncRun
     mail_space: dict = field(default_factory=dict)    # account id -> bytes, when the mail syncer says
     mail_progress: dict = field(default_factory=dict)  # account id -> {"fetched","total",...}
@@ -38,14 +42,20 @@ def read_page_state(factory: Callable[[], Any], now: Optional[datetime] = None) 
         st.activities = svc.activity_snapshot(now)
     except Exception:                                      # noqa: BLE001 - a label; the page opens without it
         st.activities = []
+    try:
+        counts = svc.hub.account_counts()                  # order 1t 3a: the one definition, as Contacts shows it
+    except Exception:                                      # noqa: BLE001 - a missing table is zero
+        counts = {}
     for row in st.statuses:
         aid = row.account.id
+        st.contact_counts[aid] = dict(counts.get(aid) or {})
+        st.kept[aid] = int(st.contact_counts[aid].get("kept") or 0)
         try:
-            st.kept[aid] = int(svc.store.conn.execute(
-                "SELECT COUNT(*) FROM contact_links WHERE account_id = ? AND state IN ('synced','pending_create')",
-                (aid,)).fetchone()[0])
-        except Exception:                                  # noqa: BLE001 - a missing table is zero
-            st.kept[aid] = 0
+            found = svc.accounts.check(aid)
+        except Exception:                                  # noqa: BLE001 - a label; the page opens without it
+            found = None
+        if found:
+            st.checks[aid] = found
         st.last_runs[aid] = svc.accounts.last_run(aid, "contacts")
         space = getattr(svc, "mail_space_used", None)
         if callable(space):

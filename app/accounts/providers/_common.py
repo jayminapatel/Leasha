@@ -111,3 +111,19 @@ def parse_xml(body: bytes) -> ET.Element:
         raise AppErrorException(make_error(
             "ERR_ACCOUNT_REJECTED", "accounts.providers", account="the server",
             reason="the reply was not valid XML", details=str(exc)[:200])) from exc
+
+
+def close_transport(transport: Any) -> None:
+    """Close a transport's kept connections, if it keeps any (order 1t 5a). Best effort: closing never fails a sync."""
+    close = getattr(transport, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:                                   # noqa: BLE001
+            pass
+
+
+#: An account's failure as a whole, not one contact's: a batch method raises these rather than listing every
+#: contact as refused (the engine's `_ACCOUNT_WIDE`, order 1t 5b).
+ACCOUNT_WIDE = frozenset({"ERR_ACCOUNT_SIGNIN_EXPIRED", "ERR_PROVIDER_LIMIT", "ERR_ACCOUNT_UNREACHABLE",
+                          "ERR_ACCOUNT_ADMIN_CONSENT", "ERR_ACCOUNT_NOT_CONFIGURED"})

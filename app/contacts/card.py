@@ -152,9 +152,33 @@ class Capabilities:
     #: `((kind, labels), ...)`: only these labels of that kind (Outlook's related people are a spouse, a
     #: manager and an assistant, and nothing else).
     kind_labels: tuple = ()
+    #: Whether the account keeps which value is the preferred one, as Leasha writes it. Google, Outlook and
+    #: iCloud do not (2026-10-12, order 1t 4b: iCloud returned every number un-preferred, so 3,976 numbers
+    #: were recorded as a clash on one sync). Where False the flag is not compared and Leasha's own stands.
+    primary: bool = True
 
 
 ALL_CAPS = Capabilities()
+
+#: `X-` properties a server or another program keeps for its own bookkeeping (order 1t 4b). Not something a person
+#: wrote: `X-FC-CLUSTER-ID`, a server's id for a card, was read as the custom value "fc cluster id" on every contact,
+#: compared, and written on to Google. A custom value whose label is one of these is never read, compared or sent.
+#: Prefixes end in a separator and the rest are whole names, so a person's own label ("about", "sync notes",
+#: "image url") never matches (CodeRabbit on #70).
+SERVER_INTERNAL_PREFIXES = (
+    "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-", "X-MOZILLA-",
+    "X-CARDDAV-", "X-OUTLOOK-",
+)
+SERVER_INTERNAL_NAMES = frozenset({"X-ABADR", "X-ABUID", "X-ABLABEL", "X-ABRELATEDNAMES", "X-ABSHOWAS",
+                                   "X-SHOWAS"})
+
+
+def is_server_internal(name: str) -> bool:
+    """`X-FC-CLUSTER-ID`, or a custom value's label as Leasha keeps it ("fc cluster id")."""
+    text = name.strip().upper()
+    if not text.startswith("X-"):
+        text = "X-" + "-".join(text.split())
+    return text in SERVER_INTERNAL_NAMES or text.startswith(SERVER_INTERNAL_PREFIXES)
 
 
 def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:
@@ -165,6 +189,8 @@ def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:
     seen: set[str] = set()
     for f in card.fields:
         if f.kind not in caps.kinds or not f.value.strip() and not any(f.data.values()):
+            continue
+        if f.kind == "custom" and is_server_internal(f.label):
             continue
         if f.kind == "date" and caps.date_labels is not None and _slug(f.label) not in caps.date_labels:
             continue
@@ -224,13 +250,13 @@ def field_key(f: Field, region: str = phones.DEFAULT_REGION) -> str:
     return f"{kind}:{_slug(f.value)}"
 
 
-def _attr(f: Field) -> tuple:
+def _attr(f: Field, primary: bool = True) -> tuple:
     value = f.value
     if f.kind == "address" and f.data:
         # An address with parts is compared by its parts; the one-line text is
         # only how it is shown, and providers rebuild it differently.
         value = ", ".join(f.data[p] for p in _ADDRESS_PARTS if f.data.get(p))
-    return (f.label, value, tuple(sorted(f.data.items())), f.primary)
+    return (f.label, value, tuple(sorted(f.data.items())), f.primary if primary else None)
 
 
 def units(card: Card, caps: Capabilities = ALL_CAPS, region: str = phones.DEFAULT_REGION) -> dict[str, Any]:
@@ -240,7 +266,7 @@ def units(card: Card, caps: Capabilities = ALL_CAPS, region: str = phones.DEFAUL
         if name in caps.scalars and card.get(name).strip():
             out[f"s:{name}"] = card.get(name).strip()
     for f in _held_fields(card, caps, region):
-        out["f:" + field_key(f, region)] = _attr(f)
+        out["f:" + field_key(f, region)] = _attr(f, caps.primary)
     if caps.groups:
         for g in card.groups:
             if g.strip():
@@ -418,7 +444,8 @@ def _rebuild(local: Card, remote: Card, chosen: dict[str, Any], caps: Capabiliti
 
 def _with_attr(f: Field, attr: tuple) -> Field:
     label, value, data, primary = attr
-    return Field(f.kind, value, label, dict(data), bool(primary))
+    # None: the account does not keep the flag, so the field keeps its own (the hub's comes first).
+    return Field(f.kind, value, label, dict(data), f.primary if primary is None else bool(primary))
 
 
 def fields_of(card: Card, kinds: Iterable[str]) -> list[Field]:

@@ -35,11 +35,13 @@ __all__ = ["Action", "actions_for", "Activity", "describe", "when_words", "ahead
 
 STATE_WORDS = {
     "running": "Running", "queued": "Waiting its turn", "paused": "Paused", "failed": "Failed",
+    "held": "Waiting for you",
     "signin": "Sign in needed", "stopped": "Stopped", "idle": "Up to date", "manual": "Manual",
     "off": "Off", "never": "Not run yet",
 }
 STATE_ICONS = {
     "running": "refresh-cw", "queued": "clock", "paused": "pause", "failed": "circle-alert",
+    "held": "triangle-alert",
     "signin": "key-round", "stopped": "square", "idle": "circle-check", "manual": "play",
     "off": "ban", "never": "hourglass",
 }
@@ -56,6 +58,7 @@ class Activity:
     detail: str                    # the second line: last run, next run, what is searchable
     fraction: Optional[float]      # 0..1 when a number is known, None when not
     busy: bool                     # True: a moving bar, there is work and no total yet
+    out_of_step: bool = False      # contacts: the check after the last sync found differences (order 1t 3c)
 
     @property
     def what(self) -> str:
@@ -167,6 +170,11 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
         again = f"; trying again {nxt}" if nxt and nxt != "due now" else ""
         return done("failed", f"Failed: {_short(what)}",
                     (f"What to do:{fix.rstrip('. ')}. " if fix.strip() else "") + f"{last_line}{again}")
+    if kind == "contacts" and run and run.get("status") == "held":
+        # Order 1t D2: deletes past the brake (everything else was written), or changes the churn guard held.
+        text = " ".join(str(run.get("error_text") or "Something is waiting for you").split())
+        what, _, fix = text.partition(" FIX:")
+        return done("held", _short(what, 200), (fix.strip() + " " if fix.strip() else "") + tail)
     if run and run.get("status") in ("interrupted", "stopped"):
         why = "Stopped when the app closed" if run.get("status") == "interrupted" else "Stopped by you"
         return done("stopped", f"{why} - it carries on at the next run", tail)
@@ -183,7 +191,42 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
                         "Mail is fetched one account at a time." + (f" {searchable}" if searchable else ""))
         return done("queued", "Due now - it starts within a minute", tail)
     headline = "Up to date" + (f" ({counts} last time)" if counts else "")
-    return done("idle", headline, tail + (f". {searchable}" if searchable else ""))
+    checked = check_words(snap.get("check"), now) if kind == "contacts" else ""
+    check = snap.get("check") or {}
+    act = done("idle", headline, (f"{checked}. " if checked else "") + tail + (f". {searchable}" if searchable else ""))
+    if kind == "contacts" and check and not check.get("in_step") and not check.get("error"):
+        from dataclasses import replace as _replace  # noqa: PLC0415
+        act = _replace(act, out_of_step=True)
+    return act
+
+
+def check_words(check: Optional[Mapping[str, Any]], now: float) -> str:
+    """The check after a sync (order 1t 3c) in one line: "At the account: 1,444 - in step - checked 21:10", or
+    what differs ("3 differ: Ann Lee, Bob Ray, Cy Dee"). "" when the account was never checked."""
+    if not check:
+        return ""
+    when = when_words(check.get("at"), now)
+    if check.get("error"):
+        return f"Could not check the account ({_short(str(check['error']), 80)}) - {when}"
+    head = f"At the account: {int(check.get('count') or 0):,}"
+    if check.get("in_step"):
+        return f"{head} - in step with Leasha - checked {when}"
+    bits = []
+    for key, word in (("missing_there", "not at the account"), ("not_here", "not in Leasha"),
+                      ("changed_there", "changed there since"), ):
+        n = int(check.get(f"{key}_n") or 0)
+        if n:
+            names = ", ".join((check.get(key) or [])[:3])
+            bits.append(f"{n:,} {word}" + (f" ({names}{', ...' if n > 3 else ''})" if names else ""))
+    waiting = int(check.get("waiting_create") or 0) + int(check.get("waiting_delete") or 0)
+    if waiting:
+        bits.append(f"{waiting:,} waiting to be written")
+    return f"{head} - " + "; ".join(bits) + f" - checked {when}"
+
+
+def check_in_step(snap: Mapping[str, Any]) -> bool:
+    check = snap.get("check") or {}
+    return bool(check.get("in_step")) or not check
 
 
 @dataclass(frozen=True)
@@ -203,6 +246,10 @@ _ACTIONS = {
     "test": Action("test", "Test connection", "circle-check", "Check that Leasha can still reach this account"),
     "reconnect": Action("reconnect", "Reconnect", "key-round", "Sign in to this account again"),
     "settings": Action("settings", "Settings", "settings", "Open this account's settings"),
+    "allow": Action("allow", "Allow", "check",
+                    "Carry out what was held - the deletes past your safety limit, or the changes held for you to "
+                    "look at - and sync again"),
+    "fix": Action("fix", "Fix these", "list-checks", "Read the account again and put Leasha back in step with it"),
 }
 
 
@@ -216,6 +263,10 @@ def actions_for(a: Activity) -> "list[Action]":
         keys = ["resume"]
     elif a.state == "failed":
         keys = ["retry", "test"]
+    elif a.state == "held":
+        keys = ["allow"]
+    elif a.out_of_step:
+        keys = ["sync", "fix"]
     elif a.state == "signin":
         keys = ["reconnect"]
     elif a.state == "off":
