@@ -56,6 +56,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### Adding a CardDAV server such as dav.privateemail.com (2026-10-12)
+
+- **Fixed:** adding `dav.privateemail.com` failed with "the server did not say where the address books are". Leasha
+  introduced itself to every server as Python's default, "Python-urllib/3.12", and that server sits behind Cloudflare,
+  which refuses that name with "error code: 1010" before CardDAV is reached. Every request now says
+  `Leasha/<version> (contacts and mail sync)`; the server's `/.well-known/carddav` then leads to `/dav.php` and asks
+  for the password as it should (checked without signing in).
+- **A server may be pasted as an address:** `https://dav.privateemail.com`, or with a port and a path, is taken apart
+  (it was "not a server name"). **An address book may be given by its name:** "Default Address Book/" is matched
+  against the account's books (it was refused as "a missing address").
+
 ### Browse as thumbnails or a table; Kinds; smooth trees (2026-10-12)
 
 - **Browse can be shown as Thumbnails (the timeline, as before) or as a Table**, switchable from a control beside the

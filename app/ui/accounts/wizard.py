@@ -110,7 +110,7 @@ class AddAccountDialog(QDialog):
             self.security.addItem(t, k)
         self.addressbook = QLineEdit()
         self.addressbook.setAccessibleName("Address book address")
-        self.addressbook.setPlaceholderText("Only if it cannot be found by itself")
+        self.addressbook.setPlaceholderText("Leave empty - found by itself. Or its name: Default Address Book")
         self.port.setToolTip("The server's port. Automatic uses the usual one for the security chosen.")
         self.security.setToolTip("How the connection to the server is protected. SSL/TLS is the usual choice.")
         self.contacts = QCheckBox("Sync contacts")
