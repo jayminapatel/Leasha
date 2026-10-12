@@ -37,6 +37,7 @@ from app.contacts.card import Card
 from app.contacts.enrich import company, faces, gravatar, logo, signatures, wikidata
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.history import History, contact_history
+from app.contacts.enrich.owner import learn_owner
 from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, suggest_contacts
 from app.core.errors import AppErrorException
 
@@ -119,9 +120,13 @@ class _Net:
 def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any = None,
                    clock: Callable[[], float] = time.time, force: bool = False,
                    sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
-                   _net: Optional[_Net] = None, _wiki: Optional[dict] = None,
-                   _skipped: Optional[dict] = None) -> list[Proposal]:
+                   owner_emails: Iterable[str] = (), _net: Optional[_Net] = None, _wiki: Optional[dict] = None,
+                   _skipped: Optional[dict] = None, _owner: Optional[dict] = None) -> list[Proposal]:
     """Proposals for one contact from every source that is switched on. Applies nothing.
+
+    `owner_emails` are the owner's own addresses (`owner_addresses`): the signature reader never offers
+    the owner's own details to anybody (order 1s 3h). `_owner` holds what was learned of the owner for a
+    whole run, so it is read once, not once a contact.
 
     `_skipped` counts, per internet source, the contacts not asked again because the same lookup was made
     within `REPEAT_DAYS` - so the run can say so rather than look as if the source found nothing."""
@@ -144,7 +149,14 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             _skipped[kind] = _skipped.get(kind, 0) + 1
 
     if "signature" in wanted and _on(settings, "signature"):
-        out += signatures.signature_proposals(store, contact_id, card, region=hub.region, since=window_of(settings))
+        originals = bool(getattr(settings, "enrich_read_originals", False))
+        memo = _owner if _owner is not None else {}
+        if "owner" not in memo:
+            memo["owner"] = learn_owner(store, owner_emails, region=hub.region, read_original=originals)
+        out += signatures.signature_proposals(store, contact_id, card, region=hub.region, since=window_of(settings),
+                                              owner=memo["owner"], read_original=originals,
+                                              update_from=float(getattr(settings, "enrich_tick_from",
+                                                                        signatures.UPDATE_FROM)))
     if "company" in wanted and _on(settings, "company"):
         out += company.company_proposals(contact_id, card)
     if "face" in wanted and _on(settings, "face"):
@@ -212,7 +224,8 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
                      clock: Callable[[], float] = time.time, force: bool = False,
                      sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
                      on_progress: Optional[Callable[[dict], Any]] = None,
-                     cancelled: Optional[Callable[[], bool]] = None) -> list[Proposal]:
+                     cancelled: Optional[Callable[[], bool]] = None,
+                     owner_emails: Iterable[str] = ()) -> list[Proposal]:
     """`enrich_contact` for each id, in order. Colleagues at one company share one Wikidata lookup.
 
     A look through the mail takes about a second a contact, so a thousand contacts is a quarter of an hour:
@@ -221,6 +234,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
     net = _Net(transport)
     wiki: dict = {}
     skipped: dict = {}
+    owner: dict = {}
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
     ids = list(dict.fromkeys(int(c) for c in contact_ids))
@@ -228,7 +242,8 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
         if cancelled is not None and cancelled():
             break
         out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force, sources=wanted,
-                              notes=notes, _net=net, _wiki=wiki, _skipped=skipped)
+                              notes=notes, owner_emails=owner_emails, _net=net, _wiki=wiki, _skipped=skipped,
+                              _owner=owner)
         if on_progress is not None:
             on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     if notes is not None:
@@ -263,6 +278,7 @@ def window_notes(hub: Any, settings: Any, ids: list[int], found: list[Proposal],
 def proposals_for(hub: Any, accounts_store: Any, contact_ids: Iterable[int], transport: Any = None,
                   **kw: Any) -> list[Proposal]:
     """What the UI calls: settings are read from `accounts_store` (or an `AccountSettings`)."""
+    kw.setdefault("owner_emails", owner_addresses(accounts_store))
     return enrich_selection(hub, _settings_of(accounts_store), contact_ids, transport=transport, **kw)
 
 
