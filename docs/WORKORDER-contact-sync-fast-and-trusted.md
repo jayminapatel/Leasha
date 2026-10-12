@@ -1,11 +1,13 @@
 # Work order (One thread): contact sync that is fast and can be trusted - batched writes, one count everywhere, a check after every sync, a brake that holds only deletes
 
-**Doc version:** 1.1 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/accounts/engine.py`, `app/accounts/provider.py`, `app/accounts/http.py`,
 `app/accounts/providers/google_people.py`, `app/accounts/providers/graph_contacts.py`,
 `app/accounts/providers/carddav.py`, `app/accounts/service.py`, `app/accounts/store.py`, `app/contacts/hub.py`,
 `app/ui/accounts/`, `app/ui/contacts/loader.py`, `app/ui/contacts_tools/sync_dialog.py`,
 `app/ui/presenter/sync_status.py`, `app/cli/accounts.py`, `tests/unit/`, the docs)
+**Status note, 2026-10-12 (latest): MERGED to `main` as #70 (`32fc2d5`)** at the owner's "merge now", before the Windows suite had finished; the items still open below are open on `main`.
+
 **Status note, 2026-10-12 (later): RELEASED by the owner and BUILT the same night** on branch
 `feat/contact-sync-fast-and-trusted` (worktree `.worktrees/sync-fast`), owner: "recommended and i have changed the
 delete limit, do recommended except one order for all and then execute this order as this should not affect
