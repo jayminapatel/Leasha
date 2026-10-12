@@ -21,19 +21,17 @@ ask": how many contacts each would be asked about, and how many of those its
 
 from __future__ import annotations
 
-import calendar
 import csv
 import random
 import sqlite3
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
 from app.contacts.enrich import company, faces, logo, signatures, wikidata
-from app.contacts.enrich.base import address_of, body_text, emails_of, mail_from
+from app.contacts.enrich.base import address_of, body_text, emails_of, mail_from, window_start
 from app.contacts.enrich.run import REPEAT_DAYS, seen_key
 from app.contacts.enrich.signatures import MAX_MESSAGES, find_block, parse_block, signature_proposals
 
@@ -61,16 +59,6 @@ class ReadOnlyStore:
     def close(self) -> None:
         self.conn.close()
 
-
-def window_start(months: int, today: Optional[date] = None) -> Optional[int]:
-    """Unix seconds at the start of the age window: `months` calendar months before today, or None for any age."""
-    if not months:
-        return None
-    t = today or datetime.now(timezone.utc).date()
-    y, m = divmod(t.month - 1 - int(months), 12)
-    year, month = t.year + y, m + 1
-    day = min(t.day, calendar.monthrange(year, month)[1])
-    return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
 
 
 @dataclass
@@ -143,8 +131,7 @@ def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, c
             src["logo: would ask"] += 1
         if wikidata.company_term(card):
             src["wikidata: would ask"] += 1
-        rows = [r for r in mail_from(store, emails, limit=MAX_MESSAGES)
-                if fun.since is None or (r.sent_at or 0) >= fun.since]
+        rows = mail_from(store, emails, limit=MAX_MESSAGES, since=fun.since)
         if not rows:
             continue
         fun.with_mail += 1

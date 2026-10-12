@@ -983,6 +983,7 @@
     <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
     <Compile Include="tests\unit\test_enrich_measure.py" />
+    <Compile Include="tests\unit\test_enrich_sender_index.py" />
     <Compile Include="tests\unit\test_enrichment_backlog.py" />
     <Compile Include="tests\unit\test_enter_key.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />

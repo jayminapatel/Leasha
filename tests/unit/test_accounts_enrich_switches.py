@@ -22,12 +22,18 @@ OWN = ("enrich_signatures", "enrich_company", "enrich_faces", "enrich_history", 
 NET = ("enrich_gravatar", "enrich_logo", "enrich_wikidata")
 
 
+#: Order 1s D7 (2026-10-12): more of the owner's own sources - on by default, except documents (5e)
+#: and reading the original messages again (4b), which is slower.
+MORE_ON = ("enrich_vcards", "enrich_outlook_contacts", "enrich_calendar", "enrich_linkedin")
+MORE_OFF = ("enrich_documents", "enrich_read_originals")
+
+
 def test_defaults_are_local_on_and_internet_off(world):
     svc, page = world
     g = page().globals
-    assert set(g.enrich) == set(OWN + NET)
-    assert all(g.enrich[k].isChecked() for k in OWN)
-    assert not any(g.enrich[k].isChecked() for k in NET)
+    assert set(g.enrich) == set(OWN + MORE_ON + MORE_OFF + NET)
+    assert all(g.enrich[k].isChecked() for k in OWN + MORE_ON)
+    assert not any(g.enrich[k].isChecked() for k in NET + MORE_OFF)
 
 
 @pytest.mark.parametrize("key", OWN + NET)

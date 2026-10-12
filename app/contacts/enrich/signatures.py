@@ -252,16 +252,17 @@ def _phone_label(label: str) -> str:
 
 
 def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION,
-                        rows: Optional[list] = None) -> list[Proposal]:
+                        rows: Optional[list] = None, since: Optional[int] = None) -> list[Proposal]:
     """Proposals from the newest message of this person that has a readable signature.
 
     `rows` are the person's messages when the caller has already read them (the measuring command,
-    `measure.py`, reads them once for its whole funnel); left out, they are read here."""
+    `measure.py`, reads them once for its whole funnel); left out, they are read here, from `since`
+    (order 1s's age window) on."""
     emails = emails_of(card)
     if not emails:
         return []
     if rows is None:
-        rows = mail_from(store, emails, limit=MAX_MESSAGES)
+        rows = mail_from(store, emails, limit=MAX_MESSAGES, since=since)
     tokens_card = _name_tokens(card)
     parsed: list[tuple[Any, Signature]] = []
     for row in rows:
@@ -290,24 +291,25 @@ def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phone
         if phones.match_key(num, region) in have_phones:
             continue
         out.append(Proposal(cid, "phone", label, "", num, "signature", receipt,
-                            conf("phone", sig.get("phone"))))
+                            conf("phone", sig.get("phone")), when=row.sent_at))
     for key in ("title", "company"):
         new = sig.get(key)
         if new and new.strip().casefold() != card.get(key).strip().casefold():
             out.append(Proposal(cid, key, "", card.get(key), new, "signature", receipt,
-                                round(conf(key, new) - (0.1 if card.get(key) else 0.0), 2)))
+                                round(conf(key, new) - (0.1 if card.get(key) else 0.0), 2), when=row.sent_at))
     site = sig.get("website")
     if site:
         norm = lambda u: re.sub(r"^https?://(www\.)?", "", u.lower()).rstrip("/")   # noqa: E731
         if all(norm(f.value) != norm(site) for f in card.values("url")):
-            out.append(Proposal(cid, "url", "work", "", site, "signature", receipt, conf("website", site)))
+            out.append(Proposal(cid, "url", "work", "", site, "signature", receipt, conf("website", site),
+                                when=row.sent_at))
     addr = sig.get("address")
     if addr:
         text = sig["address_text"]
         have = {re.sub(r"\W", "", (f.data.get("postcode") or "").lower()) for f in card.values("address")}
         if re.sub(r"\W", "", addr.get("postcode", "").lower()) not in have:
             out.append(Proposal(cid, "address", "work", "", text, "signature", receipt,
-                                round(base - 0.1, 2), data=dict(addr)))
+                                round(base - 0.1, 2), data=dict(addr), when=row.sent_at))
     return out
 
 

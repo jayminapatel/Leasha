@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QTimeEdit, QVBoxLayout, QWidget,
 )
 
-from app.ui.accounts import logic, parts
+from app.ui.accounts import enrich_settings, logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, set_quiet
 from app.ui.widgets.region_box import RegionBox
@@ -220,14 +220,9 @@ class GlobalSettingsBox(QWidget):
 
         # ---- 7 enrichment: what may be looked up, and where
         box, form = self._group("Enrichment", outer)
-        form.addRow(hint("From your own index - nothing leaves this computer. On by default."))
-        self.enrich: dict[str, QCheckBox] = {}
-        for key, words, said in logic.ENRICH_OWN:
-            self._enrich_switch(form, key, words, said)
-        form.addRow(hint("From the internet - off until you switch each one on. Each says exactly what it sends."))
-        for key, words, said in logic.ENRICH_NET:
-            self._enrich_switch(form, key, words, said)
-        form.addRow(hint("Nothing is kept until you accept it."))
+        # Order 1s 8a: every source and every rule, built in `enrich_settings`.
+        self.enrich_controls = enrich_settings.build(form, self._save)
+        self.enrich: dict[str, QCheckBox] = self.enrich_controls.checks
 
         # ---- 1a client IDs
         box, form = self._group("Sign-in set-up (Google and Microsoft)", outer)
@@ -270,15 +265,6 @@ class GlobalSettingsBox(QWidget):
         for b, key in ((self.google_help, "google"), (self.microsoft_help, "microsoft"),
                        (self.apple_help, "apple"), (self.imap_help, "imap")):
             b.clicked.connect(lambda _c=False, k=key: parts.open_guide(logic.GUIDE_ANCHORS[k]))
-
-    def _enrich_switch(self, form: QFormLayout, key: str, words: str, said: str) -> None:
-        box = QCheckBox(words)
-        box.setAccessibleName(words)
-        box.setToolTip(said)
-        form.addRow(box)
-        form.addRow(hint(said))
-        self.enrich[key] = box
-        box.toggled.connect(lambda on, k=key: self._save(**{k: bool(on)}))
 
     def _tips(self) -> None:
         """A sentence of what each control does (the hover text)."""
@@ -402,8 +388,7 @@ class GlobalSettingsBox(QWidget):
             for c, v in ((self.notify_brake, s.notify_brake), (self.notify_conflict, s.notify_conflict),
                          (self.notify_signin, s.notify_signin), (self.notify_failed, s.notify_failed_24h)):
                 set_quiet(c, bool(v), "setChecked")
-            for key, box in self.enrich.items():
-                set_quiet(box, bool(getattr(s, key)), "setChecked")
+            enrich_settings.load(self.enrich_controls, s)
             blocked = self.default_account.blockSignals(True)
             self.default_account.clear()
             self.default_account.addItem("The first account with contact sync on", None)

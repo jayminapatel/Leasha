@@ -17,6 +17,8 @@ step).
 
 from __future__ import annotations
 
+import time
+
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
@@ -40,6 +42,20 @@ class EnrichData:
     available: bool = True
     #: What the sources said besides suggestions: one unreachable, or one not asked again within 90 days.
     notes: list = field(default_factory=list)
+
+
+def when_words(when: Any, now: Optional[float] = None) -> str:
+    """Order 1s 2d: the date a suggestion's message was sent, and how long ago - "12 Mar 2026, 3 weeks ago"."""
+    from app.ui.presenter.formatting import format_when  # noqa: PLC0415 - the Search tab's own words
+
+    try:
+        seconds = int(when or 0)
+    except (TypeError, ValueError):
+        return ""
+    if seconds <= 0:
+        return ""
+    day = time.strftime("%d %b %Y", time.gmtime(seconds)).lstrip("0")
+    return f"{day}, {format_when(seconds * 1_000_000_000, now=now)}"
 
 
 def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, force: bool = False) -> EnrichData:
@@ -113,7 +129,7 @@ class EnrichDialog(ToolDialog):
         self.run.changed.connect(self._from_run)
 
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Contact / detail", "Now", "Suggested", "Where from"])
+        self.tree.setHeaderLabels(["Contact / detail", "Now", "Suggested", "Where from", "When"])
         self.tree.setRootIsDecorated(True)
         self.tree.setAlternatingRowColors(True)
         named(self.tree, "Suggestions", "Details enrichment would add. Tick the ones to keep")
@@ -202,7 +218,7 @@ class EnrichDialog(ToolDialog):
             old, new = getattr(p, "old", ""), getattr(p, "new", "")
             child = QTreeWidgetItem([str(getattr(p, "field_label", "") or getattr(p, "field_kind", "")),
                                      str(old or ""), "(a photo)" if hasattr(new, "mime") else str(new),
-                                     str(getattr(p, "source", ""))])
+                                     str(getattr(p, "source", "")), when_words(getattr(p, "when", None))])
             child.setFlags(child.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             child.setCheckState(0, Qt.CheckState.Unchecked)
             child.setData(0, Qt.ItemDataRole.UserRole, index)
@@ -212,7 +228,7 @@ class EnrichDialog(ToolDialog):
             top.addChild(child)
             top.setExpanded(True)
         self.tree.blockSignals(False)
-        for col in range(4):
+        for col in range(5):
             self.tree.resizeColumnToContents(col)
         n = self.run.pending()
         said = (f"{plural(n, 'suggestion')} for {plural(len(by_contact), 'contact')}. Tick what you want to keep."

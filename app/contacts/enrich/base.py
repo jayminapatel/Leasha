@@ -66,6 +66,9 @@ class Proposal:
     receipt: str
     confidence: float = 0.5
     data: dict[str, str] = field(default_factory=dict)
+    #: Order 1s 2d: when the message (or file) the value came from was sent, Unix seconds; None when it
+    #: is not from a dated source.
+    when: Optional[int] = None
 
     @property
     def is_scalar(self) -> bool:
@@ -330,8 +333,11 @@ def _has_sender_addr(store: Any) -> bool:
     return known
 
 
-def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50) -> list[MailRow]:
+def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50, since: Optional[int] = None) -> list[MailRow]:
     """Messages whose sender is one of `emails`, newest first (undated last).
+
+    `since` (Unix seconds) is order 1s's age window, D1: a message sent before it is not read, and an
+    undated one is outside every window but "any age" (`since=None`).
 
     Order 1s 1c: one indexed look-up per address on `sender_addr` (schema 41), where it was a scan of
     every message - about a second a contact on the owner's index. An index without the column (one
@@ -342,23 +348,28 @@ def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50) -> list[Mai
     for e in wanted:
         sql = ("SELECT file_id, subject, sender, recipients, sent_at FROM messages "
                + ("WHERE sender_addr = ? " if indexed else "WHERE instr(lower(sender), ?) > 0 ")
+               + ("AND sent_at >= ? " if since is not None else "")
                + "ORDER BY sent_at DESC LIMIT ?")
-        for r in store.conn.execute(sql, (e, int(limit) * 4)):
+        params = (e, *(() if since is None else (int(since),)), int(limit) * 4)
+        for r in store.conn.execute(sql, params):
             if address_of(r["sender"] or "") in wanted:      # 'joann@x.com' is not 'ann@x.com'
                 out[int(r["file_id"])] = _row(r)
     rows = sorted(out.values(), key=lambda m: (m.sent_at is None, -(m.sent_at or 0), m.file_id))
     return rows[:limit]
 
 
-def mail_with(store: Any, emails: Sequence[str], *, limit: int = 5000) -> list[MailRow]:
-    """Messages from or to any of `emails`, newest first."""
+def mail_with(store: Any, emails: Sequence[str], *, limit: int = 5000,
+              since: Optional[int] = None) -> list[MailRow]:
+    """Messages from or to any of `emails`, newest first. `since`: the age window, as `mail_from`."""
     out: dict[int, MailRow] = {}
     wanted = {e.lower() for e in emails if e}
+    window = "" if since is None else "AND sent_at >= ? "
     for e in wanted:
+        params = (e, e, *(() if since is None else (int(since),)), int(limit) * 2)
         for r in store.conn.execute(
                 "SELECT file_id, subject, sender, recipients, sent_at FROM messages "
-                "WHERE instr(lower(sender), ?) > 0 OR instr(lower(recipients), ?) > 0 "
-                "ORDER BY sent_at DESC LIMIT ?", (e, e, int(limit) * 2)):
+                "WHERE (instr(lower(sender), ?) > 0 OR instr(lower(recipients), ?) > 0) "
+                + window + "ORDER BY sent_at DESC LIMIT ?", params):
             row = _row(r)
             people = {address_of(row.sender), *(address_of(x) for x in row.recipients)}
             if people & wanted:
@@ -384,6 +395,34 @@ def body_text(store: Any, file_id: int) -> str:
             continue
         parts.append(text)
     return "\n".join(parts)
+
+
+def window_start(months: int, today: Any = None) -> Optional[int]:
+    """Unix seconds at the start of the age window (order 1s D1): `months` calendar months before today, at
+    midnight UTC, or None for any age. Calendar months, so six months before 12 October is 12 April."""
+    import calendar  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    if not months:
+        return None
+    t = today or datetime.now(timezone.utc).date()
+    y, m = divmod(t.month - 1 - int(months), 12)
+    year, month = t.year + y, m + 1
+    day = min(t.day, calendar.monthrange(year, month)[1])
+    return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
+
+
+def has_mail_before(store: Any, emails: Sequence[str], since: int) -> bool:
+    """Does any message from one of `emails` predate the window? One indexed look-up an address (2c)."""
+    for e in {x.lower() for x in emails if x}:
+        if _has_sender_addr(store):
+            sql = "SELECT sender FROM messages WHERE sender_addr = ? AND sent_at < ? LIMIT 1"
+        else:
+            sql = "SELECT sender FROM messages WHERE instr(lower(sender), ?) > 0 AND sent_at < ? LIMIT 20"
+        for r in store.conn.execute(sql, (e, int(since))):
+            if address_of(r["sender"] or "") == e:
+                return True
+    return False
 
 
 def format_day(epoch_s: Optional[int]) -> str:
