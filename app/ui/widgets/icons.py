@@ -83,7 +83,7 @@ ICON_NAMES = (
     "wand-sparkles", "triangle-alert", "ban", "contact-round", "book-user", "id-card",
     "image-plus", "copy-plus", "users-round", "mail-open", "archive-restore", "inbox",
     "lock", "wifi-off", "hourglass", "loader-circle", "bell", "bell-off", "moon-star",
-    "calendar-clock", "smartphone", "building", "circle-x", "circle-minus", "heart",
+    "calendar-clock", "building", "circle-x", "circle-minus", "heart",
     "badge-check", "book-open-text", "trash", "folder-input",
     # 2026-10-11, order 1k 6d (Contacts page, editor): the handle a field row is dragged by.
     # Lucide 1.48.0 (ISC), as above.

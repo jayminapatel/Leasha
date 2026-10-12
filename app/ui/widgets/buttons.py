@@ -104,6 +104,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Scan first": ("scan-search", "secondary"),
     "Reset index…": ("trash-2", "danger"),
     "Retry these": ("rotate-cw", "secondary"),
+    # 2026-10-12: the Timed-out files panel's button had no icon until now.
+    "Retry with a longer time limit": ("rotate-cw", "secondary"),
     "Return to automatic": ("rotate-ccw", "secondary"),
     "Re-detect": ("refresh-cw", "secondary"),
     "Benchmark now": ("gauge", "secondary"),
@@ -232,11 +234,16 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Dismiss": ("x", "secondary"),
     "Search": ("search", "primary"),
     # -- Photos ------------------------------------------------------------------
-    "Yes": ("check", "primary"),
+    # 2026-10-12: secondary. "Yes" is only each "Is this ...?" chip's on the
+    # naming page, which shows many chips beside its one primary, Accept all -
+    # rule 5's one primary per page. (The question boxes' Yes is the operating
+    # system's, never swept by this table.)
+    "Yes": ("check", "secondary"),
     "No": ("x", "secondary"),
     "Set roughly when a folder of scans is from…": ("calendar", "secondary"),
-    "Remove selected from this pile": ("folder-minus", "secondary"),
-    "Move selected to a new pile": ("split", "secondary"),
+    # 2026-10-12: Manage faces' row had no icon on these two.
+    "Make a new person": ("user-plus", "secondary"),
+    "Move to": ("folder-input", "secondary"),
     # 2026-10-05: the Photos tab, and Accept all on its naming page.
     "Accept all": ("list-checks", "primary"),
     # 2026-10-04: each model's processor, measured (`device_box.py`).
@@ -263,6 +270,8 @@ PREFIXES: dict[str, tuple[str, str]] = {
     "Remove copies nothing uses": ("trash-2", "danger"),
     # "Force skip reader 2": one per busy reader, numbered (2026-10-05).
     "Force skip reader": ("skip-forward", "secondary"),
+    # "Not Jason" in Manage faces: one per named person (2026-10-12).
+    "Not ": ("x", "secondary"),
 }
 
 

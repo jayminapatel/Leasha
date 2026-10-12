@@ -4,10 +4,15 @@ Layer: L5
 
 2026-10-05, the owner: "make it like a professional photo management/viewer".
 Double-click a photo (or press Enter) and it fills a dark window: ← and → step
-through the photos as the page has them ordered and narrowed, Esc or a click
-outside closes, F toggles full screen. A line under the picture says what it
-is, when, where and who. The picture is decoded on a worker at the screen's own
-size, upright, and the last few are kept so stepping back is immediate.
+through the photos as the page has them ordered and narrowed, Esc closes (from
+full screen it first leaves full screen), F or a double-click toggles full
+screen. A line under the picture says what it is, when, where and who. The
+picture is decoded on a worker at the screen's own size, upright; the photos
+either side are decoded while this one is looked at, and the last few are kept,
+so a step either way shows the next picture at once rather than "…".
+
+Opening another photo while the viewer is open shows it in the same window
+(`photo_page_parts.open_viewer`), so a double-click never stacks a second one.
 """
 
 from __future__ import annotations
@@ -24,7 +29,8 @@ from app.ui.presenter.photos import date_text, people_text
 
 __all__ = ["PhotoViewer", "caption"]
 
-#: Pictures kept decoded: the one shown and its neighbours.
+#: Pictures kept decoded: the one shown, the one either side asked for ahead,
+#: and the two last stepped from.
 KEEP = 5
 
 
@@ -40,13 +46,16 @@ class PhotoViewer(QDialog):
 
     def __init__(self, row: Any, step: Callable[[int], Any],
                  position: Callable[[], tuple[int, int]],
-                 parent: Optional[QWidget] = None) -> None:
+                 parent: Optional[QWidget] = None, *,
+                 peek: Optional[Callable[[int], Any]] = None) -> None:
+        """`peek(delta)` names the photo `delta` away without moving to it (the
+        page's `PhotoBrowser.neighbour`), so the neighbours can be decoded ahead."""
         super().__init__(parent, Qt.WindowType.Window)
         self.setObjectName("photo_viewer")
         self.setWindowTitle("Photo")
         self.setStyleSheet("QDialog#photo_viewer { background: #111; } "
                            "QLabel { color: #ddd; }")
-        self._step, self._position = step, position
+        self._step, self._position, self._peek = step, position, peek
         self._pool = QThreadPool.globalInstance()
         self._decoded: "OrderedDict[str, Any]" = OrderedDict()
         self._asked: set[str] = set()
@@ -72,8 +81,13 @@ class PhotoViewer(QDialog):
 
     # -- showing ------------------------------------------------------------------------
 
+    def show_row(self, row: Any) -> None:
+        """Show `row` in this window - the page's way in when one is already open."""
+        self._show(row)
+
     def _show(self, row: Any) -> None:
-        """Show `row`: caption now, the picture when its decode lands."""
+        """Show `row`: caption now, the picture when its decode lands, and the
+        photos either side asked for next, so the next arrow press finds them."""
         if row is None:
             return
         self._row = row
@@ -82,6 +96,11 @@ class PhotoViewer(QDialog):
         self.setWindowTitle(PurePath(row.path).name)
         self._paint()
         self._decode(str(row.path))
+        if self._peek is not None:
+            for delta in (1, -1):
+                near = self._peek(delta)
+                if near is not None:
+                    self._decode(str(near.path))
 
     def _paint(self) -> None:
         """Scale the decoded picture to the label, or show a dot while it is on its way."""
@@ -90,6 +109,9 @@ class PhotoViewer(QDialog):
             self.picture.setPixmap(QPixmap())
             self.picture.setText("…")
             return
+        # Most recently shown last, so the picture on screen is never the one
+        # the neighbours' decodes push out of `KEEP`.
+        self._decoded.move_to_end(str(self._row.path))
         self.picture.setText("")
         self.picture.setPixmap(QPixmap.fromImage(image).scaled(
             self.picture.size(), Qt.AspectRatioMode.KeepAspectRatio,
