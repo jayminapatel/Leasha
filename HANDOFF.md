@@ -1,6 +1,6 @@
 # Handoff
 
-**Doc version:** 7.156 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 7.157 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 Read this first if you are picking the project up cold - a new machine, a new chat, a new
 person, or yourself in three months. It answers: where is it, what works, what is next, and
@@ -69,6 +69,8 @@ could not start at all: `load_settings` refuses before logging exists, so there 
 line, no traceback and no window.
 
 ## 3. Current state
+
+**2026-10-12, evening - the index process aborted in `tokenizers.pyd` (owner: "the indexing had a hard crash").** 20:02:03, `0xc0000409`; the last line of `logs/index-process-stderr.log` is `memory allocation of 570425360 bytes failed`. A failed Rust allocation aborts the process, so `logs/crash/*.log` stay empty - **for this class the evidence is the stderr log and the Windows Application log, nowhere else.** In hand: four Angular backup zips under `D:\Data\Company Wipro\...\angular_code\OldFiles\`, each holding `vendor-es2015.js.map` with one 1,817,866-character run of no whitespace. **Cause:** `chunk_text` emitted a word longer than the whole budget as one chunk, and the tokeniser normalises a passage whole before truncating to 512 tokens - 342 MB for that one passage, measured; several in a batch with 3.6 GB free failed. **Fixed:** the chunker cuts such a word into contiguous pieces of `target_tokens * CHARS_PER_TOKEN` (2,048) characters; the real file's largest chunk is now 5,501 characters and tokenising it grows memory 0 MB. Guard: `Embedder.embed` gives the model at most `MAX_EMBED_CHARS` (51,200) of any passage. Tests: `test_one_enormous_word_is_cut_to_the_budget`, `test_an_enormous_passage_is_cut_before_the_tokeniser`; 355 chunker and embedder tests pass, full suite not run. The four in-hand notes were deleted on the owner's word, so the zips are not reported `ERR_FILE_CRASHED_READER`. **Also:** the venv's `.pyc` files still carried `D:\Local\GitHub\SearchProject` from before the 2026-10-09 rename (paths in warnings and tracebacks only); recompiled with `compileall -f` and pytest's rewrite caches removed - none now carry it.
 
 **2026-10-12, later - order 1r shipped.** On main as 8e1a938 (PR 51, squash-merged by the Mail and Contacts thread) after the full suite on 7ba498b: 16,122 passed, 163 skipped, 0 failed, 0 crashed (one process, 2,902 s). The entry below says testing was pending; it is done, and the branch and its worktree are gone. **What happens next on the owner's machine:** the first start from main moves `D:\LeashaIndex\Data` to schema 40 (older builds then refuse it), and the next index run ends with the document-card pass, documents only (`DOC_CARDS_SCOPE`), about 80,000 items at ~20.8 s each - roughly 19 days the first time, paced and resumable; Settings > Models & AI > Chat turns it off. Still open: 6b (the owner's questions, after the final index) and the scan's counts, which read the packaged `extractors.toml` only.
 

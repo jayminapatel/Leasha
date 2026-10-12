@@ -27,6 +27,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from app.extract.chunker import (
+    CHARS_PER_TOKEN,
     OVERLAP_TOKENS,
     TARGET_TOKENS,
     Chunk,
@@ -175,8 +176,26 @@ def test_one_enormous_word_does_not_hang() -> None:
     """A minified JS bundle is one 200k-character 'word'. It must terminate."""
     text = "x" * 200_000
     chunks = chunk_text(text, target_tokens=64, overlap_tokens=8)
-    assert len(chunks) == 1
-    assert chunks[0].text == text
+    assert chunks
+    assert chunks[0].char_start == 0 and chunks[-1].char_end == len(text)
+
+
+def test_one_enormous_word_is_cut_to_the_budget() -> None:
+    """2026-10-12: a source map's `mappings` string - 1,817,866 characters with
+    no space - went to the tokeniser as one chunk. Tokenising it alone took
+    342MB, to keep 512 tokens; a batch of them aborted the index process with
+    `memory allocation of 570425360 bytes failed` in `tokenizers.pyd`. No chunk
+    may now be longer than the budget's worth of characters, and the pieces
+    still cover the word with no gap."""
+    text = "intro words here " + "AAAA,CAAC;" * 180_000 + " outro"
+    chunks = chunk_text(text, target_tokens=512, overlap_tokens=64)
+    cap = int(512 * CHARS_PER_TOKEN)
+    assert max(len(chunk.text) for chunk in chunks) <= cap
+    for chunk in chunks:
+        assert text[chunk.char_start:chunk.char_end] == chunk.text
+    for previous, following in pairwise(chunks):
+        gap = text[previous.char_end:following.char_start]
+        assert not gap.strip(), "a gap loses text"
 
 
 def test_text_with_no_sentence_structure_still_chunks() -> None:

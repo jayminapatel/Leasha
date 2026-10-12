@@ -147,6 +147,14 @@ EMBED_BATCH = 256
 #: `Embedder._call_options` for the measurement behind 32.
 CPU_INFER_BATCH = 32
 
+#: The most of one passage the model is ever given. The tokeniser normalises a
+#: passage whole before it truncates to 512 tokens, so a 1.8M-character one
+#: cost 342MB (measured 2026-10-12) and a batch of them aborted the index
+#: process inside `tokenizers.pyd`, where nothing in Python can catch it. A
+#: WordPiece token covers at most 100 characters, so 512 tokens never need more
+#: than this; an ordinary chunk is about 2,500.
+MAX_EMBED_CHARS = 512 * 100
+
 #: How far a vector's magnitude may drift from 1.0 before it is renormalised.
 #: Floating point noise lands around 1e-7; anything past this is a real signal
 #: that the model is not returning unit vectors.
@@ -477,6 +485,7 @@ class Embedder:
         if not texts:
             return []
 
+        texts = [text[:MAX_EMBED_CHARS] for text in texts]
         encoder = self._ensure_encoder()
         # Order 0x 5c: shortest first, so each model call pads less. `texts`
         # from here on is what the model is given (the same passages, so every
