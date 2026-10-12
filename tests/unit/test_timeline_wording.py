@@ -148,10 +148,20 @@ def test_every_label_tooltip_and_placeholder_on_the_reports_page_and_timeline_pa
     assert not offenders(strings), offenders(strings)
 
 
+def _ancestors(widget):
+    while widget is not None:
+        yield widget
+        widget = widget.parentWidget()
+
+
 def test_every_control_on_the_timeline_says_what_pressing_it_does(built):
     r"""Runtime tooltip-effect: not merely present, but a sentence about an effect."""
     timeline = built.timeline
-    controls = [w for w in timeline.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))]
+    # The Preview pane beside the table (Browse as a table) is its own widget, with Qt's own buttons inside it (a tab
+    # bar's scrollers, a find box's clear button); it is held to the tooltip rule by its own tests, not counted here.
+    controls = [w for w in timeline.findChildren(QWidget) if isinstance(w, (QAbstractButton, QComboBox, QLineEdit))
+                and not w.objectName().startswith("qt_")            # Qt's own: a table's corner square, a tab scroller
+                and not any(type(p).__name__ == "PreviewPane" for p in _ancestors(w))]
     assert len(controls) >= 18                     # kind, group, year, 13 month buttons, 2 dates, Show
     for control in controls:
         said = control.toolTip() or (control.placeholderText() if isinstance(control, QLineEdit) else "")
