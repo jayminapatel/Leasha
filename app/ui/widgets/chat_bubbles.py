@@ -445,6 +445,13 @@ def _starter(question: str, chosen: Any) -> QPushButton:
     card.setCursor(Qt.CursorShape.PointingHandCursor)
     card.setToolTip("Ask this")
     card.setAccessibleName(question)
+    try:                                         # the house rule: a text button carries an icon
+        from app.ui.theme import theme_colours
+        from app.ui.widgets.icons import icon
+
+        card.setIcon(icon("sparkles", theme_colours()["text_dim"]))
+    except Exception:                            # noqa: BLE001 - decoration; the card still works
+        pass
     card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
     card.clicked.connect(lambda _c=False, q=question: chosen(q))
     return card
