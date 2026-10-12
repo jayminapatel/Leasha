@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.122 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.123 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: Chat behaves like a chat (2026-10-13)
+
+- **The conversations list** is grouped by date (Pinned, Today, Yesterday, Previous 7 days, Previous 30 days, then by
+  month), has **Search chats**, and a right-click menu: Rename (F2), Pin to top / Unpin, Delete (Del, asks first).
+- **Switching conversation while an answer is being written** is allowed: the answer stays with the conversation it
+  belongs to and is there when you come back. Deleting that conversation stops the answer.
+- **Keys:** Up in an empty box brings back your last message; Alt+Up and Alt+Down walk the sources; Ctrl+Shift+O
+  (and File > New chat) starts a new chat.
+- **On the newest answer**, Copy and Try again are always shown; Edit is always shown on your last message.
+- **What the answer did** folds into one line under it ("Searched your files · 12 found") that opens to the steps,
+  and is kept when the conversation is opened again. The footer names the model and how many documents were read.
+- **Starter questions** on an empty chat are cards; a click asks it. The shelf reads "In scope (N)" and hides when
+  empty.
+- Not yet seen in the real window: right-click, F2 and Del, Alt+Up and Alt+Down (Windows may take Alt for the menu
+  bar), how the cards look, and switching during a real model's answer.
 
 ### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
 
