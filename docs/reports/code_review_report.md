@@ -6,13 +6,13 @@
 
 Leasha is an impressive local, offline-first search application tailored for Windows desktops. The codebase demonstrates a high level of maturity, rigorous adherence to guiding principles, and a deep understanding of performance constraints and user experience.
 
-The architecture is tightly defined around an embedded engine that guarantees privacy without sacrificing capability. The decision to move from a multi-process architecture to a single-process (with optional helper processes) is well-executed and load-bearing.
+The architecture is tightly defined around an embedded engine, so everything Leasha does itself stays on the machine. That guarantee covers local processing only: if Chat is pointed at a non-local Ollama endpoint, the passages retrieved for a question are sent to that endpoint, and the guarantee does not extend to it. The decision to move from a multi-process architecture to a single-process (with optional helper processes) is well-executed and load-bearing.
 
 ## 1. Machinery and Architecture
 
 ### Strengths
-- **Single Source of Truth**: SQLite serves as the undeniable authority. The integration of LanceDB for vector search as a derived store is a masterclass in resilient design. If the two disagree, LanceDB can always be rebuilt from SQLite. This ensures data integrity and simplifies crash recovery.
-- **Embedded ML Stack**: FastEmbed via ONNX Runtime provides meaning-based search without the fragility of external services. The deliberate choice to keep inference on the CPU or seamlessly switch to DirectML via `gpu_serialize` protects against driver faults and ensures the application runs on consumer hardware.
+- **Single Source of Truth**: SQLite serves as the authority. The text-vector LanceDB table is derived from SQLite's chunks and metadata, so if the two disagree it can be rebuilt from SQLite. Image and video-frame vectors are not rebuilt from SQLite alone; they also need the source media. This ensures data integrity and simplifies crash recovery.
+- **Embedded ML Stack**: FastEmbed via ONNX Runtime provides meaning-based search without the fragility of external services. `app.index.backends` chooses CPU or DirectML and falls back to the CPU if a GPU session cannot be created; `app.core.gpu_serialize` serialises access to the GPU and records driver failures. Together they protect against driver faults and keep the application running on consumer hardware.
 - **Robust Error Handling**: The `AppError` contract is strictly followed. Failing to parse a 100GB corpus due to one corrupted file is a common pitfall in similar applications; Leasha gracefully logs, marks, and continues.
 - **Resumability**: Writing progress (cursor) to the `files` table and committing chunks *before* marking a file as `INDEXED` is highly defensive and ensures crashes cost seconds, not hours.
 
