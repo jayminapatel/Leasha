@@ -553,7 +553,7 @@ def test_ctrl_z_undoes_the_last_change_even_a_whole_bulk_action(world):
 def test_the_ctrl_z_shortcut_is_bound_on_the_page(world):
     page = world.page()
     keys = sorted(sc.key().toString() for sc in page.shortcuts)
-    assert keys == ["/", "Ctrl+N", "Ctrl+S", "Ctrl+Z", "Del", "Del"]
+    assert keys == ["/", "Ctrl+A", "Ctrl+N", "Ctrl+S", "Ctrl+Z", "Del", "Del"]
 
 
 # ------------------------------------------------------------------------------- bulk bar

@@ -25,6 +25,7 @@ from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, notice, set_quiet
 from app.ui.widgets.activity_table import ActivityTable
+from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["AccountPanel", "ask_remove", "choose_from"]
 
@@ -141,6 +142,7 @@ def choose_from(parent: Optional[QWidget], title: str, names: list[str], chosen:
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, Qt.CheckState.Checked if chosen is None or n in chosen else Qt.CheckState.Unchecked)
         tree.addTopLevelItem(item)
+    lay.addWidget(SelectBar(tree, title))
     lay.addWidget(tree)
     ok, cancel = btn("Save", "check", "primary"), btn("Cancel", "x")
     ok.clicked.connect(dlg.accept)
@@ -580,16 +582,21 @@ class AccountPanel(QGroupBox):
             self._acct(colour=chosen)
 
     def _reconnect(self) -> None:
+        if self._account.provider not in ("google", "microsoft"):
+            # Apple, IMAP and CardDAV have no browser sign-in: signing in again is giving the new app password,
+            # and then trying it - the sync dialog's Reconnect button lands here too.
+            return self._password(test_after=True)
         self._say("Your browser is opening so you can sign in. Leasha waits for you here.")
         self.backend.call(_reconnect, self.backend.factory, self._id, progress=lambda url: self._say(
             f"If your browser did not open, go to: {url}"), serial=False,
             done=lambda _a: self._say("Signed in again."), fail=self._error, refresh=True)
 
-    def _password(self) -> None:
+    def _password(self, test_after: bool = False) -> None:
         pw = ask_password(self, self._account.name)
         if pw:
             self.backend.call(_set_password, self.backend.factory, self._id, pw, serial=True,
-                              done=lambda _r: self._say("Saved in Windows Credential Manager."),
+                              done=lambda _r: (self._say("Saved in Windows Credential Manager."),
+                                               self._test() if test_after else None),
                               fail=self._error, refresh=True)
 
     def _test(self) -> None:

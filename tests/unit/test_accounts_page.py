@@ -618,3 +618,21 @@ def test_the_check_button_reports_an_account_and_changes_nothing(world, monkeypa
     pn.verify_button.click()
     wait_until(lambda: "in sync" in pn.notice.text())
     assert "3 at the account" in pn.notice.text() and "in sync" in pn.notice.text()
+
+
+def test_reconnect_on_an_apple_account_asks_for_the_new_app_password_and_tests_it(world, monkeypatch):
+    """The owner (2026-10-12): "apple is disconnected and the reconnect button does not work". An app-password
+    account has no browser sign-in, so Reconnect (from the activity row too) asks for the password, then tests."""
+    from app.accounts.service import ConnectionReport
+    from app.ui.accounts import panel as pm
+    svc, page = world
+    aid = svc.accounts.add("apple", "me@icloud.com", "Apple", mail_on=True)
+    saved = []
+    monkeypatch.setattr(pm, "ask_password", lambda parent, who: "abcd-efgh")
+    monkeypatch.setattr(svc, "set_app_password", lambda i, pw: saved.append((i, pw)))
+    monkeypatch.setattr(svc, "test_connection", lambda acct: ConnectionReport(True, "Connected.", []))
+    p = page()
+    pn = _select(p, aid)
+    pn._row_action(aid, "mail", "reconnect")
+    assert wait_until(lambda: saved == [(aid, "abcd-efgh")])
+    assert wait_until(lambda: "Connected" in pn.notice.text())

@@ -41,6 +41,8 @@ MORE_TOOLS = (
     ("duplicates", "merge", "Find duplicates…", "Find people who are in your book twice, and merge them"),
     ("conflicts", "triangle-alert", "Changed in two places…", "Review the details changed in Leasha and at an "
      "account, and accept which value to keep - all at once or one by one"),
+    ("select_all", "list-checks", "Select all contacts", "Pick every contact in the list (Ctrl+A), to act on them "
+     "together"),
 )
 
 
