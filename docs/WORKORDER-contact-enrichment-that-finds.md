@@ -99,10 +99,23 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
 
 ## 0. Before starting - the executing thread checks these and says so
 
-- [ ] **0a** `main` is green: `venv\Scripts\python.exe scripts\run_suite.py --affected`, then the full suite.
+- [x] **0a** `main` is green: `venv\Scripts\python.exe scripts\run_suite.py --affected`, then the full suite.
   Never start on a red suite.
-- [ ] **0b** Order 1k's Windows-only items and order 1r are not in flight on the same files (`app/contacts/`,
+
+  *Recorded 2026-10-13:* CI on `main` was green at `eea3b8e` when the work started (run 38289177791). `main`
+  later moved to `ad7d06f` (order 1t and its records, #70 and #71); its CI failed once on two UI timing tests
+  and passed on rerun (run 38300308657). One of them,
+  `test_files_opens_with_names_at_their_own_width_and_a_drag_is_still_the_one_kept`, fails about one run in
+  two locally (a Folder width of 440 saved with no drag) - outside this order, flagged as its own task, not
+  fixed here. `main` was merged into this branch at `41ba80f`.
+- [x] **0b** Order 1k's Windows-only items and order 1r are not in flight on the same files (`app/contacts/`,
   `app/extract/email_files.py`). If they are, wait or coordinate in `HANDOFF.md`.
+
+  *Recorded 2026-10-13:* at the start another session's uncommitted enrichment edits sat in the main checkout on
+  the same files; they were moved to their own branch and merged first (#67, `eea3b8e`), and this branch was
+  cut after. Order 1t (#70) touched `app/contacts/` sync files and `app/accounts/store.py` in parallel; merged
+  into this branch at `41ba80f`, the one code conflict (`AccountSettings`, both sides' fields kept) resolved
+  by hand. Nothing else was in flight on these files.
 - [x] **0c** The baseline is re-measured with §1's command on the owner's index and the numbers written under
   this item. Today's table above is the expected result; a different one means the index changed.
 
@@ -208,7 +221,7 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
 
 ## 5. More of your own sources (local, on by default, D7)
 
-- [ ] **5a** **vCard files on disk.** The index holds 146 `.vcf` files. Parse each card (`app/contacts/` importers
+- [x] **5a** **vCard files on disk.** The index holds 146 `.vcf` files. Parse each card (`app/contacts/` importers
   already read vCard); match to a contact by email, then by phone, then by exact full name with a shared company;
   offer the fields the contact lacks. Receipt: the file path and its modified date. The age window applies to the
   file's modified date.
@@ -216,6 +229,14 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   *Note 2026-10-13:* built (2f22355). On the migrated copy of the owner's index it found 0 contacts until 96c08fa:
   every `.vcf` there was `PARTIAL`, not `INDEXED`, and 139 of 146 were attachments; both are read now. Reach
   after 96c08fa: **[pending measurement]**.
+
+  *Measured 2026-10-13 at `e36ac6a`, on the migrated copy, read-only:* **301 contacts** would get a vCard
+  suggestion with **Any age**; **0** with the six-month default, because every card on the index is older than
+  six months (most come from three phone backups mailed in 2019-2020). Two samples were read by hand and what
+  they showed fixed before this number (`9175ffc`, `677a33d`): middle names already in the contact's name, one
+  address offered twice in two layouts or once in full and once shortened, a Windows dash read as a control
+  character, values with U+FFFD, an address held as a phone and a name as an email, and another person's
+  details reached through a shared office number. Not scored against a bar: the order sets none for 5a.
 - [x] **5b** **Outlook contact items.** First establish whether the PST reader exposes contact items (IPM.Contact)
   and whether any are indexed; write the finding here. If yes, the same as 5a. If no, record it and stop - adding
   a PST contact reader is a separate decision.
@@ -305,6 +326,13 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
     address, and a WebEx meeting number taken as a phone; both fixed in 96c08fa. Counted as correct but
     borderline: 3 addresses prefixed with the company name, 1 address missing its floor line, 1 with stray
     punctuation. Counted strictly, the score would be 93.
+*Correction 2026-10-13:* the 0.011 s under this item was measured with the signature reader alone. With the
+vCard and calendar sources on, the same run took **1.08 s a contact** (1,553 s, at `1b4c54f`): both re-listed
+every indexed file for each contact, a backup's thousands of cards were compared one by one, and every
+attachment re-read opened its Outlook archive (2-3 s) and walked its folders afresh (3.7 s). Fixed in
+`300c533`, `9175ffc`, `ea71712` and `e36ac6a`. **Re-measured at `e36ac6a`, every source on, from cold: 0.138 s
+a contact** (199.7 s for 1,445 at **Any age**); 0.017 s a contact with the six-month default (23.9 s, at
+`ea71712`).
 - [x] **9c** **Speed.** Under 0.15 s a contact (1c), so 1,445 contacts take under four minutes.
 
   *Measured 2026-10-13 on the migrated copy, at 2dc3d20, 4c8c7b3 and 96c08fa:* **0.011 s a contact** (16.6 s for
