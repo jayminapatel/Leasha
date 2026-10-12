@@ -397,3 +397,30 @@ def test_enrich_shows_how_far_it_has_got_and_stop_keeps_what_was_found(world, qt
     assert any(p and p["total"] == 6 for p in seen)              # it said how far it had got
     assert dlg.tree.topLevelItemCount() == 3                     # stopped after 3: those 3 are there to accept
     assert dlg.stop_button.isHidden()
+
+
+def test_enrich_look_again_asks_with_force_and_the_notes_are_shown(world, qtbot):
+    """The owner, 2026-10-12: the internet sources were on but a second run asked them nothing and said nothing.
+    Look again passes `force`; what the sources said (not asked again, unreachable) is shown, not dropped."""
+    from types import SimpleNamespace
+
+    from app.contacts.enrich.base import Proposal
+
+    a = world.add("Ann", "Lee", email="ann@acme-widgets.co.uk")
+    calls, said = [], []
+
+    def enrich(on_progress=None, cancelled=None, force=False):
+        calls.append(force)
+        return SimpleNamespace(proposals=[Proposal(a, "company", "Company", "", "Acme", "company", "x")],
+                               notes=[] if force else ["Gravatar was not asked again for 1 contact."])
+
+    world.ctx.enrich = enrich
+    world.ctx.notify = said.append
+    dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
+    dlg.find_button.click()
+    qtbot.waitUntil(lambda: dlg.run.state in ("ready", "empty"), timeout=5000)
+    assert calls == [False] and "not asked again" in dlg.status.text() and "not asked again" in said[-1]
+    assert dlg.again_button.isEnabled()
+    dlg.again_button.click()
+    qtbot.waitUntil(lambda: len(calls) == 2 and dlg.run.state in ("ready", "empty"), timeout=5000)
+    assert calls == [False, True] and "not asked again" not in dlg.status.text()

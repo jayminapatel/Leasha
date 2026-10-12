@@ -58,6 +58,12 @@ def usable_domain(host: str) -> str:
     return h
 
 
+def _social(domain: str) -> bool:
+    from app.contacts.enrich.signatures import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
+    d = "." + domain
+    return any(("." + s.rstrip(".")) in d for s in _SOCIAL_HOSTS)
+
+
 def company_domain(card: Card) -> str:
     """The one domain to ask: the contact's web address first, then a work email's domain."""
     for f in card.values("url"):
@@ -66,7 +72,9 @@ def company_domain(card: Card) -> str:
             continue
         host = urlsplit(text if "//" in text else "//" + text).hostname or ""
         d = usable_domain(host)
-        if d:
+        # A LinkedIn or Facebook profile is the person's page, not the company's site: its icon would be
+        # LinkedIn's. Found on the owner's index, 2026-10-12 (`ae.linkedin.com` asked for a logo).
+        if d and not _social(d):
             return d
     for f in card.values("email"):
         if company_guess(f.value):

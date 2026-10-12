@@ -41,7 +41,7 @@ from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, sug
 from app.core.errors import AppErrorException
 
 __all__ = ["REPEAT_DAYS", "LOCAL_SOURCES", "INTERNET_SOURCES", "SWITCHES", "enrich_contact", "enrich_selection",
-           "proposals_for", "history_for", "suggestions_for", "seen_key", "owner_addresses"]
+           "proposals_for", "history_for", "suggestions_for", "seen_key", "owner_addresses", "skipped_notes"]
 
 #: The same lookup is not repeated within this many days (7i).
 REPEAT_DAYS = 90
@@ -109,8 +109,12 @@ class _Net:
 def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any = None,
                    clock: Callable[[], float] = time.time, force: bool = False,
                    sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
-                   _net: Optional[_Net] = None, _wiki: Optional[dict] = None) -> list[Proposal]:
-    """Proposals for one contact from every source that is switched on. Applies nothing."""
+                   _net: Optional[_Net] = None, _wiki: Optional[dict] = None,
+                   _skipped: Optional[dict] = None) -> list[Proposal]:
+    """Proposals for one contact from every source that is switched on. Applies nothing.
+
+    `_skipped` counts, per internet source, the contacts not asked again because the same lookup was made
+    within `REPEAT_DAYS` - so the run can say so rather than look as if the source found nothing."""
     row = hub.get_row(contact_id)
     card = hub.get_card(contact_id)
     if row is None or card is None or row.deleted_at is not None:
@@ -124,6 +128,10 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     def note(text: str) -> None:
         if notes is not None:
             notes.append(text)
+
+    def skip(kind: str) -> None:
+        if _skipped is not None:
+            _skipped[kind] = _skipped.get(kind, 0) + 1
 
     if "signature" in wanted and _on(settings, "signature"):
         out += signatures.signature_proposals(store, contact_id, card, region=hub.region)
@@ -141,6 +149,8 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                     _remember(store, "gravatar", k, now)
             except AppErrorException:
                 note("Gravatar could not be reached.")
+        else:
+            skip("gravatar")
     if "logo" in wanted and _on(settings, "logo"):
         domain = logo.company_domain(card)
         if domain and (force or not _recent(store, "logo", domain, now)):
@@ -149,6 +159,8 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                 _remember(store, "logo", domain, now)
             except AppErrorException:
                 note(f"{domain} could not be reached.")
+        elif domain:
+            skip("logo")
     if "wikidata" in wanted and _on(settings, "wikidata"):
         term = wikidata.company_term(card)
         if term:
@@ -163,6 +175,26 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                     _remember(store, "wikidata", key, now)
                 except AppErrorException:
                     note("Wikidata could not be reached.")
+            else:
+                skip("wikidata")
+    return out
+
+
+#: How a skipped source is named to the person.
+_SOURCE_NAMES = {"gravatar": "Gravatar", "logo": "Company logos", "wikidata": "Wikidata"}
+
+
+def skipped_notes(skipped: dict) -> list[str]:
+    """One sentence per internet source that was not asked again, for the person to read.
+
+    Without it a second run looks as though the internet sources found nothing, when they were never
+    asked (found on the owner's index, 2026-10-12: 1,933 lookups remembered after the first run)."""
+    out = []
+    for kind in INTERNET_SOURCES:
+        n = skipped.get(kind, 0)
+        if n:
+            out.append(f"{_SOURCE_NAMES[kind]} was not asked again for {n:,} contact{'s' if n != 1 else ''}: "
+                       f"looked up in the last {REPEAT_DAYS} days. Look again asks anyway.")
     return out
 
 
@@ -178,6 +210,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
     when it says yes the proposals found so far are returned (a stop, not a failure)."""
     net = _Net(transport)
     wiki: dict = {}
+    skipped: dict = {}
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
     ids = list(dict.fromkeys(int(c) for c in contact_ids))
@@ -185,9 +218,11 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
         if cancelled is not None and cancelled():
             break
         out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force, sources=wanted,
-                              notes=notes, _net=net, _wiki=wiki)
+                              notes=notes, _net=net, _wiki=wiki, _skipped=skipped)
         if on_progress is not None:
             on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
+    if notes is not None:
+        notes.extend(skipped_notes(skipped))
     return out
 
 
