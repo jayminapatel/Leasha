@@ -38,6 +38,8 @@ class ReportsView(QWidget):
     """The Space Report: read it, sort it, export it."""
 
     error = Signal(object)
+    #: A sentence for the window's notice line (`MainWindow.notify`).
+    notice = Signal(str)
 
     def __init__(self, store: Any = None, parent: Optional[QWidget] = None) -> None:
         """Build the report pane. UI thread; `refresh` reads on a worker."""
@@ -171,6 +173,12 @@ class ReportsView(QWidget):
             worker = CallableWorker(_write_pdf, self._space_document, path,
                                     component="ui.reports.export")
             worker.signals.failed.connect(self.error.emit)
+            # A failure said so and a success said nothing, so the only way to
+            # know the PDF was written was to go and look for it.
+            from pathlib import Path
+
+            worker.signals.finished.connect(
+                lambda _r, name=Path(path).name: self.notice.emit(f"Report saved as {name}."))
             run(QThreadPool.globalInstance(), worker)
 
 

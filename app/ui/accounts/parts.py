@@ -9,10 +9,10 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QTime, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QTimeEdit, QWidget,
+    QComboBox, QHBoxLayout, QLabel, QPushButton, QTimeEdit, QWidget,
 )
 
-from app.ui.widgets.buttons import action_button, style_button
+from app.ui.widgets.buttons import action_button
 
 __all__ = ["hint", "btn", "confirm", "notice", "ScheduleRow", "set_quiet", "restyle_hints", "open_guide"]
 
@@ -54,18 +54,14 @@ def btn(text: str, glyph: str, role: str = "secondary", tip: str = "", name: str
 
 
 def confirm(parent: Optional[QWidget], title: str, text: str, ok: str, *, danger: bool = False) -> bool:
-    """A question that states the cost. Tests replace this function."""
-    box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Icon.Warning if danger else QMessageBox.Icon.Question)
-    box.setWindowTitle(title)
-    box.setText(text)
-    yes = box.addButton(ok, QMessageBox.ButtonRole.AcceptRole)
-    no = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
-    style_button(yes, "trash-2" if danger else "check", "danger" if danger else "primary")
-    style_button(no, "x", "secondary")
-    box.setDefaultButton(no)
-    box.exec()
-    return box.clickedButton() is yes
+    """A question that states the cost. Tests replace this function.
+
+    The app-wide one (`widgets/confirm.py`), which was this one moved out so the
+    rest of the window asks the same way: Cancel the default, the verb on the button.
+    """
+    from app.ui.widgets.confirm import confirm as ask  # noqa: PLC0415
+
+    return ask(parent, title, text, ok, danger=danger)
 
 
 def set_quiet(widget: Any, value: Any, setter: str) -> None:

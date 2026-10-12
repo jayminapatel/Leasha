@@ -65,6 +65,7 @@ from PySide6.QtWidgets import (
 from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.confirm import confirm
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.qtsip import open_menu
 from app.ui.theme import theme_colours
@@ -172,9 +173,13 @@ class EditFileTypeDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        # OK only stages the change - the list then says "Save to keep the
+        # change" - so a note promising it "applies from the next index run"
+        # was true only after a press this dialog never mentioned (owner-approved
+        # wording, 2026-10-12).
         note = QLabel(
-            "Applies from the next index run. Files already skipped are not "
-            "re-read until then."
+            "Press Save file types to keep it; it applies from the next index "
+            "run. Files already skipped are not re-read until then."
         )
         note.setWordWrap(True)
 
@@ -812,8 +817,6 @@ class FileTypesEditor(QGroupBox):
 
         Types added here go too - they only ever existed in that file.
         """
-        from PySide6.QtWidgets import QMessageBox
-
         added = len(self._added)
         question = (
             "Switch every supported file type back on, with the reader and size "
@@ -822,12 +825,9 @@ class FileTypesEditor(QGroupBox):
         if added:
             question += f"\n\nThe {added} type(s) you added here will be removed."
 
-        confirmed = QMessageBox.question(
-            self, "Reset file types", question,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirmed != QMessageBox.StandardButton.Yes:
+        # Cancel and the verb, Cancel the default (`widgets/confirm.py`): "Yes"
+        # asked somebody to re-read the question to know what they agreed to.
+        if not confirm(self, "Reset file types", question, "Reset file types"):
             return
 
         try:

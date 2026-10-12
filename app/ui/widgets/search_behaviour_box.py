@@ -90,6 +90,7 @@ class SearchBehaviourBox(QGroupBox):
         super().__init__("What search may do for you", parent)
 
         self.controls: dict = {}
+        self._sent: dict = {}
         form = QFormLayout()
 
         for name, label, help_text in BEHAVIOURS:
@@ -99,11 +100,12 @@ class SearchBehaviourBox(QGroupBox):
                 control.addItem("Suggest it, change nothing", "suggest")
                 control.addItem("Never", "off")
                 control.currentIndexChanged.connect(
-                    lambda _i: self._emit())
+                    lambda _i, k=_KEYS[name]: self._emit(k))
                 form.addRow(label, control)
             else:
                 control = QCheckBox(label)
-                control.stateChanged.connect(lambda _s: self._emit())
+                control.stateChanged.connect(
+                    lambda _s, k=_KEYS[name]: self._emit(k))
                 form.addRow(control)
             control.setObjectName(_KEYS[name])
             control.setToolTip(help_text)
@@ -136,7 +138,7 @@ class SearchBehaviourBox(QGroupBox):
             "Clicking into an empty search box shows the last few things you "
             "looked for, and the searches you saved. Switch it off on a "
             "screen other people can see.")
-        self.offer_recent.stateChanged.connect(lambda _s: self._emit())
+        self.offer_recent.stateChanged.connect(lambda _s: self._emit("SEARCH_OFFER_RECENT"))
         form.addRow(self.offer_recent)
 
         # **Workspace §3a.** A global shortcut is the most intrusive thing
@@ -150,7 +152,7 @@ class SearchBehaviourBox(QGroupBox):
         self.mini_search.setToolTip(
             "Press the shortcut in any application and a small search box "
             "appears. Type, press Enter, and the document opens.")
-        self.mini_search.stateChanged.connect(lambda _s: (self._sync_mini(), self._emit()))
+        self.mini_search.stateChanged.connect(lambda _s: (self._sync_mini(), self._emit("MINI_SEARCH_ENABLED")))
         form.addRow(self.mini_search)
 
         self.mini_hotkey = QLineEdit()
@@ -164,7 +166,7 @@ class SearchBehaviourBox(QGroupBox):
             "Something like Ctrl+Shift+Space. It needs at least one of Ctrl, Alt, "
             "Shift or Win. If another program is already using it, Leasha "
             "says so and nothing changes.")
-        self.mini_hotkey.editingFinished.connect(self._emit)
+        self.mini_hotkey.editingFinished.connect(lambda: self._emit("MINI_SEARCH_HOTKEY"))
         form.addRow("The shortcut that opens it", self.mini_hotkey)
 
         self.mini_status = QLabel("")
@@ -183,7 +185,7 @@ class SearchBehaviourBox(QGroupBox):
             "the shortcut, the box opens with it already typed in - "
             "selected, so the next keystroke replaces it. It never searches "
             "by itself.")
-        self.mini_prefill.stateChanged.connect(lambda _s: self._emit())
+        self.mini_prefill.stateChanged.connect(lambda _s: self._emit("MINI_SEARCH_PREFILL_SELECTION"))
         form.addRow(self.mini_prefill)
 
         # **The Files page's Kinds list** (the owner, 2026-10-12: Visio and Microsoft Project were missing). The
@@ -195,22 +197,29 @@ class SearchBehaviourBox(QGroupBox):
         self.kinds_always.setToolTip(
             "The Files page's Kinds list holds the commonest file types. Types named here, as extensions "
             "separated by commas (vsdx,vsd,mpp), are listed as well whenever the index holds any.")
-        self.kinds_always.editingFinished.connect(self._emit)
+        self.kinds_always.editingFinished.connect(lambda: self._emit("FILE_KINDS_ALWAYS"))
         form.addRow("Always list these file types", self.kinds_always)
         self.kinds_shown = QSpinBox()
         self.kinds_shown.setObjectName("FILE_KINDS_SHOWN")
         self.kinds_shown.setRange(3, 60)
         self.kinds_shown.setAccessibleName("How many common file types the Files page lists")
         self.kinds_shown.setToolTip("How many of the commonest file types the Files page's Kinds list holds.")
-        self.kinds_shown.valueChanged.connect(lambda _v: self._emit())
+        # Typing 25 wrote 2 and then 25: one `.env` write per keystroke, the first of them a
+        # value nobody chose. Arrows still save at once; typing saves on Enter or leaving.
+        self.kinds_shown.setKeyboardTracking(False)
+        self.kinds_shown.valueChanged.connect(lambda _v: self._emit("FILE_KINDS_SHOWN"))
         form.addRow("Common types listed", self.kinds_shown)
 
         self.grid = self._build_grid()
 
+        #: What each key held when it was last loaded or sent, so leaving a text box
+        #: without changing it writes nothing - a write is a pin (`widgets/defaults.py`).
+        self._sent = self.values()
+
         self.reset = QPushButton("Reset search behaviour to defaults")
         self.reset.setObjectName("reset-search-behaviour")
         self.reset.setToolTip(
-            "Put all six back to how they arrived. Nothing else changes - "
+            "Put all eight back to how they arrived. Nothing else changes - "
             "your folders, your index and everything you have found stay "
             "exactly as they are.")
         self.reset.clicked.connect(lambda _c=False: self.restore_defaults())
@@ -310,6 +319,7 @@ class SearchBehaviourBox(QGroupBox):
             for control in self.controls.values():
                 control.blockSignals(False)
         self._sync_mini()
+        self._sent = self.values()
 
     def _sync_mini(self) -> None:
         """The shortcut's combination and pre-fill are greyed out while the shortcut is
@@ -350,11 +360,17 @@ class SearchBehaviourBox(QGroupBox):
         }
 
     def restore_defaults(self) -> None:
-        """All six back to how they arrived, in one click.
+        """The seven behaviours and "Offer what you searched for before" back
+        to how they arrived, in one click.
 
         **Nothing else changes**, and the tooltip says so: somebody reaching
         for a reset button while search is behaving oddly needs to know it will
         not touch their index. That fear is why reset buttons go unpressed.
+
+        **It sends `None` for each, which removes the line from `.env`.** It
+        wrote the default values back, which pins them - looks identical on
+        screen, and stops a better default in a later version ever arriving.
+        The one-way door `widgets/defaults.py` exists to close.
         """
         for control in self.controls.values():
             control.blockSignals(True)
@@ -370,7 +386,10 @@ class SearchBehaviourBox(QGroupBox):
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)
-        self._emit()
+        removed = [*_KEYS.values(), "SEARCH_OFFER_RECENT"]
+        shown = self.values()
+        self._sent.update({key: shown[key] for key in removed})
+        self.changed.emit({key: None for key in removed})
 
     def say_hotkey(self, text: Any, *, registered: bool = True) -> None:
         """Put the plain sentence about the shortcut under the box.
@@ -382,6 +401,16 @@ class SearchBehaviourBox(QGroupBox):
 
         self.mini_status.setText(describe(text, registered=registered))
 
-    def _emit(self) -> None:
-        """One `changed` with every key; the writer takes the dict whole."""
-        self.changed.emit(self.values())
+    def _emit(self, key: str) -> None:
+        """One `changed` with the one key that changed.
+
+        **Not every key.** Sending the whole dict on any change wrote all
+        thirteen into `.env`, so touching one switch pinned the other twelve
+        for ever. Nothing is sent when the value is what was last loaded or
+        sent, which is the case of leaving a text box without typing.
+        """
+        value = self.values()[key]
+        if self._sent.get(key) == value:
+            return
+        self._sent[key] = value
+        self.changed.emit({key: value})
