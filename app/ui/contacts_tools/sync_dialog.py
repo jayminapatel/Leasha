@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named
 from app.ui.presenter import sync_status as words
+from app.ui.presenter.account_activity import overall_line
 from app.ui.widgets.activity_table import ActivityTable
 
 __all__ = ["SyncDialog", "open_sync_window"]
@@ -78,6 +79,10 @@ class SyncDialog(ToolDialog):
         self.body.addWidget(self.summary)
         self.body.addWidget(self.activity_title)
         self.body.addWidget(self.activity, 2)
+        self.activity_summary = QLabel("")
+        self.activity_summary.setWordWrap(True)
+        self.activity_summary.setAccessibleName("Summary of every account")
+        self.body.addWidget(self.activity_summary)
         self.body.addWidget(self.table)
         self.body.addWidget(self.problem_title)
         self.body.addWidget(self.problems, 1)
@@ -119,7 +124,8 @@ class SyncDialog(ToolDialog):
         self._draw_activity()
 
     def _draw_activity(self) -> None:
-        self.activity.set_snapshots(self._snaps, time.time(), self._live)
+        shown = self.activity.set_snapshots(self._snaps, time.time(), self._live)
+        self.activity_summary.setText(overall_line(shown, self._snaps))
 
     # -- what the accounts last said ----------------------------------------------------------------
 

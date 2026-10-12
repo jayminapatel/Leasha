@@ -235,10 +235,11 @@ def test_the_list_shows_status_words_and_dates_in_the_window_format(world):
         tree = p.account_list
         rows = {tree.topLevelItem(i).text(0): tree.topLevelItem(i) for i in range(tree.topLevelItemCount())}
         assert rows["Work"].text(3) == "Needs sign-in"
-        assert rows["Home"].text(4) == date_format.format_seconds(1_800_000_000)
-        assert "/" in rows["Home"].text(4)
-        assert rows["Home"].text(5) == "Manual"
-        assert rows["Work"].text(6)                       # says what to do
+        assert rows["Home"].text(5) == date_format.format_seconds(1_800_000_000)
+        assert "/" in rows["Home"].text(5)
+        assert rows["Home"].text(6) == "Manual"
+        assert rows["Home"].text(4)                       # what it is doing, in a few words (the Doing column)
+        assert rows["Work"].text(7)                       # says what to do
         assert not rows["Work"].icon(3).isNull() and not rows["Home"].icon(1).isNull()
     finally:
         date_format.set_date_format("")
@@ -257,7 +258,7 @@ def test_every_status_word_is_shown(world):
     p.refresh()
     settle(p)
     assert p.account_list.topLevelItem(0).text(3) == "Paused"
-    assert "turn it back on" in p.account_list.topLevelItem(0).text(6)
+    assert "turn it back on" in p.account_list.topLevelItem(0).text(7)
 
 
 def test_quiet_hours_are_said_on_the_row(world):
@@ -269,7 +270,7 @@ def test_quiet_hours_are_said_on_the_row(world):
     svc.accounts.update_settings(contacts=ScheduleSetting("interval", 60), quiet_on=True,
                                  quiet_start=f"{(now.hour - 1) % 24:02d}:00", quiet_end=f"{(now.hour + 1) % 24:02d}:00")
     p = page()
-    assert "Quiet hours" in p.account_list.topLevelItem(0).text(6)
+    assert "Quiet hours" in p.account_list.topLevelItem(0).text(7)
 
 
 def test_dragging_reorders_and_saves(world):

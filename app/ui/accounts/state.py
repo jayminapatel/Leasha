@@ -24,6 +24,8 @@ class PageState:
     last_runs: dict = field(default_factory=dict)     # account id -> last real contacts SyncRun
     mail_space: dict = field(default_factory=dict)    # account id -> bytes, when the mail syncer says
     mail_progress: dict = field(default_factory=dict)  # account id -> {"fetched","total",...}
+    #: `AccountService.activity_snapshot`: what each account's contacts and mail are doing.
+    activities: list = field(default_factory=list)
     google_secret_set: bool = False
     now: datetime = field(default_factory=datetime.now)
 
@@ -32,6 +34,10 @@ def read_page_state(factory: Callable[[], Any], now: Optional[datetime] = None) 
     svc = factory()
     now = now or datetime.now()
     st = PageState(svc.settings(), svc.status(now), svc.accounts.runs(limit=300), now=now)
+    try:
+        st.activities = svc.activity_snapshot(now)
+    except Exception:                                      # noqa: BLE001 - a label; the page opens without it
+        st.activities = []
     for row in st.statuses:
         aid = row.account.id
         try:

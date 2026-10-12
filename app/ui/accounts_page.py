@@ -22,13 +22,27 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import QGroupBox, QHBoxLayout, QVBoxLayout, QWidget
 
 __all__ = ["AccountsPage", "CATEGORY_ACCOUNTS"]
 
 #: The Settings category this page is the content of (6l).
 CATEGORY_ACCOUNTS = "Accounts"
+
+
+def _doing(state: Any) -> dict[int, str]:
+    """`{account id: "Contacts: up to date - Mail: fetching 15%"}` for the list's Doing column."""
+    import time  # noqa: PLC0415
+
+    from app.ui.presenter.account_activity import account_line, describe  # noqa: PLC0415
+
+    now = time.time()
+    rows: dict[int, list] = {}
+    for snap in getattr(state, "activities", None) or []:
+        if snap.get("enabled", True):
+            rows.setdefault(int(snap["account_id"]), []).append(describe(snap, now))
+    return {aid: account_line(acts) for aid, acts in rows.items()}
 
 
 def _reorder(factory: Callable[[], Any], ids: list[int]) -> None:
@@ -127,6 +141,19 @@ class AccountsPage(QWidget):
         from app.ui.accounts.parts import restyle_hints  # noqa: PLC0415
         restyle_hints(self)
         self.refresh()
+        if getattr(self, "_poll", None) is None:
+            # What each account is doing changes while the page is open (a mail fetch, a run starting): read it
+            # again every few seconds, but only while the page is on screen.
+            self._poll = QTimer(self)
+            self._poll.setInterval(5000)
+            self._poll.timeout.connect(self.refresh)
+        self._poll.start()
+
+    def hideEvent(self, event: Any) -> None:              # noqa: N802 - Qt's naming
+        super().hideEvent(event)
+        poll = getattr(self, "_poll", None)
+        if poll is not None:
+            poll.stop()
 
     # --------------------------------------------------------------- scheduler
     def attach_scheduler(self, scheduler: Any) -> None:
@@ -182,7 +209,7 @@ class AccountsPage(QWidget):
         self._reading = False
         self._state = state
         self.globals.load(state)
-        self.account_list.set_rows(state.statuses)
+        self.account_list.set_rows(state.statuses, doing=_doing(state))
         if self._select_after:
             self.account_list.select(self._select_after)
             self._select_after = 0
