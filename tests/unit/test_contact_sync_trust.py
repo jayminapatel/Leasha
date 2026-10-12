@@ -517,6 +517,8 @@ def test_giving_up_inside_a_batch_keeps_what_the_account_already_took(world):
     assert out.status == "failed"
     written = [r for r in world.hub.list_rows() if world.hub.link(r.id, aid).state == "synced"]
     assert len(written) == 2 and len(world.servers[aid].live()) == 2
+    # 15 in a row, then the one that ends the run (not listed, as before), then the last two - still listed
+    assert len(world.accounts.failures(aid)) == 17, "refusals after the give-up are listed too"
     world.providers[aid].refuse = set()
     world.sync()
     assert len(world.servers[aid].live()) == 20, "no contact was created twice"

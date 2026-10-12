@@ -1068,19 +1068,28 @@ class _Pusher:
         self.written: set[int] = set()
 
     # -- the bookkeeping every write shares
-    def _refuse(self, kind: str, cid: int, err: AppError, *, defer: bool = False) -> Optional[AppError]:
+    def _refuse(self, kind: str, cid: int, err: AppError, *, defer: bool = False,
+                record_only: bool = False) -> Optional[AppError]:
         """Record a refusal. A refusal that ends the run (the account's as a whole, or too many in a row) is raised -
-        or, with `defer`, returned, so a batch first commits what the account already accepted."""
+        or, with `defer`, returned, so a batch first commits what the account already accepted. `record_only`: the
+        batch has already given up; the rest of its refusals are listed, nothing more (review of #70)."""
+        if record_only:
+            if err.code not in _ACCOUNT_WIDE:
+                self._record(kind, cid, err)
+            return None
         if err.code in _ACCOUNT_WIDE or self.in_a_row >= _GIVE_UP_AFTER:
             if defer:
                 return err
             raise AppErrorException(err)
         self.in_a_row += 1
+        self._record(kind, cid, err)
+        return None
+
+    def _record(self, kind: str, cid: int, err: AppError) -> None:
         name = self.e._name(cid)
         self.ctx.plan.fail(name, err.message)
         self.refused.append({"contact_id": cid, "name": name, "kind": kind, "reason": err.message})
         _log.warning("{} could not be written to {}: {}", cid, self.acct.name, err.code)
-        return None
 
     def _wrote(self, cid: int) -> None:
         self.in_a_row = 0
@@ -1209,6 +1218,8 @@ class _Pusher:
                         "ERR_ACCOUNT_REJECTED", "accounts.engine", account=self.acct.name, reason="refused")
                     if give_up is None:
                         give_up = self._refuse(kind, cid, err, defer=True)
+                    else:                                     # already giving up: still listed
+                        self._refuse(kind, cid, err, record_only=True)
                     continue
                 if kind == "delete":
                     e.hub.drop_link(cid, self.acct.id, conn=conn)
