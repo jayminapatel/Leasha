@@ -30,7 +30,7 @@ from typing import Any
 from app.core.errors import AppErrorException, make_error
 from app.core.row_facts import ZIP_FAMILY_EXTS, ext_alternation
 
-__all__ = ["member_of", "read_attachment", "attachment_bytes", "archive_unavailable"]
+__all__ = ["member_of", "read_attachment", "read_message_body", "attachment_bytes", "archive_unavailable"]
 
 
 def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
@@ -81,6 +81,44 @@ def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
                     raise _error(path, name, "it is too large to read into memory")
                 return attachment.read_buffer(size) if size > 0 else b""
         raise _error(path, name, "the message no longer has that attachment")
+    finally:
+        with contextlib.suppress(Exception):     # closing a read
+            archive.close()
+
+
+def read_message_body(archive_path: Path | str, entry_id: str, *,
+                      folder_path: str | None = None,
+                      folder_index: int | None = None) -> str | None:
+    """The whole body of message `entry_id`, read again out of the archive, or None.
+
+    Order 1s 4b: the index keeps a message cut at its signature, and enrichment may
+    ask for the original. Found exactly as `read_attachment` finds a message - where
+    the index says it is, never the slow search, because this is asked for several
+    messages a contact - and read through libpff, which opens the file for reading
+    only: no Outlook, nothing moved, flagged or marked read (non-negotiable 10).
+    None for an Outlook EntryID (libpff does not know Outlook's numbers, and the
+    Outlook route attaches the archive to the person's profile), without libpff,
+    or when the message is not where the index says.
+    """
+    from app.extract import pst_libpff
+
+    try:
+        wanted = int(str(entry_id).strip())
+    except ValueError:
+        return None
+    if not pst_libpff.available():
+        return None
+
+    import pypff
+
+    archive = pypff.file()
+    try:
+        archive.open(str(archive_path))
+    except Exception:
+        return None
+    try:
+        message = _find_message(archive, wanted, folder_path, folder_index, search=False)
+        return pst_libpff._text(message) if message is not None else None
     finally:
         with contextlib.suppress(Exception):     # closing a read
             archive.close()
