@@ -387,6 +387,44 @@ def copy_path_async(row: Any, *, store: Any = None) -> None:
     run(QThreadPool.globalInstance(), worker)
 
 
+def copy_paths_async(rows: list, *, store: Any = None) -> None:
+    """Several rows' real paths on the clipboard, one a line. UI phase B (2026-10-13).
+
+    `copy_path_async` for a selection: a file on a catalogued drive is resolved to
+    its drive's current letter on a worker, and copied as its key when the drive
+    is out. All are resolved first and put on the clipboard together, so a paste
+    never gets half the list.
+    """
+    from PySide6.QtCore import QThreadPool
+    from PySide6.QtGui import QGuiApplication
+
+    from app.ui.presenter.opening import Place, key_of
+    from app.ui.tasks import resolve_open_path
+
+    rows = [Place(row) if isinstance(row, str) else row for row in rows]
+    reader = store if store is not None else _CONTEXT.store
+
+    def resolved() -> str:
+        """Worker body: each row's path now, or its key when its drive is not plugged in."""
+        lines = []
+        for row in rows:
+            try:
+                lines.append(str(resolve_open_path(reader, row) if getattr(row, "volume_id", None)
+                                 is not None else key_of(row)))
+            except Exception:                    # noqa: BLE001 - not plugged in: the key
+                lines.append(str(key_of(row)))
+        return "\n".join(lines)
+
+    def put(text: Any) -> None:
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(str(text or ""))
+
+    worker = CallableWorker(resolved, component="ui.copy_path")
+    worker.signals.finished.connect(put)
+    run(QThreadPool.globalInstance(), worker)
+
+
 def open_media_at(path: str, seconds: Any) -> Any:
     """A recording at its moment (`tasks.open_target`): an `AppError`, a sentence or None."""
     from app.core import media_open

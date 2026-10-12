@@ -34,10 +34,10 @@ from app.ui.presenter import (
     result_tooltip, why,
 )
 from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets.file_menu import FileActions, copy_paths, show_for
 from app.ui.widgets.why_dialog import show_why
 
-__all__ = ["refill", "result_item", "show_result_menu", "terminator_item"]
+__all__ = ["install_keys", "refill", "result_item", "show_result_menu", "terminator_item"]
 
 _ROLE = Qt.ItemDataRole
 
@@ -115,15 +115,28 @@ def terminator_item(text: str) -> QStandardItem:
     return item
 
 
+def install_keys(view: Any) -> None:
+    """The one list behaviour (`list_keys.py`) on the results list.
+
+    `activated` - a double-click or Enter - runs `_on_activated`, as it always did:
+    a group of several matches unfolds, a single result opens. Space is the page's
+    Preview toggle; Ctrl+C copies every selected result's path.
+    """
+    from app.ui.view_options import weak_slot
+    from app.ui.widgets import list_keys
+
+    list_keys.install(view._list, default=view._on_activated, preview=list_keys.PAGE_PREVIEW,
+                      copy=weak_slot(view, lambda v: copy_paths(
+                          [(row.path, row) for row in v.selected_rows()])))
+
+
 def show_result_menu(view: Any, point: Any, show: Any = show_for) -> None:
     """One menu, shared with the filename browser - see `widgets/file_menu.py`.
 
-    Viewport coordinates: the signal gives a point relative to the widget and
-    `indexAt` wants one relative to the viewport. Getting this wrong is why
-    right-click looked broken - it acted a row low and found nothing at all on
-    the last row.
+    `point` is in the viewport's coordinates, as Qt gives it on a list, and goes
+    to `indexAt` as it is (`menus.global_point` says why).
     """
-    index = view._list.indexAt(viewport_point(view._list, point))
+    index = view._list.indexAt(point)
     row = view._row_for(index.data(ROLE_PAYLOAD) if index.isValid() else None)
     if row is None:
         selected = view.selected_rows()

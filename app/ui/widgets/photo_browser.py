@@ -53,6 +53,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLa
 from app.ui.presenter.photos import (COLUMNS, column_text, date_text, heading_sorted, month_heading,
                                      people_text)
 from app.ui.theme import theme_colours
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import copy_paths
+from app.ui.widgets.menus import global_point
 
 __all__ = ["PhotoModel", "PhotoBrowser", "MODES", "ROLE_ROW"]
 
@@ -436,6 +439,8 @@ class PhotoBrowser(QWidget):
     opened = Signal(object)
     #: Right-click: `(row, global point)`.
     menu_requested = Signal(object, object)
+    #: Space on a photo: the page shows or hides its info panel (`list_keys`).
+    preview_requested = Signal()
     selection_changed = Signal()
 
     def __init__(self, thumbs: Any, parent: Optional[QWidget] = None) -> None:
@@ -480,8 +485,10 @@ class PhotoBrowser(QWidget):
             # `activated` alone: on Windows a double-click emits `doubleClicked`
             # and then `activated` (no Windows style activates on one click), and
             # Enter emits `activated` - so listening to both opened the viewer
-            # twice for one double-click (2026-10-12).
-            view.activated.connect(self._open_index)
+            # twice for one double-click (2026-10-12). `list_keys` keeps it so, and
+            # gives Space (the info panel) and Ctrl+C (the selected photos' paths).
+            list_keys.install(view, default=self._open_index, preview=self.preview_requested.emit,
+                              copy=self._copy_selected)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         # One selection for both, so a switch of view keeps it.
         self.table.setSelectionModel(self.grid.selectionModel())
@@ -633,6 +640,9 @@ class PhotoBrowser(QWidget):
         if row is not None:
             self.opened.emit(row)
 
+    def _copy_selected(self) -> None:
+        copy_paths([(str(row.path), row) for row in self.selected_rows()])
+
     def _menu(self, point: Any) -> None:
         """Right-click: select the row under the pointer if it is not, then ask the page."""
         view = self.active_view()
@@ -641,7 +651,7 @@ class PhotoBrowser(QWidget):
         if row is not None:
             if not self.grid.selectionModel().isSelected(index):
                 self.select_path(str(row.path))
-            self.menu_requested.emit(row, view.viewport().mapToGlobal(point))
+            self.menu_requested.emit(row, global_point(view, point))
 
     def _ask_ahead(self) -> None:
         """The screenful below and the one above, asked for while this one shows."""

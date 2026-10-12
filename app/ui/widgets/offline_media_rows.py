@@ -22,11 +22,10 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QMenu, QPushButton, QWidget
 
+from app.ui.widgets import list_keys, menus
 from app.ui.widgets.buttons import icon_button, put_on_row
-from app.ui.qtsip import open_menu
 
 __all__ = [
     "EXTRA_COLUMNS", "LineActions", "copy_hardware_id", "rescan_button",
@@ -78,17 +77,14 @@ def copy_hardware_id(row: Any) -> str:
 def row_menu(parent: QWidget, row: Any, *, busy: bool,
              on_rescan: Callable[[int], None],
              on_copy: Callable[[int], None]) -> QMenu:
-    """The line's right-click menu: Rescan, and Copy hardware ID."""
-    menu = QMenu(parent)
-    rescan = QAction("Rescan", menu)
-    rescan.setEnabled(row.status_code == "ONLINE" and not busy)
-    rescan.triggered.connect(lambda _checked=False: on_rescan(row.volume_id))
-    menu.addAction(rescan)
-    copy = QAction("Copy hardware ID", menu)
-    copy.setEnabled(bool(getattr(row, "hardware_serial", "")))
-    copy.triggered.connect(lambda _checked=False: on_copy(row.volume_id))
-    menu.addAction(copy)
-    return menu
+    """The line's right-click menu: Rescan - what a double-click does, so first and bold -
+    and Copy hardware ID. Built by `menus.build`."""
+    return menus.build(parent, [
+        menus.Item("Rescan", lambda: on_rescan(row.volume_id), group="open", default=True,
+                   shortcut="Enter", enabled=row.status_code == "ONLINE" and not busy),
+        menus.Item("Copy hardware ID", lambda: on_copy(row.volume_id), group="copy",
+                   shortcut="Ctrl+C", enabled=bool(getattr(row, "hardware_serial", ""))),
+    ])
 
 
 class LineActions:
@@ -117,7 +113,7 @@ class LineActions:
         return None
 
     def _row_menu(self, point: Any) -> None:
-        """Right-click on a line: Rescan and Copy hardware ID, through `open_menu`."""
+        """Right-click on a line: Rescan and Copy hardware ID, through `menus.show`."""
         item = self.tree.itemAt(point)
         value = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
         row = self._row_for(int(value) if value is not None else None)
@@ -125,7 +121,22 @@ class LineActions:
             return
         menu = row_menu(self, row, busy=self._busy, on_rescan=self._rescan_row,
                         on_copy=self.copy_hardware_id)
-        open_menu(menu, self.tree.viewport().mapToGlobal(point))
+        menus.show(menu, self.tree, point)          # `point` is the viewport's, as Qt gives it
+
+    def _install_line_keys(self) -> None:
+        """The one list behaviour on the sources list: a double-click or Enter rescans the
+        line (what a double-click has always done here - the owner's to change), and Ctrl+C
+        copies its hardware ID, as the menu's line says."""
+        list_keys.install(self.tree, default=self._rescan_index, copy=self._copy_current_id)
+
+    def _rescan_index(self, _index: Any) -> None:
+        self._rescan_selected()
+
+    def _copy_current_id(self) -> None:
+        item = self.tree.currentItem()
+        value = item.data(0, Qt.ItemDataRole.UserRole) if item is not None else None
+        if value is not None:
+            self.copy_hardware_id(int(value))
 
     def copy_hardware_id(self, volume_id: int) -> bool:
         """Put a source's disk serial on the clipboard. False if it has none."""

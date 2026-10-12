@@ -31,7 +31,6 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -39,7 +38,6 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
@@ -52,7 +50,7 @@ from app.ui.presenter import nothing_indexed_yet, suggested_roots
 from app.ui.widgets.buttons import icon_button, put_on_row, style_button
 from app.ui.widgets.fitted_tree import FittedColumns
 from app.ui.widgets.result_table import align_headers
-from app.ui.qtsip import open_menu
+from app.ui.widgets import list_keys, menus
 
 __all__ = ["RootsBox"]
 
@@ -125,6 +123,8 @@ class RootsBox(QGroupBox):
         # 2026-09-29. The row action, on the row: right-click a folder.
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self._row_menu)
+        # The one list behaviour (`list_keys`): no double-click action here, Ctrl+C the paths.
+        list_keys.install(self.tree, copy=self._copy_folders)
 
         add = QPushButton("Add folder…")
         add.setToolTip(
@@ -519,18 +519,18 @@ class RootsBox(QGroupBox):
             return
         marked = normalise(item.text(0)) in {
             normalise(folder) for folder in self.current_first_folders()}
-        menu = QMenu(self)
-        action = QAction("Index this folder first", menu)
-        action.setCheckable(True)
-        action.setChecked(marked)
-        action.triggered.connect(lambda _checked=False: self.toggle_first([item]))
-        menu.addAction(action)
-        # 2026-10-02: the same action as the line's own button.
-        now = QAction("Index now", menu)
-        now.triggered.connect(
-            lambda _checked=False: self.index_requested.emit(item.text(0)))
-        menu.addAction(now)
-        open_menu(menu, self.tree.viewport().mapToGlobal(point))
+        menu = menus.build(self, [
+            menus.Item("Index this folder first", lambda: self.toggle_first([item]), checked=marked),
+            # 2026-10-02: the same action as the line's own button.
+            menus.Item("Index now", lambda: self.index_requested.emit(item.text(0))),
+        ])
+        menus.show(menu, self.tree, point)          # `point` is the viewport's, as Qt gives it
+
+    def _copy_folders(self) -> None:
+        """Ctrl+C on the list: the selected folders, one a line."""
+        from app.ui.widgets.file_menu import copy_paths
+
+        copy_paths([(item.text(0), None) for item in self.tree.selectedItems()])
 
     def _sync_first(self) -> None:
         """Each marked row shows its place in the order; the rest show none."""
