@@ -82,7 +82,7 @@ def clean_company(text: str) -> str:
 
     A name ending in a legal form ("Orlesk Sales Ltd") is a registered name and kept whole; otherwise the
     name ends before its first department or role word after the first word."""
-    from app.contacts.enrich.signatures import _TITLE_WORDS  # noqa: PLC0415 - one title list for the package
+    from app.contacts.enrich.sigparse import _TITLE_WORDS  # noqa: PLC0415 - one title list for the package
 
     first = _SEPARATOR.split((text or "").strip())[0].strip()
     if "," in first:                                     # "Acme, Inc." keeps its form; ", Sales Department" goes

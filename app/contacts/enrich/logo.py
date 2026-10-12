@@ -59,7 +59,7 @@ def usable_domain(host: str) -> str:
 
 
 def _social(domain: str) -> bool:
-    from app.contacts.enrich.signatures import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
+    from app.contacts.enrich.sigparse import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
     d = "." + domain
     return any(("." + s.rstrip(".")) in d for s in _SOCIAL_HOSTS)
 
