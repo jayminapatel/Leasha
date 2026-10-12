@@ -271,6 +271,19 @@ class AccountService:
             return address
         return account.address
 
+    def _name_pending(self, account_id: Optional[int]) -> None:
+        """Give every Microsoft account still holding the `pending-...` placeholder its real address, from the
+        signed-in profile. Asked before a sync, on the worker that runs it, so an account added before the address was
+        read on sign-in is named by its next sync and the list stops saying "pending-1791709065" (the owner,
+        2026-10-12). A failure leaves the placeholder; it never stops the sync."""
+        for acct in self.accounts.list():
+            if (acct.provider == "microsoft" and acct.address.startswith("pending-")
+                    and account_id in (None, acct.id)):
+                try:
+                    self.resolve_address(acct)
+                except Exception:                          # noqa: BLE001 - a label
+                    pass
+
     def add_password_account(self, provider: str, address: str, password: str, name: str = "", *,
                              server: Optional[str] = None, port: Optional[int] = None,
                              security: Optional[str] = None, mail: bool = False, contacts: bool = True,
@@ -473,6 +486,7 @@ class AccountService:
         """'Sync now' for all accounts, one account, or one kind of one account (10c)."""
         kinds = (kind,) if kind else KINDS
         outcomes: list[SyncOutcome] = []
+        self._name_pending(account_id)
         if "contacts" in kinds:
             ids = [a.id for a in self.accounts.list() if a.syncs_contacts and (account_id in (None, a.id))]
             claimed = self._claim([(i, "contacts") for i in ids])
@@ -605,6 +619,8 @@ class AccountService:
                 progress: Optional[Callable[[dict], None]] = None) -> list[SyncOutcome]:
         work = self.due_work(now, window_opened_at=window_opened_at)
         outcomes: list[SyncOutcome] = []
+        for w in work[:1]:
+            self._name_pending(None)
         contacts = [w for w in work if w.kind == "contacts"]
         if contacts:
             trigger = "schedule" if any(w.reason == "schedule" for w in contacts) else "schedule (catch-up)"
