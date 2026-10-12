@@ -383,8 +383,7 @@ def test_a_link_cut_off_by_the_one_line_notice_stays_clickable(world):
     notice = SimpleNamespace(code="X", message=long + 'Search <a href="apply:type:pdf">PDF files only</a>?')
     bar.show_notices([notice])
     settle()
-    if bar.label.text().find("href") < 0:
-        pytest.skip("this notice kind is not drawn with its link")
+    assert "apply:type:pdf" in bar.label.text()               # drawn with its link
     assert not bar.action.isHidden() and "apply:type:pdf" in bar.action.text()
     chosen = []
     bar.chosen.connect(chosen.append)
