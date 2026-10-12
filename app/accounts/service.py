@@ -31,7 +31,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.accounts import policy as pol
 from app.accounts.engine import ContactSyncEngine, SyncOutcome
-from app.accounts.http import AllowedHosts, RetryingTransport, UrllibTransport
+from app.accounts.http import AllowedHosts, RetryingTransport, UrllibTransport, normalise_server
 from app.accounts.oauth import (AppPasswordSource, OAuthClientConfig, TokenManager, sign_in)
 from app.accounts.provider import ContactProvider, Transport
 from app.accounts.secrets import SecretStore, account_key, client_secret_key
@@ -198,11 +198,16 @@ class AccountService:
                                           account=account.name)
         if account.provider == "carddav":
             url = account.option("addressbook_url") or ""
+            book_name = ""
+            if url and "://" not in url:
+                # Not an address: the NAME of an address book ("Default Address Book/"), which discovery matches.
+                url, book_name = "", url.strip().strip("/")
             server = account.option("server_url") or (f"https://{account.server}" if account.server else "")
             if account.server:
                 self.allowed.allow_server(account.server)
             return CardDavProvider(transport, basic_auth_header(account.address, self.token_source(account)),
-                                   server_url=server, addressbook_url=url, account=account.name)
+                                   server_url=server, addressbook_url=url, addressbook_name=book_name,
+                                   account=account.name)
         raise AppErrorException(make_error("ERR_ACCOUNT_REJECTED", "accounts.service", account=account.name,
                                            reason=f"{account.provider} accounts have no contacts connector"))
 
@@ -273,10 +278,17 @@ class AccountService:
                              test: bool = True) -> Account:
         """Apple, any IMAP or any CardDAV server: an app password, kept only in Credential Manager."""
         preset = IMAP_PRESETS.get(provider, {})
+        opts = dict(options or {})
+        if server:
+            # A pasted address (https://dav.example.com, host:port/path) is taken apart: the host is the server, the
+            # port and a path are kept where they belong.
+            host, found_port, path = normalise_server(server)
+            server, port = host or server, port or found_port
+            if path and provider == "carddav":
+                opts.setdefault("server_url", f"https://{host}{path}")
         server = server or preset.get("server")
         port = port or preset.get("port")
         security = security or preset.get("security")
-        opts = dict(options or {})
         if provider == "apple":
             opts.setdefault("server_url", preset.get("carddav"))
         aid = self.accounts.add(provider, address, name or address, server=server, port=port, security=security,

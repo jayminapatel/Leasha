@@ -38,6 +38,7 @@ import ssl
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Callable, Optional
 from urllib.parse import urlsplit
@@ -87,6 +88,35 @@ _HOST_OK = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
 
 def _norm_host(host: str) -> str:
     return (host or "").strip().lower().rstrip(".")
+
+
+def normalise_server(text: str) -> tuple[str, Optional[int], str]:
+    """`(host, port, path)` from whatever was typed for a server: `dav.example.com`, `https://dav.example.com`,
+    `dav.example.com:8443/dav.php/`. The host alone is what the allow-list and the connection need; a port or a path
+    that came with it is kept for the caller, so a pasted address is not a "not a server name" error (the owner,
+    2026-10-12, adding dav.privateemail.com)."""
+    raw = (text or "").strip()
+    if "://" not in raw:
+        raw = "https://" + raw
+    parts = urllib.parse.urlsplit(raw)
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    path = parts.path if parts.path not in ("", "/") else ""
+    return _norm_host(parts.hostname or ""), port, path
+
+
+#: Who we are to a server. Python's own default ("Python-urllib/3.x") is refused outright by sites behind a bot
+#: filter - dav.privateemail.com answers it with Cloudflare's "error code: 1010" before CardDAV is even reached -
+#: while every ordinary client name is let through.
+def _user_agent() -> str:
+    try:
+        from app.core.version import __version__
+
+        return f"Leasha/{__version__} (contacts and mail sync)"
+    except Exception:                                     # noqa: BLE001 - a name; never stops a request
+        return "Leasha (contacts and mail sync)"
 
 
 def _is_loopback(host: str) -> bool:
@@ -213,7 +243,10 @@ class UrllibTransport:
                 body: Optional[bytes] = None, timeout: float = 30.0) -> HttpResponse:
         host = self._allowed.check(url)
         opener = self._local if _is_loopback(host) else self._remote
-        req = urllib.request.Request(url, data=body, headers=dict(headers or {}), method=method.upper())
+        sent = dict(headers or {})
+        if not any(k.lower() == "user-agent" for k in sent):
+            sent["User-Agent"] = _user_agent()
+        req = urllib.request.Request(url, data=body, headers=sent, method=method.upper())
         try:
             with opener.open(req, timeout=timeout) as resp:
                 return self._wrap(resp.status, resp.headers, resp.read())
