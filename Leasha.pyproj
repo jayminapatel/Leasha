@@ -534,6 +534,7 @@
     <Compile Include="app\ui\photos_view.py" />
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
+    <Compile Include="app\ui\presenter\account_activity.py" />
     <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
@@ -603,6 +604,7 @@
     <Compile Include="app\ui\view_options.py" />
     <Compile Include="app\ui\widgets\__init__.py" />
     <Compile Include="app\ui\widgets\about_dialog.py" />
+    <Compile Include="app\ui\widgets\activity_table.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\advanced_fold.py" />
     <Compile Include="app\ui\widgets\answer_card.py" />
@@ -795,6 +797,7 @@
     <Compile Include="tests\unit\mail_sync_fakes.py" />
     <Compile Include="tests\unit\test_about_dialog.py" />
     <Compile Include="tests\unit\test_accessible_names.py" />
+    <Compile Include="tests\unit\test_account_activity.py" />
     <Compile Include="tests\unit\test_account_address.py" />
     <Compile Include="tests\unit\test_account_limits.py" />
     <Compile Include="tests\unit\test_account_scheduler.py" />
@@ -1406,6 +1409,7 @@
     <Compile Include="tests\unit\test_vector_filters.py" />
     <Compile Include="tests\unit\test_vector_index_state.py" />
     <Compile Include="tests\unit\test_vector_reuse.py" />
+    <Compile Include="tests\unit\test_vector_store_broken_table.py" />
     <Compile Include="tests\unit\test_vector_store_deferred.py" />
     <Compile Include="tests\unit\test_view_menu_follows_the_tab.py" />
     <Compile Include="tests\unit\test_view_options.py" />

@@ -97,6 +97,10 @@ class LazyService:
                 "failed": int(plan.get("failed_out", 0)), "failures": plan.get("failures", []) or []})
         return rows
 
+    def activity_overview(self) -> list:                        # worker
+        """What each account's contacts and mail are doing: `AccountService.activity_snapshot`."""
+        return get_service(self._shell).activity_snapshot(datetime.now())
+
     def push_accounts(self, account_ids: Any) -> Any:           # worker
         return get_service(self._shell).push_accounts(account_ids)
 

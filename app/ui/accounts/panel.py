@@ -14,7 +14,7 @@ import time
 from datetime import datetime
 from typing import Any, Optional
 
-from PySide6.QtCore import QDate, Signal
+from PySide6.QtCore import QDate, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QDateEdit, QDialog, QFormLayout, QGroupBox, QHBoxLayout, QInputDialog,
     QLabel, QLineEdit, QRadioButton, QSpinBox, QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
@@ -24,11 +24,16 @@ from PySide6.QtWidgets import (
 from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, notice, set_quiet
+from app.ui.widgets.activity_table import ActivityTable
 
 __all__ = ["AccountPanel", "ask_remove", "choose_from"]
 
 
 # ------------------------------------------------------------ worker bodies
+def _activity(factory: Any) -> Any:
+    return factory().activity_snapshot(datetime.now())
+
+
 def _reconnect(factory: Any, account_id: int, on_progress: Any = None) -> Any:
     svc = factory()
     acct = svc.reconnect(account_id, on_url=on_progress)
@@ -173,6 +178,14 @@ class AccountPanel(QGroupBox):
         self._loading = False
         self._same_for_all = True
         lay = QVBoxLayout(self)
+        # What this account's contacts and mail are doing, above its settings: state, progress, next step.
+        self.activity = ActivityTable(single_account=True)
+        self.activity.setMaximumHeight(150)
+        lay.addWidget(self.activity)
+        self._poll = QTimer(self)
+        self._poll.setInterval(4000)
+        self._poll.timeout.connect(self.refresh_activity)
+        self._asking = False
         self.tabs = QTabWidget()
         self.tabs.setAccessibleName("Account settings")
         lay.addWidget(self.tabs)
@@ -455,6 +468,8 @@ class AccountPanel(QGroupBox):
         finally:
             self._loading = False
         self.setVisible(True)
+        self._asking = False
+        self.refresh_activity()
 
     @staticmethod
     def _last_text(run: Any) -> str:
@@ -465,6 +480,28 @@ class AccountPanel(QGroupBox):
         return (f"{when}. Into Leasha: {p.get('add_in', 0)} added, {p.get('merge_in', 0)} changed. "
                 f"To this account: {p.get('create_out', 0)} created, {p.get('update_out', 0)} changed, "
                 f"{p.get('delete_out', 0)} deleted.")
+
+    def refresh_activity(self) -> None:
+        """Ask what this account's contacts and mail are doing (a worker), and show it."""
+        if not self._id or self._asking:
+            return
+        self._asking = True
+
+        def done(snaps: Any) -> None:
+            self._asking = False
+            self.activity.set_snapshots(snaps, time.time(), only=self._id)
+
+        self.backend.call(_activity, self.backend.factory, done=done,
+                          fail=lambda _e: setattr(self, "_asking", False))
+
+    def showEvent(self, event: Any) -> None:                                 # noqa: N802 - Qt
+        super().showEvent(event)
+        self._poll.start()
+        self.refresh_activity()
+
+    def hideEvent(self, event: Any) -> None:                                 # noqa: N802 - Qt
+        super().hideEvent(event)
+        self._poll.stop()
 
     def clear(self) -> None:
         self._id = 0

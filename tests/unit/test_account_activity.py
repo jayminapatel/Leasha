@@ -1,0 +1,140 @@
+"""What each account is doing: the words, the snapshot behind them and the table that shows them.
+
+The owner (2026-10-12): contacts and mail sync progress and status for each account is a must - "currently it is not
+clear what the account is doing". One word, "Waiting", covered five different states; each now has its own sentence.
+"""
+
+from __future__ import annotations
+
+import time
+from datetime import datetime
+
+import pytest
+
+from app.ui.presenter.account_activity import STATE_ICONS, STATE_WORDS, ahead_words, describe, when_words
+from app.ui.widgets.icons import ICON_NAMES
+
+NOW = datetime(2026, 10, 12, 8, 14).timestamp()
+
+
+def snap(**kw):
+    base = {"account_id": 1, "name": "MS Main", "kind": "mail", "enabled": True, "live": False, "hold": None,
+            "signin_expired": False, "mode": "interval", "next": NOW + 2700, "last_success": NOW - 600,
+            "failures": 0, "run": {"status": "ok", "added": 0, "changed": 4, "deleted": 0, "error_text": ""}}
+    base.update(kw)
+    return base
+
+
+def test_every_state_has_a_word_and_a_real_icon():
+    assert set(STATE_WORDS) == set(STATE_ICONS)
+    assert all(icon in ICON_NAMES for icon in STATE_ICONS.values())
+
+
+def test_up_to_date_says_when_it_last_ran_what_it_did_and_when_it_runs_next():
+    a = describe(snap(kind="contacts"), NOW)
+    assert a.state == "idle" and "4 changed" in a.headline
+    assert "Last run 10 min ago" in a.detail and "next in 45 min" in a.detail
+
+
+def test_mail_waiting_for_another_accounts_mail_says_so():
+    a = describe(snap(next=NOW - 5, queued_behind="GMail Main's mail"), NOW)
+    assert a.state == "queued" and "waiting for GMail Main's mail to finish" in a.headline
+    assert "one account at a time" in a.detail
+
+
+def test_due_now_with_nothing_ahead_is_not_called_waiting():
+    a = describe(snap(next=NOW - 5), NOW)
+    assert a.state == "queued" and a.headline == "Due now - it starts within a minute"
+
+
+def test_a_mail_fetch_shows_how_far_how_fast_and_how_long_is_left():
+    a = describe(snap(live=True, mail={"fetched": 12300, "total": 80000, "rate_per_s": 4.2, "eta_s": 17000,
+                                       "state": "fetching"}, messages=12300, meaning_waiting=50000), NOW)
+    assert a.state == "running" and a.fraction == pytest.approx(0.15375)
+    assert "12,300 of about 80,000 (15%)" in a.headline and "4 a second" in a.headline and "hours left" in a.headline
+    assert "12,300 messages searchable" in a.detail and "50,000 passages still waiting for meaning" in a.detail
+
+
+def test_a_mail_fetch_with_no_total_is_a_moving_bar_not_a_made_up_number():
+    a = describe(snap(live=True, mail={"fetched": 700, "total": None}), NOW)
+    assert a.busy and a.fraction is None and "700 messages so far" in a.headline
+    assert describe(snap(live=True, mail={"fetched": 0, "total": None}), NOW).headline == "Checking for new mail"
+
+
+def test_a_contact_sync_shows_the_contact_it_is_writing():
+    a = describe(snap(kind="contacts", live=True,
+                      live_progress={"phase": "writing", "done": 120, "total": 1436, "current": "Waqas Khan"}), NOW)
+    assert a.fraction == pytest.approx(120 / 1436) and "Writing 120 of 1,436 contacts" in a.headline
+    assert "Waqas Khan" in a.detail
+    assert describe(snap(kind="contacts", live=True, live_progress={"phase": "reading", "done": 300}),
+                    NOW).headline == "Reading the account - 300 contacts so far"
+
+
+def test_failed_says_what_the_account_said_and_when_it_tries_again():
+    a = describe(snap(run={"status": "failed", "error_text": "MS Main refused the request (HTTP 500)."},
+                      failures=3), NOW)
+    assert a.state == "failed" and "refused the request (HTTP 500)" in a.headline and "trying again" in a.detail
+
+
+def test_sign_in_stopped_manual_paused_and_off_each_have_their_own_sentence():
+    assert describe(snap(signin_expired=True), NOW).state == "signin"
+    stopped = describe(snap(run={"status": "interrupted"}), NOW)
+    assert stopped.state == "stopped" and "app closed" in stopped.headline
+    assert describe(snap(mode="manual"), NOW).state == "manual"
+    held = describe(snap(hold="Quiet hours until 07:00"), NOW)
+    assert held.state == "paused" and "Quiet hours until 07:00" in held.headline
+    by_you = describe(snap(paused_by_person=True), NOW)
+    assert by_you.state == "paused" and "You paused" in by_you.headline
+    assert describe(snap(enabled=False), NOW).state == "off"
+
+
+def test_times_are_in_words():
+    assert when_words(None, NOW) == "never" and when_words(NOW - 30, NOW) == "just now"
+    assert when_words(NOW - 7200, NOW) == "today 06:14" and when_words(NOW - 86400, NOW).startswith("yesterday")
+    assert ahead_words(NOW + 30, NOW) == "within a minute" and ahead_words(NOW - 1, NOW) == "due now"
+
+
+# ----------------------------------------------------------------------- the snapshot, on a real service
+def test_the_snapshot_covers_every_account_and_kind_and_marks_a_dead_run_stopped(tmp_path):
+    from tests.unit.accounts_ui_fakes import make_service
+
+    store, svc = make_service(tmp_path)
+    try:
+        a = svc.accounts.add("google", "a@x.com", "Home", mail_on=True)
+        b = svc.accounts.add("microsoft", "pending-1", "Work", mail_on=True)
+        run = svc.accounts.start_run(svc.accounts.get(b), "mail", "schedule")          # left "running" by a dead app
+        snaps = svc.activity_snapshot(datetime.fromtimestamp(NOW))
+        assert {(s["account_id"], s["kind"]) for s in snaps} == {(a, "contacts"), (a, "mail"), (b, "contacts"), (b, "mail")}
+        mail_b = next(s for s in snaps if s["account_id"] == b and s["kind"] == "mail")
+        assert mail_b["run"]["status"] == "interrupted" and mail_b["live"] is False
+        assert describe(mail_b, NOW).state == "stopped"
+        # now Home's mail really is running: Work's mail is queued behind it, by name
+        svc._running.add((a, "mail"))
+        snaps = svc.activity_snapshot(datetime.fromtimestamp(NOW))
+        mail_b = next(s for s in snaps if s["account_id"] == b and s["kind"] == "mail")
+        assert mail_b["queued_behind"] == "Home's mail"
+        assert next(s for s in snaps if s["account_id"] == a and s["kind"] == "mail")["live"] is True
+        assert run
+    finally:
+        store.close()
+
+
+# --------------------------------------------------------------------------------------------- the table
+def test_the_table_shows_a_row_for_each_enabled_kind_with_its_bar_and_words(qtbot):
+    from app.ui.widgets.activity_table import ActivityTable
+
+    table = ActivityTable()
+    qtbot.addWidget(table)
+    snaps = [snap(kind="contacts"),
+             snap(live=True, mail={"fetched": 500, "total": 1000, "rate_per_s": 2, "eta_s": 250, "state": "fetching"}),
+             snap(account_id=2, name="Off Account", kind="mail", enabled=False)]
+    shown = table.set_snapshots(snaps, NOW)
+    assert table.rowCount() == 2 and len(shown) == 2                       # an unused kind is not a row
+    assert table.item(0, 2).text() == "Up to date" and table.item(1, 2).text() == "Running"
+    bar = table.cellWidget(1, 3)
+    assert (bar.minimum(), bar.maximum(), bar.value()) == (0, 1000, 500)
+    assert "500 of about 1,000 (50%)" in table.item(1, 4).text()
+    one = ActivityTable(single_account=True)
+    qtbot.addWidget(one)
+    assert one.isColumnHidden(0)
+    assert len(one.set_snapshots(snaps, NOW, only=2, hide_off=False)) == 1
