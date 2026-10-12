@@ -150,6 +150,7 @@ What the providers allow (checked 2026-10-12 against their own pages):
 
 ## 0. Before starting - the executing thread checks these and says so
 
+*Note, 2026-10-13: not ticked. The full suite (`run_suite.py`, 2 processes - 6 GB free, the owner's app and index running) did not finish: one process died with 0xC0000005 in `test_guide_pictures.py` (it passes alone) and the other hit the hour limit in `test_pipeline_bench.py`. `run_suite.py --affected origin/main` (every test file that can see this branch, 2,761 s): 1 failed - `test_chat_conversation_qt.py::test_the_new_settings_have_controls_that_emit_their_key`, a 5 s thread-pool wait under load; that file passes alone. `test_navigation_is_instant.py` fails on unmodified main as well under the same load (948 ms, 433 ms against 400 ms). Windows CI on the PR is the full-suite run.*
 - [ ] **0a** `main` is green: `venv\Scripts\python.exe scripts\run_suite.py --affected`, then the full suite.
 *Note, 2026-10-12: checked. The Design system review thread (fix/ui-one-app, PR #68) touches `panel.py` and `buttons.py` in other hunks; order 1s (uncommitted on the laptop) touches `app/accounts/store.py` settings and `globals_box.py`'s Enrichment group - rebase onto main after both land.*
 - [x] **0b** No other thread has uncommitted work in `app/accounts/` or `app/contacts/` (order 1s touches
