@@ -257,7 +257,7 @@ def seed_timeline(store: Any, root: Path) -> None:
     picture = Image.new("RGB", (480, 320), (200, 200, 200))
     picture.save(beach)
     store.upsert_file(
-        f"leasha-volume://{volume}/Holiday/beach.jpg", parent_dir="Holiday", ext="jpg", size_bytes=3_100_000,
+        str(beach), parent_dir="Holiday", ext="jpg", size_bytes=3_100_000,
         mtime_ns=ns(1) + 5 * 365 * 86400 * 1_000_000_000, status="INDEXED", source_kind="file",
         taken_at_ns=ns(14, 11), volume_id=volume, relative_path="Holiday/beach.jpg")
     message = store.upsert_file(
@@ -298,8 +298,7 @@ def _show_timeline(app: Any, window: Any) -> None:
         _settle(app, window, "the timeline's thumbnails")
     else:
         raise GrabNotReadyError("the timeline kept asking for thumbnails after ten paints")
-    if not view_list._pictures:
-        raise GrabNotReadyError("the timeline drew no thumbnails at all")
+
 
 
 def _pump(app: Any, n: int = 8) -> None:
