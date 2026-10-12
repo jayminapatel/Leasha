@@ -37,6 +37,16 @@ COUNTRIES = {
     "singapore": "SG", "malaysia": "MY", "australia": "AU", "new zealand": "NZ", "south africa": "ZA",
     "nigeria": "NG", "kenya": "KE", "canada": "CA", "united states": "US", "usa": "US", "u.s.a": "US",
     "china": "CN", "hong kong": "HK", "japan": "JP", "south korea": "KR",
+    # Order 1s 9b round 2: the countries firms list in a signature's footer ("Belgium | France | Ireland")
+    # have to be known as countries, or the list is read as part of an address.
+    "thailand": "TH", "vietnam": "VN", "indonesia": "ID", "philippines": "PH", "brazil": "BR", "mexico": "MX",
+    "argentina": "AR", "chile": "CL", "colombia": "CO", "peru": "PE", "russia": "RU", "ukraine": "UA",
+    "romania": "RO", "czech republic": "CZ", "czechia": "CZ", "hungary": "HU", "bulgaria": "BG",
+    "croatia": "HR", "serbia": "RS", "israel": "IL", "morocco": "MA", "algeria": "DZ", "tunisia": "TN",
+    "libya": "LY", "ghana": "GH", "tanzania": "TZ", "angola": "AO", "sri lanka": "LK", "bangladesh": "BD",
+    "nepal": "NP", "kazakhstan": "KZ", "azerbaijan": "AZ", "iran": "IR", "taiwan": "TW", "slovakia": "SK",
+    "slovenia": "SI", "estonia": "EE", "latvia": "LV", "lithuania": "LT", "iceland": "IS", "cyprus": "CY",
+    "malta": "MT",
 }
 
 #: A country's name for an address, by ISO code (the first name above that is a real name, not an initialism).
@@ -48,7 +58,14 @@ COUNTRY_NAME = {"AE": "United Arab Emirates", "SA": "Saudi Arabia", "KW": "Kuwai
                 "PL": "Poland", "PT": "Portugal", "GR": "Greece", "SG": "Singapore", "MY": "Malaysia",
                 "AU": "Australia", "NZ": "New Zealand", "ZA": "South Africa", "NG": "Nigeria", "KE": "Kenya",
                 "CA": "Canada", "US": "United States", "CN": "China", "HK": "Hong Kong", "JP": "Japan",
-                "KR": "South Korea"}
+                "KR": "South Korea", "TH": "Thailand", "VN": "Vietnam", "ID": "Indonesia", "PH": "Philippines",
+                "BR": "Brazil", "MX": "Mexico", "AR": "Argentina", "CL": "Chile", "CO": "Colombia", "PE": "Peru",
+                "RU": "Russia", "UA": "Ukraine", "RO": "Romania", "CZ": "Czech Republic", "HU": "Hungary",
+                "BG": "Bulgaria", "HR": "Croatia", "RS": "Serbia", "IL": "Israel", "MA": "Morocco", "DZ": "Algeria",
+                "TN": "Tunisia", "LY": "Libya", "GH": "Ghana", "TZ": "Tanzania", "AO": "Angola", "LK": "Sri Lanka",
+                "BD": "Bangladesh", "NP": "Nepal", "KZ": "Kazakhstan", "AZ": "Azerbaijan", "IR": "Iran",
+                "TW": "Taiwan", "SK": "Slovakia", "SI": "Slovenia", "EE": "Estonia", "LV": "Latvia",
+                "LT": "Lithuania", "IS": "Iceland", "CY": "Cyprus", "MT": "Malta"}
 
 #: Cities an address line may end in when it has no postcode (3e). Lower-case, as compared.
 CITIES = frozenset(c.strip() for line in """
@@ -61,7 +78,8 @@ paris|lyon|marseille|toulouse|berlin|munich|frankfurt|hamburg|cologne|dusseldorf
 birmingham|leeds|glasgow|edinburgh|aberdeen|bristol|cambridge|oxford|dublin|cork|madrid|barcelona|milan|rome|
 zurich|geneva|basel|vienna|luxembourg|copenhagen|oslo|stavanger|stockholm|helsinki|warsaw|lisbon|athens|
 singapore|kuala lumpur|sydney|melbourne|perth|brisbane|auckland|johannesburg|cape town|lagos|nairobi|toronto|
-calgary|houston|new york|hong kong|shanghai|beijing|tokyo|seoul""".split("\n") for c in line.split("|") if c.strip())
+calgary|houston|new york|hong kong|shanghai|beijing|tokyo|seoul|bangkok|jakarta|manila|hanoi|ho chi minh city|
+sao paulo|mexico city|moscow|bucharest|prague|budapest|tel aviv|casablanca|accra|colombo|dhaka|baku|tehran|taipei""".split("\n") for c in line.split("|") if c.strip())
 
 #: A domain's last label -> ISO code. Only country codes that are used as countries (see the module docstring).
 CCTLD = {"ae": "AE", "sa": "SA", "kw": "KW", "qa": "QA", "om": "OM", "bh": "BH", "in": "IN", "pk": "PK",

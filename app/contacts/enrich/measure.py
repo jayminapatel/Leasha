@@ -21,14 +21,16 @@ ask": how many contacts each would be asked about, and how many of those its
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import random
 import sqlite3
+import statistics
 import time
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 from app.contacts.enrich import company, faces, invitations, linkedin, logo, vcards, wikidata
 from app.contacts.enrich.base import emails_of, mail_from, window_start
@@ -84,6 +86,11 @@ class Funnel:
     fields: Counter = field(default_factory=Counter)      # proposal field -> count
     seconds: float = 0.0
     samples: list = field(default_factory=list)           # signature proposals, for 1b
+    #: 9a with `read_originals`: how many original messages were opened again, and the median milliseconds
+    #: one took - what switching "Read the original messages" on would cost the owner.
+    read_originals: bool = False
+    rereads: int = 0
+    reread_ms_median: float = 0.0
 
     def per_contact(self) -> float:
         return round(self.seconds / self.live, 4) if self.live else 0.0
@@ -91,7 +98,7 @@ class Funnel:
     def as_dict(self) -> dict:
         out = {k: getattr(self, k) for k in ("months", "since", "live", "with_email", "with_mail", "block_found",
                                              "read", "proposed", "already_on_card", "quoted_only", "sources",
-                                             "seconds")}
+                                             "seconds", "read_originals", "rereads", "reread_ms_median")}
         out["fields"] = dict(self.fields)
         out["seconds_per_contact"] = self.per_contact()
         return out
@@ -106,21 +113,61 @@ def _recent(store: ReadOnlyStore, kind: str, key: str, now: float, days: int = R
     return is_recent(store.get_state(seen_key(kind, key)), now, days)
 
 
+@contextlib.contextmanager
+def _timed_rereads(times: list[float]) -> Iterator[None]:
+    """Every original read again during a measurement, timed. `base.full_text` calls
+    `reread.original_body` through the module, so wrapping it here sees each re-read without the
+    reader knowing it is measured; the original function is back as soon as the measurement ends."""
+    from app.extract import reread  # noqa: PLC0415 - only a measurement with originals needs the readers
+
+    inner = reread.original_body
+
+    def timed(row: Any) -> Optional[str]:
+        started = time.perf_counter()
+        try:
+            return inner(row)
+        finally:
+            times.append((time.perf_counter() - started) * 1000.0)
+
+    reread.original_body = timed
+    try:
+        yield
+    finally:
+        reread.original_body = inner
+
+
 def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, clock: Any = time.time,
-            keep_samples: bool = False, owner_emails: Any = ()) -> Funnel:
+            keep_samples: bool = False, owner_emails: Any = (), read_originals: Optional[bool] = None) -> Funnel:
     """The funnel over every live contact. Reads only; see the module docstring.
 
     The signature steps are the rebuilt reader's own (order 1s section 3): "block found" is a block found
     by what repeats (3b) or by an anchor (3c) in a message from the person; "something read" is a value
     read from one; "proposals" are what the consensus offers (3j/3k), the owner's own details removed (3h,
     from `owner_emails`). A contact with no message from them can still get a proposal from a quoted
-    signature (4c); those are counted apart, in `quoted_only`, so the funnel's steps still nest."""
+    signature (4c); those are counted apart, in `quoted_only`, so the funnel's steps still nest.
+
+    `read_originals` (order 1s 9a) measures as if "Read the original messages" were on (True) or off
+    (False) whatever the setting says; None takes the setting. The originals are opened read-only, through
+    `base.full_text`, and each re-read is counted and timed (`rereads`, `reread_ms_median`)."""
+    times: list[float] = []
+    setting = bool(getattr(settings, "enrich_read_originals", False))
+    originals = setting if read_originals is None else bool(read_originals)
+    with _timed_rereads(times) if originals else contextlib.nullcontext():
+        fun = _measure(store, hub, settings, months=months, clock=clock, keep_samples=keep_samples,
+                       owner_emails=owner_emails, originals=originals)
+    fun.read_originals = originals
+    fun.rereads = len(times)
+    fun.reread_ms_median = round(statistics.median(times), 1) if times else 0.0
+    return fun
+
+
+def _measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int, clock: Any, keep_samples: bool,
+             owner_emails: Any, originals: bool) -> Funnel:
     from app.contacts.enrich.gravatar import (
         email_hash,  # noqa: PLC0415 - only the hash function, no request
     )
 
     region = getattr(settings, "phone_region", "") or hub.region
-    originals = bool(getattr(settings, "enrich_read_originals", False))
     update_from = float(getattr(settings, "enrich_tick_from", UPDATE_FROM))
     fun = Funnel(months=int(months or 0), since=window_start(months))
     owner = learn_owner(store, owner_emails, region=region, read_original=originals)

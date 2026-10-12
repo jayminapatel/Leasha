@@ -336,3 +336,107 @@ def test_the_sample_prints_the_block_of_the_proposals_own_receipt(tmp_path):
 def test_html_entities_are_decoded_before_reading():
     assert clean_tail("T: &#43;44 20 7946 0018\nAcme &amp; Sons Ltd&nbsp;\n&quot;Quoted&quot; &lt;x&gt;") == \
         'T: +44 20 7946 0018\nAcme & Sons Ltd\n"Quoted" <x>'
+
+
+# =====================================================================================================================
+# Round 2 of 9b: the second sample (84/100). Same rules: invented people, numbers and addresses.
+# =====================================================================================================================
+
+# ---- r2 cause 1: a firm's footer list of countries is not part of the address -----------------------------------------
+
+def test_an_address_ends_at_its_first_country_and_a_list_of_countries_is_dropped():
+    sig = _sig_of("Pieter Smit\nSenior Engineer\nKorenmolen 13D | 4817 ZX Breda | The Netherlands | Belgium | "
+                  "France | Ireland | Luxembourg", ["pieter"])
+    assert sig["address_text"] == "Korenmolen 13D, 4817 ZX Breda, Netherlands"
+
+
+def test_a_country_list_on_the_address_line_keeps_only_the_first_country():
+    sig = parse_block(["Niran Chai", "Soi Ruam 4, Bangkok 10250, Thailand, Belgium, France, Ireland"],
+                      name_tokens=["niran"])
+    assert sig["address_text"].endswith("Thailand") and "Belgium" not in sig["address_text"]
+
+
+def test_a_list_of_countries_is_never_joined_to_an_address():
+    sig = parse_block(["Ann Lee", "Unit 4, Harbour Road", "Dubai", "Belgium", "France"], name_tokens=["ann"])
+    assert sig["address_text"] == "Unit 4, Harbour Road, Dubai"
+
+
+# ---- r2 cause 2: a meeting invitation is not a signature --------------------------------------------------------------
+
+def test_clean_tail_stops_at_a_meeting_invitation():
+    text = ("Regards,\nAnn Lee\nT: 020 7946 0101\n\nJoin Microsoft Teams Meeting\n"
+            "Or call in (audio only) | +91 22 5555 0128,,,,125254186#    India, Mumbai | Phone Conference ID: "
+            "125 254 186# | Find a local number | Reset PIN | Meeting options\n12 Mill Lane, Leeds LS1 9ZZ")
+    assert clean_tail(text).splitlines() == ["Regards,", "Ann Lee", "T: 020 7946 0101"]
+
+
+@pytest.mark.parametrize("marker", [
+    "Or call in (audio only)", "Phone Conference ID: 125 254 186#", "Join by phone", "Meeting options",
+    "Global call-in numbers", "United Kingdom Toll", "Join from a video system or application", "Reset PIN",
+    "+44-20-7946-0149,,1374429198#54775552#", "Join Microsoft Teams Meeting"])
+def test_every_meeting_marker_ends_the_tail(marker):
+    assert clean_tail(f"Ann Lee\n{marker}\nUnit 4, Mill Road, Leeds LS1 9ZZ") == "Ann Lee"
+
+
+@pytest.mark.parametrize("line", ["+44-20-7946-0149,,1374429198# United Kingdom, London",
+                                  "SAUDI ARABIA     800-8-110078", "Dial 125254186# then Doha, Qatar"])
+def test_a_dial_string_or_toll_number_is_never_an_address(line):
+    assert "address" not in parse_block(["Ann Lee", "Unit 4, Mill Road", line], name_tokens=["ann"])
+    assert "address" not in parse_block(["Ann Lee", line], name_tokens=["ann"])
+
+
+# ---- r2 cause 3: a phone line is not an address line ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("line", [
+    "Customer Care  920 055 101, Qamar Street, Riyadh",
+    "Kingdom of Bahrain, Bahrain : Mobile: (+973) 3355 0123, United Arab Emirates",
+    "M UK: +44 7700 900591, Saudi Arabia",
+    "Office: 4455 0101, Tower 2, Doha, Qatar",
+    "Unit 4, Mill Road, 0113 496 0555, Leeds LS1 9ZZ"])
+def test_a_line_holding_a_phone_is_never_part_of_an_address(line):
+    sig = parse_block(["Fahad Ali", line], name_tokens=["fahad"])
+    assert "address" not in sig
+
+
+def test_a_po_box_or_postcode_number_is_not_a_phone():
+    assert parse_block(["Fahad Ali", "P.O. Box 1234567, Doha, Qatar"], name_tokens=["fahad"])["address"][
+        "street"] == "P.O. Box 1234567"
+    assert "address" in parse_block(["Dana Brook", "48 Orchard Ridge Drive", "Fairview, PA 17025-1234"],
+                                    name_tokens=["dana"])
+
+
+# ---- r2 cause 4: the replacement character ------------------------------------------------------------------------------
+
+def test_a_replacement_character_standing_for_a_bullet_is_a_separator():
+    assert clean_tail("\ufffd Korenstraat 1, \ufffd 2000 Antwerpen").splitlines() == ["Korenstraat 1",
+                                                                                        "2000 Antwerpen"]
+
+
+def test_a_value_still_holding_a_replacement_character_is_refused():
+    sig = parse_block(["Ann Lee", "Senior Engin\ufffder", "Molen\ufffdstraat 1", "2000 Antwerpen, Belgium"],
+                      name_tokens=["ann"])
+    assert all("\ufffd" not in str(v) for v in sig.values())
+    assert "address" not in sig and "title" not in sig
+
+
+# ---- r2 cause 5: a title is not a department, a department is not an address ------------------------------------------
+
+def test_the_line_after_the_name_with_a_title_word_is_the_title_not_a_department():
+    sig = parse_block(["Omar Haddad", "Tendering Team Leader", "Sahil Trading W.L.L."], name_tokens=["omar"])
+    assert sig["title"] == "Tendering Team Leader" and "department" not in sig
+
+
+def test_a_department_line_is_never_part_of_an_address_even_ending_in_a_country():
+    sig = parse_block(["Layla Aziz", "Private & Corporate Lending (PCL), Bahrain, P.O. Box 5701, Manama"],
+                      name_tokens=["layla"])
+    assert "Lending" not in sig.get("address_text", "") and "PCL" not in sig.get("address_text", "")
+
+
+# ---- r2 cause 6: a postcode line keeps its city and postcode ---------------------------------------------------------
+
+def test_an_indian_pin_after_its_city_is_kept_with_the_city():
+    sig = _sig_of("Ravi Kumar\nKestrel Infotech Limited | Plot No.48, Phase III, Kharadi, Pune 411014 India",
+                  ["ravi"])
+    assert sig["address_text"] == "Plot No.48, Phase III, Kharadi, Pune 411014, India"
+    assert sig["address"]["city"] == "Pune" and sig["address"]["postcode"] == "411014"
+    assert sig["address"]["country"] == "India"

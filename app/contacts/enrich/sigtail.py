@@ -34,7 +34,7 @@ from urllib.parse import urlsplit
 from app.extract.quoting import QUOTE_MARKERS
 
 __all__ = ["clean_tail", "own_part", "is_tracking", "is_homepage", "line_key", "TRACKING_HOSTS", "is_legal",
-           "is_prose", "split_line", "LEGAL"]
+           "is_prose", "split_line", "LEGAL", "is_meeting"]
 
 #: Characters Outlook and phones leave in "empty" lines: no-break and zero-width spaces, the BOM.
 _INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
@@ -108,8 +108,27 @@ _NOTICE_OPENING = re.compile(
 #: "St. James's", "Ltd. 12 Mill Lane" and "J. Smith" are not, which is why the word before is lower case.
 _MID_STOP = re.compile(r"\b[a-z]{3,}\.\s+\S+\s+\S+\s+\S+")
 #: The separators a signature puts between values on one line: a bar with a space or a comma beside it
-#: ("Centre |, Doha"), a bullet, a middle dot, a small square. "a|b" inside a value is left alone.
-_SEPARATOR = re.compile(r"\s+\|\s*|\s*\|\s+|\s*\|(?=,)|\s*[\u2022\u00b7\u25aa\u25cf]\s*")
+#: ("Centre |, Doha"), a bullet, a middle dot, a small square - and U+FFFD after a space, which is what a
+#: bullet becomes when the text was decoded in the wrong code page (9b round 2: "\ufffd 2000 Antwerpen").
+#: "a|b" inside a value is left alone.
+_SEPARATOR = re.compile(r"\s+\|\s*|\s*\|\s+|\s*\|(?=,)|\s*[\u2022\u00b7\u25aa\u25cf]\s*"
+                        r"|\s+\ufffd\s*")
+
+
+#: Order 1s 9b round 2: a meeting invitation (Teams, WebEx, Zoom) under a signature - dial-in numbers, a
+#: conference id, a table of countries and toll numbers - was read as an address. From its first marker on
+#: the rest of the message is the invitation. "call in" only in the invitation's own phrases, because
+#: "can you call in tomorrow" is prose above a signature.
+_MEETING = re.compile(
+    r"\b(?:or\s+call\s+in|call[- ]in\s+(?:numbers?|\(audio)|conference\s+id|join\s+by\s+phone|"
+    r"meeting\s+options|join\s+(?:microsoft\s+)?teams\s+meeting|join\s+from\s+a\s+video\s+system|reset\s+pin|"
+    r"find\s+a\s+local\s+number|join\s+(?:zoom|webex)\s+meeting|meeting\s+id\s*:|toll\s*(?:number\s*)?(?::|$))"
+    r"|,{2,}\s*\d|\d{4,}#", re.I)
+
+
+def is_meeting(line: str) -> bool:
+    """A line of a meeting invitation: one of its phrases, or a dial string ("...,,125254186#")."""
+    return bool(_MEETING.search(line or ""))
 
 
 def is_legal(line: str) -> bool:
@@ -147,9 +166,11 @@ def clean_tail(body: str) -> str:
             out.append("")
             in_paragraph = False
             continue
-        stripped = _IMAGE.sub("", _ANNOTATION.sub("", line)).strip()
+        stripped = _IMAGE.sub("", _ANNOTATION.sub("", line)).strip().lstrip("\ufffd ")
         if not stripped:
             continue                                       # gone, not blank: it was never a gap in the text
+        if is_meeting(stripped):
+            break                                          # a meeting invitation: the rest is the invitation
         if is_legal(stripped):
             if _NOTICE_OPENING.search(stripped):
                 break                                      # a notice's heading or opening: the rest is the notice
@@ -159,9 +180,9 @@ def clean_tail(body: str) -> str:
             continue
         if in_paragraph:
             continue                                       # the rest of a legal paragraph, up to a blank line
-        if is_prose(stripped):
-            continue                                       # a sentence; the sign-off under it is still read
-        out += [part for part in split_line(stripped) if not _junk_line(part)]
+        # A sentence goes; the sign-off under it is still read. Judged part by part, because a signature
+        # set on one line with separators ("13D | 4817 ZX Breda | The Netherlands | ...") is long, not prose.
+        out += [part for part in split_line(stripped) if not _junk_line(part) and not is_prose(part)]
     collapsed: list[str] = []
     for line in out:
         if line or (collapsed and collapsed[-1]):

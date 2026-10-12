@@ -211,7 +211,8 @@ def _measure(args: argparse.Namespace) -> int:
         from app.contacts.enrich.run import owner_addresses  # noqa: PLC0415
         # 3h: the owner's own details are never counted as anybody's proposal.
         fun = measure(store, hub, acct, months=months, keep_samples=bool(args.sample),
-                      owner_emails=owner_addresses(AccountStore(store)))
+                      owner_emails=owner_addresses(AccountStore(store)),
+                      read_originals=True if getattr(args, "read_originals", False) else None)
     finally:
         store.close()
     if args.json:
@@ -233,6 +234,8 @@ def _measure(args: argparse.Namespace) -> int:
         print("Signature proposals per field: "
               + (", ".join(f"{k} {v:,}" for k, v in fun.fields.most_common()) or "none"))
         print(f"Time: {fun.seconds:,.1f} s, {fun.per_contact():.3f} s a contact")
+        if fun.read_originals:
+            print(f"Originals re-read (read-only): {fun.rereads:,}, median {fun.reread_ms_median:,.1f} ms each")
     if args.sample:
         n = write_sample(fun, int(args.sample), args.out)
         print(f"Wrote {n} proposals to {args.out}")
@@ -277,6 +280,9 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     window = en.add_mutually_exclusive_group()
     window.add_argument("--months", type=int, help="only mail from the last N months (default: the setting)")
     window.add_argument("--any-age", action="store_true", help="mail of any age")
+    en.add_argument("--read-originals", action="store_true",
+                    help="measure as if 'Read the original messages' were on: re-read them, read-only, and "
+                         "say how many and how long one took")
     en.add_argument("--sample", type=int, help="also write N random signature proposals for checking")
     en.add_argument("--out", type=Path, help="the CSV file for --sample")
     p.set_defaults(func=cmd_contacts)

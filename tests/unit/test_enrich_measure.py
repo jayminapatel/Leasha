@@ -187,3 +187,34 @@ def test_the_local_sources_are_counted_and_a_failing_one_says_so(book, monkeypat
     assert fun.sources["vcard file"] == 5
     assert fun.sources["calendar invitation: could not be read"] == 5
     assert "linkedin export" not in fun.sources                      # no export chosen
+
+
+def test_read_originals_re_reads_through_full_text_and_reports_how_many_and_how_long(book, monkeypatch):
+    """Order 1s 9a: reach with the originals read again. Off by default; on, every re-read is counted and timed."""
+    from app.extract import reread
+
+    calls = []
+
+    def fake(row):
+        calls.append(row["path"])
+        return SIGNED.replace("Ann", "Bob")
+
+    monkeypatch.setattr(reread, "original_body", fake)
+    off = _run(book)
+    assert off.rereads == 0 and not calls
+    on = _run(book, read_originals=True)
+    assert on.rereads == len(calls) > 0 and on.reread_ms_median >= 0
+    assert on.as_dict()["rereads"] == on.rereads
+    assert on.proposed > off.proposed                             # Bob's original holds his signature
+
+
+def test_the_command_takes_read_originals(book, tmp_path, capsys, monkeypatch):
+    from app.cli import main
+    from app.extract import reread
+
+    monkeypatch.setattr(reread, "original_body", lambda row: SIGNED)
+    env = tmp_path / "scratch.env"
+    env.write_text(f"DATA_PATH={tmp_path}\nFTS_DB={book}\n", encoding="utf-8")
+    assert main(["contacts", "enrich", "--measure", "--any-age", "--read-originals", "--env", str(env)]) == 0
+    out = capsys.readouterr().out
+    assert "Originals re-read" in out and "median" in out
