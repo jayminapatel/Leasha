@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.122 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.123 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: a steady Search page (2026-10-13)
+
+- **The search box stays where it is.** It no longer jumps from the middle of the page to the top when you start
+  typing; on the empty page it is narrower and centred, in the same place.
+- **Nothing moves the results once they are drawn.** The short answer has a place kept for it as soon as you type,
+  of one height (a long answer scrolls inside it), with **Hide answer** for that search; when there is no short
+  answer it says so in the same place. Notices sit on one line in the summary row. The person card arrives before
+  the results.
+- **The status line counts documents** ("9 documents", "Still searching…"); timing and cache details are in its
+  tooltip. A mail and its attachments are one row by default in Search.
+- **Sort** is a button beside the scope: Best match, Newest, Oldest, Name. It writes `/newest`, `/oldest` or `/sort
+  name` into the box, and typing one moves the button. Sorting by name is new, and the notice under `/oldest` no
+  longer says "newest first".
+- A missing file says **Missing**; the words you searched for are marked in each file name.
+- Not yet seen in the real window: the answer's height and scrolling, the one-line notice, the Sort button beside
+  the scope, the empty page's spacing. The user guide's screenshots of Search are out of date.
 
 ### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
 
