@@ -528,3 +528,37 @@ def test_a_backup_is_looked_up_not_compared_card_by_card(hub, tmp_path, monkeypa
     monkeypatch.setattr(vcards, "match_rule", lambda *a: seen.append(1) or real(*a))
     props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
     assert props and len(seen) <= 2
+
+
+MISFILED = """BEGIN:VCARD
+VERSION:3.0
+N:Gabsani;Salim;;;
+EMAIL:salim.gabsani@aramco.example
+EMAIL:Gabsani, Salim H
+TEL:salim.gabsani@aramco.example
+TEL:+44 20 7946 0101
+ADR:;;Burgess Hill;England;;;
+ADR:;;Burgess Hill;England;;;United Kingdom
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:Alani;Kris;;;
+EMAIL:kris.alani@other.example
+TEL:+974 4466 7240
+END:VCARD
+"""
+
+
+def test_misfiled_values_shared_lines_and_shorter_addresses_are_not_offered(hub, tmp_path):
+    """Read on the owner's index 2026-10-13: a backup held an address as a phone and a name as an email; a card
+    found by an office number named someone else; an address and the same with its country were both offered."""
+    put(hub, tmp_path / "backup.vcf", MISFILED)
+    salim = person(hub, "Salim", "Gabsani", email="salim.gabsani@aramco.example")
+    alaa = person(hub, "Alaa", "Arawi", phone="+974 4466 7240")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [salim, alaa], sources=["vcard"])
+    mine = [(p.field_kind, str(p.new)) for p in props if p.contact_id == salim]
+    assert ("phone", "salim.gabsani@aramco.example") not in mine
+    assert not any(k == "email" for k, _ in mine)
+    addresses = [v for k, v in mine if k == "address"]
+    assert len(addresses) == 1 and "United Kingdom" in addresses[0]
+    assert not any(p.contact_id == alaa for p in props)

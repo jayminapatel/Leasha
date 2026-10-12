@@ -28,7 +28,11 @@ phone backups mailed to the owner (one card for every contact they had), so each
 way a person reading it would: a name part whose words are already in the contact's name is not offered
 ("Jacqui" for "Mum Jacqui Weller"); an address already offered, or already on the card, written another
 way (commas for line breaks) is offered once; a value with a character the export lost (U+FFFD) is not
-offered, and a Windows dash or quote decoded as a control character is put back. A backup holds
+offered, and a Windows dash or quote decoded as a control character is put back. A value in the wrong
+field (an address in a phone field, a name in an email field) is not offered; of an address and a shorter
+one inside it ("Burgess Hill, England" and the same with "United Kingdom") only the fuller is; and a card
+found by phone number that names somebody else (an office line shared by two people) is not this
+contact's. A backup holds
 thousands of cards, so each file's cards are looked up by address, number and name (`_Book`), not
 compared one by one for every contact (1.44 s a contact before, on the owner's index).
 
@@ -125,13 +129,32 @@ def match_rule(contact: Card, other: Card, region: str) -> Optional[str]:
         return "email"
     phones = {field_key(f, region) for f in contact.values("phone") if f.value.strip()}
     if phones & {field_key(f, region) for f in other.values("phone") if f.value.strip()}:
-        return "phone"
+        return None if _names_disagree(contact, other) else "phone"
     name = _full_name(contact)
     if name and " " in name and name == _full_name(other):
         a, b = company_key(contact.get("company")), company_key(other.get("company"))
         if a and a == b:
             return "name"
     return None
+
+
+def _names_disagree(contact: Card, other: Card) -> bool:
+    """Both cards name a person and share no word of it: two people on one number."""
+    a = _words(" ".join([contact.get("fn"), *(contact.get(n) for n in _NAME_SCALARS)]))
+    b = _words(" ".join([other.get("fn"), *(other.get(n) for n in _NAME_SCALARS)]))
+    return bool(a and b and not a & b)
+
+
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _fits(kind: str, value: str) -> bool:
+    """Is the value the kind of thing its field says? A backup sometimes holds an address as a phone."""
+    if kind == "email":
+        return bool(_EMAIL.match(value.strip()))
+    if kind == "phone":
+        return "@" not in value and sum(ch.isdigit() for ch in value) >= 6
+    return True
 
 
 def _someone_else(hub: Any, cid: int, other: Card) -> bool:
@@ -150,6 +173,7 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
     have = {field_key(f, region) for f in card.fields}
     have |= {f"addr:{_address_key(f.value)}" for f in card.values("address") if f.value.strip()}
     named = _words(" ".join([card.get("fn"), *(card.get(n) for n in _NAME_SCALARS)]))
+    held = [_words(f.value) for f in card.values("address") if f.value.strip()]
     for f in localfiles.indexed_files(hub.store, EXTS, since=since):
         book = localfiles.cached(f"vcard:{region}", f, lambda data: _Book(_cards(data), region))
         for other in book.candidates(card, region) if book else ():
@@ -172,8 +196,15 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
                 value = _clean(field.value)
                 if value is None or any("\ufffd" in str(v) for v in field.data.values()):
                     continue
+                if not _fits(field.kind, value):
+                    continue
                 keys = {field_key(field, region)}
                 if field.kind == "address":
+                    words = _words(value)
+                    offered_addresses = [_words(str(p.new)) for p in out if p.field_kind == "address"]
+                    if any(words <= w for w in held + offered_addresses):
+                        continue                         # the same address, or less of it, is already there
+                    out = [p for p in out if not (p.field_kind == "address" and _words(str(p.new)) < words)]
                     keys.add(f"addr:{_address_key(value)}")
                 if keys & (have | offered):
                     continue
