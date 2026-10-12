@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 41
+CURRENT_VERSION = 42
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2141,6 +2141,16 @@ def _v41_enrichment_that_finds(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_addr ON messages(sender_addr, sent_at)")
 
 
+def _v42_placeholder(conn: sqlite3.Connection) -> None:
+    r"""PLACEHOLDER - drop this step at merge. Schema 42 belongs to another thread of order 1s.
+
+    Order 1s section 7 (branch `1s/s7-review`) was given schema 43 while another thread
+    builds 42 at the same time. `apply_migrations` walks every step in turn, so 43 cannot
+    be reached without a 42; this does nothing, so that the real 42 replaces it at merge
+    with no index ever holding anything this step made.
+    """
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2182,6 +2192,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     39: _v39_tidy_journal,
     40: _v40_cards_and_words,
     41: _v41_enrichment_that_finds,
+    42: _v42_placeholder,              # PLACEHOLDER - the other thread's 42 replaces it
 }
 
 #: Released migrations that open and close transactions of their own -
