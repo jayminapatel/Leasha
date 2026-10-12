@@ -20,13 +20,12 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QLabel, QPushButton, QSplitter, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import NOT_BUILT_LINE, PREVIEW_TAB, THINKING_LINE, unavailable_text
 from app.ui.widgets.chat_answer_run import AnswerRun, NoShelf
 from app.ui.widgets.chat_bubbles import AnswerBubble, BubbleList, UserBubble, centred
+from app.ui.widgets.chat_head import build_head
 from app.ui.widgets.chat_message_box import MessageBox
 from app.ui.widgets.chat_session_list import SessionList
 from app.ui.widgets.chat_shelf import ShelfBar
@@ -35,8 +34,6 @@ from app.ui.widgets.chat_sources import SourcesPane
 from app.ui.widgets.model_picker import ModelPicker
 
 __all__ = ["ChatView"]
-
-SPEEDS = (("Fast", "fast"), ("Thoughtful", "thoughtful"))
 
 
 class ChatView(QWidget):
@@ -66,6 +63,8 @@ class ChatView(QWidget):
     web_decided = Signal(bool)
     #: 2026-10-04: the Sources column's preview was shown (True) or hidden.
     preview_toggled = Signal(bool)
+    #: UI phase B: the last message, brought back by Up and sent changed.
+    question_edited = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         """Build the three columns and wire the widgets' signals. UI thread, no store."""
@@ -80,53 +79,7 @@ class ChatView(QWidget):
         self._run: Optional[AnswerRun] = None
         self._owner: Any = None                  # whose sources the pane shows
 
-        self.notice = QLabel("")
-        self.notice.setObjectName("chatNotice")
-        self.notice.setWordWrap(True)
-        self.notice.setAccessibleName("Why chat is not ready")
-        self.notice.setVisible(False)
-        self.recheck_button = QPushButton("Check again")
-        self.recheck_button.setToolTip(
-            "Look again for the helper program Chat needs. Use this after "
-            "installing or starting it. Searching is not affected either way.")
-        self.recheck_button.setVisible(False)
-        self.recheck_button.clicked.connect(lambda _c=False: self.recheck_requested.emit())
-        self.speed = QComboBox()
-        self.speed.setAccessibleName("How Chat answers")
-        self.speed.setToolTip(
-            "Fast answers sooner; Thoughtful takes longer over harder "
-            "questions. Applies to the next question you ask.")
-        for label, value in SPEEDS:
-            self.speed.addItem(label, value)
-        self.speed.currentIndexChanged.connect(
-            lambda _i: self.speed_changed.emit(str(self.speed.currentData())))
-
-        self.speed_note = QLabel("")
-        self.speed_note.setObjectName("chatSpeedNote")
-        self.speed_note.setWordWrap(True)
-        self.speed_note.setAccessibleName("What Fast and Thoughtful do")
-        self.speed_note.setVisible(False)
-
-        # 2026-10-05: the notice has a line of its own. It shared the line
-        # below with the model and speed boxes, which took the room first, so
-        # it was squeezed to a column a few words wide and ten lines tall.
-        notice_row = QHBoxLayout()
-        notice_row.addWidget(self.notice, stretch=1)
-        notice_row.addWidget(self.recheck_button, alignment=Qt.AlignmentFlag.AlignTop)
-        head = QHBoxLayout()
-        # Spare room goes to empty space, never to the Fast/Thoughtful box.
-        # While the notice shows it takes the room (its stretch wins); once
-        # chat is ready the notice hides, and without this the box stretched
-        # across the whole pane - one word, "Fast", in a bar as wide as the
-        # conversation, looking like a title rather than a choice (grabbed
-        # 2026-09-27, order 0x section 9).
-        head.addStretch(1)
-        # 2026-10-04: the same Preview toggle every other tab carries; 2026-10-08,
-        # the Sources toggle beside it (the owner: "the source tab viewing should be
-        # able to turn off and on too"). Each shows its page of the side panel, or
-        # puts the panel away when its page is the one showing.
-        head.addWidget(self.toggles["sources"])
-        head.addWidget(self.toggles["inspector"])
+        notice_row, head = build_head(self)       # the notice and the speed box
         # 2026-10-04: which model answers; filled by the controller, hidden with fewer than two.
         self.model_picker = ModelPicker()
         # Order 1o D4: the model and speed are the box's own controls, along its bottom edge.
@@ -142,7 +95,8 @@ class ChatView(QWidget):
         column.addLayout(head)
         column.addWidget(self.speed_note)
         column.addWidget(self.bubbles, stretch=1)
-        column.addWidget(centred(self.shelf, self.box))       # order 1o D1
+        column.addWidget(composer := centred(self.shelf, self.box))       # order 1o D1
+        self.shelf.accept_drops_on(composer)     # it hides when empty; a drag shows it
 
         self.split = QSplitter(Qt.Orientation.Horizontal)
         for part, weight in ((self.sessions, 1), (centre, 4), (self.sources, 2)):
@@ -155,8 +109,10 @@ class ChatView(QWidget):
         self.box.stop_requested.connect(self.stop_requested)
         self.box.web_toggled.connect(self.web_toggled)
         self.box.walk_requested.connect(self.sources.walk)
-        self.box.open_source_requested.connect(self.sources.open_selected)
         self.box.escaped.connect(self._back_to_conversation)
+        self.box.recall_requested.connect(self._recall)
+        self.box.edit_submitted.connect(self.question_edited)
+        self.bubbles.starter_chosen.connect(self.box.send_text)
         self.shelf.changed.connect(self.shelf_changed)
         self.shelf.open_requested.connect(self.open_requested)
         self.sources.opened.connect(self._opened)
@@ -209,8 +165,8 @@ class ChatView(QWidget):
         self.speed_note.setVisible(bool(text))
 
     def set_busy(self, busy: bool) -> None:
+        # UI phase B: the list is not locked - the answer is its own conversation's.
         self.box.set_busy(busy)
-        self.sessions.set_enabled_for_work(not busy)
 
     def set_web(self, available: bool, on: bool = False) -> None:
         """The Web chip: shown only when Settings allows the web, set for this conversation."""
@@ -258,8 +214,18 @@ class ChatView(QWidget):
 
     def end_answer(self) -> None:
         """The answer is finished: the newest answer takes Regenerate, the newest
-        message Edit."""
+        message Edit. One finished while its conversation was not on screen is let go;
+        its turn is saved, and opening the conversation draws it."""
+        if self._run is not None and self._run.parked:
+            self._run.bubble.deleteLater()
+            self._run = None
         self.bubbles.refresh_last()
+
+    def _recall(self) -> None:
+        """Up in the empty box: the last message comes back to be changed (UI phase B)."""
+        users = [b for b in self.bubbles.bubbles() if isinstance(b, UserBubble) and b.is_last]
+        if users:
+            self.box.begin_edit(users[-1].text)
 
     def _answer_bubble(self) -> AnswerBubble:
         bubble = AnswerBubble()
@@ -274,11 +240,20 @@ class ChatView(QWidget):
         bubble.web_decided.connect(self.web_decided)
         return bubble
 
-    def show_turns(self, turns: list) -> None:
-        """Redraw a stored conversation, without streaming."""
+    def show_turns(self, turns: list, *, live: bool = False) -> None:
+        """Redraw a stored conversation. `live`: it is the one being answered, and
+        the answer being written goes back under it, as far as it has got.
+
+        UI phase B (2026-10-13): an answer still being written when another
+        conversation is opened is parked (`AnswerRun.park`), not deleted - its
+        worker keeps writing into it - so switching mid-answer strands nothing."""
+        run = self._run if self._run is not None and not self._run.finished else None
+        if run is not None and not run.parked:
+            self.bubbles.take(run.bubble)
+            run.park(self.shelf.shelf)
         self.bubbles.clear()
         self.sources.clear()
-        self._run, self._owner = None, None
+        self._run, self._owner = run, None
         last = None
         for turn in turns:
             if turn.role == "user":
@@ -289,6 +264,10 @@ class ChatView(QWidget):
             run.finish(turn)
             self.bubbles.add(bubble)
             last = bubble
+        if run is not None and live:
+            self.bubbles.add(run.bubble)
+            run.resume(self.shelf)
+            last = run.bubble
         if last is not None:
             self._show_sources_of(last)
         self.bubbles.refresh_last()

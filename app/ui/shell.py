@@ -120,7 +120,8 @@ def _on_battery() -> bool:
 #: The keys `_build_shortcuts` binds. A menu action showing one of these
 #: must not bind it a second time (§7a).
 _BOUND_ELSEWHERE = frozenset({"Ctrl+K", "Ctrl+F", "Ctrl+,", "Ctrl+I", "Ctrl+P",
-                              "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5"})
+                              "Ctrl+Shift+P", "Ctrl+M", "Ctrl+E", "Esc", "F5",
+                              "Ctrl+Shift+O"})
 
 
 
@@ -1498,6 +1499,8 @@ class MainWindow(QMainWindow):
         # 2026-10-08: Chat's Sources and Preview panel, away and back. Not in the
         # View menu, whose items after Preview pane are the tab's own options.
         bind("Ctrl+B", self._toggle_side_panel)
+        # UI phase B (2026-10-13): a new chat from anywhere, the key ChatGPT uses.
+        bind("Ctrl+Shift+O", self._new_chat)
         bind("Esc", self._clear_search)
         # QAction.triggered emits `checked: bool`, so the slot must tolerate a
         # positional argument. Binding the method directly raises TypeError the
@@ -1550,6 +1553,9 @@ class MainWindow(QMainWindow):
             tip="Start an index run now")
         add(file, "Show the log", self._pop_out_log, icon="file-text",
             tip="Open the log as its own window")
+        add(file, "New chat", self._new_chat, "Ctrl+Shift+O", icon="message-square",
+            tip="Start a fresh conversation. The one you are in is kept in the list, "
+                "so you can come back to it.")
         file.addSeparator()
         add(file, "Settings", lambda: self._show(getattr(self, "settings_view", None)), "Ctrl+,",
             icon="settings", role=QAction.MenuRole.PreferencesRole)
@@ -1840,6 +1846,12 @@ class MainWindow(QMainWindow):
         toggle = toggle or getattr(self._current_view(), "toggle_preview", None)
         if toggle is not None:
             toggle()
+
+    def _new_chat(self) -> None:
+        """Ctrl+Shift+O (UI phase B): the Chat page, a fresh conversation, the cursor
+        in its box."""
+        self._show(self.chat_view)
+        self.chat_ctl.new_chat()
 
     def _toggle_side_panel(self) -> None:
         """Ctrl+B (2026-10-08): put the side panel of the tab in front away, or bring

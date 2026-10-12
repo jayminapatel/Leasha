@@ -8,7 +8,7 @@ in a sidebar, are deletable, and reopen with their shelf intact.
 The store's own `save_session` / `load_sessions` / `delete_session` (schema v26)
 take *positional pieces* - `save_session(id, title, turns, shelf, model)` - and give
 back rows with integer ids, so a session is **translated** on the way in and out:
-the tab's own id (a uuid), its `titled` / `auto_titled` / `web` flags and the
+the tab's own id (a uuid), its `titled` / `auto_titled` / `web` / `pinned` flags and the
 shelf's removed list ride in a `_meta` first entry of the stored turns, and the
 shelf's items are the stored shelf. **Before 2026-09-20 this module called the
 store's method with one dict**, which raised `TypeError` on every save against the
@@ -64,6 +64,9 @@ class ChatSession:
     auto_titled: bool = False
     #: The Web switch for this conversation (off unless the person turned it on here).
     web: bool = False
+    #: UI phase B (2026-10-13): pinned to the top of the list. Rides in `_meta` with
+    #: the flags above, so the store's table needed no new column.
+    pinned: bool = False
 
 
 def new_session() -> ChatSession:
@@ -101,6 +104,7 @@ def turn_to_dict(turn: ChatTurn) -> dict:
         "result_set": (None if turn.result_set is None
                        else [_result_to_dict(r) for r in turn.result_set]),
         "details": details_to_json(getattr(turn, "details", None)),
+        "work": list(getattr(turn, "work", None) or ()),
     }
 
 
@@ -117,7 +121,8 @@ def turn_from_dict(data: dict) -> ChatTurn:
         receipts=receipts, result_set=results,
         kind=str(data.get("kind", "answer")), notes=list(data.get("notes", ())),
         model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)),
-        details=details_from_json(data.get("details")))
+        details=details_from_json(data.get("details")),
+        work=[str(w) for w in data.get("work", ()) or ()])
 
 
 def name_messages(session: ChatSession, backend: Any) -> ChatSession:
@@ -166,6 +171,7 @@ def session_to_dict(session: ChatSession) -> dict:
         "id": session.id, "title": session.title, "created": session.created,
         "updated": session.updated, "titled": session.titled,
         "auto_titled": session.auto_titled, "web": session.web,
+        "pinned": session.pinned,
         "shelf": session.shelf.to_dict(),
         "turns": [turn_to_dict(t) for t in session.turns],
     }
@@ -179,6 +185,7 @@ def session_from_dict(data: dict) -> ChatSession:
         updated=float(data.get("updated") or 0.0),
         titled=bool(data.get("titled", False)),
         auto_titled=bool(data.get("auto_titled", False)), web=bool(data.get("web", False)),
+        pinned=bool(data.get("pinned", False)),
         shelf=Shelf.from_dict(data.get("shelf")),
         turns=[turn_from_dict(t) for t in data.get("turns", ())])
 
@@ -242,7 +249,7 @@ class ChatSessions:
             "id": uid, "title": row.get("title") or "New chat",
             "created": float(row.get("created_at") or 0), "updated": float(row.get("updated_at") or 0),
             "titled": bool(meta.get("titled", False)), "auto_titled": bool(meta.get("auto_titled", False)),
-            "web": bool(meta.get("web", False)),
+            "web": bool(meta.get("web", False)), "pinned": bool(meta.get("pinned", False)),
             "shelf": {"items": list(shelf) if isinstance(shelf, list) else [],
                       "removed": list(meta.get("removed", []))},
             "turns": turns,
@@ -253,7 +260,7 @@ class ChatSessions:
         shelf = record.get("shelf") or {}
         meta = {"id": record["id"], "titled": bool(record.get("titled")),
                 "auto_titled": bool(record.get("auto_titled")), "web": bool(record.get("web")),
-                "removed": list(shelf.get("removed", []))}
+                "pinned": bool(record.get("pinned")), "removed": list(shelf.get("removed", []))}
         turns = [{META: meta}] + list(record.get("turns", []))
         return (self._store_ids.get(str(record["id"])), str(record.get("title") or ""),
                 turns, list(shelf.get("items", [])))
