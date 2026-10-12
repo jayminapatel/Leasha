@@ -453,4 +453,6 @@ def test_only_only_is_kept_from_the_model():
     is a feature quietly dropped from translation - so it is a list of one."""
     from app.search.commands import _NOT_FOR_MODEL
 
-    assert _NOT_FOR_MODEL == frozenset({"only"})
+    # 2026-10-12: and the three mail switches added that day (`/attachment`, `/mailbox`, `/mailfolder`), which a
+    # person types or picks; telling the model about them took the prompt 177 characters over the ceiling.
+    assert _NOT_FOR_MODEL == frozenset({"only", "attachment", "mailbox", "mailfolder"})
