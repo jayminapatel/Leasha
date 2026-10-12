@@ -103,8 +103,16 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   Never start on a red suite.
 - [ ] **0b** Order 1k's Windows-only items and order 1r are not in flight on the same files (`app/contacts/`,
   `app/extract/email_files.py`). If they are, wait or coordinate in `HANDOFF.md`.
-- [ ] **0c** The baseline is re-measured with §1's command on the owner's index and the numbers written under
+- [x] **0c** The baseline is re-measured with §1's command on the owner's index and the numbers written under
   this item. Today's table above is the expected result; a different one means the index changed.
+
+  *Measured 2026-10-12 at b22604a, `contacts enrich --measure --any-age`, read-only, with an index run writing
+  to the same index:* live 1,445; with an email address 979; with a message from them 526; block found 90;
+  something read 64; at least one proposal **53**; read but all already on the card 11 - **identical to the
+  table above**, so the index has not changed under the order. Proposals per field: title 29, url 26, phone 16,
+  company 12, address 5. Internet "would ask": Gravatar 979 (all 979 remembered, not asked again), logo 897,
+  Wikidata 900. **0.405 s a contact** (584.7 s for the book) - not the 1 s the order measured, possibly because
+  an index run held the disk too; 1c's target is set against this figure.
 
 ## 1. Measure first - the funnel as a command
 
@@ -118,6 +126,14 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   query plan `SCAN messages USING INDEX idx_messages_sent`), about 1 s a contact (23 minutes for 1,445). Use
   `sender_lc = ?` with an index on `messages(sender_lc, sent_at)` (a migration), keeping the exact-address check.
   Target: under **0.15 s a contact** measured by 1a, recorded here.
+
+  *Note 2026-10-12, found while building it:* `sender_lc` is `lower(sender)` and, sampled read-only from 2,000
+  of the owner's messages, holds a bare address in 1,500, "Name <address>" in 177 and no address at all in 323,
+  so `sender_lc = ?` would miss about one sender in eleven. Built instead (723af05, schema 41): `sender_addr`, the
+  bare address by `email.utils.parseaddr` (the same rule as `enrich.base.address_of`, held to it by a test),
+  backfilled and derived in `set_message`, indexed with `sent_at`. The 323 with no `@` (one in six) cannot be
+  matched by address at all - very likely Exchange names (UNCONFIRMED) - which caps 9a's reach; it is not this
+  item's to fix. Speed: measured on a migrated copy, written here at §9c.
 
 ## 2. Fresh details only - the age window
 
