@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.119 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.120 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,28 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
+
+- **Written a batch at a time, every account at once.** Google takes 200 contacts a request, Microsoft 20 (`$batch`),
+  CardDAV 50 on one kept connection; the answer to a write is the read-back. Measured before: the 17:19 sync of
+  2026-10-12 ran 3 h 50 min (Google 4.6 s a contact, one at a time, two or three requests each, a new connection for
+  every request). After: UNVERIFIED until the owner's accounts sync with this build (`contacts log --timing`).
+- **The delete brake holds only the deletes.** Every other change is written; the account says *Waiting for you* with
+  **Allow**. From 13:52 to 17:19 the brake had stopped every write to Google and Microsoft.
+- **A check after every sync**: each account's own list against Leasha - *in step*, or the contacts that differ, by name,
+  with **Fix these**. One definition of an account's count on every screen (`ContactHub.account_counts`).
+- **The Apple sync settles.** iCloud's own `X-FC-CLUSTER-ID` was read as a custom value ("fc cluster id", 4,704 times in
+  one run, then written to Google) and the preferred flag of a phone, which iCloud does not keep, was a clash on every
+  number (3,976). Neither is compared now. At the first sync the book is cleared, once and as one undoable batch, of
+  every such server value (on the owner's book: "fc cluster id" 1,442, "apple ol mapping info" 1,264, "evolution file
+  as" 1,235, "abadr" 279), and Google, which shows them, is written once per contact to drop them.
+- **Nothing spreads by accident**: one account returning most of its contacts changed the same way holds every push
+  until Allow (`ERR_SYNC_CHANGES_HELD`, Settings > Accounts > Safety, `accounts config --churn-guard`).
+- **A run says what it did as it goes**, and a run whose app went away is closed with its counts. Refused contacts stay
+  listed across syncs, with **Open contact** and **Retry these**.
+- **Fixed:** six contacts binned while a push was writing them were marked synced again and stayed at Google; Microsoft
+  contacts in child folders were never read.
 
 ### Microsoft mail first fetch no longer gives way after one page (2026-10-12)
 

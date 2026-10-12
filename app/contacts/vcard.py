@@ -24,21 +24,15 @@ import quopri
 import re
 from typing import Iterable, Iterator
 
-from app.contacts.card import Card, Field, Photo, display_name
+from app.contacts.card import SERVER_INTERNAL_PREFIXES, Card, Field, Photo, display_name, is_server_internal
 
 __all__ = ["parse", "parse_one", "dumps", "dump_many", "split_cards", "SERVER_INTERNAL_PREFIXES"]
 
-#: `X-` properties a server or another program keeps for its own bookkeeping. They are not something the
-#: person wrote, so they never become a custom value: one (`X-FC-CLUSTER-ID`, a server's id for the card)
-#: was read as "fc cluster id" on every contact and written on to Google (2026-10-12, order 1t 4b).
-SERVER_INTERNAL_PREFIXES = (
-    "X-AB", "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-",
-    "X-MOZILLA-", "X-CARDDAV-", "X-WR-", "X-SYNC", "X-IMAGE", "X-SHOWAS", "X-OUTLOOK-",
-)
-
 
 def _server_internal(name: str) -> bool:
-    return name.upper().startswith(SERVER_INTERNAL_PREFIXES)
+    """A server's own `X-` property (`card.SERVER_INTERNAL_PREFIXES`): never a custom value (order 1t 4b)."""
+    return is_server_internal(name)
+
 
 _TEXT_ESCAPES = {"\\n": "\n", "\\N": "\n", "\\,": ",", "\\;": ";", "\\\\": "\\"}
 

@@ -41,6 +41,7 @@ stored as "in step" or the contacts that differ, by name.
 
 from __future__ import annotations
 
+import json
 import math
 import threading
 import time
@@ -661,11 +662,7 @@ class ContactSyncEngine:
                 return 0
         except Exception:                                     # noqa: BLE001 - a store without index_state
             return 0
-        from app.contacts.vcard import SERVER_INTERNAL_PREFIXES  # noqa: PLC0415
-
-        def internal(label: str) -> bool:
-            name = "X-" + "-".join(label.strip().upper().split())
-            return name.startswith(SERVER_INTERNAL_PREFIXES)
+        from app.contacts.card import is_server_internal as internal  # noqa: PLC0415
 
         batch = f"repair-vendor-fields-{uuid.uuid4().hex[:8]}"
         fixed = 0
@@ -680,7 +677,32 @@ class ContactSyncEngine:
             card.fields = keep
             if self.hub.update(int(cid), card, actor="repair", action="update", batch_id=batch, touch_edit=False):
                 fixed += 1
+        # An account that shows custom values to the person (Google) was sent them: its base is forgotten for
+        # those contacts, so the next push writes each once and they leave the account too. A CardDAV server's own
+        # property stays where it is - the server adds it again, and it is no longer read.
+        shown = [a.id for a in self.accounts.list() if a.provider == "google"]
+        cleared = 0
+        for aid in shown:
+            rows = self.store.conn.execute(
+                "SELECT contact_id, snapshot FROM contact_links WHERE account_id = ? AND state = 'synced' "
+                "AND snapshot LIKE '%\"custom\"%'", (aid,)).fetchall()
+            stale = []
+            for r in rows:
+                try:
+                    snap = Card.from_json(json.loads(r["snapshot"] or "{}"))
+                except (ValueError, TypeError, KeyError):
+                    continue
+                if any(f.kind == "custom" and internal(f.label) for f in snap.fields):
+                    stale.append(int(r["contact_id"]))
+            if stale:
+                with self.store.write() as conn:
+                    conn.executemany("UPDATE contact_links SET snapshot = '{}', hub_rev = -1 WHERE contact_id = ? "
+                                     "AND account_id = ?", [(c, aid) for c in stale])
+                cleared += len(stale)
         self.store.set_state(self._REPAIR_KEY, str(int(self._clock())))
+        if cleared:
+            _log.info("{} contacts at Google carry a server's bookkeeping value; each is written once to remove it",
+                      cleared)
         if fixed:
             _log.info("removed server bookkeeping values from {} contacts (journal batch {})", fixed, batch)
         return fixed

@@ -160,6 +160,22 @@ class Capabilities:
 
 ALL_CAPS = Capabilities()
 
+#: `X-` properties a server or another program keeps for its own bookkeeping (order 1t 4b). Not something a person
+#: wrote: `X-FC-CLUSTER-ID`, a server's id for a card, was read as the custom value "fc cluster id" on every contact,
+#: compared, and written on to Google. A custom value whose label is one of these is never read, compared or sent.
+SERVER_INTERNAL_PREFIXES = (
+    "X-AB", "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-",
+    "X-MOZILLA-", "X-CARDDAV-", "X-WR-", "X-SYNC", "X-IMAGE", "X-SHOWAS", "X-OUTLOOK-",
+)
+
+
+def is_server_internal(name: str) -> bool:
+    """`X-FC-CLUSTER-ID`, or a custom value's label as Leasha keeps it ("fc cluster id")."""
+    text = name.strip().upper()
+    if not text.startswith("X-"):
+        text = "X-" + "-".join(text.split())
+    return text.startswith(SERVER_INTERNAL_PREFIXES)
+
 
 def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:
     """The fields of `card` that an account with `caps` holds: a supported kind and label, once each, and no
@@ -169,6 +185,8 @@ def _held_fields(card: Card, caps: Capabilities, region: str) -> list[Field]:
     seen: set[str] = set()
     for f in card.fields:
         if f.kind not in caps.kinds or not f.value.strip() and not any(f.data.values()):
+            continue
+        if f.kind == "custom" and is_server_internal(f.label):
             continue
         if f.kind == "date" and caps.date_labels is not None and _slug(f.label) not in caps.date_labels:
             continue

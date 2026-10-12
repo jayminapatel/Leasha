@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.84 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.85 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -90,6 +90,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1p | `side-lists-everywhere` | One left-hand list for every page, drawn the Contacts way | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "yes write the order and build it for all and build it")* | 8 / 8 | Files, Code and Browse gain lists; Mail and Photos move onto the shared widget; Contacts moves after the 1k merge |
 | 1q | `tidy-page` | Tidy - find what is indexed, and clear copies, similar photos and leftovers | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "option a, rename to Tidy, write the order and build it")* | 14 / 14 | Reports becomes Tidy; Digital Inheritance removed; local files only, to the Recycle Bin, never the last copy; a third exception to rule 10 |
 | 1r | `smarter-answers` | Smarter answers - a stronger answerer by measurement, a card for every document, answers in Search, your own words, questions across documents | BUILT 2026-10-12 *(released by the owner, 2026-10-12: "do all of them as the questions is the last once the full index is done, note this index is still test")* | 23 / 24 | Section 6b HELD until the final index; merged to main 2026-10-12 as 8e1a938 (PR 51) after the full suite passed (16,122 passed, 0 failed, at 7ba498b); cards documents-only by default (owner); floors not lowered; the retrieval path still never calls a model |
+| 1t | `contact-sync-fast-and-trusted` | Contact sync that is fast and can be trusted - batched writes, kept connections, one count everywhere, a check after every sync, a brake that holds only deletes, an Apple sync that settles | BUILT 2026-10-12, branch `feat/contact-sync-fast-and-trusted` *(written as a DRAFT and released the same evening, owner: "recommended ... do recommended except one order for all and then execute this order"; built as one branch)* | 25 / 38 | Open on purpose: 0a (full suite, in the close-out), 0d (two Graph facts not confirmed; code does not depend on them), 1d, 3e, 7a-7d (need the owner's accounts - UNVERIFIED), 4a (Google/Microsoft JSON round trips), 5e (four in flight), 5h (Graph page size), 6a (Keep them), 8b. Found and fixed: iCloud's X-FC-CLUSTER-ID and the preferred flag (run 485: 4,072 clashes), six binned contacts left at Google by a push race, Microsoft child folders never read |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

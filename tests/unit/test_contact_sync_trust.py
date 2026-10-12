@@ -435,3 +435,38 @@ def test_remote_contact_without_version_is_harmless_to_the_check(world):
     world.providers[aid].list_ids = lambda: {"r9": ""}
     found = world.engine.check(world.accounts.get(aid), world.providers[aid])
     assert found["not_here_n"] == 1 and RemoteContact
+
+
+def test_the_owners_upgrade_does_not_trip_the_guard_and_cleans_google_once(tmp_path):
+    """The book as it stood on 2026-10-12: every card, and every account's base, carries "fc cluster id". The first
+    sync with this build must not read that as a mass change, must take it off Google (which shows it), and must not
+    rewrite the CardDAV server (which adds it itself)."""
+    w = World(tmp_path)
+    try:
+        g = w.account("Google")
+        apple = w.accounts.add("apple", "me@icloud.com", "Apple")
+        w.servers[apple] = FakeServer()
+        w.providers[apple] = FakeProvider(w.servers[apple])
+        w.store.set_state(ContactSyncEngine._REPAIR_KEY, "1")          # the old build: no repair yet
+        for i in range(60):
+            card = person(f"P{i}", email=f"p{i}@x.com")
+            card.fields.append(Field("custom", f"id-{i}", "fc cluster id"))
+            w.servers[g].add(card)
+            w.servers[apple].add(card.copy())
+        w.sync()
+        with w.store.write() as conn:                                    # bases as the old build wrote them
+            for r in conn.execute("SELECT id, snapshot FROM contact_links").fetchall():
+                snap = json.loads(r["snapshot"])
+                snap["fields"].append({"kind": "custom", "label": "fc cluster id", "value": "old"})
+                conn.execute("UPDATE contact_links SET snapshot = ? WHERE id = ?", (json.dumps(snap), r["id"]))
+        w.store.delete_state(ContactSyncEngine._REPAIR_KEY)              # this build's first sync
+        before_apple = len(w.servers[apple].writes)
+        out = w.sync()
+        assert out[g].status == "ok" and out[apple].status == "ok", (out[g].error, out[apple].error)
+        assert not any(f.label == "fc cluster id" for c in w.servers[g].live().values() for f in c.fields)
+        assert len(w.servers[apple].writes) == before_apple
+        writes = len(w.servers[g].writes)
+        w.sync()
+        assert len(w.servers[g].writes) == writes, "settled: the next sync writes nothing"
+    finally:
+        w.store.close()
