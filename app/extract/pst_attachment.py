@@ -21,7 +21,9 @@ changed since - does it search, the folder first and then the archive.
 read from it (measured on the owner's `2014.pst`): contact enrichment read 139 vCard attachments, and
 re-reads several messages a contact (order 1s 4b), each opening its archive afresh - 537 s before the
 first contact was looked at. Inside `with kept_open():` each archive this thread opens stays open until
-the block ends; outside it every call opens and closes its own, as the preview pane needs.
+the block ends; outside it every call opens and closes its own, as the preview pane needs. Its folder
+tree is kept too: a message fetched by position through a folder object libpff has already loaded takes
+milliseconds, through a fresh one 3.7 s (2020.pst's 23,000-message folder, measured the same day).
 """
 
 from __future__ import annotations
@@ -51,10 +53,11 @@ def kept_open():
         yield
         return
     _KEPT.files = {}
+    _KEPT.folders = {}
     try:
         yield
     finally:
-        files, _KEPT.files = _KEPT.files, None
+        files, _KEPT.files, _KEPT.folders = _KEPT.files, None, None
         for archive in files.values():
             with contextlib.suppress(Exception):     # closing a read
                 archive.close()
@@ -209,7 +212,12 @@ def _find_message(archive: Any, wanted: int, folder_path: str | None,
                   folder_index: int | None, *, search: bool = True) -> Any:
     from app.extract.pst_libpff import _identifier, _walk_folders
 
-    folders = list(_walk_folders(archive.get_root_folder()))
+    kept = getattr(_KEPT, "folders", None)
+    folders = kept.get(id(archive)) if kept is not None else None
+    if folders is None:
+        folders = list(_walk_folders(archive.get_root_folder()))
+        if kept is not None:                     # inside `kept_open`: the archive outlives this call
+            kept[id(archive)] = folders
     where = dict(folders)
     # 1. Where the index says it is.
     folder = where.get(folder_path) if folder_path else None

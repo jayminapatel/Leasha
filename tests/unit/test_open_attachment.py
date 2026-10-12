@@ -423,3 +423,21 @@ def test_inside_kept_open_an_archive_is_opened_once_and_closed_at_the_end(monkey
     assert archive.closed
     pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where)
     assert len(opened) == 2                              # outside the block: opened and closed per call
+
+
+def test_inside_kept_open_the_folder_tree_is_walked_once(monkeypatch):
+    """A message fetched through a folder libpff has loaded takes milliseconds; through a fresh one, seconds."""
+    from app.extract import pst_attachment, pst_libpff
+
+    walks = []
+    real = pst_libpff._walk_folders
+    monkeypatch.setattr(pst_libpff, "_walk_folders", lambda root, *a: walks.append(1) or real(root, *a))
+    target = FakeMessage(identifier=2097188, attachments=[FakeAttachment("Model CED.xlsm", SHEET)])
+    _install(monkeypatch, FakeFolder("Top of Personal Folders", children=[FakeFolder("Inbox", messages=[target])]))
+    where = {"folder_path": "Top of Personal Folders/Inbox", "folder_index": 0}
+    with pst_attachment.kept_open():
+        for _ in range(3):
+            assert pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where) == SHEET
+    assert len(walks) == 1
+    pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where)
+    assert len(walks) == 2
