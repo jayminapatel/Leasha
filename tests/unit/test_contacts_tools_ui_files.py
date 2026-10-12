@@ -300,9 +300,14 @@ def test_enrich_keeps_only_what_is_accepted_and_undoes_in_one_step(world, qtbot)
     assert world.hub.get_card(a).get("company") == ""
 
 
-def test_enrich_carries_on_when_its_window_closes_and_waits_to_be_accepted(world, qtbot):
+def test_enrich_carries_on_when_its_window_closes_and_waits_to_be_accepted(world, qtbot, monkeypatch):
     """The look-up belongs to the page: close the window, it finishes and says so; open it, accept later."""
     import threading
+
+    from app.ui.accounts import parts
+
+    # Order 1s 7b: the row did not start ticked (0.5 is below 'Tick automatically from'), so Accept all asks.
+    monkeypatch.setattr(parts, "confirm", lambda *a, **k: True)
 
     from app.contacts.enrich.base import Proposal
 
@@ -335,7 +340,11 @@ def test_enrich_carries_on_when_its_window_closes_and_waits_to_be_accepted(world
     assert third.tree.topLevelItemCount() == 0
 
 
-def test_enrich_accept_all_and_a_result_with_its_own_apply(world, qtbot):
+def test_enrich_accept_all_and_a_result_with_its_own_apply(world, qtbot, monkeypatch):
+    from app.ui.accounts import parts
+
+    monkeypatch.setattr(parts, "confirm", lambda *a, **k: True)     # order 1s 7b: unticked rows, so it asks
+
     class P:
         def __init__(self, cid, label, old, new, source):
             self.contact_id, self.field_label, self.old, self.new, self.source = cid, label, old, new, source
@@ -419,11 +428,12 @@ def test_enrich_look_again_asks_with_force_and_the_notes_are_shown(world, qtbot)
     dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
     dlg.find_button.click()
     qtbot.waitUntil(lambda: dlg.run.state in ("ready", "empty"), timeout=5000)
-    assert calls == [False] and "not asked again" in dlg.status.text() and "not asked again" in said[-1]
+    # Order 1s 7d: the notes are one line under the list (and still in the page's notice).
+    assert calls == [False] and "not asked again" in dlg.notes_line.text() and "not asked again" in said[-1]
     assert dlg.again_button.isEnabled()
     dlg.again_button.click()
     qtbot.waitUntil(lambda: len(calls) == 2 and dlg.run.state in ("ready", "empty"), timeout=5000)
-    assert calls == [False, True] and "not asked again" not in dlg.status.text()
+    assert calls == [False, True] and "not asked again" not in dlg.notes_line.text()
 
 
 def test_look_again_keeps_force_for_a_host_that_takes_force_but_not_progress():

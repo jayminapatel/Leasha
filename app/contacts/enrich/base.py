@@ -37,7 +37,7 @@ from app.contacts.card import SCALARS, Card, Field, Photo, field_key
 __all__ = [
     "Proposal", "ApplyResult", "apply_proposals", "GuardedTransport", "normalise_image",
     "address_of", "emails_of", "recipients_of", "MailRow", "mail_from", "mail_with", "body_text",
-    "format_day", "SOURCE_PREFIX", "proposal_key",
+    "format_day", "SOURCE_PREFIX", "proposal_key", "drop_declined",
 ]
 
 #: `contact_sources.source` of an accepted value is this plus the proposal's `source`.
@@ -69,6 +69,9 @@ class Proposal:
     #: Order 1s 2d: when the message (or file) the value came from was sent, Unix seconds; None when it
     #: is not from a dated source.
     when: Optional[int] = None
+    #: Order 1s 7a: how many messages agree on this value (3j's consensus), for "Seen in 4 messages".
+    #: 0 when the source does not count (the signature reader sets it).
+    seen: int = 0
 
     @property
     def is_scalar(self) -> bool:
@@ -84,6 +87,16 @@ class Proposal:
     def key(self) -> str:
         """The `contact_sources.field_key` this proposal would own once accepted."""
         return proposal_key(self)
+
+
+def drop_declined(store: Any, proposals: Sequence[Proposal], region: str = "GB") -> list[Proposal]:
+    """Order 1s D5: `proposals` without the values the person turned down for that contact.
+
+    Called once, at the end of a run, so no source has to know: a value turned down is held back
+    whichever source found it. Reads only (`declines.drop`)."""
+    from app.contacts.enrich import declines  # noqa: PLC0415 - declines reads this module's Proposal
+
+    return declines.drop(store, proposals, region=region)
 
 
 def proposal_key(p: Proposal, region: str = "GB") -> str:

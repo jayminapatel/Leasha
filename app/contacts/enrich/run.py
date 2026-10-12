@@ -36,6 +36,7 @@ from app.accounts.http import AllowedHosts, UrllibTransport
 from app.contacts.card import Card
 from app.contacts.enrich import company, faces, gravatar, logo, signatures, wikidata
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
+from app.contacts.enrich.base import drop_declined   # order 1s D5, apart so the line above merges cleanly
 from app.contacts.enrich.history import History, contact_history
 from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, suggest_contacts
 from app.core.errors import AppErrorException
@@ -231,6 +232,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
                               notes=notes, _net=net, _wiki=wiki, _skipped=skipped)
         if on_progress is not None:
             on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
+    out = drop_declined(hub.store, out, region=hub.region)        # order 1s D5: never offered again
     if notes is not None:
         notes.extend(skipped_notes(skipped))
         notes.extend(window_notes(hub, settings, ids, out, wanted))

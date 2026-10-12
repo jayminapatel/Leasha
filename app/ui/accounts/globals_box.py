@@ -221,7 +221,7 @@ class GlobalSettingsBox(QWidget):
         # ---- 7 enrichment: what may be looked up, and where
         box, form = self._group("Enrichment", outer)
         # Order 1s 8a: every source and every rule, built in `enrich_settings`.
-        self.enrich_controls = enrich_settings.build(form, self._save)
+        self.enrich_controls = enrich_settings.build(form, self._save, self.backend)
         self.enrich: dict[str, QCheckBox] = self.enrich_controls.checks
 
         # ---- 1a client IDs
