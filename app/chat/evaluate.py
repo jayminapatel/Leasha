@@ -782,6 +782,60 @@ def run_conversations(chat: Any, conversations: Sequence[Any], *, model: str = "
 # the command line: `python -m app.cli evaluate --chat`
 # ---------------------------------------------------------------------------
 
+def _run_owner_questions(args: Any, settings: Any) -> int:
+    """`evaluate --chat --questions FILE`: the owner's questions over the owner's index
+    (order smarter-answers 6a). The full retrieval stack the window uses - keyword,
+    meaning, pictures and the reranker - and the model the app answers with, or
+    `--chat-model`. Reads the index; writes nothing to it."""
+    import json
+    from pathlib import Path
+
+    from app.chat.config import ChatSettings
+    from app.chat.engine import ChatEngine
+    from app.chat.mine import read_owner_questions, run_owner_questions
+    from app.index.embedder import Embedder
+    from app.search import vector
+    from app.search.engine import SearchEngine
+    from app.search.rerank import Reranker
+    from app.storage.sqlite_store import SqliteStore
+    from app.storage.vector_store import ImageVectorStore, VectorStore
+
+    if settings is None:
+        print("No settings could be read, so there is no index to ask.")
+        return 1
+    try:
+        questions = read_owner_questions(Path(args.questions))
+    except (OSError, ValueError) as exc:
+        print(f"Could not read {args.questions}: {exc}")
+        return 1
+    if not questions:
+        print(f"{args.questions} has no questions in it.")
+        return 1
+    llm, label, real, _note = _pick_models(
+        settings, str(getattr(args, "chat_model", "") or ""), bool(getattr(args, "chat_fake", False)))
+    with SqliteStore(settings.fts_db) as store,             VectorStore(settings.vector_path, dim=settings.embed_dim) as vectors,             ImageVectorStore(settings.vector_path) as image_vectors:
+        search = SearchEngine(
+            store, vectors, Embedder.from_settings(settings),
+            reranker=Reranker.from_settings(settings), image_vectors=image_vectors,
+            clip_text_embedder=vector.clip_text_embedder_from_settings(settings))
+        chat = ChatEngine(search, store, llm, ChatSettings.from_settings(settings))
+        print(f"Asking {len(questions)} of your questions of {label}"
+              f"{'' if real else ' (no real model)'} over your index ...")
+
+        def progress(result: Any) -> None:
+            mark = "ok " if result.right else "NOT"
+            print(f"  {mark} line {result.q.line:<4} {result.seconds:5.1f}s  {result.q.question}",
+                  flush=True)
+
+        report = run_owner_questions(chat, questions, model=label, on_result=progress)
+    for line in report.lines():
+        print(line)
+    if getattr(args, "json", False):
+        print()
+        print(json.dumps(report.as_dict(), indent=2))
+    return 0
+
+
 def _pick_models(settings: Any, requested: str, force_fake: bool) -> tuple[Any, str, bool, str]:
     """`(llm, label, real, note)`: real Ollama models when reachable, else FakeLLM.
 
@@ -877,6 +931,9 @@ def run_cli(args: Any) -> int:
         settings = _load(args)
     except Exception:                                    # noqa: BLE001 - defaults are fine
         settings = None
+
+    if str(getattr(args, "questions", "") or "").strip():
+        return _run_owner_questions(args, settings)
 
     questions = list(QUESTIONS)
     conversations_only = bool(getattr(args, "chat_conversation_only", False))

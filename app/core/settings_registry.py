@@ -196,6 +196,15 @@ SETTINGS: tuple[Setting, ...] = (
              "you looked for, and the searches you saved. Switch it off on a "
              "screen other people can see.",
     ),
+    # 2026-10-12, order smarter-answers 3b (owner: "do all of them").
+    Setting(
+        key="SEARCH_ANSWERS", label="Answer questions on the Search page",
+        kind="bool", default=True, group="Search", surface="settings.search",
+        help="When what you type reads as a question, a short answer from your "
+             "files appears above the results, each sentence checked against the "
+             "document it cites. The results never wait for it. Off: the Search "
+             "page only finds, and questions go to Chat.",
+    ),
     Setting(
         key="MINI_SEARCH_ENABLED", label="Search from anywhere with a shortcut",
         kind="bool", default=True, group="Search", surface="settings.search",
@@ -866,6 +875,30 @@ SETTINGS: tuple[Setting, ...] = (
              "laptop hot in a lap. Off by default: describing a whole photo "
              "collection this way can take hours of the machine's own time. "
              "Needs the photo description model above to be installed.",
+    ),
+    # 2026-10-12, order smarter-answers 2d (owner: "do all of them").
+    Setting(
+        key="DOC_CARDS_ENABLED",
+        label="Write a card for every document",
+        kind="bool", default=True, group="Models", surface="settings.models",
+        help="At the end of each index run, the chat model reads the start of "
+             "every document (and, if chosen below, every message) once and notes what it is (an invoice, "
+             "a letter, homework), who is in it, its dates and its amounts, so a "
+             "question can find it by what it is and not only by its words. "
+             "Paced like the rest of indexing and picked up where it stopped. "
+             "A big archive takes days of the computer's spare time the first time.",
+    ),
+    # 2026-10-12, the owner: "can you make this configurable". A card costs about
+    # 21 s on a laptop processor; mail is most of a big archive and already has its
+    # sender, subject and date, so which items get one is the owner's to choose.
+    Setting(
+        key="DOC_CARDS_SCOPE",
+        label="Write cards for",
+        kind="choice", default="documents", group="Models", surface="settings.models",
+        choices=("everything", "documents", "mail"),
+        help="Which items get a card. Documents means files of every kind and the "
+             "attachments in your mail, but not the messages themselves; mail means "
+             "the messages only. Changing it never removes a card already written.",
     ),
     # 2026-10-04, the owner: the index for other AI programs, run by Leasha
     # and managed from Settings. See `app/serve/mcp.py`.

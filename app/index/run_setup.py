@@ -36,7 +36,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -358,6 +358,43 @@ def apply_saved_pst_backend(store: Any) -> Optional[str]:
 # The configuration
 # ---------------------------------------------------------------------------
 
+def card_model_factory(settings: Any) -> Any:
+    """What builds the model that writes document cards (order smarter-answers 2c).
+
+    A callable, not a model: a run with nothing to card never loads one. The
+    chat engine Settings chose (inside Leasha, or Ollama). **Inside Leasha it runs
+    on the processor.** The index run's embedder may hold the graphics card, and
+    the chat model's decode step is not under the graphics-card lock
+    (`app/core/gpu_serialize.py` covers building a session, not each token), so
+    two of them on the card at once is the overlap order 1h set out to remove.
+    """
+    if settings is None:
+        return None
+    return _CardModel(settings)
+
+
+@dataclass(frozen=True)
+class _CardModel:
+    """`card_model_factory`'s callable. A dataclass, not a closure, so two
+    configurations built from the same settings compare equal - the window's run
+    and the command line's are checked to be the same configuration
+    (`test_run_setup_window.py`), and a fresh closure is never equal to another."""
+
+    settings: Any
+
+    def __call__(self) -> Any:
+        from app.llm.engines import text_model
+
+        chosen = self.settings
+        copy = getattr(self.settings, "model_copy", None)
+        if callable(copy):
+            try:
+                chosen = copy(update={"embed_device": "cpu"})
+            except Exception:                       # noqa: BLE001 - the settings as they are
+                chosen = self.settings
+        return text_model(chosen)
+
+
 def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
                           workers: int | None = None, memory_mb: int | None = None,
                           cpu_percent: int | None = None, full_speed: bool = False,
@@ -456,6 +493,9 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
     return PipelineConfig(
         walk=WalkConfig(
             roots=list(roots),
+            # 2026-10-12: this machine's Settings > File types choices, read by the walk.
+            formats_from=(Path(settings.data_path)
+                          if getattr(settings, "data_path", None) else None),
             priority_roots=[Path(p).expanduser() for p in (first or ())],
             include_cloud=include_cloud,
             cloud_content_roots=frozenset(cloud_content_roots),
@@ -505,6 +545,9 @@ def build_pipeline_config(settings: Any, roots: list[Path], *, tuned: object,
         file_time_limit_s=int(setting("index_file_time_limit_s", 120)),
         stall_limit_s=int(setting("index_stall_limit_s", 600)),
         caption_trickle_enabled=bool(setting("caption_trickle_enabled", False)),
+        doc_cards_enabled=bool(setting("doc_cards_enabled", True)),
+        doc_cards_scope=str(setting("doc_cards_scope", "documents")),
+        card_model=card_model_factory(settings),
         ollama_url=str(setting("ollama_url", "http://127.0.0.1:11434")),
         ollama_vision_model=str(setting("ollama_vision_model", "llava")),
         chat_engine=str(setting("chat_engine", "onnx")),

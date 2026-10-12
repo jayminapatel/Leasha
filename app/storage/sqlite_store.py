@@ -20,6 +20,7 @@ than aspirational.
 
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import threading
@@ -27,6 +28,7 @@ import time
 import weakref
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from itertools import groupby
 from operator import itemgetter
 from pathlib import Path
@@ -4293,6 +4295,233 @@ class SqliteStore:
             self._bump_generation(conn)
             return int(cursor.lastrowid)
 
+    # -- document cards and the owner's words (order smarter-answers) ---------
+
+    def iter_card_candidates(
+        self, doc_exts: Iterable[str], mail_exts: Iterable[str], *,
+        prompt_version: int, label: str, batch_size: int = 16,
+        bare_messages: bool = True,
+    ) -> Iterator[list[tuple[int, str, Optional[str]]]]:
+        r"""`(file_id, path, content_hash)` of documents and mail with no current card.
+
+        Order `smarter-answers` 2c. Newest first (`idx_files_mtime`, keyset
+        paged, so a run walks the table once). A file needs a card when it has
+        no `doc_cards` row for its *current* hash and prompt version - a
+        changed file or a better prompt is offered again - or when its row says
+        `made` but the card passage is gone: `replace_chunks` drops every
+        passage it was not handed, so a file read again loses its card while
+        its hash, and so its row, stay the same.
+
+        Extensions are passed in, as for `iter_uncaptioned_images`: storage
+        does not import `app.index`. `bare_messages`: a message read out of an
+        archive with no extension of its own counts as mail (False for
+        `DOC_CARDS_SCOPE=documents`).
+        """
+        kinds = sorted({str(e).lower().lstrip(".") for e in (*doc_exts, *mail_exts)
+                        if str(e).strip()})
+        if not kinds and not bare_messages:
+            return
+        marks = ",".join("?" for _ in kinds) or "NULL"
+        last: Optional[tuple[int, int]] = None
+        while True:
+            keyset = "" if last is None else (
+                "AND (f.mtime_ns < ? OR (f.mtime_ns = ? AND f.id < ?))")
+            args: list[Any] = list(kinds) + [1 if bare_messages else 0]
+            if last is not None:
+                args += [last[0], last[0], last[1]]
+            args += [int(prompt_version), label, int(batch_size)]
+            rows = self.conn.execute(
+                f"""
+                SELECT f.id, f.path, f.content_hash, f.mtime_ns FROM files f
+                WHERE f.status IN ('INDEXED', 'PARTIAL')
+                  AND (lower(f.ext) IN ({marks})
+                       OR (? AND f.ext = '' AND f.source_kind = 'pst_message'))
+                  {keyset}
+                  AND NOT EXISTS (
+                      SELECT 1 FROM doc_cards d
+                      WHERE d.file_id = f.id AND d.content_hash IS f.content_hash
+                        AND d.prompt_version >= ?
+                        AND (d.outcome <> 'made' OR EXISTS (
+                            SELECT 1 FROM chunks c WHERE c.file_id = f.id AND c.label = ?))
+                  )
+                ORDER BY f.mtime_ns DESC, f.id DESC LIMIT ?
+                """,
+                args,
+            ).fetchall()
+            if not rows:
+                return
+            last = (int(rows[-1]["mtime_ns"] or 0), int(rows[-1]["id"]))
+            yield [(int(r["id"]), str(r["path"]),
+                    None if r["content_hash"] is None else str(r["content_hash"]))
+                   for r in rows]
+
+    def card_source_text(self, file_id: int, max_chars: int) -> str:
+        """What a card is written from: a message's headers, then the file's own
+        passages in order, up to `max_chars`. Passages a model wrote (labels
+        beginning "AI") are left out - a card is not written from a card."""
+        parts: list[str] = []
+        message = self.conn.execute(
+            "SELECT subject, sender, recipients, sent_at FROM messages WHERE file_id = ?",
+            (int(file_id),)).fetchone()
+        if message is not None:
+            if message["sender"]:
+                parts.append(f"From: {message['sender']}")
+            if message["recipients"]:
+                try:
+                    people = json.loads(message["recipients"])
+                    shown = (", ".join(str(p) for p in people) if isinstance(people, list)
+                             else str(people))
+                except ValueError:
+                    shown = str(message["recipients"])
+                parts.append(f"To: {shown}")
+            if message["sent_at"]:
+                try:
+                    when = datetime.fromtimestamp(int(message["sent_at"]), tz=timezone.utc)
+                    parts.append(f"Date: {when.date().isoformat()}")
+                except (OverflowError, OSError, ValueError):
+                    pass
+            if message["subject"]:
+                parts.append(f"Subject: {message['subject']}")
+        size = sum(len(p) + 1 for p in parts)
+        for row in self.conn.execute(
+                "SELECT text FROM chunks WHERE file_id = ? "
+                "AND (label IS NULL OR label NOT LIKE 'AI %') ORDER BY ordinal",
+                (int(file_id),)):
+            if size >= max_chars:
+                break
+            text = str(row["text"] or "")
+            parts.append(text)
+            size += len(text) + 1
+        return "\n".join(parts)[:max_chars]
+
+    def save_doc_card(
+        self, file_id: int, content_hash: Optional[str], *, outcome: str,
+        fields: Optional[dict[str, Any]], text: Optional[str], label: str,
+        model: str, prompt_version: int,
+    ) -> tuple[Optional[int], list[int]]:
+        """Record a card (or that there was nothing to say) for one file.
+
+        Returns `(new passage id or None, passage ids removed)`; the caller
+        removes the removed ids' vectors - SQLite is the authority, LanceDB
+        follows. One transaction: the row and the passage change together.
+        """
+        fields = dict(fields or {})
+        with self.write() as conn:
+            removed = [int(r[0]) for r in conn.execute(
+                "SELECT id FROM chunks WHERE file_id = ? AND label = ?",
+                (int(file_id), label))]
+            if removed:
+                conn.execute(
+                    f"DELETE FROM chunks WHERE id IN ({','.join('?' * len(removed))})", removed)
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO doc_cards
+                    (file_id, content_hash, prompt_version, outcome, kind, people,
+                     organisations, dates, amounts, summary, model, made_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (int(file_id), content_hash, int(prompt_version), outcome,
+                 fields.get("kind"), fields.get("people"), fields.get("organisations"),
+                 fields.get("dates"), fields.get("amounts"), fields.get("summary"),
+                 model, int(time.time())),
+            )
+            chunk_id: Optional[int] = None
+            if outcome == "made" and text:
+                body = f"{label}: {text}"
+                ordinal = int(conn.execute(
+                    "SELECT COALESCE(MAX(ordinal), -1) FROM chunks WHERE file_id = ?",
+                    (int(file_id),)).fetchone()[0]) + 1
+                cursor = conn.execute(
+                    """
+                    INSERT INTO chunks (file_id, ordinal, text, symbols, char_start,
+                                        char_end, page, label, embedded)
+                    VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?, 0)
+                    """,
+                    (int(file_id), ordinal, body, symbol_tokens(body), label),
+                )
+                chunk_id = int(cursor.lastrowid)
+            self._bump_generation(conn)
+            return chunk_id, removed
+
+    def own_passage(self, file_id: int) -> Optional[dict[str, Any]]:
+        """A file's first passage of its own - not one a model wrote (labels
+        beginning "AI"). What Chat quotes when a document card found the file
+        (order smarter-answers 2f). None when the file has none."""
+        row = self.conn.execute(
+            "SELECT id, text, page, label FROM chunks WHERE file_id = ? "
+            "AND (label IS NULL OR label NOT LIKE 'AI %') ORDER BY ordinal LIMIT 1",
+            (int(file_id),)).fetchone()
+        return None if row is None else {"id": int(row["id"]), "text": str(row["text"] or ""),
+                                         "page": row["page"], "label": row["label"]}
+
+    def doc_card(self, file_id: int) -> Optional[dict[str, Any]]:
+        """One file's made card, the lists decoded; None when it has none."""
+        return self.doc_cards_for_files([file_id]).get(int(file_id))
+
+    def doc_cards_for_files(self, file_ids: Iterable[int]) -> dict[int, dict[str, Any]]:
+        """The made cards of these files, by file id (Chat reads several at once)."""
+        ids = sorted({int(i) for i in file_ids})
+        out: dict[int, dict[str, Any]] = {}
+        for start in range(0, len(ids), 500):
+            part = ids[start:start + 500]
+            for row in self.conn.execute(
+                    "SELECT * FROM doc_cards WHERE outcome = 'made' "
+                    f"AND file_id IN ({','.join('?' * len(part))})", part):
+                card = dict(row)
+                for key in ("people", "organisations", "dates", "amounts"):
+                    try:
+                        card[key] = list(json.loads(card.get(key) or "[]"))
+                    except ValueError:
+                        card[key] = []
+                out[int(card["file_id"])] = card
+        return out
+
+    def doc_card_counts(self) -> dict[str, int]:
+        """How many cards were made, and how many files had nothing to say."""
+        out = {"made": 0, "nothing": 0}
+        for row in self.conn.execute(
+                "SELECT outcome, COUNT(*) AS n FROM doc_cards GROUP BY outcome"):
+            out[str(row["outcome"])] = int(row["n"])
+        return out
+
+    def clear_doc_cards(self, label: str) -> tuple[int, list[int]]:
+        """Forget every card (the owner's test index, order smarter-answers 2e).
+        Returns `(rows removed, passage ids removed)` for the caller's vectors."""
+        with self.write() as conn:
+            removed = [int(r[0]) for r in conn.execute(
+                "SELECT id FROM chunks WHERE label = ?", (label,))]
+            conn.execute("DELETE FROM chunks WHERE label = ?", (label,))
+            rows = int(conn.execute("DELETE FROM doc_cards").rowcount)
+            self._bump_generation(conn)
+            return rows, removed
+
+    def my_words(self) -> list[tuple[str, str, str]]:
+        """`(phrase, meaning, source)` for every word the owner has defined.
+        Kept through a Reset, like the settings in `index_state`: they are the
+        owner's choices, not something read from a file."""
+        return [(str(r["phrase"]), str(r["meaning"]), str(r["source"]))
+                for r in self.conn.execute(
+                    "SELECT phrase, meaning, source FROM my_words ORDER BY phrase_key")]
+
+    def set_my_word(self, phrase: str, meaning: str, *, source: str = "settings") -> None:
+        """Add or change one of the owner's words. The phrase's case is kept for
+        showing; its casefolded form is the identity."""
+        phrase = " ".join(str(phrase or "").split())
+        meaning = " ".join(str(meaning or "").split())
+        if not phrase or not meaning:
+            raise ValueError("a word needs both a phrase and a meaning")
+        with self.write() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO my_words (phrase_key, phrase, meaning, source, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (phrase.casefold(), phrase, meaning, source, int(time.time())))
+
+    def remove_my_word(self, phrase: str) -> bool:
+        """Forget one. True when there was one to forget."""
+        key = " ".join(str(phrase or "").split()).casefold()
+        with self.write() as conn:
+            return conn.execute("DELETE FROM my_words WHERE phrase_key = ?", (key,)).rowcount > 0
+
     def get_chunk(self, chunk_id: int) -> Optional[ChunkRecord]:
         """One passage by id, or None. `label` and `symbols` are not carried
         (see `ChunkRecord`)."""
@@ -5765,8 +5994,6 @@ class SqliteStore:
         than raising, because losing a conversation to a stale id is worse than
         keeping a duplicate.
         """
-        import json
-
         now = int(time.time())
         cleaned = " ".join(str(title or "").split())[:120] or "New conversation"
         payload = (cleaned, str(model or ""), json.dumps(list(turns), ensure_ascii=False),
@@ -5793,8 +6020,6 @@ class SqliteStore:
         A row whose JSON is damaged comes back with empty turns rather than
         raising: one bad session never hides the others.
         """
-        import json
-
         out: list[dict[str, Any]] = []
         for row in self.conn.execute(
                 "SELECT id, title, model, turns_json, shelf_json, created_at, updated_at "

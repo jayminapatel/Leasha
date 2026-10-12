@@ -263,7 +263,13 @@ def test_the_four_moved_formats_are_ready_with_libreoffice_absent():
     no_libreoffice = {name: None for name in
                       ("soffice", "libreoffice", "pandoc", "tesseract",
                        "xstexporter", "dwg2dxf", "ODAFileConverter")}
-    statuses = format_health(load_rules(None), binaries=no_libreoffice)
+    # 2026-10-12, the owner: "turn svg and epub off now and as default". `.epub`
+    # ships switched off; switched back on (as Settings would), it must still
+    # read by its own library alone - which is what this test is for.
+    from app.core.formats import with_override
+
+    rules = with_override(load_rules(None), ".epub", extractor="epub", enabled=True)
+    statuses = format_health(rules, binaries=no_libreoffice)
     by_extension = {s.extension: s for s in statuses}
 
     for extension in (".xls", ".rtf", ".fb2", ".epub"):

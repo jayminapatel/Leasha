@@ -787,8 +787,11 @@ def test_the_chat_settings_group_builds_one_control_per_declared_setting(qtbot, 
                     default=True, group="Models", surface="settings.models",
                     help="Show the running commentary while it works."),
     )
-    # Replace, not add: the engine now declares real CHAT_ keys of its own.
-    kept = tuple(s for s in reg.SETTINGS if not s.key.startswith("CHAT_"))
+    # Replace, not add: the engine now declares real CHAT_ keys of its own, and the
+    # box shows a few others (`chat_box.ALWAYS_SHOWN`, 2026-10-12) - all replaced.
+    from app.ui.widgets.chat_box import ALWAYS_SHOWN
+    kept = tuple(s for s in reg.SETTINGS
+                 if not s.key.startswith("CHAT_") and s.key not in ALWAYS_SHOWN)
     monkeypatch.setattr(reg, "SETTINGS", kept + declared)
     box = ChatBox(SimpleNamespace(chat_max_rounds=2, chat_model="qwen", chat_show_steps=False))
     qtbot.addWidget(box)

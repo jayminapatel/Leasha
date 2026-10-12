@@ -334,8 +334,13 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     layout.addWidget(notices)
     # Order 1k 6f: a query that names a contact shows their card here, above the results.
     # It reads on a worker after its own pause and never touches the search itself.
+    # Order smarter-answers 3a: a question gets a short answer above the results,
+    # after the results and on a worker. Chat is connected to it by the window.
+    # Above the person strip, which sits right on top of the results.
+    from app.ui.widgets.answer_card import attach as attach_answer_card
     from app.ui.widgets.person_card import attach as attach_person_strip
 
+    layout.addWidget(attach_answer_card(view))
     layout.addWidget(attach_person_strip(view))
     layout.addWidget(body, stretch=1)
 

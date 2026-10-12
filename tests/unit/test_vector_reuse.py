@@ -66,8 +66,15 @@ def _run(db: Path, roots: list[Path], vectors: Vectors, sent: list[str], **confi
         sent.extend(texts)
         return [[float(len(text)), 1.0, 0.0, 0.0] for text in texts]
 
+    # 2026-10-12, the owner: .svg ships switched off ("turn svg and epub off now and
+    # as default"). These tests are about how a drawing is read when it *is* read,
+    # so it is switched back on here, as Settings > File types would.
+    choices = db.parent / "choices"
+    choices.mkdir(exist_ok=True)
+    (choices / "extractors.toml").write_text(
+        "schema_version = 1\n[extensions]\n\".svg\" = { enabled = true }\n", encoding="utf-8")
     with SqliteStore(db) as store:
-        settings = PipelineConfig(walk=WalkConfig(roots=roots), workers=1,
+        settings = PipelineConfig(walk=WalkConfig(roots=roots, formats_from=choices), workers=1,
                                   limits=NO_PACING, **config)
         return Pipeline(store, vectors, Embedder(dim=4, encoder=encode), settings).run()
 

@@ -146,6 +146,8 @@
     <Compile Include="app\chat\evaluate.py" />
     <Compile Include="app\chat\llm.py" />
     <Compile Include="app\chat\memory.py" />
+    <Compile Include="app\chat\mine.py" />
+    <Compile Include="app\chat\my_words.py" />
     <Compile Include="app\chat\plan.py" />
     <Compile Include="app\chat\prompts.py" />
     <Compile Include="app\chat\reconcile.py" />
@@ -165,6 +167,7 @@
     <Compile Include="app\cli\_progress.py" />
     <Compile Include="app\cli\accounts.py" />
     <Compile Include="app\cli\bench.py" />
+    <Compile Include="app\cli\cards.py" />
     <Compile Include="app\cli\contacts.py" />
     <Compile Include="app\cli\desktop.py" />
     <Compile Include="app\cli\evaluate.py" />
@@ -330,9 +333,11 @@
     <Compile Include="app\index\archives.py" />
     <Compile Include="app\index\autotune.py" />
     <Compile Include="app\index\backends.py" />
+    <Compile Include="app\index\card_pass.py" />
     <Compile Include="app\index\child_run.py" />
     <Compile Include="app\index\clip_embedder.py" />
     <Compile Include="app\index\device_test.py" />
+    <Compile Include="app\index\doc_cards.py" />
     <Compile Include="app\index\embed_bench.py" />
     <Compile Include="app\index\embedder.py" />
     <Compile Include="app\index\face_clustering.py" />
@@ -530,6 +535,7 @@
     <Compile Include="app\ui\pinned.py" />
     <Compile Include="app\ui\presenter\__init__.py" />
     <Compile Include="app\ui\presenter\activity.py" />
+    <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
@@ -599,6 +605,7 @@
     <Compile Include="app\ui\widgets\about_dialog.py" />
     <Compile Include="app\ui\widgets\add_file_type.py" />
     <Compile Include="app\ui\widgets\advanced_fold.py" />
+    <Compile Include="app\ui\widgets\answer_card.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
@@ -665,6 +672,7 @@
     <Compile Include="app\ui\widgets\model_download.py" />
     <Compile Include="app\ui\widgets\model_manager.py" />
     <Compile Include="app\ui\widgets\model_picker.py" />
+    <Compile Include="app\ui\widgets\my_words_box.py" />
     <Compile Include="app\ui\widgets\needed_models_box.py" />
     <Compile Include="app\ui\widgets\no_scroll.py" />
     <Compile Include="app\ui\widgets\notice_bar.py" />
@@ -807,6 +815,7 @@
     <Compile Include="tests\unit\test_activity_log.py" />
     <Compile Include="tests\unit\test_adoption_scenarios.py" />
     <Compile Include="tests\unit\test_ai_program_paths.py" />
+    <Compile Include="tests\unit\test_answer_card_qt.py" />
     <Compile Include="tests\unit\test_answer_model_choice.py" />
     <Compile Include="tests\unit\test_answer_model_choice_qt.py" />
     <Compile Include="tests\unit\test_archive_reading.py" />
@@ -930,6 +939,7 @@
     <Compile Include="tests\unit\test_coverage.py" />
     <Compile Include="tests\unit\test_crash_guard.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />
+    <Compile Include="tests\unit\test_cross_documents.py" />
     <Compile Include="tests\unit\test_date_everywhere.py" />
     <Compile Include="tests\unit\test_date_format.py" />
     <Compile Include="tests\unit\test_date_forms_every_box.py" />
@@ -942,6 +952,7 @@
     <Compile Include="tests\unit\test_diagnostics.py" />
     <Compile Include="tests\unit\test_diagrams.py" />
     <Compile Include="tests\unit\test_distinct_values.py" />
+    <Compile Include="tests\unit\test_doc_cards.py" />
     <Compile Include="tests\unit\test_docs_versioned.py" />
     <Compile Include="tests\unit\test_doctor.py" />
     <Compile Include="tests\unit\test_doctor_onnxruntime.py" />
@@ -1123,6 +1134,8 @@
     <Compile Include="tests\unit\test_model_dropdowns.py" />
     <Compile Include="tests\unit\test_model_manager_qt.py" />
     <Compile Include="tests\unit\test_models_folder.py" />
+    <Compile Include="tests\unit\test_my_words.py" />
+    <Compile Include="tests\unit\test_my_words_qt.py" />
     <Compile Include="tests\unit\test_name_of.py" />
     <Compile Include="tests\unit\test_name_only.py" />
     <Compile Include="tests\unit\test_named_file_types.py" />
@@ -1167,6 +1180,7 @@
     <Compile Include="tests\unit\test_outlook_cleanup.py" />
     <Compile Include="tests\unit\test_outlook_cleanup_ui.py" />
     <Compile Include="tests\unit\test_own_python.py" />
+    <Compile Include="tests\unit\test_owner_questions.py" />
     <Compile Include="tests\unit\test_packaging_entry.py" />
     <Compile Include="tests\unit\test_page_switch_never_waits.py" />
     <Compile Include="tests\unit\test_pages_reorg.py" />
@@ -1693,6 +1707,7 @@
     <Content Include="docs\WORKORDER-robust-indexing-and-status.md" />
     <Content Include="docs\WORKORDER-scope-change-search-and-chat.md" />
     <Content Include="docs\WORKORDER-side-lists-everywhere.md" />
+    <Content Include="docs\WORKORDER-smarter-answers.md" />
     <Content Include="docs\WORKORDER-space-report-and-idle-tune-ui-wiring.md" />
     <Content Include="docs\WORKORDER-space-report-files-only-inheritance-pst-duplicates.md" />
     <Content Include="docs\WORKORDER-suite-speed.md" />
@@ -1730,6 +1745,7 @@
     <Content Include="scripts\install-nightly.ps1" />
     <Content Include="scripts\parse-check.ps1" />
     <Content Include="tests\fixtures\README.md" />
+    <Content Include="tests\fixtures\chat_eval_measured.json" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-home.png" />
     <Content Include="tests\golden\ui-redesign\dark-1024x600\dark\search-results.png" />
     <Content Include="tests\golden\ui-redesign\dark-1100x760\dark\search-home.png" />

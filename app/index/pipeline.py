@@ -334,6 +334,8 @@ PHASE_MEDIA = "media"
 PHASE_PHOTO_TAGS = "photo_tags"
 #: 2026-10-04. Text read from pictures, last of all (the owner's order).
 PHASE_PICTURE_TEXT = "picture_text"
+#: 2026-10-12, order smarter-answers 2c. A card for each document, last of all.
+PHASE_DOC_CARDS = "doc_cards"
 PHASE_TIDYING = "tidying"
 PHASE_VECTOR_INDEX = "vector_index"
 PHASE_WORD_INDEX = "word_index"
@@ -940,6 +942,14 @@ class PipelineConfig:
     #: it is indexed, and a second Florence pass would cost seconds a photo for
     #: the same words.
     chat_engine: str = "onnx"
+    #: Order smarter-answers 2c. `DOC_CARDS_ENABLED`, and a zero-argument
+    #: callable that builds the model which writes them (`run_setup.
+    #: card_model_factory`) - a callable so a run with nothing to card never
+    #: loads 1.5 GB, and so a test can hand in a stand-in.
+    doc_cards_enabled: bool = False
+    card_model: Optional[Any] = None
+    #: `DOC_CARDS_SCOPE`: "everything", "documents" (not messages) or "mail".
+    doc_cards_scope: str = "documents"
     #: Work order 0j, the whole order. OFF by default - see `app.core.
     #: settings_registry.PEOPLE_RECOGNITION_ENABLED`. Read by `_write_one`
     #: (the images-pass face step, section 1a) and `_drain_face_backfill`
@@ -2399,6 +2409,10 @@ class Pipeline:
             if getattr(view, "wrote", False) and self._drain_takes_run_end():
                 self._drain_unembedded(stats, at_run_end=True)
         self._close_ocr_helper()                 # the last OCR of the run was just above
+        # Order smarter-answers 2c: a card for each document and message, last
+        # of the passes - everything it reads is already written.
+        if finishing:
+            self._drain_doc_cards(stats, on_progress)
 
         # Guarded on `_interrupted`, never on the event: an interrupted walk
         # did not see the whole corpus, so "missing" would mean "not reached
@@ -6166,6 +6180,8 @@ class Pipeline:
     #: like the kinds above: it is the most expensive thing in the corpus and
     #: nothing is waiting behind it. See `_drain_media_backlog`.
     KIND_MEDIA_TRANSCRIPT = "media_transcript"
+    #: Order smarter-answers 2c, drained at the run's tail like the media.
+    KIND_DOC_CARDS = "doc_cards"
 
     #: 2026-10-10. True only for the media tail's own run (`media_backlog.
     #: BacklogPipeline`). That run is started by another `Pipeline.run` near
@@ -6805,6 +6821,54 @@ class Pipeline:
         if reuse.copied:
             self._log.info("{} of them copied a near-identical photo's description "
                            "instead of asking Florence-2", reuse.copied)
+
+    def _drain_doc_cards(
+        self, stats: IndexStats,
+        on_progress: Optional[Callable[[IndexStats], None]] = None,
+    ) -> None:
+        r"""A card for each document and message: what it is, who, when, how much.
+
+        Order `smarter-answers` 2c (owner, 2026-10-12). Last of the run's
+        passes: everything a card is written from is already stored. The loop
+        is `app/index/card_pass.run_cards`, shared with `leasha cards`; this
+        hands it the run's governor, Stop, progress and vector deletes, then
+        embeds the new cards before the run ends, as the photo passes do.
+        """
+        from app.index.card_pass import run_cards
+
+        stats.enrichment_counts[self.KIND_DOC_CARDS] = 0
+        factory = getattr(self.config, "card_model", None)
+        if not getattr(self.config, "doc_cards_enabled", False) or factory is None:
+            return
+
+        def throttle() -> bool:
+            verdict = self.governor.wait_while_throttled(should_stop=lambda: self._interrupted)
+            return verdict.action != "stop"
+
+        def on_card(name: str) -> None:
+            stats.current = name
+            if on_progress is not None:
+                on_progress(stats)
+
+        try:
+            result = run_cards(
+                self.store, factory, interrupted=lambda: self._interrupted,
+                throttle=throttle, on_card=on_card,
+                on_first=lambda: self._announce_phase(stats, on_progress, PHASE_DOC_CARDS),
+                delete_vectors=self._delete_chunk_vectors_once_committed, log=self._log,
+                scope=str(getattr(self.config, "doc_cards_scope", "documents") or "documents"))
+        except Exception as exc:                  # noqa: BLE001 - a repair, not the job
+            self._log.warning("could not finish the document cards: {}. Indexing continues.", exc)
+            return
+        if result.gave_up:
+            self._log.info("document cards paused: {}; the rest wait for the next run",
+                           result.gave_up)
+        stats.enrichment_counts[self.KIND_DOC_CARDS] = result.made
+        stats.chunks += result.made
+        if result.made:
+            self._log.info("wrote {} document card(s) in {:.0f} s of the model's time",
+                           result.made, result.seconds_asking)
+            self._drain_unembedded(stats, at_run_end=True)
 
     def _description_reuse(self) -> Any:
         """This drain's near-identical check (item 4c, 2026-10-10). Built on the

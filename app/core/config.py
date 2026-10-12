@@ -166,6 +166,8 @@ class Settings(BaseModel):
     #: person, on a shared screen, and "off" has to be one click rather than
     #: an argument.
     search_offer_recent: bool = True
+    #: Order smarter-answers 3b: an answer card above a question's results.
+    search_answers: bool = True
     #: Workspace §3a. The combination that opens the small search box from
     #: anywhere, and whether to take it at all.
     #:
@@ -295,6 +297,10 @@ class Settings(BaseModel):
     #: Work order 0i section 3b. OFF by default - see settings_registry.py's
     #: CAPTION_TRICKLE_ENABLED for the full reasoning.
     caption_trickle_enabled: bool = False
+    #: Order smarter-answers 2d: a card for every document at the end of a run.
+    doc_cards_enabled: bool = True
+    #: Which items get one: everything, documents (not messages) or mail (messages only).
+    doc_cards_scope: str = "documents"
     #: 2026-10-04. AI programs (MCP): the local port Leasha's server listens on,
     #: and whether it starts with the window. See `app/serve/mcp.py`.
     mcp_port: int = 8737
@@ -544,6 +550,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "SEARCH_PLAIN_WORDS",
     "SEARCH_EXPLAIN_RESULTS",
     "SEARCH_OFFER_RECENT",
+    "SEARCH_ANSWERS",
     "MINI_SEARCH_ENABLED",
     "MINI_SEARCH_HOTKEY",
     "MINI_SEARCH_PREFILL_SELECTION",
@@ -567,6 +574,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "CHAT_WEB_SEARXNG_URL",
     "CHAT_WEB_BRAVE_KEY",
     "CAPTION_TRICKLE_ENABLED",
+    "DOC_CARDS_ENABLED",
+    "DOC_CARDS_SCOPE",
     # 2026-10-04: AI programs (MCP).
     "MCP_PORT",
     "MCP_AUTOSTART",
@@ -727,6 +736,7 @@ def load_settings(
             search_offer_recent=_as_bool(
                 "SEARCH_OFFER_RECENT",
                 values.get("SEARCH_OFFER_RECENT", "true")),
+            search_answers=_as_bool("SEARCH_ANSWERS", values.get("SEARCH_ANSWERS", "true")),
             mini_search_enabled=_as_bool(
                 "MINI_SEARCH_ENABLED",
                 values.get("MINI_SEARCH_ENABLED", "true")),
@@ -762,6 +772,9 @@ def load_settings(
             chat_web_brave_key=(values.get("CHAT_WEB_BRAVE_KEY") or "").strip(),
             caption_trickle_enabled=_as_bool(
                 "CAPTION_TRICKLE_ENABLED", values.get("CAPTION_TRICKLE_ENABLED", "false")),
+            doc_cards_enabled=_as_bool(
+                "DOC_CARDS_ENABLED", values.get("DOC_CARDS_ENABLED", "true")),
+            doc_cards_scope=(values.get("DOC_CARDS_SCOPE") or "documents").strip().lower(),
             mcp_port=_as_int("MCP_PORT", values.get("MCP_PORT", "8737")),
             mcp_autostart=_as_bool("MCP_AUTOSTART", values.get("MCP_AUTOSTART", "false")),
             people_recognition_enabled=_as_bool(

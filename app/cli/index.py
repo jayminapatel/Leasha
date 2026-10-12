@@ -40,6 +40,7 @@ _ENRICHMENT_LABELS = dict(
     ocr_pending="held file(s) retried",
     image_tag="photo(s) tagged",
     media_transcript="video/recording file(s) read in the background",
+    doc_cards="document card(s) written",
 )
 
 

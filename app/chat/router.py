@@ -57,6 +57,7 @@ __all__ = [
     "resolve_followup",
     "CLASSES",
     "LOOKUP", "AGGREGATE", "SYNTHESIS", "FIND", "ABSENCE", "FOLLOWUP", "CHAT",
+    "cross_shape", "COMPARE", "TIMELINE",
     "chat_reason", "VALUE_NOUNS",
 ]
 
@@ -560,3 +561,53 @@ def resolve_followup(question: str, history: Sequence[Any], *, llm: Any = None,
         except Exception:                                # noqa: BLE001 - assist only
             pass
     return standalone
+
+
+# -- across documents: compare and timeline (order smarter-answers 5a) -----------------
+
+#: The two shapes of a question about more than one document. Not new classes beside
+#: LOOKUP and SYNTHESIS - a comparison is still answered from passages and verified
+#: sentence by sentence - but each changes how the passages are gathered and ordered:
+#: a comparison searches each side on its own, so both reach the model; a timeline
+#: puts its sources in date order.
+COMPARE = "compare"
+TIMELINE = "timeline"
+
+_TAIL = r"\s*[?.!]*\s*$"
+_COMPARE_SIDES = (
+    re.compile(r"\b(?:compare|comparing|comparison\s+of)\s+(?P<a>.+?)\s+(?:and|with|to|against)\s+"
+               r"(?P<b>.+?)" + _TAIL, re.IGNORECASE),
+    re.compile(r"\bdifferences?\s+between\s+(?P<a>.+?)\s+and\s+(?P<b>.+?)" + _TAIL, re.IGNORECASE),
+    re.compile(r"^(?:\w+\s+){0,3}?(?P<a>[^?]+?)\s+(?:vs\.?|versus)\s+(?P<b>.+?)" + _TAIL,
+               re.IGNORECASE),
+)
+_COMPARE_ANY = re.compile(r"\b(?:compare|comparing|comparison|differences?\s+between|"
+                          r"versus|vs\.?|how\s+do\s+.+\s+differ)\b", re.IGNORECASE)
+_TIMELINE = re.compile(
+    r"\b(?:timeline|chronolog\w*|in\s+date\s+order|in\s+order\s+of\s+date|history\s+of|"
+    r"what\s+happened\s+(?:with|to|about|in)|how\s+(?:has|have|did)\s+.+\s+"
+    r"(?:change|changed|develop|developed|evolve|evolved|progress|progressed))\b",
+    re.IGNORECASE)
+_SIDE_LEAD = re.compile(r"^(?:the|my|our|a|an)\s+", re.IGNORECASE)
+
+
+def cross_shape(question: str) -> tuple[str, tuple[str, ...]]:
+    """`(COMPARE | TIMELINE | "", sides)` for a question - rules only, never raises.
+
+    `sides` is the two things a comparison names ("the 2023 and 2024 tenancy
+    agreements" has none: one search, at least two documents). A side keeps
+    its own words; "the" and "my" are dropped so each searches as typed."""
+    text = " ".join(str(question or "").split())
+    if not text:
+        return "", ()
+    if _COMPARE_ANY.search(text):
+        for pattern in _COMPARE_SIDES:
+            match = pattern.search(text)
+            if match:
+                sides = tuple(_SIDE_LEAD.sub("", s.strip(" ,;:")) for s in (match["a"], match["b"]))
+                if all(len(s) >= 2 for s in sides) and sides[0].casefold() != sides[1].casefold():
+                    return COMPARE, sides
+        return COMPARE, ()
+    if _TIMELINE.search(text):
+        return TIMELINE, ()
+    return "", ()

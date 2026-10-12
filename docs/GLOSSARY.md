@@ -1,6 +1,6 @@
 # Glossary
 
-**Doc version:** 1.14 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.15 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 The words this project uses, and what they actually mean here. Written because every
 one of them was previously inferred from context on each new session, and several
@@ -264,3 +264,13 @@ Order 1k. The code is the authority: `app/accounts` (sign-in, the sync engine, l
 | Thumbnail cache | 320-pixel copies of pictures in `<data>/thumbs`, named by path, size and modified time, so a changed photo gets a new one | `widgets/photo_thumbs.py` |
 | Tray status line | The live line in the tray icon's menu and tooltip: what indexing is doing, or how many files the index holds; clicking it opens Indexing | `presenter/tray_words.py`, fed by the same signals as the pill |
 | Name date | A date read from a photo's file name when its metadata has none - a precise hint, shown "about 11 Aug 2022, 16:22" | `era_hints.guess_moment`; after EXIF, before the folder year |
+
+## Added 12 October 2026
+
+| Term | Means | Notes |
+|---|---|---|
+| Document card | What one document is, written once by the chat model at the end of an index run: its kind (invoice, letter, homework...), people, organisations, dates, amounts and a two-sentence summary. Stored as a passage labelled `AI document card` and a `doc_cards` row; a name, sum or year the document does not contain is dropped. Helps find a document, never the receipt for a claim | `app/index/doc_cards.py`, `card_pass.py`; `DOC_CARDS_ENABLED`; CLI `cards` |
+| Answer card | The short answer above the results when the Search box holds a question; Chat's engine, on a worker, after the results | `app/ui/widgets/answer_card.py`; `SEARCH_ANSWERS`; `presenter/answer.answer_wanted` |
+| Your words | The owner's own phrases and what they mean ("Mum" means Jane Example). Chat and the answer card search for the meaning; never applied to the plain search box | `app/chat/my_words.py`, table `my_words`; kept through a Reset |
+| Shape (of a question) | `compare` or `timeline`: a question about several documents. A comparison searches each side on its own; a timeline orders its sources by date | `router.cross_shape` |
+| Your questions | The owner's own question set, `question \| part of the file's path \| words the answer must contain`, scored against the real index | `app/chat/mine.py`; `evaluate --chat --questions FILE` |
