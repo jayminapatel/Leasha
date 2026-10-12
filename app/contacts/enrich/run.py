@@ -9,7 +9,7 @@ thread that wakes up. The UI calls `proposals_for` when the person presses
 accepted.
 
 **Switches.** Each source runs only if its `AccountSettings.enrich_*` switch is
-on. The five local ones are on by default, the three internet ones are off, and
+on. The local ones are on by default (documents, order 1s 5e, excepted), the three internet ones are off, and
 a source that is off is not called at all - for the internet ones that means no
 request is made and no byte is sent.
 
@@ -35,6 +35,7 @@ from typing import Any, Callable, Iterable, Optional
 from app.accounts.http import AllowedHosts, UrllibTransport
 from app.contacts.card import Card
 from app.contacts.enrich import company, faces, gravatar, logo, signatures, wikidata
+from app.contacts.enrich import documents, invitations, linkedin, vcards       # order 1s section 5
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.history import History, contact_history
 from app.contacts.enrich.owner import learn_owner
@@ -48,16 +49,18 @@ __all__ = ["REPEAT_DAYS", "LOCAL_SOURCES", "INTERNET_SOURCES", "SWITCHES", "enri
 #: The same lookup is not repeated within this many days (7i).
 REPEAT_DAYS = 90
 
-LOCAL_SOURCES = ("signature", "company", "face")
+LOCAL_SOURCES = ("signature", "company", "face", "vcard", "linkedin", "calendar", "document")
 INTERNET_SOURCES = ("gravatar", "logo", "wikidata")
 
 #: source -> the `AccountSettings` switch that turns it on.
 SWITCHES = {
     "signature": "enrich_signatures", "company": "enrich_company", "face": "enrich_faces",
     "history": "enrich_history", "suggest": "enrich_suggest",
+    "vcard": "enrich_vcards", "linkedin": "enrich_linkedin", "calendar": "enrich_calendar",
+    "document": "enrich_documents",
     "gravatar": "enrich_gravatar", "logo": "enrich_logo", "wikidata": "enrich_wikidata",
 }
-_DEFAULT_ON = {"signature", "company", "face", "history", "suggest"}
+_DEFAULT_ON = {"signature", "company", "face", "history", "suggest", "vcard", "linkedin", "calendar"}
 
 
 def _on(settings: Any, source: str) -> bool:
@@ -161,6 +164,14 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
         out += company.company_proposals(contact_id, card)
     if "face" in wanted and _on(settings, "face"):
         out += faces.face_proposals(store, contact_id, card)
+    if "vcard" in wanted and _on(settings, "vcard"):
+        out += vcards.vcard_proposals(hub, contact_id, card, region=hub.region, since=window_of(settings))
+    if "linkedin" in wanted and _on(settings, "linkedin") and getattr(settings, "enrich_linkedin_file", ""):
+        out += linkedin.linkedin_proposals(contact_id, card, settings.enrich_linkedin_file)
+    if "calendar" in wanted and _on(settings, "calendar"):
+        out += invitations.calendar_proposals(hub, contact_id, card, since=window_of(settings))
+    if "document" in wanted and _on(settings, "document"):
+        out += documents.document_proposals(store, contact_id, card)
 
     if "gravatar" in wanted and _on(settings, "gravatar") and emails_of(card):
         keys = [gravatar.email_hash(e) for e in emails_of(card)[:gravatar.MAX_ADDRESSES]]
@@ -294,6 +305,13 @@ def history_for(hub: Any, accounts_store: Any, contact_id: int) -> Optional[Hist
 def suggestions_for(hub: Any, accounts_store: Any, *, min_count: int = DEFAULT_MIN_COUNT
                     ) -> list[SuggestedContact]:
     """7e's list, or [] when its switch is off."""
-    if not _on(_settings_of(accounts_store), "suggest"):
+    settings = _settings_of(accounts_store)
+    if not _on(settings, "suggest"):
         return []
-    return suggest_contacts(hub.store, min_count=min_count, owner_emails=owner_addresses(accounts_store))
+    owner = owner_addresses(accounts_store)
+    out = suggest_contacts(hub.store, min_count=min_count, owner_emails=owner)
+    if _on(settings, "calendar"):                         # 5d: the people you meet, after the people who mail you
+        mailed = {s.email for s in out}
+        out += [s for s in invitations.calendar_suggestions(hub.store, owner_emails=owner, min_count=min_count,
+                                                            since=window_of(settings)) if s.email not in mailed]
+    return out
