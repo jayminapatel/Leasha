@@ -45,12 +45,13 @@ import time
 from PySide6.QtCore import (QAbstractTableModel, QEasingCurve, QEvent, QItemSelectionModel,
                           QModelIndex, QObject, QPoint, QSize, Qt, QTimer, QVariantAnimation,
                           Signal)
-from PySide6.QtGui import QIcon
+from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLabel, QListView,
                              QStackedWidget, QStyle, QStyledItemDelegate, QStyleOptionViewItem,
                              QTableView, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import COLUMNS, column_text, date_text, month_heading, people_text
+from app.ui.theme import theme_colours
 
 __all__ = ["PhotoModel", "PhotoBrowser", "MODES", "ROLE_ROW"]
 
@@ -72,6 +73,9 @@ GLIDE_MS = 180
 GLIDE_PX = 120
 #: Screensful asked for beyond the one shown, below and above.
 AHEAD = 1
+#: How opaque the month pill's backdrop is, out of 255. Over the worst thumbnail,
+#: a white one, its word still measures 4.7 to 1 (`test_ui_one_app_colours`).
+MONTH_PILL_ALPHA = 150
 
 
 class PhotoModel(QAbstractTableModel):
@@ -494,8 +498,14 @@ class PhotoBrowser(QWidget):
 
         self.month = QLabel(self.grid.viewport())
         self.month.setObjectName("photo_month")
+        # The theme's photo backdrop, see-through so the thumbnails show under it.
+        # Read once: `backdrop` is the same in both palettes, so a switch cannot
+        # make it stale.
+        colours = theme_colours()
+        ground = QColor(colours["backdrop"])
         self.month.setStyleSheet(
-            "QLabel#photo_month { background: rgba(0,0,0,150); color: white; "
+            f"QLabel#photo_month {{ background: rgba({ground.red()},{ground.green()},"
+            f"{ground.blue()},{MONTH_PILL_ALPHA}); color: {colours['backdrop_text']}; "
             "padding: 3px 9px; border-radius: 9px; font-weight: 600; }")
         self.month.move(10, 8)
         self.month.hide()

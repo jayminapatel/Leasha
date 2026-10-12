@@ -25,6 +25,13 @@ from app.ui import commit_preview as module
 from app.ui.commit_preview import commit_html, commit_preview, date_in_words
 from app.ui.presenter import git_result_row
 from app.ui.preview_loader import KIND_HTML, KIND_TEXT, load_preview_for
+from app.ui.theme import theme_colours
+
+
+def _mark() -> str:
+    """The searched text's style: the theme's match ground (2026-10-12; was a literal)."""
+    c = theme_colours()
+    return f"background-color:{c['mark']}; color:{c['mark_text']}"
 
 DETAIL = CommitDetail(
     commit="abc1234" + "0" * 33, author="Ada Lovelace", email="ada@example.com",
@@ -75,7 +82,7 @@ def test_the_page_has_the_message_the_author_the_date_the_files_and_the_diff() -
 
 def test_the_searched_text_is_highlighted_wherever_it_is() -> None:
     page = commit_html(DETAIL, "customerid")           # found whatever its capitals
-    marked = '<span style="background-color:#ffe066; color:#1f2328">CustomerId</span>'
+    marked = f'<span style="{_mark()}">CustomerId</span>'
     assert page.count(marked) == 3, "the subject, the message and the removed line"
     assert "<h3>Rename " + marked in page
     assert "var " + marked + " = 1;" in page
@@ -84,10 +91,11 @@ def test_the_searched_text_is_highlighted_wherever_it_is() -> None:
 
 def test_added_and_removed_lines_are_told_apart() -> None:
     page = commit_html(DETAIL, "")
-    assert '<span style="color:#e5534b">-    var CustomerId = 1;' in page
-    assert '<span style="color:#2da44e">+    var ClientId = 1;</span>' in page
+    c = theme_colours()
+    assert f'<span style="color:{c["danger"]}">-    var CustomerId = 1;' in page
+    assert f'<span style="color:{c["success"]}">+    var ClientId = 1;</span>' in page
     assert "<b>diff --git a/src/Order.cs b/src/Order.cs</b>" in page
-    assert '<span style="color:#8a63d2">@@ -1 +1 @@</span>' in page
+    assert f'<span style="color:{c["accent_text"]}">@@ -1 +1 @@</span>' in page
 
 
 def test_nothing_from_the_repository_is_obeyed_as_markup() -> None:
@@ -118,7 +126,7 @@ def test_a_history_row_previews_as_its_commit() -> None:
     assert preview.title == "Rename CustomerId <at last>"
     assert preview.subtitle == ("Commit abc12340  ·  Ada Lovelace  ·  "
                                 "Tuesday 2 January 2024, 09:00")
-    assert "background-color:#ffe066" in preview.body
+    assert _mark() in preview.body
     assert preview.notice == ""
 
 
@@ -218,6 +226,7 @@ def test_the_pane_draws_the_commit(qapp, monkeypatch) -> None:
                   "Tuesday 2 January 2024, 09:00", "3 files changed", "src/Moved.cs (was src/Old.cs)",
                   "-    var CustomerId = 1;  // <old>", "+    var ClientId = 1;"):
         assert piece in text, piece
-    assert "ffe066" in pane.text.toHtml().lower(), "the searched text is not highlighted"
+    assert theme_colours()["mark"].lstrip("#") in pane.text.toHtml().lower(), (
+        "the searched text is not highlighted")
     assert pane.subtitle.text().startswith("Commit abc12340")
     assert pane.stack.currentWidget() is pane.text

@@ -26,6 +26,7 @@ from PySide6.QtGui import QKeyEvent, QPixmap
 from PySide6.QtWidgets import QDialog, QLabel, QSizePolicy, QVBoxLayout, QWidget
 
 from app.ui.presenter.photos import date_text, people_text
+from app.ui.theme import theme_colours
 
 __all__ = ["PhotoViewer", "caption"]
 
@@ -53,8 +54,11 @@ class PhotoViewer(QDialog):
         super().__init__(parent, Qt.WindowType.Window)
         self.setObjectName("photo_viewer")
         self.setWindowTitle("Photo")
-        self.setStyleSheet("QDialog#photo_viewer { background: #111; } "
-                           "QLabel { color: #ddd; }")
+        # The theme's photo backdrop: one near-black in both palettes, because a
+        # photograph is judged against black whatever the window's theme is.
+        colours = theme_colours()
+        self.setStyleSheet(f"QDialog#photo_viewer {{ background: {colours['backdrop']}; }} "
+                           f"QLabel {{ color: {colours['backdrop_text']}; }}")
         self._step, self._position, self._peek = step, position, peek
         self._pool = QThreadPool.globalInstance()
         self._decoded: "OrderedDict[str, Any]" = OrderedDict()
