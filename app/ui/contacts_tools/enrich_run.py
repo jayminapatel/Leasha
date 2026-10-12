@@ -40,8 +40,8 @@ class EnrichRun(QObject):
     def pending(self) -> int:
         return sum(1 for i in range(len(self.data.proposals)) if i not in self.done) if self.data else 0
 
-    def start(self, ctx: Any) -> bool:
-        """Begin a look-up unless one is going. Returns whether it began."""
+    def start(self, ctx: Any, force: bool = False) -> bool:
+        """Begin a look-up unless one is going. Returns whether it began. `force` is Look again."""
         if self.running:
             return False
         from app.ui.contacts_tools.enrich_dialog import gather_proposals     # noqa: PLC0415
@@ -50,8 +50,8 @@ class EnrichRun(QObject):
         self._notify = getattr(ctx, "notify", None)
         self._stop.clear()
         stop = self._stop
-        Job(self, lambda on_progress: gather_proposals(ctx, on_progress, stop.is_set), self._finished, self._failed,
-            self._progressed)
+        Job(self, lambda on_progress: gather_proposals(ctx, on_progress, stop.is_set, force=force), self._finished,
+            self._failed, self._progressed)
         self.changed.emit()
         return True
 
@@ -77,12 +77,14 @@ class EnrichRun(QObject):
         n = len(data.proposals)
         self.state = "ready" if n else "empty"
         stopped = self._stop.is_set()
+        notes = " ".join(getattr(data, "notes", None) or [])
         if n:
             people = len({getattr(p, "contact_id", None) for p in data.proposals})
             self._say(f"Enrichment {'stopped' if stopped else 'found'} {n} suggestion{'s' if n != 1 else ''} for "
-                      f"{people} contact{'s' if people != 1 else ''}. Open Enrich contacts to accept them.")
+                      f"{people} contact{'s' if people != 1 else ''}. Open Enrich contacts to accept them."
+                      + (" " + notes if notes else ""))
         else:
-            self._say("Enrichment finished: no suggestions this time.")
+            self._say("Enrichment finished: no suggestions this time." + (" " + notes if notes else ""))
         self.changed.emit()
 
     def _failed(self, error: Any) -> None:

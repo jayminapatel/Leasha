@@ -13,7 +13,9 @@ spans - each tagged with the strongest boundary that precedes it (paragraph,
 sentence, or nothing). A chunk is then a contiguous range of atoms, so:
 
   * `text[chunk.char_start:chunk.char_end]` is the chunk, verbatim;
-  * a chunk can never begin or end mid-word, because atoms are whole words.
+  * a chunk can never begin or end mid-word, because atoms are whole words -
+    except a word longer than a whole chunk (a source map, a base64 blob),
+    which is cut into chunk-sized pieces.
 
 Both properties are tested. Ranges are chosen greedily up to the token budget,
 then walked backwards a little to land on a paragraph break if one is near, or a
@@ -131,7 +133,7 @@ class _Atom:
     break_level: int
 
 
-def _atomise(text: str, count_tokens: Callable[[str], float]) -> list[_Atom]:
+def _atomise(text: str, count_tokens: Callable[[str], float], max_chars: int = 0) -> list[_Atom]:
     r"""Split into words with spans, tagging the boundary that precedes each.
 
     **This was quadratic, and it was measured rather than suspected**: 20,000
@@ -177,7 +179,20 @@ def _atomise(text: str, count_tokens: Callable[[str], float]) -> list[_Atom]:
         else:
             level = _BREAK_NONE
 
-        atoms.append(_Atom(start=start, end=end, tokens=max(1.0, float(count_tokens(word))), break_level=level))
+        # **A word longer than a whole chunk is cut into chunk-sized pieces.**
+        # 2026-10-12: a source map's `mappings` string, 1,817,866 characters
+        # with no space, went out as one chunk; the tokeniser normalises the
+        # whole of it before truncating to 512 tokens (342MB for that one
+        # passage), and a batch of them aborted the index process. The pieces
+        # are contiguous, so the text is all still there to find.
+        if max_chars and end - start > max_chars:
+            for piece in range(start, end, max_chars):
+                piece_end = min(piece + max_chars, end)
+                atoms.append(_Atom(start=piece, end=piece_end,
+                                   tokens=max(1.0, float(count_tokens(text[piece:piece_end]))),
+                                   break_level=level if piece == start else _BREAK_NONE))
+        else:
+            atoms.append(_Atom(start=start, end=end, tokens=max(1.0, float(count_tokens(word))), break_level=level))
         previous_word = word
         previous_end = end
 
@@ -258,7 +273,7 @@ def chunk_text(
             f"target_tokens ({target_tokens}), or chunking cannot advance"
         )
 
-    atoms = _atomise(text, count_tokens)
+    atoms = _atomise(text, count_tokens, max_chars=int(target_tokens * CHARS_PER_TOKEN))
     if not atoms:
         return []
 

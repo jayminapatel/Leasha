@@ -452,3 +452,31 @@ def test_nothing_in_the_package_runs_by_itself():
     text = "\n".join(p.read_text(encoding="utf-8") for p in root.glob("*.py"))
     assert not re.search(r"\b(?:Thread|QTimer|threading|sched|Timer\(|asyncio|ThreadPool)", text.replace(
         "no timer, no thread", ""))
+
+
+def test_a_second_run_says_which_internet_sources_were_not_asked_again(hub):
+    """The owner, 2026-10-12: "it does not seem to work". After the first run every lookup was remembered, so
+    the next ninety days of runs asked the internet nothing - and said nothing about it. Now each run says so."""
+    cid = person(hub, email="ann@acme-widgets.co.uk", company="Acme Ltd")
+    s = AccountSettings(**LOCAL_OFF, **ON)
+    clock = Clock()
+    enrich_selection(hub, s, [cid], transport=Fake(), clock=clock)
+    notes: list[str] = []
+    clock.t += DAY
+    enrich_selection(hub, s, [cid], transport=Fake(), clock=clock, notes=notes)
+    assert len(notes) == 3 and all("not asked again for 1 contact:" in n and "Look again" in n for n in notes)
+    assert {n.split(" was ")[0] for n in notes} == {"Gravatar", "Company logos", "Wikidata"}
+    forced: list[str] = []
+    enrich_selection(hub, s, [cid], transport=Fake(), clock=clock, notes=forced, force=True)
+    assert forced == []                                                    # Look again skips nothing
+
+
+def test_a_social_profile_is_not_taken_for_the_company_site(hub):
+    """Found on the owner's index, 2026-10-12: a LinkedIn profile on a card sent the logo lookup to LinkedIn."""
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    hub.update(cid, _with_url(hub.get_card(cid), "https://ae.linkedin.com/in/ann-lee"))
+    assert logo.company_domain(hub.get_card(cid)) == "acme-widgets.co.uk"
+    lonely = person(hub, email="bo@gmail.com")
+    hub.update(lonely, _with_url(hub.get_card(lonely), "https://www.facebook.com/bo"))
+    assert logo.company_domain(hub.get_card(lonely)) == ""
+    assert logo.company_domain(Card(fields=[Field("url", "https://boxcom.co.uk", "work")])) == "boxcom.co.uk"

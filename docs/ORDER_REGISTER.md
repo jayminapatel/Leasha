@@ -1,6 +1,6 @@
 # Work order register
 
-**Doc version:** 1.84 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.85 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 Every work order in one table, with its status and where it sits in the queue.
 
@@ -90,6 +90,7 @@ The sequence is the owner's, carried from `HANDOFF.md` §"What is Next" as it st
 | 1p | `side-lists-everywhere` | One left-hand list for every page, drawn the Contacts way | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "yes write the order and build it for all and build it")* | 8 / 8 | Files, Code and Browse gain lists; Mail and Photos move onto the shared widget; Contacts moves after the 1k merge |
 | 1q | `tidy-page` | Tidy - find what is indexed, and clear copies, similar photos and leftovers | BUILT 2026-10-11 *(released by the owner, 2026-10-11: "option a, rename to Tidy, write the order and build it")* | 14 / 14 | Reports becomes Tidy; Digital Inheritance removed; local files only, to the Recycle Bin, never the last copy; a third exception to rule 10 |
 | 1r | `smarter-answers` | Smarter answers - a stronger answerer by measurement, a card for every document, answers in Search, your own words, questions across documents | BUILT 2026-10-12 *(released by the owner, 2026-10-12: "do all of them as the questions is the last once the full index is done, note this index is still test")* | 23 / 24 | Section 6b HELD until the final index; merged to main 2026-10-12 as 8e1a938 (PR 51) after the full suite passed (16,122 passed, 0 failed, at 7ba498b); cards documents-only by default (owner); floors not lowered; the retrieval path still never calls a model |
+| 1s | `contact-enrichment-that-finds` | Contact enrichment that finds things - fresh details only (age window, 6 months by default), a signature reader that does not need "Kind regards", the signature kept at indexing, vCard/Outlook/LinkedIn/calendar sources, every rule a setting | RELEASED 2026-10-12 *(owner: "fix it and make the whole system smart and configurable write a work order for all and give the design system thread to execute when it deems it is ready to execute")* | 0 / 48 | Measured baseline on the owner's index: 53 of 1,445 contacts get a proposal (526 have mail from them; 436 lost because no sign-off was found). The executing thread checks §0 and starts when it is ready; its starting prompt is at the end of the order. Fixed the same day, outside the order: Look again, the run's notes shown, logo lookups no longer sent to LinkedIn |
 
 **2026-09-07 — recounted, and six orders are now finished.** The previous set of
 numbers was written on 2026-08-30 and had gone stale within days: 0f, 0g, 0h, 0p and

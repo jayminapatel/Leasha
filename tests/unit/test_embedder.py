@@ -18,7 +18,7 @@ import threading
 import pytest
 
 from app.core.errors import AppErrorException
-from app.index.embedder import EMBED_BATCH, Embedder, l2_normalise
+from app.index.embedder import EMBED_BATCH, MAX_EMBED_CHARS, Embedder, l2_normalise
 
 
 def unit(seed: float, dim: int = 384) -> list[float]:
@@ -49,6 +49,19 @@ def test_returns_one_vector_per_text() -> None:
     vectors = embedder.embed(["one", "two", "three"])
     assert len(vectors) == 3
     assert all(len(v) == 384 for v in vectors)
+
+
+def test_an_enormous_passage_is_cut_before_the_tokeniser() -> None:
+    """2026-10-12: the tokeniser normalises a passage whole before it truncates
+    to 512 tokens, and a 1.8M-character one cost 342MB; a batch of them ended the
+    index process. Whatever the chunker hands over, the model is given no more
+    than `MAX_EMBED_CHARS` of any passage."""
+    encode = encoder_for()
+    embedder = Embedder(encoder=encode)
+    embedder.embed(["short", "x" * (MAX_EMBED_CHARS * 20)])
+    given = encode.calls[0]                          # type: ignore[attr-defined]
+    assert "short" in given
+    assert max(len(text) for text in given) == MAX_EMBED_CHARS
 
 
 def test_empty_input_does_not_touch_the_model() -> None:
