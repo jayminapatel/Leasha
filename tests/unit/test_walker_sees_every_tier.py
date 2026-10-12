@@ -31,10 +31,22 @@ def test_converter_formats_are_walked() -> None:
     assert not missing, f"{missing} route to a converter and are never offered one"
 
 
+def _switched_off() -> set[str]:
+    """Routes the packaged config ships switched off (2026-10-12, the owner: "turn
+    svg and epub off now and as default"): absent from the walk on purpose."""
+    return {ext for ext, rule in load_rules().extensions.items() if not rule.enabled}
+
+
 def test_config_routed_extensions_are_walked() -> None:
     """Tier 1: an extension pointed at an existing extractor by configuration."""
-    missing = sorted(set(load_rules().extensions) - walkable())
+    missing = sorted(set(load_rules().extensions) - _switched_off() - walkable())
     assert not missing, f"{missing} are routed in config and never reach the walk"
+
+
+def test_a_route_switched_off_in_config_never_reaches_the_walk() -> None:
+    off = _switched_off()
+    assert {".svg", ".epub"} <= off
+    assert not off & walkable()
 
 
 def test_the_code_registry_is_still_included() -> None:
@@ -43,10 +55,12 @@ def test_the_code_registry_is_still_included() -> None:
     # Video and audio are registered but **off by default** (work order
     # 202626270515): the walker offers them only when their own switch is on,
     # so they are the one deliberate exception to "registered means walkable".
-    assert supported_extensions() - media.media_extensions() <= walkable()
+    # Routes switched off in config are the other (`_switched_off`).
+    off = _switched_off()
+    assert supported_extensions() - media.media_extensions() - off <= walkable()
     media.configure(media.MediaConfig(video_enabled=True, audio_enabled=True))
     try:
-        assert supported_extensions() <= walkable()
+        assert supported_extensions() - off <= walkable()
     finally:
         media.configure(None)
 
