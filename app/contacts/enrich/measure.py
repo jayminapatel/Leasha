@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 from app.contacts.enrich import company, faces, logo, signatures, wikidata
 from app.contacts.enrich.base import address_of, body_text, emails_of, mail_from, window_start
-from app.contacts.enrich.run import REPEAT_DAYS, seen_key
+from app.contacts.enrich.run import REPEAT_DAYS, is_recent, repeat_days, seen_key
 from app.contacts.enrich.signatures import MAX_MESSAGES, find_block, parse_block, signature_proposals
 
 __all__ = ["ReadOnlyStore", "Funnel", "window_start", "measure", "write_sample"]
@@ -92,12 +92,9 @@ def _live_ids(conn: Any) -> list[int]:
     return [int(r[0]) for r in conn.execute("SELECT id FROM contacts WHERE deleted_at IS NULL ORDER BY id")]
 
 
-def _recent(store: ReadOnlyStore, kind: str, key: str, now: float) -> bool:
-    raw = store.get_state(seen_key(kind, key))
-    try:
-        return raw is not None and (now - float(raw)) < REPEAT_DAYS * 86400
-    except ValueError:
-        return False
+def _recent(store: ReadOnlyStore, kind: str, key: str, now: float, days: int = REPEAT_DAYS) -> bool:
+    # Order 1s 6b: the same test a run makes, with the owner's "Ask the internet again after".
+    return is_recent(store.get_state(seen_key(kind, key)), now, days)
 
 
 def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, clock: Any = time.time,
@@ -124,7 +121,7 @@ def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, c
             continue
         fun.with_email += 1
         src["gravatar: would ask"] += 1
-        if _recent(store, "gravatar", email_hash(emails[0]), now):
+        if _recent(store, "gravatar", email_hash(emails[0]), now, repeat_days(settings)):
             src["gravatar: remembered, not asked again"] += 1
         domain = logo.company_domain(card)
         if domain:

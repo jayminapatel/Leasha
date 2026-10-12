@@ -13,13 +13,16 @@ on. The five local ones are on by default, the three internet ones are off, and
 a source that is off is not called at all - for the internet ones that means no
 request is made and no byte is sent.
 
-**No repeat for 90 days.** An internet lookup that was made is remembered in
+**No repeat within the interval.** An internet lookup that was made is remembered in
 `index_state` as `enrich:seen:<kind>:<key>` -> the time it was made, and the same
-lookup is not made again for 90 days: `<key>` is the address's hash (Gravatar),
-the domain (logo) or the company name (Wikidata), never the address itself. A
-lookup that found nothing counts; a lookup that failed to get an answer does not.
-`force=True` ("Look again") ignores the memory. Local sources are cheap and
-change as mail arrives, so they are not remembered.
+lookup is not made again for `AccountSettings.enrich_repeat_days` ("Ask the internet
+again after", default `REPEAT_DAYS` = 90; 0 = never again): `<key>` is the address's
+hash (Gravatar), the domain (logo) or the company name (Wikidata), never the address
+itself. A lookup that found nothing counts; a lookup that failed to get an answer does
+not. Order 1s 6a: what the lookup returned is kept too (`remember`), so a lookup not
+made again still offers its answer. `force=True` ("Look again") ignores the memory and
+replaces the kept answer. Local sources are cheap and change as mail arrives, so they
+are not remembered.
 
 **Network.** Every internet request goes through a `GuardedTransport` over an
 `AllowedHosts` that lists only the enrichment hosts (`ENRICHMENT_HOSTS`) plus, for
@@ -34,7 +37,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.accounts.http import AllowedHosts, UrllibTransport
 from app.contacts.card import Card
-from app.contacts.enrich import company, faces, gravatar, logo, signatures, wikidata
+from app.contacts.enrich import company, faces, gravatar, logo, remember, signatures, wikidata
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.history import History, contact_history
 from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, suggest_contacts
@@ -42,9 +45,10 @@ from app.core.errors import AppErrorException
 
 __all__ = ["REPEAT_DAYS", "LOCAL_SOURCES", "INTERNET_SOURCES", "SWITCHES", "enrich_contact", "enrich_selection",
            "proposals_for", "history_for", "suggestions_for", "seen_key", "owner_addresses", "skipped_notes",
-           "window_of", "window_notes", "MAIL_SOURCES"]
+           "window_of", "window_notes", "MAIL_SOURCES", "repeat_days", "is_recent"]
 
-#: The same lookup is not repeated within this many days (7i).
+#: The same lookup is not repeated within this many days (7i) - the default of the setting
+#: `AccountSettings.enrich_repeat_days` (order 1s 6b), which is what a run uses.
 REPEAT_DAYS = 90
 
 LOCAL_SOURCES = ("signature", "company", "face")
@@ -76,12 +80,26 @@ def seen_key(kind: str, key: str) -> str:
     return f"enrich:seen:{kind}:{key}"
 
 
-def _recent(store: Any, kind: str, key: str, now: float) -> bool:
-    raw = store.get_state(seen_key(kind, key))
+def repeat_days(settings: Any) -> int:
+    """6b: "Ask the internet again after", in days; 0 means never again. A value that is not a whole number
+    of days at least 0 falls back to the default rather than asking on every run."""
     try:
-        return raw is not None and (now - float(raw)) < REPEAT_DAYS * 86400
+        days = int(getattr(settings, "enrich_repeat_days", REPEAT_DAYS))
+    except (TypeError, ValueError):
+        return REPEAT_DAYS
+    return days if days >= 0 else REPEAT_DAYS
+
+
+def is_recent(raw: Optional[str], now: float, days: int) -> bool:
+    """Was a visit recorded at `raw` (Unix seconds as text) within `days`? With 0, any visit is recent."""
+    try:
+        return raw is not None and (days == 0 or (now - float(raw)) < days * 86400)
     except ValueError:
         return False
+
+
+def _recent(store: Any, kind: str, key: str, now: float, days: int = REPEAT_DAYS) -> bool:
+    return is_recent(store.get_state(seen_key(kind, key)), now, days)
 
 
 def _remember(store: Any, kind: str, key: str, now: float) -> None:
@@ -124,7 +142,7 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     """Proposals for one contact from every source that is switched on. Applies nothing.
 
     `_skipped` counts, per internet source, the contacts not asked again because the same lookup was made
-    within `REPEAT_DAYS` - so the run can say so rather than look as if the source found nothing."""
+    within the repeat interval (`repeat_days`) - so the run can say so rather than look as if the source found nothing."""
     row = hub.get_row(contact_id)
     card = hub.get_card(contact_id)
     if row is None or card is None or row.deleted_at is not None:
@@ -150,26 +168,45 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     if "face" in wanted and _on(settings, "face"):
         out += faces.face_proposals(store, contact_id, card)
 
+    days = repeat_days(settings)
     if "gravatar" in wanted and _on(settings, "gravatar") and emails_of(card):
-        keys = [gravatar.email_hash(e) for e in emails_of(card)[:gravatar.MAX_ADDRESSES]]
-        if force or not all(_recent(store, "gravatar", k, now) for k in keys):
+        # One lookup - and one kept answer - per address hash (6a), so a card with a new second address
+        # asks about that one only.
+        found: list[Proposal] = []
+        asked_all = True
+        for e in emails_of(card)[:gravatar.MAX_ADDRESSES]:
+            k = gravatar.email_hash(e)
+            if not force and _recent(store, "gravatar", k, now, days):
+                asked_all = False
+                found += remember.offer_again(store, "gravatar", k, contact_id, card, hub.region) or []
+                continue
+            one = card.copy()
+            one.fields = [f for f in one.fields if f.kind != "email" or f.value.strip().lower() == e]
+            if any(p.is_photo for p in found):           # one photo is enough: do not ask for a second
+                one.photo = next(p.new for p in found if p.is_photo)
             try:
-                out += gravatar.gravatar_proposals(net.transport, contact_id, card)
-                for k in keys:
-                    _remember(store, "gravatar", k, now)
+                got = gravatar.gravatar_proposals(net.transport, contact_id, one)
             except AppErrorException:
                 note("Gravatar could not be reached.")
-        else:
+                break
+            _remember(store, "gravatar", k, now)
+            remember.keep(store, "gravatar", k, got)
+            found += got
+        out += _one_each(found)
+        if not asked_all:
             skip("gravatar")
     if "logo" in wanted and _on(settings, "logo"):
         domain = logo.company_domain(card)
-        if domain and (force or not _recent(store, "logo", domain, now)):
+        if domain and (force or not _recent(store, "logo", domain, now, days)):
             try:
-                out += logo.logo_proposals(net.transport, net.allowed, contact_id, card)
+                got = logo.logo_proposals(net.transport, net.allowed, contact_id, card)
+                out += got
                 _remember(store, "logo", domain, now)
+                remember.keep(store, "logo", domain, got)
             except AppErrorException:
                 note(f"{domain} could not be reached.")
         elif domain:
+            out += remember.offer_again(store, "logo", domain, contact_id, card, hub.region) or []
             skip("logo")
     if "wikidata" in wanted and _on(settings, "wikidata"):
         term = wikidata.company_term(card)
@@ -178,15 +215,32 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             cache = _wiki if _wiki is not None else {}
             if key in cache:                              # a colleague, looked up a moment ago in this run
                 out += wikidata.proposals_from_facts(contact_id, card, cache[key])
-            elif force or not _recent(store, "wikidata", key, now):
+            elif force or not _recent(store, "wikidata", key, now, days):
                 try:
                     cache[key] = wikidata.lookup_company(net.transport, term)
                     out += wikidata.proposals_from_facts(contact_id, card, cache[key])
                     _remember(store, "wikidata", key, now)
+                    remember.keep_facts(store, key, cache[key])
                 except AppErrorException:
                     note("Wikidata could not be reached.")
             else:
+                kept, facts = remember.facts_again(store, key)
+                if kept:
+                    cache[key] = facts
+                    out += wikidata.proposals_from_facts(contact_id, card, facts)
                 skip("wikidata")
+    return out
+
+
+def _one_each(found: list[Proposal]) -> list[Proposal]:
+    """Gravatar's proposals over several addresses: one photo, and each link once."""
+    out: list[Proposal] = []
+    seen: set[str] = set()
+    for p in found:
+        k = "photo" if p.is_photo else f"{p.field_kind}:{p.new}"
+        if k not in seen:
+            seen.add(k)
+            out.append(p)
     return out
 
 
@@ -194,17 +248,20 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
 _SOURCE_NAMES = {"gravatar": "Gravatar", "logo": "Company logos", "wikidata": "Wikidata"}
 
 
-def skipped_notes(skipped: dict) -> list[str]:
+def skipped_notes(skipped: dict, days: int = REPEAT_DAYS) -> list[str]:
     """One sentence per internet source that was not asked again, for the person to read.
 
     Without it a second run looks as though the internet sources found nothing, when they were never
-    asked (found on the owner's index, 2026-10-12: 1,933 lookups remembered after the first run)."""
+    asked (found on the owner's index, 2026-10-12: 1,933 lookups remembered after the first run).
+    `days` is the interval the run used (6b), so the sentence says the real one."""
+    why = (f"looked up in the last {days} days" if days else
+           "looked up before, and Ask the internet again after is set to Never")
     out = []
     for kind in INTERNET_SOURCES:
         n = skipped.get(kind, 0)
         if n:
             out.append(f"{_SOURCE_NAMES[kind]} was not asked again for {n:,} contact{'s' if n != 1 else ''}: "
-                       f"looked up in the last {REPEAT_DAYS} days. Look again asks anyway.")
+                       f"{why}. Look again asks anyway.")
     return out
 
 
@@ -232,7 +289,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
         if on_progress is not None:
             on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     if notes is not None:
-        notes.extend(skipped_notes(skipped))
+        notes.extend(skipped_notes(skipped, repeat_days(settings)))
         notes.extend(window_notes(hub, settings, ids, out, wanted))
     return out
 
