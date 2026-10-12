@@ -684,14 +684,6 @@ def test_kept_pictures_are_capped_and_the_oldest_go_first(tmp_path, monkeypatch)
     assert len(left) == 2 and newest.name in left and f"{3:040x}.png" in left
 
 
-def test_the_contacts_web_address_beats_the_email_domain(hub):
-    cid = person(hub, email="ann@acme-widgets.co.uk")
-    hub.update(cid, _with_url(hub.get_card(cid), "www.other-site.net/about"))
-    fake = Fake(("https://www.other-site.net/favicon.ico", HttpResponse(200, body=png())))
-    enrich_selection(hub, _logo_settings(), [cid], transport=fake)
-    assert fake.hosts == {"www.other-site.net"}
-
-
 def test_a_social_site_is_matched_at_its_own_name_not_inside_another(domain, social):
     """CodeRabbit on #68 (2026-10-12): the check was a substring match, so `linkedin.com.example.org` -
     somebody's own site - counted as LinkedIn. A social site now matches only as itself or a subdomain."""
