@@ -129,6 +129,28 @@ def moved(store: Any, seen: dict) -> bool:
     return True
 
 
+def follow_index(view: Any, refresh: Callable[[], Any], *, interval_ms: int = FOLLOW_MS,
+                 first: bool = False) -> QTimer:
+    """Call `refresh()` while `view` is on screen and the index has been written to since the last look.
+
+    Every list and tree that shows counts uses this, so none of them shows what the index was when the window opened
+    (the owner, 2026-10-12: "make sure this is on all trees"). The check is one number (`store.generation`); the
+    refresh - the page's own, on its own worker - runs only when it moved. Returns the timer, for a test."""
+    seen: dict = {}
+    clock = QTimer(view)
+    clock.setInterval(interval_ms)
+
+    def tick() -> None:
+        if view.isVisible() and moved(getattr(view, "_store", None), seen):
+            refresh()
+
+    clock.timeout.connect(tick)
+    clock.start()
+    if first:
+        refresh()                                      # and once now, so a page needs no line of its own for it
+    return clock
+
+
 def _load(view: Any, read: Callable[[Any], Any], draw: Callable[[Any], None], page: str) -> None:
     from app.ui.workers import CallableWorker, run
 
@@ -184,14 +206,8 @@ def _box_side(view: Any, side: SideList, *, page: str, words: str, tip: str,
     view.installEventFilter(watcher)
     view._side_watcher = watcher
     _load(view, read, draw, page)
-    # The counts follow the index while the page is open, as Mail's do: a long run adds folders and files, and a
-    # list counted once at start said so no longer. One number is looked at every 15 s; a recount only if it moved.
-    seen: dict = {}
-    clock = QTimer(view)
-    clock.setInterval(FOLLOW_MS)
-    clock.timeout.connect(lambda: (_load(view, read, draw, page)
-                                   if view.isVisible() and moved(getattr(view, "_store", None), seen) else None))
-    clock.start()
+    # The counts follow the index while the page is open, as Mail's do (see `follow_index`).
+    follow_index(view, lambda: _load(view, read, draw, page))
     return side
 
 
@@ -201,7 +217,22 @@ def _files_counts(store: Any) -> tuple:
     from app.ui.presenter.side_entries import folder_tree
 
     roots, folders = c.saved_roots(store), c.folder_counts(store)
-    return (roots, folders, c.drive_counts(store), c.kind_counts(store), folder_tree(roots, folders))
+    shown, always = _kinds_setting()
+    return (roots, folders, c.drive_counts(store), c.kind_counts(store, limit=shown, always=always),
+            folder_tree(roots, folders))
+
+
+def _kinds_setting() -> tuple[int, tuple[str, ...]]:
+    """`(how many commonest types, the types always listed)` from Settings (`FILE_KINDS_SHOWN`, `FILE_KINDS_ALWAYS`),
+    read on a worker; the defaults if the settings cannot be read."""
+    try:
+        from app.core.config import load_settings
+
+        s = load_settings()
+        return (max(3, int(getattr(s, "file_kinds_shown", 12))),
+                tuple(e for e in str(getattr(s, "file_kinds_always", "")).replace(";", ",").split(",") if e.strip()))
+    except Exception:                                      # noqa: BLE001 - the list still shows
+        return 12, ("vsdx", "vsd", "mpp")
 
 
 def _code_counts(store: Any) -> tuple:

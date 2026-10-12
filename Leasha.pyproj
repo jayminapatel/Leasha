@@ -609,6 +609,7 @@
     <Compile Include="app\ui\widgets\advanced_fold.py" />
     <Compile Include="app\ui\widgets\answer_card.py" />
     <Compile Include="app\ui\widgets\archived_roots.py" />
+    <Compile Include="app\ui\widgets\browse_table.py" />
     <Compile Include="app\ui\widgets\buttons.py" />
     <Compile Include="app\ui\widgets\category_nav.py" />
     <Compile Include="app\ui\widgets\chat_answer_run.py" />

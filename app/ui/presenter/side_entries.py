@@ -37,6 +37,20 @@ _KIND_ICONS = {
 }
 
 
+#: What a few types are, in words, beside the extension: ".VSDX" alone does not say Visio.
+_KIND_WORDS = {
+    "vsdx": "Visio", "vsd": "Visio", "vsdm": "Visio", "vssx": "Visio stencil", "vstx": "Visio template",
+    "mpp": "Microsoft Project", "mpt": "Project template", "mpx": "Project exchange",
+    "pst": "Outlook archive", "msg": "Outlook message", "eml": "Email message",
+}
+
+
+def kind_label(ext: str) -> str:
+    """"PDF", or "VSDX - Visio" for a type that needs saying."""
+    word = _KIND_WORDS.get(ext.lower())
+    return f"{ext.upper()} - {word}" if word else ext.upper()
+
+
 def _icon_for(ext: str) -> str:
     return _KIND_ICONS.get(ext.lower(), "file")
 
@@ -114,7 +128,7 @@ def files_entries(roots: Iterable[str], folders: Iterable[tuple[str, int]],
             checked=box_holds(box, "on", name)))
     for ext, count in kinds:
         entries.append(SideEntry(
-            f"kind:{ext}", ext.upper(), section="Kinds", icon=_icon_for(ext), count=count,
+            f"kind:{ext}", kind_label(ext), section="Kinds", icon=_icon_for(ext), count=count,
             value=("type", ext), tip=f"Only .{ext} files", checked=box_holds(box, "type", ext)))
     return entries
 

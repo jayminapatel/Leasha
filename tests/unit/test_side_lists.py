@@ -246,6 +246,55 @@ def test_a_tick_change_restyles_the_rows_in_place_and_keeps_folders_open(qtbot):
     assert "chosen" in row_b.data(0, Qt.ItemDataRole.AccessibleTextRole)
     changed = make("b")
     changed[1] = SideEntry("a/b", "B", section="Places", icon="folder", count=9, parent="a", value=("path", "A/B"),
-                           checked=True)                                    # a count moved: a real rebuild
+                           checked=True)                                    # a count moved
     side.set_entries(changed)
+    assert side._by_key["a"] is row_a and row_b.text(1) == "9"                # updated where it stands: no flash
+    assert row_a.isExpanded()
+    grown = changed + [SideEntry("a/c", "C", section="Places", icon="folder", count=1, parent="a",
+                                 value=("path", "A/C"))]                      # a row added: the structure changed
+    side.set_entries(grown)
     assert side._by_key["a"] is not row_a and side._by_key["a"].isExpanded()   # rebuilt, and still open
+
+
+def test_a_tree_follows_the_index_only_while_it_is_on_screen_and_only_when_it_moved(qtbot):
+    """"Make sure this is on all trees" (the owner, 2026-10-12): Mail, Files, Code, Browse and Photos."""
+    from PySide6.QtWidgets import QWidget
+
+    from app.ui.widgets.side_panel import follow_index
+
+    class Store:
+        generation = 1
+
+    view = QWidget()
+    view._store = Store()
+    qtbot.addWidget(view)
+    calls = []
+    clock = follow_index(view, lambda: calls.append(1), interval_ms=10_000)
+    tick = clock.timeout
+    clock.stop()
+    from app.ui.widgets import side_panel
+
+    seen = {}
+    assert side_panel.moved(view._store, seen) and not side_panel.moved(view._store, seen)
+    view._store.generation = 2
+    assert side_panel.moved(view._store, seen)
+    assert tick is not None and calls == []                      # hidden: a tick does nothing, whatever the counter
+
+
+def test_the_files_kinds_list_also_lists_the_types_the_person_always_wants(tmp_path):
+    """"Visio and Microsoft Project file types missing" (the owner, 2026-10-12): the commonest twelve left them out."""
+    from app.storage import side_counts
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.presenter.side_entries import files_entries, kind_label
+
+    with SqliteStore(tmp_path / "k.db") as store:
+        for n, ext in enumerate(["pdf"] * 6 + ["docx"] * 5 + ["jpg"] * 4 + ["vsdx"] * 2 + ["mpp"]):
+            store.upsert_file(path=f"/d/f{n}.{ext}", size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="file")
+        plain = dict(side_counts.kind_counts(store, limit=3))
+        assert "vsdx" not in plain and "mpp" not in plain                      # the three commonest only
+        listed = dict(side_counts.kind_counts(store, limit=3, always=["vsdx", "mpp", "vsd"]))
+        assert listed["vsdx"] == 2 and listed["mpp"] == 1 and "vsd" not in listed   # none indexed: not listed
+        entries = files_entries([], [], [], side_counts.kind_counts(store, limit=3, always=["vsdx", "mpp"]))
+        labels = {e.label for e in entries if e.section == "Kinds"}
+        assert {"VSDX - Visio", "MPP - Microsoft Project", "PDF"} <= labels
+        assert kind_label("pdf") == "PDF" and kind_label("VSDX") == "VSDX - Visio"

@@ -9,7 +9,7 @@ window's thread.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 __all__ = ["folder_counts", "drive_counts", "kind_counts", "repo_counts", "language_counts",
            "saved_roots", "KINDS_SHOWN"]
@@ -46,11 +46,24 @@ def drive_counts(store: Any) -> list[tuple[str, str, int]]:
     return [(str(name or ""), str(status), int(count)) for name, status, count in rows]
 
 
-def kind_counts(store: Any, *, limit: int = KINDS_SHOWN) -> list[tuple[str, int]]:
-    """`(type, files)` for the commonest types of plain files, most first."""
-    return [(str(ext or ""), int(count)) for ext, count in store.conn.execute(
+def kind_counts(store: Any, *, limit: int = KINDS_SHOWN, always: Iterable[str] = ()) -> list[tuple[str, int]]:
+    """`(type, files)` for the commonest types of plain files, most first - and then, after them, each type in
+    `always` that the index holds and the commonest did not already include.
+
+    The commonest twelve are all a Kinds list has room for, and a type with a few thousand files (Visio drawings,
+    Project plans) never makes it: "visio and microsoft project file types missing" (the owner, 2026-10-12). The
+    types to always list are a setting (`FILE_KINDS_ALWAYS`); a type with no files is not listed."""
+    rows = [(str(ext or ""), int(count)) for ext, count in store.conn.execute(
         "SELECT ext, COUNT(*) FROM files WHERE source_kind = 'file' AND ext IS NOT NULL "
         "AND ext != '' GROUP BY ext ORDER BY 2 DESC, 1 LIMIT ?", (int(limit),))]
+    have = {ext for ext, _n in rows}
+    extra = sorted({e.strip().lower().lstrip(".") for e in always if e and e.strip()} - have)
+    for ext in extra:
+        n = int(store.conn.execute("SELECT COUNT(*) FROM files WHERE source_kind = 'file' AND ext = ?",
+                                   (ext,)).fetchone()[0])
+        if n:
+            rows.append((ext, n))
+    return rows[:int(limit)] + sorted(rows[int(limit):], key=lambda r: (-r[1], r[0]))
 
 
 def repo_counts(store: Any) -> list[tuple[str, str, int]]:

@@ -413,6 +413,11 @@ class Settings(BaseModel):
     #: 5.4 million passages waiting; epub books (23% of them) and svg drawings (10%) are rarely searched by
     #: idea. Taking a type out of this list queues it for meaning again at the next run.
     index_words_only_types: str = "svg,epub"
+    #: 2026-10-12, the owner: "visio and microsoft project file types missing" from the Files page's Kinds. The list
+    #: holds the commonest types; these are listed as well when the index holds any, whatever their rank.
+    file_kinds_always: str = "vsdx,vsd,mpp"
+    #: How many of the commonest types the Kinds list holds.
+    file_kinds_shown: int = 12
     #: 2026-10-12, the owner. Batch the meaning model's passages by length, also for the smaller (int8) file:
     #: padding falls and a run is a quarter to two fifths faster; vectors differ in the last decimals (cosine
     #: against the ungrouped vector 0.994 or better in the 2026-09-30 measurement), not in what a search finds.
@@ -601,6 +606,8 @@ SETTING_KEYS: tuple[str, ...] = (
     "INDEX_READ_PROCESSES",
     "INDEX_SPREADSHEET_MEANING",
     "INDEX_WORDS_ONLY_TYPES",
+    "FILE_KINDS_ALWAYS",
+    "FILE_KINDS_SHOWN",
     "EMBED_GROUP_BY_LENGTH",
     "INDEX_FILE_TIME_LIMIT_S",
     "INDEX_STALL_LIMIT_S",
@@ -824,6 +831,8 @@ def load_settings(
                 "INDEX_SPREADSHEET_MEANING",
                 values.get("INDEX_SPREADSHEET_MEANING", "false")),
             index_words_only_types=(values.get("INDEX_WORDS_ONLY_TYPES") or "svg,epub").strip().lower(),
+            file_kinds_always=(values.get("FILE_KINDS_ALWAYS") or "vsdx,vsd,mpp").strip().lower(),
+            file_kinds_shown=max(3, min(60, _as_int("FILE_KINDS_SHOWN", values.get("FILE_KINDS_SHOWN", "12")))),
             embed_group_by_length=_as_bool(
                 "EMBED_GROUP_BY_LENGTH", values.get("EMBED_GROUP_BY_LENGTH", "true")),
             index_file_time_limit_s=max(0, _as_int(

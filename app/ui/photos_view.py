@@ -35,7 +35,7 @@ from app.ui.widgets.photo_info import PhotoInfo
 # worker (`read_library`, `read_the_box`, `arrange_rows`) live in photo_page_parts, and
 # the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
 # lines test_presenter allows a view.
-from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, arrange_rows, photo_menu,
+from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, follow_index, arrange_rows, photo_menu,
                                              read_library, read_the_box, same_day_box, tree_toggle)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
@@ -125,7 +125,7 @@ class PhotosView(QWidget):
         self.set_mode(self._state("mode") or "medium", remember=False)
         self.show_info((self._state("info") or "1") == "1", remember=False)
         self.show_tree((self._state("tree") or "1") == "1", remember=False)
-        self.refresh()
+        follow_index(self, self.refresh, interval_ms=45_000, first=True)   # read now; then follow the index
 
     # -- reading -------------------------------------------------------------------
 
