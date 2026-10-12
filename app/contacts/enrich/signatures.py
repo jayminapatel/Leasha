@@ -251,13 +251,17 @@ def _phone_label(label: str) -> str:
     return "work"
 
 
-def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION
-                        ) -> list[Proposal]:
-    """Proposals from the newest message of this person that has a readable signature."""
+def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION,
+                        rows: Optional[list] = None) -> list[Proposal]:
+    """Proposals from the newest message of this person that has a readable signature.
+
+    `rows` are the person's messages when the caller has already read them (the measuring command,
+    `measure.py`, reads them once for its whole funnel); left out, they are read here."""
     emails = emails_of(card)
     if not emails:
         return []
-    rows = mail_from(store, emails, limit=MAX_MESSAGES)
+    if rows is None:
+        rows = mail_from(store, emails, limit=MAX_MESSAGES)
     tokens_card = _name_tokens(card)
     parsed: list[tuple[Any, Signature]] = []
     for row in rows:

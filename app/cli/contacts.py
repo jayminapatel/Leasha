@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from app.cli._common import EXIT_ERROR, EXIT_OK
@@ -35,6 +36,9 @@ def _when(ts: Any) -> str:
 
 
 def cmd_contacts(args: argparse.Namespace) -> int:
+    if args.contacts_action == "enrich":
+        # Before `open_service`, which migrates the index: measuring never writes (order 1s, section 1).
+        return _measure(args)
     store, svc = open_service(args)
     try:
         return _dispatch(args, svc)
@@ -186,6 +190,51 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
     return EXIT_ERROR
 
 
+def _measure(args: argparse.Namespace) -> int:
+    """`contacts enrich --measure`: the enrichment funnel, read-only (app/contacts/enrich/measure.py)."""
+    from app.accounts.store import AccountStore  # noqa: PLC0415 - read through the read-only store below
+    from app.cli._common import _load  # noqa: PLC0415
+    from app.contacts.enrich.measure import ReadOnlyStore, measure, write_sample  # noqa: PLC0415
+    from app.contacts.hub import ContactHub  # noqa: PLC0415
+
+    if not args.measure:
+        raise SystemExit("contacts enrich needs --measure (the only mode on the command line)")
+    if args.sample and not args.out:
+        raise SystemExit("--sample needs --out FILE.csv")
+    settings = _load(args)
+    store = ReadOnlyStore(settings.fts_db)
+    try:
+        acct = AccountStore(store).settings()
+        hub = ContactHub(store, region=getattr(acct, "phone_region", "") or "GB")
+        months = 0 if args.any_age else int(args.months if args.months is not None
+                                              else getattr(acct, "enrich_max_months", 6))
+        fun = measure(store, hub, acct, months=months, keep_samples=bool(args.sample))
+    finally:
+        store.close()
+    if args.json:
+        print(json.dumps(fun.as_dict(), indent=2))
+    else:
+        since = datetime.fromtimestamp(fun.since).strftime("%d %B %Y") if fun.since else "any age"
+        print(f"Mail since: {since}   (read-only; nothing was written and nothing was asked of the internet)")
+        for label, n in (("Live contacts", fun.live), ("... with an email address", fun.with_email),
+                         ("... with at least one message from them", fun.with_mail),
+                         ("... where a signature block was found", fun.block_found),
+                         ("... where something was read from the block", fun.read),
+                         ("... with at least one proposal", fun.proposed),
+                         ("... read, but all of it is already on the card", fun.already_on_card)):
+            print(f"  {label:<52} {n:>7,}")
+        print("Per source (contacts):")
+        for name, n in sorted(fun.sources.items()):
+            print(f"  {name:<52} {n:>7,}")
+        print("Signature proposals per field: "
+              + (", ".join(f"{k} {v:,}" for k, v in fun.fields.most_common()) or "none"))
+        print(f"Time: {fun.seconds:,.1f} s, {fun.per_contact():.3f} s a contact")
+    if args.sample:
+        n = write_sample(fun, int(args.sample), args.out)
+        print(f"Wrote {n} proposals to {args.out}")
+    return EXIT_OK
+
+
 def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.ArgumentParser) -> None:
     p = sub.add_parser("contacts", parents=[common], help="the contact book: sync, log, undo, list")
     c = p.add_subparsers(dest="contacts_action", required=True)
@@ -218,4 +267,12 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     sh.add_argument("id")
     hi = c.add_parser("history", parents=[common], help="a contact's journal")
     hi.add_argument("id")
+    en = c.add_parser("enrich", parents=[common],
+                      help="measure enrichment over the whole book, read-only (order 1s): --measure")
+    en.add_argument("--measure", action="store_true", help="count what every source would find; write nothing")
+    window = en.add_mutually_exclusive_group()
+    window.add_argument("--months", type=int, help="only mail from the last N months (default: the setting)")
+    window.add_argument("--any-age", action="store_true", help="mail of any age")
+    en.add_argument("--sample", type=int, help="also write N random signature proposals for checking")
+    en.add_argument("--out", type=Path, help="the CSV file for --sample")
     p.set_defaults(func=cmd_contacts)

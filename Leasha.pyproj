@@ -1692,6 +1692,7 @@
     <Content Include="docs\WORKORDER-accounts-mail-and-contact-sync.md" />
     <Content Include="docs\WORKORDER-chat-like-claude.md" />
     <Content Include="docs\WORKORDER-code-and-mail-world-class.md" />
+    <Content Include="docs\WORKORDER-contact-enrichment-that-finds.md" />
     <Content Include="docs\WORKORDER-dates-live-log-and-interrupted-runs.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />
