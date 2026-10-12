@@ -1007,6 +1007,7 @@
     <Compile Include="tests\unit\test_enrich_sender_index.py" />
     <Compile Include="tests\unit\test_enrich_settings.py" />
     <Compile Include="tests\unit\test_enrich_signature_consensus.py" />
+    <Compile Include="tests\unit\test_enrich_signature_precision.py" />
     <Compile Include="tests\unit\test_enrich_signature_reader.py" />
     <Compile Include="tests\unit\test_enrich_window.py" />
     <Compile Include="tests\unit\test_enrichment_backlog.py" />

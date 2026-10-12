@@ -203,11 +203,12 @@ def _local_sources(src: Counter, hub: Any, settings: Any, cid: int, card: Any, r
 
 
 def _count(fun: Funnel, cid: int, card: Any, props: list, blocks: dict, keep_samples: bool) -> None:
-    """Count each proposal by field; for 1b, keep it with the block it was read from (its receipt's)."""
+    """Count each proposal by field; for 1b, keep it with the block it was read from - its own `block`,
+    which is its receipt's message's (9b: the sample once showed another message's block)."""
     for p in props:
         fun.fields[p.field_kind] += 1
         if keep_samples:
-            fun.samples.append((cid, card.get("fn") or card.get("given"), p, blocks.get(id(p), [])))
+            fun.samples.append((cid, card.get("fn") or card.get("given"), p, p.block or blocks.get(id(p), [])))
 
 
 def write_sample(fun: Funnel, n: int, out: Path, *, seed: int = 1) -> int:

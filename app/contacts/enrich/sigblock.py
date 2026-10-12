@@ -32,7 +32,7 @@ from typing import Optional, Sequence
 from app.contacts.enrich.sigtail import line_key
 
 __all__ = ["Block", "BLOCK_LINES", "TAIL_LINES", "tail_lines", "anchored_block", "find_blocks", "is_sign_off",
-           "holds_name", "SIGN_OFF"]
+           "holds_name", "SIGN_OFF", "signature_line"]
 
 #: The most non-blank lines a signature block holds (see the module docstring; order 1s 8b).
 BLOCK_LINES = 14
@@ -117,7 +117,7 @@ def anchored_block(lines: Sequence[str], *, name_tokens: Sequence[str], emails: 
     return Block((), "")
 
 
-def _signature_line(line: str) -> bool:
+def signature_line(line: str) -> bool:
     """A line that can be part of a signature: not prose (a notice, a paragraph), which repeats too."""
     return len(line.split()) <= 12 and len(line) <= 90
 
@@ -139,7 +139,7 @@ def _longest_run(a: list[str], b: list[str], ok_a: list[bool]) -> tuple[int, int
 
 def _repeat_block(i: int, tails: list[list[str]], keys: list[list[str]], tokens: Sequence[str]) -> Optional[Block]:
     lines, mine = tails[i], keys[i]
-    ok = [_signature_line(ln) for ln in lines]
+    ok = [signature_line(ln) for ln in lines]
     best = (0, -1)
     for j, other in enumerate(keys):
         if j != i:

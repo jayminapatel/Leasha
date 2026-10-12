@@ -78,6 +78,9 @@ class Proposal:
     #: 3k: this replaces a value the card already holds (`old`). The review never ticks it by itself (D4),
     #: whatever its confidence: a change a person did not look at is the one that does harm.
     update: bool = False
+    #: Order 1s 9b: the signature block the value was read from - the receipt's own message's block, so the
+    #: precision sample prints the block the value is in. Empty for every source but the signature reader.
+    block: list = field(default_factory=list, repr=False, compare=False)
 
     @property
     def is_scalar(self) -> bool:

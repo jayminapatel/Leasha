@@ -103,10 +103,15 @@ def test_a_client_reply_quoting_the_owners_signature_never_offers_the_owners_mob
     assert not any("Principal Consultant" in str(p.new) or "Homefield" in str(p.new) for p in props)
 
 
-def test_the_owners_number_and_address_inside_a_clients_own_signature_are_removed(hub):
+def test_a_block_holding_the_owners_number_or_address_is_dropped_whole(hub):
+    # Changed by order 1s 9b (the first precision check): this block used to lose only the owner's lines and
+    # offer the rest. A block holding an owner number or address is now taken for the owner's, all of it -
+    # the check found the owner's old mobile, direct line and title offered from such blocks.
     owner_mail(hub)
     cid = ann(hub)
     seed(hub, f"Ann Lee <{ANN}>", sig(extra=f"Account lead: {OWNER_MOBILE}\nCopy: {OWNER}"), sent=epoch(2026, 9, 1))
+    assert props_of(hub, cid, owner_emails=[OWNER]) == []
+    seed(hub, f"Ann Lee <{ANN}>", sig(), sent=epoch(2026, 9, 2))              # her own block, on its own
     props = props_of(hub, cid, owner_emails=[OWNER])
     assert _all_numbers(props) == {"+442079460018", "+447700900123"}
     assert not any(OWNER in str(p.new) for p in props)
@@ -116,6 +121,7 @@ def test_a_run_passes_the_owners_addresses_to_the_reader(hub):
     owner_mail(hub)
     cid = ann(hub)
     seed(hub, f"Ann Lee <{ANN}>", sig(extra=f"Account lead: {OWNER_MOBILE}"), sent=epoch(2026, 9, 1))
+    seed(hub, f"Ann Lee <{ANN}>", sig(), sent=epoch(2026, 9, 2))
     out = enrich_selection(hub, AccountSettings(enrich_max_months=0), [cid], owner_emails=[OWNER],
                            sources=["signature"])
     assert out and "+447700900999" not in _all_numbers(out)

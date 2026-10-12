@@ -15,16 +15,26 @@ else's text, and reading it as the sender's is how a client's reply could offer
 the owner's own mobile (3h). A confidentiality notice ends the own part too - it
 sits after the signature and repeats on every message, so it would otherwise be
 the longest run a sender repeats (3b).
+
+**What the first precision check added (order 1s 9b, 18 of 100 wrong).** Legal text
+had become addresses ("X Ltd (company no. ...) is located at ..."), so a line that is
+a paragraph or carries legal words is dropped, and everything after a notice's heading
+or a legal opening ("This email originates from ...") goes with it. Separators had
+stayed inside values ("12 Mill Lane | Leeds"), so a line is split on a spaced bar, a
+bullet or a middle dot before anything reads it. HTML entities (`&#43;` for a phone's
+`+`) are decoded, because many real blocks are HTML turned into text.
 """
 
 from __future__ import annotations
 
+import html
 import re
 from urllib.parse import urlsplit
 
 from app.extract.quoting import QUOTE_MARKERS
 
-__all__ = ["clean_tail", "own_part", "is_tracking", "is_homepage", "line_key", "TRACKING_HOSTS"]
+__all__ = ["clean_tail", "own_part", "is_tracking", "is_homepage", "line_key", "TRACKING_HOSTS", "is_legal",
+           "is_prose", "split_line", "LEGAL"]
 
 #: Characters Outlook and phones leave in "empty" lines: no-break and zero-width spaces, the BOM.
 _INVISIBLE = dict.fromkeys(map(ord, "\u200b\u200c\u200d\u2060\ufeff"), None)
@@ -77,18 +87,81 @@ def _junk_line(line: str) -> bool:
         w not in ("us", "on", "and", "follow", "x") for w in words)
 
 
+#: The HTML entities HTML-to-text leaves behind. Only these: a bare `&` in "Smith & Sons" is text, and a
+#: general unescape would also turn "&copy" without its `;` into a sign.
+_ENTITY = re.compile(r"&(?:#\d{1,6}|#x[0-9a-f]{1,6}|quot|lt|gt|amp|nbsp|apos);", re.I)
+
+#: Words that make a line legal text - a registration, a notice, a licence - never a detail of a person.
+#: Narrow on purpose: "Registered Nurse" and "Authorised Signatory" are titles, so `registered` and
+#: `authorised` count only in the phrases a notice uses.
+LEGAL = re.compile(
+    r"\b(?:registered\s+(?:in|office|address|number|no\b|with|at|charity|company)|registration\s+(?:no|number)|"
+    r"company\s+(?:no\b|number|reg)|reg\.?\s*no\b|vat\b|regulated|authori[sz]ed\s+(?:and|by)|monitored|"
+    r"confidential(?:ity)?|intended\s+recipient|disclaimer|trade\s?marks?|licen[cs]e[ds]?\b|liabilit(?:y|ies)|"
+    r"pursuant|privileged|unauthori[sz]ed)", re.I)
+#: A legal line that opens a notice: what follows it is the notice too, whatever its words.
+_NOTICE_OPENING = re.compile(
+    r"^\W*(?:(?:e-?mail|important|legal|privacy)\s+)?(?:confidentiality|disclaimer)\b|"
+    r"^\W*(?:this|the\s+information\s+in\s+this)\s+(?:e-?mail|message|communication|transmission)\b|"
+    r"^\W*all\s+e-?mails?\b", re.I)
+#: "firm. It is the" - a full stop after a lower-case word, then more words: a sentence, not a label.
+#: "St. James's", "Ltd. 12 Mill Lane" and "J. Smith" are not, which is why the word before is lower case.
+_MID_STOP = re.compile(r"\b[a-z]{3,}\.\s+\S+\s+\S+\s+\S+")
+#: The separators a signature puts between values on one line: a bar with a space or a comma beside it
+#: ("Centre |, Doha"), a bullet, a middle dot, a small square. "a|b" inside a value is left alone.
+_SEPARATOR = re.compile(r"\s+\|\s*|\s*\|\s+|\s*\|(?=,)|\s*[\u2022\u00b7\u25aa\u25cf]\s*")
+
+
+def is_legal(line: str) -> bool:
+    return bool(LEGAL.search(line or ""))
+
+
+def is_prose(line: str) -> bool:
+    """A sentence somebody wrote, not a line of a signature: more than 12 words (unless it is a list -
+    three commas make "Level 12, Falcon Tower, ..., Dubai" an address, not prose), or a full stop
+    mid-line followed by more words."""
+    words = line.split()
+    if len(words) > 12 and line.count(",") < 3:
+        return True
+    return len(words) >= 7 and bool(_MID_STOP.search(line))
+
+
+def split_line(line: str) -> list[str]:
+    """One line's values: split on its separators, each part's edge commas trimmed ("Centre |, Doha").
+    A line with no separator is left as it is ("Kind regards," keeps its comma)."""
+    if not _SEPARATOR.search(line):
+        return [line.strip()] if line.strip() else []
+    parts = [p.strip(" ,;") for p in _SEPARATOR.split(line)]
+    return [p for p in parts if p.strip(" ,;.-")]
+
+
 def clean_tail(body: str) -> str:
-    """3a. Annotations dropped, junk lines dropped, every run of blank lines one blank line, edges trimmed."""
+    """3a. Entities decoded; lines split on their separators; annotations, junk, legal and paragraph lines
+    dropped, and everything after a notice's opening; every run of blank lines one blank line; edges trimmed."""
     out: list[str] = []
+    in_paragraph = False
     for raw in (body or "").splitlines():
-        line = _SPACES.sub(" ", raw.translate(_INVISIBLE)).rstrip()
+        line = _ENTITY.sub(lambda m: html.unescape(m.group(0)), raw)
+        line = _SPACES.sub(" ", line.translate(_INVISIBLE)).rstrip()
         if not line.strip():
             out.append("")
+            in_paragraph = False
             continue
-        stripped = _IMAGE.sub("", _ANNOTATION.sub("", line)).rstrip()
-        if not stripped.strip() or _junk_line(stripped.strip()):
+        stripped = _IMAGE.sub("", _ANNOTATION.sub("", line)).strip()
+        if not stripped:
             continue                                       # gone, not blank: it was never a gap in the text
-        out.append(stripped)
+        if is_legal(stripped):
+            if _NOTICE_OPENING.search(stripped):
+                break                                      # a notice's heading or opening: the rest is the notice
+            # A long legal line is a wrapped paragraph: its next lines ("Conduct Authority.") are the notice
+            # too. A short one ("VAT No: GB 123") can sit inside a signature, so only it goes.
+            in_paragraph = len(stripped.split()) > 12
+            continue
+        if in_paragraph:
+            continue                                       # the rest of a legal paragraph, up to a blank line
+        if is_prose(stripped):
+            continue                                       # a sentence; the sign-off under it is still read
+        out += [part for part in split_line(stripped) if not _junk_line(part)]
     collapsed: list[str] = []
     for line in out:
         if line or (collapsed and collapsed[-1]):

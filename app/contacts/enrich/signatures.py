@@ -12,7 +12,8 @@ Local only: nothing here touches the network. For one contact:
 3. Every message is read through `base.full_text` - the indexed body, then the tail
    the index cut (4a) and, when the person switched it on, the original (4b) - and
    only the sender's own part of it (`sigtail.own_part`), cleaned (3a).
-4. The owner's own addresses, numbers and signature lines are removed (3h, `owner`).
+4. A block holding one of the owner's addresses or numbers is dropped whole; the owner's signature
+   lines are removed from any other (3h, `owner`).
 5. The block is what repeats across their messages (3b), else what an anchor marks
    (3c) - `sigblock`; each block is read by `sigparse.parse_block` (3d-3g).
 6. The values are agreed across messages, newest wins, older ones become history
@@ -36,7 +37,7 @@ from app.contacts.enrich import base, quoted
 from app.contacts.enrich.base import Proposal, address_of, emails_of, format_day, mail_from
 from app.contacts.enrich.consensus import Agreed, Reading, agree
 from app.contacts.enrich.owner import NO_OWNER, OwnerDetails, learn_owner
-from app.contacts.enrich.sigblock import anchored_block, find_blocks, tail_lines
+from app.contacts.enrich.sigblock import Block, anchored_block, find_blocks, tail_lines
 from app.contacts.enrich.sigparse import (  # noqa: F401 - logo.py reads the list here
     _SOCIAL_HOSTS,
     Signature,
@@ -54,6 +55,8 @@ MAX_MESSAGES = 20
 #: 3k: the confidence at which a value that differs from the card's is offered as an update. The same as
 #: "Tick automatically from" (D4) by default - a change needs agreement, not one message.
 UPDATE_FROM = 0.85
+#: Keys of a `Signature` that mark how it was read, not values read from it.
+_MARKS = frozenset({"name_matched", "website_unsure"})
 _TAIL_KEEP = 200                                         # non-blank lines kept of a message before the tail is cut
 
 
@@ -83,9 +86,20 @@ def _on_behalf(sender: str) -> bool:
     return " on behalf of " in f" {_display(sender).lower()} "
 
 
-def _lines(text: str, owner: OwnerDetails) -> list[str]:
+def _lines(text: str) -> list[str]:
+    """The cleaned tail of one message. The owner's lines are still in it: 3h needs to see the block they
+    are in to drop it whole (`_owner_free`), which it could not do once they were gone."""
     lines = [ln.strip() for ln in clean_tail(own_part(text)).splitlines() if ln.strip()][-_TAIL_KEEP:]
-    return tail_lines("\n".join(owner.scrub(lines)))
+    return tail_lines("\n".join(lines))
+
+
+def _owner_free(block: Block, owner: OwnerDetails) -> Block:
+    """3h. A block with one of the owner's addresses or numbers in it is the owner's - every line of it,
+    the title and the mobile beside the address too - so nothing of it is read. From any other block the
+    owner's own signature lines go (a colleague's block sharing the owner's old company line)."""
+    if owner.owns(block):
+        return Block((), "")
+    return Block(owner.scrub(block), block.how)
 
 
 def _domain_companies(store: Any, cid: int, emails: Iterable[str]) -> set[str]:
@@ -127,12 +141,11 @@ def read_signatures(store: Any, cid: int, card: Card, *, region: str = phones.DE
     rows = [r for r in rows if address_of(r.sender) in wanted and not _on_behalf(r.sender)][:MAX_MESSAGES]
     texts: list[tuple[Any, Optional[int], list[str], bool]] = []
     for r in rows:
-        texts.append((r, r.sent_at, _lines(base.full_text(store, r.file_id, read_original=read_original), owner),
-                      False))
+        texts.append((r, r.sent_at, _lines(base.full_text(store, r.file_id, read_original=read_original)), False))
     if include_quoted:
         texts += _quoted_texts(store, wanted, rows, since, owner, read_original)
     tokens = _name_tokens(card) or _name_tokens(card, next((_display(r.sender) for r in rows if _display(r.sender)), ""))
-    blocks = find_blocks([t[2] for t in texts], name_tokens=tokens, emails=emails)
+    blocks = [_owner_free(b, owner) for b in find_blocks([t[2] for t in texts], name_tokens=tokens, emails=emails)]
     companies = _domain_companies(store, cid, emails)
     for (row, when, _, is_quoted), block in zip(texts, blocks, strict=True):
         if not is_quoted:
@@ -145,7 +158,7 @@ def read_signatures(store: Any, cid: int, card: Card, *, region: str = phones.DE
                 sig["emails"].remove(addr)
         if owner.phones and sig.get("phone"):
             sig["phone"] = [(lb, n) for lb, n in sig["phone"] if phones.match_key(n, region) not in owner.phones]
-        if any(k != "name_matched" and sig.get(k) for k in sig):
+        if any(k not in _MARKS and sig.get(k) for k in sig):
             out.readings.append(Reading(row, when, sig, list(block), is_quoted))
     out.rows = rows
     return out
@@ -175,7 +188,7 @@ def _quoted_texts(store: Any, wanted: set[str], direct: Sequence[Any], since: Op
                         or q.sent_at // 60 in quoted_minutes:
                     continue                               # read directly already, or quoted in another reply
                 quoted_minutes.add(q.sent_at // 60)
-            out.append((row, q.sent_at, _lines(q.text, owner), True))
+            out.append((row, q.sent_at, _lines(q.text), True))
     return out
 
 
@@ -191,8 +204,8 @@ def proposals_from(cid: int, card: Card, readings: Sequence[Reading], *, region:
                    update_from: float = UPDATE_FROM, blocks: Optional[dict] = None) -> list[Proposal]:
     """Step 6: the agreed values as proposals - gaps, and (3k) strong changes to what the card holds.
 
-    `blocks`, when given, is filled with `id(proposal) -> the block its receipt was read from`, for the
-    measuring command's precision sample (order 1s 1b); a proposal itself does not carry it."""
+    Each proposal carries the block its receipt was read from (`Proposal.block`, order 1s 9b); `blocks`,
+    when given, is filled with `id(proposal) -> that block` as well, for callers that kept the old way."""
     out: list[Proposal] = []
     for a in agree(readings, region):
         p = _offer(cid, card, a, region, update_from)
@@ -211,7 +224,8 @@ def _offer(cid: int, card: Card, a: Agreed, region: str, update_from: float) -> 
     """One agreed value as a proposal, or None when the card already holds it (or, 3k, holds another value
     and the agreement is not strong enough to offer a change)."""
     kind = a.slot.split(":", 1)[0]
-    extra = dict(when=a.reading.when, seen=a.seen, first_seen=a.first_seen, history=a.history)
+    extra = dict(when=a.reading.when, seen=a.seen, first_seen=a.first_seen, history=a.history,
+                 block=list(a.reading.block))
     receipt = _receipt(a)
     if kind in ("title", "company", "department"):
         now = card.get(kind).strip()
@@ -227,6 +241,8 @@ def _offer(cid: int, card: Card, a: Agreed, region: str, update_from: float) -> 
             return None
         return Proposal(cid, "email", "work", "", a.value, "signature", receipt, a.confidence, **extra)
     if kind == "website":
+        if a.reading.sig.get("website_unsure") and a.seen < 2:
+            return None                                    # 9b: unlike their email and no known TLD - once is not enough
         if any(_norm_url(f.value) == _norm_url(a.value) for f in card.values("url")):
             return None
         return Proposal(cid, "url", "work", "", a.value, "signature", receipt, a.confidence, **extra)
