@@ -2135,9 +2135,15 @@ def _v41_enrichment_that_finds(conn: sqlite3.Connection) -> None:
         found = parseaddr(str(sender or ""))[1].strip().lower()
         return found if "@" in found else None
 
-    rows = conn.execute("SELECT file_id, sender FROM messages WHERE sender IS NOT NULL").fetchall()
-    conn.executemany("UPDATE messages SET sender_addr = ? WHERE file_id = ?",
-                     [(addr(r[1]), r[0]) for r in rows])
+    last_id = 0                                  # in batches, so memory does not grow with the mailbox
+    while True:
+        rows = conn.execute("SELECT file_id, sender FROM messages WHERE file_id > ? AND sender IS NOT NULL "
+                            "ORDER BY file_id LIMIT ?", (last_id, _BACKFILL_BATCH)).fetchall()
+        if not rows:
+            break
+        last_id = rows[-1][0]
+        conn.executemany("UPDATE messages SET sender_addr = ? WHERE file_id = ?",
+                         [(addr(r[1]), r[0]) for r in rows])
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_addr ON messages(sender_addr, sent_at)")
 
 

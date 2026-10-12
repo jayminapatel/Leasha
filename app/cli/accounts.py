@@ -58,6 +58,20 @@ ENRICH_VALUES = (
     ("enrich_hide_below", "enrich_hide_below", float, "a suggestion less sure than this (0-1) is not shown"),
     ("enrich_linkedin_file", "enrich_linkedin_file", str, "the Connections.csv of a LinkedIn export"),
 )
+
+
+def _in_range(name: str, value):
+    """An enrichment rule kept to what it can mean, as `--churn-guard` is: no negative months or days,
+    confidence 0-1, and above 1 on "tick from" read as Never (2.0, the Settings choice)."""
+    if name in ("enrich_max_months", "enrich_repeat_days"):
+        return max(0, int(value))
+    if name == "enrich_hide_below":
+        return max(0.0, min(1.0, float(value)))
+    if name == "enrich_tick_from":
+        return 2.0 if float(value) > 1 else max(0.0, float(value))
+    return value
+
+
 _ENRICH_HELP = {
     "enrich_signatures": "own index: read phone, title and company from email signatures",
     "enrich_company": "own index: company from a work email's domain",
@@ -288,7 +302,7 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
         for flag, name, kind, _help in ENRICH_VALUES:          # order 1s: the rules
             value = getattr(args, flag)
             if value is not None:
-                changes[name] = kind(value)
+                changes[name] = _in_range(name, kind(value))
         if args.google_client_secret_stdin:
             from app.accounts.secrets import client_secret_key  # noqa: PLC0415
             svc.secrets.put(client_secret_key("google"), sys.stdin.readline().rstrip("\r\n"))

@@ -31,7 +31,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QLabel, QTreeWidget, QTreeWidgetItem, QWidget
+from PySide6.QtWidgets import QAbstractItemView, QLabel, QTreeWidget, QTreeWidgetItem, QWidget
 
 from app.contacts.card import display_name
 from app.ui.contacts_tools import enrich_rows
@@ -183,6 +183,10 @@ class EnrichDialog(ToolDialog):
         #: Rows that started ticked (D4): Accept all asks when it would take any other.
         self._started: set[int] = set()
         self.tree.itemChanged.connect(self._ticked_changed)
+        # A row that starts unticked (less sure, or one that would replace a value) is turned down by
+        # selecting it: it has no tick to take off (review of #75).
+        self.tree.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.tree.itemSelectionChanged.connect(self._sync)
         self.select_bar = SelectBar(self.tree, "suggestions")
         self.select_bar.changed.connect(lambda _n: self._sync())
         self.body.addWidget(self.select_bar)
@@ -199,8 +203,9 @@ class EnrichDialog(ToolDialog):
         self.accept_button = btn("Accept selected", "check", "primary", "Keep the ticked suggestions", "Accept selected")
         self.accept_all_button = btn("Accept all", "list-checks", "secondary", "Keep every suggestion", "Accept all")
         self.never_button = btn("Never suggest these", "ban", "secondary",
-                                "Untick the suggestions you never want again, then press this: they are not "
-                                "offered for that contact again, from any source", "Never suggest these")
+                                "Untick the suggestions you never want again, or select ones that start "
+                                "unticked, then press this: they are not offered for that contact again, from "
+                                "any source", "Never suggest these")
         self.undo_button = btn("Undo these", "undo-2", "secondary", "Take back what was just accepted", "Undo these")
         self.undo_button.hide()
         self.stop_button = btn("Stop looking", "square", "secondary",
@@ -340,7 +345,7 @@ class EnrichDialog(ToolDialog):
         have = bool(self.data and self.data.proposals)
         self.accept_button.setEnabled(have and bool(self.ticked()))
         self.accept_all_button.setEnabled(have and bool(self.every()))
-        self.never_button.setEnabled(have and bool(self._unticked))
+        self.never_button.setEnabled(have and bool(self.turned_down()))
 
     def accept_selected(self) -> None:
         self._accept(self.ticked())
@@ -360,9 +365,15 @@ class EnrichDialog(ToolDialog):
                 return
         self._accept(rows)
 
+    def turned_down(self) -> set[int]:
+        """The rows to never offer again: those the person unticked, and selected rows that are not ticked."""
+        picked = {item.data(0, Qt.ItemDataRole.UserRole) for item in self.tree.selectedItems()
+                  if item.checkState(0) != Qt.CheckState.Checked}
+        return set(self._unticked) | {i for i in picked if isinstance(i, int)}
+
     def never_suggest(self) -> None:
-        """D5: remember the unticked rows, so no source offers those values for that contact again."""
-        chosen = sorted(self._unticked)
+        """D5: remember the turned-down rows, so no source offers those values for that contact again."""
+        chosen = sorted(self.turned_down())
         if not chosen or self.data is None:
             return
         from app.contacts.enrich import declines     # noqa: PLC0415

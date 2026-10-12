@@ -139,18 +139,19 @@ def read_signatures(store: Any, cid: int, card: Card, *, region: str = phones.DE
         rows = mail_from(store, emails, limit=MAX_MESSAGES, since=since)
     wanted = set(emails)
     rows = [r for r in rows if address_of(r.sender) in wanted and not _on_behalf(r.sender)][:MAX_MESSAGES]
-    texts: list[tuple[Any, Optional[int], list[str], bool]] = []
+    texts: list[tuple[Any, Optional[int], list[str], bool, str]] = []
     for r in rows:
-        texts.append((r, r.sent_at, _lines(base.full_text(store, r.file_id, read_original=read_original)), False))
+        texts.append((r, r.sent_at, _lines(base.full_text(store, r.file_id, read_original=read_original)), False,
+                      address_of(r.sender)))
     if include_quoted:
         texts += _quoted_texts(store, wanted, rows, since, owner, read_original)
     tokens = _name_tokens(card) or _name_tokens(card, next((_display(r.sender) for r in rows if _display(r.sender)), ""))
     blocks = [_owner_free(b, owner) for b in find_blocks([t[2] for t in texts], name_tokens=tokens, emails=emails)]
     companies = _domain_companies(store, cid, emails)
-    for (row, when, _, is_quoted), block in zip(texts, blocks, strict=True):
+    for (row, when, _, is_quoted, sender), block in zip(texts, blocks, strict=True):
         if not is_quoted:
             out.blocks.append(block)
-        sender = address_of(row.sender) if not is_quoted else emails[0]
+        # A quoted block's region, country and company are its own From address's, not the card's first.
         sig = parse_block(block, name_tokens=tokens, sender_email=sender, region=region, own_emails=emails,
                           domain_companies=companies)
         for addr in [*sig.get("emails", [])]:
@@ -171,7 +172,7 @@ _SAME_MESSAGE_S = 14 * 3600
 
 
 def _quoted_texts(store: Any, wanted: set[str], direct: Sequence[Any], since: Optional[int], owner: OwnerDetails,
-                  read_original: bool) -> list[tuple[Any, Optional[int], list[str], bool]]:
+                  read_original: bool) -> list[tuple[Any, Optional[int], list[str], bool, str]]:
     """4c: the person's quoted messages inside other people's mail, inside the window, each once."""
     direct_times = [r.sent_at for r in direct if r.sent_at]
     quoted_minutes: set[int] = set()
@@ -188,7 +189,7 @@ def _quoted_texts(store: Any, wanted: set[str], direct: Sequence[Any], since: Op
                         or q.sent_at // 60 in quoted_minutes:
                     continue                               # read directly already, or quoted in another reply
                 quoted_minutes.add(q.sent_at // 60)
-            out.append((row, q.sent_at, _lines(q.text), True))
+            out.append((row, q.sent_at, _lines(q.text), True, q.address))
     return out
 
 

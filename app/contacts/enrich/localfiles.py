@@ -103,7 +103,7 @@ class LocalFile:
         return f"{(self.subject or '(no subject)')[:80]} - {format_day(self.mtime)} (attached {name})"
 
 
-_LISTED: dict[tuple[int, int, tuple[str, ...], Optional[int]], tuple[float, list[LocalFile]]] = {}
+_LISTED: dict[tuple[str, int, tuple[str, ...], Optional[int]], tuple[float, list[LocalFile]]] = {}
 
 
 def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = None) -> list[LocalFile]:
@@ -115,7 +115,9 @@ def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = Non
         newest = int(store.conn.execute("SELECT COALESCE(MAX(id), 0) FROM files").fetchone()[0])
     except Exception:                                    # noqa: BLE001 - no files table: nothing to list
         newest = -1
-    key = (id(store), newest, tuple(sorted(e.lower().lstrip(".") for e in exts)), since)
+    # The database file where the store has one: `id()` is reused once an object is freed (review of #75).
+    where = str(getattr(store, "db_path", None) or id(store))
+    key = (where, newest, tuple(sorted(e.lower().lstrip(".") for e in exts)), since)
     hit = _LISTED.get(key)
     if hit is not None and time.monotonic() - hit[0] < LIST_SECONDS:
         return list(hit[1])

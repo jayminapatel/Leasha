@@ -82,3 +82,16 @@ def test_accounts_config_sets_the_age_window(tmp_path, capsys):
                  "--env", str(env)]) == 0
     out = capsys.readouterr().out
     assert '"enrich_max_months": 12' in out and '"enrich_vcards": false' in out
+
+
+def test_accounts_config_keeps_the_numbers_in_range(tmp_path, capsys):
+    """Review of #75: no negative months or days, confidence 0-1, and above 1 on "tick from" is Never."""
+    from app.cli import main
+
+    env = tmp_path / "scratch.env"
+    env.write_text(f"DATA_PATH={tmp_path}\n", encoding="utf-8")
+    assert main(["accounts", "config", "--enrich-max-months", "-3", "--enrich-repeat-days", "-1",
+                 "--enrich-hide-below", "1.7", "--enrich-tick-from", "5", "--env", str(env)]) == 0
+    out = capsys.readouterr().out
+    assert '"enrich_max_months": 0' in out and '"enrich_repeat_days": 0' in out
+    assert '"enrich_hide_below": 1.0' in out and '"enrich_tick_from": 2.0' in out

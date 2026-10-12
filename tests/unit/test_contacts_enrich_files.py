@@ -576,3 +576,19 @@ def test_an_address_the_owner_sent_from_is_never_a_suggested_contact(hub, tmp_pa
                           sent_at=epoch(2016, 1, 1), folder_path="Top of Outlook data file/Sent Items")
     got = {s.email for s in suggestions_for(hub, AccountSettings(**ANY_AGE))}
     assert "juniper@holt.example" in got and "me@old-job.example" not in got
+
+
+def test_the_listing_is_kept_per_database_file_not_per_object(tmp_path):
+    """Review of #75: `id()` is reused once a store is freed, so two indexes could share one listing."""
+    from types import SimpleNamespace
+
+    one = SqliteStore(tmp_path / "one.db").connect()
+    two = SqliteStore(tmp_path / "two.db").connect()
+    try:
+        put(SimpleNamespace(store=one), tmp_path / "a.vcf", CARD)
+        put(SimpleNamespace(store=two), tmp_path / "b.vcf", CARD.replace("Avery", "Blake"))
+        assert [f.shown for f in localfiles.indexed_files(one, vcards.EXTS)] == [str(tmp_path / "a.vcf")]
+        assert [f.shown for f in localfiles.indexed_files(two, vcards.EXTS)] == [str(tmp_path / "b.vcf")]
+    finally:
+        one.close()
+        two.close()

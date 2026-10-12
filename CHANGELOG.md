@@ -19,7 +19,7 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ### Enrich contacts finds more, and only fresh details (order 1s, 2026-10-13)
 
-Measured on a copy of the owner's index, read-only: with mail of any age, 114 contacts now get a suggestion from a
+Measured on a copy of the owner's index, read-only: with mail of any age, 113 contacts now get a suggestion from a
 signature, against 53 before. The order asked for 200, so it is not met yet: nearly a quarter of the indexed mail has a
 sender with no email address, which cannot be matched to anyone. Of 100 suggestions checked by hand, 98 were right.
 Not yet seen in the real window.
@@ -354,8 +354,8 @@ the code; each is fixed with a test. Not yet seen in the real window.
 ### Docs
 
 - Order 1s close-out (2026-10-13): `docs/USER_GUIDE.html` (Enriching contacts) and `docs/TECHNICAL_REFERENCE.html`
-  (Contact enrichment, schema 43) rewritten in place; `docs/GLOSSARY.md` 1.16 (age window, signature tail);
-  `docs/ORDER_REGISTER.md` 1.86; `HANDOFF.md` 7.160; the order 1.1.
+  (Contact enrichment, schema 43) rewritten in place; `docs/GLOSSARY.md` 1.17 (age window, signature tail);
+  `docs/ORDER_REGISTER.md` 1.89; `HANDOFF.md` 7.163; the order 1.2.
 - `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
   install order: dated notes recording that distribution is on again (owner, 2026-10-11).
 

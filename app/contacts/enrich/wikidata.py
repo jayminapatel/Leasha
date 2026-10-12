@@ -74,7 +74,7 @@ _DEPARTMENT_WORDS = frozenset({
     "regional", "function", "sales", "marketing", "finance", "procurement", "purchasing", "operations", "hr",
     "support", "management", "commercial", "projects", "project"})
 #: "Acme - Procurement", "Acme | Senior Engineer", "Acme / EMEA": the company is the part before.
-_SEPARATOR = re.compile(r"\s+[-/]\s+|\s*[|–—]\s*")
+_SEPARATOR = re.compile(r"\s+[-/]\s+|\s*[|\u2013\u2014]\s*")
 
 
 def clean_company(text: str) -> str:

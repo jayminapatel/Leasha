@@ -223,3 +223,21 @@ def test_settings_say_how_many_were_turned_down_and_clear_asks_first(page_world,
     row.clear_button.click()
     qtbot.waitUntil(lambda: row.label.text() == "Suggestions you turned down: 0", timeout=5000)
     assert declines.count(page_world.store) == 0 and not row.clear_button.isEnabled()
+
+
+def test_a_row_that_started_unticked_is_turned_down_by_selecting_it(world, qtbot):
+    """Review of #75: an unsure row has no tick to take off, so selecting it is enough."""
+    a = world.add("Ann", "Lee", email="ann@acme-widgets.co.uk")
+    unsure = _p(a, "title", "Job title", "Buyer", 0.6)                     # below "tick from"
+    world.ctx.enrich = lambda: [unsure]
+    dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
+    _run(qtbot, dlg)
+    row = dlg.tree.topLevelItem(0).child(0)
+    assert row.checkState(0) == Qt.CheckState.Unchecked
+    dlg.tree.clearSelection()
+    assert not dlg.never_button.isEnabled()
+    row.setSelected(True)
+    assert dlg.never_button.isEnabled()
+    dlg.never_button.click()
+    settle(qtbot)
+    assert declines.count(world.store) == 1

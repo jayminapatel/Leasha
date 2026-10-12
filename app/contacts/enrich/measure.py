@@ -52,6 +52,7 @@ class ReadOnlyStore:
     `set_state` raises, so a source that tries to remember something fails loudly here."""
 
     def __init__(self, path: Path) -> None:
+        self.db_path = Path(path)                        # what the local-file listing is keyed by
         uri = Path(path).resolve().as_uri() + "?mode=ro"
         self.conn = sqlite3.connect(uri, uri=True, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
