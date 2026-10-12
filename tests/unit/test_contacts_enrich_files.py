@@ -486,3 +486,45 @@ def test_the_files_are_listed_once_a_run_not_once_a_contact(hub, tmp_path, monke
     monkeypatch.setattr(localfiles, "LIST_SECONDS", 0.0)
     localfiles.indexed_files(hub.store, vcards.EXTS)
     assert len(calls) == 3
+
+
+BACKUP = """BEGIN:VCARD
+VERSION:3.0
+N:Weller;Mum;Jacqui;;
+FN:Mum Jacqui Weller
+EMAIL:jacqui@home.example
+ADR;TYPE=WORK:;;Jebel Ali Free Zone South Zone \u0096 1;Dubai;;61495;United Arab Emirates
+END:VCARD
+BEGIN:VCARD
+VERSION:3.0
+N:Weller;Mum;;;
+EMAIL:jacqui@home.example
+ADR;TYPE=WORK:;;Jebel Ali Free Zone South Zone \ufffd 1;Dubai;;61495;United Arab Emirates
+TITLE:Head of Ops
+END:VCARD
+"""
+
+
+def test_a_backup_offers_each_value_once_cleaned_and_no_name_already_held(hub, tmp_path):
+    """Checked on the owner's index 2026-10-13: phone backups offered "Jacqui" to "Mum Jacqui Weller", one address
+    twice (a Windows dash read as a control character in one copy, lost as U+FFFD in another)."""
+    put(hub, tmp_path / "backup.vcf", BACKUP)
+    cid = person(hub, "Mum Jacqui", "Weller", email="jacqui@home.example")
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+    kinds = [p.field_kind for p in props]
+    assert "additional" not in kinds and "title" in kinds
+    addresses = [str(p.new) for p in props if p.field_kind == "address"]
+    assert len(addresses) == 1 and "–" in addresses[0]
+    assert not any("\ufffd" in str(p.new) or "\x96" in str(p.new) for p in props)
+
+
+def test_a_backup_is_looked_up_not_compared_card_by_card(hub, tmp_path, monkeypatch):
+    """9c: a backup of thousands of cards is indexed once; a contact is matched only against its own cards."""
+    cards = "".join(CARD.replace("avery.quill", f"p{i}").replace("Avery", f"Avery{i}").replace("900123", f"{i:06d}") for i in range(300))
+    put(hub, tmp_path / "big.vcf", cards + CARD)
+    cid = person(hub, "Avery", "Quill", email="avery.quill@northwind.example")
+    seen = []
+    real = vcards.match_rule
+    monkeypatch.setattr(vcards, "match_rule", lambda *a: seen.append(1) or real(*a))
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid], sources=["vcard"])
+    assert props and len(seen) <= 2

@@ -23,6 +23,15 @@ and any email, phone, address, website, date, social profile or IM the card has 
 not. Notes and free custom fields are not offered (they carry whatever the exporting program put
 there); neither is the photo, which order 1k's photo sources own.
 
+**Checked against the owner's index (2026-10-13).** Most of what the vCards offer comes from a few
+phone backups mailed to the owner (one card for every contact they had), so each value is cleaned the
+way a person reading it would: a name part whose words are already in the contact's name is not offered
+("Jacqui" for "Mum Jacqui Weller"); an address already offered, or already on the card, written another
+way (commas for line breaks) is offered once; a value with a character the export lost (U+FFFD) is not
+offered, and a Windows dash or quote decoded as a control character is put back. A backup holds
+thousands of cards, so each file's cards are looked up by address, number and name (`_Book`), not
+compared one by one for every contact (1.44 s a contact before, on the owner's index).
+
 **Receipt.** The file's indexed path and its modified date; `Proposal.when` is that date. The age
 window (D1) is applied to the same date, so a vCard last saved four years ago offers nothing with the
 default six months.
@@ -30,6 +39,8 @@ default six months.
 
 from __future__ import annotations
 
+import re
+from collections import defaultdict
 from typing import Any, Optional
 
 from app.contacts import importers
@@ -52,6 +63,55 @@ _CONFIDENCE = {"email": 0.85, "phone": 0.75, "name": 0.7}
 
 def _cards(data: bytes) -> list[Card]:
     return importers.import_vcard(data).cards
+
+
+class _Book:
+    """One file's cards, looked up by email address, phone number and full name."""
+
+    def __init__(self, cards: list[Card], region: str) -> None:
+        self.cards = cards
+        self.by: dict[str, list[int]] = defaultdict(list)
+        for i, c in enumerate(cards):
+            keys = {f"e:{e}" for e in emails_of(c)}
+            keys |= {f"p:{field_key(f, region)}" for f in c.values("phone") if f.value.strip()}
+            name = _full_name(c)
+            if name:
+                keys.add(f"n:{name}")
+            for k in keys:
+                self.by[k].append(i)
+
+    def candidates(self, contact: Card, region: str) -> list[Card]:
+        keys = {f"e:{e}" for e in emails_of(contact)}
+        keys |= {f"p:{field_key(f, region)}" for f in contact.values("phone") if f.value.strip()}
+        name = _full_name(contact)
+        if name:
+            keys.add(f"n:{name}")
+        hits = sorted({i for k in keys for i in self.by.get(k, ())})
+        return [self.cards[i] for i in hits]
+
+
+_C1 = re.compile("[\x80-\x9f]")
+
+
+def _clean(value: str) -> Optional[str]:
+    """The value as a person would read it, or None when the export lost a character (U+FFFD)."""
+    if "\ufffd" in value:
+        return None
+    if _C1.search(value):                                # a Windows-1252 dash or quote read as Latin-1
+        value = _C1.sub(lambda m: m.group().encode("latin-1").decode("cp1252", "replace"), value)
+    return value
+
+
+def _words(text: str) -> set[str]:
+    return set(re.findall(r"\w+", text.casefold()))
+
+
+def _address_key(text: str) -> str:
+    """An address in any layout: its words, in order, without the commas and line breaks between them."""
+    return " ".join(re.findall(r"\w+", text.casefold()))
+
+
+_NAME_SCALARS = ("prefix", "given", "additional", "family", "suffix", "nickname")
 
 
 def _full_name(card: Card) -> str:
@@ -88,26 +148,36 @@ def vcard_proposals(hub: Any, cid: int, card: Card, *, region: str = "GB",
     out: list[Proposal] = []
     offered: set[str] = set()
     have = {field_key(f, region) for f in card.fields}
+    have |= {f"addr:{_address_key(f.value)}" for f in card.values("address") if f.value.strip()}
+    named = _words(" ".join([card.get("fn"), *(card.get(n) for n in _NAME_SCALARS)]))
     for f in localfiles.indexed_files(hub.store, EXTS, since=since):
-        cards = localfiles.cached("vcard", f, _cards) or []
-        for other in cards:
+        book = localfiles.cached(f"vcard:{region}", f, lambda data: _Book(_cards(data), region))
+        for other in book.candidates(card, region) if book else ():
             rule = match_rule(card, other, region)
             if rule is None or (rule != "email" and _someone_else(hub, cid, other)):
                 continue
             conf = _CONFIDENCE[rule]
             receipt = f.receipt
             for name in _SCALARS:
-                new = other.get(name).strip()
-                if new and not card.get(name).strip() and f"s:{name}" not in offered:
-                    offered.add(f"s:{name}")
-                    out.append(Proposal(cid, name, "", "", new, "vcard", receipt, conf, when=f.mtime))
+                new = _clean(other.get(name).strip())
+                if not new or card.get(name).strip() or f"s:{name}" in offered:
+                    continue
+                if name in _NAME_SCALARS and _words(new) <= named:
+                    continue                             # already in the contact's name, in another part
+                offered.add(f"s:{name}")
+                out.append(Proposal(cid, name, "", "", new, "vcard", receipt, conf, when=f.mtime))
             for field in other.fields:
                 if field.kind not in _KINDS or not (field.value.strip() or any(field.data.values())):
                     continue
-                key = field_key(field, region)
-                if key in have or key in offered:
+                value = _clean(field.value)
+                if value is None or any("\ufffd" in str(v) for v in field.data.values()):
                     continue
-                offered.add(key)
-                out.append(Proposal(cid, field.kind, field.label, "", field.value, "vcard", receipt, conf,
+                keys = {field_key(field, region)}
+                if field.kind == "address":
+                    keys.add(f"addr:{_address_key(value)}")
+                if keys & (have | offered):
+                    continue
+                offered |= keys
+                out.append(Proposal(cid, field.kind, field.label, "", value, "vcard", receipt, conf,
                                     data=dict(field.data), when=f.mtime))
     return out
