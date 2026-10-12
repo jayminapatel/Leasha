@@ -409,7 +409,10 @@ class GooglePeopleProvider:
         # deleteContact takes no etag, so a delete would otherwise be blind. One
         # cheap read first keeps rule 3c: never overwrite what changed meanwhile.
         if version:
-            cur = self._call("GET", quote(remote_id, safe="/"), params={"personFields": "metadata"})
+            # The same fields as every other read: Google's etag changes with the fields asked for, so a read of
+            # `metadata` alone never matched the etag kept from `get` and a delete was refused as a race, always
+            # (found 2026-10-12 on the owner's account: four contacts folded by a merge stayed in Gmail).
+            cur = self._call("GET", quote(remote_id, safe="/"), params={"personFields": _READ_FIELDS})
             if cur.status == 404:
                 return
             if cur.status != 200:
