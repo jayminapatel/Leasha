@@ -318,14 +318,32 @@ def _row(r: Any) -> MailRow:
                    r["sent_at"])
 
 
+def _has_sender_addr(store: Any) -> bool:
+    """Schema 41's indexed `sender_addr` is there (it is not on an index measured read-only before it)."""
+    known = getattr(store, "_enrich_sender_addr", None)
+    if known is None:
+        known = any(r[1] == "sender_addr" for r in store.conn.execute("PRAGMA table_info(messages)"))
+        try:
+            store._enrich_sender_addr = known
+        except AttributeError:                               # a store that takes no attributes asks each time
+            pass
+    return known
+
+
 def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50) -> list[MailRow]:
-    """Messages whose sender is one of `emails`, newest first (undated last)."""
+    """Messages whose sender is one of `emails`, newest first (undated last).
+
+    Order 1s 1c: one indexed look-up per address on `sender_addr` (schema 41), where it was a scan of
+    every message - about a second a contact on the owner's index. An index without the column (one
+    measured read-only before the migration) is still read the old way, so the answer is the same."""
     out: dict[int, MailRow] = {}
     wanted = {e.lower() for e in emails if e}
+    indexed = _has_sender_addr(store)
     for e in wanted:
-        for r in store.conn.execute(
-                "SELECT file_id, subject, sender, recipients, sent_at FROM messages "
-                "WHERE instr(lower(sender), ?) > 0 ORDER BY sent_at DESC LIMIT ?", (e, int(limit) * 4)):
+        sql = ("SELECT file_id, subject, sender, recipients, sent_at FROM messages "
+               + ("WHERE sender_addr = ? " if indexed else "WHERE instr(lower(sender), ?) > 0 ")
+               + "ORDER BY sent_at DESC LIMIT ?")
+        for r in store.conn.execute(sql, (e, int(limit) * 4)):
             if address_of(r["sender"] or "") in wanted:      # 'joann@x.com' is not 'ann@x.com'
                 out[int(r["file_id"])] = _row(r)
     rows = sorted(out.values(), key=lambda m: (m.sent_at is None, -(m.sent_at or 0), m.file_id))

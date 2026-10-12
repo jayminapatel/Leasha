@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 40
+CURRENT_VERSION = 41
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2110,6 +2110,37 @@ def _v40_cards_and_words(conn: sqlite3.Connection) -> None:
         )""")
 
 
+def _v41_enrichment_that_finds(conn: sqlite3.Connection) -> None:
+    r"""The sender's bare address, indexed (order 1s 1c).
+
+    Enrichment asks "every message from this address" once per contact. It did that
+    with `instr(lower(sender), ?)` - a scan of every message (217,162 on the owner's
+    index, about a second a contact). `sender_lc` cannot be compared with `=` instead:
+    measured on the owner's index (2026-10-12), it holds a bare address in three
+    messages of four, "Name <address>" in about one in eleven, and no address at all
+    in the rest. So the address itself is kept: `sender_addr`, the lower-cased address
+    `email.utils.parseaddr` finds, or NULL - the same rule as
+    `app.contacts.enrich.base.address_of`, which a test holds them to. Filled here for
+    every message and in `SqliteStore.set_message` from now on (derived, never passed).
+
+    Additive: one column and one index.
+    """
+    from email.utils import parseaddr  # noqa: PLC0415 - only this step needs it
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+    if "sender_addr" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN sender_addr TEXT")
+
+    def addr(sender: Any) -> Any:
+        found = parseaddr(str(sender or ""))[1].strip().lower()
+        return found if "@" in found else None
+
+    rows = conn.execute("SELECT file_id, sender FROM messages WHERE sender IS NOT NULL").fetchall()
+    conn.executemany("UPDATE messages SET sender_addr = ? WHERE file_id = ?",
+                     [(addr(r[1]), r[0]) for r in rows])
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_addr ON messages(sender_addr, sent_at)")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2150,6 +2181,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     38: _v38_live_mail,
     39: _v39_tidy_journal,
     40: _v40_cards_and_words,
+    41: _v41_enrichment_that_finds,
 }
 
 #: Released migrations that open and close transactions of their own -

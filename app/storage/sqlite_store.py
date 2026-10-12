@@ -216,6 +216,19 @@ class _DeferredFts:
 VOLUME_PATH_SCHEME = "leasha-volume://"
 
 
+def _sender_address(sender: Any) -> Optional[str]:
+    """The lower-cased bare address in `Ann Lee <ann@x.com>`, or None (schema 41, `sender_addr`).
+
+    The same rule as `app.contacts.enrich.base.address_of`, which reads it back; a test holds the two
+    to each other. Kept here rather than imported, because storage sits below the contacts layer."""
+    from email.utils import parseaddr  # noqa: PLC0415 - one message at a time, cheap
+
+    if sender is None:
+        return None
+    found = parseaddr(str(sender))[1].strip().lower()
+    return found if "@" in found else None
+
+
 def volume_synthetic_path(volume_id: int, relative_path: str) -> str:
     r"""The letter-free identity `files.path` holds for a catalogued file.
 
@@ -5657,7 +5670,10 @@ class SqliteStore:
                    # done. See `migrations._v14_folded_mail_columns`.
                    "sender_lc", "recipients_lc", "subject_lc",
                    # Schema 32: where it sits in its archive (`pst_attachment`).
-                   "folder_path", "folder_index")
+                   "folder_path", "folder_index",
+                   # Schema 41: the sender's bare address, derived like the folds above
+                   # (`migrations._v41_enrichment_that_finds`).
+                   "sender_addr")
         # has_attach is NOT NULL DEFAULT 0, so it cannot be passed through as
         # None when the caller omits it.
         defaults: dict[str, Any] = {"has_attach": 0}
@@ -5668,6 +5684,7 @@ class SqliteStore:
                                ("subject", "subject_lc")):
             value = fields.get(source)
             fields[folded] = str(value).lower() if value is not None else None
+        fields["sender_addr"] = _sender_address(fields.get("sender"))
         values = [
             fields.get(name, defaults.get(name)) if fields.get(name) is not None
             else defaults.get(name)
