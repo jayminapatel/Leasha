@@ -39,6 +39,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Fixed:** six contacts binned while a push was writing them were marked synced again and stayed at Google; Microsoft
   contacts in child folders were never read.
 
+### Enrich contacts can look again, and says when the internet was not asked (2026-10-12)
+
+- **Look again** in Enrich contacts asks the internet sources even for contacts they were asked about in the last
+  90 days. Before, the page never asked for it, so after the first run Gravatar, logos and Wikidata were asked
+  nothing for 90 days, and the window gave no sign of it.
+- A run now says which internet source was not asked again and for how many contacts, and a source that could not
+  be reached is named. Both were collected by the enrichment code and dropped by the page.
+- A LinkedIn or Facebook profile on a contact is no longer taken for the company's website when fetching a logo.
+- Order 1s (`docs/WORKORDER-contact-enrichment-that-finds.md`) released for the rest: an age window, a smarter
+  signature reader, more local sources and the settings for all of it.
+
 ### Microsoft mail first fetch no longer gives way after one page (2026-10-12)
 
 - A first mail fetch yields to a due contact sync, but only after it has worked for 90 seconds. Microsoft contacts held by the

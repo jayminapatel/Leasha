@@ -38,22 +38,49 @@ class EnrichData:
     names: dict = field(default_factory=dict)
     apply: Optional[Callable[[list], Any]] = None
     available: bool = True
+    #: What the sources said besides suggestions: one unreachable, or one not asked again within 90 days.
+    notes: list = field(default_factory=list)
 
 
-def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None) -> EnrichData:
+def _call_host(fn: Callable[..., Any], offered: dict, selected: list) -> Any:
+    """Call the host's `enrich` with every keyword of `offered` it takes, and none it does not.
+
+    Read from its signature (CodeRabbit on #67, three rounds): retrying fixed subsets kept dropping one
+    callback some host took - Look again's `force`, or `cancelled` so Stop could not interrupt. A host whose
+    signature cannot be read is given everything and then nothing; one that takes only the contact ids (the
+    oldest kind) is handed them positionally."""
+    import inspect  # noqa: PLC0415
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        try:
+            return fn(**offered)
+        except TypeError:
+            return fn()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return fn(**offered)
+    taken = {k: v for k, v in offered.items() if k in params}
+    required = [p for p in params.values() if p.default is inspect.Parameter.empty
+                and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and p.name not in taken]
+    if required:
+        return fn(selected, **taken)
+    return fn(**taken)
+
+
+def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, force: bool = False) -> EnrichData:
     """Ask the host for proposals and the names of the contacts they are about. A worker's job.
 
-    `on_progress` and `cancelled` are given to a host that takes them, and left out for one that does not."""
+    `on_progress` and `cancelled` are given to a host that takes them, and left out for one that does not.
+    `force` (Look again) is passed only when set, so a host that predates it still works."""
     fn = getattr(ctx, "enrich", None)
     if not callable(fn):
         return EnrichData(available=False)
-    try:
-        result = fn(on_progress=on_progress, cancelled=cancelled)
-    except TypeError:
-        try:
-            result = fn()
-        except TypeError:
-            result = fn(list(getattr(ctx, "selected_ids", []) or []))
+    offered: dict = {"on_progress": on_progress, "cancelled": cancelled}
+    if force:
+        offered["force"] = True
+    result = _call_host(fn, offered, list(getattr(ctx, "selected_ids", []) or []))
     proposals = getattr(result, "proposals", None)
     if proposals is None:
         proposals = list(result or [])
@@ -66,7 +93,8 @@ def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None) -
         if cid is not None and cid not in names:
             card = ctx.hub.get_card(cid)
             names[cid] = display_name(card) if card is not None else f"Contact {cid}"
-    return EnrichData(list(proposals), names, apply if callable(apply) else None)
+    notes = [str(n) for n in (getattr(result, "notes", None) or [])]
+    return EnrichData(list(proposals), names, apply if callable(apply) else None, notes=notes)
 
 
 def apply_selected(ctx: Any, data: EnrichData, indexes: list[int]) -> Any:
@@ -118,16 +146,22 @@ class EnrichDialog(ToolDialog):
                                "Stop at the next contact; the suggestions found so far are kept to accept",
                                "Stop looking")
         self.stop_button.hide()
+        self.again_button = btn("Look again", "refresh-cw", "secondary",
+                                "Ask the internet sources again, even for contacts they were asked about in the "
+                                "last 90 days", "Look again")
         self.stop_button.clicked.connect(lambda: self.run.stop())
         self.find_button.clicked.connect(self.find)
+        self.again_button.clicked.connect(self.look_again)
         self.accept_button.clicked.connect(self.accept_selected)
         self.accept_all_button.clicked.connect(self.accept_every)
         self.undo_button.clicked.connect(self.undo)
-        self.add_footer_buttons(self.find_button, self.stop_button, self.accept_button, self.accept_all_button, self.undo_button)
+        self.add_footer_buttons(self.find_button, self.again_button, self.stop_button, self.accept_button,
+                                self.accept_all_button, self.undo_button)
         self.has_source = callable(getattr(ctx, "enrich", None))
         if not self.has_source:
             self.say("Enrichment is not switched on. Turn it on in Settings > Accounts, then come back.")
             self.find_button.setEnabled(False)
+            self.again_button.setEnabled(False)
         self._sync()
         if self.run.state != "idle":
             self._from_run()
@@ -136,11 +170,15 @@ class EnrichDialog(ToolDialog):
     def find(self) -> None:
         self.run.start(self.ctx)
 
+    def look_again(self) -> None:
+        self.run.start(self.ctx, force=True)
+
     def _from_run(self) -> None:
         """Show the run's state: going (the window may be closed meanwhile), found, nothing, or stopped."""
         run = self.run
         if run.state == "running":
             self.find_button.setEnabled(False)
+            self.again_button.setEnabled(False)
             self.stop_button.setVisible(True)
             p = run.progress
             where = (f"Contact {p['done']:,} of {p['total']:,} - {plural(p['found'], 'suggestion')} so far. "
@@ -152,10 +190,12 @@ class EnrichDialog(ToolDialog):
             self._found(run.data)
         elif run.state == "failed":
             self.find_button.setEnabled(self.has_source)
+            self.again_button.setEnabled(self.has_source)
             self.busy(False, "Enrichment stopped: " + run.error)
 
     def _found(self, data: EnrichData) -> None:
         self.find_button.setEnabled(self.has_source)
+        self.again_button.setEnabled(self.has_source)
         self.data = data
         self.tree.blockSignals(True)
         self.tree.clear()
@@ -188,8 +228,9 @@ class EnrichDialog(ToolDialog):
         for col in range(4):
             self.tree.resizeColumnToContents(col)
         n = self.run.pending()
-        self.busy(False, f"{plural(n, 'suggestion')} for {plural(len(by_contact), 'contact')}. Tick what you want to keep."
-                  if n else ("Enrichment is not switched on." if not data.available else "No suggestions right now."))
+        said = (f"{plural(n, 'suggestion')} for {plural(len(by_contact), 'contact')}. Tick what you want to keep."
+                if n else ("Enrichment is not switched on." if not data.available else "No suggestions right now."))
+        self.busy(False, " ".join([said, *data.notes]))
         self._sync()
 
     # -- accepting -----------------------------------------------------------
