@@ -53,9 +53,11 @@ def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, f
     kwargs: dict = {"on_progress": on_progress, "cancelled": cancelled}
     if force:
         kwargs["force"] = True
-    # Each fallback drops what an older host does not take - but `force` is dropped last: a host that takes it
-    # without the progress keywords would otherwise run Look again as an ordinary lookup (CodeRabbit, #67).
-    attempts = [kwargs, {"force": True} if force else None, {}]
+    # Each fallback drops what an older host does not take, one thing at a time (CodeRabbit, #67 and #68):
+    # first the progress keywords with `force` kept, so Look again is never run as an ordinary lookup; then
+    # `force` with the progress keywords kept, so progress and Stop survive; then everything.
+    callbacks = {"on_progress": on_progress, "cancelled": cancelled}
+    attempts = [kwargs, {"force": True} if force else None, callbacks if force else None, {}]
     result, last = None, None
     for attempt in [a for a in attempts if a is not None]:
         try:

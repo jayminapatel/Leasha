@@ -480,3 +480,17 @@ def test_a_social_profile_is_not_taken_for_the_company_site(hub):
     hub.update(lonely, _with_url(hub.get_card(lonely), "https://www.facebook.com/bo"))
     assert logo.company_domain(hub.get_card(lonely)) == ""
     assert logo.company_domain(Card(fields=[Field("url", "https://boxcom.co.uk", "work")])) == "boxcom.co.uk"
+
+
+@pytest.mark.parametrize("domain, social", [
+    ("linkedin.com", True), ("ae.linkedin.com", True), ("linkedin.co.uk", True), ("x.com", True),
+    ("youtu.be", True), ("www.github.com", True),
+    ("linkedin.com.example.org", False), ("notlinkedin.com", False), ("box.com", False),
+    ("acme-widgets.co.uk", False), ("xcom.example", False),
+])
+def test_a_social_site_is_matched_at_its_own_name_not_inside_another(domain, social):
+    """CodeRabbit on #68 (2026-10-12): the check was a substring match, so `linkedin.com.example.org` -
+    somebody's own site - counted as LinkedIn. A social site now matches only as itself or a subdomain."""
+    from app.contacts.enrich import logo
+
+    assert logo._social(domain) is social

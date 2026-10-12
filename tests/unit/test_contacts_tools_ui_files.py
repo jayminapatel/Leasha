@@ -441,3 +441,20 @@ def test_look_again_keeps_force_for_a_host_that_takes_force_but_not_progress():
 
     gather_proposals(SimpleNamespace(enrich=enrich), force=True)
     assert calls == [True]
+
+
+def test_look_again_keeps_progress_for_a_host_that_takes_progress_but_not_force():
+    """CodeRabbit on #68 (2026-10-12): a host taking on_progress/cancelled but not force fell back to a call with
+    nothing, losing progress and Stop. Without force, the callbacks are kept."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    calls = []
+
+    def enrich(on_progress=None, cancelled=None):
+        calls.append(callable(on_progress) and callable(cancelled))
+        return SimpleNamespace(proposals=[], notes=[])
+
+    gather_proposals(SimpleNamespace(enrich=enrich), on_progress=lambda _p: None, cancelled=lambda: False, force=True)
+    assert calls == [True]
