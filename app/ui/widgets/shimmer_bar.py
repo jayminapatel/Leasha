@@ -49,6 +49,8 @@ from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QColor, QLinearGradient, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import QProgressBar, QWidget
 
+from app.ui.theme import PALETTES, Theme
+
 __all__ = ["ShimmerBar", "FRAME_MS", "SWEEP_S", "BUSY_S", "fill_colours", "text_on"]
 
 #: Time between frames while animating: 30 a second, smooth to the eye.
@@ -67,7 +69,10 @@ def fill_colours(accent: str) -> tuple[QColor, QColor]:
     fading to white (the dark theme's accent is already light)."""
     start = QColor(accent)
     if not start.isValid():
-        start = QColor("#6d5dfc")
+        # The theme's own bar colour, not a violet from no palette (`#6d5dfc`).
+        start = QColor(_colours().get("accent_bar", ""))
+    if not start.isValid():
+        start = QColor(PALETTES[Theme.DARK]["accent_bar"])
     hue, sat, light, _alpha = start.getHslF()
     hue = 0.0 if hue < 0 else hue
     end = QColor.fromHslF((hue + 0.07) % 1.0, min(1.0, sat * 1.05 + 0.05),
@@ -80,7 +85,10 @@ def text_on(start: QColor, end: QColor) -> QColor:
     black on the dark theme's pale one - chosen by the fill's own brightness."""
     def luminance(colour: QColor) -> float:
         return 0.2126 * colour.redF() + 0.7152 * colour.greenF() + 0.0722 * colour.blueF()
-    return QColor("#ffffff") if (luminance(start) + luminance(end)) / 2 < 0.55 else QColor("#15102e")
+    # The two inks the palettes already measure on their own accents (`accent_on`):
+    # white on the light theme's deep one, near-black on the dark theme's pale one.
+    light_fill = (luminance(start) + luminance(end)) / 2 >= 0.55
+    return QColor(PALETTES[Theme.DARK if light_fill else Theme.LIGHT]["accent_on"])
 
 
 def _colours() -> dict[str, str]:

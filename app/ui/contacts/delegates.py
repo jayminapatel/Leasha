@@ -19,6 +19,7 @@ from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from app.ui.contacts.logic import COLUMNS, initials
 from app.ui.contacts.model import RowRole
+from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
 
 __all__ = ["NameDelegate", "ChipsDelegate", "CardDelegate", "CARD_SIZE", "draw_avatar", "name_font", "NAME_POINTS"]
@@ -38,8 +39,9 @@ class _Base(QStyledItemDelegate):
         self.c = dict(colours)
         self._icons.clear()
 
-    def tok(self, name: str, fallback: str = "#888888") -> QColor:
-        return QColor(self.c.get(name, fallback))
+    def tok(self, name: str) -> QColor:
+        # Before the first `retint` the theme's own value, not a literal grey.
+        return QColor(self.c.get(name) or theme_colours()[name])
 
     def glyph(self, name: str, colour: str) -> Any:
         key = (name, colour)

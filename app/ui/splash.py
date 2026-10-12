@@ -53,7 +53,13 @@ BRAND_NAVY = "#15084B"
 BRAND_STRIPE_GREEN = "#A1B002"      # brand.json, exact (2026-10-04; was A1B000)
 BRAND_STRIPE_BLUE = "#0A79DB"       # brand.json, exact (2026-10-04; was 0778D9)
 BRAND_STRIPE_ORANGE = "#FF9933"
-BRAND_TEXT_FAINT = "#9b95c4"
+# **The faint line and the progress track are the brand's, not the retired navy
+# family** (2026-10-12). They were `#9b95c4` and `#2b2160`, tints of the splash's
+# old navy that no brand file names. brand.json's chrome-on-dark (accent3) is
+# 11.2 to 1 on the indigo ground (the old tint was 6.4), and its dark ground
+# (accent4) under the blue progress fill lifts that fill from 3.2 to 4.5 to 1.
+BRAND_TEXT_FAINT = "#CDCBD8"        # brand.json accent3, chrome on dark grounds
+BRAND_DARK_GROUND = "#0C0429"       # brand.json accent4, the dark ground
 
 #: §1b: how long the closing fade takes. Not a number from §0 (which only
 #: says "a quick fade") - chosen short enough that a fast, cache-warm start
@@ -665,7 +671,7 @@ class SplashScreen:
         bar_y = int(y)
 
         # Background (dark)
-        painter.fillRect(bar_x, bar_y, bar_width, bar_height, QColor("#2b2160"))
+        painter.fillRect(bar_x, bar_y, bar_width, bar_height, QColor(BRAND_DARK_GROUND))
 
         # Foreground (blue, based on progress)
         progress_width = int(bar_width * self._progress_value / 100.0)

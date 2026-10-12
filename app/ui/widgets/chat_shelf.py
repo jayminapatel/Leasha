@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from app.core.row_facts import is_message_key
 from app.ui.presenter.chat import SHELF_EMPTY, SHELF_LIST_TIP, Shelf, shelf_count_label
+from app.ui.theme import PALETTES, Theme
 from app.ui.widgets.icons import icon
 
 __all__ = ["ShelfBar", "NAME_WIDTH"]
@@ -68,10 +69,8 @@ def _colours(colours: Optional[Mapping[str, str]] = None) -> dict:
         from app.ui.theme import theme_colours
 
         colours = theme_colours()
-    base = {"border": "#dcdee2", "border_strong": "#c2c6cc", "surface": "#ffffff",
-            "surface_alt": "#f0f1f3", "surface_hover": "#e8eaed", "text": "#1b1d20",
-            "text_dim": "#585e66", "text_faint": "#6b7178", "accent_soft": "#e9e4fb",
-            "accent_text": "#15084b"}
+    # The light palette itself, not a copy of its values that could drift from it.
+    base = dict(PALETTES[Theme.LIGHT])
     return {**base, **{k: v for k, v in dict(colours).items() if isinstance(v, str)}}
 
 

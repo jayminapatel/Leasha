@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.119 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 4.120 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### Every state colour in the window comes from the theme (2026-10-12)
+
+- **Status words were colours picked for one theme.** "Cannot read" and every dialog's problem line (`#c62828`) were 2.9:1 on
+  the dark card, "Ready" 3.2:1, "Off" 3.5:1, "Limited" 3.8:1 on white, and a commit diff's added and removed lines 3.2:1 and
+  3.7:1 on white - all under 4.5:1. They now use the theme's tokens, measured in both themes; a new `success` token (5.3:1
+  light, 6.0:1 dark) carries "Ready" and added lines. The file-types Status column now follows a theme switch.
+- The photo viewer and month pill use a `backdrop` token; the splash's faint text and progress track are the brand's
+  chrome-on-dark and dark ground. `test_ui_one_app_colours` fails on any new hex colour literal in `app/ui` outside the theme.
 
 ### Microsoft mail first fetch no longer gives way after one page (2026-10-12)
 
