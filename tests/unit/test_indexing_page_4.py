@@ -271,17 +271,27 @@ def _record(bar) -> list[int]:
     return seen
 
 
-def test_the_bar_glides_between_two_values(qtbot) -> None:
+def test_the_bar_glides_between_two_values(qtbot, monkeypatch) -> None:
     view = _view(qtbot)
     bar = view.bar
     bar.glide_to(10, 100)                  # a new total: straight there
     assert (bar.maximum(), bar.value()) == (100, 10)
 
+    from types import SimpleNamespace
+    from app.ui.widgets import indexing_bar
+
+    # A busy runner may deliver only two timer ticks during a 200ms glide.
+    # Advance this animation's clock explicitly to test the intermediate values.
+    now = [100.0]
+    monkeypatch.setattr(indexing_bar, "time", SimpleNamespace(monotonic=lambda: now[0]))
     seen = _record(bar)
     bar.glide_to(60, 100)
     assert bar.gliding()
     assert bar.value() < 60, "a glide, not a jump"
-    qtbot.waitUntil(lambda: bar.value() == 60 and not bar.gliding(), timeout=2000)
+    for fraction in (0.25, 0.5, 0.75, 1.01):
+        now[0] = 100.0 + indexing_bar.GLIDE_S * fraction
+        bar._step()
+    assert bar.value() == 60 and not bar.gliding()
     assert len(seen) >= 3, f"it moved in steps, not one hop: {seen}"
     assert seen == sorted(seen), f"it went backwards on the way: {seen}"
 

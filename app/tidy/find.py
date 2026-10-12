@@ -33,7 +33,7 @@ _log = logger.bind(component="tidy.find")
 #: Recycle Bin (its row stays until the watcher or the next index run forgets it, as
 #: for a file deleted in Explorer). `f.` because every query aliases `files`.
 LOCAL = ("f.source_kind = 'file' AND f.volume_id IS NULL AND f.path NOT IN "
-         "(SELECT path FROM tidy_journal WHERE put_back_at IS NULL)")
+         "(SELECT path FROM tidy_journal WHERE put_back_at IS NULL AND bin_ref NOT LIKE 'pending:%')")
 #: D10. Partial downloads and temporary files, anywhere.
 LEFTOVER_EXTS = frozenset({"crdownload", "part", "partial", "tmp", "download"})
 #: D10. Installers, but only in a Downloads folder - an installer kept elsewhere was kept on purpose.

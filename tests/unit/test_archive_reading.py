@@ -84,6 +84,7 @@ def test_a_member_is_keyed_as_container_slash_member(tmp_path):
 
     assert document.virtual_path == f"{archive}/q3/report.txt"
     assert document.path == archive
+    assert document.meta["member"] == "q3/report.txt"
 
 
 def test_a_directory_entry_is_not_a_document(tmp_path):
@@ -117,6 +118,7 @@ def test_a_nested_archive_is_read_at_depth_two(tmp_path):
 
     assert [_inside(d, outer) for d in found] == ["inner.zip/deep.txt"]
     assert "deepest" in found[0].text
+    assert found[0].meta["member"] == "deep.txt"
 
 
 def test_depth_three_is_refused_by_code(tmp_path):

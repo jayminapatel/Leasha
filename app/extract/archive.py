@@ -366,7 +366,7 @@ def _member(archive: Any, entry: Any, path: Path, key: str,
     with _extracted(archive, entry, inner.name) as temp:
         if temp is None:
             return
-        yield from _read_one(temp, path, member_key)
+        yield from _read_one(temp, path, member_key, name)
 
 
 #: Order `reader-process-isolation` (2026-10-09). **Per thread**: the callable
@@ -388,7 +388,8 @@ def member_reader() -> Optional[Callable[[Path], Iterator[Document]]]:
     return getattr(_member_readers, "reader", None)
 
 
-def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Document]:
+def _read_one(temp: Path, archive_path: Path, member_key: str,
+              member_name: str) -> Iterator[Document]:
     """Run the ordinary extractor over one member. Never raises.
 
     **Reuses the registry rather than reimplementing anything.** An archive
@@ -414,7 +415,7 @@ def _read_one(temp: Path, archive_path: Path, member_key: str) -> Iterator[Docum
                 segments=document.segments,
                 source_kind=SourceKind.ARCHIVE,
                 meta={**document.meta, "inside_archive": str(archive_path),
-                      "member": member_key.split("/", 1)[-1],
+                      "member": member_name,
                       # 2026-10-04: its own size, for its row - without it the
                       # row carried the archive's, as mail attachments did.
                       "member_size": _size_of(temp)},
