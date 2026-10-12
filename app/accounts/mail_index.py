@@ -298,7 +298,12 @@ class MailIndexer:
         """Read an attachment through the registry; an unreadable one is kept by name."""
         from app.extract.base import SourceKind
 
-        with tempfile.TemporaryDirectory(prefix="leasha_attach_") as scratch:
+        # `ignore_cleanup_errors`: on Windows the folder cannot be removed while the virus scanner or a reader still
+        # holds the attachment ("[WinError 32] The process cannot access the file because it is being used by
+        # another process"). That error came out of the `with` after the attachment was read and cost the WHOLE message
+        # - "could not read message ... of MS Main" - 32 of them on the owner's account (2026-10-12). The leftover
+        # folder in %TEMP% is harmless; the message is not.
+        with tempfile.TemporaryDirectory(prefix="leasha_attach_", ignore_cleanup_errors=True) as scratch:
             target = Path(scratch) / Path(name).name
             try:
                 target.write_bytes(data)

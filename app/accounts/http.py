@@ -86,6 +86,12 @@ _APPLE_PATTERNS = (re.compile(r"^p\d{1,3}-contacts\.icloud\.com$"),)
 _HOST_OK = re.compile(r"^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$")
 
 
+#: What a connection that WAS made and then lost looks like: worth one more try. (Not "Name or service not known",
+#: not "refused", not "no route": those stay as they are, quickly - `test_unreachable_is_not_retried`.)
+_TRANSIENT = re.compile(r"forcibly closed|timed out|reset by peer|10054|10053|connection aborted|remote end closed|"
+                        r"eof occurred|incomplete read", re.IGNORECASE)
+
+
 def _norm_host(host: str) -> str:
     return (host or "").strip().lower().rstrip(".")
 
@@ -324,6 +330,10 @@ class RetryingTransport:
     """
 
     RETRY_STATUSES = (429, 503)
+    #: A dropped connection or a slow answer is tried again for these - they change nothing at the server, so a
+    #: repeat is safe - and never for a write, which might have been applied before the connection went.
+    SAFE_METHODS = ("GET", "HEAD", "OPTIONS", "PROPFIND", "REPORT")
+    NETWORK_TRIES = 3
 
     def __init__(self, inner: Transport, *, sleep: Callable[[float], None] = time.sleep,
                  clock: Callable[[], float] = time.time, max_attempts: int = 5,
@@ -342,7 +352,7 @@ class RetryingTransport:
                 body: Optional[bytes] = None, timeout: float = 30.0) -> HttpResponse:
         last: Optional[HttpResponse] = None
         for attempt in range(self._max_attempts):
-            resp = self._inner.request(method, url, headers=headers, body=body, timeout=timeout)
+            resp = self._send_once(method, url, headers, body, timeout)
             if resp.status not in self.RETRY_STATUSES:
                 return resp
             last = resp
@@ -357,6 +367,22 @@ class RetryingTransport:
             self._sleep(delay)
         assert last is not None
         self._give_up(last, parse_retry_after(last.header("retry-after"), now_epoch=self._clock()))
+        raise AssertionError("unreachable")                          # pragma: no cover
+
+    def _send_once(self, method: str, url: str, headers: Optional[dict[str, str]], body: Optional[bytes],
+                   timeout: float) -> HttpResponse:
+        """One request; a lost connection or a timeout on a read is tried again (1 s, 2 s) before it is an error.
+        Microsoft's first fetch of a large mailbox was ended by "connection forcibly closed" and "read operation timed
+        out" - one lost connection among thousands of requests stopped the whole run (2026-10-12)."""
+        tries = self.NETWORK_TRIES if method.upper() in self.SAFE_METHODS else 1
+        for attempt in range(tries):
+            try:
+                return self._inner.request(method, url, headers=headers, body=body, timeout=timeout)
+            except AppErrorException as exc:
+                if (exc.error.code != "ERR_ACCOUNT_UNREACHABLE" or attempt == tries - 1
+                        or not _TRANSIENT.search(str(exc.error.message))):
+                    raise                    # offline, a name that does not resolve, a refused port: not repeated
+                self._sleep(min(self._base * (2 ** attempt), self._max_backoff))
         raise AssertionError("unreachable")                          # pragma: no cover
 
     def _give_up(self, resp: HttpResponse, retry_after_s: Optional[float]) -> None:
