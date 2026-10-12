@@ -203,6 +203,7 @@
     <Compile Include="app\contacts\enrich\base.py" />
     <Compile Include="app\contacts\enrich\company.py" />
     <Compile Include="app\contacts\enrich\consensus.py" />
+    <Compile Include="app\contacts\enrich\declines.py" />
     <Compile Include="app\contacts\enrich\documents.py" />
     <Compile Include="app\contacts\enrich\faces.py" />
     <Compile Include="app\contacts\enrich\gravatar.py" />
@@ -490,6 +491,7 @@
     <Compile Include="app\ui\contacts\bulkbar.py" />
     <Compile Include="app\ui\contacts\delegates.py" />
     <Compile Include="app\ui\contacts\editor.py" />
+    <Compile Include="app\ui\contacts\enrich_panel.py" />
     <Compile Include="app\ui\contacts\fields.py" />
     <Compile Include="app\ui\contacts\history.py" />
     <Compile Include="app\ui\contacts\index_panel.py" />
@@ -513,6 +515,7 @@
     <Compile Include="app\ui\contacts_tools\conflicts_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\enrich_rows.py" />
     <Compile Include="app\ui\contacts_tools\enrich_run.py" />
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
     <Compile Include="app\ui\contacts_tools\import_dialog.py" />
@@ -998,7 +1001,9 @@
     <Compile Include="tests\unit\test_empty_run_says_why.py" />
     <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
+    <Compile Include="tests\unit\test_enrich_declines.py" />
     <Compile Include="tests\unit\test_enrich_measure.py" />
+    <Compile Include="tests\unit\test_enrich_review_window.py" />
     <Compile Include="tests\unit\test_enrich_sender_index.py" />
     <Compile Include="tests\unit\test_enrich_settings.py" />
     <Compile Include="tests\unit\test_enrich_signature_consensus.py" />

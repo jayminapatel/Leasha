@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 42
+CURRENT_VERSION = 43
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2166,6 +2166,35 @@ def _v42_message_tails(conn: sqlite3.Connection) -> None:
         " reason  TEXT NOT NULL DEFAULT '')")
 
 
+def _v43_enrich_declines(conn: sqlite3.Connection) -> None:
+    r"""What the person told enrichment never to suggest again (order 1s 7c, D5).
+
+    "Never suggest these" in Enrich contacts promises the same value is not offered
+    again for that contact by any source; without a memory the next run offers it
+    again and the person learns the button lies. One row per (contact, field, value):
+    `field_key` is the slot only (`s:title`, `f:phone`, `photo`), never the value, and
+    `value_hash` a salted SHA-256 of the normalised value
+    (`app.contacts.enrich.declines`), so an email address turned down cannot be read
+    back from here. `shown` is what the contact's page lists under "Suggestions you
+    turned down" - left empty for an email address, for the same reason. Gone with
+    the contact (`ON DELETE CASCADE`).
+
+    Additive, and it does not depend on schema 42: one table, whose key is the look-up.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS enrich_declines (
+            contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            field_key   TEXT    NOT NULL,
+            value_hash  TEXT    NOT NULL,
+            label       TEXT    NOT NULL DEFAULT '',
+            shown       TEXT    NOT NULL DEFAULT '',
+            source      TEXT    NOT NULL DEFAULT '',
+            at          INTEGER NOT NULL,
+            PRIMARY KEY (contact_id, field_key, value_hash)
+        ) WITHOUT ROWID
+    """)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2208,6 +2237,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     40: _v40_cards_and_words,
     41: _v41_enrichment_that_finds,
     42: _v42_message_tails,
+    43: _v43_enrich_declines,
 }
 
 #: Released migrations that open and close transactions of their own -
