@@ -42,6 +42,33 @@ class EnrichData:
     notes: list = field(default_factory=list)
 
 
+def _call_host(fn: Callable[..., Any], offered: dict, selected: list) -> Any:
+    """Call the host's `enrich` with every keyword of `offered` it takes, and none it does not.
+
+    Read from its signature (CodeRabbit on #67, three rounds): retrying fixed subsets kept dropping one
+    callback some host took - Look again's `force`, or `cancelled` so Stop could not interrupt. A host whose
+    signature cannot be read is given everything and then nothing; one that takes only the contact ids (the
+    oldest kind) is handed them positionally."""
+    import inspect  # noqa: PLC0415
+
+    try:
+        params = inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        try:
+            return fn(**offered)
+        except TypeError:
+            return fn()
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return fn(**offered)
+    taken = {k: v for k, v in offered.items() if k in params}
+    required = [p for p in params.values() if p.default is inspect.Parameter.empty
+                and p.kind in (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+                and p.name not in taken]
+    if required:
+        return fn(selected, **taken)
+    return fn(**taken)
+
+
 def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, force: bool = False) -> EnrichData:
     """Ask the host for proposals and the names of the contacts they are about. A worker's job.
 
@@ -50,26 +77,10 @@ def gather_proposals(ctx: Any, on_progress: Any = None, cancelled: Any = None, f
     fn = getattr(ctx, "enrich", None)
     if not callable(fn):
         return EnrichData(available=False)
-    kwargs: dict = {"on_progress": on_progress, "cancelled": cancelled}
+    offered: dict = {"on_progress": on_progress, "cancelled": cancelled}
     if force:
-        kwargs["force"] = True
-    # Each fallback drops what an older host does not take, one thing at a time (CodeRabbit, #67 and #68):
-    # first the progress keywords with `force` kept, so Look again is never run as an ordinary lookup; then
-    # `force` with the progress keywords kept, so progress and Stop survive; then everything.
-    callbacks = {"on_progress": on_progress, "cancelled": cancelled}
-    attempts = [kwargs, {"force": True} if force else None, callbacks if force else None, {}]
-    result, last = None, None
-    for attempt in [a for a in attempts if a is not None]:
-        try:
-            result = fn(**attempt)
-            break
-        except TypeError as exc:
-            last = exc
-    else:
-        try:
-            result = fn(list(getattr(ctx, "selected_ids", []) or []))
-        except TypeError:
-            raise last  # noqa: B904 - the first refusal names the real mismatch
+        offered["force"] = True
+    result = _call_host(fn, offered, list(getattr(ctx, "selected_ids", []) or []))
     proposals = getattr(result, "proposals", None)
     if proposals is None:
         proposals = list(result or [])
