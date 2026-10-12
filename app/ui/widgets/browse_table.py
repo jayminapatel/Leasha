@@ -103,7 +103,9 @@ class BrowsePane(QWidget):
         self.results.setAccessibleName("Everything from this time, as a table")
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
-        self.results.itemDoubleClicked.connect(weak_slot(self, lambda pane, item: pane._open_row(item.row())))
+        # `activated`, which Qt sends for a double-click and for Enter: with `itemDoubleClicked` alone,
+        # Enter on a line did nothing (2026-10-12).
+        self.results.activated.connect(weak_slot(self, lambda pane, index: pane._open_row(index.row())))
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(weak_slot(self, lambda pane, point: pane._menu(point)))
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

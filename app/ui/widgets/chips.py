@@ -188,3 +188,19 @@ def show_page(view: Any, applied: Any, line: str) -> None:
     """Draw what a list's search read as chips, and its summary line."""
     view.chips.show_applied(applied or ())
     view.summary.setText(line)
+
+
+def say_failed(view: Any, error: Any) -> None:
+    """A list's as-you-type read that failed: what happened and what to do, on its summary line.
+
+    Never a dialog (2026-10-12). Mail, Files and Code sent this to the window's modal box, so a
+    read that failed at every keystroke stopped the typing with a box each time; Search had long
+    said it in its notice bar (`SearchView._search_failed`). The error contract is kept - the
+    message and its suggestion - and the code goes to the log for the diagnostics.
+    """
+    from app.core.logging import logger
+
+    message = str(getattr(error, "message", "") or error)
+    suggestion = str(getattr(error, "suggestion", "") or "")
+    logger.bind(component="ui.lists").warning("a list's read failed: {} {}", getattr(error, "code", ""), message)
+    view.summary.setText(f"{message} {suggestion}".strip())

@@ -38,7 +38,7 @@ from app.ui.presenter import (
 from app.ui.presenter.rows import FILES_PAGE_SIZE as PAGE_SIZE, files_line
 from app.ui.tasks import browse_files_typed
 from app.ui.view_options import apply_to_table, available_columns, button as view_button, weak_slot
-from app.ui.widgets.chips import list_chips, show_page
+from app.ui.widgets.chips import list_chips, say_failed, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.preview import attach_preview
@@ -340,7 +340,7 @@ class FilesView(QWidget):
         # `weak_slot`: a finished worker and its slots wait for the collector.
         worker.signals.finished.connect(weak_slot(
             self, lambda view, rows, g=generation: view._show(rows, g, text)))
-        worker.signals.failed.connect(self.error.emit)
+        worker.signals.failed.connect(weak_slot(self, say_failed))   # never a dialog while typing
         run(QThreadPool.globalInstance(), worker)
 
     def _show(self, rows: Any, generation: int, text: str) -> None:

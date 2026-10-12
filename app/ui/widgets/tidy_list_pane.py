@@ -131,7 +131,9 @@ class TidyListPane(QWidget):
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
         self.results.itemChanged.connect(self._item_changed)
-        self.results.itemDoubleClicked.connect(weak_slot(self, lambda pane, item: pane._double_clicked(item)))
+        # `activated`, which Qt sends for a double-click and for Enter: with `itemDoubleClicked` alone,
+        # Enter on a line did nothing (2026-10-12).
+        self.results.activated.connect(weak_slot(self, lambda pane, index: pane._double_clicked(index)))
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(weak_slot(self, lambda pane, point: pane._menu(point)))
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)

@@ -89,6 +89,7 @@ class SideList(QTreeWidget):
         if self._by_key and shape == self._shape:
             self._entries = entries
             self._restyle(entries)
+            self._let_go_if_untucked()
             return
         # The same rows with other words or numbers (a count moved, a tick changed, a label was reworded): update
         # the rows where they are. Taking the list apart and putting it together again for that made the whole
@@ -98,6 +99,7 @@ class SideList(QTreeWidget):
             self._entries = entries
             self._update_in_place(entries)
             self._shape = shape
+            self._let_go_if_untucked()
             return
         bar = self.verticalScrollBar().value()
         self.setUpdatesEnabled(False)                  # a rebuild is one repaint, not a flicker of half a tree
@@ -106,6 +108,26 @@ class SideList(QTreeWidget):
         finally:
             self.setUpdatesEnabled(True)
         self.verticalScrollBar().setValue(bar)
+        self._let_go_if_untucked()
+
+    def _let_go_if_untucked(self) -> None:
+        """A filter taken away by a second click lets go of the highlight too.
+
+        The click that removed it left Qt's selection on the row, so the list looked as if the
+        filter were still in force when the box no longer held it (2026-10-12). Only an entry that
+        says it is ticked or not (`checked` is not None) is let go; a list that does not tick -
+        Contacts' lists, Browse's years - keeps its highlight as the only mark of what is chosen.
+        """
+        entry = self.entry(self._current) if self._current else None
+        if entry is None or entry.checked is not False:
+            return
+        self._current = ""
+        self.blockSignals(True)
+        try:
+            self.clearSelection()
+            self.setCurrentItem(None)
+        finally:
+            self.blockSignals(False)
 
     def _rebuild(self, entries: list[SideEntry], shape: tuple, structure: tuple) -> None:
         opened = {key for key, row in self._by_key.items() if row.isExpanded()}
@@ -224,7 +246,13 @@ class SideList(QTreeWidget):
 
     # -- drawing -------------------------------------------------------------------------
 
-    def _ink(self, name: str, fallback: str) -> str:
+    def _ink(self, name: str, fallback: Optional[str] = None) -> str:
+        """`name` from the palette this list was given, else from the theme in force.
+
+        No `fallback` means the theme's own token, never a colour written here: the accent fell
+        back to a hex of its own, so a palette that did not name it ticked rows in a colour no
+        theme has (2026-10-12). `theme_colours()` is never empty.
+        """
         if not self._colours:
             try:
                 from app.ui.theme import theme_colours
@@ -232,7 +260,11 @@ class SideList(QTreeWidget):
                 self._colours = dict(theme_colours())
             except Exception:                              # noqa: BLE001 - a default ink
                 self._colours = {}
-        return self._colours.get(name, fallback)
+        if name in self._colours or fallback is not None:
+            return self._colours.get(name, fallback)
+        from app.ui.theme import theme_colours
+
+        return theme_colours()[name]
 
     def _heading(self, text: str) -> QTreeWidgetItem:
         heading = QTreeWidgetItem([text, ""])
@@ -266,7 +298,7 @@ class SideList(QTreeWidget):
         font.setBold(bool(entry.checked))
         item.setFont(0, font)
         if entry.icon:
-            item.setIcon(0, icon(entry.icon, self._ink("accent", "#5b4bd5") if entry.checked
+            item.setIcon(0, icon(entry.icon, self._ink("accent") if entry.checked
                                  else (entry.colour or self._ink("text_dim", "#888888"))))
         label = entry.label if not count else f"{entry.label}, {count}"
         item.setData(0, Qt.ItemDataRole.AccessibleTextRole,
@@ -302,6 +334,23 @@ class SideList(QTreeWidget):
             return
         self._current = entry.key
         self.picked.emit(entry)
+
+    def keyPressEvent(self, event: Any) -> None:            # noqa: N802 - Qt's name
+        """Enter or Return on the current line is a click on it; every other key is the tree's own.
+
+        The list heard only `itemClicked`, so from the keyboard nothing in any side list could be
+        chosen (2026-10-12). A key handler rather than `itemActivated`: Qt sends that for a
+        double-click as well, which would answer one double-click twice. The arrows only move -
+        a door opens a dialog, and walking past one must not open it.
+        """
+        if (event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and not event.modifiers() & ~Qt.KeyboardModifier.KeypadModifier):
+            item = self.currentItem()
+            if item is not None:
+                self._clicked(item, 0)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def _menu(self, point: QPoint) -> None:
         item = self.itemAt(point)
