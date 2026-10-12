@@ -104,6 +104,10 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Scan first": ("scan-search", "secondary"),
     "Reset index…": ("trash-2", "danger"),
     "Retry these": ("rotate-cw", "secondary"),
+    # 2026-10-12, order 1t: the Sync window - a contact an account refused, and an account the check found
+    # out of step with Leasha.
+    "Open contact": ("user", "secondary"),
+    "Fix these": ("list-checks", "secondary"),
     "Return to automatic": ("rotate-ccw", "secondary"),
     "Re-detect": ("refresh-cw", "secondary"),
     "Benchmark now": ("gauge", "secondary"),

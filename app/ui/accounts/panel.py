@@ -390,6 +390,10 @@ class AccountPanel(QGroupBox):
         self.last_changes = QLabel("")
         self.last_changes.setWordWrap(True)
         form.addRow("Kept here", self.kept)
+        self.at_account = QLabel("")
+        self.at_account.setWordWrap(True)
+        self.at_account.setAccessibleName("What the account holds, from the last check")
+        form.addRow("At the account", self.at_account)
         form.addRow("Last changes", self.last_changes)
         form.addRow(hint("How many of your contacts are kept in this account, and what the last sync did "
                          "in each direction."))
@@ -479,6 +483,12 @@ class AccountPanel(QGroupBox):
             self.choose_groups.setEnabled(groups is not None)
             n = state.kept.get(a.id, 0)
             self.kept.setText(f"{n:,} contact{'s' if n != 1 else ''}")
+            from app.ui.presenter.account_activity import check_words  # noqa: PLC0415
+            counts = getattr(state, "contact_counts", {}).get(a.id) or {}
+            waiting = int(counts.get("waiting_create", 0)) + int(counts.get("waiting_delete", 0))
+            seen = check_words(getattr(state, "checks", {}).get(a.id), state.now.timestamp())
+            self.at_account.setText(seen or ("Not checked yet - it is checked after the next sync"
+                                             + (f"; {waiting:,} waiting to be written" if waiting else "")))
             self.last_changes.setText(self._last_text(state.last_runs.get(a.id)))
         finally:
             self._loading = False

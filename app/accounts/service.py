@@ -700,7 +700,9 @@ class AccountService:
                     failures=st.failures,
                     run=({"status": status, "added": run.added, "changed": run.changed, "deleted": run.deleted,
                           "error_text": run.error_text or "", "finished_at": run.finished_at,
-                          "started_at": run.started_at} if run else None))
+                          "started_at": run.started_at, "error_code": run.error_code or ""} if run else None))
+                if kind == "contacts":
+                    snap["check"] = self.accounts.check(a.id)     # order 1t 3c: the last check, or None
                 if kind == "mail":
                     others = [o for o in accounts if o.id != a.id and live[(o.id, "mail")]]
                     if others and not snap["live"]:
@@ -721,6 +723,17 @@ class AccountService:
                         snap["messages"] = None
                     snap["meaning_waiting"] = waiting_meaning
         return out
+
+    def fix_check(self, account_id: int) -> None:
+        """"Fix these" (order 1t 3c): forget where the account's contacts were last read, so the next sync reads
+        them all again - which adds what the account has and Leasha lacks, flags what Leasha links and the
+        account no longer has, and re-merges what changed - and forget the stale check. Writes no contact."""
+        self.accounts.reset_token(int(account_id), "contacts")
+        self.accounts.save_check(int(account_id), {})
+
+    def contact_failures(self, account_id: int) -> list[dict]:
+        """The contacts this account refused and that still wait (order 1t 2c)."""
+        return self.accounts.failures(int(account_id))
 
     def pause_mail(self, account_id: int) -> bool:
         """Pause an account's mail fetch (what the Pause button and the table's Pause do). The syncer's own pause:

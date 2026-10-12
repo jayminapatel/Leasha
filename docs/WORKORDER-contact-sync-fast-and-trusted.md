@@ -1,11 +1,22 @@
 # Work order (One thread): contact sync that is fast and can be trusted - batched writes, one count everywhere, a check after every sync, a brake that holds only deletes
 
-**Doc version:** 1.0 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-12 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/accounts/engine.py`, `app/accounts/provider.py`, `app/accounts/http.py`,
 `app/accounts/providers/google_people.py`, `app/accounts/providers/graph_contacts.py`,
 `app/accounts/providers/carddav.py`, `app/accounts/service.py`, `app/accounts/store.py`, `app/contacts/hub.py`,
 `app/ui/accounts/`, `app/ui/contacts/loader.py`, `app/ui/contacts_tools/sync_dialog.py`,
 `app/ui/presenter/sync_status.py`, `app/cli/accounts.py`, `tests/unit/`, the docs)
+**Status note, 2026-10-12 (later): RELEASED by the owner and BUILT the same night** on branch
+`feat/contact-sync-fast-and-trusted` (worktree `.worktrees/sync-fast`), owner: "recommended and i have changed the
+delete limit, do recommended except one order for all and then execute this order as this should not affect
+the current running do check though". D1-D6 confirmed as written; the one exception, asked and answered the
+same evening, is the build order: **everything built together in one branch**, not confidence first. The
+owner's app was running from `D:\Local\GitHub\Leasha` (`pythonw -m app.main`) with a sync in flight, so
+all of it was built in a separate worktree and nothing was run against his accounts or written to
+`D:\LeashaIndex\Data` (read-only queries only). UI changes were checked with the Design system review thread
+(no conflicts; its tooltip wording and the `accounts config` flags were taken). Boxes are ticked only where a
+test proves them; what needs the owner's accounts is left open and marked UNVERIFIED.
+
 **Status:** DRAFT, written 2026-10-12 at the owner's request ("create a work order specifically design to fix both
 speed and confidence"). **Not to be started until the owner releases it.** D1-D6 below are the recommended
 defaults; the owner confirms or changes them when releasing.
@@ -140,10 +151,13 @@ What the providers allow (checked 2026-10-12 against their own pages):
 ## 0. Before starting - the executing thread checks these and says so
 
 - [ ] **0a** `main` is green: `venv\Scripts\python.exe scripts\run_suite.py --affected`, then the full suite.
-- [ ] **0b** No other thread has uncommitted work in `app/accounts/` or `app/contacts/` (order 1s touches
+*Note, 2026-10-12: checked. The Design system review thread (fix/ui-one-app, PR #68) touches `panel.py` and `buttons.py` in other hunks; order 1s (uncommitted on the laptop) touches `app/accounts/store.py` settings and `globals_box.py`'s Enrichment group - rebase onto main after both land.*
+- [x] **0b** No other thread has uncommitted work in `app/accounts/` or `app/contacts/` (order 1s touches
   `app/contacts/enrich/` and `app/accounts/store.py`; coordinate in `HANDOFF.md` if both are live).
-- [ ] **0c** Ask the owner which screen showed 1,442, and re-read the three counts (Leasha, Google Contacts web,
+*Note, 2026-10-12: the owner's counts, about 21:15: Outlook 1,436, Leasha 1,442, Google 1,444; the tables held 1,445 live. Asked which screen showed 1,442, the owner answered "privateemail synched in outlook" - the Leasha CardDAV account (`dav.privateemail.com`) is also shown in Outlook, so Outlook's number may include or be that book (UNCONFIRMED; the check of 3c answers it by name once run).*
+- [x] **0c** Ask the owner which screen showed 1,442, and re-read the three counts (Leasha, Google Contacts web,
   Outlook web) on the day work starts; write them under this item.
+*Note, 2026-10-12: Google's 200-a-request batch limit and Graph's 20-request `$batch` were read on their pages. Not confirmed: that Graph's PATCH answer carries the whole contact, and `If-Match` on contacts. The code does not depend on either: it keeps the batched pre-read of change keys, and reads back (one batch) any write whose answer has no contact. Left open.*
 - [ ] **0d** Check against Google's and Microsoft's own pages, and write the links here: the batch endpoints'
   scopes; that Graph `PATCH /me/contacts/{id}` returns the updated contact; that `If-Match` with the contact's
   `@odata.etag` (or `W/"changeKey"`) is honoured on `PATCH` and `DELETE` (`send_if_match` is off today because
@@ -151,94 +165,105 @@ What the providers allow (checked 2026-10-12 against their own pages):
 
 ## 1. Measure - every run says where its time went
 
-- [ ] **1a** A per-account counter on the provider's transport: requests by method, bytes, seconds, retries and
+*Note, 2026-10-12: shown by `leasha contacts log --timing` (the existing log command) rather than a new `accounts runs --last`.*
+- [x] **1a** A per-account counter on the provider's transport: requests by method, bytes, seconds, retries and
   seconds slept. Stored in the run's plan (`timing`) and printed by `leasha accounts runs --last`.
-- [ ] **1b** `leasha contacts sync --measure`: a dry run that plans every account and reports, per account, what
+- [x] **1b** `leasha contacts sync --measure`: a dry run that plans every account and reports, per account, what
   it would write and how many requests that is with today's path and with batching. Read-only.
-- [ ] **1c** The retry layer (`http.py`, `_send_once` and `request`) logs every retry and every sleep at INFO with
+- [x] **1c** The retry layer (`http.py`, `_send_once` and `request`) logs every retry and every sleep at INFO with
   the status and the wait, so a slow run can be told from a throttled one.
+*Note, 2026-10-12: UNVERIFIED - needs a sync of the owner's accounts with this build.*
 - [ ] **1d** Baseline written under this item from 1a on the owner's accounts: a no-change sync of all four, and a
   measured update of 100 contacts per account (UNVERIFIED until run on the laptop).
 
 ## 2. Progress that survives - the run row is written as it goes
 
-- [ ] **2a** `finish_run`'s plan is also written after every page pulled and every batch written (the counts and
+- [x] **2a** `finish_run`'s plan is also written after every page pulled and every batch written (the counts and
   the last 50 names), in the same transaction as the work. A run that dies leaves what it did.
-- [ ] **2b** At start-up a run still `running` from a closed app is closed as `interrupted` with its saved counts
+- [x] **2b** At start-up a run still `running` from a closed app is closed as `interrupted` with its saved counts
   (today's text, "The app closed before this sync finished.", is kept; the counts are added beside it).
-- [ ] **2c** Refused contacts are rows, not a sentence: a `contact_sync_failures` table (account, contact, kind,
+*Note, 2026-10-12: kept as a JSON list per account in `index_state` (`contacts:failures:<id>`), not a new table, so no migration: a database this build writes still opens in the build before it.*
+- [x] **2c** Refused contacts are rows, not a sentence: a `contact_sync_failures` table (account, contact, kind,
   reason, first and last seen, attempts). The Sync window lists them with **Try again** and **Open contact**; a
   contact that later goes through is removed from the list.
 
 ## 3. One count, and a check after every sync (D3, D4)
 
-- [ ] **3a** One store function, `hub.account_counts()`, returns per account: linked and at the account, waiting
+- [x] **3a** One store function, `hub.account_counts()`, returns per account: linked and at the account, waiting
   to create, waiting to delete, deleted at the account, kept only here (with reason: the account cannot hold it,
   or it was removed from that account). Every screen reads it; the two queries in `ui/accounts/state.py:45` and
   `ui/contacts/loader.py:70` are replaced by it. A test asserts no other SQL in `app/ui/` counts `contact_links`.
-- [ ] **3b** `ContactProvider.list_ids()` - every remote id and version, the cheapest way the account offers
+- [x] **3b** `ContactProvider.list_ids()` - every remote id and version, the cheapest way the account offers
   (Google `connections.list` with `personFields=metadata` and `pageSize=1000`; Graph `/me/contacts` and each
   folder with `$select=id,changeKey`; CardDAV `PROPFIND` depth 1 for `getetag`). The verify code in
   `service.verify_contacts` uses it instead of a full pull.
-- [ ] **3c** After every sync, per account (D4): compare `list_ids()` with the links and store the result: the
+- [x] **3c** After every sync, per account (D4): compare `list_ids()` with the links and store the result: the
   account's own count, the time, and the lists - at the account but not linked here; linked here but not at the
   account; version differs from the last agreed. Shown in Settings > Accounts and the Sync window as **In step**
   or "3 differ" with the names and **Fix these** (pull the first list, re-check the second, re-merge the third).
-- [ ] **3d** Microsoft child contact folders are walked (pull, `list_ids` and folder names for groups), so
+*Note, 2026-10-12: child folders are listed recursively and each gets its own delta link; that Graph's contact delta works on a child folder is UNVERIFIED live.*
+- [x] **3d** Microsoft child contact folders are walked (pull, `list_ids` and folder names for groups), so
   Outlook's own count and Leasha's agree. If Graph's delta cannot reach a child folder, the check says how many
   contacts sit there and that Leasha cannot read them - by number, not silently.
+*Note, 2026-10-12: UNVERIFIED - the check runs after the first sync with this build.*
 - [ ] **3e** The owner's three counts (§0c) are explained, contact by contact, by 3c's lists: each of the 9 at
   Microsoft, the Google difference and the 3 at Leasha has a name and a reason, written under this item.
 
 ## 4. Settle - a clean sync is followed by a sync that writes nothing (D6)
 
+*Note, 2026-10-12: built for an iCloud-like CardDAV round trip (vCard written, PREF dropped, X-FC-CLUSTER-ID added, read back) and the fake provider (`test_an_icloud_round_trip_settles_and_a_second_sync_writes_nothing`), which fails on the old code. Round trips of Google's and Microsoft's own JSON are not built yet - left open.*
 - [ ] **4a** An idempotence test per provider (Google, Microsoft, CardDAV with group cards, CardDAV with
   CATEGORIES): sync a book of realistic cards, sync again, assert zero writes and zero conflicts. Fixtures recorded
   from the owner's accounts (names and values replaced), not invented.
-- [ ] **4b** Find why Apple merges every contact twice and records 4,072 conflicts: instrument `_inbound` to log,
+*Note, 2026-10-12, the diagnosis, from run 485's journal (read-only): 4,704 added values were a custom "fc cluster id" - the server's `X-FC-CLUSTER-ID`, read as a custom value by `vcard.py` and then written on to Google - and 3,976 clashes were a phone number's preferred flag, which iCloud does not keep. Fixed: `vcard.SERVER_INTERNAL_PREFIXES`; `Capabilities.primary` (False for Google, Outlook, CardDAV); a one-off repair of the book (`_repair_vendor_fields`, one undoable journal batch).*
+- [x] **4b** Find why Apple merges every contact twice and records 4,072 conflicts: instrument `_inbound` to log,
   for one sync, which unit differs between the base and the account for the first 50 contacts (method §6:
   instrument, do not guess). Fix the cause in `project`, `units` or the CardDAV mapping; the diagnosis goes in
   this item.
-- [ ] **4c** A run where every inbound contact "changed" and the change is the same unit on most of them stops
+- [x] **4c** A run where every inbound contact "changed" and the change is the same unit on most of them stops
   writing back and says so ("Apple returns phone numbers in a different form for 1,402 contacts - looked into
   before writing"), instead of writing 1,258 updates. Threshold a setting.
 
 ## 5. Speed - batched writes, kept connections, no wasted reads
 
-- [ ] **5a** `http.py`: a keep-alive transport on `http.client.HTTPSConnection`, one connection per host per
+- [x] **5a** `http.py`: a keep-alive transport on `http.client.HTTPSConnection`, one connection per host per
   account, reopened on a reset (`WinError 10054` retried once on a fresh connection before it is an error). The
   allow-list, TLS context, redirect refusal and redaction are unchanged; their tests are kept and run against the
   new transport.
-- [ ] **5b** `ContactProvider` gains optional `create_many`, `update_many`, `delete_many`, each returning one
+- [x] **5b** `ContactProvider` gains optional `create_many`, `update_many`, `delete_many`, each returning one
   outcome per item (written with its new version and the saved record, conflict, or refused with a reason). The
   engine uses them when present and falls back to the one-by-one methods; the fake provider gets both.
-- [ ] **5c** **Google:** `batchCreateContacts` and `batchUpdateContacts` (200 a call, `readMask` = the read
+- [x] **5c** **Google:** `batchCreateContacts` and `batchUpdateContacts` (200 a call, `readMask` = the read
   fields, so the response is the read-back) and `batchDeleteContacts` (500 a call). Rule 3c for deletes: one
   `people:batchGet` (200 a call) compares etags before the delete. Batches one after another (Google's advice).
-- [ ] **5d** **Microsoft:** `$batch` of 20 (`POST`, `PATCH`, `DELETE`), the `PATCH` response as the read-back.
+- [x] **5d** **Microsoft:** `$batch` of 20 (`POST`, `PATCH`, `DELETE`), the `PATCH` response as the read-back.
   With 0d confirmed, `If-Match` replaces the pre-read `GET`; without it, the pre-reads go in one `$batch` of 20
   `GET`s with `$select`. A refused item alone is retried property by property; the batch is not.
+*Note, 2026-10-12: built - kept connection, group cards once per batch, one multiget read-back - except "up to four requests in flight": the connector's index and group cards are shared state, and one in flight on a kept connection was judged enough until measured. Left open.*
 - [ ] **5e** **CardDAV:** the `ETag` returned by `PUT` is kept; the read-back is one `addressbook-multiget` per
   50 contacts written, not one `GET` each. Group-card rewrites are collected and written once per group per run.
   Up to four requests in flight per server (a setting; one for a server that refuses it).
-- [ ] **5f** The engine writes one SQLite transaction per batch (links, journal, run plan), not one per contact.
-- [ ] **5g** Accounts are pushed at the same time (D5), each on its own worker with its own provider; the store
+- [x] **5f** The engine writes one SQLite transaction per batch (links, journal, run plan), not one per contact.
+- [x] **5g** Accounts are pushed at the same time (D5), each on its own worker with its own provider; the store
   serialises writes as it does now. The Sync window shows each account's line moving at once.
+*Note, 2026-10-12: Google's page size is now 1,000. Graph's page size was not measured - left open.*
 - [ ] **5h** Pull: Google `pageSize` 1000 (the documented maximum); Graph page size measured at 100, 500 and 999 and
   the fastest kept, with the number under this item.
 
 ## 6. The brake, the window and the words (D2)
 
+*Note, 2026-10-12: built, with two departures. The run keeps the status `held` (the brake's message already says "so no contact was deleted", and is now true of a run that wrote everything else) rather than a new `held-deletes`. **Keep them** was not built: Restore in the Bin already keeps a contact. Left open for the owner to say whether Keep them is still wanted.*
 - [ ] **6a** `_push` writes creates and updates, then the deletes up to the limit's decision: past the limit the
   deletes stay waiting, named in the Sync window with **Allow these deletes** and **Keep them** (restores the
   contacts at the account side to "kept"), and the run ends `held-deletes` with everything else written.
-- [ ] **6b** The Sync window's last line per account says, in words, what the account now holds and whether it is
+- [x] **6b** The Sync window's last line per account says, in words, what the account now holds and whether it is
   in step: "Google: 1,444 at the account · In step · checked 21:10" or "Outlook: 1,436 at the account · 9 differ".
-- [ ] **6c** The user guide and Troubleshooting gain "Why do my counts differ?" - the reasons from §3 with what
+- [x] **6c** The user guide and Troubleshooting gain "Why do my counts differ?" - the reasons from §3 with what
   to press for each.
 
 ## 7. Done means measured (on the owner's accounts; UNVERIFIED until run on the laptop)
 
+*Note, 2026-10-12: 7a-7d are UNVERIFIED until the owner's accounts sync with this build.*
 - [ ] **7a** **Speed, a full rewrite** (every contact updated, e.g. after a bulk merge): Google 1,445 in under
   **3 minutes**, Microsoft 1,445 in under **5 minutes**, both at the same time; today 3 h 50 min for the four
   accounts. Measured by §1a and written here with the commit.
@@ -248,13 +273,14 @@ What the providers allow (checked 2026-10-12 against their own pages):
 - [ ] **7d** **Counts agree or are explained:** for each account, §3's "At the account" equals the number the
   owner reads in Google Contacts and Outlook web on the same day, and every difference between accounts and
   Leasha is listed by name with a reason. The owner confirms.
-- [ ] **7e** **The brake:** a fixture with 45 deletes and 1,000 updates writes the 1,000 and holds the 45.
-- [ ] **7f** **Crash:** killing the app mid-push leaves a run row with the counts written so far, and the next
+*Note, 2026-10-12: proved with 4 deletes past a limit of 2 and 6 updates (`test_the_brake_holds_only_the_deletes_and_everything_else_is_written`).*
+- [x] **7e** **The brake:** a fixture with 45 deletes and 1,000 updates writes the 1,000 and holds the 45.
+- [x] **7f** **Crash:** killing the app mid-push leaves a run row with the counts written so far, and the next
   sync writes only what is left (a test with a provider that raises after N items).
 
 ## 8. Close
 
-- [ ] **8a** `docs/USER_GUIDE.html`, `docs/TECHNICAL_REFERENCE.html` and `docs/TROUBLESHOOTING.md` describe sync
+- [x] **8a** `docs/USER_GUIDE.html`, `docs/TECHNICAL_REFERENCE.html` and `docs/TROUBLESHOOTING.md` describe sync
   as it now is (rewritten in place, owner's rule of 2026-10-06); `docs/GLOSSARY.md` gains "in step", "waiting"
   and "kept only in Leasha".
 - [ ] **8b** `CHANGELOG.md` under `[Unreleased]`; `docs/ORDER_REGISTER.md` row 1t counted from this order's
