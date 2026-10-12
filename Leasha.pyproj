@@ -202,14 +202,19 @@
     <Compile Include="app\contacts\enrich\__init__.py" />
     <Compile Include="app\contacts\enrich\base.py" />
     <Compile Include="app\contacts\enrich\company.py" />
+    <Compile Include="app\contacts\enrich\documents.py" />
     <Compile Include="app\contacts\enrich\faces.py" />
     <Compile Include="app\contacts\enrich\gravatar.py" />
     <Compile Include="app\contacts\enrich\history.py" />
+    <Compile Include="app\contacts\enrich\invitations.py" />
+    <Compile Include="app\contacts\enrich\linkedin.py" />
+    <Compile Include="app\contacts\enrich\localfiles.py" />
     <Compile Include="app\contacts\enrich\logo.py" />
     <Compile Include="app\contacts\enrich\measure.py" />
     <Compile Include="app\contacts\enrich\run.py" />
     <Compile Include="app\contacts\enrich\signatures.py" />
     <Compile Include="app\contacts\enrich\suggest.py" />
+    <Compile Include="app\contacts\enrich\vcards.py" />
     <Compile Include="app\contacts\enrich\wikidata.py" />
     <Compile Include="app\contacts\exporters.py" />
     <Compile Include="app\contacts\hub.py" />
@@ -925,6 +930,7 @@
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_conflicts_ui.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
+    <Compile Include="tests\unit\test_contacts_enrich_files.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
     <Compile Include="tests\unit\test_contacts_enrich_net.py" />
     <Compile Include="tests\unit\test_contacts_export.py" />

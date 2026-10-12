@@ -16,7 +16,7 @@ from typing import Any, Callable, Optional
 from PySide6.QtWidgets import QCheckBox, QComboBox, QFileDialog, QFormLayout, QLabel, QPushButton
 
 from app.ui.accounts import logic
-from app.ui.accounts.parts import hint
+from app.ui.accounts.parts import btn, hint
 
 __all__ = ["EnrichControls", "build", "load"]
 
@@ -79,10 +79,8 @@ def _linkedin_button(ctl: EnrichControls, form: QFormLayout, save: Callable[...,
     button needs no worker of its own (rule 5)."""
     words = "Use a LinkedIn export..."
     said = "Choose the Connections.csv from LinkedIn's \"Get a copy of your data\". It is read on this computer."
-    button = QPushButton(words)
+    button = btn(words, "folder-open", tip=said)      # the page's button system (secondary)
     button.setObjectName("enrich_linkedin_file")
-    button.setAccessibleName(words)
-    button.setToolTip(said)
     label = hint(_NO_EXPORT)
     ctl.linkedin_button, ctl.linkedin_label = button, label
 
