@@ -260,8 +260,7 @@ class ChatView(QWidget):
                 self.bubbles.add(self._user_bubble(turn.text))
                 continue
             bubble = self._answer_bubble()
-            run = AnswerRun(bubble, None, NoShelf())
-            run.finish(turn)
+            AnswerRun(bubble, None, NoShelf()).finish(turn)   # not `run`: that is the parked answer
             self.bubbles.add(bubble)
             last = bubble
         if run is not None and live:

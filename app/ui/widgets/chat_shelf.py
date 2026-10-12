@@ -29,7 +29,7 @@ from typing import Any, Mapping, Optional
 from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.core.row_facts import is_message_key
@@ -257,6 +257,10 @@ class ShelfBar(QWidget):
         host.setAcceptDrops(True)
         self._drop_watch = _DropWatch(self)
         host.installEventFilter(self._drop_watch)
+        # The question box is a text editor, which takes a drop of files as their paths typed
+        # in - so it is watched too: files go to the shelf, anything else is the editor's.
+        for editor in host.findChildren(QPlainTextEdit):
+            editor.viewport().installEventFilter(self._drop_watch)
 
     def dragEnterEvent(self, event: Any) -> None:                # noqa: N802 - Qt
         if event.mimeData().hasUrls():

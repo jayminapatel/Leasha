@@ -1849,9 +1849,12 @@ class MainWindow(QMainWindow):
 
     def _new_chat(self) -> None:
         """Ctrl+Shift+O (UI phase B): the Chat page, a fresh conversation, the cursor
-        in its box."""
-        self._show(self.chat_view)
-        self.chat_ctl.new_chat()
+        in its box. Nothing before the Chat page is built (the splash pumps events)."""
+        view, ctl = getattr(self, "chat_view", None), getattr(self, "chat_ctl", None)
+        if view is None or ctl is None:
+            return
+        self._show(view)
+        ctl.new_chat()
 
     def _toggle_side_panel(self) -> None:
         """Ctrl+B (2026-10-08): put the side panel of the tab in front away, or bring

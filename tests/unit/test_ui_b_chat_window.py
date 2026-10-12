@@ -81,3 +81,31 @@ def test_up_in_the_empty_box_brings_the_last_message_back_to_change(chat):
     c.qtbot.keyClick(edit, Qt.Key.Key_Return)
     answered(c)
     assert [t.text for t in c.ctl.session.turns if t.role == "user"] == ["deposit, again?"]
+
+
+def test_coming_back_mid_answer_to_a_conversation_with_earlier_answers_shows_the_live_one(chat):
+    """Review of PR 72: the redraw reused one name for the parked answer and each stored one, so
+    with an earlier answer in the conversation the live answer never came back to the page."""
+    c = chat
+    ask(c, "First question")
+    answered(c)
+    c.fake.hold_at = 4
+    ask(c, "What did we agree about the deposit?")
+    _wait(c.qtbot, c.fake.held.is_set)
+    asking = c.ctl.session
+    live = c.view.bubbles.bubbles()[-1]
+    other = new_session()
+    other.title = "Another chat"
+    c.ctl.sessions.append(other)
+    c.ctl._refresh_list()
+
+    c.view.sessions.selected.emit(other.id)
+    gui_pump(c.app)
+    c.view.sessions.selected.emit(asking.id)
+    gui_pump(c.app)
+    shown = c.view.bubbles.bubbles()
+    assert len(shown) == 4, "two questions, the earlier answer and the one being written"
+    assert shown[-1] is live and len(set(map(id, shown))) == 4
+
+    c.fake.release()
+    answered(c)
