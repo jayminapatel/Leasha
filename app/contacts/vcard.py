@@ -26,7 +26,19 @@ from typing import Iterable, Iterator
 
 from app.contacts.card import Card, Field, Photo, display_name
 
-__all__ = ["parse", "parse_one", "dumps", "dump_many", "split_cards"]
+__all__ = ["parse", "parse_one", "dumps", "dump_many", "split_cards", "SERVER_INTERNAL_PREFIXES"]
+
+#: `X-` properties a server or another program keeps for its own bookkeeping. They are not something the
+#: person wrote, so they never become a custom value: one (`X-FC-CLUSTER-ID`, a server's id for the card)
+#: was read as "fc cluster id" on every contact and written on to Google (2026-10-12, order 1t 4b).
+SERVER_INTERNAL_PREFIXES = (
+    "X-AB", "X-ADDRESSBOOKSERVER-", "X-APPLE-", "X-FC-", "X-OX-", "X-MS-", "X-GOOGLE-", "X-EVOLUTION-",
+    "X-MOZILLA-", "X-CARDDAV-", "X-WR-", "X-SYNC", "X-IMAGE", "X-SHOWAS", "X-OUTLOOK-",
+)
+
+
+def _server_internal(name: str) -> bool:
+    return name.upper().startswith(SERVER_INTERNAL_PREFIXES)
 
 _TEXT_ESCAPES = {"\\n": "\n", "\\N": "\n", "\\,": ",", "\\;": ";", "\\\\": "\\"}
 
@@ -190,7 +202,7 @@ def parse_one(block: str) -> Card:
             card.favourite = value.strip() in ("1", "true", "TRUE", "yes")
         elif name.startswith("X-DATE-"):
             card.fields.append(Field("date", _date(value), name[7:].replace("-", " ").lower()))
-        elif name.startswith("X-") and value.strip() and name not in ("X-ABLABEL", "X-ABUID", "X-ABRELATEDNAMES"):
+        elif name.startswith("X-") and value.strip() and not _server_internal(name):
             card.fields.append(Field("custom", _unescape(value), name[2:].replace("-", " ").lower()))
     if notes:
         card.scalars["notes"] = "\n".join(notes)

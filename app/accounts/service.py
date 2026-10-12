@@ -31,7 +31,8 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.accounts import policy as pol
 from app.accounts.engine import ContactSyncEngine, SyncOutcome
-from app.accounts.http import AllowedHosts, RetryingTransport, UrllibTransport, normalise_server
+from app.accounts.http import (AllowedHosts, KeepAliveTransport, Meter, RetryingTransport, UrllibTransport,
+                               normalise_server)
 from app.accounts.oauth import (AppPasswordSource, OAuthClientConfig, TokenManager, sign_in)
 from app.accounts.provider import ContactProvider, Transport
 from app.accounts.secrets import SecretStore, account_key, client_secret_key
@@ -183,10 +184,29 @@ class AccountService:
             return tm
         return AppPasswordSource(self.secrets, account_key(account.id, "app_password"), account=account.name)
 
+    def contact_transport(self, account: Account) -> Transport:
+        """The transport a contact connector talks over: one kept connection per host, counted by a `Meter` the
+        engine reads into the run's plan (order 1t 1a, 5a). Tests that hand the service a transport get theirs."""
+        if self._transport is not None:
+            return self._transport
+        if account.server:
+            self.allowed.allow_server(account.server)
+        meter = Meter()
+        return RetryingTransport(KeepAliveTransport(self.allowed, account=account.name, meter=meter),
+                                 account=account.name, meter=meter)
+
     def contact_provider(self, account: Account) -> ContactProvider:
-        """The connector for `account` (4a-4e)."""
+        """The connector for `account` (4a-4e), with its transport's `meter` and `close` reachable from it."""
+        transport = self.contact_transport(account)
+        provider = self._contact_provider(account, transport)
+        try:
+            provider.meter = getattr(transport, "meter", None)            # type: ignore[attr-defined]
+        except AttributeError:                                           # a provider with __slots__: no meter
+            pass
+        return provider
+
+    def _contact_provider(self, account: Account, transport: Transport) -> ContactProvider:
         from app.accounts.providers.carddav import CardDavProvider, basic_auth_header  # noqa: PLC0415
-        transport = self.transport_for(account)
         if account.provider == "google":
             from app.accounts.providers.google_people import GooglePeopleProvider  # noqa: PLC0415
             return GooglePeopleProvider(transport, self.token_source(account), account=account.name)

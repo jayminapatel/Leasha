@@ -69,13 +69,13 @@ from __future__ import annotations
 import re
 import uuid
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Callable, Iterator, Optional
 from urllib.parse import quote, unquote, urljoin, urlparse
 from xml.sax.saxutils import escape
 
 from app.accounts.provider import (ContactPage, HttpResponse, RemoteContact, TokenExpired, TokenSource,
-                                   Transport, VersionConflict)
+                                   Transport, VersionConflict, WriteResult)
 from app.accounts.providers import _common
 from app.contacts import vcard
 from app.contacts.card import ALL_CAPS, Card
@@ -86,7 +86,7 @@ __all__ = ["CardDavProvider", "AddressBook", "basic_auth_header", "ICLOUD_URL", 
 ICLOUD_URL = "https://contacts.icloud.com"
 #: Everything a vCard can say. A server may still drop some of it; the engine's
 #: round trip never removes it from Leasha (D10).
-CARDDAV_CAPS = ALL_CAPS
+CARDDAV_CAPS = replace(ALL_CAPS, primary=False)   # see `Capabilities.primary`
 _COMPONENT = "accounts.providers.carddav"
 
 DAV = "DAV:"
@@ -611,7 +611,8 @@ class CardDavProvider:
             raise self._fail(resp, "save a contact")
         return resp.header("etag") or self._etag_of(name)
 
-    def create(self, card: Card) -> tuple[str, str]:
+    def create(self, card: Card, *, membership: bool = True) -> tuple[str, str]:
+        """`membership=False`: the group cards are left to the caller (`create_many` writes them once a batch)."""
         self._ensure_book()
         for _ in range(3):
             uid = str(uuid.uuid4()).upper()
@@ -620,7 +621,7 @@ class CardDavProvider:
                 etag = self._put(name, self._body_for(card, uid), {"If-None-Match": "*"})
             except VersionConflict:
                 continue                                         # the name was taken: another uid
-            if self._use_cards():
+            if self._use_cards() and membership:
                 self._set_membership(uid, card.groups)
             self._i[name] = [etag, uid, "c", _sig(self._groups_of(uid))]
             return name, etag
@@ -635,12 +636,12 @@ class CardDavProvider:
             raise VersionConflict(name)
         return _inspect(got[1]).uid or name
 
-    def update(self, remote_id: str, version: str, card: Card) -> str:
+    def update(self, remote_id: str, version: str, card: Card, *, membership: bool = True) -> str:
         self._ensure_book()
         uid = self._uid_of(remote_id)
         extra = {"If-Match": version} if version else {}
         etag = self._put(remote_id, self._body_for(card, uid), extra)
-        if self._use_cards():
+        if self._use_cards() and membership:
             self._set_membership(uid, card.groups)
         self._i[remote_id] = [etag, uid, "c", _sig(self._groups_of(uid))]
         return etag
@@ -663,8 +664,143 @@ class CardDavProvider:
                 # next pull sees the group card as it is.
                 pass
 
+    # -- batches (order 1t 5e) ---------------------------------------------------------------
+    #: CardDAV has no batch write, so a "batch" is its contacts written one after another on the kept
+    #: connection, then their group cards written once each (not once per contact), and the read-back done as
+    #: one addressbook-multiget.
+    batch_size = 50
+    one_by_one_cost = {"create": 2, "update": 2, "delete": 1}
+    batch_cost = {"create": 51, "update": 51, "delete": 50}
+
+    def _many(self, items: list, write: Callable[[Any], tuple[str, str, str]]) -> list[WriteResult]:
+        out: list[WriteResult] = []
+        wanted: dict[str, list[str]] = {}
+        for item in items:
+            try:
+                remote_id, version, uid = write(item)
+            except VersionConflict:
+                out.append(WriteResult(conflict=True))
+                continue
+            except AppErrorException as exc:
+                if exc.error.code in _common.ACCOUNT_WIDE:
+                    raise
+                out.append(WriteResult(error=exc.error))
+                continue
+            card = item if isinstance(item, Card) else item[2]
+            wanted[uid] = list(card.groups)
+            out.append(WriteResult(ok=True, remote_id=remote_id, version=version))
+        if wanted and self._use_cards():
+            self._set_memberships(wanted)
+        return out
+
+    def create_many(self, cards: list[Card]) -> list[WriteResult]:
+        def write(card: Card) -> tuple[str, str, str]:
+            name, etag = self.create(card, membership=False)
+            return name, etag, self._i[name][1]
+        return self._many(cards, write)
+
+    def update_many(self, items: list[tuple[str, str, Card]]) -> list[WriteResult]:
+        def write(item: tuple[str, str, Card]) -> tuple[str, str, str]:
+            remote_id, version, card = item
+            etag = self.update(remote_id, version, card, membership=False)
+            return remote_id, etag, self._i[remote_id][1]
+        return self._many(items, write)
+
+    def delete_many(self, items: list[tuple[str, str]]) -> list[WriteResult]:
+        out: list[WriteResult] = []
+        for remote_id, version in items:
+            try:
+                self.delete(remote_id, version)
+                out.append(WriteResult(ok=True, remote_id=remote_id))
+            except VersionConflict:
+                out.append(WriteResult(conflict=True))
+            except AppErrorException as exc:
+                if exc.error.code in _common.ACCOUNT_WIDE:
+                    raise
+                out.append(WriteResult(error=exc.error))
+        return out
+
+    def get_many(self, remote_ids: list[str]) -> dict[str, Optional[RemoteContact]]:
+        """Several contacts in one addressbook-multiget a page: what the account holds after a batch."""
+        self._ensure_book()
+        found: dict[str, Optional[RemoteContact]] = {}
+        for start in range(0, len(remote_ids), self._page):
+            for name, etag, text in self._multiget(remote_ids[start:start + self._page]):
+                if text is None:
+                    found[name] = None
+                    continue
+                info = _inspect(text)
+                if info.is_group:
+                    found[name] = None
+                    continue
+                uid = info.uid or name
+                found[name] = RemoteContact(remote_id=name, version=etag, card=self._card(text, uid),
+                                            edited_at=info.rev)
+        return found
+
+    def list_ids(self) -> dict[str, tuple[str, str]]:
+        """Every contact card in the address book with its etag (the check after a sync, 1t 3c). Group cards
+        are not contacts; the ones this connector knows (from the pull before it) are left out."""
+        self._ensure_book()
+        listing, _ = self._list_etags()
+        groups = {n for n, e in self._i.items() if e and len(e) > 2 and e[2] == "g"} | set(self._g)
+        return {n: (et, "") for n, et in listing.items() if n not in groups}
+
+    def _set_memberships(self, wanted_by_uid: dict[str, list[str]]) -> None:
+        """Every contact of a batch into exactly the groups it names: each group card that changes is read and
+        written once, with the change applied to what it holds now (so a member added elsewhere stays)."""
+        want = {uid: {n.casefold(): n for n in names if n.strip()} for uid, names in wanted_by_uid.items()}
+        assigned: set[tuple[str, str]] = set()
+        for name, (gname, members) in list(self._g.items()):
+            key = gname.casefold()
+            add: set[str] = set()
+            remove: set[str] = set()
+            for uid, keys in want.items():
+                if key in keys:
+                    if (uid, key) in assigned:
+                        continue                               # a second group of the same name: the first has it
+                    assigned.add((uid, key))
+                    if uid not in members:
+                        add.add(uid)
+                elif uid in members:
+                    remove.add(uid)
+            if add or remove:
+                self._apply_group_delta(name, add, remove)
+        new_groups: dict[str, tuple[str, list[str]]] = {}
+        for uid, keys in want.items():
+            for key, gname in keys.items():
+                if (uid, key) not in assigned:
+                    new_groups.setdefault(key, (gname, []))[1].append(uid)
+        for gname, uids in new_groups.values():
+            guid = str(uuid.uuid4()).upper()
+            name = f"{guid}.vcf"
+            etag = self._put(name, _group_card(gname, guid, uids, self._version).encode("utf-8"),
+                             {"If-None-Match": "*"})
+            self._g[name] = [gname, list(uids)]
+            self._i[name] = [etag, guid, "g", ""]
+
+    def _apply_group_delta(self, name: str, add: set[str], remove: set[str]) -> None:
+        for _ in range(2):                                     # one retry if the group card moved
+            got = self._head(name)
+            if got is None:
+                self._g.pop(name, None)
+                return
+            etag, text = got
+            info = _inspect(text)
+            members = [m for m in info.members if m not in remove] + sorted(a for a in add if a not in info.members)
+            body = _group_card(info.name, info.uid or name.rsplit(".", 1)[0], members, self._version).encode("utf-8")
+            try:
+                new = self._put(name, body, {"If-Match": etag} if etag else {})
+            except VersionConflict:
+                continue
+            self._g[name] = [info.name, members]
+            self._i[name] = [new, info.uid, "g", ""]
+            return
+        raise VersionConflict(name)
+
     def close(self) -> None:
         self._i, self._g = {}, {}
+        _common.close_transport(self._t)
 
     # -- group cards ------------------------------------------------------------------------
 
