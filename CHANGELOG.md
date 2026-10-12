@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.121 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.123 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -51,6 +51,33 @@ Not yet seen in the real window.
 - **Faster.** A contact's mail is found through an index: 0.011 seconds a contact, against 0.4 before. The
   upgrade takes about 15 seconds on 217,000 messages. `leasha contacts enrich --measure` counts all of this
   without writing anything.
+### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
+
+- **Written a batch at a time, every account at once.** Google takes 200 contacts a request, Microsoft 20 (`$batch`),
+  CardDAV 50 on one kept connection; the answer to a write is the read-back. Measured before: the 17:19 sync of
+  2026-10-12 ran 3 h 50 min (Google 4.6 s a contact, one at a time, two or three requests each, a new connection for
+  every request). After: UNVERIFIED until the owner's accounts sync with this build (`contacts log --timing`).
+- **The delete brake holds only the deletes.** Every other change is written; the account says *Waiting for you* with
+  **Allow**. From 13:52 to 17:19 the brake had stopped every write to Google and Microsoft.
+- **A check after every sync**: each account's own list against Leasha - *in step*, or the contacts that differ, by name,
+  with **Fix these**. One definition of an account's count on every screen (`ContactHub.account_counts`).
+- **The Apple sync settles.** iCloud's own `X-FC-CLUSTER-ID` was read as a custom value ("fc cluster id", 4,704 times in
+  one run, then written to Google) and the preferred flag of a phone, which iCloud does not keep, was a clash on every
+  number (3,976). Neither is compared now. At the first sync the book is cleared, once and as one undoable batch, of
+  every such server value (on the owner's book: "fc cluster id" 1,442, "apple ol mapping info" 1,264, "evolution file
+  as" 1,235, "abadr" 279), and Google, which shows them, is written once per contact to drop them.
+- **Nothing spreads by accident**: one account returning most of its contacts changed the same way holds every push
+  until Allow (`ERR_SYNC_CHANGES_HELD`, Settings > Accounts > Safety, `accounts config --churn-guard`).
+- **A run says what it did as it goes**, and a run whose app went away is closed with its counts. Refused contacts stay
+  listed across syncs, with **Open contact** and **Retry these**.
+- **Fixed:** six contacts binned while a push was writing them were marked synced again and stayed at Google; Microsoft
+  contacts in child folders were never read.
+- **From the review of #70:** a churn hold now stands until Allow (it lasted one sync); a dry run never writes; a batch
+  that gives up first commits what the account accepted (no contact created twice); a CardDAV group-card failure no
+  longer loses the contacts written; Google never takes a contact it could not read for deleted; server bookkeeping
+  is matched by whole names, so a person's own label ("about") is never removed.
+- **A daily sync missed while the app was closed was not caught up before the day's slot time** (opened at 00:39, a
+  three-day-old sync waited for 02:00). `policy.due_at` compares with the latest slot that has come.
 
 ### One app, phase A: the faults the UI review found (2026-10-12)
 

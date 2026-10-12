@@ -94,8 +94,19 @@ class LazyService:
                 "added": int(plan.get("add_in", 0)) + int(plan.get("create_out", 0)),
                 "changed": int(plan.get("merge_in", 0)) + int(plan.get("update_out", 0)),
                 "deleted": int(plan.get("delete_out", 0)) + int(plan.get("deleted_in", 0)),
-                "failed": int(plan.get("failed_out", 0)), "failures": plan.get("failures", []) or []})
+                "failed": int(plan.get("failed_out", 0)),
+                # order 1t 2c: what the account still refuses - kept across runs, with the contact to open
+                "failures": [[f.get("name", ""), f.get("reason", ""), f.get("contact_id")]
+                             for f in svc.accounts.failures(st.account.id)]})
         return rows
+
+    def fix_check(self, account_id: int) -> None:                # worker
+        get_service(self._shell).fix_check(account_id)
+
+    def open_contact(self, contact_id: int) -> None:            # UI thread
+        opener = getattr(self._shell, "_open_contact", None)
+        if callable(opener) and contact_id:
+            opener(int(contact_id))
 
     def pause_mail(self, account_id: int) -> bool:               # worker
         return get_service(self._shell).pause_mail(account_id)

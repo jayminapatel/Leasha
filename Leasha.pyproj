@@ -939,6 +939,7 @@
     <Compile Include="tests\unit\test_contact_slash.py" />
     <Compile Include="tests\unit\test_contact_sync_engine.py" />
     <Compile Include="tests\unit\test_contact_sync_progress.py" />
+    <Compile Include="tests\unit\test_contact_sync_trust.py" />
     <Compile Include="tests\unit\test_contacts_backup_verify.py" />
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_conflicts_ui.py" />
@@ -1397,6 +1398,7 @@
     <Compile Include="tests\unit\test_suite_speed.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_sync_dialog.py" />
+    <Compile Include="tests\unit\test_sync_transport_and_batches.py" />
     <Compile Include="tests\unit\test_tab_scale_bounds.py" />
     <Compile Include="tests\unit\test_table_and_menu_fixes.py" />
     <Compile Include="tests\unit\test_table_sorting.py" />
@@ -1729,6 +1731,7 @@
     <Content Include="docs\WORKORDER-chat-like-claude.md" />
     <Content Include="docs\WORKORDER-code-and-mail-world-class.md" />
     <Content Include="docs\WORKORDER-contact-enrichment-that-finds.md" />
+    <Content Include="docs\WORKORDER-contact-sync-fast-and-trusted.md" />
     <Content Include="docs\WORKORDER-dates-live-log-and-interrupted-runs.md" />
     <Content Include="docs\WORKORDER-everything-tunable-has-a-ui.md" />
     <Content Include="docs\WORKORDER-file-types-and-ocr.md" />

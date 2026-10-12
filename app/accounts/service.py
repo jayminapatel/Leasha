@@ -31,7 +31,8 @@ from typing import Any, Callable, Iterable, Optional
 
 from app.accounts import policy as pol
 from app.accounts.engine import ContactSyncEngine, SyncOutcome
-from app.accounts.http import AllowedHosts, RetryingTransport, UrllibTransport, normalise_server
+from app.accounts.http import (AllowedHosts, KeepAliveTransport, Meter, RetryingTransport, UrllibTransport,
+                               normalise_server)
 from app.accounts.oauth import (AppPasswordSource, OAuthClientConfig, TokenManager, sign_in)
 from app.accounts.provider import ContactProvider, Transport
 from app.accounts.secrets import SecretStore, account_key, client_secret_key
@@ -183,10 +184,29 @@ class AccountService:
             return tm
         return AppPasswordSource(self.secrets, account_key(account.id, "app_password"), account=account.name)
 
+    def contact_transport(self, account: Account) -> Transport:
+        """The transport a contact connector talks over: one kept connection per host, counted by a `Meter` the
+        engine reads into the run's plan (order 1t 1a, 5a). Tests that hand the service a transport get theirs."""
+        if self._transport is not None:
+            return self._transport
+        if account.server:
+            self.allowed.allow_server(account.server)
+        meter = Meter()
+        return RetryingTransport(KeepAliveTransport(self.allowed, account=account.name, meter=meter),
+                                 account=account.name, meter=meter)
+
     def contact_provider(self, account: Account) -> ContactProvider:
-        """The connector for `account` (4a-4e)."""
+        """The connector for `account` (4a-4e), with its transport's `meter` and `close` reachable from it."""
+        transport = self.contact_transport(account)
+        provider = self._contact_provider(account, transport)
+        try:
+            provider.meter = getattr(transport, "meter", None)            # type: ignore[attr-defined]
+        except AttributeError:                                           # a provider with __slots__: no meter
+            pass
+        return provider
+
+    def _contact_provider(self, account: Account, transport: Transport) -> ContactProvider:
         from app.accounts.providers.carddav import CardDavProvider, basic_auth_header  # noqa: PLC0415
-        transport = self.transport_for(account)
         if account.provider == "google":
             from app.accounts.providers.google_people import GooglePeopleProvider  # noqa: PLC0415
             return GooglePeopleProvider(transport, self.token_source(account), account=account.name)
@@ -680,7 +700,9 @@ class AccountService:
                     failures=st.failures,
                     run=({"status": status, "added": run.added, "changed": run.changed, "deleted": run.deleted,
                           "error_text": run.error_text or "", "finished_at": run.finished_at,
-                          "started_at": run.started_at} if run else None))
+                          "started_at": run.started_at, "error_code": run.error_code or ""} if run else None))
+                if kind == "contacts":
+                    snap["check"] = self.accounts.check(a.id)     # order 1t 3c: the last check, or None
                 if kind == "mail":
                     others = [o for o in accounts if o.id != a.id and live[(o.id, "mail")]]
                     if others and not snap["live"]:
@@ -701,6 +723,17 @@ class AccountService:
                         snap["messages"] = None
                     snap["meaning_waiting"] = waiting_meaning
         return out
+
+    def fix_check(self, account_id: int) -> None:
+        """"Fix these" (order 1t 3c): forget where the account's contacts were last read, so the next sync reads
+        them all again - which adds what the account has and Leasha lacks, flags what Leasha links and the
+        account no longer has, and re-merges what changed - and forget the stale check. Writes no contact."""
+        self.accounts.reset_token(int(account_id), "contacts")
+        self.accounts.save_check(int(account_id), {})
+
+    def contact_failures(self, account_id: int) -> list[dict]:
+        """The contacts this account refused and that still wait (order 1t 2c)."""
+        return self.accounts.failures(int(account_id))
 
     def pause_mail(self, account_id: int) -> bool:
         """Pause an account's mail fetch (what the Pause button and the table's Pause do). The syncer's own pause:

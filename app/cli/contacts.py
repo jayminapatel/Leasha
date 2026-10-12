@@ -4,8 +4,8 @@ Layer: L7
 
 Order 1k 3h (rule 8).
 
-    contacts sync [--account X] [--dry-run] [--approve-first] [--allow-brake]
-    contacts log [--account X] [--limit N]
+    contacts sync [--account X] [--dry-run] [--measure] [--approve-first] [--allow-brake]
+    contacts log [--account X] [--limit N] [--timing]
     contacts undo <sync-log-id>          put a whole sync back (the accounts too)
     contacts undo --entry <journal-id>   undo one change
     contacts list [--text T] [--view V]  search / list the book
@@ -57,7 +57,7 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             if acct is None:
                 raise SystemExit(f"no account called {args.account!r}")
             ids = [acct.id]
-        if args.dry_run:
+        if args.dry_run or getattr(args, "measure", False):
             outcomes = svc.engine.sync(ids, trigger="cli", dry_run=True)
         else:
             outcomes = svc.sync_now(ids[0] if ids else None, "contacts", trigger="cli",
@@ -68,6 +68,8 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             rows.append({"account": o.account_name, "status": o.status, "run": o.run_id,
                          "added": p.added, "changed": p.changed, "deleted": p.deleted, "held": p.held,
                          "possible_duplicates": p.possible_duplicates,
+                         "would_write": {"create": p.create_out, "update": p.update_out, "delete": p.delete_out},
+                         "requests": (p.timing or {}).get("estimate"),
                          "error": o.error.render() if o.error else None})
         if as_json:
             print(json.dumps(rows, indent=2))
@@ -77,6 +79,13 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
                       f"held {r['held']}  (log #{r['run']})")
                 if r["possible_duplicates"]:
                     print(f"    {r['possible_duplicates']} new contact(s) look like ones already here")
+                if getattr(args, "measure", False) and r["requests"]:
+                    # Order 1t 1b: what the waiting writes cost, one at a time and in batches. An estimate from
+                    # the connector's own figures; `contacts log --timing` has what a real run measured.
+                    w, q = r["would_write"], r["requests"]
+                    print(f"    waiting: {w['create']:,} to create, {w['update']:,} to update, {w['delete']:,} to "
+                          f"delete - about {q['one_by_one']:,} requests one at a time, {q['batched']:,} in "
+                          f"batches of {q['batch_size'] or 1}")
                 if r["error"]:
                     print("    " + r["error"].replace("\n", "\n    "))
             if not rows:
@@ -92,6 +101,16 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             print(f"#{r.id:<4} {_when(r.started_at)}  {r.account_name:<14} {r.trigger:<18} {r.status:<15} "
                   f"+{r.added} ~{r.changed} -{r.deleted} held {r.held}"
                   + (f"  {r.error_code}" if r.error_code else "") + ("  (undone)" if r.undone_at else ""))
+            timing = (r.plan or {}).get("timing") or {}
+            if getattr(args, "timing", False) and timing:
+                # Order 1t 1a: where the run's time went, and what its transport did.
+                t = timing.get("transport") or {}
+                phases = ", ".join(f"{k[:-2]} {v:g} s" for k, v in timing.items() if k.endswith("_s"))
+                reqs = ", ".join(f"{m} {n:,}" for m, n in sorted((t.get("requests") or {}).items()))
+                print(f"      {phases or 'no phases timed'}"
+                      + (f"; {t.get('total', 0):,} requests ({reqs}) on {t.get('connections', 0)} connection(s), "
+                         f"{t.get('seconds', 0):g} s waiting for answers, {t.get('retries', 0)} retries "
+                         f"({t.get('slept_s', 0):g} s slept)" if t else ""))
         return EXIT_OK
 
     if action == "merge-safe":
@@ -248,11 +267,15 @@ def add_contacts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     s = c.add_parser("sync", parents=[common], help="sync contacts with the connected accounts")
     s.add_argument("--account")
     s.add_argument("--dry-run", action="store_true", help="plan only; write nothing anywhere")
+    s.add_argument("--measure", action="store_true",
+                   help="plan only (a dry run: --approve-first and --allow-brake are ignored), and say how many "
+                        "requests the waiting writes cost one at a time and in batches")
     s.add_argument("--approve-first", action="store_true", help="run an account's first sync for real")
     s.add_argument("--allow-brake", action="store_true", help="allow a sync the delete brake stopped")
     lg = c.add_parser("log", parents=[common], help="the sync log")
     lg.add_argument("--account")
     lg.add_argument("--limit", type=int, default=30)
+    lg.add_argument("--timing", action="store_true", help="also where each run's time went, and its requests")
     u = c.add_parser("undo", parents=[common], help="undo a whole sync (or one journal entry)")
     u.add_argument("target", help="sync log id (or a journal id with --entry)")
     u.add_argument("--entry", action="store_true")

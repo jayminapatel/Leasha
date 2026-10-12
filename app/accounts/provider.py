@@ -32,7 +32,7 @@ from app.contacts.card import Capabilities, Card
 
 __all__ = [
     "HttpResponse", "Transport", "TokenSource", "VersionConflict", "TokenExpired",
-    "RemoteContact", "ContactPage", "ContactProvider",
+    "RemoteContact", "ContactPage", "ContactProvider", "WriteResult",
     "RemoteMessage", "RemoteMessageGone", "MailPage", "MailProvider",
 ]
 
@@ -101,8 +101,30 @@ class ContactPage:
     done: bool = False
 
 
+@dataclass
+class WriteResult:
+    """One contact's outcome inside a batch write (order 1t 5b). Exactly one of: written (`ok`), lost a race
+    (`conflict`: the engine re-reads, re-merges and tries that one again on its own), or refused (`error`, the
+    account's reason; that one stays waiting). `card` is what the account now holds, when its answer says so -
+    the merge base - and None when it does not (the engine then reads it back)."""
+
+    ok: bool = False
+    remote_id: str = ""
+    version: str = ""
+    card: Optional[Card] = None
+    conflict: bool = False
+    error: Optional[Any] = None                 # an `AppError`
+
+
 @runtime_checkable
 class ContactProvider(Protocol):
+    """A connector. **Optional, for speed (order 1t 5b, 3b):** `batch_size` (int) and `create_many(cards)`,
+    `update_many([(remote_id, version, card)])`, `delete_many([(remote_id, version)])`, each returning one
+    `WriteResult` per item in order and raising only for a failure of the account as a whole; `get_many(ids)`
+    returning {id: RemoteContact or None}; and `list_ids()` returning {remote_id: version} for every contact the
+    account holds - the cheapest read it offers, for the check after a sync. The engine uses them when present
+    and the one-by-one methods when not."""
+
     caps: Capabilities
 
     def pull(self, token: Optional[str]) -> Iterator[ContactPage]:

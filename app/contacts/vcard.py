@@ -24,9 +24,15 @@ import quopri
 import re
 from typing import Iterable, Iterator
 
-from app.contacts.card import Card, Field, Photo, display_name
+from app.contacts.card import SERVER_INTERNAL_PREFIXES, Card, Field, Photo, display_name, is_server_internal
 
-__all__ = ["parse", "parse_one", "dumps", "dump_many", "split_cards"]
+__all__ = ["parse", "parse_one", "dumps", "dump_many", "split_cards", "SERVER_INTERNAL_PREFIXES"]
+
+
+def _server_internal(name: str) -> bool:
+    """A server's own `X-` property (`card.SERVER_INTERNAL_PREFIXES`): never a custom value (order 1t 4b)."""
+    return is_server_internal(name)
+
 
 _TEXT_ESCAPES = {"\\n": "\n", "\\N": "\n", "\\,": ",", "\\;": ";", "\\\\": "\\"}
 
@@ -190,7 +196,7 @@ def parse_one(block: str) -> Card:
             card.favourite = value.strip() in ("1", "true", "TRUE", "yes")
         elif name.startswith("X-DATE-"):
             card.fields.append(Field("date", _date(value), name[7:].replace("-", " ").lower()))
-        elif name.startswith("X-") and value.strip() and name not in ("X-ABLABEL", "X-ABUID", "X-ABRELATEDNAMES"):
+        elif name.startswith("X-") and value.strip() and not _server_internal(name):
             card.fields.append(Field("custom", _unescape(value), name[2:].replace("-", " ").lower()))
     if notes:
         card.scalars["notes"] = "\n".join(notes)

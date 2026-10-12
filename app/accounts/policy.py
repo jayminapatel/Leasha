@@ -145,9 +145,13 @@ def due_at(policy: SyncPolicy, last_sync: Optional[datetime], now: datetime) -> 
         today = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
         if last_sync is None:
             return today if today > now else now
-        if last_sync >= today:
-            return today + timedelta(days=1)    # today's slot is already served
-        return today
+        # The latest slot that has come: today's, or - before today's time - yesterday's. Comparing with today's
+        # alone missed every day skipped while the app was closed, whenever it opened before the slot's time
+        # (found 2026-10-13 at 00:39: a sync three days old was not due until 02:00).
+        slot = today if today <= now else today - timedelta(days=1)
+        if last_sync >= slot:
+            return slot + timedelta(days=1)     # the latest slot is already served
+        return slot
     return None
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 import os
 import re
 import sys
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -178,7 +178,9 @@ def test_updated_date_is_not_in_the_future(doc: Path) -> None:
     match = HEADER.search(doc.read_text(encoding="utf-8"))
     assert match is not None
     updated = date.fromisoformat(match.group("updated"))
-    assert updated <= date.today(), f"{doc.name} is dated {updated}, which is in the future"
+    # One day of grace: a document dated on the laptop after midnight (UTC+5:30) is still "yesterday" on CI, which
+    # runs in UTC - found 2026-10-12, when that alone failed CI on main.
+    assert updated <= date.today() + timedelta(days=1), f"{doc.name} is dated {updated}, which is in the future"
 
 
 def test_the_two_specs_are_major_version_2() -> None:
