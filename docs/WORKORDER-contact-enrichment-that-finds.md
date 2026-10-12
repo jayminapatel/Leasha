@@ -1,8 +1,8 @@
 # Work order (One thread): contact enrichment that finds things - fresh details only, a signature reader that does not need "Kind regards", more of your own sources, every rule a setting
 
-**Doc version:** 1.1 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 **Thread:** One thread (`app/contacts/enrich/`, `app/extract/quoting.py`, `app/extract/email_files.py`, `app/storage/`, `app/accounts/store.py`, `app/ui/contacts_tools/`, `app/ui/accounts/`, `app/cli/`, `tests/unit/`, the docs)
-**Status:** BUILT 2026-10-13, 40 of 48 on `feat/enrichment-that-finds` (not merged). Open: 0a and 0b not recorded, 4b's cost and 5a/5d's reach to be measured, 5e waits on §9, **9a NOT MET** (114 of 200), 9f the owner's Windows checks. RELEASED by the owner 2026-10-12 ("fix it and make the whole system smart and configurable write a work order for all and give the design system thread to execute when it deems it is ready to execute .. make the design fool proof and extremely smart"), after asking "how does the contact enrichment work as it does not seem to work well at the moment". The executing thread decides when to start: §0 lists what must be true first.
+**Status:** BUILT 2026-10-13, 45 of 48 on `feat/enrichment-that-finds` (not merged). Open: 5e waits on §9, **9a NOT MET** (113 of 200 as shipped; 310 with the originals re-read, at 90/100 precision against 95), 9f the owner's Windows checks. RELEASED by the owner 2026-10-12 ("fix it and make the whole system smart and configurable write a work order for all and give the design system thread to execute when it deems it is ready to execute .. make the design fool proof and extremely smart"), after asking "how does the contact enrichment work as it does not seem to work well at the moment". The executing thread decides when to start: §0 lists what must be true first.
 
 **What this is.** Order 1k section 7 built enrichment: eight sources that *propose* details for a contact and change
 nothing until the person accepts. It works as designed and finds very little. Measured on the owner's index on
@@ -206,7 +206,7 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   `email_files.py` writes the cut-off tail (cleaned by 3a, at most 2,000 characters) to `message_tails(file_id,
   text, reason)` (a migration). Not embedded, not in FTS, removed with its message. Search results unchanged
   (guard test: same `chunks` row count and text before and after for a fixture mailbox).
-- [ ] **4b** **Existing mail: re-read the original, on demand.** When a contact's indexed mail in the window gives
+- [x] **4b** **Existing mail: re-read the original, on demand.** When a contact's indexed mail in the window gives
   no block, re-open its newest five messages read-only from where `messages.store_path` / `account://` says and
   read the full body. Measure the cost per message first and write it here; if over **200 ms a message**, ship 4b
   behind a switch "Read the original messages again (slower)" and leave it off.
@@ -214,6 +214,14 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   *Note 2026-10-13:* built behind that switch, off by default (dab2551; the setting in 092ce8a).
   `contacts enrich --measure --read-originals` measures the cost read-only (4c8c7b3). Cost per message on the
   owner's index: **re-read originals: [pending measurement]**. Not ticked until that number is written here.
+
+  *Measured 2026-10-13 at `e36ac6a`, on the migrated copy, read-only:* **median 16 ms a message** (10,098
+  originals re-read over the whole book, 454.7 s in all, 0.315 s a contact). The first attempt at `4c8c7b3`
+  ran over two hours without finishing: every re-read opened its archive (2-3 s) and walked its folders
+  (3.7 s) afresh, fixed by `pst_attachment.kept_open` (`ea71712`, `e36ac6a`). The cost is under the item's
+  200 ms, so the item does not require the switch; it **stays off by default** anyway, for two measured
+  reasons the item did not foresee: with it on, a run takes 0.315 s a contact against 9c's 0.15, and its
+  proposals scored 90/100 against 9b's 95 (sample 4). Whether to turn it on is the owner's (close-out).
 - [x] **4c** **Quoted signatures.** From the original body (4b) or the tail (4a), parse quoted headers ("From:
   Name <addr> / Sent: / To:") and the signature block under each quoted message; a block is credited only to the
   address in its own quoted From line, only within the age window by its quoted Sent date, and at confidence -0.15
@@ -248,11 +256,21 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
 - [x] **5c** **A LinkedIn export.** If the owner points at `Connections.csv` (Settings > Accounts > Enrichment >
   "Use a LinkedIn export..."), match by email, else by name plus company; offer company and position with the
   export's "Connected On" date as the age. Nothing is fetched from LinkedIn.
-- [ ] **5d** **Calendar invitations.** The index holds 960 `.ics` files. Attendee names fill a missing display name
+- [x] **5d** **Calendar invitations.** The index holds 960 `.ics` files. Attendee names fill a missing display name
   for an address; organisers and frequent attendees feed "Suggested contacts" (7e). No phone or title from here.
 
   *Note 2026-10-13:* built (2f22355). On the migrated copy it found 0 contacts until 96c08fa, for the same two
   reasons as 5a (921 of 966 invitations are attachments). Reach after 96c08fa: **[pending measurement]**.
+
+  *Measured 2026-10-13 at `e48065b`, on the migrated copy, read-only:* **names: 0 contacts**, and correctly so -
+  no contact with an email address lacks a name, so there is nothing for an attendee name to fill.
+  **Suggested contacts: 1 with the six-month default; 1,291 with Any age** (146 s cold, 96 s with the
+  archives open). Reading the Any age list found the owner's own old work addresses near the top (130, 22 and
+  20 invitations): only the accounts' addresses counted as the owner's. `e48065b` adds every address the owner
+  sent from, but on this index that adds nothing - the archives are filed by year, with no Sent folder, and the
+  owner's known addresses carry no display name - so with **Any age** the owner's old addresses are still
+  suggested. Also in the list: a few mailing lists ("AE-Training", "Global-Sustainability"). Both are for the
+  owner (close-out); neither appears with the six-month default.
 - [ ] **5e** **Documents (off by default).** Org charts, contracts and scanned business cards name people with
   titles. Only after §9 shows the others hold their precision; proposals at most 0.6, never pre-ticked.
 
@@ -310,6 +328,14 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
   **NOT MET: 114 against at least 200.** 50,351 of the 217,168 messages (23%) have a sender with no `@` address,
   so they cannot be matched to anyone (1c's note).
   Re-read originals: [pending measurement].
+
+  *Measured 2026-10-13 at `e36ac6a`/`e48065b`, same copy, read-only:* Any age without re-reading: at least one
+  proposal **113** (block found 163, something read 136; the one fewer than above is a contact whose only
+  proposal was a vCard-era value now on the card). Six months: **13** of 27 with mail. **With "Read the original
+  messages again" on (4b), Any age: 310** (block found 469, something read 349, quoted-only 4), 10,098 originals
+  re-read. That passes 200, but its sample scored 90 of 100 against 9b's bar of 95 (see 9b, sample 4), so
+  it is **not counted as met**: 9a stays NOT MET until the re-read proposals hold 9b's precision, or the owner
+  decides otherwise.
 - [x] **9b** **Precision.** §1b sample of 100 proposals checked against their receipts: **at least 95 correct**,
   none of them the owner's own details (3h). The thread checks each against the signature block printed beside
   it and lists every wrong one here with its cause. Below 95: fix and re-sample; do not lower the bar.
@@ -326,6 +352,15 @@ Tests: `test_a_second_run_says_which_internet_sources_were_not_asked_again`,
     address, and a WebEx meeting number taken as a phone; both fixed in 96c08fa. Counted as correct but
     borderline: 3 addresses prefixed with the company name, 1 address missing its floor line, 1 with stray
     punctuation. Counted strictly, the score would be 93.
+  - **Sample 4 at `e48065b`, with the originals re-read (4b on): 90/100, below the bar.** Not the shipped
+    default (4b is off), so 9b stays ticked for what ships; it is what keeps 4b off and 9a open. Wrong: 4 a
+    block credited to the wrong person (another sender's signature inside the contact's message - NOMAC's
+    contract officer offered to two people, "Dear Syed" above another man's block - and one of the owner's own
+    old Wipro signatures, an address the owner's index does not know is the owner's, 5d's note); 3 footer or
+    event text read as a value ("Wipro Values" as a company, an ISO certificate line and a trade-show booth as
+    addresses); 1 phone number split over two lines and cut; 1 a clinic's automated mail credited to a
+    patient; 1 not checkable against the block shown. Borderline, counted correct: a trailing full stop on a
+    company, "Wipro Ltd" for "Wipro Limited", a country twice, a company name leading an address.
 *Correction 2026-10-13:* the 0.011 s under this item was measured with the signature reader alone. With the
 vCard and calendar sources on, the same run took **1.08 s a contact** (1,553 s, at `1b4c54f`): both re-listed
 every indexed file for each contact, a backup's thousands of cards were compared one by one, and every

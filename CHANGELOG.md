@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.123 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.124 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -48,8 +48,9 @@ Not yet seen in the real window.
 - **Enrich this contact** and **Look again** on a contact's page. Internet answers are remembered, so one you did
   not accept is offered again without asking again; **Ask the internet again after** sets how long (90 days by
   default). Wikidata gets a cleaner company name, and a logo comes only from the company's own domain.
-- **Faster.** A contact's mail is found through an index: 0.011 seconds a contact, against 0.4 before. The
-  upgrade takes about 15 seconds on 217,000 messages. `leasha contacts enrich --measure` counts all of this
+- **Faster.** A contact's mail is found through an index, and an Outlook archive is opened once a run, not once
+  for every attachment or message read again: with every source on, 0.14 seconds a contact, against 0.4 before.
+  The upgrade takes about 15 seconds on 217,000 messages. `leasha contacts enrich --measure` counts all of this
   without writing anything.
 ### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
 
