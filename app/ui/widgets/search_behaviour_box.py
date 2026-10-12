@@ -26,6 +26,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QSpinBox,
     QLineEdit,
     QCheckBox,
     QComboBox,
@@ -185,6 +186,25 @@ class SearchBehaviourBox(QGroupBox):
         self.mini_prefill.stateChanged.connect(lambda _s: self._emit())
         form.addRow(self.mini_prefill)
 
+        # **The Files page's Kinds list** (the owner, 2026-10-12: Visio and Microsoft Project were missing). The
+        # commonest types are listed; the ones named here are listed as well, whatever their rank.
+        self.kinds_always = QLineEdit()
+        self.kinds_always.setObjectName("FILE_KINDS_ALWAYS")
+        self.kinds_always.setAccessibleName("File types always listed on the Files page")
+        self.kinds_always.setPlaceholderText("vsdx,vsd,mpp")
+        self.kinds_always.setToolTip(
+            "The Files page's Kinds list holds the commonest file types. Types named here, as extensions "
+            "separated by commas (vsdx,vsd,mpp), are listed as well whenever the index holds any.")
+        self.kinds_always.editingFinished.connect(self._emit)
+        form.addRow("Always list these file types", self.kinds_always)
+        self.kinds_shown = QSpinBox()
+        self.kinds_shown.setObjectName("FILE_KINDS_SHOWN")
+        self.kinds_shown.setRange(3, 60)
+        self.kinds_shown.setAccessibleName("How many common file types the Files page lists")
+        self.kinds_shown.setToolTip("How many of the commonest file types the Files page's Kinds list holds.")
+        self.kinds_shown.valueChanged.connect(lambda _v: self._emit())
+        form.addRow("Common types listed", self.kinds_shown)
+
         self.grid = self._build_grid()
 
         self.reset = QPushButton("Reset search behaviour to defaults")
@@ -280,6 +300,12 @@ class SearchBehaviourBox(QGroupBox):
                     control.setText(value)
                 control.blockSignals(False)
             self.say_hotkey(getattr(settings, "mini_search_hotkey", ""))
+            for control in (self.kinds_always, self.kinds_shown):
+                control.blockSignals(True)
+            self.kinds_always.setText(str(getattr(settings, "file_kinds_always", "vsdx,vsd,mpp") or ""))
+            self.kinds_shown.setValue(int(getattr(settings, "file_kinds_shown", 12) or 12))
+            for control in (self.kinds_always, self.kinds_shown):
+                control.blockSignals(False)
         finally:
             for control in self.controls.values():
                 control.blockSignals(False)
@@ -319,6 +345,8 @@ class SearchBehaviourBox(QGroupBox):
             "MINI_SEARCH_ENABLED": bool(self.mini_search.isChecked()),
             "MINI_SEARCH_HOTKEY": self.mini_hotkey.text().strip(),
             "MINI_SEARCH_PREFILL_SELECTION": bool(self.mini_prefill.isChecked()),
+            "FILE_KINDS_ALWAYS": self.kinds_always.text().strip().lower(),
+            "FILE_KINDS_SHOWN": int(self.kinds_shown.value()),
         }
 
     def restore_defaults(self) -> None:

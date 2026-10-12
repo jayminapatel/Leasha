@@ -229,6 +229,18 @@ SETTINGS: tuple[Setting, ...] = (
              "by itself.",
     ),
     Setting(
+        key="FILE_KINDS_ALWAYS", label="Always list these file types (Files page)", kind="text",
+        default="vsdx,vsd,mpp", group="Search", surface="settings.search",
+        help="The Files page's Kinds list holds the commonest file types. Types named here - as extensions, "
+             "comma-separated: vsdx,vsd,mpp - are listed as well whenever the index holds any, however few. "
+             "Visio and Microsoft Project are there by default.",
+    ),
+    Setting(
+        key="FILE_KINDS_SHOWN", label="How many of the commonest types the Kinds list holds", kind="int",
+        default=12, group="Search", surface="settings.search", minimum=3, maximum=60, unit="types",
+        help="The Files page's Kinds list: this many of the commonest file types, then the types named above.",
+    ),
+    Setting(
         key="CODE_EDITOR", label="Open code results in", kind="choice",
         default="auto", group="Search", surface="settings.search",
         choices=("auto", "vscode", "cursor", "vscodium", "sublime",

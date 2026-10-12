@@ -152,6 +152,9 @@ def tree_toggle(view: Any) -> QToolButton:
     return view.tree_button
 
 
+from app.ui.widgets.side_panel import follow_index  # noqa: E402,F401 - the page keeps its tree level with the index
+
+
 class ViewButton(QToolButton):
     """The tab's View icon; `menu_for` is what the window's View menu calls."""
 

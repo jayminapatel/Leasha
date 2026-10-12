@@ -56,6 +56,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### Browse as thumbnails or a table; Kinds; smooth trees (2026-10-12)
+
+- **Browse can be shown as Thumbnails (the timeline, as before) or as a Table**, switchable from a control beside the
+  picker, and remembered. The table has the same View menu as the other list pages (columns, how tightly packed, text
+  size), columns that fit, sorting by a heading, and a Preview pane. The window's View menu offers it on this tab too.
+- **Files > Kinds lists Visio and Microsoft Project** (and any type you name). The list holds the commonest twelve
+  types; Settings > Search now has *Always list these file types* (default `vsdx,vsd,mpp`) and *Common types listed*
+  (default 12). Visio and Project show their names beside the extension (VSDX - Visio, MPP - Microsoft Project).
+- **Clicking an entry under Browse's Show no longer makes the whole tree flash.** A list whose rows are the same with
+  other numbers or ticks is now updated where it stands, and a real rebuild is drawn in one repaint with the scroll
+  position kept - for every side list.
+- **Every tree follows the index** while it is on screen: Mail, Files, Code, Browse and Photos look at the index's
+  write counter and refresh when it moved (Photos every 45 seconds, the others every 15).
+
 ### The folder lists follow the index (2026-10-12)
 
 - **Fixed:** Mail's tree said "All mail 2,491" beside a list that said "38,830 messages in the index", and showed none

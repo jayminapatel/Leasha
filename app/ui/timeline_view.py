@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import QThreadPool, Signal
-from PySide6.QtWidgets import QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
 
 from app.reports.timeline import PAGE_SIZE, Period, month_of_ns, refresh_overview, timeline_page
 from app.reports.timeline_words import (
@@ -37,6 +37,8 @@ from app.reports.timeline_words import (
 )
 from app.ui.presenter.timeline import blocks_for, loading_sentence, shown_sentence
 from app.ui.widgets.file_menu import FileActions, build_menu
+from app.ui.widgets.browse_table import BrowsePane
+from app.ui.widgets.segmented import SegmentedControl
 from app.ui.widgets.timeline_list import TimelineList
 from app.ui.widgets.timeline_picker import TimelinePicker
 from app.ui.workers import CallableWorker, run
@@ -89,6 +91,25 @@ class TimelineView(QWidget):
         self.list.near_end.connect(self._fetch_more)
         self.list.opened.connect(self.opened)
         self.list.menu_requested.connect(self._show_menu)
+        # The other way of looking at the same entries: a table, with the View menu every list page has. The two
+        # share the pages the timeline fetches; which one shows is the person's, and is remembered.
+        self.table = BrowsePane()
+        self.table.near_end.connect(self._fetch_more)
+        self.table.opened.connect(self.opened)
+        self.table.menu_requested.connect(self._show_menu)
+        self.table.error.connect(self.error)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.list)
+        self.stack.addWidget(self.table)
+        self.shape = SegmentedControl()
+        self.shape.addItem("Thumbnails", "timeline")
+        self.shape.addItem("Table", "table")
+        self.shape.setToolTip("Thumbnails: photographs as pictures under the day they are from. "
+                              "Table: one line each, with columns you choose.")
+        self.shape.setAccessibleName("How Browse is shown")
+        self.view_button = self.table.bind_store(store, self.picker.top_row) if store is not None else None
+        self.picker.top_row.insertWidget(self.picker.top_row.count() - 1, self.shape)
+        self.shape.currentIndexChanged.connect(self._shape_changed)
         self.status = QLabel("")
         self.status.setObjectName("resultsSummary")
         self.status.setWordWrap(True)
@@ -99,8 +120,35 @@ class TimelineView(QWidget):
         layout.setSpacing(2)
         for item in (self.notes, self.picker, self.heading):
             layout.addWidget(item)
-        layout.addWidget(self.list, 1)
+        layout.addWidget(self.stack, 1)
         layout.addWidget(self.status)
+        self._restore_shape()
+        from app.ui.widgets.side_panel import follow_index
+
+        follow_index(self, self.refresh)           # the years and months follow the index while it is read
+
+    # -- thumbnails or table ----------------------------------------------------
+
+    def _restore_shape(self) -> None:
+        try:
+            saved = str(self._store.get_state("ui:browse_shape") or "") if self._store is not None else ""
+        except Exception:                                  # noqa: BLE001 - a default is fine
+            saved = ""
+        self.shape.blockSignals(True)
+        self.shape.setCurrentIndex(1 if saved == "table" else 0)
+        self.shape.blockSignals(False)
+        self.stack.setCurrentIndex(1 if saved == "table" else 0)
+
+    def _shape_changed(self, index: int) -> None:
+        self.stack.setCurrentIndex(1 if index == 1 else 0)
+        if index == 1:
+            self.table.set_folds(self._items)
+        try:
+            from app.ui.state_writes import save_state
+
+            save_state(self._store, "ui:browse_shape", "table" if index == 1 else "timeline")
+        except Exception:                                  # noqa: BLE001 - not remembering is not an error
+            pass
 
     # -- the counts -------------------------------------------------------------
 
@@ -167,6 +215,7 @@ class TimelineView(QWidget):
         self._connected = None
         self._done, self._loading = False, False
         self.list.clear_blocks()
+        self.table.clear()
         self.heading.setText(period_words(period))
         self.status.setText(loading_sentence(period_words(period)))
         self._fetch_more()
@@ -200,6 +249,8 @@ class TimelineView(QWidget):
         blocks, self._last_day = blocks_for(page.items, self._last_day)
         self._items.extend(page.items)
         self.list.append_blocks(blocks)
+        if self.stack.currentIndex() == 1:
+            self.table.set_folds(self._items)
         shown = sum(1 + len(fold.older) for fold in self._items)
         self.status.setText(shown_sentence(shown, self._done) if shown
                             else empty_period_sentence(self._period))
@@ -234,3 +285,5 @@ class TimelineView(QWidget):
         blocks, _day = blocks_for(self._items, None)
         self.list.append_blocks(blocks)
         self.list.verticalScrollBar().setValue(keep)
+        if self.stack.currentIndex() == 1:
+            self.table.set_folds(self._items)

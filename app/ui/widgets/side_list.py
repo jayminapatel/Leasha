@@ -69,6 +69,7 @@ class SideList(QTreeWidget):
         #: edits the filter box, the box redraws the list), the rows are restyled in place instead of
         #: rebuilt - a long folder list took a second to rebuild, at every click.
         self._shape: tuple = ()
+        self._structure: tuple = ()
         self._by_key: dict[str, QTreeWidgetItem] = {}
         self._current = ""
         self._more: set[str] = set()
@@ -89,6 +90,24 @@ class SideList(QTreeWidget):
             self._entries = entries
             self._restyle(entries)
             return
+        # The same rows with other words or numbers (a count moved, a tick changed, a label was reworded): update
+        # the rows where they are. Taking the list apart and putting it together again for that made the whole
+        # tree flash at every click on Browse (the owner, 2026-10-12) - and cost a rebuild each time.
+        structure = tuple((e.key, e.parent, e.section, e.kind) for e in entries)
+        if self._by_key and structure == self._structure:
+            self._entries = entries
+            self._update_in_place(entries)
+            self._shape = shape
+            return
+        bar = self.verticalScrollBar().value()
+        self.setUpdatesEnabled(False)                  # a rebuild is one repaint, not a flicker of half a tree
+        try:
+            self._rebuild(entries, shape, structure)
+        finally:
+            self.setUpdatesEnabled(True)
+        self.verticalScrollBar().setValue(bar)
+
+    def _rebuild(self, entries: list[SideEntry], shape: tuple, structure: tuple) -> None:
         opened = {key for key, row in self._by_key.items() if row.isExpanded()}
         for i in range(self.topLevelItemCount()):
             heading = self.topLevelItem(i)
@@ -133,12 +152,34 @@ class SideList(QTreeWidget):
             for key in opened:
                 if key in items:
                     items[key].setExpanded(True)
-            self._by_key, self._shape = items, shape
+            self._by_key, self._shape, self._structure = items, shape, structure
             current = items.get(self._current)
             if current is not None:
                 self.setCurrentItem(current)
         finally:
             self.blockSignals(False)
+
+    def _update_in_place(self, entries: list[SideEntry]) -> None:
+        """Same rows, new words, numbers, tips or ticks: change each row where it stands. Nothing is cleared, so
+        nothing flashes, and what is open, selected or scrolled stays so."""
+        self.setUpdatesEnabled(False)
+        try:
+            for entry in entries:
+                row = self._by_key.get(entry.key)
+                if row is None:
+                    continue
+                count = "" if entry.count is None else f"{entry.count:,}"
+                if row.text(0) != entry.label:
+                    row.setText(0, entry.label)
+                if row.text(1) != count:
+                    row.setText(1, count)
+                tip = entry.tip or entry.label
+                if row.toolTip(0) != tip:
+                    row.setToolTip(0, tip)
+                row.setForeground(1, QBrush(QColor(self._ink("text_faint", "#888888"))))
+                self._style(row, entry)
+        finally:
+            self.setUpdatesEnabled(True)
 
     def _restyle(self, entries: list[SideEntry]) -> None:
         """Only the ticks differ: restyle the rows whose tick changed, and touch nothing else."""

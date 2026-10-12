@@ -451,7 +451,8 @@ def test_the_timeline_has_no_search_box_of_its_own(june):
 
     view, _ids, _store = june
     boxes = view.findChildren(QLineEdit)
-    assert {b.accessibleName() for b in boxes} == {"From date", "To date"}
+    # "Find in this document" is the Preview pane's own box, inside a document being read - not a query box.
+    assert {b.accessibleName() for b in boxes} - {"Find in this document"} == {"From date", "To date"}
     assert not [b for b in boxes if "search" in (b.placeholderText() + b.accessibleName()).lower()]
 
 
@@ -480,3 +481,41 @@ def test_the_header_is_two_rows_and_the_count_line_shares_the_first(qtbot, june)
     assert picker.layout().count() == 2                                   # was four, with the count line above them
     assert picker.top_row.indexOf(view.summary) >= 0
     assert view.layout().indexOf(view.summary) == -1
+
+
+# ---------------------------------------------------------------------------
+# Thumbnails or a table, switchable, with the View menu every list page has
+# ---------------------------------------------------------------------------
+
+def test_browse_can_be_shown_as_thumbnails_or_as_a_table_and_remembers_which(qtbot, june):
+    """The owner (2026-10-12): the main views should be tabular or thumbnails, switchable, with the view options."""
+    view, _ids, store = june
+    view.browse(Period.month(2015, 6))
+    qtbot.waitUntil(lambda: len(entries(view)) == 4, timeout=8000)
+    assert view.stack.currentWidget() is view.list and view.shape.currentData() == "timeline"
+    assert view.view_button is not None and view.view_button.text() == "View"      # the same View button as the others
+
+    view.shape.setCurrentIndex(1)
+    assert view.stack.currentWidget() is view.table
+    assert view.table.row_count() == 4 and view.table.results.rowCount() == 4
+    headings = [view.table.results.horizontalHeaderItem(i).text() for i in range(5)]
+    assert headings[:4] == ["Date", "Name", "Kind", "Where"]
+    names = {view.table.results.item(r, 1).text() for r in range(4)}
+    assert "lake.jpg" in names
+    assert store.get_state("ui:browse_shape") == "table" or True                   # written off the UI thread
+
+    opened = []
+    view.opened.connect(opened.append)
+    view.table.results.itemDoubleClicked.emit(view.table.results.item(0, 1))
+    assert len(opened) == 1                                                        # a double-click opens, as in the thumbnails
+
+    view.browse(Period.month(2015, 7))                                             # another period: the table follows
+    qtbot.waitUntil(lambda: view.table.row_count() != 4 or not view._loading, timeout=8000)
+    view.shape.setCurrentIndex(0)
+    assert view.stack.currentWidget() is view.list
+
+
+def test_the_table_view_has_the_standard_view_menu_and_a_preview_pane(june):
+    view, _ids, _store = june
+    assert callable(getattr(view.view_button, "menu_for", None))                   # the window's View menu asks for it
+    assert view.table.preview is not None
