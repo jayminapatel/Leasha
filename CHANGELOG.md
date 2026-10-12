@@ -42,6 +42,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   `extractors.toml` alone and never `<DATA_PATH>\extractors.toml`; it now reads both (`WalkConfig.formats_from`).
 - Document cards are checked harder: a kind needs words in the document that support it (else `email` for a
   message, `other` otherwise), pronouns are never people, and a summary citing a number the document lacks is dropped.
+### What each account is doing - contacts and mail, each with a status and a progress (2026-10-12)
+
+- **The Sync window and every account's panel** now show one row for each account's contacts and one for its mail:
+  a status (Running, Waiting its turn, Paused, Failed, Sign in needed, Stopped, Up to date, Manual, Off, Not run
+  yet), a progress bar, what it is doing in a sentence, and the next step. A mail fetch says "Fetching mail: 12,300
+  of about 80,000 (15%) - 4 a second - about 4 hours left"; a contact sync says "Writing 120 of 1,436 contacts" and
+  the contact it is on; mail waiting for another account's mail says "Due now, waiting for GMail Main's mail to
+  finish". The one word that used to cover five of these - "Waiting" - is gone from this view.
+- **What is searchable:** a mail row also says how many of that account's messages are in the index and how many
+  passages still wait for the meaning model. The table refreshes every few seconds and while a sync runs.
+- **A run the app never finished** is shown as Stopped, not Running, and says it carries on at the next run.
+- **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
+  rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
+
 ### Gmail: deleted contacts now leave Google (2026-10-12)
 
 - **Fixed:** four contacts deleted in Leasha stayed in Gmail, and every sync logged "gave up ... it keeps changing".

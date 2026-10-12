@@ -613,6 +613,77 @@ class AccountService:
                     self._release(claimed)
         return outcomes
 
+    # ---------------------------------------------------------------- activity
+    def activity_snapshot(self, now: Optional[datetime] = None) -> list[dict]:
+        """One plain dict for each account and kind (contacts, mail): everything `presenter.account_activity.describe`
+        needs to say what that line of the account is doing - live or not, how its last run ended, what it waits
+        for, when it runs next, how far a mail fetch has got and what of it is searchable. Reads only; cheap enough
+        to ask every few seconds (a worker's job)."""
+        now = now or datetime.fromtimestamp(self._clock())
+        ts = now.timestamp()
+        s = self.settings()
+        hold = self.hold_reason(now, s)
+        accounts = self.accounts.list()
+        live = {(a.id, k): self.is_running(a.id, k) for a in accounts for k in KINDS}
+        out: list[dict] = []
+        waiting_meaning = self._meaning_waiting() if any(a.mail_on for a in accounts) else None
+        for a in accounts:
+            for kind in KINDS:
+                enabled = (kind == "contacts" and a.syncs_contacts) or (kind == "mail" and a.mail_on)
+                snap: dict = {"account_id": a.id, "name": a.name or a.address, "kind": kind, "enabled": bool(enabled),
+                              "live": live[(a.id, kind)], "hold": hold if enabled else None,
+                              "signin_expired": a.last_error_code == "ERR_ACCOUNT_SIGNIN_EXPIRED"}
+                out.append(snap)
+                if not enabled:
+                    continue
+                policy = self.policy_for(a, kind, s)
+                st = self.accounts.state(a.id, kind)
+                nxt = pol.next_attempt_at(policy, self._state(a, kind), now)
+                run = next((r for r in self.accounts.runs(account_id=a.id, kind=kind, limit=4) if not r.dry_run), None)
+                status = run.status if run else ""
+                if status == "running" and not snap["live"]:
+                    status = "interrupted"                 # a run the last session never finished
+                snap.update(
+                    mode=policy.mode, next=nxt.timestamp() if nxt else None, last_success=st.last_success_at,
+                    failures=st.failures,
+                    run=({"status": status, "added": run.added, "changed": run.changed, "deleted": run.deleted,
+                          "error_text": run.error_text or "", "finished_at": run.finished_at,
+                          "started_at": run.started_at} if run else None))
+                if kind == "mail":
+                    others = [o for o in accounts if o.id != a.id and live[(o.id, "mail")]]
+                    if others and not snap["live"]:
+                        snap["queued_behind"] = f"{others[0].name or others[0].address}'s mail"
+                    snap["paused_by_person"] = bool((st.extra or {}).get("paused"))
+                    prog = getattr(self.mail_sync, "progress", None)
+                    if callable(prog):
+                        try:
+                            p = prog(a.id)
+                            snap["mail"] = {"fetched": p.fetched, "total": p.total, "rate_per_s": p.rate_per_s,
+                                            "eta_s": p.eta_s, "state": p.state}
+                        except Exception:                  # noqa: BLE001 - a label; never stops the window
+                            pass
+                    try:
+                        snap["messages"] = int(self.store.conn.execute(
+                            "SELECT COUNT(*) FROM messages WHERE account_id = ?", (a.id,)).fetchone()[0])
+                    except Exception:                      # noqa: BLE001
+                        snap["messages"] = None
+                    snap["meaning_waiting"] = waiting_meaning
+        return out
+
+    def _meaning_waiting(self) -> Optional[int]:
+        """Passages still waiting for the meaning model - read from the partial index that holds only them, and
+        kept for a minute so a window asking every few seconds does not read it every time."""
+        cached = getattr(self, "_meaning_cache", None)
+        now = time.monotonic()
+        if cached is not None and now - cached[0] < 60:
+            return cached[1]
+        try:
+            n = int(self.store.conn.execute("SELECT COUNT(*) FROM chunks WHERE embedded = 0").fetchone()[0])
+        except Exception:                                  # noqa: BLE001
+            n = None
+        self._meaning_cache = (now, n)
+        return n
+
     # ------------------------------------------------------------------- status
     def status(self, now: Optional[datetime] = None) -> list[AccountStatus]:
         """One row per account for Settings > Accounts, the tray and `accounts status` (10o)."""

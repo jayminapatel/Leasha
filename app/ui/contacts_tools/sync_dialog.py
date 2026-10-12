@@ -19,13 +19,14 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import (
     QHeaderView, QLabel, QProgressBar, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QWidget,
 )
 
 from app.ui.contacts_tools._common import ToolDialog, btn, make_table, named
 from app.ui.presenter import sync_status as words
+from app.ui.widgets.activity_table import ActivityTable
 
 __all__ = ["SyncDialog", "open_sync_window"]
 
@@ -65,7 +66,18 @@ class SyncDialog(ToolDialog):
         self.problems.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.problems.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.problem_title = QLabel("")
+        # What every account's contacts AND mail are doing - the table people read. The one above it keeps the
+        # contact run's own live numbers (and is what the tests and the run's events feed); it is not shown.
+        self.activity = ActivityTable(self)
+        self.activity_title = QLabel("<b>What each account is doing</b> - contacts and mail, refreshed every few seconds")
+        self.activity_title.setAccessibleName("What each account is doing")
+        self._snaps: list = []
+        self._live: dict[int, dict] = {}
+        self._asking = False
+        self.table.setVisible(False)
         self.body.addWidget(self.summary)
+        self.body.addWidget(self.activity_title)
+        self.body.addWidget(self.activity, 2)
         self.body.addWidget(self.table)
         self.body.addWidget(self.problem_title)
         self.body.addWidget(self.problems, 1)
@@ -86,6 +98,28 @@ class SyncDialog(ToolDialog):
             self._running = bool(self.scheduler.busy)
         self._show_buttons()
         self.reload()
+        self._poll = QTimer(self)                          # a child of the window: it stops when the window goes
+        self._poll.setInterval(4000)
+        self._poll.timeout.connect(self._ask_activity)
+        self._poll.start()
+        self._ask_activity()
+
+    # -- what every account is doing ------------------------------------------------------------------
+
+    def _ask_activity(self) -> None:
+        read = getattr(getattr(self.ctx, "service", None), "activity_overview", None)
+        if not callable(read) or self._asking:
+            return
+        self._asking = True
+        self.job(read, self._activity_ready, on_fail=lambda _e: setattr(self, "_asking", False))
+
+    def _activity_ready(self, snaps: list) -> None:
+        self._asking = False
+        self._snaps = list(snaps or [])
+        self._draw_activity()
+
+    def _draw_activity(self) -> None:
+        self.activity.set_snapshots(self._snaps, time.time(), self._live)
 
     # -- what the accounts last said ----------------------------------------------------------------
 
@@ -135,6 +169,7 @@ class SyncDialog(ToolDialog):
 
     def _progress(self, e: dict) -> None:
         aid = int(e.get("account_id") or 0)
+        self._live[aid] = dict(e)
         row = self._row(aid, str(e.get("account", "")))
         self._started.setdefault(aid, time.monotonic())
         elapsed = time.monotonic() - self._started[aid]
@@ -156,10 +191,14 @@ class SyncDialog(ToolDialog):
             self._problem(str(e.get("account", "")), str(name), str(why))
         self._running = phase != "done" or self._running
         self._summarise()
+        if self._snaps:
+            self._draw_activity()
 
     def _finished_run(self, outcomes: Any) -> None:
         self._running = self._stopping = False
         self._started.clear()
+        self._live.clear()
+        self._ask_activity()
         for out in outcomes or []:
             row = self._row(int(out.account_id), str(out.account_name))
             err = getattr(getattr(out, "error", None), "message", "") or ""
