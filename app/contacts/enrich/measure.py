@@ -152,7 +152,9 @@ def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, c
     times: list[float] = []
     setting = bool(getattr(settings, "enrich_read_originals", False))
     originals = setting if read_originals is None else bool(read_originals)
-    with _timed_rereads(times) if originals else contextlib.nullcontext():
+    from app.extract.pst_attachment import kept_open  # noqa: PLC0415 - archives opened once for the run
+
+    with _timed_rereads(times) if originals else contextlib.nullcontext(), kept_open():
         fun = _measure(store, hub, settings, months=months, clock=clock, keep_samples=keep_samples,
                        owner_emails=owner_emails, originals=originals)
     fun.read_originals = originals

@@ -307,14 +307,17 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
     ids = list(dict.fromkeys(int(c) for c in contact_ids))
-    for done, cid in enumerate(ids):
-        if cancelled is not None and cancelled():
-            break
-        out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force, sources=wanted,
-                              notes=notes, owner_emails=owner_emails, _net=net, _wiki=wiki, _skipped=skipped,
-                              _owner=owner)
-        if on_progress is not None:
-            on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
+    from app.extract.pst_attachment import kept_open  # noqa: PLC0415 - each archive opened once a run
+
+    with kept_open():
+        for done, cid in enumerate(ids):
+            if cancelled is not None and cancelled():
+                break
+            out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force,
+                                  sources=wanted, notes=notes, owner_emails=owner_emails, _net=net, _wiki=wiki,
+                                  _skipped=skipped, _owner=owner)
+            if on_progress is not None:
+                on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     out = drop_declined(hub.store, out, region=hub.region)        # order 1s D5: never offered again
     if notes is not None:
         notes.extend(skipped_notes(skipped, repeat_days(settings)))
