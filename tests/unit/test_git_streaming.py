@@ -17,6 +17,7 @@ at the other end of the pipe is invented.
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -529,6 +530,9 @@ def repo(tmp_path_factory):
             ["git", "-c", "user.name=Ada", "-c", "user.email=ada@example.com",
              "-c", "commit.gpgsign=false", "-c", "core.autocrlf=false", *args],
             cwd=folder, capture_output=True, text=True, check=True,
+            # Workspace author overrides must not change this synthetic history.
+            env={k: v for k, v in os.environ.items()
+                 if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_"))},
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
         return done.stdout.strip()
 

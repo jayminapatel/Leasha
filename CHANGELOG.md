@@ -27,6 +27,16 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reconnect works on Apple, IMAP and CardDAV accounts.** They have no browser sign-in, so it failed with "enter the new
   app password instead"; it now asks for the new app password, saves it in Credential Manager and tests it.
 
+### Review fixes taken from CodeRabbit's patch (2026-10-12)
+
+- **Tidy** saves the undo record before it moves a file, so a crash between the move and the record can no longer lose
+  the way back; a kept copy's presence is checked again before every removal. Put back copes with a record saved
+  just before a move that never happened.
+- **Files inside archives** keep their full relative name (nested archives included), not what follows the first slash.
+- **Moving the index** now carries `extractors.toml` (Settings > File types) and `backups` with it.
+- Not taken, for the owner to decide one by one: Graph's mandatory ETag and failing on a refused property, deleting mail
+  a full refresh did not list, copy-first index moves, pinned web connections.
+
 ### Smarter answers: an answer in Search, a card for every document, your own words (2026-10-12, order 1r)
 
 - **Ask a question in the Search box** and a short answer from your files appears above the results, every sentence

@@ -227,6 +227,7 @@ COVERED = {
     "widgets/chat_box.py": "window",
     "widgets/converter_box.py": "window",
     "widgets/search_box.py": "window",
+    "widgets/search_behaviour_box.py": "window",  # FILE_KINDS_SHOWN, fitted by the window
     "widgets/model_box.py": "window",
     "widgets/file_types.py": "dialog",
     "widgets/index_flows.py": "dialog",

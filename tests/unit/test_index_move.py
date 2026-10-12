@@ -289,3 +289,16 @@ def test_index_subdirs_match_config() -> None:
     from app.core.config import _INDEX_SUBDIRS
 
     assert set(INDEX_SUBDIRS) == set(_INDEX_SUBDIRS)
+
+
+def test_a_move_carries_the_file_types_file_and_the_backups(index, env_file, tmp_path):
+    """Reviewed 2026-10-12 (CodeRabbit): `extractors.toml` and `backups` sit beside the five directories and a move
+    left them behind, so Settings > File types stopped reaching the index."""
+    (index / "extractors.toml").write_text("[x]\n", encoding="utf-8")
+    (index / "backups").mkdir()
+    (index / "backups" / "a.bak").write_text("b", encoding="utf-8")
+    destination = tmp_path / "Leasha" / "Data"
+    perform_move(index, destination, MOVE, env_file)
+    assert (destination / "extractors.toml").read_text(encoding="utf-8") == "[x]\n"
+    assert (destination / "backups" / "a.bak").exists()
+    assert not (index / "extractors.toml").exists()
