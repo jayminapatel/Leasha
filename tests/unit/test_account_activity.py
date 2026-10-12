@@ -264,3 +264,23 @@ def test_a_microsoft_account_added_before_its_address_was_read_is_named_by_its_n
         assert len(asked) == 1                                       # named: nothing more is asked
     finally:
         store.close()
+
+
+def test_a_folder_the_scanner_still_holds_does_not_cost_the_message(monkeypatch):
+    """"[WinError 32] ... being used by another process" came out of the temp folder's cleanup after an attachment was
+    read, and dropped the whole message (32 on the owner's MS Main, 2026-10-12): the cleanup must be allowed to fail."""
+    import tempfile
+
+    from app.accounts import mail_index
+
+    asked = {}
+    real = tempfile.TemporaryDirectory
+
+    def spy(*a, **k):
+        asked.update(k)
+        return real(*a, **k)
+
+    monkeypatch.setattr(tempfile, "TemporaryDirectory", spy)
+    rules = type("R", (), {"name_only_document": staticmethod(lambda *a, **k: "by-name")})()
+    mail_index.MailIndexer._read_attachment("a.txt", b"hello", "msg", "digest", lambda path: [], lambda *a: "k", rules)
+    assert asked.get("ignore_cleanup_errors") is True

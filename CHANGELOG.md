@@ -56,6 +56,21 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### Microsoft mail: messages no longer lost to a locked temp folder, and a dropped connection is tried again (2026-10-12)
+
+- **Fixed: "could not read message ... of MS Main: [WinError 32] The process cannot access the file because it is being
+  used by another process".** While an attachment was read, Leasha put it in a temporary folder; on Windows the folder
+  could not be removed while the virus scanner (or a reader) still held the file, and that error, raised after the
+  attachment had been read, cost the whole message - 32 messages on this account. The cleanup is now allowed to fail
+  (the leftover folder in Temp is harmless); the message is kept.
+- **Fixed: the first fetch was ended by one lost connection.** MS Main's mail runs ended "connection forcibly closed" and
+  "read operation timed out". A read that loses its connection - and only a read, never a write - is now tried again
+  twice (1 s, 2 s) before it counts as a failure. Being offline, an unknown server name or a refused port still fail at once.
+- **Not changed:** a first fetch of mail still gives way to a contact sync that is due ("paused: a contact sync is
+  due") and carries on from where it stopped; that is the order of things, not a failure.
+- **To bring back the 32:** press *Remove fetched mail* on the account and sync again (see the account's settings); the
+  messages dropped earlier were not recorded anywhere.
+
 ### A Microsoft account is named by its address (2026-10-12)
 
 - **Fixed:** the Accounts list showed "pending-1791709065" as the Microsoft account's address. Sign-in does not carry

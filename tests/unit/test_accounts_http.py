@@ -333,3 +333,36 @@ def test_backoff_minutes_doubles_caps_at_the_interval_and_resets():
     assert backoff_minutes(0, 60) == 0                         # reset by a success
     assert backoff_minutes(10_000, 30) == 30                   # no overflow
     assert backoff_minutes(3, 0) == 4                          # manual: bounded by a default cap, not unbounded
+
+
+def test_a_lost_connection_on_a_read_is_tried_again_but_never_on_a_write():
+    """Microsoft's first mail fetch was ended by one "connection forcibly closed" (the owner's account, 2026-10-12)."""
+    from app.core.errors import AppErrorException, make_error
+    from app.accounts.http import HttpResponse, RetryingTransport
+
+    class Flaky:
+        def __init__(self, fails):
+            self.fails, self.calls = fails, 0
+
+        def request(self, method, url, **_k):
+            self.calls += 1
+            if self.calls <= self.fails:
+                raise AppErrorException(make_error("ERR_ACCOUNT_UNREACHABLE", "t", account="a", reason="[WinError 10054] An existing connection was forcibly closed by the remote host"))
+            return HttpResponse(200, {}, b"ok")
+
+    slept = []
+    read = Flaky(2)
+    assert RetryingTransport(read, sleep=slept.append).request("GET", "https://x/").status == 200
+    assert read.calls == 3 and slept == [1.0, 2.0]
+    gone = Flaky(5)
+    try:
+        RetryingTransport(gone, sleep=lambda s: None).request("GET", "https://x/")
+        raise AssertionError("should have given up")
+    except AppErrorException as exc:
+        assert exc.error.code == "ERR_ACCOUNT_UNREACHABLE" and gone.calls == 3
+    write = Flaky(1)
+    try:
+        RetryingTransport(write, sleep=lambda s: None).request("PATCH", "https://x/", body=b"{}")
+        raise AssertionError("a write must not be repeated")
+    except AppErrorException:
+        assert write.calls == 1
