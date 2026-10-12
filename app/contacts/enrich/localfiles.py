@@ -42,11 +42,16 @@ a convenience, and one stale row must not cost the person every other suggestion
 **Parsed once, not once a contact.** `enrich_selection` asks each source about one contact at a time;
 re-reading 146 vCards for each of 1,445 contacts would be 200,000 file reads. `cached` keeps what
 each file parsed to, keyed by its path, size and modified time - a file that changed is parsed again,
-one that did not is never re-read.
+one that did not is never re-read. **Listed once a run, too** (`indexed_files`): finding the files is
+two queries, one a join over every attachment row (0.47 s for the 966 invitations on the owner's index,
+measured 2026-10-13), and asked once a contact it made the local sources cost 1.08 s a contact against
+order 1s 9c's 0.15. A listing is kept for `LIST_SECONDS`, so a run asks once and a file indexed since is
+seen by the next run; a file row added since (a higher `files.id`) lists again at once.
 """
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import SimpleNamespace
@@ -57,7 +62,7 @@ from app.core.logging import logger
 from app.core.row_facts import ATTACHMENT_MARKER, MAIL_SOURCE_KINDS
 
 __all__ = ["LocalFile", "indexed_files", "read_bytes", "cached", "MAX_FILE_BYTES", "clear_cache", "indexed_text",
-           "READ_STATUSES"]
+           "READ_STATUSES", "LIST_SECONDS"]
 
 _log = logger.bind(component="contacts.enrich.files")
 
@@ -67,6 +72,9 @@ _log = logger.bind(component="contacts.enrich.files")
 MAX_FILE_BYTES = 16 * 1024 * 1024
 
 T = TypeVar("T")
+
+#: How long a listing of the indexed files is reused (see the module docstring): a whole run, not a day.
+LIST_SECONDS = 120.0
 
 #: A row whose text the index holds (see the module docstring): PARTIAL only lacks its vectors.
 READ_STATUSES = ("INDEXED", "PARTIAL")
@@ -95,11 +103,28 @@ class LocalFile:
         return f"{(self.subject or '(no subject)')[:80]} - {format_day(self.mtime)} (attached {name})"
 
 
+_LISTED: dict[tuple[int, int, tuple[str, ...], Optional[int]], tuple[float, list[LocalFile]]] = {}
+
+
 def indexed_files(store: Any, exts: Sequence[str], *, since: Optional[int] = None) -> list[LocalFile]:
     """The indexed files with one of `exts` ("vcf", no dot), newest first.
 
     `since` is the age window (order 1s D1) applied to the file's modified date: a file last changed
-    before it is not read at all."""
+    before it is not read at all. The same listing is returned for `LIST_SECONDS` (module docstring)."""
+    try:
+        newest = int(store.conn.execute("SELECT COALESCE(MAX(id), 0) FROM files").fetchone()[0])
+    except Exception:                                    # noqa: BLE001 - no files table: nothing to list
+        newest = -1
+    key = (id(store), newest, tuple(sorted(e.lower().lstrip(".") for e in exts)), since)
+    hit = _LISTED.get(key)
+    if hit is not None and time.monotonic() - hit[0] < LIST_SECONDS:
+        return list(hit[1])
+    out = _list_files(store, exts, since)
+    _LISTED[key] = (time.monotonic(), out)
+    return list(out)
+
+
+def _list_files(store: Any, exts: Sequence[str], since: Optional[int]) -> list[LocalFile]:
     wanted = tuple(e.lower().lstrip(".") for e in exts)
     if not wanted:
         return []
@@ -258,3 +283,4 @@ def cached(kind: str, f: LocalFile, parse: Callable[[bytes], T]) -> Optional[T]:
 
 def clear_cache() -> None:
     _CACHE.clear()
+    _LISTED.clear()

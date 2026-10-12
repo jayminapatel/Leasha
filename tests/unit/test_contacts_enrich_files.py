@@ -469,3 +469,20 @@ def test_an_attachments_card_of_someone_else_is_still_not_used_by_phone(hub):
     person(hub, "Avery", "Quill", email="avery.quill@northwind.example")
     shared_line = person(hub, "Front", "Desk", phone="+44 7700 900123")
     assert enrich_selection(hub, AccountSettings(**ANY_AGE), [shared_line], sources=["vcard"]) == []
+
+
+def test_the_files_are_listed_once_a_run_not_once_a_contact(hub, tmp_path, monkeypatch):
+    """9c (2026-10-13): listing the vCards and invitations for every contact cost the owner's index 1.08 s a
+    contact. The listing is reused within a run, and a file indexed since is listed again at once."""
+    put(hub, tmp_path / "avery.vcf", CARD)
+    calls = []
+    real = localfiles._list_files
+    monkeypatch.setattr(localfiles, "_list_files", lambda *a: calls.append(a) or real(*a))
+    for _ in range(5):
+        assert len(localfiles.indexed_files(hub.store, vcards.EXTS)) == 1
+    assert len(calls) == 1
+    put(hub, tmp_path / "other.vcf", CARD.replace("Avery", "Blake"))
+    assert len(localfiles.indexed_files(hub.store, vcards.EXTS)) == 2 and len(calls) == 2
+    monkeypatch.setattr(localfiles, "LIST_SECONDS", 0.0)
+    localfiles.indexed_files(hub.store, vcards.EXTS)
+    assert len(calls) == 3
