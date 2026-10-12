@@ -386,7 +386,7 @@ def settled(window, timeout: float = 30.0) -> None:
             status = by_id(window, "searchStatus", "Text", timeout=2).element_info.name or ""
         except LookupError:
             status = ""
-        if "still searching" not in status:
+        if "still searching" not in status.lower():          # "Still searching…" since UI phase B
             time.sleep(1.5)
             return
         time.sleep(0.4)

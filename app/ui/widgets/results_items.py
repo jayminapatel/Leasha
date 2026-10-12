@@ -33,7 +33,7 @@ from app.ui.presenter import (
     Terminator, accessible_text, explain_switch_on, offline_volume_note,
     result_tooltip, why,
 )
-from app.ui.result_delegate import ROLE_EXPANDED, ROLE_PAYLOAD
+from app.ui.result_delegate import ROLE_EXPANDED, ROLE_MISSING, ROLE_PAYLOAD
 from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
 from app.ui.widgets.why_dialog import show_why
 
@@ -52,6 +52,8 @@ def result_item(payload: Any, *, expanded: bool, missing: set, volumes: dict,
     item.setData(payload, ROLE_PAYLOAD)
     item.setData(expanded, ROLE_EXPANDED)
     path = str(getattr(payload, "path", "") or "")
+    # UI phase B: the delegate paints the missing mark on the row itself.
+    item.setData(path in missing, ROLE_MISSING)
     note = offline_volume_note(volumes.get(int(getattr(payload, "file_id", 0) or 0)))
     tip = result_tooltip(payload, missing=path in missing, volume_note=note,
                          placeholder=(not note) and path in placeholders)

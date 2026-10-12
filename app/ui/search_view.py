@@ -338,7 +338,7 @@ class SearchView(QWidget):
             interpret_enabled=self.interpret_button.isVisible())
         self.notices.show_notices(notices)
         self._shown_anything = self._shown_anything or bool(response.results)
-        self.status.setText(status)
+        self.status.counted(response, status)          # UI phase B: timing in its tooltip
         # 2026-10-08: both once per search - from the finished answer, not the
         # early one drawn before the reranker had ordered the rows.
         if not early:

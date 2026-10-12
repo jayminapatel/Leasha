@@ -340,7 +340,8 @@ class ParsedQuery:
     #: query through fusion, the cache key and the usage log rather than being
     #: a second argument every layer has to remember to pass on.
     scope: str = "all"
-    #: `"newest"`, `"oldest"`, or `""` for relevance order.
+    #: `"newest"`, `"oldest"`, `"name"` (A to Z by file name), or `""` for
+    #: relevance order.
     #:
     #: **The one finding in the search-quality work order that was a missing
     #: feature rather than a defect.** The complete filter set narrowed and
@@ -960,7 +961,12 @@ def parse_query(raw: str, *, today: Optional[date] = None) -> ParsedQuery:
             typed = match.group("field").lower()
             wanted = "oldest" if typed == "oldest" else (
                 "oldest" if val.lower() in ("oldest", "asc", "old") else "newest")
-            if typed in ("newest", "latest", "oldest") or val.lower() in (
+            if typed == "sort" and val.lower() == "name":
+                # UI phase B (2026-10-13): the Sort control's fourth choice, A to Z
+                # by file name. Here, in the one sort there is, rather than in
+                # the window - see `presenter.with_sort`.
+                sort_order = "name"
+            elif typed in ("newest", "latest", "oldest") or val.lower() in (
                     "date", "newest", "latest", "oldest", "asc", "desc", "recent"):
                 sort_order = wanted
             else:

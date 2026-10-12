@@ -284,6 +284,10 @@ def _run_search(engine, text: str):
     view.person_strip.typed(text)
     view.person_strip.person_timer.stop()
     view.person_strip.lookup_now()
+    # UI phase B: a card that lands after the rows is held until the rows change
+    # (`PersonStrip.rows_moved`), so the read is let land first, as the shorter
+    # pause makes it in the window. Unwaited, a loaded machine raced the two.
+    settle()
     started = time.perf_counter()
     view.search_now()
     settle()

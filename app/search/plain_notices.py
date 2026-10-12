@@ -54,7 +54,13 @@ PLAIN: dict[str, Any] = {
         "Nothing here contains " + _words(message) + ", so these match the "
         "rest of what you typed."
     ),
-    "NOTICE_SORTED": (
+    # 2026-10-13 (UI phase B): read off the message, because the fixed
+    # sentence said "newest first" under /oldest too, and Name is a third order.
+    "NOTICE_SORTED": lambda message: (
+        "These are in name order, A to Z - not best-match order."
+        if "by name" in message.lower() else
+        "These are in date order, oldest first - not best-match order."
+        if "oldest" in message.lower() else
         "These are in date order, newest first - not best-match order."
     ),
     "NOTICE_WILDCARD": lambda message: (

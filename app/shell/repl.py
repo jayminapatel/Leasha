@@ -96,7 +96,10 @@ def _health(last: Any) -> str:
     try:
         from app.ui.presenter import semantic_health
 
-        return str(semantic_health(last) or "")
+        said = str(semantic_health(last) or "")
+        # The window's sentence dropped the command (UI phase B, 2026-10-13); a
+        # shell is the one place it can be typed, so it is said here.
+        return f"{said} Check it with: app.cli stats" if said else ""
     except Exception:                            # noqa: BLE001 - a toolbar
         return ""
 

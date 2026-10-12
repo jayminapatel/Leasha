@@ -276,6 +276,11 @@ def build_results_pane(*, on_opened: Any, on_reveal: Any, on_reindex: Any, on_er
     from app.ui.widgets.preview import attach_preview
 
     results = ResultsView()
+    # The Search list's own starting point (UI phase B: mail folded with its
+    # attachments) until the window applies what was saved.
+    from app.ui.view_options import defaults_for
+
+    results.set_view_preferences(defaults_for("ui:results"))
     results.opened.connect(on_opened)
     results.reveal_requested.connect(on_reveal)
     results.reindex_requested.connect(on_reindex)

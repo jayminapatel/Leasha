@@ -726,11 +726,13 @@
     <Compile Include="app\ui\widgets\skeleton.py" />
     <Compile Include="app\ui\widgets\skip_row.py" />
     <Compile Include="app\ui\widgets\skips_panel.py" />
+    <Compile Include="app\ui\widgets\sort_button.py" />
     <Compile Include="app\ui\widgets\sortable_item.py" />
     <Compile Include="app\ui\widgets\space_table.py" />
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
     <Compile Include="app\ui\widgets\status_column.py" />
     <Compile Include="app\ui\widgets\status_funnel.py" />
+    <Compile Include="app\ui\widgets\status_line.py" />
     <Compile Include="app\ui\widgets\storage_box.py" />
     <Compile Include="app\ui\widgets\thumbnail_grid.py" />
     <Compile Include="app\ui\widgets\tidy_list_pane.py" />
@@ -1359,6 +1361,8 @@
     <Compile Include="tests\unit\test_startup_import_order.py" />
     <Compile Include="tests\unit\test_status_column.py" />
     <Compile Include="tests\unit\test_status_two_columns.py" />
+    <Compile Include="tests\unit\test_steady_search_qt.py" />
+    <Compile Include="tests\unit\test_steady_search_words.py" />
     <Compile Include="tests\unit\test_stop_finishes_the_batch.py" />
     <Compile Include="tests\unit\test_stop_mid_batch.py" />
     <Compile Include="tests\unit\test_stop_run_off_ui_thread.py" />

@@ -125,6 +125,8 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Add word": ("plus", "secondary"),
     # Order smarter-answers 3a: the Search page's answer card, on to Chat.
     "Continue in Chat": ("message-square", "secondary"),
+    # UI phase B (2026-10-13): the answer card's Hide, an icon on the card's corner.
+    "Hide answer": ("x", "secondary"),
     "Remove word": ("x", "secondary"),
     "Add all four": ("folder-plus", "secondary"),
     "Select all": ("list-checks", "secondary"),

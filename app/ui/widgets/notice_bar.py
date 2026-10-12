@@ -108,7 +108,26 @@ class NoticeBar(QWidget):
         # decides is whether to be visible, and that follows from the text.
         text = notice_line(items)
         self.label.setText(text)
+        # On one line (`retain_line`) the end of a long notice is cut off, so
+        # the whole of it is one hover away. Harmless where the bar wraps.
+        self.setToolTip(text)
         self.setVisible(bool(text))
+
+    def retain_line(self) -> None:
+        """One line, the same height shown or hidden - UI phase B, 2026-10-13.
+
+        For a bar that sits above a list somebody is reading: a notice arriving
+        after the rows were painted (a filter offer from its worker, the
+        finished tier's spelling note) used to grow the bar and push every row
+        down. Kept to one line and its height kept while hidden, it cannot.
+        """
+        self.label.setWordWrap(False)
+        self.label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        policy = self.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
 
     def _dismiss(self) -> None:
         """Hide, and say so - a view may stop re-showing the same notice."""
