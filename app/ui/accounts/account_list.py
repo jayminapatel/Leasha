@@ -20,7 +20,7 @@ from app.ui.later import later
 
 __all__ = ["AccountList", "COLUMNS"]
 
-COLUMNS = ("Account", "Type", "Address", "Status", "Last sync", "Next sync", "Notes")
+COLUMNS = ("Account", "Type", "Address", "Status", "Doing", "Last sync", "Next sync", "Notes")
 _ID = Qt.ItemDataRole.UserRole
 
 
@@ -70,7 +70,8 @@ class AccountList(QTreeWidget):
                 self.setCurrentItem(self.topLevelItem(i))
                 return
 
-    def set_rows(self, statuses: list[Any], colours: Optional[dict] = None) -> None:
+    def set_rows(self, statuses: list[Any], colours: Optional[dict] = None,
+                 doing: Optional[dict[int, str]] = None) -> None:
         from app.ui.widgets.icons import icon  # noqa: PLC0415
         from app.ui.theme import theme_colours  # noqa: PLC0415
 
@@ -82,17 +83,19 @@ class AccountList(QTreeWidget):
         self.clear()
         for st in statuses:
             v = logic.row_view(st)
-            item = QTreeWidgetItem([v.name, v.type_text, v.address, v.word, v.last, v.next, v.note])
+            line = (doing or {}).get(v.account_id, "")
+            item = QTreeWidgetItem([v.name, v.type_text, v.address, v.word, line, v.last, v.next, v.note])
+            item.setToolTip(4, line or "Open the Sync window for the detail")
             item.setData(0, _ID, v.account_id)
             item.setIcon(0, _swatch(v.colour))
             item.setIcon(1, icon(v.glyph, ink))
             item.setIcon(3, icon(v.word_icon, warn_ink if v.word in ("Needs sign-in", "Failed") else ink))
             if v.warn:
-                item.setIcon(6, icon("triangle-alert", warn_ink))
+                item.setIcon(7, icon("triangle-alert", warn_ink))
             chips = ", ".join(t for _g, t in logic.kind_chips(st.account))
             item.setToolTip(1, chips)
             item.setToolTip(3, v.note or v.word)
-            item.setToolTip(6, v.note)
+            item.setToolTip(7, v.note)
             item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsDropEnabled)
             self.addTopLevelItem(item)
         self.blockSignals(blocked)

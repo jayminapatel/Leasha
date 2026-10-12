@@ -72,31 +72,36 @@ class ActivityTable(QTableWidget):
             self.setRowCount(len(shown))
             self._rows = {k: i for i, k in enumerate(keys)}
         colours = theme_colours()
+        previous = None
         for row, a in enumerate(shown):
             ink = colours.get({"danger": "danger", "accent": "accent", "success": "success"}.get(
                 _TONE.get(a.state, ""), "text_dim"), colours.get("text_dim", "#888888"))
             status = QTableWidgetItem(icon(STATE_ICONS.get(a.state, "clock"), ink), a.word)
             status.setToolTip(a.headline)
-            self.setItem(row, 0, QTableWidgetItem(a.name))
+            # An account's two rows read as one: its name once, then blank under it.
+            first = QTableWidgetItem(a.name if a.account_id != previous else "")
+            first.setToolTip(a.name)
+            previous = a.account_id
+            self.setItem(row, 0, first)
             self.setItem(row, 1, QTableWidgetItem(a.what))
             self.setItem(row, 2, status)
             bar = self.cellWidget(row, 3)
-            if not isinstance(bar, QProgressBar):
-                bar = QProgressBar()
-                bar.setTextVisible(True)
-                bar.setAccessibleName("Progress")
-                self.setCellWidget(row, 3, bar)
-            if a.fraction is not None:
-                bar.setRange(0, 1000)
-                bar.setValue(int(a.fraction * 1000))
-                bar.setFormat(f"{int(a.fraction * 100)}%")
-            elif a.busy:
-                bar.setRange(0, 0)                               # work, no total: a moving bar
+            if a.fraction is None and not a.busy:
+                if bar is not None:
+                    self.removeCellWidget(row, 3)                # nothing is running: no bar to read
             else:
-                bar.setRange(0, 1)
-                bar.setValue(0)
-                bar.setFormat("")
-            bar.setToolTip(a.headline)
+                if not isinstance(bar, QProgressBar):
+                    bar = QProgressBar()
+                    bar.setTextVisible(True)
+                    bar.setAccessibleName("Progress")
+                    self.setCellWidget(row, 3, bar)
+                if a.fraction is not None:
+                    bar.setRange(0, 1000)
+                    bar.setValue(int(a.fraction * 1000))
+                    bar.setFormat(f"{int(a.fraction * 100)}%")
+                else:
+                    bar.setRange(0, 0)                           # work, no total: a moving bar
+                bar.setToolTip(a.headline)
             doing = QTableWidgetItem(a.headline)
             doing.setToolTip(a.headline)
             more = QTableWidgetItem(a.detail)

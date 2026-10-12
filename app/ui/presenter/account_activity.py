@@ -27,7 +27,8 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Mapping, Optional
 
-__all__ = ["Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS"]
+__all__ = ["Activity", "describe", "when_words", "ahead_words", "STATE_ICONS", "STATE_WORDS", "short_status",
+           "account_line", "overall_line"]
 
 STATE_WORDS = {
     "running": "Running", "queued": "Waiting its turn", "paused": "Paused", "failed": "Failed",
@@ -158,9 +159,11 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
         return done("paused", f"Held back: {snap['hold']}", tail)
     failures = int(snap.get("failures") or 0)
     if run and run.get("status") == "failed" or (failures and not last_ok):
-        why = _short((run or {}).get("error_text") or "the account refused the request")
+        text = " ".join(str((run or {}).get("error_text") or "the account refused the request").split())
+        what, _, fix = text.partition(" FIX:")
         again = f"; trying again {nxt}" if nxt and nxt != "due now" else ""
-        return done("failed", f"Failed: {why}", f"{last_line}{again}")
+        return done("failed", f"Failed: {_short(what)}",
+                    (f"What to do:{fix.rstrip('. ')}. " if fix.strip() else "") + f"{last_line}{again}")
     if run and run.get("status") in ("interrupted", "stopped"):
         why = "Stopped when the app closed" if run.get("status") == "interrupted" else "Stopped by you"
         return done("stopped", f"{why} - it carries on at the next run", tail)
@@ -180,6 +183,36 @@ def describe(snap: Mapping[str, Any], now: float) -> Activity:
     return done("idle", headline, tail + (f". {searchable}" if searchable else ""))
 
 
+def short_status(a: Activity) -> str:
+    """A few words for a list row: "up to date", "fetching 15%", "waiting its turn", "failed"."""
+    if a.state == "running":
+        return f"{a.word.lower()} {int(a.fraction * 100)}%" if a.fraction is not None else "running"
+    return a.word.lower()
+
+
+def account_line(acts: "list[Activity]") -> str:
+    """"Contacts: up to date - Mail: fetching 15%" for one account's rows."""
+    return " - ".join(f"{a.what}: {short_status(a)}" for a in acts)
+
+
+def overall_line(acts: "list[Activity]", snaps: "list[Mapping[str, Any]]") -> str:
+    """One sentence about everything: how many rows are in each state, and - once, not on every row - how much
+    of the index still waits for the meaning model."""
+    if not acts:
+        return "No account is set up to sync contacts or mail."
+    counts: dict[str, int] = {}
+    for a in acts:
+        counts[a.state] = counts.get(a.state, 0) + 1
+    order = ("running", "queued", "failed", "signin", "paused", "stopped", "never", "manual", "idle")
+    bits = [f"{counts[s]} {STATE_WORDS[s].lower()}" for s in order if counts.get(s)]
+    line = ", ".join(bits)
+    waiting = next((s.get("meaning_waiting") for s in snaps if s.get("meaning_waiting")), None)
+    if waiting:
+        line += (f". {int(waiting):,} passages are still waiting for the meaning model: fetched mail is searchable by "
+                 "its words at once, and the index run adds meaning as it goes.")
+    return line
+
+
 def _searchable(snap: Mapping[str, Any]) -> str:
     """For mail: what is in the index from this account, and what the meaning model still has to do."""
     if snap.get("kind") != "mail":
@@ -188,9 +221,6 @@ def _searchable(snap: Mapping[str, Any]) -> str:
     bits = []
     if n is not None:
         bits.append(f"{int(n):,} message{'s' if int(n) != 1 else ''} searchable by their words")
-    waiting = snap.get("meaning_waiting")
-    if waiting:
-        bits.append(f"{int(waiting):,} passages still waiting for meaning - the index run works through them")
     return "; ".join(bits)
 
 

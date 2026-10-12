@@ -56,6 +56,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - **Reset index** already clears every account's mail position, so the next mail sync fetches it all again and the
   rows show it from "Not run yet" (checked in `clear_index`; `test_reset_keeps_accounts_and_contacts.py`).
 
+### What each account is doing, second pass (2026-10-12)
+
+- **A "Doing" column on the Accounts list** ("Contacts: up to date - Mail: fetching 15%"), and the list now refreshes
+  every five seconds while the page is open, so a fetch or a failure is seen as it happens.
+- **A one-line summary under the Sync window's table** ("1 running, 1 waiting its turn, 1 failed, 1 up to date"),
+  which says once - not on every row - how much of the index still waits for the meaning model.
+- **Tidier rows:** the progress bar only where something is running; an account's name once for its two rows; what to
+  do about a failure in the details, not the headline.
+
 ### Gmail: deleted contacts now leave Google (2026-10-12)
 
 - **Fixed:** four contacts deleted in Leasha stayed in Gmail, and every sync logged "gave up ... it keeps changing".

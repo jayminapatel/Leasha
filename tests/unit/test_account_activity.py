@@ -52,7 +52,8 @@ def test_a_mail_fetch_shows_how_far_how_fast_and_how_long_is_left():
                                        "state": "fetching"}, messages=12300, meaning_waiting=50000), NOW)
     assert a.state == "running" and a.fraction == pytest.approx(0.15375)
     assert "12,300 of about 80,000 (15%)" in a.headline and "4 a second" in a.headline and "hours left" in a.headline
-    assert "12,300 messages searchable" in a.detail and "50,000 passages still waiting for meaning" in a.detail
+    assert "12,300 messages searchable" in a.detail
+    assert "50,000" not in a.detail                         # the meaning backlog is said once, under the table
 
 
 def test_a_mail_fetch_with_no_total_is_a_moving_bar_not_a_made_up_number():
@@ -138,3 +139,21 @@ def test_the_table_shows_a_row_for_each_enabled_kind_with_its_bar_and_words(qtbo
     qtbot.addWidget(one)
     assert one.isColumnHidden(0)
     assert len(one.set_snapshots(snaps, NOW, only=2, hide_off=False)) == 1
+
+
+def test_the_one_line_for_everything_says_how_many_in_each_state_and_the_backlog_once():
+    from app.ui.presenter.account_activity import account_line, overall_line
+
+    snaps = [snap(kind="contacts"), snap(live=True, mail={"fetched": 5, "total": 10}, meaning_waiting=5_400_000),
+             snap(account_id=2, name="W", kind="contacts", run={"status": "failed", "error_text": "no"}, failures=1)]
+    acts = [describe(x, NOW) for x in snaps]
+    line = overall_line(acts, snaps)
+    assert line.startswith("1 running, 1 failed, 1 up to date") and line.count("5,400,000") == 1
+    assert account_line(acts[:2]) == "Contacts: up to date - Mail: running 50%"
+    assert overall_line([], []) == "No account is set up to sync contacts or mail."
+
+
+def test_a_failure_puts_what_to_do_in_the_details_not_the_headline():
+    a = describe(snap(run={"status": "failed", "error_text": "MS Main refused the request (HTTP 500). FIX: Press Test connection."},
+                      failures=2), NOW)
+    assert a.headline == "Failed: MS Main refused the request (HTTP 500)." and "What to do: Press Test connection." in a.detail
