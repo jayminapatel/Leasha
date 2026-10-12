@@ -263,7 +263,12 @@ class VectorStore:
             )) from exc
 
         if self.table_name in self._list_tables():
-            self._table = self._db.open_table(self.table_name)
+            try:
+                self._table = self._db.open_table(self.table_name)
+            except Exception as exc:                # noqa: BLE001 - third-party raises broadly
+                if not self._set_aside_empty_dataset(exc):
+                    raise
+                return self                          # an empty store: the next add creates the table
             self._verify_dimension()
             # Corrected from the table on every open, so the running total can
             # never drift further than one session.
@@ -272,6 +277,33 @@ class VectorStore:
             # not the row count - see `_rows_in_index`.
             self._indexed_at_rows = self._rows_in_index()
         return self
+
+    def _set_aside_empty_dataset(self, exc: BaseException) -> bool:
+        """The table's folder is there but holds no version of it (`_versions` empty or missing): nothing in it can
+        be read, so it is renamed to `<table>.lance.broken-<time>` and the store carries on empty.
+
+        2026-10-12, the owner: the window opened with an error and Reset index failed with "Table 'chunks' exists
+        but could not be loaded ... `_versions` was not found", every read of the store raising the same error for
+        the rest of the session. Vectors are derived data, so an empty one is rebuilt from the passages; a folder
+        that has versions in it is never touched - that error is raised as it always was. Renamed, not deleted."""
+        folder = self.uri / f"{self.table_name}.lance"
+        versions = folder / "_versions"
+        try:
+            if not folder.is_dir() or (versions.is_dir() and any(versions.iterdir())):
+                return False
+            import time as _time
+
+            target = folder.with_name(f"{folder.name}.broken-{_time.strftime('%Y%m%d-%H%M%S')}")
+            folder.rename(target)
+        except OSError:
+            return False
+        _log.warning("the vector table '{}' had no readable version ({}); set aside as {} and starting empty - "
+                     "passages are given vectors again by the next index run",
+                     self.table_name, type(exc).__name__, target.name)
+        self._table = None
+        self._approx_rows = 0
+        self._indexed_at_rows = 0
+        return True
 
     def _rows_in_index(self) -> int:
         r"""Rows the table's vector index covers now; 0 when it has none.
