@@ -82,6 +82,7 @@
     <Folder Include="docs" />
     <Folder Include="docs\images" />
     <Folder Include="docs\mockups" />
+    <Folder Include="docs\reports" />
     <Folder Include="packaging" />
     <Folder Include="packaging\art" />
     <Folder Include="scripts" />
@@ -1730,6 +1731,7 @@
     <Content Include="docs\images\quick-search-box.png" />
     <Content Include="docs\images\search-dark.png" />
     <Content Include="docs\images\search-results.png" />
+    <Content Include="docs\reports\code_review_report.md" />
     <Content Include="install.ps1" />
     <Content Include="leasha.cmd" />
     <Content Include="packaging\art\small-100.png" />
