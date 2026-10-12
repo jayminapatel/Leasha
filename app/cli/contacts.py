@@ -208,7 +208,10 @@ def _measure(args: argparse.Namespace) -> int:
         hub = ContactHub(store, region=getattr(acct, "phone_region", "") or "GB")
         months = 0 if args.any_age else int(args.months if args.months is not None
                                               else getattr(acct, "enrich_max_months", 6))
-        fun = measure(store, hub, acct, months=months, keep_samples=bool(args.sample))
+        from app.contacts.enrich.run import owner_addresses  # noqa: PLC0415
+        # 3h: the owner's own details are never counted as anybody's proposal.
+        fun = measure(store, hub, acct, months=months, keep_samples=bool(args.sample),
+                      owner_emails=owner_addresses(AccountStore(store)))
     finally:
         store.close()
     if args.json:
@@ -221,7 +224,8 @@ def _measure(args: argparse.Namespace) -> int:
                          ("... where a signature block was found", fun.block_found),
                          ("... where something was read from the block", fun.read),
                          ("... with at least one proposal", fun.proposed),
-                         ("... read, but all of it is already on the card", fun.already_on_card)):
+                         ("... read, but all of it is already on the card", fun.already_on_card),
+                         ("No mail from them, a proposal from a quoted signature", fun.quoted_only)):
             print(f"  {label:<52} {n:>7,}")
         print("Per source (contacts):")
         for name, n in sorted(fun.sources.items()):

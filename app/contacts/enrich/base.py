@@ -69,6 +69,14 @@ class Proposal:
     #: Order 1s 2d: when the message (or file) the value came from was sent, Unix seconds; None when it
     #: is not from a dated source.
     when: Optional[int] = None
+    #: Order 1s 3j: how many messages agreed on this value, and when the first of them was sent.
+    seen: int = 1
+    first_seen: Optional[int] = None
+    #: 3j: older values that disagreed, in words ("was Senior Engineer until March 2026"). Shown, never offered.
+    history: str = ""
+    #: 3k: this replaces a value the card already holds (`old`). The review never ticks it by itself (D4),
+    #: whatever its confidence: a change a person did not look at is the one that does harm.
+    update: bool = False
 
     @property
     def is_scalar(self) -> bool:

@@ -1,100 +1,65 @@
-"""7a: read a person's newest email signature for phone, title, company, address, website.
+"""7a, rebuilt by order 1s section 3 and 4c: read a person's email signatures for their details.
 
 Layer: L7
 
-Order 1k section 7a. Local only: nothing here touches the network. The newest
-messages *from* the person (`messages.sender` matches one of the contact's
-emails) are read from the index, and the block under the sign-off is searched.
+Local only: nothing here touches the network. For one contact:
 
-**What the index holds.** When a message is indexed, `app.extract.quoting` cuts
-it at a `-- ` line, "Sent from my ..." and the confidentiality notices, so a
-signature written below one of those is not in `chunks` and cannot be read here.
-A signature under "Kind regards" (what Outlook writes) is. Reading the original
-message again would need the file; this module does not do that.
+1. **Their own messages** - `messages.sender` is exactly one of the card's
+   addresses (3i), newest first, inside the age window (D1), at most
+   `MAX_MESSAGES`; a message sent "on behalf of" somebody is skipped.
+2. **Messages that quote them** (4c, `quoted`): their signature in the quoted
+   chain of somebody else's reply, credited only through its own From line.
+3. Every message is read through `base.full_text` - the indexed body, then the tail
+   the index cut (4a) and, when the person switched it on, the original (4b) - and
+   only the sender's own part of it (`sigtail.own_part`), cleaned (3a).
+4. The owner's own addresses, numbers and signature lines are removed (3h, `owner`).
+5. The block is what repeats across their messages (3b), else what an anchor marks
+   (3c) - `sigblock`; each block is read by `sigparse.parse_block` (3d-3g).
+6. The values are agreed across messages, newest wins, older ones become history
+   (3j, `consensus`); a value that differs from the card's is offered as an update
+   only when the agreement is strong, and is never pre-ticked (3k).
 
-The rules are deliberately cautious - a wrong title offered is worse than none:
-
-* a phone number must parse as a real number (`phonenumbers`, via `app.contacts.phone`);
-* a title needs a title word (manager, director, engineer ...);
-* a company needs a legal suffix (Ltd, Inc, GmbH ...) or must agree with the
-  sender's own email domain;
-* an address needs a postcode or ZIP;
-* a website is any web address that is not a social site, a tracking link or an
-  email address's domain.
+The rules stay deliberately cautious (order 1s, "precision before reach"): a wrong
+title offered is worse than none.
 """
 
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
-from urllib.parse import urlsplit
+from dataclasses import dataclass, field
+from email.utils import parseaddr
+from typing import Any, Iterable, Optional, Sequence
 
 from app.contacts import phone as phones
 from app.contacts.card import Card
-from app.contacts.enrich.base import (Proposal, address_of, body_text, emails_of, format_day, mail_from)
+from app.contacts.enrich import base, quoted
+from app.contacts.enrich.base import Proposal, address_of, emails_of, format_day, mail_from
+from app.contacts.enrich.consensus import Agreed, Reading, agree
+from app.contacts.enrich.owner import NO_OWNER, OwnerDetails, learn_owner
+from app.contacts.enrich.sigblock import anchored_block, find_blocks, tail_lines
+from app.contacts.enrich.sigparse import (  # noqa: F401 - logo.py reads the list here
+    _SOCIAL_HOSTS,
+    Signature,
+    flat,
+    parse_block,
+)
+from app.contacts.enrich.sigtail import clean_tail, own_part
 
-__all__ = ["Signature", "find_block", "parse_block", "signature_proposals"]
+__all__ = ["Signature", "find_block", "parse_block", "signature_proposals", "read_signatures", "proposals_from",
+           "MAX_MESSAGES", "UPDATE_FROM", "Read"]
 
-#: How many of the newest messages are tried before giving up.
+#: How many of a person's newest messages in the window are read (3j). Enough for the consensus to see
+#: a signature repeat and a change; more would only slow a run (0.15 s a contact is the order's budget).
 MAX_MESSAGES = 20
-
-_SIGN_OFF = re.compile(
-    r"^\s*(?:(?:best|kind|warm|warmest|many|with)\s+)?(?:regards|wishes|thanks|thank you|cheers|sincerely|"
-    r"yours(?:\s+(?:sincerely|faithfully|truly))?|best|rgds|regds|cordially|respectfully|all the best|"
-    r"take care|many thanks|with thanks|thanks and regards|thanks & regards)\s*[,.!]?\s*$", re.I)
-_DELIMITER = re.compile(r"^--\s?$")
-
-_EMAIL = re.compile(r"[\w.+'-]+@[\w-]+(?:\.[\w-]+)+")
-_URL = re.compile(r"(?:https?://[^\s<>\"')]+|\bwww\.[^\s<>\"')]+)", re.I)
-_PHONE_LABEL = re.compile(r"^\s*(?P<label>tel(?:ephone)?|t|phone|ph|mobile|mob|m|cell|direct(?: line| dial)?|ddi|"
-                          r"d|office|o|work|w|fax|f)\s*[:.\-/]?\s*(?P<num>\+?[\d(][\d\s().\-]{5,}\d)\s*$", re.I)
-_PHONE_ONLY = re.compile(r"^\s*\+?[\d(][\d\s().\-]{6,}\d\s*$")
-_LABELLED_ANYWHERE = re.compile(
-    r"\b(?P<label>tel(?:ephone)?|phone|mobile|mob|cell|direct|ddi|office|fax|[tmdfowp])\s*[:.]\s*"
-    r"(?P<num>\+?[\d(][\d\s().\-]{5,}\d)", re.I)
-_UK_POSTCODE = re.compile(r"\b([A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2})\b")
-_US_ZIP = re.compile(r"\b([A-Z]{2})\s+(\d{5}(?:-\d{4})?)\b")
-_COMPANY_SUFFIX = re.compile(r"\b(?:ltd|limited|llc|llp|inc|incorporated|plc|gmbh|corp|corporation|ag|bv|nv|"
-                             r"sa|sarl|pty|co\.|company|group|holdings|partners|solutions|associates)\.?\s*$", re.I)
-_TITLE_WORDS = re.compile(
-    r"\b(?:director|manager|engineer|head|officer|ceo|cto|cfo|coo|cio|partner|consultant|analyst|associate|"
-    r"president|vice|vp|lead|specialist|administrator|assistant|executive|owner|founder|co-founder|developer|"
-    r"designer|architect|accountant|solicitor|lawyer|teacher|nurse|doctor|professor|supervisor|coordinator|"
-    r"secretary|principal|chair|chairman|technician|advisor|adviser|controller|recruiter|surveyor|"
-    r"representative|agent|buyer|planner|editor|producer|strategist|scientist|researcher|lecturer|"
-    r"practitioner|therapist|dentist|surgeon|manager|mgr|sr\.?|jr\.?)\b", re.I)
-_SOCIAL_HOSTS = ("linkedin.", "facebook.", "twitter.", "x.com", "instagram.", "youtube.", "youtu.be", "tiktok.",
-                 "wa.me", "t.me", "github.com")
-_TRACKING = ("safelinks.protection", "unsubscribe", "click.", "track.", "/redirect", "mailchi.mp", "list-manage")
-_ADDRESS_STOP = re.compile(r"[@]|^\s*(?:tel|t|m|mob|phone|fax|www|http|email|e)\b\s*[:.]", re.I)
+#: 3k: the confidence at which a value that differs from the card's is offered as an update. The same as
+#: "Tick automatically from" (D4) by default - a change needs agreement, not one message.
+UPDATE_FROM = 0.85
+_TAIL_KEEP = 200                                         # non-blank lines kept of a message before the tail is cut
 
 
-class Signature(dict):
-    """What was read from one message: `phone` (list of (label, number)), `title`,
-    `company`, `address` (dict of parts), `website`. Only keys that were found."""
-
-
-def find_block(body: str) -> list[str]:
-    """The lines under the sign-off (or under a `-- ` line), without blank edges.
-
-    Empty when the message has no recognisable sign-off. The block is the text
-    after the *last* sign-off in the final 25 lines, capped at 14 lines.
-    """
-    lines = [ln.rstrip() for ln in (body or "").splitlines()]
-    while lines and not lines[-1].strip():
-        lines.pop()
-    tail_start = max(0, len(lines) - 25)
-    start: Optional[int] = None
-    for i in range(len(lines) - 1, tail_start - 1, -1):
-        if _DELIMITER.match(lines[i]) or _SIGN_OFF.match(lines[i]):
-            start = i + 1
-            break
-    if start is None:
-        return []
-    block = [ln.strip() for ln in lines[start:start + 14]]
-    while block and not block[0]:
-        block.pop(0)
-    return block
+def find_block(body: str, name_tokens: Sequence[str] = (), emails: Sequence[str] = ()) -> list[str]:
+    """One message's block by its anchors alone (3c), after cleaning (3a). Kept for one-message callers."""
+    return list(anchored_block(tail_lines(clean_tail(own_part(body))), name_tokens=name_tokens, emails=emails))
 
 
 def _name_tokens(card: Card, sender_name: str = "") -> list[str]:
@@ -108,211 +73,184 @@ def _name_tokens(card: Card, sender_name: str = "") -> list[str]:
     return toks
 
 
-def _clean_phone(raw: str, region: str) -> str:
-    text = re.sub(r"\s+", " ", raw).strip(" .-")
-    return text if phones.normalise(text, region) else ""
+def _display(sender: str) -> str:
+    return parseaddr(sender or "")[0]
 
 
-def _domain_label(email: str) -> str:
-    """`jane@mail.acme-widgets.co.uk` -> `acmewidgets`: letters only, for comparing names."""
-    dom = email.rsplit("@", 1)[-1].lower()
-    labels = [x for x in dom.split(".") if x]
-    sld = {"co", "com", "org", "net", "ac", "gov", "edu", "ltd", "plc"}
-    if len(labels) >= 3 and labels[-2] in sld:
-        base = labels[-3]
-    elif len(labels) >= 2:
-        base = labels[-2]
-    else:
-        base = dom
-    return re.sub(r"[^a-z0-9]", "", base)
+def _on_behalf(sender: str) -> bool:
+    """3i. Only the display name can say it: the index keeps one `sender` per message (no Sender: header),
+    and Outlook writes "Bob Ray on behalf of Ann Lee" there."""
+    return " on behalf of " in f" {_display(sender).lower()} "
 
 
-def parse_block(block: list[str], *, name_tokens: list[str], sender_email: str = "",
-                region: str = phones.DEFAULT_REGION) -> Signature:
-    """Read one signature block. Pure: text in, a `Signature` out."""
-    sig = Signature()
-    if not block:
-        return sig
-    used: set[int] = set()
-
-    # name line: the first line holding a token of the person's name
-    name_at: Optional[int] = None
-    for i, ln in enumerate(block[:6]):
-        low = ln.lower()
-        if name_tokens and any(re.search(rf"\b{re.escape(t)}\b", low) for t in name_tokens) \
-                and "@" not in ln and not _PHONE_ONLY.match(ln):
-            name_at = i
-            used.add(i)
-            break
-    if name_at is not None:
-        sig["name_matched"] = "1"
-
-    # phones
-    found: list[tuple[str, str]] = []
-    for i, ln in enumerate(block):
-        m = _PHONE_LABEL.match(ln)
-        if m:
-            label = m.group("label").lower()
-            num = _clean_phone(m.group("num"), region)
-            if num and label not in ("f", "fax"):
-                found.append((_phone_label(label), num))
-                used.add(i)
-            elif label in ("f", "fax"):
-                used.add(i)
-            continue
-        if _PHONE_ONLY.match(ln):
-            num = _clean_phone(ln, region)
-            if num:
-                found.append(("work", num))
-                used.add(i)
-            continue
-        for m2 in _LABELLED_ANYWHERE.finditer(ln):       # "T: 020 ... | M: 07..."
-            label = m2.group("label").lower()
-            num = _clean_phone(m2.group("num"), region)
-            if num and label not in ("f", "fax"):
-                found.append((_phone_label(label), num))
-                used.add(i)
-    uniq: list[tuple[str, str]] = []
-    for label, num in found:
-        if all(phones.match_key(num, region) != phones.match_key(n, region) for _, n in uniq):
-            uniq.append((label, num))
-    if uniq:
-        sig["phone"] = uniq[:3]
-
-    # website: the first web address that is not social, tracking or part of an email address
-    for i, ln in enumerate(block):
-        scrubbed = _EMAIL.sub(" ", ln)
-        for m3 in _URL.finditer(scrubbed):
-            url = m3.group(0).rstrip(".,;:")
-            low = url.lower()
-            if any(s in low for s in _SOCIAL_HOSTS) or any(t in low for t in _TRACKING):
-                used.add(i)
-                continue
-            full = url if low.startswith("http") else "https://" + url
-            host = (urlsplit(full).hostname or "")
-            if "." in host:
-                sig.setdefault("website", full)
-                used.add(i)
-
-    # address: a line with a postcode / ZIP, and the street line(s) above it
-    for i, ln in enumerate(block):
-        if i in used or _ADDRESS_STOP.search(ln):
-            continue
-        pc = _UK_POSTCODE.search(ln.upper())
-        zp = _US_ZIP.search(ln)
-        if not (pc or zp):
-            continue
-        street_lines = []
-        j = i - 1
-        while j >= 0 and len(street_lines) < 2 and j not in used and block[j] and not _ADDRESS_STOP.search(block[j]) \
-                and not _TITLE_WORDS.search(block[j]) and not _COMPANY_SUFFIX.search(block[j]):
-            street_lines.insert(0, block[j])
-            j -= 1
-        data: dict[str, str] = {}
-        if pc:
-            data["postcode"] = re.sub(r"\s+", " ", pc.group(1)).strip()
-            remainder = re.sub(_UK_POSTCODE.pattern, "", ln, flags=re.I)
-        else:
-            data["region"], data["postcode"] = zp.group(1), zp.group(2)
-            remainder = ln.replace(zp.group(0), "")
-        rest = [p.strip() for p in [*street_lines, *remainder.split(",")] if p.strip(" ,.")]
-        if rest:
-            data["street"] = ", ".join(rest[:-1]) if len(rest) >= 3 else rest[0]
-            if len(rest) >= 2:
-                data["city"] = rest[-1]
-        sig["address"] = data
-        sig["address_text"] = ", ".join([*rest, *( [data["postcode"]] if data.get("postcode") else [])])
-        used.update(range(j + 1, i + 1))
-        break
-
-    # title and company: the lines right after the name line (or at the top of the block)
-    first = (name_at + 1) if name_at is not None else 0
-    candidates = [(i, block[i]) for i in range(first, min(first + 4, len(block)))
-                  if block[i] and i not in used]
-    own = _domain_label(sender_email) if sender_email else ""
-    for i, ln in candidates:
-        if "@" in ln or _URL.search(ln) or len(ln) > 70 or len(ln.split()) > 9:
-            continue
-        if "title" not in sig and _TITLE_WORDS.search(ln) and not _COMPANY_SUFFIX.search(ln) and not any(c.isdigit() for c in ln):
-            sig["title"] = ln.strip(" ,|-")
-            continue
-        if "company" not in sig and not any(c.isdigit() for c in ln):
-            flat_ln = re.sub(r"[^a-z0-9]", "", ln.lower())
-            agrees = bool(own) and len(own) >= 3 and (own in flat_ln or (len(flat_ln) >= 4 and flat_ln in own))
-            if (_COMPANY_SUFFIX.search(ln) or agrees) and not _TITLE_WORDS.search(ln):
-                sig["company"] = ln.strip(" ,|-")
-    return sig
+def _lines(text: str, owner: OwnerDetails) -> list[str]:
+    lines = [ln.strip() for ln in clean_tail(own_part(text)).splitlines() if ln.strip()][-_TAIL_KEEP:]
+    return tail_lines("\n".join(owner.scrub(lines)))
 
 
-def _phone_label(label: str) -> str:
-    label = label.lower()
-    if label in ("m", "mob", "mobile", "cell"):
-        return "mobile"
-    return "work"
-
-
-def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION,
-                        rows: Optional[list] = None, since: Optional[int] = None) -> list[Proposal]:
-    """Proposals from the newest message of this person that has a readable signature.
-
-    `rows` are the person's messages when the caller has already read them (the measuring command,
-    `measure.py`, reads them once for its whole funnel); left out, they are read here, from `since`
-    (order 1s's age window) on."""
-    emails = emails_of(card)
-    if not emails:
-        return []
-    if rows is None:
-        rows = mail_from(store, emails, limit=MAX_MESSAGES, since=since)
-    tokens_card = _name_tokens(card)
-    parsed: list[tuple[Any, Signature]] = []
-    for row in rows:
-        sender_email = address_of(row.sender)
-        tokens = tokens_card or _name_tokens(card, _display(row.sender))
-        sig = parse_block(find_block(body_text(store, row.file_id)), name_tokens=tokens,
-                          sender_email=sender_email, region=region)
-        meaningful = {k for k in sig if k not in ("name_matched",)}
-        if meaningful:
-            parsed.append((row, sig))
-        if len(parsed) >= 3:
-            break
-    if not parsed:
-        return []
-    row, sig = parsed[0]
-    older = [s for _, s in parsed[1:]]
-    receipt = f"{(row.subject or '(no subject)')[:80]} - {format_day(row.sent_at)}".rstrip(" -")
-    base = 0.6 + (0.2 if sig.get("name_matched") else 0.0)
-
-    def conf(key: str, value: Any) -> float:
-        return round(min(0.95, base + (0.15 if any(o.get(key) == value for o in older) else 0.0)), 2)
-
-    out: list[Proposal] = []
-    have_phones = {phones.match_key(f.value, region) for f in card.values("phone")}
-    for label, num in sig.get("phone", []):
-        if phones.match_key(num, region) in have_phones:
-            continue
-        out.append(Proposal(cid, "phone", label, "", num, "signature", receipt,
-                            conf("phone", sig.get("phone")), when=row.sent_at))
-    for key in ("title", "company"):
-        new = sig.get(key)
-        if new and new.strip().casefold() != card.get(key).strip().casefold():
-            out.append(Proposal(cid, key, "", card.get(key), new, "signature", receipt,
-                                round(conf(key, new) - (0.1 if card.get(key) else 0.0), 2), when=row.sent_at))
-    site = sig.get("website")
-    if site:
-        norm = lambda u: re.sub(r"^https?://(www\.)?", "", u.lower()).rstrip("/")   # noqa: E731
-        if all(norm(f.value) != norm(site) for f in card.values("url")):
-            out.append(Proposal(cid, "url", "work", "", site, "signature", receipt, conf("website", site),
-                                when=row.sent_at))
-    addr = sig.get("address")
-    if addr:
-        text = sig["address_text"]
-        have = {re.sub(r"\W", "", (f.data.get("postcode") or "").lower()) for f in card.values("address")}
-        if re.sub(r"\W", "", addr.get("postcode", "").lower()) not in have:
-            out.append(Proposal(cid, "address", "work", "", text, "signature", receipt,
-                                round(base - 0.1, 2), data=dict(addr), when=row.sent_at))
+def _domain_companies(store: Any, cid: int, emails: Iterable[str]) -> set[str]:
+    """3f: companies already on other live contacts with an address at one of this person's domains."""
+    domains = {e.rsplit("@", 1)[-1] for e in emails if "@" in e}
+    out: set[str] = set()
+    for d in domains:
+        try:
+            for r in store.conn.execute(
+                    "SELECT DISTINCT c.company FROM contacts c JOIN contact_fields f ON f.contact_id = c.id "
+                    "WHERE f.kind = 'email' AND lower(f.value) LIKE ? AND c.id <> ? AND c.deleted_at IS NULL "
+                    "AND c.company <> ''", ("%@" + d, int(cid))):
+                out.add(r[0])
+        except Exception:                                # noqa: BLE001 - a store without the contact tables
+            return out
     return out
 
 
-def _display(sender: str) -> str:
-    from email.utils import parseaddr  # noqa: PLC0415
-    return parseaddr(sender or "")[0]
+@dataclass
+class Read:
+    """What was read for one contact: the direct messages, each one's block, and every reading."""
+
+    rows: list = field(default_factory=list)
+    blocks: list = field(default_factory=list)            # one `Block` per direct row
+    readings: list = field(default_factory=list)          # `consensus.Reading`, direct and quoted
+
+
+def read_signatures(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION,
+                    rows: Optional[list] = None, since: Optional[int] = None, owner: OwnerDetails = NO_OWNER,
+                    read_original: bool = False, include_quoted: bool = True) -> Read:
+    """Steps 1-5 of the module docstring for one contact. Reads only."""
+    emails = emails_of(card)
+    out = Read()
+    if not emails:
+        return out
+    if rows is None:
+        rows = mail_from(store, emails, limit=MAX_MESSAGES, since=since)
+    wanted = set(emails)
+    rows = [r for r in rows if address_of(r.sender) in wanted and not _on_behalf(r.sender)][:MAX_MESSAGES]
+    texts: list[tuple[Any, Optional[int], list[str], bool]] = []
+    for r in rows:
+        texts.append((r, r.sent_at, _lines(base.full_text(store, r.file_id, read_original=read_original), owner),
+                      False))
+    if include_quoted:
+        texts += _quoted_texts(store, wanted, rows, since, owner, read_original)
+    tokens = _name_tokens(card) or _name_tokens(card, next((_display(r.sender) for r in rows if _display(r.sender)), ""))
+    blocks = find_blocks([t[2] for t in texts], name_tokens=tokens, emails=emails)
+    companies = _domain_companies(store, cid, emails)
+    for (row, when, _, is_quoted), block in zip(texts, blocks, strict=True):
+        if not is_quoted:
+            out.blocks.append(block)
+        sender = address_of(row.sender) if not is_quoted else emails[0]
+        sig = parse_block(block, name_tokens=tokens, sender_email=sender, region=region, own_emails=emails,
+                          domain_companies=companies)
+        for addr in [*sig.get("emails", [])]:
+            if addr in owner.emails:
+                sig["emails"].remove(addr)
+        if owner.phones and sig.get("phone"):
+            sig["phone"] = [(lb, n) for lb, n in sig["phone"] if phones.match_key(n, region) not in owner.phones]
+        if any(k != "name_matched" and sig.get(k) for k in sig):
+            out.readings.append(Reading(row, when, sig, list(block), is_quoted))
+    out.rows = rows
+    return out
+
+
+#: A quoted Sent date carries no time zone (Outlook writes the reader's local time), so a quoted copy of a
+#: message the person sent directly can be up to this far from its indexed `sent_at`. Within it, the quoted
+#: copy is taken for the same message and not counted again - one message must not agree with itself (3j).
+_SAME_MESSAGE_S = 14 * 3600
+
+
+def _quoted_texts(store: Any, wanted: set[str], direct: Sequence[Any], since: Optional[int], owner: OwnerDetails,
+                  read_original: bool) -> list[tuple[Any, Optional[int], list[str], bool]]:
+    """4c: the person's quoted messages inside other people's mail, inside the window, each once."""
+    direct_times = [r.sent_at for r in direct if r.sent_at]
+    quoted_minutes: set[int] = set()
+    out = []
+    for row in quoted.mail_quoting(store, sorted(wanted), since=since):
+        text = base.full_text(store, row.file_id, read_original=read_original)
+        for q in quoted.quoted_messages(text[len(own_part(text)):]):
+            if q.address not in wanted:
+                continue                                   # credited only to its own From line
+            if since is not None and (q.sent_at is None or q.sent_at < since):
+                continue                                   # D1: the quoted message's own date decides
+            if q.sent_at:
+                if any(abs(q.sent_at - t) <= _SAME_MESSAGE_S for t in direct_times) \
+                        or q.sent_at // 60 in quoted_minutes:
+                    continue                               # read directly already, or quoted in another reply
+                quoted_minutes.add(q.sent_at // 60)
+            out.append((row, q.sent_at, _lines(q.text, owner), True))
+    return out
+
+
+def _receipt(a: Agreed) -> str:
+    row = a.reading.row
+    text = f"{(row.subject or '(no subject)')[:80]} - {format_day(row.sent_at)}".rstrip(" -")
+    if a.reading.quoted:
+        text += f" (quoted, sent {format_day(a.reading.when) or 'undated'})"
+    return text
+
+
+def proposals_from(cid: int, card: Card, readings: Sequence[Reading], *, region: str = phones.DEFAULT_REGION,
+                   update_from: float = UPDATE_FROM, blocks: Optional[dict] = None) -> list[Proposal]:
+    """Step 6: the agreed values as proposals - gaps, and (3k) strong changes to what the card holds.
+
+    `blocks`, when given, is filled with `id(proposal) -> the block its receipt was read from`, for the
+    measuring command's precision sample (order 1s 1b); a proposal itself does not carry it."""
+    out: list[Proposal] = []
+    for a in agree(readings, region):
+        p = _offer(cid, card, a, region, update_from)
+        if p is not None:
+            out.append(p)
+            if blocks is not None:
+                blocks[id(p)] = a.reading.block
+    return out
+
+
+def _norm_url(u: str) -> str:
+    return re.sub(r"^https?://(www\.)?", "", u.lower()).rstrip("/")
+
+
+def _offer(cid: int, card: Card, a: Agreed, region: str, update_from: float) -> Optional[Proposal]:
+    """One agreed value as a proposal, or None when the card already holds it (or, 3k, holds another value
+    and the agreement is not strong enough to offer a change)."""
+    kind = a.slot.split(":", 1)[0]
+    extra = dict(when=a.reading.when, seen=a.seen, first_seen=a.first_seen, history=a.history)
+    receipt = _receipt(a)
+    if kind in ("title", "company", "department"):
+        now = card.get(kind).strip()
+        if now.casefold() == str(a.value).strip().casefold() or (now and a.confidence < update_from):
+            return None
+        return Proposal(cid, kind, "", now, a.value, "signature", receipt, a.confidence, update=bool(now), **extra)
+    if kind == "phone":
+        if any(phones.match_key(f.value, region) == phones.match_key(a.value, region) for f in card.values("phone")):
+            return None
+        return Proposal(cid, "phone", a.slot.split(":")[1], "", a.value, "signature", receipt, a.confidence, **extra)
+    if kind == "email":
+        if any(f.value.strip().lower() == a.value for f in card.values("email")):
+            return None
+        return Proposal(cid, "email", "work", "", a.value, "signature", receipt, a.confidence, **extra)
+    if kind == "website":
+        if any(_norm_url(f.value) == _norm_url(a.value) for f in card.values("url")):
+            return None
+        return Proposal(cid, "url", "work", "", a.value, "signature", receipt, a.confidence, **extra)
+    if kind == "address":
+        have = {flat(f.data.get("postcode", "")) or flat(f.value) for f in card.values("address")}
+        if (flat(a.data.get("postcode", "")) or flat(a.value)) in have:
+            return None
+        return Proposal(cid, "address", "work", "", a.value, "signature", receipt, a.confidence,
+                        data=dict(a.data), **extra)
+    return None
+
+
+def signature_proposals(store: Any, cid: int, card: Card, *, region: str = phones.DEFAULT_REGION,
+                        rows: Optional[list] = None, since: Optional[int] = None,
+                        owner_emails: Iterable[str] = (), owner: Optional[OwnerDetails] = None,
+                        read_original: bool = False, update_from: float = UPDATE_FROM) -> list[Proposal]:
+    """Proposals from this person's signatures. Changes nothing.
+
+    `rows` are their messages when the caller has already read them (the measuring command); left out,
+    they are read here from `since` (the age window) on. `owner` is the owner's details learned once
+    for a whole run (`owner.learn_owner`); left out, they are learned here from `owner_emails`."""
+    if owner is None:
+        owner = learn_owner(store, owner_emails, region=region, read_original=read_original)
+    read = read_signatures(store, cid, card, region=region, rows=rows, since=since, owner=owner,
+                           read_original=read_original)
+    return proposals_from(cid, card, read.readings, region=region, update_from=update_from)
+
