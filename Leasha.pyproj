@@ -211,6 +211,7 @@
     <Compile Include="app\contacts\enrich\localfiles.py" />
     <Compile Include="app\contacts\enrich\logo.py" />
     <Compile Include="app\contacts\enrich\measure.py" />
+    <Compile Include="app\contacts\enrich\remember.py" />
     <Compile Include="app\contacts\enrich\run.py" />
     <Compile Include="app\contacts\enrich\signatures.py" />
     <Compile Include="app\contacts\enrich\suggest.py" />
