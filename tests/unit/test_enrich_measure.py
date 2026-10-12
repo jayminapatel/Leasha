@@ -170,3 +170,20 @@ def test_the_command_never_migrates_the_index(book, tmp_path, capsys):
     assert hashlib.sha256(book.read_bytes()).hexdigest() == before
     with sqlite3.connect(f"{book.as_uri()}?mode=ro", uri=True) as conn:
         assert conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0] == older
+
+
+def test_the_local_sources_are_counted_and_a_failing_one_says_so(book, monkeypatch):
+    """Order 1s section 5's sources reach the funnel; one that fails on the read-only index is counted as
+    failing - a zero must mean found nothing, never could not look."""
+    from app.contacts.enrich import invitations, vcards
+
+    monkeypatch.setattr(vcards, "vcard_proposals", lambda *a, **k: ["a proposal"])
+
+    def broken(*_a, **_k):
+        raise RuntimeError("no such table")
+
+    monkeypatch.setattr(invitations, "calendar_proposals", broken)
+    fun = _run(book)
+    assert fun.sources["vcard file"] == 5
+    assert fun.sources["calendar invitation: could not be read"] == 5
+    assert "linkedin export" not in fun.sources                      # no export chosen

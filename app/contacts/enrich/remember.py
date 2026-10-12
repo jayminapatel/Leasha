@@ -54,6 +54,30 @@ def photo_dir(store: Any) -> Optional[Path]:
     return base / "cache" / "enrich"
 
 
+#: The most the kept pictures may take, together. A constant (rule 11): nobody tunes it, and at about 20 KB a
+#: photo or favicon it holds well over a thousand. What would change it: a measured book whose pictures
+#: outgrow it. Past it the least recently used go first; a remembered answer whose picture went still
+#: offers its words.
+PHOTO_CACHE_BYTES = 25 * 1024 * 1024
+
+
+def _prune(folder: Path, keep: Path) -> None:
+    """Keep the folder under `PHOTO_CACHE_BYTES`, oldest-used first; never the picture just written."""
+    try:
+        files = sorted((f for f in folder.iterdir() if f.is_file() and f.suffix in (".png", ".jpg")),
+                       key=lambda f: f.stat().st_atime)
+        total = sum(f.stat().st_size for f in files)
+        for f in files:
+            if total <= PHOTO_CACHE_BYTES:
+                break
+            if f == keep:
+                continue
+            total -= f.stat().st_size
+            f.unlink(missing_ok=True)
+    except OSError:                                      # a cache: a failed tidy costs only space
+        pass
+
+
 def _save_photo(store: Any, photo: Photo) -> bool:
     folder = photo_dir(store)
     if folder is None:
@@ -65,6 +89,7 @@ def _save_photo(store: Any, photo: Photo) -> bool:
             tmp = path.with_suffix(path.suffix + ".part")
             tmp.write_bytes(photo.data)
             tmp.replace(path)
+            _prune(folder, path)
         return True
     except OSError:                                      # no room or no rights: keep the text answer only
         return False

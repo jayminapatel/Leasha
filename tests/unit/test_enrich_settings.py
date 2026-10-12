@@ -28,7 +28,7 @@ def test_the_defaults_are_the_orders():
     assert s.enrich_max_months == 6                       # D1, the owner's
     assert (s.enrich_tick_from, s.enrich_hide_below) == (0.85, 0.5)     # D4
     assert s.enrich_repeat_days == 90                     # 6b
-    assert s.enrich_vcards and s.enrich_calendar and s.enrich_outlook_contacts and s.enrich_linkedin   # D7
+    assert s.enrich_vcards and s.enrich_calendar and s.enrich_linkedin   # D7
     assert not s.enrich_documents and not s.enrich_read_originals                                      # 5e, 4b
 
 

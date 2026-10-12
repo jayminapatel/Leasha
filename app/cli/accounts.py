@@ -14,7 +14,7 @@ Order 1k 1g and section 10 (rule 8: the command line ships before the window).
     accounts schedule [--mail M] [--contacts M] [--same-for-all yes|no] [--pause P] [--quiet A-B|off]
     accounts config [--google-client-id ID] [--microsoft-client-id ID] [--default-account A] ...
                     [--enrich-signatures|-company|-faces|-history|-suggest|-gravatar|-logo|-wikidata yes|no]
-                    [--enrich-vcards|-outlook-contacts|-calendar|-linkedin|-documents|-read-originals yes|no]
+                    [--enrich-vcards|-calendar|-linkedin|-documents|-read-originals yes|no]
                     [--enrich-max-months N] [--enrich-repeat-days N] [--enrich-tick-from F] [--enrich-hide-below F]
     accounts due                          what the schedule would start now (starts nothing)
 
@@ -45,7 +45,7 @@ ENRICH_FLAGS = (
     ("enrich_suggest", "enrich_suggest"), ("enrich_gravatar", "enrich_gravatar"),
     ("enrich_logo", "enrich_logo"), ("enrich_wikidata", "enrich_wikidata"),
     # Order 1s D7 and 4b: more of your own sources.
-    ("enrich_vcards", "enrich_vcards"), ("enrich_outlook_contacts", "enrich_outlook_contacts"),
+    ("enrich_vcards", "enrich_vcards"),
     ("enrich_calendar", "enrich_calendar"), ("enrich_linkedin", "enrich_linkedin"),
     ("enrich_documents", "enrich_documents"), ("enrich_read_originals", "enrich_read_originals"),
 )
@@ -68,7 +68,6 @@ _ENRICH_HELP = {
     "enrich_logo": "internet: only the company's own domain is contacted",
     "enrich_wikidata": "internet: the company name is looked up; companies only, never people",
     "enrich_vcards": "own index: vCard files in the index",
-    "enrich_outlook_contacts": "own index: Outlook contact items, where the index holds them",
     "enrich_calendar": "own index: names from calendar invitations",
     "enrich_linkedin": "own files: a LinkedIn Connections.csv export (nothing is fetched)",
     "enrich_documents": "own index: org charts and business cards (off by default; less reliable)",

@@ -30,7 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from app.contacts.enrich import company, faces, logo, wikidata
+from app.contacts.enrich import company, faces, invitations, linkedin, logo, vcards, wikidata
 from app.contacts.enrich.base import emails_of, mail_from, window_start
 from app.contacts.enrich.owner import learn_owner
 from app.contacts.enrich.run import REPEAT_DAYS, is_recent, repeat_days, seen_key
@@ -136,6 +136,7 @@ def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, c
             src["company"] += 1
         if faces.pile_of(store, cid) is not None:
             src["face (has a named pile)"] += 1
+        _local_sources(src, hub, settings, cid, card, region, fun.since)
         emails = emails_of(card)
         if not emails:
             continue
@@ -172,6 +173,33 @@ def measure(store: ReadOnlyStore, hub: Any, settings: Any, *, months: int = 0, c
     fun.seconds = round(time.perf_counter() - started, 2)
     fun.sources = dict(src)
     return fun
+
+
+#: Order 1s section 5's sources, counted as a run would call them: (name, AccountSettings switch, call).
+_LOCAL = (
+    ("vcard file", "enrich_vcards",
+     lambda hub, s, cid, card, region, since: vcards.vcard_proposals(hub, cid, card, region=region, since=since)),
+    ("linkedin export", "enrich_linkedin",
+     lambda hub, s, cid, card, region, since: linkedin.linkedin_proposals(
+         cid, card, str(getattr(s, "enrich_linkedin_file", "") or "")) if getattr(s, "enrich_linkedin_file", "")
+     else []),
+    ("calendar invitation", "enrich_calendar",
+     lambda hub, s, cid, card, region, since: invitations.calendar_proposals(hub, cid, card, since=since)),
+)
+
+
+def _local_sources(src: Counter, hub: Any, settings: Any, cid: int, card: Any, region: str,
+                   since: Any) -> None:
+    """Contacts each section-5 source would offer something to. A source that fails on this read-only
+    index is counted as failing, not skipped silently - a zero must mean "found nothing"."""
+    for name, switch, call in _LOCAL:
+        if settings is not None and not getattr(settings, switch, True):
+            continue
+        try:
+            if call(hub, settings, cid, card, region, since):
+                src[name] += 1
+        except Exception:                                   # noqa: BLE001 - measured, not hidden
+            src[f"{name}: could not be read"] += 1
 
 
 def _count(fun: Funnel, cid: int, card: Any, props: list, blocks: dict, keep_samples: bool) -> None:

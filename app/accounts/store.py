@@ -167,9 +167,9 @@ class AccountSettings:
     enrich_max_months: int = 6
     # 4b: open the original messages again for a signature the index cut. Off: it is slower.
     enrich_read_originals: bool = False
-    # D7: more of the owner's own sources, on by default, each saying what it reads.
+    # D7: more of the owner's own sources, on by default, each saying what it reads. (No Outlook contact
+    # items: section 5b found no reader exposes them, so there is no switch for them - owner's decision.)
     enrich_vcards: bool = True
-    enrich_outlook_contacts: bool = True
     enrich_calendar: bool = True
     enrich_linkedin: bool = True
     enrich_linkedin_file: str = ""

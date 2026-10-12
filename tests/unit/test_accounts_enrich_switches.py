@@ -24,7 +24,7 @@ NET = ("enrich_gravatar", "enrich_logo", "enrich_wikidata")
 
 #: Order 1s D7 (2026-10-12): more of the owner's own sources - on by default, except documents (5e)
 #: and reading the original messages again (4b), which is slower.
-MORE_ON = ("enrich_vcards", "enrich_outlook_contacts", "enrich_calendar", "enrich_linkedin")
+MORE_ON = ("enrich_vcards", "enrich_calendar", "enrich_linkedin")
 MORE_OFF = ("enrich_documents", "enrich_read_originals")
 
 

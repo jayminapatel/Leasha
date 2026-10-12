@@ -66,8 +66,6 @@ ENRICH_NET = (
 ENRICH_LOCAL_MORE = (
     ("enrich_vcards", "vCard files on this computer",
      "Read the .vcf files in your index and offer what a matching contact lacks."),
-    ("enrich_outlook_contacts", "Outlook contacts",
-     "Read contact items kept in your Outlook data files, where the index holds them."),
     ("enrich_calendar", "Calendar invitations",
      "Fill a missing name for an address from the people invited to your meetings."),
     ("enrich_linkedin", "A LinkedIn export",

@@ -663,3 +663,22 @@ def test_a_web_address_that_is_not_the_companys_is_not_asked(hub):
     fake = Fake(("https://acme-widgets.co.uk/favicon.ico", HttpResponse(200, body=png())))
     out = enrich_selection(hub, _logo_settings(), [cid], transport=fake)
     assert fake.hosts == {"acme-widgets.co.uk"} and out[0].receipt == "https://acme-widgets.co.uk/favicon.ico"
+
+
+def test_kept_pictures_are_capped_and_the_oldest_go_first(tmp_path, monkeypatch):
+    """Order 1s 6a kept pictures with no limit, so the cache only grew (found merging, 2026-10-12)."""
+    import os
+
+    from app.contacts.enrich import remember
+
+    monkeypatch.setattr(remember, "PHOTO_CACHE_BYTES", 2500)
+    folder = tmp_path / "cache" / "enrich"
+    folder.mkdir(parents=True)
+    for n in range(5):
+        f = folder / f"{n:040x}.png"
+        f.write_bytes(b"x" * 1000)
+        os.utime(f, (1_000_000 + n, 1_000_000 + n))
+    newest = folder / f"{4:040x}.png"
+    remember._prune(folder, newest)
+    left = sorted(p.name for p in folder.iterdir())
+    assert len(left) == 2 and newest.name in left and f"{3:040x}.png" in left
