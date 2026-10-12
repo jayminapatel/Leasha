@@ -25,10 +25,11 @@ import weakref
 from pathlib import PureWindowsPath
 from typing import Any, Optional
 
-from PySide6.QtCore import QThreadPool, Signal
+from PySide6.QtCore import QThreadPool, QTimer, Signal
 
 from app.ui.presenter import mail_places as places
 from app.ui.widgets.side_list import SideList
+from app.ui.widgets.side_panel import moved          # noqa: F401 - the index-moved check, shared with Files
 
 __all__ = ["MailFolderList", "attach", "STATE_KEY", "FOLDERS_TIP", "folder_tree", "in_folder",
            "mail_entries"]
@@ -67,11 +68,26 @@ def in_folder(summary: str, choice: Any) -> str:
     return f"{summary} - in {where}" if summary else f"In {where}"
 
 
+#: How often the open Mail list looks at the index's write counter (see `attach`).
+REFRESH_MS = 15_000
+
+
 class MailFolderList(SideList):
     """The tree, drawn by `SideList` (order 1p). `chosen` carries `(archive, folder)`, or None
     for All mail."""
 
     chosen = Signal(object)
+    #: The list came on screen / went off it: the page counts the folders again, and stops counting.
+    shown = Signal()
+    hidden = Signal()
+
+    def showEvent(self, event: Any) -> None:                     # noqa: N802 - Qt
+        super().showEvent(event)
+        self.shown.emit()
+
+    def hideEvent(self, event: Any) -> None:                     # noqa: N802 - Qt
+        super().hideEvent(event)
+        self.hidden.emit()
 
     def __init__(self, parent: Optional[Any] = None) -> None:
         super().__init__("mailFolders", accessible="Mailboxes and folders",
@@ -159,4 +175,25 @@ def attach(view: Any, top: Any) -> MailFolderList:
     view.load_folders = load
     if view._store is not None:
         load()
+
+    # **The counts follow the index.** They were read when the window opened and again when an index run finished -
+    # and a run takes days, so the tree said "All mail 2,491" beside a list that said "38,830 messages in the index"
+    # (the owner, 2026-10-12), with the archives the run had read since missing altogether. While the list is on
+    # screen the index's write counter is looked at every 15 seconds - one number - and the folders are counted
+    # again only when it moved.
+    seen = {"generation": None}
+    clock = QTimer(folders)
+    clock.setInterval(REFRESH_MS)
+
+    def tick() -> None:
+        mail = ref()
+        store = getattr(mail, "_store", None)
+        if mail is None or store is None:
+            return
+        if moved(store, seen):
+            load()
+
+    clock.timeout.connect(tick)
+    folders.shown.connect(lambda: (tick(), clock.start()))
+    folders.hidden.connect(clock.stop)
     return folders

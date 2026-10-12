@@ -112,6 +112,23 @@ def attach(view: Any, side: SideList, *, target: QWidget, row: Any, before: Any,
     return show
 
 
+#: How often an open page looks at the index's write counter.
+FOLLOW_MS = 15_000
+
+
+def moved(store: Any, seen: dict) -> bool:
+    """Has the index been written to since `seen` was taken? Remembers the new counter. `generation` is a property
+    of the store (one number), not a method."""
+    try:
+        generation = int(store.generation)
+    except Exception:                                        # noqa: BLE001 - a counter; never stops the list
+        return False
+    if generation == seen.get("generation"):
+        return False
+    seen["generation"] = generation
+    return True
+
+
 def _load(view: Any, read: Callable[[Any], Any], draw: Callable[[Any], None], page: str) -> None:
     from app.ui.workers import CallableWorker, run
 
@@ -167,6 +184,14 @@ def _box_side(view: Any, side: SideList, *, page: str, words: str, tip: str,
     view.installEventFilter(watcher)
     view._side_watcher = watcher
     _load(view, read, draw, page)
+    # The counts follow the index while the page is open, as Mail's do: a long run adds folders and files, and a
+    # list counted once at start said so no longer. One number is looked at every 15 s; a recount only if it moved.
+    seen: dict = {}
+    clock = QTimer(view)
+    clock.setInterval(FOLLOW_MS)
+    clock.timeout.connect(lambda: (_load(view, read, draw, page)
+                                   if view.isVisible() and moved(getattr(view, "_store", None), seen) else None))
+    clock.start()
     return side
 
 

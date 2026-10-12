@@ -205,3 +205,40 @@ def test_attachment_mailbox_and_mailfolder_switches_find_the_right_mail(live):
     assert _subjects(browse_messages_typed(store, "/mailbox 2018", limit=50)) == ["From an archive"]
     assert _subjects(browse_messages_typed(store, "/mailfolder inbox", limit=50)) == ["From an archive"] or \
         "From an archive" in _subjects(browse_messages_typed(store, "/mailfolder inbox", limit=50))
+
+
+def test_the_folder_counts_follow_the_index_while_the_list_is_on_screen(live, qtbot):
+    """The owner (2026-10-12): the tree said "All mail 2,491" beside "38,830 messages in the index" - it was counted
+    once and never again while a run read the archives."""
+    from app.ui.widgets import mail_folders as mf
+
+    store, gmail, work = live
+    seen: dict = {}
+    assert mf.moved(store, seen) is True                           # the first look always counts
+    assert mf.moved(store, seen) is False                          # nothing written since: no recount
+    file_id = store.upsert_file("D:/Saved/later.eml", size_bytes=1, mtime_ns=1, status="INDEXED", source_kind="eml")
+    store.set_message(file_id, store_path=None, folder_path=None, subject="Arrived while the list was open",
+                      sender="a@b.example", sent_at=1_700_001_000)
+    assert mf.moved(store, seen) is True                           # the index moved: recount
+    assert mf.moved(SimpleBroken(), {}) is False                   # a store that cannot say never raises
+
+    folders = mf.MailFolderList()
+    qtbot.addWidget(folders)
+    events = []
+    folders.shown.connect(lambda: events.append("shown"))
+    folders.hidden.connect(lambda: events.append("hidden"))
+    folders.show()
+    folders.hide()
+    assert events == ["shown", "hidden"]                           # the timer starts and stops with these
+
+
+class SimpleBroken:
+    @property
+    def generation(self):
+        raise RuntimeError("closed")
+
+
+def test_the_refresh_interval_is_short_enough_to_follow_a_run_and_long_enough_to_be_free():
+    from app.ui.widgets import mail_folders as mf
+
+    assert 5_000 <= mf.REFRESH_MS <= 60_000
