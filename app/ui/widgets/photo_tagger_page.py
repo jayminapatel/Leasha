@@ -717,7 +717,11 @@ class PhotoTaggerPage(QWidget):
             answer = QMessageBox.question(
                 self, "Put these faces with them?",
                 f"There is already a group called {name.strip()}. Put these faces "
-                f"with {name.strip()}? The two groups become one.")
+                f"with {name.strip()}? The two groups become one.",
+                # Cancel the default, as the two other combines here have: the
+                # platform's default was Yes, so Enter merged two people.
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self._show_combined(pile_id, int(taken))

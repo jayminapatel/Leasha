@@ -227,7 +227,8 @@ def delete_volume_confirmation(name: str, file_count: int) -> tuple[str, str]:
     lives here once, the way every notice and error message in this project
     does, rather than typed again at each call site.
     """
-    title = f"Forget {name!r}?"
+    # Says Delete, as the page's button and the dialog's own button do.
+    title = f"Delete {name!r} from the catalogue?"
     body = (
         f"This removes {file_count:,} file(s) catalogued under {name!r} "
         f"from Leasha's index.\n\n"

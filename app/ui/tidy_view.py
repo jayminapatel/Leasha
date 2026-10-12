@@ -17,7 +17,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QThreadPool, Signal
 from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QMessageBox, QPushButton, QSplitter, QStackedWidget, QTextBrowser,
+    QHBoxLayout, QLabel, QPushButton, QSplitter, QStackedWidget, QTextBrowser,
     QVBoxLayout, QWidget,
 )
 
@@ -251,9 +251,9 @@ class TidyView(QWidget):
 
     def ask(self, title: str, text: str) -> bool:
         """The question. Overridable, so tests need no dialog."""
-        answer = QMessageBox.question(self, title, text, QMessageBox.StandardButton.Yes
-                                      | QMessageBox.StandardButton.Cancel, QMessageBox.StandardButton.Cancel)
-        return answer == QMessageBox.StandardButton.Yes
+        from app.ui.widgets.confirm import confirm  # the button says where the files go, not "Yes"
+
+        return confirm(self, title, text, "Move to Recycle Bin")
 
     def _review(self) -> None:
         from app.tidy.remove import carry_out

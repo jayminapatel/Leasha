@@ -26,9 +26,10 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QObject, Qt, QThreadPool, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                             QLineEdit, QMessageBox, QPushButton, QTableWidget,
+                             QLineEdit, QPushButton, QTableWidget,
                              QTableWidgetItem, QVBoxLayout)
 
+from app.ui.widgets.confirm import confirm
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.workers import CallableWorker, run
 
@@ -278,12 +279,13 @@ class ModelManagerBox(QGroupBox):
             return
         stops = (f"\n\nIt is in use: {item.job_words} will stop until a model for it is "
                  "downloaded again." if item.in_use else "")
-        answer = QMessageBox.question(
+        # Cancel is the default (`widgets/confirm.py`): Qt's Yes/No left it to Windows,
+        # which made Yes the default, so Enter deleted a model permanently.
+        if confirm(
             self, "Delete a model",
             f"Delete {item.label} ({item.size_words}) from this computer?{stops}\n\n"
             "This is permanent - it does not go to the Recycle Bin. It can be downloaded "
-            "again from this list.")
-        if answer == QMessageBox.StandardButton.Yes:
+            "again from this list.", "Delete"):
             self._run_removal([item], force=item.in_use)
 
     def _remove_unused(self) -> None:
@@ -295,11 +297,11 @@ class ModelManagerBox(QGroupBox):
         lines = "\n".join(f"  {i.label} - {i.size_words}" for i in spare[:12])
         more = f"\n  ...and {len(spare) - 12} more" if len(spare) > 12 else ""
         gb = sum(i.bytes for i in spare) / 2 ** 30
-        answer = QMessageBox.question(
+        if confirm(
             self, "Remove copies nothing uses",
             f"Remove these {len(spare)} items ({gb:.1f} GB)? None of them is in use.\n\n"
-            f"{lines}{more}\n\nThis is permanent; any of them can be downloaded again.")
-        if answer == QMessageBox.StandardButton.Yes:
+            f"{lines}{more}\n\nThis is permanent; any of them can be downloaded again.",
+            "Remove"):
             self._run_removal(spare, force=False)
 
     def _run_removal(self, items: list, *, force: bool) -> None:

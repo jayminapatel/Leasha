@@ -458,6 +458,7 @@ class MainWindow(QMainWindow):
         # the owner has seen the plan and said yes.
         self.tidy_view = TidyView(store)
         self.tidy_view.error.connect(self._show_error)
+        self.tidy_view.report.notice.connect(self.notify)
         # Order 1i (2026-10-11): the Life Timeline is a rail page of its own,
         # "Browse", where Offline was - no longer a row in the Reports list.
         self.timeline_view = TimelineView(store)

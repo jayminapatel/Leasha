@@ -108,6 +108,11 @@ class _RemoveDialog(QDialog):
         cancel = btn("Cancel", "x")
         ok.clicked.connect(self.accept)
         cancel.clicked.connect(self.reject)
+        # Enter cancels. A QDialog's push buttons are all auto-default, so Enter
+        # pressed in the dialog fell to whichever had focus or came first - and
+        # removing an account deletes its sign-in from Credential Manager.
+        ok.setAutoDefault(False)
+        cancel.setDefault(True)
         lay.addLayout(self._row(cancel, ok))
 
     @staticmethod

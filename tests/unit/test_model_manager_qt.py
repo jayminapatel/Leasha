@@ -11,7 +11,6 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtWidgets import QMessageBox  # noqa: E402
 
 from app.ort import catalogue  # noqa: E402
 from tests.unit.test_ort_models_manage import _place  # noqa: E402
@@ -65,9 +64,12 @@ def test_the_filter_narrows_the_available_list(setup):
 
 def test_delete_asks_first_and_removes_the_copy(setup, monkeypatch):
     box, cache, _state, qtbot = setup
+    from app.ui.widgets import model_manager
+
     asked = []
-    monkeypatch.setattr(QMessageBox, "question",
-                        lambda *a, **k: asked.append(a[2]) or QMessageBox.StandardButton.Yes)
+    # The question is `widgets/confirm.py`'s: Cancel the default, "Delete" on the button.
+    monkeypatch.setattr(model_manager, "confirm",
+                        lambda *a, **k: asked.append(a[2]) or a[3] == "Delete")
     row = _row_of(box.installed, "Florence-2 base, smaller copy (photo tags and captions)")
     box.installed.selectRow(row)
     box._delete_selected()
