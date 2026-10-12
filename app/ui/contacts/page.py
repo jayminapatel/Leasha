@@ -915,11 +915,17 @@ class ContactsPage(QWidget):
         selected, visible = self.selected_ids(), self.model.ids()
         hub, accounts = self.hub, self.accounts
 
-        def enrich(on_progress: Any = None, cancelled: Any = None) -> Any:
-            # Runs on a worker; each internet source is skipped unless its switch is on.
+        def enrich(on_progress: Any = None, cancelled: Any = None, force: bool = False) -> Any:
+            # Runs on a worker; each internet source is skipped unless its switch is on. `force` is Look again:
+            # the 90-day memory is ignored. The notes (a source unreachable, or not asked again) go back with
+            # the proposals so the window can say them - before 2026-10-12 they were never collected.
+            from types import SimpleNamespace  # noqa: PLC0415
+
             from app.contacts.enrich.run import proposals_for  # noqa: PLC0415
-            return proposals_for(hub, accounts, list(selected) or list(visible), on_progress=on_progress,
-                                 cancelled=cancelled)
+            notes: list[str] = []
+            found = proposals_for(hub, accounts, list(selected) or list(visible), on_progress=on_progress,
+                                  cancelled=cancelled, force=force, notes=notes)
+            return SimpleNamespace(proposals=found, notes=notes)
 
         return openers.Ctx(hub=hub, accounts=accounts, selected_ids=selected, visible_ids=visible,
                            refresh=self.refresh, service=self.service, enrich=enrich,

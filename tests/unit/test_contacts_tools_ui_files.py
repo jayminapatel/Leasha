@@ -397,3 +397,86 @@ def test_enrich_shows_how_far_it_has_got_and_stop_keeps_what_was_found(world, qt
     assert any(p and p["total"] == 6 for p in seen)              # it said how far it had got
     assert dlg.tree.topLevelItemCount() == 3                     # stopped after 3: those 3 are there to accept
     assert dlg.stop_button.isHidden()
+
+
+def test_enrich_look_again_asks_with_force_and_the_notes_are_shown(world, qtbot):
+    """The owner, 2026-10-12: the internet sources were on but a second run asked them nothing and said nothing.
+    Look again passes `force`; what the sources said (not asked again, unreachable) is shown, not dropped."""
+    from types import SimpleNamespace
+
+    from app.contacts.enrich.base import Proposal
+
+    a = world.add("Ann", "Lee", email="ann@acme-widgets.co.uk")
+    calls, said = [], []
+
+    def enrich(on_progress=None, cancelled=None, force=False):
+        calls.append(force)
+        return SimpleNamespace(proposals=[Proposal(a, "company", "Company", "", "Acme", "company", "x")],
+                               notes=[] if force else ["Gravatar was not asked again for 1 contact."])
+
+    world.ctx.enrich = enrich
+    world.ctx.notify = said.append
+    dlg = open_dialog(qtbot, EnrichDialog, world.ctx)
+    dlg.find_button.click()
+    qtbot.waitUntil(lambda: dlg.run.state in ("ready", "empty"), timeout=5000)
+    assert calls == [False] and "not asked again" in dlg.status.text() and "not asked again" in said[-1]
+    assert dlg.again_button.isEnabled()
+    dlg.again_button.click()
+    qtbot.waitUntil(lambda: len(calls) == 2 and dlg.run.state in ("ready", "empty"), timeout=5000)
+    assert calls == [False, True] and "not asked again" not in dlg.status.text()
+
+
+def test_look_again_keeps_force_for_a_host_that_takes_force_but_not_progress():
+    """CodeRabbit on #67 (2026-10-12): a host taking `force` but not `on_progress`/`cancelled` raised TypeError
+    on the first call, and the fallback then called it with nothing - so Look again ran an ordinary lookup."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    calls = []
+
+    def enrich(force=False):
+        calls.append(force)
+        return SimpleNamespace(proposals=[], notes=[])
+
+    gather_proposals(SimpleNamespace(enrich=enrich), force=True)
+    assert calls == [True]
+
+
+def test_look_again_keeps_progress_for_a_host_that_takes_progress_but_not_force():
+    """CodeRabbit on #68 (2026-10-12): a host taking on_progress/cancelled but not force fell back to a call with
+    nothing, losing progress and Stop. Without force, the callbacks are kept."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    calls = []
+
+    def enrich(on_progress=None, cancelled=None):
+        calls.append(callable(on_progress) and callable(cancelled))
+        return SimpleNamespace(proposals=[], notes=[])
+
+    gather_proposals(SimpleNamespace(enrich=enrich), on_progress=lambda _p: None, cancelled=lambda: False, force=True)
+    assert calls == [True]
+
+
+@pytest.mark.parametrize("params", [
+    ("force", "cancelled"), ("force", "on_progress"), ("on_progress", "cancelled"), ("force",), ("cancelled",),
+    ("on_progress", "cancelled", "force"), (),
+])
+def test_a_host_gets_every_keyword_it_takes_and_none_it_does_not(params):
+    """CodeRabbit on #67, third round (2026-10-12): retrying fixed subsets kept losing a callback some host
+    took - a host taking force and cancelled lost cancelled, so Stop could not interrupt it. The host's own
+    signature now says what it takes."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    got = {}
+    ns: dict = {}
+    exec("def enrich(" + ", ".join(f"{p}=None" for p in params) + "):\n    got.update(locals())\n"
+         "    return SimpleNamespace(proposals=[], notes=[])", {"got": got, "SimpleNamespace": SimpleNamespace}, ns)
+    gather_proposals(SimpleNamespace(enrich=ns["enrich"]), on_progress=lambda _p: None, cancelled=lambda: False,
+                     force=True)
+    assert set(got) == set(params)
+    assert all(got[p] is not None for p in params)
