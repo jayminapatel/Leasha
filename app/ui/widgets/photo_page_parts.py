@@ -104,14 +104,24 @@ def read_the_box(owner: Any, store: Any, text: str, reading: dict, *,
 def arrange_rows(owner: Any, rows: list, parsed: Any, words: str, sort_key: str, *,
                  finished: Callable[[Any], None], failed: Callable[[Any], None]) -> None:
     """`presenter.photos.arrange` - narrow, sort, count - on a worker."""
-    from app.ui.presenter.photos import arrange
+    from app.ui.presenter.photos import arrange, heading_sorted
     from app.ui.workers import CallableWorker
 
     # The heading is read here, on the window's thread, and the sort by it is done on the worker.
     model = getattr(getattr(owner, "browser", None), "model", None)
     heading = model.heading_order() if model is not None else None
+
+    def landed(result: Any) -> None:
+        # A heading clicked while this was being arranged: the result is in the old heading's order, and
+        # drawing it would undo the click (CodeRabbit on #68). One sort by the new heading - the cost of the
+        # click itself, which the person asked for - never the old order.
+        now = model.heading_order() if model is not None else None
+        if now != heading and now is not None:
+            result = (heading_sorted(result[0], *now), *result[1:])
+        finished(result)
+
     _start(owner, CallableWorker(arrange, rows, parsed, words, sort_key, heading,
-                                 component="ui.photos"), finished, failed)
+                                 component="ui.photos"), landed, failed)
 
 
 def fill_view_menu(menu: QMenu, view: Any) -> None:

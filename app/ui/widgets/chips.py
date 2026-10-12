@@ -190,6 +190,14 @@ def show_page(view: Any, applied: Any, line: str) -> None:
     view.summary.setText(line)
 
 
+def say_skipped(view: Any, text: str) -> None:
+    """A list that will not run this query (too short, or a history search waiting for Enter) says why - and
+    counts as a newer read, so one still on its way for the older text is dropped when it lands instead of
+    overwriting this sentence (CodeRabbit on #68)."""
+    view._generation = getattr(view, "_generation", 0) + 1
+    view.summary.setText(text)
+
+
 def say_failed(view: Any, error: Any, generation: Any = None) -> None:
     """A list's as-you-type read that failed: what happened and what to do, on its summary line.
 

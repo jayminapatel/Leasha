@@ -285,3 +285,26 @@ def test_every_icon_is_named_once():
 
     names = list(ICON_NAMES)
     assert len(names) == len(set(names)), sorted({n for n in names if names.count(n) > 1})
+
+
+def test_a_heading_clicked_while_arranging_is_not_undone_by_the_result(qapp, monkeypatch):
+    """CodeRabbit on #68: an arrangement started before a heading click came back in the old order."""
+    from PySide6.QtCore import Qt
+
+    from app.ui.widgets import photo_page_parts
+
+    browser = _browser(qapp)
+    rows = [_row(1, "b", 2021), _row(2, "c", 2020), _row(3, "a", 2019)]
+    browser.set_rows(rows)
+    owner = SimpleNamespace(browser=browser)
+    landed: list = []
+
+    def start(_owner, worker, finished, _failed):
+        browser.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)     # the click, mid-arrangement
+        finished((list(rows), "newest", 3, 3))
+
+    monkeypatch.setattr(photo_page_parts, "_start", start)
+    photo_page_parts.arrange_rows(owner, rows, None, "", "newest", finished=landed.append, failed=print)
+    expected = photo_page_parts.__dict__.get("heading_sorted") or __import__(
+        "app.ui.presenter.photos", fromlist=["x"]).heading_sorted
+    assert [r.file_id for r in landed[0][0]] == [r.file_id for r in expected(rows, *browser.model.heading_order())]

@@ -316,3 +316,17 @@ def test_the_typed_lists_send_a_failed_read_to_their_line_not_a_dialog(name):
     source = (ROOT / "app/ui" / name).read_text(encoding="utf-8")
     assert "worker.signals.failed.connect(self.error.emit)" not in source
     assert "say_failed(v, e, g)" in source, "the failure must carry its read's generation"
+
+
+@pytest.mark.parametrize("name", ["files_view.py", "code_view.py"])
+def test_a_skipped_query_drops_an_older_read_still_on_its_way(name, qapp):
+    """CodeRabbit on #68: "keep typing" and "press Enter for history" left the generation alone, so an older
+    read landing afterwards overwrote the sentence."""
+    from app.ui.widgets.chips import say_failed, say_skipped
+
+    source = (ROOT / "app/ui" / name).read_text(encoding="utf-8")
+    assert "say_skipped(self," in source
+    view = SimpleNamespace(summary=QLabel(""), _generation=3)
+    say_skipped(view, "Keep typing")
+    say_failed(view, SimpleNamespace(code="X", message="late", suggestion=""), 3)
+    assert view.summary.text() == "Keep typing" and view._generation == 4
