@@ -562,3 +562,17 @@ def test_misfiled_values_shared_lines_and_shorter_addresses_are_not_offered(hub,
     addresses = [v for k, v in mine if k == "address"]
     assert len(addresses) == 1 and "United Kingdom" in addresses[0]
     assert not any(p.contact_id == alaa for p in props)
+
+
+def test_an_address_the_owner_sent_from_is_never_a_suggested_contact(hub, tmp_path):
+    """Measured on the owner's index 2026-10-13: three of the owner's old work addresses topped the invitations'
+    suggestions, because only the accounts' addresses counted as the owner's. A Sent folder says otherwise."""
+    old = INVITE.replace("sage@marlow.example", "me@old-job.example").replace('"Sage Mar\n low"', "Me Myself")
+    for i in range(3):
+        put(hub, tmp_path / f"o{i}.ics", old, when=epoch(2026, 9, 1 + i))
+    fid = hub.store.upsert_file("mail/sent1.eml", parent_dir="mail", ext="eml", size_bytes=1, mtime_ns=1,
+                                status="INDEXED", source_kind="eml")
+    hub.store.set_message(fid, subject="Hello", sender="Me <me@old-job.example>", recipients="[]",
+                          sent_at=epoch(2016, 1, 1), folder_path="Top of Outlook data file/Sent Items")
+    got = {s.email for s in suggestions_for(hub, AccountSettings(**ANY_AGE))}
+    assert "juniper@holt.example" in got and "me@old-job.example" not in got

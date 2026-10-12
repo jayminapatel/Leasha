@@ -42,7 +42,7 @@ from app.contacts.enrich import documents, invitations, linkedin, vcards       #
 from app.contacts.enrich.base import GuardedTransport, Proposal, emails_of, has_mail_before, window_start
 from app.contacts.enrich.base import drop_declined   # order 1s D5, apart so the line above merges cleanly
 from app.contacts.enrich.history import History, contact_history
-from app.contacts.enrich.owner import learn_owner
+from app.contacts.enrich.owner import learn_owner, owner_messages
 from app.contacts.enrich.suggest import DEFAULT_MIN_COUNT, SuggestedContact, suggest_contacts
 from app.core.errors import AppErrorException
 
@@ -370,7 +370,9 @@ def suggestions_for(hub: Any, accounts_store: Any, *, min_count: int = DEFAULT_M
     settings = _settings_of(accounts_store)
     if not _on(settings, "suggest"):
         return []
-    owner = owner_addresses(accounts_store)
+    # The owner's own addresses are never a suggestion: the accounts' and every one the owner sent from
+    # (order 1s, 2026-10-13: three old work addresses of the owner's topped the invitations' list).
+    owner = sorted(owner_messages(hub.store, owner_addresses(accounts_store))[0])
     out = suggest_contacts(hub.store, min_count=min_count, owner_emails=owner)
     if _on(settings, "calendar"):                         # 5d: the people you meet, after the people who mail you
         mailed = {s.email for s in out}
