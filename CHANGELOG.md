@@ -42,6 +42,13 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   `extractors.toml` alone and never `<DATA_PATH>\extractors.toml`; it now reads both (`WalkConfig.formats_from`).
 - Document cards are checked harder: a kind needs words in the document that support it (else `email` for a
   message, `other` otherwise), pronouns are never people, and a summary citing a number the document lacks is dropped.
+### A vector table with nothing readable in it no longer breaks the window (2026-10-12)
+
+- **Fixed:** the window opened with an error and Reset index failed with "Table 'chunks' exists but could not be
+  loaded ... `_versions` was not found", every read of the vector store raising it for the rest of the session. A
+  table folder that holds no readable version is now renamed to `chunks.lance.broken-<time>` and the store opens
+  empty; the next index run gives the passages their vectors again. A folder that has versions in it is never touched.
+
 ### Faster meaning: what goes to the model, and in what order (2026-10-12)
 
 - **Found by their words only** (Settings > Index > Tuning): a comma list of file types never sent to the meaning
