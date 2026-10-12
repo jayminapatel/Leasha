@@ -324,6 +324,7 @@
     <Compile Include="app\extract\quoting.py" />
     <Compile Include="app\extract\raw.py" />
     <Compile Include="app\extract\reading.py" />
+    <Compile Include="app\extract\reread.py" />
     <Compile Include="app\extract\rtf.py" />
     <Compile Include="app\extract\source_types.py" />
     <Compile Include="app\extract\timecode.py" />
@@ -456,6 +457,7 @@
     <Compile Include="app\ui\accounts\__init__.py" />
     <Compile Include="app\ui\accounts\account_list.py" />
     <Compile Include="app\ui\accounts\backend.py" />
+    <Compile Include="app\ui\accounts\enrich_settings.py" />
     <Compile Include="app\ui\accounts\globals_box.py" />
     <Compile Include="app\ui\accounts\logic.py" />
     <Compile Include="app\ui\accounts\panel.py" />
@@ -984,6 +986,8 @@
     <Compile Include="tests\unit\test_engine_shutdown.py" />
     <Compile Include="tests\unit\test_enrich_measure.py" />
     <Compile Include="tests\unit\test_enrich_sender_index.py" />
+    <Compile Include="tests\unit\test_enrich_settings.py" />
+    <Compile Include="tests\unit\test_enrich_window.py" />
     <Compile Include="tests\unit\test_enrichment_backlog.py" />
     <Compile Include="tests\unit\test_enter_key.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
@@ -1136,6 +1140,7 @@
     <Compile Include="tests\unit\test_media_tail_end.py" />
     <Compile Include="tests\unit\test_merge_notes.py" />
     <Compile Include="tests\unit\test_message_index_trigger.py" />
+    <Compile Include="tests\unit\test_message_tails.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_mini_search_box.py" />
     <Compile Include="tests\unit\test_model_catalogue.py" />

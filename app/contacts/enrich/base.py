@@ -403,8 +403,54 @@ def full_text(store: Any, file_id: int, *, read_original: bool = False) -> str:
     Order 1s section 4. The signature reader (section 3) reads this, never `body_text` directly, so
     a message's cut-off signature (4a, `message_tails`) and, when the person switched it on, the
     original message read again (4b, `read_original`) reach it without the reader knowing where the
-    text came from. Section 4 fills in the tail and the original; until then this is `body_text`."""
-    return body_text(store, file_id)
+    text came from.
+
+    **Per message.** It reads one message; how many a contact's are read is the caller's choice - the
+    order's cap for `read_original` is the newest five, because each one opens a file.
+
+    * A kept tail: the indexed body, a newline, the tail. Nothing is opened.
+    * No tail and `read_original`: the original's whole body, nothing cut (`app.extract.reread`), read
+      only when the index says something was cut (`messages.quoted_removed` is not 0) - opened
+      read-only. Where it is not opened (live account mail, an Outlook-read message, a member of an
+      mbox) or cannot be, the indexed body.
+    * Otherwise the indexed body, as `body_text`.
+
+    The tail and the original may hold a quoted chain - other people's messages and signatures.
+    `message_tail(...)[1]` says which the tail was ("signature: ..." or "quoted: ...")."""
+    body = body_text(store, file_id)
+    tail = _tail(store, file_id)
+    if tail:
+        return f"{body}\n{tail}" if body else tail
+    if read_original:
+        place = _place(store, file_id)
+        if place is not None and place.get("quoted_removed") != 0:
+            from app.extract import reread  # noqa: PLC0415 - only a re-read needs the readers
+
+            original = reread.original_body(place)
+            if original:
+                return original
+    return body
+
+
+def _tail(store: Any, file_id: int) -> str:
+    """The message's kept tail, or "" - also on an index from before schema 42, which `--measure`
+    reads read-only and so never migrates."""
+    import sqlite3  # noqa: PLC0415
+
+    try:
+        found = store.message_tail(file_id)
+    except (sqlite3.OperationalError, AttributeError):
+        return ""
+    return found[0] if found else ""
+
+
+def _place(store: Any, file_id: int) -> Optional[dict]:
+    """Where a message can be read again: its `files` and `messages` columns, or None."""
+    row = store.conn.execute(
+        "SELECT f.path, f.source_kind, m.store_path, m.entry_id, m.folder_path, m.folder_index, "
+        "m.quoted_removed FROM files f LEFT JOIN messages m ON m.file_id = f.id WHERE f.id = ?",
+        (int(file_id),)).fetchone()
+    return dict(row) if row is not None else None
 
 
 def window_start(months: int, today: Any = None) -> Optional[int]:

@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 41
+CURRENT_VERSION = 42
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2141,6 +2141,31 @@ def _v41_enrichment_that_finds(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_addr ON messages(sender_addr, sent_at)")
 
 
+def _v42_message_tails(conn: sqlite3.Connection) -> None:
+    r"""`message_tails`: the part of a message the index cut, kept beside it (order 1s 4a, D6).
+
+    `strip_quoted` cuts a message at its signature or its quoted chain so a thread is
+    indexed once, and the signature went with it - on the owner's index that is why
+    enrichment found a block for 90 of 526 people with mail. The tail is kept here, a
+    row a message, at most 2,000 characters (`quoting.TAIL_MAX_CHARS`):
+
+    * **not in `chunks`**, so it is never embedded, never in `chunks_fts`, and search
+      is exactly what it was;
+    * **removed with its message** - `ON DELETE CASCADE` from `files`, the same way
+      `chunks` and `messages` go;
+    * `reason` is `StripResult.reason` ("signature: ..." or "quoted: ..."), so a
+      reader can tell a signature from a quoted chain written by somebody else.
+
+    Additive: one empty table. Mail indexed before it has no rows until it is read
+    again (D6); enrichment can re-read the original on demand (4b).
+    """
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS message_tails ("
+        " file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+        " text    TEXT NOT NULL,"
+        " reason  TEXT NOT NULL DEFAULT '')")
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2182,6 +2207,7 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     39: _v39_tidy_journal,
     40: _v40_cards_and_words,
     41: _v41_enrichment_that_finds,
+    42: _v42_message_tails,
 }
 
 #: Released migrations that open and close transactions of their own -

@@ -423,6 +423,8 @@ class MailIndexer:
                     recipients=m.get("recipients"), sent_at=m.get("sent_at"),
                     conversation=m.get("conversation"), has_attach=int(m.get("has_attach", 0) or 0),
                     quoted_removed=m.get("quoted_removed"))
+                # Order 1s 4a: the cut-off signature, as the file indexer keeps it.
+                store.set_message_tail(file_id, m.get("tail"), m.get("tail_reason"))
                 store.set_account_message(file_id, account_id=p.account_id, remote_id=p.remote_id,
                                           labels=p.labels, message_id=p.nid)
                 result.file_ids.append(file_id)
