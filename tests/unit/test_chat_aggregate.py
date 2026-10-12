@@ -60,7 +60,10 @@ def test_every_aggregate_answer_states_its_scope_in_the_same_breath(env, qa):
 def test_a_list_says_when_it_is_complete_and_when_it_is_not(env):
     everything = run_aggregate(
         env.store, parse_aggregate("List the emails from Priya", env.store), limit=50)
-    assert "That's all 1." in everything.text and len(everything.rows) == 1
+    # Complete is said by the inline list under the answer ("That's all - 1 result."), not by
+    # the prose as well: saying it twice was the duplicate the owner saw (2026-10-12).
+    assert "That's all" not in everything.text and len(everything.rows) == 1
+    assert "Here are the newest" not in everything.text
     truncated = run_aggregate(
         env.store, parse_aggregate("List the emails from Dave", env.store), limit=3)
     assert "Here are the newest 3" in truncated.text and truncated.count == 6

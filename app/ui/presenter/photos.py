@@ -28,7 +28,7 @@ from typing import Any, Iterable, Optional, Sequence
 
 __all__ = [
     "narrow", "facets", "sort_rows", "SORTS", "KINDS", "COLUMNS", "PHOTOS_COMMANDS",
-    "month_heading", "date_text", "size_text", "people_text", "column_text",
+    "month_heading", "date_text", "size_text", "people_text", "column_text", "heading_sorted",
     "summary", "year_of", "toggle_in_box", "box_has", "words_of_row", "only_matches",
     "from_mail", "in_scope", "arrange",
 ]
@@ -114,8 +114,26 @@ def in_scope(rows: Sequence[Any], parsed: Any) -> int:
     return sum(1 for row in rows if from_mail(row) == wants_mail)
 
 
+def heading_sorted(rows: Sequence[Any], key: Optional[str], reverse: bool = False) -> list[Any]:
+    """`rows` sorted by a Details heading's column (`COLUMNS` key), or as they came for None.
+
+    Pure, so it runs on `arrange`'s worker: a heading held across the page's periodic read of the library
+    re-sorted all 46,000 pictures on the window's thread every 45 seconds (CodeRabbit on #68)."""
+    if key is None:
+        return list(rows)
+
+    def value(row: Any) -> Any:
+        if key == "date":
+            return row.when_ns or 0
+        if key == "size":
+            return row.size_bytes or 0
+        return column_text(row, key).casefold()
+
+    return sorted(rows, key=value, reverse=reverse)
+
+
 def arrange(rows: Sequence[Any], parsed: Any, words: str,
-            sort_key: str) -> tuple[list, str, int, int]:
+            sort_key: str, heading: Optional[tuple[str, bool]] = None) -> tuple[list, str, int, int]:
     """The pictures the box lets through, in the order asked, with the order and the
     two counts the summary line shows. **Runs on a worker** - the Photos tab hands it
     to one, because until 2026-10-09 the window's thread did this on every search
@@ -128,7 +146,10 @@ def arrange(rows: Sequence[Any], parsed: Any, words: str,
     """
     shown = narrow(rows, parsed, words)
     order = getattr(parsed, "sort", "") or sort_key
-    return sort_rows(shown, order), order, len(shown), in_scope(rows, parsed)
+    ordered = sort_rows(shown, order)
+    if heading is not None:                       # a Details heading the person clicked holds
+        ordered = heading_sorted(ordered, *heading)
+    return ordered, order, len(shown), in_scope(rows, parsed)
 
 
 #: The `only:` value that brings pictures from mail in. Without it they are

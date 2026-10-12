@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, Qt, Signal
 from PySide6.QtGui import QColor, QGuiApplication
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -65,20 +65,29 @@ from PySide6.QtWidgets import (
 from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.confirm import confirm
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.qtsip import open_menu
+from app.ui.theme import theme_colours
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
 
-#: Status column text and colour per health state. Colours are chosen to survive
-#: both themes and to remain distinguishable without relying on hue alone - the
+#: Status column text, and the theme token for its colour, per health state. The
 #: word carries the meaning, the colour only speeds the scan.
+#:
+#: **Tokens, not hexes** (2026-10-12). These were four literals meant to survive
+#: both themes, and on the dark card three did not: "Cannot read" 2.9 to 1,
+#: "Ready" 3.2, "Off" 3.5 - and "Limited" 3.8 on white. All under the 4.5 a word in
+#: a table needs; the tokens are measured in both (`test_ui_one_app_colours`).
 _STATE_LABEL = {
-    "ready": ("Ready", "#2e7d32"),
-    "degraded": ("Limited", "#e65100"),
-    "blocked": ("Cannot read", "#c62828"),
-    "off": ("Off", "#757575"),
+    "ready": ("Ready", "success"),
+    "degraded": ("Limited", "warning"),
+    "blocked": ("Cannot read", "danger"),
+    "off": ("Off", "text_faint"),
 }
+
+#: Where a Status cell keeps its token, so a theme switch can repaint it.
+_TOKEN_ROLE = Qt.ItemDataRole.UserRole + 1
 
 
 class EditFileTypeDialog(QDialog):
@@ -148,7 +157,8 @@ class EditFileTypeDialog(QDialog):
 
         self.warning = QLabel("")
         self.warning.setWordWrap(True)
-        self.warning.setStyleSheet("color: #e65100;")
+        # Read once, at build: the dialog is modal, so the theme cannot change under it.
+        self.warning.setStyleSheet(f"color: {theme_colours()['warning']};")
         self.limit.valueChanged.connect(self._warn_about_cost)
         self._warn_about_cost(self.limit.value())
 
@@ -163,9 +173,13 @@ class EditFileTypeDialog(QDialog):
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
 
+        # OK only stages the change - the list then says "Save to keep the
+        # change" - so a note promising it "applies from the next index run"
+        # was true only after a press this dialog never mentioned (owner-approved
+        # wording, 2026-10-12).
         note = QLabel(
-            "Applies from the next index run. Files already skipped are not "
-            "re-read until then."
+            "Press Save file types to keep it; it applies from the next index "
+            "run. Files already skipped are not re-read until then."
         )
         note.setWordWrap(True)
 
@@ -443,7 +457,7 @@ class FileTypesEditor(QGroupBox):
         if status is None:
             return QTableWidgetItem("-")
 
-        label, colour = _STATE_LABEL.get(status.state, (status.state, ""))
+        label, token = _STATE_LABEL.get(status.state, (status.state, ""))
         text = label
         if status.state in ("blocked", "degraded") and status.fix:
             # The fix on the row itself, not hidden in a tooltip: a tooltip is
@@ -453,9 +467,32 @@ class FileTypesEditor(QGroupBox):
         item = QTableWidgetItem(text)
         if status.detail:
             item.setToolTip(f"{status.detail}\n\n{status.fix}".strip())
-        if colour:
-            item.setForeground(QColor(colour))
+        if token:
+            item.setData(_TOKEN_ROLE, token)
+            item.setForeground(QColor(theme_colours()[token]))
         return item
+
+    def _retint(self) -> None:
+        """Repaint the Status column in the theme's current colours.
+
+        A cell's foreground is a colour, not a stylesheet rule, so the window's new
+        sheet never reaches it: without this, a switch to light kept the dark
+        theme's pale green on white until the table happened to be refilled.
+        """
+        colours = theme_colours()
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 3)
+            token = item.data(_TOKEN_ROLE) if item is not None else None
+            if token in colours:
+                item.setForeground(QColor(colours[token]))
+
+    def changeEvent(self, event: QEvent) -> None:          # noqa: N802 - Qt's name
+        # A theme switch arrives as a StyleChange: `MainWindow._apply_theme` sets
+        # the window's sheet and Qt tells every child. `table` is checked because
+        # Qt can send the event while `__init__` is still building.
+        if event.type() == QEvent.Type.StyleChange and hasattr(self, "table"):
+            self._retint()
+        super().changeEvent(event)
 
     def _summarise(self, rows: list) -> None:
         from app.core.format_health import summarise
@@ -780,8 +817,6 @@ class FileTypesEditor(QGroupBox):
 
         Types added here go too - they only ever existed in that file.
         """
-        from PySide6.QtWidgets import QMessageBox
-
         added = len(self._added)
         question = (
             "Switch every supported file type back on, with the reader and size "
@@ -790,12 +825,9 @@ class FileTypesEditor(QGroupBox):
         if added:
             question += f"\n\nThe {added} type(s) you added here will be removed."
 
-        confirmed = QMessageBox.question(
-            self, "Reset file types", question,
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
-        )
-        if confirmed != QMessageBox.StandardButton.Yes:
+        # Cancel and the verb, Cancel the default (`widgets/confirm.py`): "Yes"
+        # asked somebody to re-read the question to know what they agreed to.
+        if not confirm(self, "Reset file types", question, "Reset file types"):
             return
 
         try:

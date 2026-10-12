@@ -59,9 +59,27 @@ def usable_domain(host: str) -> str:
 
 
 def _social(domain: str) -> bool:
+    """Is `domain` a social site - matched at its own name, never inside another (CodeRabbit, #68)?
+
+    `_SOCIAL_HOSTS` holds whole hosts (`x.com`, `github.com`) and brand prefixes (`linkedin.`). A whole host
+    matches itself or a subdomain of it; a brand matches when it is the domain's own name with only a short
+    country or generic ending after it (`linkedin.com`, `ae.linkedin.com`, `linkedin.co.uk`) - so
+    `linkedin.com.example.org`, somebody's own site, is not LinkedIn."""
     from app.contacts.enrich.sigparse import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
-    d = "." + domain
-    return any(("." + s.rstrip(".")) in d for s in _SOCIAL_HOSTS)
+
+    d = domain.lower().strip(".")
+    labels = d.split(".")
+    for host in _SOCIAL_HOSTS:
+        if not host.endswith("."):
+            if d == host or d.endswith("." + host):
+                return True
+            continue
+        brand = host[:-1]
+        if brand in labels:
+            ending = labels[labels.index(brand) + 1:]
+            if 1 <= len(ending) <= 2 and all(len(x) <= 3 for x in ending):
+                return True
+    return False
 
 
 def company_domain(card: Card) -> str:

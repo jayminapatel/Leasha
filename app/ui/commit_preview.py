@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from app.ui.preview_loader import KIND_HTML, KIND_TEXT, Preview
+from app.ui.theme import theme_colours
 
 __all__ = ["commit_preview", "commit_html", "date_in_words", "STATUS_WORDS"]
 
@@ -34,13 +35,20 @@ __all__ = ["commit_preview", "commit_html", "date_in_words", "STATUS_WORDS"]
 STATUS_WORDS = {"A": "Added", "M": "Modified", "D": "Deleted", "R": "Renamed",
                 "C": "Copied", "T": "Type changed"}
 
-#: Colours that read on a light page and on a dark one. The pane's own text
-#: colour is left alone everywhere else, so the theme still decides it.
-_ADDED = "#2da44e"
-_REMOVED = "#e5534b"
-_HUNK = "#8a63d2"
-#: The searched text: dark ink on yellow, whatever the theme.
-_MARK = "background-color:#ffe066; color:#1f2328"
+#: The theme token for each kind of diff line. The pane's own text colour is
+#: left alone everywhere else, so the theme still decides it.
+#:
+#: **Tokens, read when the page is written** (2026-10-12). These were literals
+#: meant to read on a light page and a dark one, and on white the added green
+#: measured 3.2 to 1 and the removed red 3.7 - under the 4.5 a line of code
+#: needs. The page is written per selected commit, so a theme switch shows at
+#: the next one. `theme_colours()` is a dict copy, safe on this worker thread.
+_ADDED, _REMOVED, _HUNK = "success", "danger", "accent_text"
+
+
+def _mark_style(colours: dict) -> str:
+    """The searched text: the theme's own match ground, as the results list draws it."""
+    return f"background-color:{colours['mark']}; color:{colours['mark_text']}"
 
 
 def date_in_words(iso: str) -> str:
@@ -57,37 +65,39 @@ def date_in_words(iso: str) -> str:
     return f"{when:%A} {when.day} {when:%B %Y}, {when:%H:%M}"
 
 
-def _marked(text: str, needle: str) -> str:
+def _marked(text: str, needle: str, colours: dict) -> str:
     """`text` escaped for HTML, with every `needle` in it highlighted."""
     wanted = str(needle or "")
     if not wanted:
         return escape(text)
+    mark = _mark_style(colours)
     pieces = re.split(f"({re.escape(wanted)})", text, flags=re.IGNORECASE)
     return "".join(
-        f'<span style="{_MARK}">{escape(piece)}</span>' if index % 2 else escape(piece)
+        f'<span style="{mark}">{escape(piece)}</span>' if index % 2 else escape(piece)
         for index, piece in enumerate(pieces))
 
 
-def _diff_line(line: str, needle: str) -> str:
+def _diff_line(line: str, needle: str, colours: dict) -> str:
     """One diff line as HTML: headers bold, hunks, additions and removals coloured."""
-    body = _marked(line, needle) or "&nbsp;"
+    body = _marked(line, needle, colours) or "&nbsp;"
     if line.startswith(("diff --git", "+++ ", "--- ", "index ", "new file", "deleted file",
                         "rename ", "similarity ", "old mode", "new mode")):
         return f"<b>{body}</b>"
     if line.startswith("@@"):
-        return f'<span style="color:{_HUNK}">{body}</span>'
+        return f'<span style="color:{colours[_HUNK]}">{body}</span>'
     if line.startswith("+"):
-        return f'<span style="color:{_ADDED}">{body}</span>'
+        return f'<span style="color:{colours[_ADDED]}">{body}</span>'
     if line.startswith("-"):
-        return f'<span style="color:{_REMOVED}">{body}</span>'
+        return f'<span style="color:{colours[_REMOVED]}">{body}</span>'
     return body
 
 
 def commit_html(detail: Any, needle: str = "") -> str:
     """The page for one commit: message, author and date, files, diff."""
-    parts = [f"<h3>{_marked(detail.subject, needle)}</h3>"]
+    colours = theme_colours()                  # once per page, not once per diff line
+    parts = [f"<h3>{_marked(detail.subject, needle, colours)}</h3>"]
     if detail.body:
-        parts.append(f'<p style="white-space:pre-wrap">{_marked(detail.body, needle)}</p>')
+        parts.append(f'<p style="white-space:pre-wrap">{_marked(detail.body, needle, colours)}</p>')
 
     who = f"<b>{escape(detail.author)}</b>"
     if detail.email:
@@ -106,7 +116,7 @@ def commit_html(detail: Any, needle: str = "") -> str:
         parts.append(f'<table cellspacing="0" cellpadding="1">{"".join(rows)}</table>')
 
     if detail.diff:
-        lines = "\n".join(_diff_line(line, needle) for line in detail.diff.split("\n"))
+        lines = "\n".join(_diff_line(line, needle, colours) for line in detail.diff.split("\n"))
         parts.append(f"<pre>{lines}</pre>")
     return "\n".join(parts)
 

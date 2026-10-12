@@ -78,13 +78,16 @@ def _warn_write_failed(widget: QWidget, title: str, error: Any) -> None:
 
 
 def _pile_label(pile: Any, rank: int) -> str:
-    """Section 2a: "Person 1 — 47 photos" for an unnamed pile, the name
+    """Section 2a: "Person 1 — 47 face(s)" for an unnamed pile, the name
     itself for a named one. `rank` is 1-based position in the biggest-first
     list `piles_with_counts` already returns - not stored anywhere, because
-    an unnamed pile has no identity of its own to remember a number for."""
+    an unnamed pile has no identity of its own to remember a number for.
+
+    Faces, not photos (owner-approved wording, 2026-10-12): the number is
+    `face_count`, so the words now say what is counted."""
     if pile.name:
-        return f"{pile.name} — {pile.face_count} photo(s)"
-    return f"Person {rank} — {pile.face_count} photo(s)"
+        return f"{pile.name} — {pile.face_count} face(s)"
+    return f"Person {rank} — {pile.face_count} face(s)"
 
 
 class _PileList(QListWidget):
@@ -717,7 +720,11 @@ class PhotoTaggerPage(QWidget):
             answer = QMessageBox.question(
                 self, "Put these faces with them?",
                 f"There is already a group called {name.strip()}. Put these faces "
-                f"with {name.strip()}? The two groups become one.")
+                f"with {name.strip()}? The two groups become one.",
+                # Cancel the default, as the two other combines here have: the
+                # platform's default was Yes, so Enter merged two people.
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Cancel)
             if answer != QMessageBox.StandardButton.Yes:
                 return
             self._show_combined(pile_id, int(taken))

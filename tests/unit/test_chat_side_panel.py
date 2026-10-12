@@ -206,6 +206,10 @@ def test_the_strip_shows_one_page_at_a_time_and_the_open_tab_puts_the_panel_away
 
     tabs = view.side_tabs.buttons
     assert set(tabs) == {SOURCES_TAB, PREVIEW_TAB}
+    # 2026-10-12, owner-approved: the panel starts away (it took a third of the
+    # window before anything was asked); Sources is the page it first shows.
+    assert not view.panel.state.open and view.sources.isHidden()
+    tabs[SOURCES_TAB].click()
     assert view.panel.state.open and _pages(view) == (True, False), "Sources shows first"
     assert tabs[SOURCES_TAB].isChecked() and view.toggles["sources"].isChecked()
 

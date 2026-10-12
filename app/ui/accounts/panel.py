@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QWidget, QColorDialog,
 )
 
+from app.accounts.store import palette_colour
 from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, notice, set_quiet
@@ -108,6 +109,11 @@ class _RemoveDialog(QDialog):
         cancel = btn("Cancel", "x")
         ok.clicked.connect(self.accept)
         cancel.clicked.connect(self.reject)
+        # Enter cancels. A QDialog's push buttons are all auto-default, so Enter
+        # pressed in the dialog fell to whichever had focus or came first - and
+        # removing an account deletes its sign-in from Credential Manager.
+        ok.setAutoDefault(False)
+        cancel.setDefault(True)
         lay.addLayout(self._row(cancel, ok))
 
     @staticmethod
@@ -576,7 +582,8 @@ class AccountPanel(QGroupBox):
             self._acct(name=text)
 
     def _colour(self) -> None:
-        chosen = pick_colour(self, self._account.colour if self._account else "#4C8BF5")
+        # A new account's first colour, from the store's own palette rather than a copy of it.
+        chosen = pick_colour(self, self._account.colour if self._account else palette_colour(0))
         if chosen:
             self.colour_swatch.setStyleSheet(f"background: {chosen}; border: 1px solid palette(mid);")
             self._acct(colour=chosen)

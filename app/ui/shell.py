@@ -458,6 +458,7 @@ class MainWindow(QMainWindow):
         # the owner has seen the plan and said yes.
         self.tidy_view = TidyView(store)
         self.tidy_view.error.connect(self._show_error)
+        self.tidy_view.report.notice.connect(self.notify)
         # Order 1i (2026-10-11): the Life Timeline is a rail page of its own,
         # "Browse", where Offline was - no longer a row in the Reports list.
         self.timeline_view = TimelineView(store)
@@ -1481,7 +1482,7 @@ class MainWindow(QMainWindow):
             self.addAction(action)
 
         bind("Ctrl+K", self._focus_search)
-        bind("Ctrl+F", self._focus_search)
+        bind("Ctrl+F", self._find_or_search)
         # `getattr`: Indexing and Settings are built a beat after the window
         # appears (`_construct_deferred_pages`); `_show(None)` does nothing.
         bind("Ctrl+,", lambda: self._show(getattr(self, "settings_view", None)))
@@ -2302,6 +2303,23 @@ class MainWindow(QMainWindow):
         """Ctrl+K / Ctrl+F: the Search page, cursor in the box."""
         self._show(self.search_view)
         self.search_view.focus()
+
+    def _find_or_search(self) -> None:
+        """Ctrl+F: in a preview pane, that pane's find; anywhere else, Search.
+
+        The pane binds no Ctrl+F of its own: two window-wide bindings of one key are ambiguous
+        and Qt fires neither, so while a preview showed Ctrl+F did nothing anywhere
+        (`find_bar.attach_find`, 2026-10-12). Ctrl+K always goes to Search.
+        """
+        from PySide6.QtWidgets import QApplication
+
+        from app.ui.widgets.find_bar import focused_find
+
+        bar = focused_find(QApplication.focusWidget())
+        if bar is not None:
+            bar.focus()
+            return
+        self._focus_search()
 
     def _save_current_search(self) -> None:
         """Edit > Save this search. Adoptions 3b: only ever because somebody asked."""

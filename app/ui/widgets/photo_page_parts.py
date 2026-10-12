@@ -9,6 +9,7 @@ Layer: L5
   people, Write names into it, Photos from the same day, Copy.
 - `ViewButton` - the tab's View icon (`view_options._as_icon`), with the
   `menu_for` the window's View menu calls.
+- `open_viewer` - the full-size viewer: one window, however often it is asked.
 - `library`, `read_box` - the tab's two reads - and `read_library`,
   `read_the_box` and `arrange_rows`, which start them (and the sorting step)
   on a worker and route the answer back safely.
@@ -32,7 +33,7 @@ from app.ui.presenter.photos import SORTS, facets
 from app.ui.widgets.photo_browser import MODES
 
 __all__ = ["ViewButton", "fill_view_menu", "photo_menu", "STATE_KEYS", "same_day_box", "tree_toggle",
-           "TREE_TIP",
+           "TREE_TIP", "open_viewer",
            "library", "read_box", "read_library", "read_the_box", "arrange_rows"]
 
 #: `index_state` keys, namespaced `ui:` like every remembered choice.
@@ -103,11 +104,24 @@ def read_the_box(owner: Any, store: Any, text: str, reading: dict, *,
 def arrange_rows(owner: Any, rows: list, parsed: Any, words: str, sort_key: str, *,
                  finished: Callable[[Any], None], failed: Callable[[Any], None]) -> None:
     """`presenter.photos.arrange` - narrow, sort, count - on a worker."""
-    from app.ui.presenter.photos import arrange
+    from app.ui.presenter.photos import arrange, heading_sorted
     from app.ui.workers import CallableWorker
 
-    _start(owner, CallableWorker(arrange, rows, parsed, words, sort_key,
-                                 component="ui.photos"), finished, failed)
+    # The heading is read here, on the window's thread, and the sort by it is done on the worker.
+    model = getattr(getattr(owner, "browser", None), "model", None)
+    heading = model.heading_order() if model is not None else None
+
+    def landed(result: Any) -> None:
+        # A heading clicked while this was being arranged: the result is in the old heading's order, and
+        # drawing it would undo the click (CodeRabbit on #68). One sort by the new heading - the cost of the
+        # click itself, which the person asked for - never the old order.
+        now = model.heading_order() if model is not None else None
+        if now != heading and now is not None:
+            result = (heading_sorted(result[0], *now), *result[1:])
+        finished(result)
+
+    _start(owner, CallableWorker(arrange, rows, parsed, words, sort_key, heading,
+                                 component="ui.photos"), landed, failed)
 
 
 def fill_view_menu(menu: QMenu, view: Any) -> None:
@@ -172,9 +186,47 @@ class ViewButton(QToolButton):
         self.setMenu(menu)
         _as_icon(self)
 
-    def menu_for(self, menu: QMenu) -> None:
-        """Fill the window's View menu with this tab's entries (the window calls it)."""
-        fill_view_menu(menu, self._view)
+    def menu_for(self, parent: QWidget) -> QMenu:
+        """This tab's View entries in a menu of their own, for the window's View menu.
+
+        Returned, as every tab's `menu_for` returns its built menu: the window
+        moves the entries across and, at the next opening, takes them out and
+        deletes this menu. Until 2026-10-12 this filled the window's menu itself
+        and returned None, so the window recorded nothing to take out and the
+        Photos entries piled up again on every opening.
+        """
+        built = QMenu(parent)
+        fill_view_menu(built, self._view)
+        return built
+
+
+def open_viewer(view: Any, row: Any) -> Any:
+    """Show `row` full size: in the viewer already open, or in a new one.
+
+    One window per page. A second ask while one is open - another double-click,
+    the info panel's View - shows the photo there and brings it forward rather
+    than stacking a second window on top (2026-10-12).
+    """
+    from PySide6.QtCore import Qt
+
+    from app.ui import qtsip
+    from app.ui.widgets.photo_viewer import PhotoViewer
+
+    view.browser.select_path(str(row.path))
+    viewer = getattr(view, "_viewer", None)
+    if viewer is not None and not qtsip.isdeleted(viewer) and viewer.isVisible():
+        viewer.show_row(row)
+        if viewer.isMinimized():                  # still "visible" when minimised; raise_ alone leaves it so
+            viewer.showNormal()
+        viewer.raise_()
+        viewer.activateWindow()
+        return viewer
+    viewer = PhotoViewer(row, view.browser.step, view._position, view,
+                         peek=view.browser.neighbour)
+    viewer.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+    view._viewer = viewer
+    viewer.show()
+    return viewer
 
 
 def same_day_box(row: Any) -> str:

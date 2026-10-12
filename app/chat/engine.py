@@ -47,7 +47,9 @@ from typing import Any, Callable, Optional, Sequence
 from app.chat import absence, memory, prompts
 from app.chat.aggregate import parse_aggregate, run_aggregate
 from app.chat.config import ChatSettings
-from app.chat.context import Piece, Source, about_line, build_sources, is_mail_archive
+from app.chat.context import (
+    Piece, Source, about_line, build_sources, is_mail_archive, source_key,
+)
 from app.chat.llm import OllamaLLM, as_llm
 from app.chat.my_words import apply as apply_words, learn as learn_words, note_for_model
 from app.chat.plan import Assessment, Plan, assess, make_plan, planner_queries, widen
@@ -1070,9 +1072,9 @@ class ChatEngine:
     def _find_turn(self, plan: Plan, retrieval: _Retrieval, send: Callable, debug: dict, *,
                    lead: str) -> ChatTurn:
         limit = self.cfg.result_limit
-        by_file: dict[int, Any] = {}
+        by_file: dict[Any, Any] = {}
         for r in retrieval.results:
-            by_file.setdefault(int(getattr(r, "file_id", 0) or 0), r)
+            by_file.setdefault(source_key(r), r)
         results = list(by_file.values())[:limit]
         n = len(results)
         noun = "document" if n == 1 else "documents"
@@ -1084,7 +1086,9 @@ class ChatEngine:
             text = f"Here is the one {noun} matching {what}. "
         else:
             text = f"Here are the {'best ' if full else ''}{n} {noun} matching {what}. "
-        text += f"These are the best {n}." if full else (f"That's all {n}." if n != 1 else "That's all.")
+        # 2026-10-12: "That's all N." is left to the inline list, which ends "That's
+        # all - N results." itself; said in both, the count read twice.
+        text = (text + f"These are the best {n}.") if full else text.rstrip()
         receipts = self._receipts_for(results, plan.terms, limit=_FIND_RECEIPTS)
         for receipt in receipts[:_FIND_SHELF]:
             send(ShelfEvent(receipt))
@@ -1287,7 +1291,10 @@ class ChatEngine:
 
     def _metas(self, results: Sequence[Any]) -> dict[int, dict]:
         try:
-            return self.store.messages_for(sorted({int(r.file_id) for r in results}))
+            # A hit with no file id is not a message; one such hit used to throw
+            # here and cost every other source its subject and sender.
+            return self.store.messages_for(sorted({int(r.file_id) for r in results
+                                                   if getattr(r, "file_id", None)}))
         except Exception:                               # noqa: BLE001
             return {}
 

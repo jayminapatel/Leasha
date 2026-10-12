@@ -18,6 +18,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 
 from app.contacts.hub import ContactRow
 from app.ui.contacts.logic import COLUMNS, account_glyph, column_key, last_contacted_text, sort_rows, where_it_lives
+from app.ui.theme import theme_colours
 from app.ui.widgets.icons import icon
 
 __all__ = ["ContactModel", "RowRole"]
@@ -35,12 +36,19 @@ class ContactModel(QAbstractTableModel):
         self._tag_colours: dict[str, str] = {}
         self._sort: tuple[int, bool] = (0, False)
         self._lives_icons: dict[str, Any] = {}
-        self._ink = {"warning": "#b06000", "ok": "#188038", "dim": "#888888"}
+        # The theme's ink from the first paint, not three literals until the page's
+        # first `retint` - `#188038` was a green no other "ok" in the window used.
+        self._ink = self._inks(theme_colours())
+
+    @staticmethod
+    def _inks(colours: dict[str, str]) -> dict[str, str]:
+        return {"warning": colours.get("warning", "#b06000"),
+                "ok": colours.get("text_dim", "#888888"),
+                "dim": colours.get("text_faint", "#888888")}
 
     # ------------------------------------------------------------------ data in
     def retint(self, colours: dict[str, str]) -> None:
-        self._ink = {"warning": colours.get("warning", "#b06000"), "ok": colours.get("text_dim", "#888888"),
-                     "dim": colours.get("text_faint", "#888888")}
+        self._ink = self._inks(colours)
         self._lives_icons = {"single": icon("triangle-alert", self._ink["warning"]),
                              "none": icon("triangle-alert", self._ink["warning"]),
                              "multi": icon("circle-check", self._ink["ok"])}

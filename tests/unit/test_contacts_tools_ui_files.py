@@ -451,3 +451,44 @@ def test_look_again_keeps_force_for_a_host_that_takes_force_but_not_progress():
 
     gather_proposals(SimpleNamespace(enrich=enrich), force=True)
     assert calls == [True]
+
+
+def test_look_again_keeps_progress_for_a_host_that_takes_progress_but_not_force():
+    """CodeRabbit on #68 (2026-10-12): a host taking on_progress/cancelled but not force fell back to a call with
+    nothing, losing progress and Stop. Without force, the callbacks are kept."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    calls = []
+
+    def enrich(on_progress=None, cancelled=None):
+        calls.append(callable(on_progress) and callable(cancelled))
+        return SimpleNamespace(proposals=[], notes=[])
+
+    gather_proposals(SimpleNamespace(enrich=enrich), on_progress=lambda _p: None, cancelled=lambda: False, force=True)
+    assert calls == [True]
+
+
+@pytest.mark.parametrize("params", [
+    ("force", "cancelled"), ("force", "on_progress"), ("on_progress", "cancelled"), ("force",), ("cancelled",),
+    ("on_progress", "cancelled", "force"), (),
+])
+
+
+def test_a_host_gets_every_keyword_it_takes_and_none_it_does_not(params):
+    """CodeRabbit on #67, third round (2026-10-12): retrying fixed subsets kept losing a callback some host
+    took - a host taking force and cancelled lost cancelled, so Stop could not interrupt it. The host's own
+    signature now says what it takes."""
+    from types import SimpleNamespace
+
+    from app.ui.contacts_tools.enrich_dialog import gather_proposals
+
+    got = {}
+    ns: dict = {}
+    exec("def enrich(" + ", ".join(f"{p}=None" for p in params) + "):\n    got.update(locals())\n"
+         "    return SimpleNamespace(proposals=[], notes=[])", {"got": got, "SimpleNamespace": SimpleNamespace}, ns)
+    gather_proposals(SimpleNamespace(enrich=ns["enrich"]), on_progress=lambda _p: None, cancelled=lambda: False,
+                     force=True)
+    assert set(got) == set(params)
+    assert all(got[p] is not None for p in params)

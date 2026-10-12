@@ -289,7 +289,7 @@ def test_every_page_every_action_button_follows_the_rules(shown) -> None:
 
 def test_the_dialogs_and_pop_outs_follow_the_rules_too(qapp, shown) -> None:
     """Dialogs style themselves as they are built. OK is the dialog's primary,
-    Cancel secondary, "Forget this source" danger - and their row stays where
+    Cancel secondary, "Delete" danger - and their row stays where
     the operating system puts it."""
     from app.ui.widgets.offline_media_dialogs import (
         DeleteVolumeDialog, RenameSuggestionDialog, ScanNameDialog,
