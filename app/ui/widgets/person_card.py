@@ -257,7 +257,9 @@ class PersonStrip(QWidget):
     def typed(self, _text: str = "") -> None:
         """The box changed: look again after the person pauses."""
         self._generation += 1                    # whatever is out there is stale now
-        self._painted, self._held = False, None
+        # `_painted` stays: it is about the rows on screen, which are still there
+        # until the new ones replace them (`rows_moved`) - review of #74.
+        self._held = None
         if not self._query():
             self.person_timer.stop()
             self.clear()

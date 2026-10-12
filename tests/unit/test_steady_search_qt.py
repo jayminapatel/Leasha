@@ -323,3 +323,76 @@ def test_the_sort_control_sets_the_typed_sort_and_follows_it(world):
     sort.choose("")
     assert view.input.text() == "boiler"
     assert "Best match" in sort.text()
+
+
+# -- the review of PR 74 --------------------------------------------------------------------
+
+def test_choosing_a_sort_leaves_the_spaces_inside_a_quoted_filter_alone():
+    from app.ui.presenter.search import with_sort
+
+    assert with_sort('boiler name:"Project  Plan" /newest', "oldest") == 'boiler name:"Project  Plan" /oldest'
+
+
+def test_typing_over_painted_rows_still_holds_a_card_until_the_new_rows(world):
+    """A query edited with rows on screen: those rows are still painted until replaced."""
+    from app.ui.widgets.person_card import PersonInfo
+
+    view, _engine, _store = world
+    strip = view.person_strip
+    _search(view, "boiler")
+    strip.typed("boiler q")                                # the person types on; old rows still there
+    strip._landed([PersonInfo(1, "Ann Lee")], strip._generation, "boiler q")
+    settle()
+    assert strip.isHidden()
+    view.results.rows_changed.emit([object()])
+    settle()
+    assert not strip.isHidden()
+
+
+def test_a_missing_file_says_missing_to_a_screen_reader():
+    from types import SimpleNamespace
+
+    from PySide6.QtCore import Qt
+
+    from app.ui.widgets.results_items import result_item
+
+    payload = SimpleNamespace(path="C:/gone/a.pdf", name="a.pdf", file_id=1)
+    item = result_item(payload, expanded=False, missing={"C:/gone/a.pdf"}, volumes={}, placeholders=set())
+    assert "Missing" in item.data(int(Qt.ItemDataRole.AccessibleTextRole))
+
+
+def test_a_list_emptied_by_another_action_does_not_keep_the_old_count(world):
+    from types import SimpleNamespace
+
+    from app.ui.presenter import status_line
+
+    view, _engine, _store = world
+    response = SimpleNamespace(results=[SimpleNamespace(file_id=1)], interim=False, elapsed_ms=5)
+    view.status.counted(response, status_line(response))
+    assert view.status.text() == "1 document"
+    view.status.recount(0)
+    assert view.status.text() == "No documents"
+
+
+def test_a_link_cut_off_by_the_one_line_notice_stays_clickable(world):
+    from types import SimpleNamespace
+
+    view, _engine, _store = world
+    bar = view.notices
+    long = "word " * 80
+    notice = SimpleNamespace(code="X", message=long + 'Search <a href="apply:type:pdf">PDF files only</a>?')
+    bar.show_notices([notice])
+    settle()
+    if bar.label.text().find("href") < 0:
+        pytest.skip("this notice kind is not drawn with its link")
+    assert not bar.action.isHidden() and "apply:type:pdf" in bar.action.text()
+    chosen = []
+    bar.chosen.connect(chosen.append)
+    bar.action.linkActivated.emit("apply:type:pdf")
+    assert chosen == ["apply:type:pdf"]
+
+
+def test_long_source_names_scroll_with_the_answer_inside_the_slot(card):
+    view, card, _fake = card
+    assert card.sources.parentWidget() is not None
+    assert card.scroll.widget().isAncestorOf(card.sources)

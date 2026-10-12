@@ -307,8 +307,7 @@ class SearchView(QWidget):
         if generation < self._shown_generation or not rows:
             return
         total = self.results.append_results(rows, self._last_terms)
-        self.status.setText(
-            federated_summary(self._index_count, total - self._index_count))
+        self.status.say_keeping_details(federated_summary(self._index_count, total - self._index_count))
 
     # -- results ------------------------------------------------------------
 

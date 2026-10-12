@@ -129,7 +129,16 @@ class AnswerCard(QFrame):
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.scroll.setWidget(self.body)
+        # The sources scroll with the answer: several long names wrap, and outside
+        # the scroll they would eat the answer's lines or be cut (review of #74).
+        content = QWidget()
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(6)
+        inner.addWidget(self.body)
+        inner.addWidget(self.sources)
+        inner.addStretch(1)
+        self.scroll.setWidget(content)
         # The card's own ground shows through: a scroll area paints the window
         # colour by default, which would draw a second box inside the card.
         self.scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget "
@@ -143,7 +152,6 @@ class AnswerCard(QFrame):
         column.setSpacing(6)
         column.addLayout(top)
         column.addWidget(self.scroll, 1)
-        column.addWidget(self.sources)
         column.addLayout(foot)
         self.hide()
 

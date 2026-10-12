@@ -704,5 +704,7 @@ def with_sort(text: str, value: str) -> str:
     could disagree, a notice saying "Remove /newest" about a switch nobody
     typed, and a saved search that lost the order it was saved with.
     """
-    kept = " ".join(_SORT_WRITTEN.sub(" ", str(text or "")).split())
+    # Only the switch goes: `split()` would also squeeze the spaces inside a quoted
+    # filter (`name:"Project  Plan"`) and change what it matches (review of #74).
+    kept = re.sub(r"\s*\x00\s*", " ", _SORT_WRITTEN.sub("\x00", str(text or ""))).strip()
     return f"{kept} {_SORT_TYPED.get(value, '')}".strip()

@@ -40,6 +40,12 @@ class StatusLine(QLabel):
         self.setToolTip("")
         super().setText(text)
 
+    def say_keeping_details(self, text: str) -> None:
+        """Another sentence in the count's place, the search's timing still in the tooltip."""
+        tip = self.toolTip()
+        self.setText(text)
+        self.setToolTip(tip)
+
     def counted(self, response: Any, text: str) -> None:
         """A search's line, with its timing and caveats in the tooltip.
 
@@ -52,5 +58,5 @@ class StatusLine(QLabel):
 
     def recount(self, shown: int) -> None:
         """The list drew `shown` rows: say that number, if the line is a count."""
-        if self._response is not None and shown:
+        if self._response is not None:          # zero too: an emptied list must not keep the old count
             super().setText(status_line(self._response, shown=shown))

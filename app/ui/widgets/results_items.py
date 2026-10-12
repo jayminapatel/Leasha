@@ -64,6 +64,8 @@ def result_item(payload: Any, *, expanded: bool, missing: set, volumes: dict,
         tip = "\n\n".join(part for part in (tip, f"Status: {word} — {explain(word)}") if part)
     item.setData(tip, int(_ROLE.ToolTipRole))
     spoken = accessible_text(payload, expanded=expanded)      # item 7a
+    if path in missing:                                       # what the row paints, said aloud
+        spoken = f"{spoken}, Missing" if spoken else "Missing"
     item.setData(spoken, int(_ROLE.AccessibleTextRole))
     item.setData(spoken, int(_ROLE.DisplayRole))
     return item
