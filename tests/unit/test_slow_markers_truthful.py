@@ -59,8 +59,51 @@ EXEMPT: dict[str, str] = {name: _SECTION_2_REASON for name in (
 )}
 
 
+def _is_param(node: ast.AST) -> bool:
+    """A `pytest.param(...)` call: its marks are one case's, not the test's."""
+    return isinstance(node, ast.Call) and (
+        (isinstance(node.func, ast.Attribute) and node.func.attr == "param")
+        or (isinstance(node.func, ast.Name) and node.func.id == "param"))
+
+
 def _is_slow_mark(node: ast.AST) -> bool:
-    """Anything spelt `<...>.mark.slow` - a decorator, a `pytestmark`, a `pytest.param` mark."""
+    """`<...>.mark.slow` on a test, a class or a `pytestmark` - **not** one inside a `pytest.param`,
+    which marks only that case (review of #85: one slow case would have excused its unmarked siblings)."""
+    stack = [node]
+    while stack:
+        n = stack.pop()
+        if _is_param(n):
+            continue
+        if (isinstance(n, ast.Attribute) and n.attr == "slow"
+                and isinstance(n.value, ast.Attribute) and n.value.attr == "mark"):
+            return True
+        stack.extend(ast.iter_child_nodes(n))
+    return False
+
+
+def _slow_case_ids(decorators) -> set[str]:
+    """The ids of the cases a `pytest.param(..., marks=pytest.mark.slow)` marks: its `id=`, else the
+    id pytest gives a plain literal (`1`, `a-b` for a tuple). A case named some other way is not
+    matched, so it is checked as unmarked - the guard errs towards asking, never towards excusing."""
+    ids = set()
+    for dec in decorators:
+        for node in ast.walk(dec):
+            if not (_is_param(node) and any(kw.arg == "marks" and _is_slow_mark_anywhere(kw.value)
+                                             for kw in node.keywords)):
+                continue
+            given = next((kw.value for kw in node.keywords if kw.arg == "id"), None)
+            try:
+                if given is not None:
+                    ids.add(str(ast.literal_eval(given)))
+                else:
+                    values = [ast.literal_eval(a) for a in node.args]
+                    ids.add("-".join(str(v) for v in values))
+            except (ValueError, SyntaxError):
+                continue
+    return ids
+
+
+def _is_slow_mark_anywhere(node: ast.AST) -> bool:
     return any(isinstance(n, ast.Attribute) and n.attr == "slow"
                and isinstance(n.value, ast.Attribute) and n.value.attr == "mark"
                for n in ast.walk(node))
@@ -79,6 +122,8 @@ def _marks_in(path: Path) -> tuple[bool, dict[str, bool]]:
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             marks[node.name] = any(_is_slow_mark(d) for d in node.decorator_list)
+            for case in _slow_case_ids(node.decorator_list):
+                marks[f"{node.name}[{case}]"] = True
         elif isinstance(node, ast.ClassDef):
             on_class = any(_is_slow_mark(d) for d in node.decorator_list) or any(
                 isinstance(s, ast.Assign) and _is_slow_mark(s.value)
@@ -95,7 +140,9 @@ def unmarked_over_threshold(measurements: dict) -> list[str]:
     """Measured tests at or over the threshold whose source carries no `slow` mark."""
     offenders = []
     for nodeid, entry in measurements.get("slow_tests", {}).items():
-        if float(entry.get("seconds", 0.0)) < run_suite.SLOW_SECONDS or entry.get("marked"):
+        # The source decides, never the recorded `marked` flag: a mark removed since the last
+        # measured run must be caught now, not after the next one (review of #85).
+        if float(entry.get("seconds", 0.0)) < run_suite.SLOW_SECONDS:
             continue
         path, _, rest = nodeid.partition("::")
         file = ROOT / path
@@ -103,8 +150,8 @@ def unmarked_over_threshold(measurements: dict) -> list[str]:
             continue
         whole, marks = _marks_in(file)
         name = rest.split("[", 1)[0]
-        if whole or name not in marks or marks[name]:
-            continue
+        if whole or name not in marks or marks[name] or marks.get(rest):
+            continue                             # the file, the test, or this one case is marked
         offenders.append(f"{nodeid} ({float(entry['seconds']):.1f} s)")
     return offenders
 
@@ -174,3 +221,23 @@ def test_a_slow_test_still_cannot_load_the_florence_model():
     `real_florence` now, and a test that is merely slow is still guarded."""
     florence_tagger = pytest.importorskip("app.extract.florence_tagger")
     assert florence_tagger._load.__name__ == "<lambda>", "the guard did not patch `_load`"
+
+
+
+def test_a_slow_case_inside_pytest_param_does_not_mark_the_whole_test(tmp_path):
+    """Review of #85: one `pytest.param(..., marks=pytest.mark.slow)` marks that case only."""
+    import textwrap
+
+    f = tmp_path / "test_x.py"
+    f.write_text(textwrap.dedent("""
+        import pytest
+        @pytest.mark.parametrize("n", [1, pytest.param(2, marks=pytest.mark.slow)])
+        def test_some(n):
+            pass
+        @pytest.mark.slow
+        def test_all():
+            pass
+    """), encoding="utf-8")
+    _marks_in.cache_clear()
+    whole, marks = _marks_in(f)
+    assert not whole and marks == {"test_some": False, "test_some[2]": True, "test_all": True}

@@ -49,7 +49,8 @@ jobs:
     # 50 minutes with no output, where a normal run takes about 12. A ceiling
     # on the job, and a per-test timeout below that names the test that hung
     # instead of a silent wait.
-    timeout-minutes: 60
+    # 90, not 60: PR CI now runs the `slow` tests too (order 1u 4a); on main it took 33 minutes without them.
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
         with:
