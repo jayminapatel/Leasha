@@ -187,7 +187,7 @@ def test_throttling_that_never_lets_up_ends_as_the_providers_limit_with_its_wait
     with pytest.raises(AppErrorException) as caught:
         gp(mf).get_many(["c1"])
     assert caught.value.error.code == "ERR_PROVIDER_LIMIT"
-    assert caught.value.error.context.get("retry_after_s") == 7.0 or "7" in str(caught.value.error.context)
+    assert caught.value.error.context.get("retry_after_s") == 7.0
     assert slept == [7.0, 7.0, 7.0]                                    # three rounds, then it says so
     assert len(sent_batches(mf)) == 4
 
