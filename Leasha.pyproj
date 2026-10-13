@@ -979,6 +979,14 @@
     <Compile Include="tests\unit\test_converter.py" />
     <Compile Include="tests\unit\test_converter_discovery.py" />
     <Compile Include="tests\unit\test_converter_warm.py" />
+    <Compile Include="tests\unit\test_cov_accounts_delete_brake.py" />
+    <Compile Include="tests\unit\test_cov_accounts_providers_common.py" />
+    <Compile Include="tests\unit\test_cov_contacts_enrich_quoted.py" />
+    <Compile Include="tests\unit\test_cov_contacts_enrich_sigplaces.py" />
+    <Compile Include="tests\unit\test_cov_contacts_enrich_suggest.py" />
+    <Compile Include="tests\unit\test_cov_contacts_merge_safe.py" />
+    <Compile Include="tests\unit\test_cov_core_errors_guard.py" />
+    <Compile Include="tests\unit\test_cov_storage_migration_steps.py" />
     <Compile Include="tests\unit\test_coverage.py" />
     <Compile Include="tests\unit\test_crash_guard.py" />
     <Compile Include="tests\unit\test_crash_reporting.py" />

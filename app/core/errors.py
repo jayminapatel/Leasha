@@ -1100,7 +1100,12 @@ def to_app_error(exc: BaseException, component: str, code: str = "ERR_UNEXPECTED
         return exc.error
     detail = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)).strip()
     context.pop("component", None)  # never shadow the positional parameter
-    return make_error(code, component, details=detail, **context)
+    # make_error's own fields, never passed to it twice: an error path must not raise (order 1u §4d)
+    given = context.pop("details", None)
+    if given:
+        detail = f"{given}\n{detail}"
+    return make_error(code, component, details=detail, suggestion=context.pop("suggestion", None),
+                      action_payload=context.pop("action_payload", None), **context)
 
 
 @contextmanager
