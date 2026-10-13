@@ -15,8 +15,10 @@ exactly (case-insensitive) and then nothing else is excluded or looked up.
 **Changes.** `/me/mailFolders/{id}/messages/delta` per folder, following
 `@odata.nextLink` until `@odata.deltaLink`. An item carrying `@removed` is
 `RemoteMessageGone`. A new or changed item has its MIME fetched with
-`GET /me/messages/{id}/$value` (the raw RFC 822 bytes). HTTP 410 on any delta is
-`TokenExpired`.
+`GET /me/messages/{id}/$value` (the raw RFC 822 bytes), up to `workers` at once - Graph
+allows four requests in flight per mailbox, and one at a time left a first fetch waiting
+on the network for most of its run. The page keeps Graph's order. HTTP 410 on any delta
+is `TokenExpired`.
 
 **Ids.** `remote_id` is `"<folderId>/<messageId>"`. Graph reports a move as
 "removed" from the old folder's delta and "added" in the new one; if both used the
@@ -35,6 +37,7 @@ resumable (rule 4).
 from __future__ import annotations
 
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Iterator, Optional
 from urllib.parse import quote
 
@@ -58,6 +61,9 @@ _SELECT = "id,receivedDateTime,isRead,categories,changeKey"
 #: alias): top-level names Outlook uses in English.
 _BIN_NAMES = frozenset({"deleted items", "junk email"})
 
+#: Graph's limit on requests in flight for one mailbox.
+MAX_WORKERS = 4
+
 
 def remote_id(folder_id: str, message_id: str) -> str:
     return f"{folder_id}/{message_id}"
@@ -68,7 +74,7 @@ class GraphMailProvider:
 
     def __init__(self, transport: Transport, token_source: TokenSource, *,
                  account_name: str = "Microsoft", page_size: int = 50,
-                 base_url: str = GRAPH_BASE, pace_s: float = 0.02,
+                 base_url: str = GRAPH_BASE, pace_s: float = 0.02, workers: int = MAX_WORKERS,
                  sleep: Callable[[float], None] = time.sleep):
         self._transport = transport
         self._token_source = token_source
@@ -79,6 +85,8 @@ class GraphMailProvider:
         # a first fetch makes one request per message; a short pause keeps it clear.
         self._pace_s = max(0.0, pace_s)
         self._sleep = sleep
+        self._workers = max(1, min(int(workers), MAX_WORKERS))
+        self._pool: Optional[ThreadPoolExecutor] = None
 
     # -- public --------------------------------------------------------------
 
@@ -148,7 +156,10 @@ class GraphMailProvider:
                 total_hint = None
 
     def close(self) -> None:
-        """Nothing is held open: every call is a single request."""
+        """Let the download threads go (each kept its own connection)."""
+        pool, self._pool = self._pool, None
+        if pool is not None:
+            pool.shutdown(wait=True, cancel_futures=True)
 
     # -- HTTP ----------------------------------------------------------------
 
@@ -225,27 +236,31 @@ class GraphMailProvider:
         for entry in items:
             if entry.get("id"):
                 latest[entry["id"]] = entry          # last word on a message wins
-        changes: list[Any] = []
-        for mid, entry in latest.items():
-            rid = remote_id(folder["id"], mid)
-            if "@removed" in entry:
-                changes.append(RemoteMessageGone(rid))
-                continue
-            if self._pace_s:
-                self._sleep(self._pace_s)
-            resp = self._request(f"{self._base}/me/messages/{quote(mid, safe='=-_')}/$value")
-            if resp.status == 404:                   # deleted between the delta and now
-                changes.append(RemoteMessageGone(rid))
-                continue
-            if resp.status != 200:
-                fail_for_status(resp, account=self._account, component=_COMPONENT, what="message $value")
-            changes.append(RemoteMessage(
-                remote_id=rid,
-                raw=resp.body,
-                folder=folder["path"],
-                labels=list(entry.get("categories") or []),
-                received_at=epoch_from_iso(entry.get("receivedDateTime", "")),
-                seen=bool(entry.get("isRead")),
-                version=str(entry.get("changeKey", "")),
-            ))
-        return changes
+        wanted = list(latest.items())
+        if self._workers > 1 and sum(1 for _m, e in wanted if "@removed" not in e) > 1:
+            if self._pool is None:
+                self._pool = ThreadPoolExecutor(self._workers, thread_name_prefix="graph-mail")
+            # map keeps the order and raises the first failure, as the loop did.
+            return list(self._pool.map(lambda item: self._change(item[0], item[1], folder), wanted))
+        return [self._change(mid, entry, folder) for mid, entry in wanted]
+
+    def _change(self, mid: str, entry: dict[str, Any], folder: dict[str, Any]) -> Any:
+        rid = remote_id(folder["id"], mid)
+        if "@removed" in entry:
+            return RemoteMessageGone(rid)
+        if self._pace_s:
+            self._sleep(self._pace_s)
+        resp = self._request(f"{self._base}/me/messages/{quote(mid, safe='=-_')}/$value")
+        if resp.status == 404:                       # deleted between the delta and now
+            return RemoteMessageGone(rid)
+        if resp.status != 200:
+            fail_for_status(resp, account=self._account, component=_COMPONENT, what="message $value")
+        return RemoteMessage(
+            remote_id=rid,
+            raw=resp.body,
+            folder=folder["path"],
+            labels=list(entry.get("categories") or []),
+            received_at=epoch_from_iso(entry.get("receivedDateTime", "")),
+            seen=bool(entry.get("isRead")),
+            version=str(entry.get("changeKey", "")),
+        )
