@@ -112,6 +112,7 @@ def _indexed(counts: dict) -> int:
     return int((counts.get("files") or {}).get("INDEXED", 0))
 
 
+@pytest.mark.slow
 def test_every_passage_handed_to_the_embedder_was_committed_first(tmp_path):
     """Small embedding batches, so hand-offs happen while documents are still
     arriving: the embedding thread marks passages embedded on its own
@@ -137,6 +138,7 @@ def test_messages_arriving_back_to_back_share_transactions(tmp_path):
     assert begins < FILES, f"{begins} transactions for {FILES} messages"
 
 
+@pytest.mark.slow
 def test_a_failure_part_way_through_a_group_keeps_nothing_half_written(tmp_path):
     """The 40th message's passages fail to write, after its file row was
     written in the same (shared) transaction. The group is rolled back whole;

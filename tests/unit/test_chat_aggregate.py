@@ -108,6 +108,7 @@ _records = st.lists(
     min_size=0, max_size=30)
 
 
+@pytest.mark.slow
 @settings(max_examples=25, deadline=None)
 @given(records=_records, who=st.sampled_from(_FIRST), year=st.integers(2018, 2025))
 def test_over_generated_corpora_the_number_always_equals_the_count(tmp_path_factory, records, who, year):

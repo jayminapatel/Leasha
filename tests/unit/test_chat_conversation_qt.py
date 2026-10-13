@@ -76,6 +76,7 @@ def _answer_pair(c, question, reply):
 # Streaming that feels right
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_slim_thinking_line_shows_before_the_first_word_and_goes_when_it_arrives(chat):
     c = chat
     c.fake.hold_at = 0                                # nothing has been sent yet

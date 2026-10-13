@@ -159,6 +159,7 @@ def test_a_month_with_nothing_in_it_says_so_as_a_fact_about_the_records(qtbot, j
     assert view.list.block_count() == 0
 
 
+@pytest.mark.slow
 def test_the_kind_box_narrows_the_month_and_is_remembered(qtbot, june):
     view, ids, store = june
     view.browse(Period.month(2015, 6))
@@ -362,6 +363,7 @@ def _dense_store(tmp_path, photos: int):
     return store
 
 
+@pytest.mark.slow
 def test_a_month_of_photographs_arrives_a_page_at_a_time_as_the_list_is_scrolled(qtbot, tmp_path, monkeypatch):
     r"""4c: "a month with 4,000 photos paginates ... scrolling stays worker-fed"."""
     monkeypatch.setattr(tv_module, "PAGE_SIZE", 100)
@@ -394,6 +396,7 @@ def test_a_month_of_photographs_arrives_a_page_at_a_time_as_the_list_is_scrolled
     store.close()
 
 
+@pytest.mark.slow
 def test_the_window_keeps_answering_while_a_dense_month_loads_and_scrolls(qtbot, tmp_path):
     """The `test_ui_never_blocks` promise, measured: a 5 ms heartbeat on the
     window thread across the whole load and scroll never misses by much."""

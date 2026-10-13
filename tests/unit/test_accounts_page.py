@@ -90,6 +90,7 @@ def test_schedules_and_same_for_all_save_and_reload(world):
     assert isinstance(s.mail, ScheduleSetting)
 
 
+@pytest.mark.slow
 def test_pause_choices_save_and_reload_and_turn_back_on(world):
     svc, page = world
     p = page()
@@ -133,6 +134,7 @@ def test_quiet_hours_cap_conflict_and_safety_save_and_reload(world):
     assert q.brake_count.value() == 42 and q.brake_percent.value() == 9.5
 
 
+@pytest.mark.slow
 def test_turning_the_dry_run_off_is_a_confirm_flow(world, monkeypatch):
     from app.ui.accounts import parts
     svc, page = world
@@ -156,6 +158,7 @@ def test_turning_the_dry_run_off_is_a_confirm_flow(world, monkeypatch):
     assert svc.settings().dry_run_first is True
 
 
+@pytest.mark.slow
 def test_notifications_region_maps_and_client_ids_save_and_reload(world):
     svc, page = world
     p = page()
@@ -327,6 +330,7 @@ def test_idle_switch_is_off_by_default_and_only_for_imap(world):
     assert pn.idle.isHidden()
 
 
+@pytest.mark.slow
 def test_direction_into_leasha_only_persists_through_the_radio(world):
     svc, page = world
     aid = svc.accounts.add("carddav", "me@x.com", "Dav")
@@ -345,6 +349,7 @@ def test_direction_into_leasha_only_persists_through_the_radio(world):
     assert not svc.accounts.get(aid).syncs_contacts
 
 
+@pytest.mark.slow
 def test_per_account_schedules_show_only_when_each_account_has_its_own(world):
     from app.accounts.store import ScheduleSetting
     svc, page = world
@@ -420,6 +425,7 @@ def test_the_remove_dialog_defaults_keep_contacts_and_remove_mail(world):
     assert d.remove_mail.text() == "Remove this account's mail from the index"
 
 
+@pytest.mark.slow
 def test_mail_tab_says_read_only_and_folder_choice_persists(world, monkeypatch):
     from app.ui.accounts import panel as pm
     svc, page = world
@@ -506,6 +512,7 @@ def settings_view(tmp_path):
     store.close()
 
 
+@pytest.mark.slow
 def test_settings_has_an_accounts_category_with_an_icon_that_builds_when_first_shown(settings_view):
     from app.ui.widgets.category_nav import CategoryNav
     view, store = settings_view
@@ -547,6 +554,7 @@ def test_every_action_button_on_the_page_is_in_the_button_system(world):
     p.hide()
 
 
+@pytest.mark.slow
 def test_an_account_can_be_set_to_mail_only_contacts_only_or_both(world):
     """The owner, 2026-10-11: "edit to mail only or contacts only or both". Saved and reloaded."""
     svc, page = world
@@ -590,6 +598,7 @@ def test_a_double_click_on_an_account_opens_its_settings(world):
     assert p.panel.tabs.currentIndex() == 0
 
 
+@pytest.mark.slow
 def test_master_mirror_and_backup_save_and_reload(world):
     """2026-10-11: the settings that keep contacts in step across the accounts."""
     svc, page = world

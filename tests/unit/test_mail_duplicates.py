@@ -85,6 +85,7 @@ def test_a_message_in_the_archive_twice_is_indexed_once_with_its_attachment(tmp_
     assert stats.mail_repeats >= 1
 
 
+@pytest.mark.slow
 def test_a_read_again_does_not_bring_the_copy_back(tmp_path, archive, monkeypatch):
     db = tmp_path / "i.db"
     _index(db, archive)

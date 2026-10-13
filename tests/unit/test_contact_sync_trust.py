@@ -437,6 +437,7 @@ def test_remote_contact_without_version_is_harmless_to_the_check(world):
     assert found["not_here_n"] == 1 and RemoteContact
 
 
+@pytest.mark.slow
 def test_the_owners_upgrade_does_not_trip_the_guard_and_cleans_google_once(tmp_path):
     """The book as it stood on 2026-10-12: every card, and every account's base, carries "fc cluster id". The first
     sync with this build must not read that as a mass change, must take it off Google (which shows it), and must not
@@ -473,6 +474,7 @@ def test_the_owners_upgrade_does_not_trip_the_guard_and_cleans_google_once(tmp_p
 
 
 # ------------------------------------------------------------------------- review of #70 (CodeRabbit)
+@pytest.mark.slow
 def test_a_churn_hold_stands_on_the_next_sync_until_allow(world):
     home, other = world.account("Home"), world.account("Other")
     for i in range(60):

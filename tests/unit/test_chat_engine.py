@@ -260,6 +260,7 @@ def test_without_a_model_a_content_question_quotes_the_best_passages_and_says_so
     assert "two months notice" in turn.text
 
 
+@pytest.mark.slow
 def test_available_says_what_is_wrong_and_how_to_fix_it(env):
     assert env.engine(FakeLLM()).available() == (True, "")
     ok, why = env.engine(FakeLLM(up=False)).available()

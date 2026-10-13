@@ -28,6 +28,7 @@ def _toggle(view):
     return toggles["inspector"]
 
 
+@pytest.mark.slow
 def test_every_tab_with_a_preview_carries_the_same_toggle(gui_mainwindow):
     app, window, _store, _engine = gui_mainwindow
     gui_pump(app)

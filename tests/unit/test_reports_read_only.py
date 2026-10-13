@@ -223,6 +223,7 @@ def test_the_recorder_would_notice_a_write_into_a_users_folder(tmp_path, monkeyp
     assert len(recorder.under(mine)) >= 2
 
 
+@pytest.mark.slow
 def test_the_command_line_reports_never_touch_the_folders_they_describe(tmp_path, monkeypatch, capsys):
     from PIL import Image
 

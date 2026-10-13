@@ -53,6 +53,7 @@ def test_search_never_reaches_chat_or_the_model_layer():
     assert not offenders, offenders
 
 
+@pytest.mark.slow
 def test_the_index_layers_never_reach_chat():
     for layer in ("storage", "index", "extract", "core"):
         for path in (ROOT / "app" / layer).glob("*.py"):

@@ -70,6 +70,7 @@ def test_the_speed_note_speaks_only_when_the_control_would_change_nothing():
 # The Sources pane's right-click menu
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_pin_from_a_source_pins_it_and_the_next_question_carries_it(chat):
     c = chat
     ask(c, "deposit?")

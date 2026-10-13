@@ -34,6 +34,7 @@ def _texts(menu):
     return [a.text().replace("&", "") for a in menu.actions() if a.text()]
 
 
+@pytest.mark.slow
 def test_the_menu_shows_the_options_of_the_tab_in_front(gui_mainwindow):
     _app, window, _store, _engine = gui_mainwindow
     menu = _view_menu(window)

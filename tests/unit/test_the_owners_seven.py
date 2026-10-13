@@ -189,6 +189,7 @@ def test_the_code_tab_keeps_its_search_box_when_there_are_no_repositories():
 # "i rest the index the index size remained the same"
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_clearing_the_index_gives_the_disk_space_back(tmp_path):
     r"""**Measured across a real reset, not asserted against the SQL.**
 

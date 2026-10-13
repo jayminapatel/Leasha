@@ -50,6 +50,7 @@ def test_it_declares_whatif_confirm_and_an_uninstall_switch():
     assert "[switch]$DryRun" in text
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("flag", ["-WhatIf", "-DryRun"])
 def test_a_dry_run_says_what_it_would_do_and_changes_nothing(flag):
     result = _run(flag)
@@ -62,36 +63,42 @@ def test_a_dry_run_says_what_it_would_do_and_changes_nothing(flag):
     assert "Registered '" not in out
 
 
+@pytest.mark.slow
 def test_a_dry_run_takes_the_time_argument():
     result = _run("-DryRun", "-Time", "03:30")
     assert result.returncode == 0
     assert "every day at 03:30" in result.stdout
 
 
+@pytest.mark.slow
 def test_a_bad_time_is_refused_not_registered():
     result = _run("-DryRun", "-Time", "25:99")
     assert result.returncode != 0
     assert "Nothing was changed" not in result.stdout
 
 
+@pytest.mark.slow
 def test_uninstall_and_status_together_are_refused_with_exit_2():
     result = _run("-Uninstall", "-Status")
     assert result.returncode == 2
     assert "not both" in result.stdout
 
 
+@pytest.mark.slow
 def test_uninstall_of_a_task_that_is_not_there_is_a_quiet_success():
     result = _run("-Uninstall", "-WhatIf")
     assert result.returncode == 0
     assert "Nothing to remove" in result.stdout
 
 
+@pytest.mark.slow
 def test_status_says_when_it_is_not_registered():
     result = _run("-Status")
     assert result.returncode == 0
     assert "Not registered" in result.stdout
 
 
+@pytest.mark.slow
 def test_a_real_install_with_no_venv_refuses_before_touching_the_scheduler(tmp_path):
     """No `venv\\Scripts\\pythonw.exe` under the project path: refuse, exit 1.
     The refusal comes before the confirmation question, so nothing waits on input."""
@@ -100,6 +107,7 @@ def test_a_real_install_with_no_venv_refuses_before_touching_the_scheduler(tmp_p
     assert "Cannot register" in result.stdout
 
 
+@pytest.mark.slow
 def test_nothing_above_ever_registered_the_throwaway_task():
     result = subprocess.run(
         [POWERSHELL, "-NoProfile", "-Command",

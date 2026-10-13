@@ -315,6 +315,7 @@ def test_common_types_are_registered() -> None:
         assert ext in supported_extensions(), f"{ext} has no extractor"
 
 
+@pytest.mark.slow
 def test_legacy_office_has_no_direct_reader_and_says_what_is_needed() -> None:
     """.doc/.ppt have no parser of their own - they go through a converter.
 

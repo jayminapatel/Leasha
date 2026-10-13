@@ -20,6 +20,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from app.index import pipeline as module
 from app.index.embedder import CPU_INFER_BATCH
 from app.index.pipeline import Pipeline
@@ -36,6 +38,7 @@ class SlowModel(Model):
         return super().encode(texts)
 
 
+@pytest.mark.slow
 def test_a_batch_that_can_finish_in_time_is_finished_and_written(tmp_path):
     vectors, model = RecordingVectors(), Model(stop_after_calls=1)
     _stats, counts, pipeline = _run(tmp_path / "i.db", _corpus(tmp_path, archive=False),
@@ -47,6 +50,7 @@ def test_a_batch_that_can_finish_in_time_is_finished_and_written(tmp_path):
     assert not pipeline._embed_abandoned, "nothing was cut, so nothing is held back"
 
 
+@pytest.mark.slow
 def test_a_batch_that_cannot_finish_in_time_is_cut_as_before(tmp_path, monkeypatch):
     # Four calls of 32 at 0.2 s each; after the first, the rest needs ~0.6 s
     # and the allowance is 0.3 s.
@@ -99,14 +103,14 @@ def test_the_run_ends_own_stop_flag_does_not_cut_its_photo_passages():
     assert _bare(stopping=True, tail=True, interrupted=True)._stopping_for_embed()
 
 
+@pytest.mark.slow
 def test_a_stopped_run_leaves_the_vector_rewrite_and_the_merge_to_the_next(tmp_path):
-    from tests.unit.test_media_tail_end import Vectors
-
     from app.index.embedder import Embedder
     from app.index.pipeline import PipelineConfig
     from app.index.resources import ResourceLimits
     from app.index.walker import WalkConfig
     from app.storage.sqlite_store import SqliteStore
+    from tests.unit.test_media_tail_end import Vectors
 
     merged = []
     vectors = Vectors()

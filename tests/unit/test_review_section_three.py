@@ -356,6 +356,7 @@ def test_an_all_image_result_set_is_returned_unchanged():
     assert spy.calls == [], "the scorer must never be invoked for an all-image result set"
 
 
+@pytest.mark.slow
 def test_an_ocr_engine_that_will_not_load_is_not_reported_as_a_blank_image():
     r"""**`ERR_NO_TEXT_LAYER` is a claim about the file.**
 

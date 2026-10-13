@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import time
 
+import pytest
 from PySide6.QtWidgets import QAbstractButton, QCheckBox, QPushButton, QRadioButton
+
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
 
 #: Qt's own tab-bar arrows: not ours to name.
 _QT_OWN = {"Scroll Left", "Scroll Right"}

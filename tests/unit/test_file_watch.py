@@ -214,6 +214,7 @@ def test_the_message_says_which_file_how_long_and_what_to_do() -> None:
 # In-process
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_reader_looping_in_python_is_timed_out_and_the_run_finishes(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs")
@@ -235,6 +236,7 @@ def test_a_reader_looping_in_python_is_timed_out_and_the_run_finishes(
     pipeline.store.close()
 
 
+@pytest.mark.slow
 def test_a_reader_stuck_in_native_code_is_left_behind_and_replaced(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     """Python cannot interrupt a blocking native call - measured here with a
@@ -272,6 +274,7 @@ def test_a_reader_stuck_in_native_code_is_left_behind_and_replaced(
     pipeline.store.close()
 
 
+@pytest.mark.slow
 def test_a_timed_out_file_is_settled_and_not_read_again(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs", files=2)
@@ -295,6 +298,7 @@ def test_a_timed_out_file_is_settled_and_not_read_again(
     second.store.close()
 
 
+@pytest.mark.slow
 def test_a_slow_mailbox_that_keeps_going_is_not_cut_off(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     """Total time far past every limit; never a gap as long as the stall limit."""
@@ -321,6 +325,7 @@ def test_a_slow_mailbox_that_keeps_going_is_not_cut_off(
     pipeline.store.close()
 
 
+@pytest.mark.slow
 def test_a_mailbox_that_stops_making_progress_is_cut_off_and_keeps_its_mail(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = tmp_path / "docs"
@@ -389,6 +394,7 @@ def test_an_archive_working_through_one_messages_attachments_is_not_stalled() ->
     assert ended == [1]
 
 
+@pytest.mark.slow
 def test_force_skip_in_process_skips_that_readers_file(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs", files=3)
@@ -444,6 +450,7 @@ class _HangingReader(ReaderProcess):
         return [self.python, "-c", _HANGING_CHILD]
 
 
+@pytest.mark.slow
 def test_a_hung_reader_process_is_ended_and_the_thread_moves_on(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs", files=3)
@@ -495,6 +502,7 @@ class _SlowStartReader(ReaderProcess):
         return [self.python, "-c", _SLOW_START_CHILD]
 
 
+@pytest.mark.slow
 def test_a_reader_process_s_start_up_is_not_charged_to_its_first_file(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     """The fault of 2026-09-30. The clock for a file started before its reader
@@ -520,6 +528,7 @@ class _NeverReadyReader(ReaderProcess):
         return [self.python, "-c", "import time; time.sleep(600)"]
 
 
+@pytest.mark.slow
 def test_a_reader_process_that_never_starts_is_given_up_on_and_nothing_is_skipped(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     """The other half: taking start-up off the file's clock must not leave it
@@ -564,6 +573,7 @@ def test_waiting_for_a_reader_process_is_bounded_and_says_why(monkeypatch) -> No
     assert not reader.ready
 
 
+@pytest.mark.slow
 def test_a_stop_is_not_kept_waiting_for_a_reader_process_to_start() -> None:
     reader = _NeverReadyReader(low_priority=False)
     started = time.monotonic()
@@ -574,6 +584,7 @@ def test_a_stop_is_not_kept_waiting_for_a_reader_process_to_start() -> None:
     assert time.monotonic() - started < 5
 
 
+@pytest.mark.slow
 def test_the_file_s_clock_starts_when_the_reader_process_is_ready(
         tmp_path, monkeypatch) -> None:
     """Read from the clock itself rather than from a time-out: the reader
@@ -643,6 +654,7 @@ def test_the_child_hands_skip_to_its_pipeline() -> None:
     assert pipeline.skipped == ["2"]
 
 
+@pytest.mark.slow
 def test_force_skip_through_the_indexing_process(tmp_path) -> None:
     """The real `app.cli index --events jsonl` child, one reader stuck on a
     file, skipped by `ChildIndexRun.force_skip` - the window's path."""

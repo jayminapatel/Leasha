@@ -73,6 +73,7 @@ class _NoModel:
         return [[0.0] for _ in texts]
 
 
+@pytest.mark.slow
 def test_a_recompressed_copy_finds_the_full_res_original(tmp_path):
     r"""The scene: a full-resolution photo is already indexed (`Sources\
     DriveA\holiday.jpg`). A WhatsApp-compressed copy of the *same* photo is

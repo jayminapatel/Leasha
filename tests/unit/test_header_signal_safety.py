@@ -96,6 +96,7 @@ class TestNothingIsConnectedToSectionResized:
                 found.append(f"{path.name}:{node.lineno}")
         return found
 
+    @pytest.mark.slow
     def test_no_module_connects_to_it(self) -> None:
         offenders: list = []
         for path in sorted(APP.rglob("*.py")):
@@ -250,6 +251,7 @@ class TestALetGoViewTakesItsWatcherWithIt:
             QApplication.processEvents()
             time.sleep(0.005)
 
+    @pytest.mark.slow
     def test_a_dropped_view_is_deleted_at_once_and_its_timer_stops(
             self, _qt_application) -> None:
         import gc

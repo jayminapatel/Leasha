@@ -28,6 +28,9 @@ from app.storage.sqlite_store import SqliteStore
 from app.storage.vector_store import VectorStore
 from app.ui.shell import MainWindow
 
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
+
 ENV = """\
 DATA_PATH={d}
 VECTOR_PATH={d}/vectors

@@ -50,6 +50,7 @@ def _wrap_class(monkeypatch, cls, hits: list) -> None:
         monkeypatch.setattr(cls, name, make())
 
 
+@pytest.mark.slow
 def test_the_contacts_page_reads_and_writes_only_on_workers(world, monkeypatch):
     from app.accounts.store import AccountStore
     from app.contacts.hub import ContactHub
@@ -79,6 +80,7 @@ def test_the_contacts_page_reads_and_writes_only_on_workers(world, monkeypatch):
     assert hits == [], "\n".join(sorted(set(hits)))
 
 
+@pytest.mark.slow
 def test_the_accounts_page_reads_and_writes_only_on_workers(tmp_path, monkeypatch):
     pytest.importorskip("keyring")
     from tests.unit.accounts_ui_fakes import make_service, qt, settle as settle_page

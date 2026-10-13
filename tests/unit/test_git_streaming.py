@@ -69,6 +69,7 @@ def printing(lines: list[str], *, pause_after_first: float = 0.0, then_hang: boo
 # --- 3a: line by line ------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_first_row_is_shown_before_git_finishes() -> None:
     """The §5 budget, with a fake git that prints one row and then takes a second."""
     script = printing([header("a", "2026-09-03", "first"), header("b", "2026-09-02", "second")],
@@ -397,6 +398,7 @@ def test_progress_arrives_before_the_search_ends_and_counts_as_it_goes() -> None
     assert len(found.rows) == 3
 
 
+@pytest.mark.slow
 def test_a_row_that_arrives_just_after_a_report_does_not_wait_for_the_next_one() -> None:
     """Two rows at once, then git goes quiet for a second: both are on screen long
     before it ends. The second used to wait for a third row that never came."""
@@ -549,6 +551,7 @@ def repo(tmp_path_factory):
     return folder, git
 
 
+@pytest.mark.slow
 @needs_git
 def test_real_git_streams_a_history_search(repo) -> None:
     folder, _git = repo

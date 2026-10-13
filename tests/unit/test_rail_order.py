@@ -42,6 +42,7 @@ def _index(window, title):
     return _titles(window).index(title)
 
 
+@pytest.mark.slow
 def test_the_default_order_is_the_owners(rail):
     from app.ui.widgets.rail_order import DEFAULT_ORDER
 

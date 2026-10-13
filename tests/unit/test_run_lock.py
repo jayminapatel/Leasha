@@ -158,6 +158,7 @@ def held_for_real(locks):
 # The two halves of the property
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_two_index_runs_exclude_each_other(store, locks, index_name):
     with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         with pytest.raises(AppErrorException) as raised:
@@ -313,6 +314,7 @@ def test_a_record_left_by_a_dead_process_does_not_lock_anything(store, locks, in
         assert held.acquired
 
 
+@pytest.mark.slow
 def test_the_refusal_names_who_is_holding_it(store, locks, index_name):
     with IndexRunLock(store, owner=COMMAND_LINE, name=index_name, lock_dir=locks):
         with pytest.raises(AppErrorException) as raised:

@@ -374,6 +374,7 @@ def test_a_field_row_says_where_it_came_from(world):
     assert "synced from Home Google" in ed.edits["given"].toolTip()
 
 
+@pytest.mark.slow
 def test_a_new_contact_goes_to_the_default_account(world):
     world.accounts.update_settings(default_account_id=world.a_work)
     page = world.page()
@@ -475,6 +476,7 @@ def test_removing_an_account_asks_and_only_then_acts(world):
 
 
 # ---------------------------------------------------------------- the banner (D6) and history
+@pytest.mark.slow
 def test_the_changed_in_two_places_banner_and_acknowledge(world):
     cid = world.add(card("Ann", "Lee"))
     world.hub.add_conflict(cid, world.a_home, "f:email:a@x", "old", "new", "remote")
@@ -514,6 +516,7 @@ def test_history_lists_the_journal_and_undo_puts_a_change_back(world):
     assert all(isinstance(i, int) for p in pushed for i in p)
 
 
+@pytest.mark.slow
 def test_after_an_undo_the_accounts_that_follow_are_pushed(world):
     cid = world.add(card("Ann", "Lee"), kept=[world.a_home])
     world.hub.set_kept_in(cid, [world.a_home, world.a_work])
@@ -559,6 +562,7 @@ def test_the_ctrl_z_shortcut_is_bound_on_the_page(world):
 
 
 # ------------------------------------------------------------------------------- bulk bar
+@pytest.mark.slow
 def test_the_bulk_bar_groups_tags_accounts_company_favourite_and_delete(world):
     ids = [world.add(card(f"P{i}", "Q"), kept=[world.a_home]) for i in range(3)]
     page = world.page()
@@ -612,6 +616,7 @@ def test_the_bulk_bar_groups_tags_accounts_company_favourite_and_delete(world):
     assert world.hub.count() == 3
 
 
+@pytest.mark.slow
 def test_the_bulk_menus_offer_what_exists_and_what_the_selection_has(world):
     a = world.add(card("A", "A", groups=["Family"]), kept=[world.a_home])
     b = world.add(card("B", "B"), kept=[world.a_home, world.a_fast])
@@ -751,6 +756,7 @@ def test_unsaved_changes_are_not_lost_by_picking_someone_else(world):
 
 
 # ---------------------------------------------------------------------------- the window
+@pytest.mark.slow
 def test_the_contacts_pill_is_after_files_and_the_page_is_built_on_first_show(gui_mainwindow):
     app, window, store, _engine = gui_mainwindow
     rail = window.rail

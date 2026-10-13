@@ -481,6 +481,7 @@ _SAFE_WORD = st.text(
     min_size=1, max_size=12)
 
 
+@pytest.mark.slow
 @given(st.text(max_size=500))
 def test_any_generated_string_parses_without_raising(raw: str) -> None:
     """The acceptance line at the top of this file: malformed input returns

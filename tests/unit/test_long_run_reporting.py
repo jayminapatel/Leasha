@@ -168,6 +168,7 @@ def test_the_progress_line_says_which_rate_it_is_quoting():
 
 # --- resuming, by actually killing one -------------------------------------
 
+@pytest.mark.slow
 def test_a_run_stopped_part_way_resumes_where_it_stopped(tmp_path):
     r"""**§5 asks for this to be proved by killing a run, not by reading the
     code**, and the reason is the failure it would hide: a resumed run that
@@ -238,6 +239,7 @@ def test_the_cursor_survives_the_interruption(tmp_path):
 
 # --- the daily line ---------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_long_run_writes_a_summary_line(tmp_path):
     """One line a day. A week-long run otherwise produces millions of progress
     lines and is reviewed by nobody."""

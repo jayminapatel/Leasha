@@ -286,6 +286,7 @@ _DOCUMENT = st.lists(
 ).map(lambda paras: "\n\n".join(paras))
 
 
+@pytest.mark.slow
 @given(_DOCUMENT, st.sampled_from([(512, 64), (128, 16), (64, 8), (32, 0)]))
 def test_offsets_are_exact_for_generated_documents(document: str, budget) -> None:
     target, overlap = budget
@@ -293,6 +294,7 @@ def test_offsets_are_exact_for_generated_documents(document: str, budget) -> Non
         assert document[chunk.char_start:chunk.char_end] == chunk.text
 
 
+@pytest.mark.slow
 @given(_DOCUMENT, st.sampled_from([(512, 64), (128, 16), (64, 8), (32, 0)]))
 def test_no_word_is_lost_for_generated_documents(document: str, budget) -> None:
     target, overlap = budget
@@ -304,6 +306,7 @@ def test_no_word_is_lost_for_generated_documents(document: str, budget) -> None:
         )
 
 
+@pytest.mark.slow
 @given(_DOCUMENT)
 def test_chunking_arbitrary_documents_never_raises(document: str) -> None:
     chunk_text(document)

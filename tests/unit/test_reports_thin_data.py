@@ -87,6 +87,7 @@ def test_the_table_headline_says_it_too(tmp_path):
         store.close()
 
 
+@pytest.mark.slow
 def test_the_command_line_and_the_window_read_the_same_coverage(tmp_path, capsys):
     import json
 

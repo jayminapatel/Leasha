@@ -97,6 +97,7 @@ def test_without_a_master_a_delete_stays_a_flag(world):
     assert only(out, g).plan.flagged_deleted == 1 and _alive(world) == ["Ann Lee", "Bob Bell"]
 
 
+@pytest.mark.slow
 def test_a_master_that_suddenly_returns_nothing_cannot_empty_the_book(world):
     """The delete brake: an outage or a revoked permission looks like deleting everything."""
     g, m = world.account("Google"), world.account("Work")

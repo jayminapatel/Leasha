@@ -365,6 +365,7 @@ class TestMboxKillAndResume:
     from message 1.
     """
 
+    @pytest.mark.slow
     def test_a_killed_run_resumes_mid_file_not_from_message_one(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:

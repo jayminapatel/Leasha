@@ -227,6 +227,7 @@ def test_a_pinned_model_cache_still_wins(tmp_path, monkeypatch):
 
 # -- the window's health check gets JSON and nothing else (2026-09-30) ------------
 
+@pytest.mark.slow
 def test_the_windows_health_check_can_read_what_doctor_prints():
     """Owner, 2026-09-30: Settings' health check showed `ERR_UNEXPECTED ...
     doctor.py exited 0 without valid JSON`. `run_all` printed the "Machine"

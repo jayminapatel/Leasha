@@ -47,6 +47,7 @@ def _seed_mail_row(store, subject: str, sender: str, text: str) -> int:
 # test_a_click_on_the_chevron_expands_the_group (test_results_view.py)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_document_matched_twice_shows_a_chevron_and_expands_on_click(gui_mainwindow, qtbot):
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QStyleOptionViewItem

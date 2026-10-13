@@ -46,6 +46,7 @@ def card(gui_mainwindow, qtbot, monkeypatch):
     card.answer_timer.setInterval(1200)
 
 
+@pytest.mark.slow
 def test_a_question_gets_an_answer_with_sources_above_the_results(card, qtbot):
     qtbot.keyClicks(card.view.input, QUESTION)
 

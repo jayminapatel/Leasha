@@ -67,6 +67,7 @@ CURSORS = [None, Cursor(1_434_000_000_000_000_000, BRANCH_DATED, 500),
            Cursor(1_434_000_000_000_000_000, BRANCH_MAIL, 500)]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("period", PERIODS, ids=["month", "year", "everything", "open start"])
 @pytest.mark.parametrize("kind", KINDS)
 @pytest.mark.parametrize("cursor", CURSORS, ids=["first page", "after dated", "after file", "after mail"])

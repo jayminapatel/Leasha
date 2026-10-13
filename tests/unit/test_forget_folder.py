@@ -160,6 +160,7 @@ def test_a_removed_folder_forgets_its_archive_record(store, rows, lock):
     assert set(load_records(store.get_state(RECORD_STATE_KEY, ""))) == {"e:\\old"}
 
 
+@pytest.mark.slow
 def test_nothing_is_deleted_while_an_index_run_holds_the_index(store, rows, lock):
     from app.core.run_lock import IndexRunLock
 

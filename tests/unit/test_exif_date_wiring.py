@@ -292,6 +292,7 @@ def test_a_file_with_no_shot_date_still_filters_by_its_mtime(store):
     assert _matches(store, "after:2015") == []
 
 
+@pytest.mark.slow
 def test_the_date_filter_still_uses_an_index(store):
     r"""**A plan test, because the obvious spelling of this fix is a table
     scan.** `COALESCE(f.taken_at_ns, f.mtime_ns) <= ?` is not sargable -
@@ -364,6 +365,7 @@ def _run(store, root):
                             ocr_mode="images")).run()
 
 
+@pytest.mark.slow
 def test_a_photo_whose_ocr_found_text_indexes_as_its_shot_date(
         tmp_path, ocr_reads_text):
     root = tmp_path / "photos"
@@ -379,6 +381,7 @@ def test_a_photo_whose_ocr_found_text_indexes_as_its_shot_date(
         assert _matches(store, "before:2010") == [str(photo)]
 
 
+@pytest.mark.slow
 def test_a_photo_with_no_ocr_text_at_all_still_indexes_as_its_shot_date(
         tmp_path, ocr_finds_nothing):
     r"""**The path the majority of a photo corpus actually takes.** A
@@ -399,6 +402,7 @@ def test_a_photo_with_no_ocr_text_at_all_still_indexes_as_its_shot_date(
         assert _matches(store, "before:2010") == [str(photo)]
 
 
+@pytest.mark.slow
 def test_a_photo_with_no_exif_falls_back_to_its_file_time(
         tmp_path, ocr_finds_nothing):
     """`fallback to file time only when absent`, in §3a's own words."""
@@ -416,6 +420,7 @@ def test_a_photo_with_no_exif_falls_back_to_its_file_time(
         assert _matches(store, "after:2015") == [str(photo)]
 
 
+@pytest.mark.slow
 def test_a_corrupt_photo_never_halts_the_run(tmp_path, ocr_finds_nothing):
     r"""**One bad file never halts a 100GB run.** A file with a `.jpg`
     extension and rubbish inside it must cost its own row's shot date and
@@ -437,6 +442,7 @@ def test_a_corrupt_photo_never_halts_the_run(tmp_path, ocr_finds_nothing):
         assert _matches(store, "before:2010") == [str(good)]
 
 
+@pytest.mark.slow
 def test_rescanning_an_unchanged_photo_does_not_look_changed(
         tmp_path, ocr_finds_nothing):
     r"""**Why the shot date needed a column of its own.** The rejected fix was

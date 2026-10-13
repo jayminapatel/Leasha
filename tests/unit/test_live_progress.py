@@ -276,6 +276,7 @@ class _Vectors:
         return len(self.rows)
 
 
+@pytest.mark.slow
 def test_two_busy_readers_each_get_their_own_line(tmp_path: Path, monkeypatch) -> None:
     """Both readers are held inside their file at the same moment (a barrier),
     so the snapshot must show two lines with two different files - where the

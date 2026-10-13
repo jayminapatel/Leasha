@@ -301,6 +301,7 @@ def test_a_recalled_message_is_sent_as_an_edit_and_esc_lets_it_go(box, qtbot):
     assert edited == ["What licence? now"] and sent == [] and not box.editing
 
 
+@pytest.mark.slow
 def test_ctrl_shift_o_is_free_and_starts_a_new_chat(gui_mainwindow, qtbot):
     from PySide6.QtGui import QKeySequence
 

@@ -186,6 +186,7 @@ def test_the_relay_does_not_outlive_the_work(app):
         "thumbnail would grow a child QObject per thumbnail for the view's whole life")
 
 
+@pytest.mark.slow
 def test_a_lambda_capture_keeps_a_python_owned_widget_alive(app, escapes):
     """Fact 1, measured - this is why the pop-out windows were left alone.
 

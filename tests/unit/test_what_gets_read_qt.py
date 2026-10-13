@@ -6,6 +6,7 @@ create a section on configurable how indexing works in different places"*.
 
 from __future__ import annotations
 
+import pytest
 from PySide6.QtWidgets import QApplication, QGroupBox, QWidget
 
 from app.ui.presenter.coverage import ATTACHMENTS, PLACES, ZIPS
@@ -147,6 +148,7 @@ def test_the_settings_filter_says_where_a_moved_lever_went(settings_and_store):
     assert not view.filter_elsewhere.isVisibleTo(view)
 
 
+@pytest.mark.slow
 def test_before_anything_moves_the_filter_finds_it_on_settings(settings_and_store):
     view = _settings_view(*settings_and_store)
     view.filter_box.setText("video")

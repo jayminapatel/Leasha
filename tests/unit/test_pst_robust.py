@@ -344,6 +344,7 @@ def _run(db: Path, root: Path, mode: str):
     return stats, (json.loads(held) if held else []), rows
 
 
+@pytest.mark.slow
 def test_held_pictures_are_read_by_the_pictures_pass_and_only_once(
         tmp_path, mail_root, monkeypatch) -> None:
     install_fake(monkeypatch, _mail_with_a_picture())
@@ -371,6 +372,7 @@ def test_held_pictures_are_read_by_the_pictures_pass_and_only_once(
     assert _Picture.calls == ["site-photo.fakepic"], "read once, not every pictures pass"
 
 
+@pytest.mark.slow
 def test_an_archive_cut_off_by_the_time_limit_still_logs_its_counts(
         tmp_path, mail_root, monkeypatch) -> None:
     """Order 0z C4, audit of 2026-09-30. `TimedOut` had a word and nothing set
@@ -439,6 +441,7 @@ def _cut_off_run(tmp_path, mail_root, *, before_run=None, **limits):
     return stats, rows, found, skip, counts
 
 
+@pytest.mark.slow
 def test_the_last_message_read_before_a_cut_off_is_searchable(
         tmp_path, mail_root, monkeypatch) -> None:
     """The fault of 2026-09-30: the no-progress limit cut an archive off and
@@ -470,6 +473,7 @@ def test_the_last_message_read_before_a_cut_off_is_searchable(
     assert counts == [{"Indexed": 2, "TimedOut": 1}]
 
 
+@pytest.mark.slow
 def test_a_force_skip_between_two_messages_keeps_the_one_already_read(
         tmp_path, mail_root, monkeypatch) -> None:
     """Force skip pressed while the thread is handing a message to the writer,
@@ -516,6 +520,7 @@ def test_a_force_skip_between_two_messages_keeps_the_one_already_read(
     assert counts == [{"Indexed": 2, "TimedOut": 1}]
 
 
+@pytest.mark.slow
 def test_an_archive_stuck_in_native_code_keeps_the_message_already_read(
         tmp_path, mail_root, monkeypatch) -> None:
     """The likeliest real stall: libpff inside its own C code, where nothing
@@ -550,6 +555,7 @@ def test_an_archive_stuck_in_native_code_keeps_the_message_already_read(
     assert found == ["pst://2019/1", "pst://2019/2"]
 
 
+@pytest.mark.slow
 def test_a_stopped_archive_logs_no_counts_line(tmp_path, mail_root, monkeypatch) -> None:
     """The other half of the rule above: a Stop is not a time-out. That read
     carries on next run, so it says nothing yet."""

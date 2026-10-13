@@ -322,6 +322,7 @@ def _spy_on_the_reader(monkeypatch) -> list[dict]:
     return calls
 
 
+@pytest.mark.slow
 def test_a_forced_run_does_not_carry_on_part_way(tmp_path, fake_archive, monkeypatch) -> None:
     """A run stopped part-way leaves a folder cursor. An ordinary run carries
     on from it; "Read again" (a forced run) starts at the top."""
@@ -343,6 +344,7 @@ def test_a_forced_run_does_not_carry_on_part_way(tmp_path, fake_archive, monkeyp
     assert tree["inbox"].fetched == 3, "the forced run skipped the folders read before"
 
 
+@pytest.mark.slow
 def test_an_ordinary_run_still_carries_on_part_way(tmp_path, fake_archive, monkeypatch) -> None:
     """The other half: the cursor is ignored only when the run is forced."""
     from tests.unit.test_pst_folder_resume import build_tree
@@ -369,6 +371,7 @@ def _stamped_tree() -> dict:
     return tree
 
 
+@pytest.mark.slow
 def test_a_forced_run_passes_over_no_message_by_its_read_stamp(
         tmp_path, fake_archive, monkeypatch) -> None:
     from tests.unit.test_pst_libpff import install_fake
@@ -387,6 +390,7 @@ def test_a_forced_run_passes_over_no_message_by_its_read_stamp(
     assert not calls[0]["known_stamps"], "a forced run was told what not to read"
 
 
+@pytest.mark.slow
 def test_a_message_waiting_for_its_vectors_is_still_passed_over_by_its_stamp(
         tmp_path, fake_archive, monkeypatch) -> None:
     """2026-10-10. A text-first run (`index_two_phase`) leaves every message

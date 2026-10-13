@@ -169,6 +169,7 @@ def test_a_thumbnail_is_decoded_off_the_ui_thread_and_painted(qapp, tmp_path):
     assert landed, "the decoded thumbnail never replaced the placeholder icon"
 
 
+@pytest.mark.slow
 def test_a_photo_that_fails_to_decode_keeps_its_placeholder(qapp, tmp_path):
     """H4: never a crash, and never an empty cell either - the placeholder
     icon set in `show_rows` stays exactly where it was."""

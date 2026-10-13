@@ -58,6 +58,7 @@ def _pump(app, n: int = 5) -> None:
 # §9b - the rail
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_central_widget_is_the_rail_and_there_is_no_status_bar(window):
     from PySide6.QtWidgets import QStatusBar, QTabWidget
 
@@ -148,6 +149,7 @@ def test_keyboard_moves_the_rail(window):
     assert rail.currentIndex() == 0
 
 
+@pytest.mark.slow
 def test_the_last_page_is_remembered_under_ui_page(window):
     app, built, store = window
     from app.ui.state_writes import pool

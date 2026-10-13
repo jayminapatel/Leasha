@@ -13,6 +13,8 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 
+import pytest
+
 from app.storage import sqlite_store as module
 from app.storage.sqlite_store import SqliteStore
 
@@ -68,6 +70,7 @@ def test_the_merge_ends_where_optimize_would(tmp_path, monkeypatch):
         assert _hits(store, "pasture") > 0
 
 
+@pytest.mark.slow
 def test_a_spent_budget_stops_between_steps_and_the_next_call_finishes(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "FTS_MERGE_PAGES", 4)
     with SqliteStore(tmp_path / "index.db") as store:

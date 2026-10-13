@@ -322,6 +322,7 @@ class TestWhatTheWindowDoesWithIt:
         assert calls == []
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_real_window_starts_a_run_over_that_one_folder(gui_mainwindow, monkeypatch):
     """Wired, not only built: the line's button on the real Settings page ends

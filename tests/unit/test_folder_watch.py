@@ -656,6 +656,7 @@ def test_a_batch_that_needs_nothing_never_takes_the_lock(store, tmp_path, lock_n
     assert result.ignored == 4 and result.indexed == 0 and apply.batches == 0
 
 
+@pytest.mark.slow
 def test_a_batch_with_work_is_refused_while_the_lock_is_held(store, tmp_path, lock_name):
     root = tmp_path / "root"
     root.mkdir()

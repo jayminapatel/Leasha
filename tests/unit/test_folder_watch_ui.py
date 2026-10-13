@@ -255,6 +255,7 @@ def watch(gui_mainwindow, monkeypatch, tmp_path):
     window.settings_view.set_roots(before_roots)
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_switch_is_off_and_nothing_is_watched_until_it_is_pressed(watch) -> None:
     _app, window, control, box, built, _folders = watch

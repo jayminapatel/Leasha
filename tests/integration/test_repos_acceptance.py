@@ -124,6 +124,7 @@ def scoped(store, scope: str) -> list[str]:
 
 # --- T1 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_t1_a_work_repository_is_detected_and_its_files_attributed(stores, tmp_path):
     root = tmp_path / "corpus"
     (root / "repo" / ".git").mkdir(parents=True)
@@ -143,6 +144,7 @@ def test_t1_a_work_repository_is_detected_and_its_files_attributed(stores, tmp_p
 
 # --- T2 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("contents, expected", [
     ("gitdir: ../.git/modules/lib", "submodule"),
     ("gitdir: ../../.git/modules/deeply/nested", "submodule"),
@@ -176,6 +178,7 @@ def test_t2_a_git_file_is_a_repository_and_its_kind_comes_from_the_target(
 
 # --- T3 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_t3_a_file_in_the_repository_root_is_attributed(stores, tmp_path):
     """**The ordering trap.**
 
@@ -205,6 +208,7 @@ def test_t3_a_file_in_the_repository_root_is_attributed(stores, tmp_path):
 
 # --- T4 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_t4_a_nested_repository_wins_over_its_parent(stores, tmp_path):
     """Longest matching prefix, not first match.
 
@@ -231,6 +235,7 @@ def test_t4_a_nested_repository_wins_over_its_parent(stores, tmp_path):
 
 # --- T5 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_t5_an_indexed_root_below_a_repository_root_still_attributes(stores, tmp_path):
     """`D:\\SearchProject\\app` has no `.git` beneath it and is still in one.
 
@@ -265,6 +270,7 @@ def test_t5_enclosing_repo_stops_at_the_ceiling_and_returns_none(tmp_path):
 
 # --- T6 ---------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("payload", [
     b"",                                   # empty
     b"\x00\xff\xfe\x01binary garbage",     # binary
@@ -427,6 +433,7 @@ def test_t10_deleting_a_repository_leaves_its_files_indexed(stores, tmp_path):
 
 # --- T11 --------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_t11_a_tree_with_no_git_writes_nothing_and_costs_nothing(tmp_path):
     """**The one that protects everybody else.**
 
@@ -540,6 +547,7 @@ def test_the_walker_never_consults_the_hidden_attribute(stores, tmp_path):
     assert "*" not in walker_module.DEFAULT_EXCLUDE_GLOBS
 
 
+@pytest.mark.slow
 def test_a_hidden_file_is_still_indexed(stores, tmp_path):
     """A dot-prefixed file with no directory involved."""
     root = tmp_path / "corpus"
@@ -573,6 +581,7 @@ def test_a_hidden_git_directory_is_still_detected(stores, tmp_path):
     assert attribution(store)["a.py"] == "repo"
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(os.name != "nt", reason="FILE_ATTRIBUTE_HIDDEN is Windows-only")
 def test_a_hidden_git_file_is_still_detected(stores, tmp_path):
     """And the submodule form, which is a hidden *file* rather than a folder."""
@@ -593,6 +602,7 @@ def test_a_hidden_git_file_is_still_detected(stores, tmp_path):
 
 # --- a vector write that produced nothing must not report success -----------
 
+@pytest.mark.slow
 def test_a_failed_vector_write_leaves_the_file_pending(stores, tmp_path):
     """**How a file ends up INDEXED with no vector, permanently.**
 
@@ -644,6 +654,7 @@ def test_a_failed_vector_write_leaves_the_file_pending(stores, tmp_path):
     assert store.stats()["chunks_embedded"] == 0
 
 
+@pytest.mark.slow
 def test_the_retry_recovers_it_on_the_next_run(stores, tmp_path):
     """PENDING is only the right answer if a later run actually fixes it."""
     root = tmp_path / "corpus"

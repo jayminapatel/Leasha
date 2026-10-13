@@ -276,6 +276,7 @@ os._exit(7)
 """
 
 
+@pytest.mark.slow
 @needs_the_switch
 @pytest.mark.parametrize("where", [
     "rows still waiting",

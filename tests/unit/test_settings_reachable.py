@@ -324,6 +324,7 @@ def _stored_names() -> set[str]:
     return found
 
 
+@pytest.mark.slow
 def test_every_control_writes_its_setting_somewhere():
     """A control that persists nothing is a control that does nothing.
 
@@ -471,6 +472,7 @@ def _connect_targets_in(root: Path) -> set[str]:
 # offering searches that were just erased - see `test_clearing_the_history_*`
 # in `test_window_opens.py`. A new orphan fails here with no place to hide.
 
+@pytest.mark.slow
 def test_every_signal_a_settings_panel_declares_has_a_receiver():
     """The generic form of the `rerank_toggled` / `cloud_toggled` bug.
 

@@ -73,6 +73,7 @@ def test_a_choice_saves_its_value_and_loading_saves_nothing(qtbot):
     assert saved[-1] == {"enrich_max_months": 12}
 
 
+@pytest.mark.slow
 def test_accounts_config_sets_the_age_window(tmp_path, capsys):
     from app.cli import main
 

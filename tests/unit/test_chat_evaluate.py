@@ -92,6 +92,7 @@ def test_the_fixture_is_dated_so_it_never_drifts():
 
 # --------------------------------------------------------------------------- the floors
 
+@pytest.mark.slow
 def test_the_deterministic_run_clears_the_orders_ship_floors(report):
     assert report.below_floor() == []
     assert set(FLOORS) == {"citation_validity", "aggregate_exactness", "absence_honesty", "extractive"}
@@ -146,6 +147,7 @@ def test_the_report_states_what_it_measured_and_never_hides_a_stand_in(report):
 
 # --------------------------------------------------------------------------- the harness can fail
 
+@pytest.mark.slow
 def test_a_lying_model_scores_badly_on_answers_and_still_perfectly_on_receipts(env):
     """The other half of the guarantee: a lying model loses recall, never honesty."""
     lying = run_chat_eval(env.engine("hallucinating"), fx.QUESTIONS, env.store, model="liar")
@@ -315,6 +317,7 @@ def test_a_reply_that_trickles_forever_is_ended_by_the_wall_clock_with_what_had_
 
 # --------------------------------------------------------------------------- the command line
 
+@pytest.mark.slow
 def test_evaluate_chat_runs_from_the_command_line_without_a_model():
     result = subprocess.run(
         [sys.executable, "-m", "app.cli", "evaluate", "--chat", "--chat-fake",
@@ -325,6 +328,7 @@ def test_evaluate_chat_runs_from_the_command_line_without_a_model():
     assert "NOT a language model" in result.stdout and "citation validity" in result.stdout
 
 
+@pytest.mark.slow
 def test_conversations_run_from_the_command_line_with_a_transcript():
     result = subprocess.run(
         [sys.executable, "-m", "app.cli", "evaluate", "--chat", "--chat-fake", "--chat-conversation-only"],

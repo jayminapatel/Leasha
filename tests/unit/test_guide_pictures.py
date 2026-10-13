@@ -57,6 +57,7 @@ def test_every_caption_names_a_surface_the_grab_tool_can_reach():
                 or name in guide_pictures.WINDOWS), name
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_every_menu_picture_names_a_menu_on_the_bar_and_help_has_about(gui_mainwindow):
     """The Help picture was the one left "by hand" on 4 October, the day

@@ -26,6 +26,7 @@ def _qt():
     return QApplication.instance() or QApplication([])
 
 
+@pytest.mark.slow
 def test_every_indexing_and_settings_category_has_an_icon(gui_mainwindow):
     from app.ui.widgets.category_nav import CategoryNav
 
@@ -59,6 +60,7 @@ def test_every_tidy_entry_has_an_icon_once_the_page_is_tinted():
     assert not bare, f"no icon on {bare}"
 
 
+@pytest.mark.slow
 def test_the_window_tints_the_tidy_list_with_the_rest(gui_mainwindow):
     from PySide6.QtGui import QIcon
 

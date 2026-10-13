@@ -57,6 +57,7 @@ def translator(gui_mainwindow, monkeypatch):
     return translator, client, store
 
 
+@pytest.mark.slow
 def test_the_window_s_translator_is_given_the_index(translator):
     built, _client, store = translator
     assert built.store is store

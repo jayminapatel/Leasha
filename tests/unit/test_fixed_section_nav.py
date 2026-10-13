@@ -165,6 +165,7 @@ def _wheel(widget: QWidget, dy: int = -120) -> QWidget | None:
 # Structure: the sidebar is never inside what scrolls the content
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_no_scroll_area_that_moves_the_content_holds_the_sidebar(pages):
     app, rows = _both(pages)
     for view, top, _tall in rows:

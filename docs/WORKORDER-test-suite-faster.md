@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.1 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.2 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 **Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of
@@ -82,7 +82,7 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 - **No coverage map.** `pytest-cov` is installed, but nothing records which modules no test reaches.
 
 **The plan.**
-- [ ] **4a** **Tiers, each with one job.**
+- [x] **4a** **Tiers, each with one job.**
   - *Quick* (`--quick`, local, under 2 minutes): Qt-free logic and presenters only.
   - *Affected* (`--affected`, local, after each change): the files that can see the change.
   - *PR CI* (every push): everything except `e2e` and `jvm`. **`slow` is included**, because at 377 s it is too
@@ -92,9 +92,26 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 
   The workflow, `run_suite.py`'s tiers and `docs/VERSIONING.md`'s release checklist are changed to say exactly
   this. A guard test checks that the CI command and the tiers agree.
-- [ ] **4b** **Markers that tell the truth.** After §2's speed work, every test still over 1 s is either sped up or
+
+  *Done 2026-10-13.* `ci.yml`: the Windows job runs `-m "not jvm and not e2e"` (`slow` included) on every
+  event, the weekly schedule included, and on the schedule only a second step runs `-m "jvm"` in a process of
+  its own (JPype can take a process down). mpxj and jpype1 are not in the requirements, so on CI the jvm tests
+  prove the fallback and skip the real reader. The macOS job is unchanged (still excludes `slow`; non-blocking,
+  hand or weekly). `run_suite.py` holds the tiers as `TIERS`; `docs/VERSIONING.md`'s release checklist gains
+  step 10, `e2e` on the owner's laptop against the packaged app. Guard: `tests/unit/test_suite_tiers.py`.
+- [x] **4b** **Markers that tell the truth.** After §2's speed work, every test still over 1 s is either sped up or
   marked `slow`, so `--audit-markers` lists nothing. A guard test fails on a new unmarked test over the threshold
   (from `logs/suite/durations.json`), so the markers cannot drift again.
+
+  *Done 2026-10-13, except the 20 §2 files.* Of the 605 unmarked tests over `run_suite.SLOW_SECONDS` (1 s),
+  156 are in the 20 files §2 is speeding up and were left alone; the other **449 (428 test functions, the rest
+  parametrized cases) in 186 files are marked `slow`** - per test in 180 files, `pytestmark` in the 6 where
+  every test is slow. Guard: `tests/unit/test_slow_markers_truthful.py`, reading the source rather than the
+  measurement's stale `marked` flag, with the 20 files exempt until their PRs merge (it skips where no
+  `durations.json` exists, CI included). `--audit-markers` still lists them until the next full run rewrites
+  the flags. **Found and fixed on the way:** `tests/conftest.py`'s Florence-2 guard let every `slow` test load
+  the real model, so this marking would have let 428 more tests try a 1 GB download; the opt-out is a new
+  `real_florence` marker on the two real-model proofs, with a test that a merely slow test is still guarded.
 - [ ] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
   commit the summary as `docs/TEST_COVERAGE.md`, and list:
   - every module under `app/` below 60% branch coverage;
@@ -113,10 +130,19 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 - [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
-- [ ] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
+- [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
   fixture exists keeps it from being removed.
+
+  *Done 2026-10-13.* `no_input_left_held` (autouse, `tests/unit/conftest.py`): after any test once a
+  `QApplication` exists, it reads `keyboardModifiers()` and `mouseButtons()`, releases whatever is held through
+  a hidden scratch widget, and **fails the test at teardown, by name**. Run over the 22 files that press
+  modifiers or double-click: 20 tests tripped it. The 7 in `test_list_keys.py` are fixed (its `_press` and
+  `_double_click` helpers now let go). The 13 in `test_ui_redesign_scenarios.py` (Ctrl or Shift left held by
+  its shortcut presses) are released and warned about through `KNOWN_INPUT_LEAKERS`, because §2g is rewriting
+  that file; it comes off the list when §2g lands. Guards in `tests/unit/test_suite_tiers.py`: the fixture
+  exists, is autouse and active, sees and releases both leaks, and excuses only §2 files.
 
 ## 3. Done when
 

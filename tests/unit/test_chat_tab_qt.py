@@ -135,6 +135,7 @@ def last_answer(c):
 # It is a page of its own, in the rail
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_chat_is_a_rail_tab_after_browse_and_before_reports(chat):
     rail = chat.window.rail
     titles = [rail.tabText(i) for i in range(rail.count())]
@@ -376,6 +377,7 @@ class _TitlingEngine(FakeChatEngine):
         return "The deposit chat"
 
 
+@pytest.mark.slow
 def test_a_second_question_asked_at_once_starts_before_the_title(chat):
     """Work order model-sequencing 3c: the title is asked only once the model is idle,
     so it never stands in front of the next question behind the model's lock."""
@@ -394,6 +396,7 @@ def test_a_second_question_asked_at_once_starts_before_the_title(chat):
     _wait(c.qtbot, lambda: c.ctl.session.title == "The deposit chat")
 
 
+@pytest.mark.slow
 def test_the_title_is_asked_once_the_model_has_been_idle(chat):
     c = chat
     titling = _TitlingEngine()
@@ -408,6 +411,7 @@ def test_the_title_is_asked_once_the_model_has_been_idle(chat):
     assert c.ctl._title_pending is None
 
 
+@pytest.mark.slow
 def test_a_conversation_deleted_while_its_title_waits_is_not_brought_back(chat):
     from app.ui.controllers import chat_controller
 

@@ -121,6 +121,7 @@ def test_status_counts_follow_a_skip_that_moves_no_generation(store, tmp_path) -
 # Connections of threads that have gone are closed
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_finished_threads_connection_does_not_stay_open(store, tmp_path) -> None:
     _file(store, tmp_path / "a.txt")
     opened_before = len(store._open)

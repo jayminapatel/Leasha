@@ -40,17 +40,20 @@ def client(host, tmp_path):
     return RemoteOnnxLLM(host, tmp_path, "", timeout=30.0)
 
 
+@pytest.mark.slow
 def test_a_call_comes_back_whole(client):
     reply = client.generate("hello")
     assert reply.text.startswith("echo:hello:")
     assert client.chat([{"role": "user", "content": "hi"}]).text.startswith("echo:hi:")
 
 
+@pytest.mark.slow
 def test_a_stream_arrives_piece_by_piece_in_order(client):
     assert list(client.stream("one two three")) == ["one", "two", "three"]
     assert list(client.chat_stream([{"role": "user", "content": "a b"}])) == ["a", "b"]
 
 
+@pytest.mark.slow
 def test_stop_ends_a_reply_early(client):
     flag = threading.Event()
     seen = []
@@ -63,12 +66,14 @@ def test_stop_ends_a_reply_early(client):
     assert time.monotonic() - started < 10
 
 
+@pytest.mark.slow
 def test_an_error_in_the_host_is_the_same_error_here(client):
     with pytest.raises(AppErrorException) as caught:
         client.generate("boom")
     assert caught.value.error.code == "ERR_LOCAL_MODEL_TIMEOUT"
 
 
+@pytest.mark.slow
 def test_two_replies_at_once_do_not_mix(client):
     out: dict[str, list[str]] = {}
 
@@ -84,6 +89,7 @@ def test_two_replies_at_once_do_not_mix(client):
     assert out == {"a": ["a1", "a2", "a3", "a4", "a5"], "b": ["b1", "b2", "b3", "b4", "b5"]}
 
 
+@pytest.mark.slow
 def test_the_window_keeps_running_while_the_host_holds_its_own_lock(client):
     """The reason for all of it. The host spins for a second with its lock held, as a
     model load does; a ticker on this process's other thread must not notice."""
@@ -110,6 +116,7 @@ def test_the_window_keeps_running_while_the_host_holds_its_own_lock(client):
     assert max(gaps) < 0.3, f"this process stalled for {max(gaps):.2f}s while the host loaded"
 
 
+@pytest.mark.slow
 def test_a_host_that_dies_costs_the_reply_and_the_next_question_starts_another(client, host):
     with pytest.raises(AppErrorException) as caught:
         list(client.stream("die x y z"))
@@ -130,6 +137,7 @@ def test_the_questions_that_read_the_disk_never_start_the_host(host, tmp_path):
     assert host.started == 0, "a cheap question waited on, or started, the host"
 
 
+@pytest.mark.slow
 def test_a_named_model_and_keep_resident_reach_the_host(host, tmp_path):
     client = RemoteOnnxLLM(host, tmp_path, "", timeout=30.0)
     client.keep_resident = True
@@ -159,6 +167,7 @@ def test_only_the_window_asks_for_the_host():
 # --- the other models the window used to load itself ---------------------------------
 
 
+@pytest.mark.slow
 def test_the_picture_search_encoder_returns_vectors_and_its_download_progress(host):
     encoder = RemoteEmbedder(host, factory=FAKE_EMBEDDER)
     percents = []
@@ -169,6 +178,7 @@ def test_the_picture_search_encoder_returns_vectors_and_its_download_progress(ho
     encoder.warm_up()
 
 
+@pytest.mark.slow
 def test_describe_returns_the_caption_and_never_raises_when_the_host_dies(host):
     florence = RemoteFlorence(host, factory=FAKE_FLORENCE)
     assert florence.describe("a.jpg") == "described:a.jpg"
@@ -178,6 +188,7 @@ def test_describe_returns_the_caption_and_never_raises_when_the_host_dies(host):
     assert host.started == 2
 
 
+@pytest.mark.slow
 def test_the_window_keeps_running_while_a_vision_model_holds_the_hosts_lock(host):
     florence = RemoteFlorence(host, factory=FAKE_FLORENCE)
     florence.describe("warm")
@@ -255,6 +266,7 @@ def _refusing_popen(*_args, **_kwargs):
     raise OSError("the process could not be created")
 
 
+@pytest.mark.slow
 def test_the_query_embedder_answers_from_the_search_host(host):
     from app.index.embedder import Embedder
 
@@ -274,6 +286,7 @@ def test_the_query_embedder_answers_from_the_search_host(host):
         "the splash's download hook stays here and hears the host's progress"
 
 
+@pytest.mark.slow
 def test_the_reranker_scores_in_the_host_and_keeps_its_own_rules(host):
     from app.llm.remote_models import RemoteReranker
 
@@ -298,6 +311,7 @@ def test_a_reranker_that_is_off_starts_no_host(host):
     assert host.started == 0
 
 
+@pytest.mark.slow
 def test_a_reranker_whose_host_dies_keeps_the_fused_order_and_recovers(host):
     from app.llm.remote_models import RemoteReranker
 
@@ -309,6 +323,7 @@ def test_a_reranker_whose_host_dies_keeps_the_fused_order_and_recovers(host):
     assert host.started == 2
 
 
+@pytest.mark.slow
 def test_a_reranker_model_that_will_not_load_in_the_host_is_todays_failed_load(host):
     from app.llm.remote_models import RemoteReranker
 
@@ -441,6 +456,7 @@ def test_closing_asks_every_host_to_leave_and_is_bounded(monkeypatch):
     assert sorted(closed) == ["quick", "quick", "stuck"]
 
 
+@pytest.mark.slow
 def test_a_real_host_is_closed_by_close_hosts(monkeypatch, host):
     host.ensure()
     assert host.alive

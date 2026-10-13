@@ -676,6 +676,7 @@ def test_idle_is_not_used_by_pull(fake):
     assert "IDLE" not in s.verbs
 
 
+@pytest.mark.slow
 def test_idle_reports_new_mail_and_stops_on_request(fake):
     s = basic_server(fake, idle=True)
     seen: list[str] = []
@@ -698,6 +699,7 @@ def test_idle_reports_new_mail_and_stops_on_request(fake):
     assert "SELECT" not in s.verbs and s.violations == []
 
 
+@pytest.mark.slow
 def test_idle_gives_up_after_max_seconds(fake):
     s = basic_server(fake, idle=True)
     started = time.time()

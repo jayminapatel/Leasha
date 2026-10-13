@@ -22,6 +22,7 @@ from tests.unit.test_chat_tab_qt import _wait, answered, ask, chat       # noqa:
 pytestmark = pytest.mark.gui
 
 
+@pytest.mark.slow
 def test_switching_away_mid_answer_keeps_the_answer_in_its_own_conversation(chat):
     c = chat
     c.fake.hold_at = 4
@@ -83,6 +84,7 @@ def test_up_in_the_empty_box_brings_the_last_message_back_to_change(chat):
     assert [t.text for t in c.ctl.session.turns if t.role == "user"] == ["deposit, again?"]
 
 
+@pytest.mark.slow
 def test_coming_back_mid_answer_to_a_conversation_with_earlier_answers_shows_the_live_one(chat):
     """Review of PR 72: the redraw reused one name for the parked answer and each stored one, so
     with an earlier answer in the conversation the live answer never came back to the page."""

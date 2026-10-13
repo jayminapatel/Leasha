@@ -182,6 +182,7 @@ def _rows(seed: int) -> list:
     return rows
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("seed", [1, 2, 3])
 def test_the_fast_clustering_gives_the_same_clusters_as_phash_distance(seed) -> None:
     rows = _rows(seed)
@@ -190,6 +191,7 @@ def test_the_fast_clustering_gives_the_same_clusters_as_phash_distance(seed) -> 
     assert [[id(r) for r in c] for c in fast] == [[id(r) for r in c] for c in slow]
 
 
+@pytest.mark.slow
 def test_the_clustering_fallback_without_numpy_gives_the_same_clusters(monkeypatch) -> None:
     import builtins
 

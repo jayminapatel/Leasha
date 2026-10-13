@@ -138,6 +138,7 @@ def test_a_real_leak_still_trips_after_the_settles_run_out():
     assert engine._settles <= MAX_SETTLES
 
 
+@pytest.mark.slow
 def test_a_cpu_pause_is_not_treated_as_a_memory_pause():
     """Only memory pauses settle. A busy machine gets quiet again on its own."""
     limits = ResourceLimits(memory_mb=100_000, cpu_percent=50, busy_seconds=0.0,

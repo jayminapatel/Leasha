@@ -230,6 +230,7 @@ _TERMS = ("valve", "pump", "isolation", "shutdown")
 _FILLER = "the report covers the annual maintenance schedule for this site "
 
 
+@pytest.mark.slow
 @given(
     prefix_words=st.integers(min_value=0, max_value=60),
     suffix_words=st.integers(min_value=0, max_value=60),

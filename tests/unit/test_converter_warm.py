@@ -149,6 +149,7 @@ def test_the_temporary_directory_is_removed_when_the_session_fails(fake_soffice,
     assert made and not made[0].exists()
 
 
+@pytest.mark.slow
 def test_a_sharing_violation_on_cleanup_does_not_replace_the_real_error():
     """`WinError 32` - a killed LibreOffice still holding a file - used to be
     raised from the error path, so the file was reported as broken for the wrong
@@ -165,6 +166,7 @@ def test_a_sharing_violation_on_cleanup_does_not_replace_the_real_error():
     assert _Stubborn.attempts >= 2, "it retries before giving up"
 
 
+@pytest.mark.slow
 def test_a_killed_converter_takes_its_children_with_it(tmp_path):
     """The leak that `subprocess.run(timeout=...)` had.
 

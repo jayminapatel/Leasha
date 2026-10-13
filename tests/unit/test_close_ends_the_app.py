@@ -24,6 +24,9 @@ from pathlib import Path
 
 import pytest
 
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
+
 CHILD = Path(__file__).with_name("close_scenario_child.py")
 WALL_CLOCK_CAP = 200
 

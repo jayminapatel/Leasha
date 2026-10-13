@@ -25,6 +25,7 @@ pytestmark = pytest.mark.gui
 # Order 0j section 2 - the Photo Tagger
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_settings_button_opens_the_photo_tagger(gui_mainwindow, qtbot):
     from app.ui.widgets.photo_tagger_window import PhotoTaggerWindow
 
@@ -62,6 +63,7 @@ def test_the_go_menu_has_people_in_photos(gui_mainwindow, qtbot):
     window._photo_tagger.close()
 
 
+@pytest.mark.slow
 def test_opening_a_photo_from_the_tagger_goes_through_the_window(gui_mainwindow, qtbot, monkeypatch):
     app, window, store, engine = gui_mainwindow
     seen = []
@@ -299,6 +301,7 @@ def test_a_failed_write_is_not_left_looking_done(gui_mainwindow, qtbot, monkeypa
     qtbot.waitUntil(lambda: not box.links.isChecked(), timeout=3000)
 
 
+@pytest.mark.slow
 def test_the_support_bundle_button_writes_the_zip(gui_mainwindow, qtbot, monkeypatch, tmp_path):
     import zipfile
 
