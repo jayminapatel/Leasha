@@ -37,10 +37,53 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 ## 2. The files, in five groups
 
 **Group A - indexing tuning and runs** (764 s)
-- [ ] **2a** `tests/unit/test_index_tuning_acceptance.py` (436 s)
-- [ ] **2b** `tests/unit/test_speed_work.py` (214 s)
-- [ ] **2c** `tests/unit/test_run_setup.py` (114 s)
-- [ ] **2d** `tests/unit/test_read_process.py` (69 s)
+- [x] **2a** `tests/unit/test_index_tuning_acceptance.py` (436 s)
+  - *2026-10-13, Group A:* **before 205.4 s, after 2.6 s** (back to back, each file alone,
+    `-p no:cacheprovider --durations=0`, lower of the runs; under the busier load earlier the
+    same day the before was 509-595 s and the after 4.8-7.1 s). **Cause, from a stack dump:**
+    `resolve_for_run` calls `test_this_machine_if_new(settings)` first, and a stand-in settings
+    class with no `embed_device` reads as "auto", so on this DirectML laptop each of the five
+    `resolve_for_run` calls ran the real device test (every model, processor and card) and,
+    with no `state_path`, kept nothing. **Change:** a new opt-in fixture `no_hardware_test` in
+    `tests/conftest.py` makes `device_test.gpu_usable()` say no, as it already does on CI
+    (honours `EMBED_DEVICE=auto` to test with the card on purpose), plus `quiet_machine` (the
+    governor sees an idle CPU); both applied by `pytestmark`. No assertion changed. The
+    device test itself stays proved by `test_model_devices.py`. **Red check:** `resolve_for_run`
+    forced to Manual - `test_the_next_run_uses_the_automatic_values` red; dedup forced off -
+    `test_the_dedup_switch_changes_what_the_model_is_asked` red. §4e: the Qt tests here are not
+    slow (the `screen` fixture is under 0.5 s), so nothing moved.
+- [x] **2b** `tests/unit/test_speed_work.py` (214 s)
+  - *2026-10-13, Group A:* **before 156.2 s, after 4.5 s** (back to back; earlier, busier: before
+    531-1,543 s, after 10.4-18.3 s). Same cause as 2a: `test_the_tuning_mode_reaches_the_run`
+    (two calls) and `test_a_machine_that_cannot_be_examined_...` ran the real device test, 146-967 s
+    a test. Same change (`pytestmark` with `quiet_machine`, `no_hardware_test`). **Red check:**
+    Manual forced - `test_the_tuning_mode_reaches_the_run` red; dedup off -
+    `test_repeated_text_is_embedded_once` red. §4e: no Qt here.
+- [x] **2c** `tests/unit/test_run_setup.py` (114 s)
+  - *2026-10-13, Group A:* **before 57.6 s, after 8.4 s** (back to back; earlier, busier: before
+    359-524 s, after 19.5-20.1 s). Two causes. `test_an_offline_media_scan_is_built_like_every_other_run`
+    (300-350 s when busy) ran the real device test through its stand-in settings - fixed by the
+    same two fixtures. And each command-line run started and stopped a reader child process
+    (about 10 s a run, three runs in one test): `after_run_env` now also writes
+    `INDEX_READ_PROCESSES=false`, since these tests check the pass and its records, and reading
+    in a child is proved in `test_read_process.py`. **Red check:** `images_due_after` returning
+    None - `test_a_command_line_text_pass_makes_its_next_run_the_images_pass` red; every run
+    counted as the saved set - `test_a_run_over_other_folders_...` red; saved cloud opt-ins never
+    read - `test_a_command_line_run_over_the_saved_folders_...` red; reader processes never on -
+    the Offline Media test red. §4e: no Qt here.
+- [x] **2d** `tests/unit/test_read_process.py` (69 s)
+  - *2026-10-13, Group A:* **before 20.3 s, after 13.9 s** (alternated before/after twice in the
+    same minutes; under load the before was 68-80 s, and one before run was killed after more than
+    twenty minutes parked in `resources.wait_while_throttled` under the card pass - the governor
+    waiting for a machine at 100% CPU, which `quiet_machine` now prevents). Change: the
+    3,000-message mbox is built once per module (`big_mbox`) and written directly rather than
+    through 3,000 `EmailMessage`s (6-10 s a build); its bytes are `_mbox`'s own bar the From_
+    line's clock, held by a new test, `test_the_quick_mailbox_is_the_same_mailbox`.
+    `test_the_benchmark_corpus_indexes_the_same_with_reader_processes` (8-40 s) is left as it is:
+    it is the only end-to-end proof that the switch changes nothing. **Red check:** wrong error
+    code - the crash test red; the abandoned child not ended - the abandoned-file test red; the
+    child sending one extra chunk - the benchmark test red; the quick mailbox wrapped at 76 - the
+    new test red. §4e: no Qt here.
 
 **Group B - the window and the screen** (484 s)
 - [ ] **2e** `tests/unit/test_grab_ui.py` (229 s)
