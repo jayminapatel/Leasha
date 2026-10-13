@@ -57,6 +57,11 @@ def test_a_double_click_on_a_contact_opens_it_once(world, qapp):
     QTest.mouseClick(page.table.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
     QTest.mouseDClick(page.table.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
     qapp.processEvents()
+    # QTest's double-click leaves Qt believing the left button is still down (checked on PySide6,
+    # 2026-10-13); a later test that tells a key from a click by `mouseButtons()` then failed -
+    # the Contacts sidebar's arrow-key test, whenever it ran after this file.
+    QTest.mouseRelease(page.table.viewport(), Qt.MouseButton.LeftButton, pos=rect.center())
+    qapp.processEvents()
     assert len(opened) == 1, f"one double-click opened the contact {len(opened)} times"
 
 
