@@ -876,7 +876,19 @@ QComboBox QAbstractItemView {{
     padding: 2px 10px; color: {text_faint}; background: transparent;
 }}
 #chatWebChip:checked {{ background: {accent_soft}; color: {text}; border-color: {text_faint}; }}
-#chatNarration, #chatFooter {{ color: {text_faint}; font-size: {small}; }}
+#chatNarration, #chatFooter, #chatMeta, #chatWorkDetail {{ color: {text_faint}; font-size: {small}; }}
+/* UI phase B (2026-10-13): the folded "Searched your files" line under an answer, and
+   the empty conversation's starter questions as quiet cards. */
+#chatWork {{
+    background: transparent; color: {text_faint}; border: none; text-align: left;
+    padding: 2px 6px; border-radius: {radius_control}; font-size: {small};
+}}
+#chatWork:hover {{ background: {surface_alt}; color: {text}; }}
+#chatStarter {{
+    background: {surface}; color: {text}; border: 1px solid {border};
+    border-radius: {radius_input}; padding: 10px 12px; text-align: left;
+}}
+#chatStarter:hover {{ background: {surface_alt}; border-color: {border_strong}; }}
 #chatEmpty, #chatShelfEmpty, #chatSourcesEmpty {{ color: {text_faint}; }}
 #chatSourcesHeading {{ font-weight: 600; }}
 #chatNotice {{

@@ -367,6 +367,31 @@ class ResultTable(QTableWidget):
         """
         return self.row_object(self.currentRow())
 
+    def selected_objects(self) -> list:
+        """Every selected row's object, top to bottom as shown. UI phase B: what Copy
+        path and Show in folder act on when several lines are selected."""
+        rows = sorted({index.row() for index in self.selectionModel().selectedRows()})
+        found = (self.row_object(row) for row in rows)
+        return [row for row in found if row is not None]
+
+    def right_clicked(self, point: Any) -> Any:
+        """The row a right-click at `point` (viewport coordinates, as Qt gives it) is
+        about, made current. Never raises.
+
+        A line already among several selected keeps the selection, as in Explorer -
+        so a right-click on one of them acts on all of them; any other line becomes
+        the selection. Below the last line (or the Menu key), the current row stands.
+        """
+        from PySide6.QtCore import QItemSelectionModel
+
+        row = self.rowAt(point.y())
+        if row >= 0 and self.selectionModel().isRowSelected(row):
+            self.selectionModel().setCurrentIndex(
+                self.model().index(row, 0), QItemSelectionModel.SelectionFlag.NoUpdate)
+        elif row >= 0:
+            self.selectRow(row)
+        return self.current_row()
+
 
 def align_headers(view: Any, aligns: Optional[Sequence[str]] = None) -> None:
     r"""Point a plain table's or tree's headings the way their columns read.

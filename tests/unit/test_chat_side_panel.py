@@ -63,9 +63,10 @@ def test_the_panel_state_is_written_and_read_back_and_rubbish_is_the_default():
 
 
 def test_the_folded_shelf_says_how_many_and_how_many_are_kept():
-    assert shelf_count_label(1) == "1 source"
-    assert shelf_count_label(4) == "4 sources"
-    assert shelf_count_label(4, 1) == "4 sources, 1 kept"
+    # UI phase B (2026-10-13, owner-approved): "In scope (N)", not "N sources".
+    assert shelf_count_label(1) == "In scope (1)"
+    assert shelf_count_label(4) == "In scope (4)"
+    assert shelf_count_label(4, 1) == "In scope (4), 1 kept"
 
 
 def test_a_message_source_is_titled_by_its_subject_never_its_entry_id():
@@ -330,13 +331,13 @@ def test_the_shelf_folds_into_one_control_that_names_each_document(view, qtbot):
     from app.ui.widgets.chat_shelf import NAME_WIDTH
 
     shelf = view.shelf
-    assert shelf.button.isHidden() and not shelf.empty.isHidden(), "nothing yet: one quiet line"
+    assert shelf.isHidden(), "nothing in scope: no shelf at all (UI phase B)"
     long_name = "A very long subject line about the deposit and the inventory " * 3
     shelf.add_receipt(Receipt(MESSAGE_ID, MESSAGE_PATH, SUBJECT, "q"))
     shelf.add_receipt(Receipt(3, "C:/docs/lease.pdf", "lease.pdf", "q"))
     shelf.add_receipt(Receipt(4, "pst://2024/4", long_name.strip(), "q"))
-    assert not shelf.button.isHidden() and shelf.empty.isHidden()
-    assert shelf.button.text() == "3 sources"
+    assert not shelf.button.isHidden() and shelf.empty.isHidden() and not shelf.isHidden()
+    assert shelf.button.text() == "In scope (3)"
     assert shelf.popup.isHidden(), "the chips are folded away"
     shelf.open_list()
     qtbot.waitUntil(shelf.popup.isVisible, timeout=2000)
@@ -350,9 +351,9 @@ def test_the_shelf_folds_into_one_control_that_names_each_document(view, qtbot):
     assert [c.remove_button.text() for c in chips] == ["Remove"] * 3
 
     chips[1].pin_button.click()
-    assert shelf.button.text() == "3 sources, 1 kept"
+    assert shelf.button.text() == "In scope (3), 1 kept"
     shelf.chips()[0].remove_button.click()
-    assert shelf.button.text() == "2 sources, 1 kept"
+    assert shelf.button.text() == "In scope (2), 1 kept"
     opened = []
     shelf.open_requested.connect(opened.append)
     shelf.chips()[0].name_button.click()

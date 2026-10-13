@@ -42,7 +42,7 @@ from app.ui.widgets.buttons import style_all
 from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
                                        remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
-from app.ui.qtsip import open_menu
+from app.ui.widgets import list_keys, menus
 
 #: How often the page looks for faces grouped since it last read them, while
 #: it is on screen. 2026-10-04.
@@ -266,7 +266,10 @@ class PhotoTaggerPage(QWidget):
         self._list.setSpacing(6)
         self._list.setWordWrap(True)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._list.itemActivated.connect(self._on_activated)
+        # A double-click or Enter names the pile, as F2 does; Delete forgets it, through
+        # the same question its menu line asks (`list_keys`).
+        list_keys.install(self._list, default=self._on_activated, rename=self._rename_current,
+                          delete=self._forget_current)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         self._list.combine_requested.connect(self._combine)
@@ -679,8 +682,10 @@ class PhotoTaggerPage(QWidget):
 
     # -- naming -------------------------------------------------------------
 
-    def _on_activated(self, item: QListWidgetItem) -> None:
-        self._rename(int(item.data(ROLE_PILE_ID)), item.text())
+    def _on_activated(self, index: Any) -> None:
+        item = self._list.itemFromIndex(index)
+        if item is not None:
+            self._rename(int(item.data(ROLE_PILE_ID)), item.text())
 
     def _rename(self, pile_id: int, current_label: str) -> None:
         # The label is `_pile_label`'s "Name - 47 photo(s)"; the name is what is
@@ -800,30 +805,38 @@ class PhotoTaggerPage(QWidget):
     # -- context menu: forget, manage faces ----------------------------------
 
     def _on_context_menu(self, point: Any) -> None:
-        """Right-click on a pile: name, combine, manage faces, forget - through `open_menu`."""
+        """Right-click on a pile: name, combine, manage faces, forget - through `menus.show`.
+
+        `point` is the viewport's, as Qt gives it on a list; it used to be placed
+        through the list itself, a frame's width off the pointer (UI phase B).
+        """
         item = self._list.itemAt(point)
         if item is None:
             return
         pile_id = int(item.data(ROLE_PILE_ID))
         name = item.text().split(" — ", 1)[0]
+        label = item.text()
+        menu = menus.build(self, [
+            menus.Item("Name this person…", lambda: self._rename(pile_id, label), default=True,
+                       shortcut="F2"),
+            # 2026-10-07, the owner: "combine for sure". Dragging one group onto
+            # another already did this; the menu is where it is looked for.
+            menus.Item("Combine with another person…", lambda: self._combine_with(pile_id, name)),
+            menus.Item("Manage the faces in this pile…", lambda: self._manage_faces(pile_id)),
+            menus.Item("Forget this person…", lambda: self._forget(pile_id, name), group="danger",
+                       shortcut="Del"),
+        ])
+        menus.show(menu, self._list, point)
 
-        menu = QMenu(self)
-        rename_action = menu.addAction("Name this person…")
-        # 2026-10-07, the owner: "combine for sure". Dragging one group onto
-        # another already did this; the menu is where it is looked for.
-        combine_action = menu.addAction("Combine with another person…")
-        manage_action = menu.addAction("Manage the faces in this pile…")
-        forget_action = menu.addAction("Forget this person…")
-        chosen = open_menu(menu, self._list.mapToGlobal(point))
+    def _rename_current(self) -> None:
+        item = self._list.currentItem()
+        if item is not None:
+            self._rename(int(item.data(ROLE_PILE_ID)), item.text())
 
-        if chosen is rename_action:
-            self._rename(pile_id, item.text())
-        elif chosen is combine_action:
-            self._combine_with(pile_id, name)
-        elif chosen is manage_action:
-            self._manage_faces(pile_id)
-        elif chosen is forget_action:
-            self._forget(pile_id, name)
+    def _forget_current(self) -> None:
+        item = self._list.currentItem()
+        if item is not None:
+            self._forget(int(item.data(ROLE_PILE_ID)), item.text().split(" — ", 1)[0])
 
     def _combine_with(self, pile_id: int, name: str) -> None:
         """Pick the group these faces belong with, confirm, combine. 2026-10-07.

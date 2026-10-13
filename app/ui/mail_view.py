@@ -50,7 +50,8 @@ from app.ui.view_options import (
 )
 from app.ui.widgets.chips import list_chips, say_failed, show_page
 from app.ui.widgets.command_popup import attach_to
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import FileActions, copy_paths, show_for, table_pairs
 from app.ui.widgets.mail_card import attach_mail
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
@@ -154,7 +155,9 @@ class MailView(QWidget):
 
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(self._on_context_menu)
-        self.results.itemDoubleClicked.connect(self._open_selected)   # the cell is no row
+        # Double-click and Enter open the message, from one signal (`list_keys`).
+        list_keys.install(self.results, default=self._open_selected,
+                          preview=list_keys.PAGE_PREVIEW, copy=self._copy_selected)
         # Right-click the header for the column, density and text-size menu.
         # On the header rather than in Settings: it is a preference about this
         # table, and the place people look for it is the table.
@@ -315,28 +318,18 @@ class MailView(QWidget):
         items = self.results.selectedItems()
         if not items:
             return None
-        file_id = self.results.item(items[0].row(), 0)
+        # Of several selected, the current line - the one right-clicked or moved to.
+        current = self.results.currentRow()
+        at = current if current in {item.row() for item in items} else items[0].row()
+        file_id = self.results.item(at, 0)
         if file_id is None:
             return None
         wanted = file_id.data(Qt.ItemDataRole.UserRole)
         return next((row for row in self._rows if row.file_id == wanted), None)
 
-    def keyPressEvent(self, event: Any) -> None:           # noqa: N802 - Qt's naming
-        """Enter opens the selected message.
-
-        **Mail had no keyboard route at all**: double-click was the only way in,
-        which in a project whose specification requires keyboard-only operation
-        end to end is a plain failure rather than a rough edge. Both Return and
-        Enter, because the numeric keypad sends the other one and somebody using
-        the keypad to move through a list is exactly the person affected.
-        """
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            row = self.selected_row()
-            if row is not None:
-                self._open_selected()
-                event.accept()
-                return
-        super().keyPressEvent(event)
+    def _copy_selected(self) -> None:
+        """Ctrl+C: every selected message's path, one a line."""
+        copy_paths(table_pairs(self.results))
 
     def _open_selected(self, row: Any = None) -> None:
         """Open the selected message - in Outlook (the owner, 2026-10-04: the
@@ -356,12 +349,9 @@ class MailView(QWidget):
 
     def _on_context_menu(self, point: Any) -> None:
         """The same menu as the other two lists - see widgets/file_menu.py."""
-        # Viewport coordinates: the signal gives a point relative to the table,
-        # `rowAt` wants one relative to the viewport, and the header sits
-        # between them. Getting this wrong is why right-click looked broken.
-        index = self.results.rowAt(viewport_point(self.results, point).y())
-        if index >= 0:
-            self.results.selectRow(index)
+        # The point is the viewport's, as Qt gives it (`menus.global_point`); a line
+        # among several selected keeps them all, for Copy path and Show in folder.
+        self.results.right_clicked(point)
         row = self.selected_row()
         if row is None:
             return
@@ -371,6 +361,8 @@ class MailView(QWidget):
         show_for(self.results, point, row.path, FileActions(
             open_file=lambda: self._open_selected(row), row=row,
             reveal=lambda: open_row_async(self._store, row, reveal=True, on_error=self.error.emit),
+            selected=table_pairs(self.results), reveal_one=lambda _path, one: open_row_async(
+                self._store, one, reveal=True, on_error=self.error.emit),
             search_inside=lambda: self.search_inside_requested.emit(row.path),
             same_period=lambda: self.period_requested.emit(int(row.file_id)),
             copy=[("Copy subject", row.subject), ("Copy sender", row.sender)],

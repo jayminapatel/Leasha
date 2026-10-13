@@ -16,6 +16,14 @@ straight there: the folder tree is walked (milliseconds), the message is
 taken by position, and its number is checked against the one indexed. Only
 when that fails - an index written before schema 32, or an archive that has
 changed since - does it search, the folder first and then the archive.
+
+**Opened once for many reads (`kept_open`, 2026-10-13).** Opening an archive costs 2-3 s whatever is
+read from it (measured on the owner's `2014.pst`): contact enrichment read 139 vCard attachments, and
+re-reads several messages a contact (order 1s 4b), each opening its archive afresh - 537 s before the
+first contact was looked at. Inside `with kept_open():` each archive this thread opens stays open until
+the block ends; outside it every call opens and closes its own, as the preview pane needs. Its folder
+tree is kept too: a message fetched by position through a folder object libpff has already loaded takes
+milliseconds, through a fresh one 3.7 s (2020.pst's 23,000-message folder, measured the same day).
 """
 
 from __future__ import annotations
@@ -23,6 +31,7 @@ from __future__ import annotations
 import contextlib
 import io
 import re
+import threading
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -30,7 +39,51 @@ from typing import Any
 from app.core.errors import AppErrorException, make_error
 from app.core.row_facts import ZIP_FAMILY_EXTS, ext_alternation
 
-__all__ = ["member_of", "read_attachment", "attachment_bytes", "archive_unavailable"]
+__all__ = ["member_of", "read_attachment", "read_message_body", "attachment_bytes", "archive_unavailable",
+           "kept_open"]
+
+_KEPT = threading.local()
+
+
+@contextlib.contextmanager
+def kept_open():
+    """Within this block, on this thread, each archive is opened once and closed when it ends. Nests."""
+    outer = getattr(_KEPT, "files", None)
+    if outer is not None:
+        yield
+        return
+    _KEPT.files = {}
+    _KEPT.folders = {}
+    try:
+        yield
+    finally:
+        files, _KEPT.files, _KEPT.folders = _KEPT.files, None, None
+        for archive in files.values():
+            with contextlib.suppress(Exception):     # closing a read
+                archive.close()
+
+
+@contextlib.contextmanager
+def _opened(path: Path | str):
+    """The archive open for reading: the kept one inside `kept_open`, else one closed afterwards."""
+    import pypff
+
+    kept = getattr(_KEPT, "files", None)
+    key = str(Path(path))                        # one archive, however its path was spelled
+    if kept is not None and key in kept:
+        yield kept[key]
+        return
+    archive = pypff.file()
+    archive.open(key)
+    if kept is not None:
+        kept[key] = archive
+        yield archive
+        return
+    try:
+        yield archive
+    finally:
+        with contextlib.suppress(Exception):     # closing a read
+            archive.close()
 
 
 def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
@@ -62,14 +115,11 @@ def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
     if not pst_libpff.available():
         raise _error(path, name, "the direct archive reader (libpff) is not installed")
 
-    import pypff
-
-    archive = pypff.file()
-    try:
-        archive.open(str(path))
-    except Exception as exc:
-        raise _error(path, name, f"the archive could not be opened ({exc})") from exc
-    try:
+    with contextlib.ExitStack() as stack:
+        try:
+            archive = stack.enter_context(_opened(path))
+        except Exception as exc:
+            raise _error(path, name, f"the archive could not be opened ({exc})") from exc
         message = _find_message(archive, wanted, folder_path, folder_index, search=search)
         if message is None:
             raise _error(path, name, "the message is no longer in the archive" if search
@@ -81,9 +131,38 @@ def read_attachment(archive_path: Path | str, entry_id: str, name: str, *,
                     raise _error(path, name, "it is too large to read into memory")
                 return attachment.read_buffer(size) if size > 0 else b""
         raise _error(path, name, "the message no longer has that attachment")
-    finally:
-        with contextlib.suppress(Exception):     # closing a read
-            archive.close()
+
+
+def read_message_body(archive_path: Path | str, entry_id: str, *,
+                      folder_path: str | None = None,
+                      folder_index: int | None = None) -> str | None:
+    """The whole body of message `entry_id`, read again out of the archive, or None.
+
+    Order 1s 4b: the index keeps a message cut at its signature, and enrichment may
+    ask for the original. Found exactly as `read_attachment` finds a message - where
+    the index says it is, never the slow search, because this is asked for several
+    messages a contact - and read through libpff, which opens the file for reading
+    only: no Outlook, nothing moved, flagged or marked read (non-negotiable 10).
+    None for an Outlook EntryID (libpff does not know Outlook's numbers, and the
+    Outlook route attaches the archive to the person's profile), without libpff,
+    or when the message is not where the index says.
+    """
+    from app.extract import pst_libpff
+
+    try:
+        wanted = int(str(entry_id).strip())
+    except ValueError:
+        return None
+    if not pst_libpff.available():
+        return None
+
+    with contextlib.ExitStack() as stack:
+        try:
+            archive = stack.enter_context(_opened(archive_path))
+        except Exception:
+            return None
+        message = _find_message(archive, wanted, folder_path, folder_index, search=False)
+        return pst_libpff._text(message) if message is not None else None
 
 
 #: Where an archive inside an archive ends in a key: `pack/inner.zip/x.docx`.
@@ -133,7 +212,12 @@ def _find_message(archive: Any, wanted: int, folder_path: str | None,
                   folder_index: int | None, *, search: bool = True) -> Any:
     from app.extract.pst_libpff import _identifier, _walk_folders
 
-    folders = list(_walk_folders(archive.get_root_folder()))
+    kept = getattr(_KEPT, "folders", None)
+    folders = kept.get(id(archive)) if kept is not None else None
+    if folders is None:
+        folders = list(_walk_folders(archive.get_root_folder()))
+        if kept is not None:                     # inside `kept_open`: the archive outlives this call
+            kept[id(archive)] = folders
     where = dict(folders)
     # 1. Where the index says it is.
     folder = where.get(folder_path) if folder_path else None

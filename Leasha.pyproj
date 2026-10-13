@@ -202,13 +202,28 @@
     <Compile Include="app\contacts\enrich\__init__.py" />
     <Compile Include="app\contacts\enrich\base.py" />
     <Compile Include="app\contacts\enrich\company.py" />
+    <Compile Include="app\contacts\enrich\consensus.py" />
+    <Compile Include="app\contacts\enrich\declines.py" />
+    <Compile Include="app\contacts\enrich\documents.py" />
     <Compile Include="app\contacts\enrich\faces.py" />
     <Compile Include="app\contacts\enrich\gravatar.py" />
     <Compile Include="app\contacts\enrich\history.py" />
+    <Compile Include="app\contacts\enrich\invitations.py" />
+    <Compile Include="app\contacts\enrich\linkedin.py" />
+    <Compile Include="app\contacts\enrich\localfiles.py" />
     <Compile Include="app\contacts\enrich\logo.py" />
+    <Compile Include="app\contacts\enrich\measure.py" />
+    <Compile Include="app\contacts\enrich\owner.py" />
+    <Compile Include="app\contacts\enrich\quoted.py" />
+    <Compile Include="app\contacts\enrich\remember.py" />
     <Compile Include="app\contacts\enrich\run.py" />
+    <Compile Include="app\contacts\enrich\sigblock.py" />
     <Compile Include="app\contacts\enrich\signatures.py" />
+    <Compile Include="app\contacts\enrich\sigparse.py" />
+    <Compile Include="app\contacts\enrich\sigplaces.py" />
+    <Compile Include="app\contacts\enrich\sigtail.py" />
     <Compile Include="app\contacts\enrich\suggest.py" />
+    <Compile Include="app\contacts\enrich\vcards.py" />
     <Compile Include="app\contacts\enrich\wikidata.py" />
     <Compile Include="app\contacts\exporters.py" />
     <Compile Include="app\contacts\hub.py" />
@@ -323,6 +338,7 @@
     <Compile Include="app\extract\quoting.py" />
     <Compile Include="app\extract\raw.py" />
     <Compile Include="app\extract\reading.py" />
+    <Compile Include="app\extract\reread.py" />
     <Compile Include="app\extract\rtf.py" />
     <Compile Include="app\extract\source_types.py" />
     <Compile Include="app\extract\timecode.py" />
@@ -455,6 +471,7 @@
     <Compile Include="app\ui\accounts\__init__.py" />
     <Compile Include="app\ui\accounts\account_list.py" />
     <Compile Include="app\ui\accounts\backend.py" />
+    <Compile Include="app\ui\accounts\enrich_settings.py" />
     <Compile Include="app\ui\accounts\globals_box.py" />
     <Compile Include="app\ui\accounts\logic.py" />
     <Compile Include="app\ui\accounts\panel.py" />
@@ -474,6 +491,7 @@
     <Compile Include="app\ui\contacts\bulkbar.py" />
     <Compile Include="app\ui\contacts\delegates.py" />
     <Compile Include="app\ui\contacts\editor.py" />
+    <Compile Include="app\ui\contacts\enrich_panel.py" />
     <Compile Include="app\ui\contacts\fields.py" />
     <Compile Include="app\ui\contacts\history.py" />
     <Compile Include="app\ui\contacts\index_panel.py" />
@@ -497,6 +515,7 @@
     <Compile Include="app\ui\contacts_tools\conflicts_dialog.py" />
     <Compile Include="app\ui\contacts_tools\duplicates_dialog.py" />
     <Compile Include="app\ui\contacts_tools\enrich_dialog.py" />
+    <Compile Include="app\ui\contacts_tools\enrich_rows.py" />
     <Compile Include="app\ui\contacts_tools\enrich_run.py" />
     <Compile Include="app\ui\contacts_tools\export_dialog.py" />
     <Compile Include="app\ui\contacts_tools\import_dialog.py" />
@@ -539,6 +558,7 @@
     <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
+    <Compile Include="app\ui\presenter\chat_history.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\contact_commands.py" />
@@ -617,6 +637,7 @@
     <Compile Include="app\ui\widgets\chat_box.py" />
     <Compile Include="app\ui\widgets\chat_bubbles.py" />
     <Compile Include="app\ui\widgets\chat_commands.py" />
+    <Compile Include="app\ui\widgets\chat_head.py" />
     <Compile Include="app\ui\widgets\chat_markdown.py" />
     <Compile Include="app\ui\widgets\chat_message_box.py" />
     <Compile Include="app\ui\widgets\chat_message_menu.py" />
@@ -661,6 +682,7 @@
     <Compile Include="app\ui\widgets\indexing_layout.py" />
     <Compile Include="app\ui\widgets\indexing_workers.py" />
     <Compile Include="app\ui\widgets\interpret.py" />
+    <Compile Include="app\ui\widgets\list_keys.py" />
     <Compile Include="app\ui\widgets\log_window.py" />
     <Compile Include="app\ui\widgets\long_run_box.py" />
     <Compile Include="app\ui\widgets\machine_card.py" />
@@ -670,6 +692,7 @@
     <Compile Include="app\ui\widgets\mail_open.py" />
     <Compile Include="app\ui\widgets\mcp_box.py" />
     <Compile Include="app\ui\widgets\media_box.py" />
+    <Compile Include="app\ui\widgets\menus.py" />
     <Compile Include="app\ui\widgets\mini_search.py" />
     <Compile Include="app\ui\widgets\mini_search_frame.py" />
     <Compile Include="app\ui\widgets\mini_search_rows.py" />
@@ -925,6 +948,7 @@
     <Compile Include="tests\unit\test_contacts_cleanup.py" />
     <Compile Include="tests\unit\test_contacts_conflicts_ui.py" />
     <Compile Include="tests\unit\test_contacts_dupes.py" />
+    <Compile Include="tests\unit\test_contacts_enrich_files.py" />
     <Compile Include="tests\unit\test_contacts_enrich_local.py" />
     <Compile Include="tests\unit\test_contacts_enrich_net.py" />
     <Compile Include="tests\unit\test_contacts_export.py" />
@@ -983,6 +1007,15 @@
     <Compile Include="tests\unit\test_empty_run_says_why.py" />
     <Compile Include="tests\unit\test_engine_image_lane.py" />
     <Compile Include="tests\unit\test_engine_shutdown.py" />
+    <Compile Include="tests\unit\test_enrich_declines.py" />
+    <Compile Include="tests\unit\test_enrich_measure.py" />
+    <Compile Include="tests\unit\test_enrich_review_window.py" />
+    <Compile Include="tests\unit\test_enrich_sender_index.py" />
+    <Compile Include="tests\unit\test_enrich_settings.py" />
+    <Compile Include="tests\unit\test_enrich_signature_consensus.py" />
+    <Compile Include="tests\unit\test_enrich_signature_precision.py" />
+    <Compile Include="tests\unit\test_enrich_signature_reader.py" />
+    <Compile Include="tests\unit\test_enrich_window.py" />
     <Compile Include="tests\unit\test_enrichment_backlog.py" />
     <Compile Include="tests\unit\test_enter_key.py" />
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
@@ -1095,6 +1128,7 @@
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
     <Compile Include="tests\unit\test_limits_changed_applies_live.py" />
     <Compile Include="tests\unit\test_list_chips_qt.py" />
+    <Compile Include="tests\unit\test_list_keys.py" />
     <Compile Include="tests\unit\test_live_progress.py" />
     <Compile Include="tests\unit\test_llm_host.py" />
     <Compile Include="tests\unit\test_lo_session.py" />
@@ -1133,8 +1167,10 @@
     <Compile Include="tests\unit\test_media_picture_lane_gpu_gate.py" />
     <Compile Include="tests\unit\test_media_real.py" />
     <Compile Include="tests\unit\test_media_tail_end.py" />
+    <Compile Include="tests\unit\test_menu_system.py" />
     <Compile Include="tests\unit\test_merge_notes.py" />
     <Compile Include="tests\unit\test_message_index_trigger.py" />
+    <Compile Include="tests\unit\test_message_tails.py" />
     <Compile Include="tests\unit\test_mini_search.py" />
     <Compile Include="tests\unit\test_mini_search_box.py" />
     <Compile Include="tests\unit\test_model_catalogue.py" />
@@ -1399,6 +1435,8 @@
     <Compile Include="tests\unit\test_tuning.py" />
     <Compile Include="tests\unit\test_tuning_screen.py" />
     <Compile Include="tests\unit\test_ui_aesthetics.py" />
+    <Compile Include="tests\unit\test_ui_b_chat.py" />
+    <Compile Include="tests\unit\test_ui_b_chat_window.py" />
     <Compile Include="tests\unit\test_ui_consistency.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />

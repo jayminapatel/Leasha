@@ -238,9 +238,10 @@ def _press(widget, key) -> None:
 
 
 def _at(widget, row: int):
-    """The middle of a row, in the table's own coordinates (as a right-click gives it)."""
+    """The middle of a row, in the viewport's coordinates (as a right-click gives it on a
+    table - `test_menu_system.py` checks that against a real event)."""
     table = widget.table
-    return table.viewport().mapTo(table, table.visualItemRect(table.item(row, 0)).center())
+    return table.visualItemRect(table.item(row, 0)).center()
 
 
 def test_enter_on_a_content_row_asks_for_the_line(results) -> None:
@@ -253,7 +254,8 @@ def test_enter_on_a_content_row_asks_for_the_line(results) -> None:
 def test_a_double_click_does_the_same(results) -> None:
     widget, seen = results
     widget.table.selectRow(0)
-    widget.table.itemDoubleClicked.emit(widget.table.item(0, 0))
+    # `activated` is what a double-click sends, and the one signal the row acts on (UI phase B).
+    widget.table.activated.emit(widget.table.model().index(0, 0))
     assert seen.at == [("D:/repo/app/engine.py", 512)]
 
 

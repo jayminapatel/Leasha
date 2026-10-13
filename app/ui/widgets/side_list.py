@@ -353,26 +353,28 @@ class SideList(QTreeWidget):
         super().keyPressEvent(event)
 
     def _menu(self, point: QPoint) -> None:
-        item = self.itemAt(point)
+        """Right-click on an entry: its page's lines, built by `menus.build` in the page's own order."""
+        from app.ui.widgets import menus
+
+        item = self.itemAt(point)               # the viewport's point, as Qt gives it
         entry = item.data(0, _ENTRY) if item is not None else None
         if entry is None or not entry.menu:
             return
-        menu = QMenu(self)
-        self._fill_menu(menu, entry, entry.menu)
-        self.last_menu = menu
-        menu.popup(self.viewport().mapToGlobal(point))
+        menu = menus.build(self, self._menu_items(entry, entry.menu), grouped=False)
+        menus.show(menu, self, point, wait=False, keep=self)
 
-    def _fill_menu(self, menu: QMenu, entry: SideEntry, items: Any) -> None:
+    def _menu_items(self, entry: SideEntry, items: Any) -> list:
         """One line per `(label, icon, action[, colour])`. An `action` that is itself a tuple of
         such lines is a submenu (Contacts' tag colours); `colour` tints the icon (a tag's own)."""
-        from app.ui.widgets.icons import icon
+        from app.ui.widgets.menus import Item
 
+        lines = []
         for line in items:
             label, icon_name, action = line[0], line[1], line[2]
             tint = line[3] if len(line) > 3 and line[3] else self._ink("text_dim", "#888888")
             if isinstance(action, (tuple, list)):
-                sub = menu.addMenu(icon(icon_name, tint), label) if icon_name else menu.addMenu(label)
-                self._fill_menu(sub, entry, action)
+                lines.append(Item(label, icon=icon_name, tint=tint, sub=self._menu_items(entry, action)))
                 continue
-            act = menu.addAction(icon(icon_name, tint), label) if icon_name else menu.addAction(label)
-            act.triggered.connect(lambda _c=False, e=entry, a=action: self.menu_chosen.emit(e, a))
+            lines.append(Item(label, lambda e=entry, a=action: self.menu_chosen.emit(e, a),
+                              icon=icon_name, tint=tint))
+        return lines

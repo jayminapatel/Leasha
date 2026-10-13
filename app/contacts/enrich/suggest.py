@@ -39,6 +39,8 @@ class SuggestedContact:
     email: str
     count: int
     last_seen: Optional[int]                             # Unix seconds
+    #: Order 1s 5d: "mail" (count is messages from them) or "calendar" (count is invitations they are on).
+    source: str = "mail"
 
 
 def looks_automatic(address: str, name: str = "") -> bool:
@@ -118,7 +120,8 @@ def accept_suggestions(hub: Any, suggestions: Sequence[SuggestedContact], *, act
             continue
         card = Card(scalars=_split_name(s.name),
                     fields=[Field("email", s.email, "other", primary=True)])
-        ref = f"{s.count} messages from {s.email}" + (f", last {format_day(s.last_seen)}" if s.last_seen else "")
+        what = "invitations with" if s.source == "calendar" else "messages from"
+        ref = f"{s.count} {what} {s.email}" + (f", last {format_day(s.last_seen)}" if s.last_seen else "")
         made.append(hub.create(card, actor=actor, kept_in=kept_in, batch_id=batch,
                                source=SOURCE_PREFIX + "suggest", source_ref=ref))
     return made

@@ -34,6 +34,9 @@ class History:
     per_month: float = 0.0
     often: str = ""                                      # "about 4 a month", "a few times a year", ...
     with_others: list[tuple[str, int]] = field(default_factory=list)   # (address, messages shared)
+    #: Order 1s D1: the start of the age window these counts cover (Unix seconds), or None for any age -
+    #: so "first contact" can be said as "first in the last six months" and never mistaken for the first.
+    since: Optional[int] = None
 
 
 def _often(count: int, first: Optional[int], last: Optional[int]) -> str:
@@ -55,7 +58,7 @@ def _often(count: int, first: Optional[int], last: Optional[int]) -> str:
 
 
 def contact_history(store: Any, contact_id: int, *, card: Optional[Card] = None, hub: Any = None,
-                    owner_emails: Iterable[str] = (), top: int = 5) -> History:
+                    owner_emails: Iterable[str] = (), top: int = 5, since: Optional[int] = None) -> History:
     """Counts, dates and the people usually on the same messages.
 
     `owner_emails` are the owner's own addresses (the accounts), left out of
@@ -64,7 +67,7 @@ def contact_history(store: Any, contact_id: int, *, card: Optional[Card] = None,
     """
     if card is None and hub is not None:
         card = hub.get_card(contact_id)
-    h = History(contact_id)
+    h = History(contact_id, since=since)
     if card is None:
         return h
     mine = set(emails_of(card))
@@ -73,7 +76,7 @@ def contact_history(store: Any, contact_id: int, *, card: Optional[Card] = None,
     owner = {e.strip().lower() for e in owner_emails if e}
     others: Counter[str] = Counter()
     dates: list[int] = []
-    for m in mail_with(store, sorted(mine)):
+    for m in mail_with(store, sorted(mine), since=since):
         sender = address_of(m.sender)
         rcpts = {address_of(x) for x in m.recipients} - {""}
         if sender in mine:

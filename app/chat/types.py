@@ -113,6 +113,11 @@ class ChatTurn:
     #: message's row with `attachment_of`. The results list reads it exactly as the
     #: Search tab does, so a message is drawn as "sender - subject" with its date.
     details: dict[int, dict] = field(default_factory=dict)
+    #: **Added 2026-10-13 (UI phase B), with a default.** The lines the answer
+    #: narrated while it worked ("Searching... found 4 documents", "Reading ..."),
+    #: kept so the folded "Searched your files" line under it still opens to them
+    #: when the conversation is reopened. Set by the tab, never by the engine.
+    work: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

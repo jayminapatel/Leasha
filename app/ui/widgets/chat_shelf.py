@@ -15,16 +15,21 @@ control** - "4 sources" - that opens the list: one line per document, named by
 its subject or file name (cut short with an ellipsis, the whole name in the
 tooltip), with its own Keep and Remove. Each line is still a `_Chip` with the
 same three buttons, so everything that pressed a chip presses the same thing.
+
+**UI phase B (2026-10-13, owner-approved):** the button says "In scope (4)", and the
+whole bar shows only when something is in scope - an empty chat no longer carries a
+line saying documents will appear. Dragging a result over the question box shows it
+again as the place to drop (`accept_drops_on`).
 """
 
 from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
-from PySide6.QtCore import QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.core.row_facts import is_message_key
@@ -122,7 +127,7 @@ class _Chip(QFrame):
 
 
 class ShelfBar(QWidget):
-    """One "N sources" button that opens the list of chips, and a drop target."""
+    """One "In scope (N)" button that opens the list of chips, and a drop target."""
 
     #: The person changed what is in scope (pin, remove, add by drag).
     changed = Signal()
@@ -180,6 +185,7 @@ class ShelfBar(QWidget):
         items = self.shelf.items
         self.empty.setVisible(not items)
         self.button.setVisible(bool(items))
+        self.setVisible(bool(items))             # only when something is in scope
         self.button.setText(shelf_count_label(len(items), sum(1 for i in items if i.pinned)))
         if not items:
             self.popup.hide()
@@ -244,6 +250,18 @@ class ShelfBar(QWidget):
         self.changed.emit()
 
     # -- adding a result by dragging it in -----------------------------------
+    def accept_drops_on(self, host: QWidget) -> None:
+        """A hidden bar cannot be dropped on, so `host` (the column round the box)
+        takes the drag: the bar shows while one is over it, and a drop there lands
+        here."""
+        host.setAcceptDrops(True)
+        self._drop_watch = _DropWatch(self)
+        host.installEventFilter(self._drop_watch)
+        # The question box is a text editor, which takes a drop of files as their paths typed
+        # in - so it is watched too: files go to the shelf, anything else is the editor's.
+        for editor in host.findChildren(QPlainTextEdit):
+            editor.viewport().installEventFilter(self._drop_watch)
+
     def dragEnterEvent(self, event: Any) -> None:                # noqa: N802 - Qt
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
@@ -258,7 +276,29 @@ class ShelfBar(QWidget):
         for url in event.mimeData().urls():
             if url.isLocalFile():
                 added |= self.shelf.add(url.toLocalFile(), explicit=True)
+        self.refresh()                           # and a drop that added nothing hides it again
         if added:
-            self.refresh()
             self.changed.emit()
         event.acceptProposedAction()
+
+
+class _DropWatch(QObject):
+    """On the column round the box: a drag of files shows the shelf as the place to
+    drop, leaving hides it again (when it is empty), and a drop is the shelf's."""
+
+    def __init__(self, shelf: ShelfBar) -> None:
+        super().__init__(shelf)
+        self._shelf = shelf
+
+    def eventFilter(self, _watched: Any, event: Any) -> bool:      # noqa: N802 - Qt's name
+        kind = event.type()
+        if kind in (QEvent.Type.DragEnter, QEvent.Type.DragMove) and event.mimeData().hasUrls():
+            self._shelf.setVisible(True)
+            event.acceptProposedAction()
+            return True
+        if kind == QEvent.Type.DragLeave:
+            self._shelf.refresh()
+        elif kind == QEvent.Type.Drop and event.mimeData().hasUrls():
+            self._shelf.dropEvent(event)
+            return True
+        return False

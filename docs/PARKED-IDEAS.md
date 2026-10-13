@@ -1,6 +1,6 @@
 # Parked ideas
 
-**Doc version:** 1.5 · **Updated:** 2026-10-12 · **Applies to:** app v0.3.5
+**Doc version:** 1.6 · **Updated:** 2026-10-13 · **Applies to:** app v0.3.5
 
 > *Note, 5 October 2026:* Leasha moved from PyQt6 to **PySide6 6.11.0** (Qt's own binding, LGPL-3.0) under order `202626270238`, released by the owner that day. The Qt underneath is the same 6.11, so the window looks and behaves as before. Where this document says PyQt6, read PySide6; `pyqtSignal` is `Signal`, and `sip` is `shiboken6` (through `app/ui/qtsip.py`). The text below is left as written.
 
@@ -148,3 +148,25 @@ while a new set of platform rules appears beside it.
 **Prerequisite if it is ever ordered:** the Windows release has to be finished first.
 "Working version first" applies with more force here than to any refactor — a second
 platform doubles the surface of an application that has not yet shipped on its first.
+
+## 7. An Outlook contacts reader - parked 2026-10-13
+
+The owner, 2026-10-13: "for the outlook contacts reader put it on a to do list". Approved
+to remember, **not ordered**.
+
+**What it would be.** Order 1s section 5b asked whether Outlook contact items
+(`IPM.Contact`) can feed enrichment. Its finding (2026-10-12): neither PST reader looks at
+an item's message class - `IPM`, `message_class` and `MessageClass` appear nowhere in
+`app/` - so a contact item in an Outlook data file is indexed, if at all, as a plain
+message (its notes as the body, no sender) and its email, phone, company and address
+fields are never read. The "Outlook contacts" enrichment switch was taken out for that
+reason, since it switched nothing.
+
+**What an order would cover.** A contact-item reader in both PST routes
+(`pst_libpff._to_document` and the Outlook COM route `_com_item`), read-only like every
+other reader (non-negotiable 10); the items kept as contacts rather than messages; and
+then an enrichment source matching them to Leasha's contacts the way the vCard source
+(`app/contacts/enrich/vcards.py`) does, with the item and its archive as the receipt.
+Whether contact items should also be imported into the contact book outright is a
+separate question for the same order.
+

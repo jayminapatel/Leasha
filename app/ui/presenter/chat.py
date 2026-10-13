@@ -36,6 +36,7 @@ __all__ = [
     "SOURCES_TAB", "PREVIEW_TAB", "PANEL_TABS", "TAB_LABELS", "TAB_TIPS", "PANEL_SHORTCUT",
     "PANEL_TOGGLE_TIP", "PANEL_KEY", "PANEL_WIDTH", "PanelState", "panel_after_click",
     "panel_state_text", "panel_state_from_text", "shelf_count_label", "SHELF_LIST_TIP",
+    "STARTER_QUESTIONS", "answer_meta", "documents_read", "work_summary",
 ]
 
 # ---------------------------------------------------------------------------
@@ -52,6 +53,11 @@ EMPTY_HEADING = "Ask about your files, or just talk."
 EMPTY_HINT = ("For example: What did we agree with the landlord about the "
               "deposit?  Show me the photos from the beach in 2015.  "
               "How many PDFs did Dave send in 2019?  What is a PST file?")
+#: UI phase B (2026-10-13): the empty conversation's example questions as cards you
+#: can click. Taken from `EMPTY_HINT` itself, so the cards and the hint can never
+#: offer different questions - none is made up for the cards.
+STARTER_QUESTIONS = tuple(
+    q.strip() for q in EMPTY_HINT.split(":", 1)[1].split("  ") if q.strip())
 STOPPED_LINE = "Stopped. That is as far as it got."
 THINKING_LINE = "Thinking..."
 RETRY_LABEL = "Try again"
@@ -344,6 +350,69 @@ def closing_line(turn: Any, *, stopped: bool = False) -> str:
     return notes[-1] if notes else ""
 
 
+# ---------------------------------------------------------------------------
+# What is said under an answer (UI phase B, 2026-10-13)
+# ---------------------------------------------------------------------------
+
+#: Kinds whose receipts are a list that was found, not documents that were read.
+_LISTED_KINDS = ("find", "aggregate")
+#: A narration line that says the files were searched (the engine's `say` lines).
+_SEARCH_STEPS = ("Searching", "Looking for", "Counting", "Reading", "Checking", "Found",
+                 "That was thin")
+_FOUND = re.compile(r"\bfound\s+(\d[\d,]*)", re.IGNORECASE)
+
+
+def documents_read(turn: Any) -> int:
+    """How many of the person's documents the answer was written from: its receipts,
+    one per document, never a web page. A list answer read none - it found them."""
+    if turn is None or getattr(turn, "kind", "") in _LISTED_KINDS + ("error",):
+        return 0
+    paths = {str(getattr(r, "path", "") or "") for r in (getattr(turn, "receipts", None) or ())
+             if not is_web_receipt(r)}
+    paths.discard("")
+    return len(paths)
+
+
+def answer_meta(turn: Any) -> str:
+    """The answer's quiet last line: the model that wrote it, and "Read N documents"
+    when it read any - for the person who wonders why two answers differ."""
+    parts = []
+    model = str(getattr(turn, "model", "") or "").strip()
+    if model:
+        parts.append(model)
+    read = documents_read(turn)
+    if read:
+        parts.append(f"Read {read:,} document" + ("" if read == 1 else "s"))
+    return " \u00b7 ".join(parts)
+
+
+def work_summary(steps: Iterable[str], turn: Any = None) -> Optional[tuple[str, list[str]]]:
+    """The narration folded into one line: `("Searched your files \u00b7 N found", lines)`.
+
+    `steps` are the lines the answer narrated while it worked, in order; `lines` are
+    the ones worth showing again when the line is opened (not "Thinking...", not a
+    line repeated). N is the engine's own last "found N"; failing that the list's
+    length, or the documents cited. `None` when nothing was searched - a plain chat
+    reply has no work to fold."""
+    lines: list[str] = []
+    for step in steps or ():
+        text = str(step or "").strip()
+        if text and text != THINKING_LINE and (not lines or lines[-1] != text):
+            lines.append(text)
+    if not any(line.startswith(_SEARCH_STEPS) for line in lines):
+        return None
+    found: Optional[int] = None
+    for line in lines:
+        hit = _FOUND.search(line)
+        if hit:
+            found = int(hit.group(1).replace(",", ""))
+    if found is None:
+        listed = getattr(turn, "result_set", None)
+        found = len(listed) if listed else documents_read(turn)
+    shown = [line for line in lines if line not in ("Searching...",)]
+    return f"Searched your files \u00b7 {found:,} found", shown
+
+
 #: Notes that record what the engine did rather than tell the reader anything.
 _LOG_NOTES = ("Searched for:", "Counted:", "Filters:", "Sources currently indexed:")
 
@@ -445,9 +514,12 @@ def panel_state_from_text(text: Any) -> PanelState:
 
 
 def shelf_count_label(count: int, kept: int = 0) -> str:
-    """The folded shelf's button: "1 source", "4 sources, 1 kept" (2026-10-08). The
-    chips it replaced, a "Keep / Remove" pair per document, sit in the list it opens."""
-    words = f"{count:,} source" + ("" if count == 1 else "s")
+    """The folded shelf's button: "In scope (1)", "In scope (4), 1 kept".
+
+    UI phase B (2026-10-13, owner-approved): it said "4 sources", which read as the
+    answer's sources rather than what the chat may look at. The chips it replaced
+    (2026-10-08), a "Keep / Remove" pair per document, sit in the list it opens."""
+    words = f"In scope ({count:,})"
     return f"{words}, {kept:,} kept" if kept else words
 
 
