@@ -1578,3 +1578,39 @@ def test_a_text_size_already_in_force_is_not_set_again():
     assert widget.sheet == "" and widget.calls == 2, "a changed rule still applies"
     apply_font(widget, 0)
     assert widget.calls == 2
+
+
+def test_the_stretch_filling_the_last_column_after_the_view_is_applied_is_not_saved(tmp_path):
+    r"""**A fit is not a choice, even when Qt's stretch lands late (2026-10-13).**
+
+    Traced on `test_files_opens_with_names_at_their_own_width_and_a_drag_is_still_the_one_kept`,
+    which failed about one run in two: `resync` took the widths before Qt had stretched the last
+    column (Folder 43), the stretch then filled the room (440 = 638 - the other columns), the
+    viewport did not change, and the last column was the only one that moved - so neither
+    exemption applied and two looks later it was saved as a drag. Files, Mail and three other
+    tables did the same. In the two looks after the view is applied, the last column coming to
+    fill the room is the stretch's; a person's drag of it later is still saved.
+    """
+    from app.storage.sqlite_store import SqliteStore
+    from app.ui.view_options import apply_to_table, button as view_button
+
+    app = _qt()
+    table = _table(app)
+    header = table.horizontalHeader()
+    with SqliteStore(tmp_path / "index.db") as store:
+        chooser = view_button(None, store, "ui:files", columns=COLUMNS_3,
+                              on_change=lambda _p: None, table=table)
+        apply_to_table(table, chooser.prefs, columns=COLUMNS_3, available=AVAILABLE_3)
+        header.setStretchLastSection(False)          # the stretch not yet laid out ...
+        header.resizeSection(2, 40)
+        table.leasha_resync_widths()                 # ... when the view takes its widths
+        header.setStretchLastSection(True)           # and then it lands
+        app.processEvents()
+        room = table.viewport().width()
+        assert header.sectionSize(2) == room - header.sectionSize(0) - header.sectionSize(1)
+        _drag(table, 0, header.sectionSize(0))       # two looks, nothing dragged
+        assert dict(chooser.prefs.widths) == {}, "the stretch was saved as a drag"
+        # A later drag of the last column still saves:
+        # test_header_signal_safety's test_dragging_only_the_last_column_still_counts.
+        from app.ui.state_writes import pool
+        assert pool().waitForDone(5000)
