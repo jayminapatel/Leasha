@@ -41,12 +41,14 @@ from PySide6.QtWidgets import (
 
 from app.ui.rail_state import PillState
 from app.ui.widgets.icons import icon as themed_icon
+from app.ui.widgets.icons import ICON_SIZES
 from app.ui.widgets.shimmer_bar import ShimmerBar
+from app.ui.theme import SPACE_XS, SPACE_M
 
 __all__ = ["Rail", "RAIL_WIDTH", "ICON_SIZE"]
 
 RAIL_WIDTH = 72
-ICON_SIZE = 20
+ICON_SIZE = ICON_SIZES["rail"]
 
 
 def _forget_sizes(layout: Any) -> None:
@@ -136,7 +138,7 @@ class _Pill(QFrame):
         self.detail.setObjectName("railPillDetail")
         self.detail.setVisible(False)
         bar_row = QHBoxLayout()
-        bar_row.setContentsMargins(12, 0, 12, 0)
+        bar_row.setContentsMargins(SPACE_M, 0, SPACE_M, 0)
         bar_row.addWidget(self.bar)
         layout.addWidget(self.glyph)
         layout.addWidget(self.headline)
@@ -286,7 +288,7 @@ class Rail(QWidget):
         self.column.setAccessibleName("Pages")
         col = QVBoxLayout(self.column)
         col.setContentsMargins(6, 12, 6, 10)
-        col.setSpacing(4)
+        col.setSpacing(SPACE_XS)
         self.mark = QLabel("L")
         self.mark.setObjectName("railMark")
         self.mark.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -310,14 +312,14 @@ class Rail(QWidget):
         col.addWidget(self.mark, 0, Qt.AlignmentFlag.AlignHCenter)
         col.addSpacing(10)
         self._top = QVBoxLayout()
-        self._top.setSpacing(4)
+        self._top.setSpacing(SPACE_XS)
         col.addLayout(self._top)
         col.addStretch(1)
         self.pill = _Pill()
         self.pill.activated.connect(self._open_pill)
         col.addWidget(self.pill)
         self._bottom = QVBoxLayout()
-        self._bottom.setSpacing(4)
+        self._bottom.setSpacing(SPACE_XS)
         col.addLayout(self._bottom)
 
         self.group = QButtonGroup(self)

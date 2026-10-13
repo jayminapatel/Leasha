@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.127 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,79 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: tooltips, icons, spacing and the style guide (2026-10-13)
+
+- **The `/` menus show a picture for every switch** - in Search, Code, Mail, Files, Contacts and the Chat box -
+  from the same Lucide set as the rest of the window, instead of a typed character. The Chat box's `/` lines no
+  longer start with that character.
+- **One tooltip look.** The tooltip's colours and sizes are named theme tokens (`TOOLTIP`), and no other part of
+  the window styles a tooltip. Nothing changes on screen.
+- **A wording rule for tooltips**, checked on every tooltip written in the code: plain words, a capital letter
+  first, no stray spaces, and never only the control's own words. Every tooltip already met it; none was reworded.
+- **One table of icon sizes** (`ICON_SIZES`: 14 in a field or chip, 16 in menus, lists, buttons and toolbars,
+  20 on the rail, 22 for the quick search magnifier), and **one spacing scale** (`SPACE_XS` 4 to `SPACE_XL` 24),
+  both the sizes the window already used, so no pixel moved. The Contacts files are moved onto both when the
+  Contacts wave lands.
+- **`docs/UI_STYLE_GUIDE.md`, "One Leasha"**: the design rules as they are in the code, each pointing at its module
+  and the test that holds it. `CLAUDE.md` names it as the authority on how the UI looks and behaves.
+### One app, phase B: Contacts (2026-10-13)
+
+- **Picking a contact shows it to read**, not a page of boxes: the photo, the name and job, each detail as plain
+  text you can select and copy with its label (work, home, mobile), then notes, where it is kept, its groups and
+  tags, and what your index holds about the person. **Edit** (or Enter, F2 or a double-click on the list) opens the
+  editor; Save and Cancel bring you back. A contact with something to decide (deleted from an account, changed in
+  two places) still opens in the editor, where those buttons are.
+- **The bar above the list has words**: each button is its icon and its name, as on the other pages. In a narrow
+  window the views and the tools go to their icon first, then the rest; New contact keeps its name.
+- **The right-click menu is built like every other**: Edit first and bold, the copy lines together, Move to the bin
+  last with a warning-coloured icon, each line showing its key. The words are unchanged.
+- **The list answers the keys every list does**: Enter and a double-click edit, F2 edits, Delete moves the picked
+  contacts to the bin, Ctrl+C copies their email addresses ("; " between them, ready for a To box).
+- Not yet seen in the real window: the read view's spacing, the labelled bar at the owner's window size and where
+  it gives up words, the menu's bold line and key column.
+### One app, phase B: one page frame, one dialog frame (2026-10-13)
+
+The owner: "every screen ... look and feel like using different apps not one app". Not yet seen in the real window.
+
+- **One page frame.** Search, Files, Mail, Code, Photos, Browse, Tidy, Indexing and Chat are laid out in one frame
+  (`widgets/page_frame.py`): Search's margins and 8 px between rows everywhere. Before, Files, Mail, Code and Photos
+  used Qt's 9 and 6, Browse 0 and 2, Indexing 9, so the box and the list moved a few pixels at every rail click.
+  Browse's period is drawn as the page's title. Settings and Contacts are not converted yet.
+- **One dialog frame** (`widgets/dialog_frame.py`): the same margins and rhythm in every dialog, and one button order
+  in every box, the primary last on the right (it was left of Cancel on Windows in most, and on the right in the
+  hand-built ones). Enter presses the default, Esc is Cancel; where the button deletes, Cancel is the default. The
+  order reaches every confirmation (`confirm`) and Qt's own input boxes too.
+- **Dividers are remembered.** Every splitter on every page keeps the sizes it was dragged to across restarts
+  (`widgets/splitter_memory.py`, `ui:split:*`); only Chat's side panel did before. A hidden pane keeps its width.
+- **One empty state and one busy line** (`widgets/page_states.py`). The lists that wrote a bare sentence (Code,
+  Offline, Photos' info pane, Tidy's history, Saved searches, Mail archives, Folders to index, Chat's Sources) show
+  an icon over it; Browse, Tidy and the Reports stage show a small moving bar beside what they are doing.
+### One app, phase B: Settings (2026-10-13)
+
+- **Search all settings.** The box at the top of Settings now lists what it found, each with its category, and
+  takes you there: **Enter** for the first, a click (or **Down**, then **Enter**) for any other. The box clears, the
+  category opens - an **Advanced** section around the setting too - the page scrolls to it, it takes the focus and
+  its row is lit for a moment. New words: "Press Enter to go to the first one, or choose one below to go to it."
+  and the accessible names "Search all settings" and "Settings found". The box's own placeholder and tooltip are
+  unchanged.
+- **One row helper.** Every row on Settings and Settings > Accounts is built by `app/ui/widgets/settings_row.py`
+  (`add_row`, `add_under`): a label and its control side by side, a tick box or button across the row, a help
+  sentence across the foot of its row. No words changed. A tick box that sat in the field column (Rerank results)
+  now runs across the row like every other.
+- **No setting is pinned at its default any more.** Ten boxes saved every key they hold when one changed, or wrote
+  a value that was only being left alone: Compute, Resources, Strategy, the old-Office converter, Devices, What
+  gets read (OCR, archives, attachments), Media (video and speech), Opening code results, Search (reranking), and
+  the AI programs port. Each now sends only the key that moved. And whatever a box sends, a value equal to the
+  default removes the line from `.env` instead of writing it (`defaults.unpin_defaults`), so a better default in a
+  later version still arrives. **Restore defaults** counts that correctly. The owner's own `.env` is untouched: 39
+  of its lines hold exactly the default and can be removed (listed in `HANDOFF.md`).
+- Found on the way and fixed: filtering left a hidden control's label standing beside the gap (the label was
+  looked for only in the box's top layout, and most boxes keep their form inside another layout); a Download row
+  closed while it was still looking for its model painted into a deleted label; and `test_accounts_page`'s fixed
+  4,200-pixel page had become shorter than the page asks for (4,242) since the Enrichment group, which squeezed
+  two of its buttons.
+- Not yet seen in the real window: the list under the search box, the lit row and the scroll to it.
 
 ### One app, phase B: a steady Search page (2026-10-13)
 

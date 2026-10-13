@@ -32,6 +32,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from app.ui.widgets.settings_row import add_row
+
 __all__ = ["CLI_NOTE", "PRIVACY_NOTE", "McpBox"]
 
 PRIVACY_NOTE = (
@@ -94,14 +96,14 @@ class McpBox(QGroupBox):
         self.port.setToolTip(
             "The port on this computer that AI programs connect to. Only this computer "
             "can reach it. After changing it, press Stop, Start, and Connect again.")
-        form.addRow("Port for AI programs", self.port)
+        add_row(form, self.port, "Port for AI programs")
         self.autostart = QCheckBox("Start AI access when Leasha opens")
         self.autostart.setObjectName("MCP_AUTOSTART")
         self.autostart.setChecked(bool(getattr(settings, "mcp_autostart", False)))
         self.autostart.setToolTip(
             "Starts it every time Leasha opens, so a connected AI program can search "
             "without you pressing Start. Off by default.")
-        form.addRow(self.autostart)
+        add_row(form, self.autostart)
         layout.addLayout(form)
 
         grid = QGridLayout()
@@ -149,11 +151,25 @@ class McpBox(QGroupBox):
 
         self.start.clicked.connect(lambda _c=False: self.start_requested.emit(self.port.value()))
         self.stop.clicked.connect(lambda _c=False: self.stop_requested.emit())
-        self.port.editingFinished.connect(
-            lambda: self.changed.emit({"MCP_PORT": self.port.value()}))
+        # **Only a port that changed** (UI phase B, 2026-10-13): leaving the box - a Tab past it -
+        # wrote `MCP_PORT=8737`, its default, into `.env`, pinning it.
+        self._port_sent = self.port.value()
+        self.port.editingFinished.connect(self._port_done)
         self.autostart.toggled.connect(lambda on: self.changed.emit({"MCP_AUTOSTART": on}))
         self.copy_address.clicked.connect(self._copy_address)
         self.copy_bridge.clicked.connect(self._copy_bridge)
+
+    def _port_done(self) -> None:
+        """The port box was left: send the port if it is not the one last loaded or sent."""
+        if self.port.value() == self._port_sent:
+            return
+        self._port_sent = self.port.value()
+        self.changed.emit({"MCP_PORT": self.port.value()})
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put the port back with its signals held: that is the one in force."""
+        if "MCP_PORT" in keys:
+            self._port_sent = self.port.value()
 
     # -- what the controller tells it --------------------------------------------
 

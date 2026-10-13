@@ -504,6 +504,7 @@
     <Compile Include="app\ui\contacts\person_photo.py" />
     <Compile Include="app\ui\contacts\photos.py" />
     <Compile Include="app\ui\contacts\quick.py" />
+    <Compile Include="app\ui\contacts\reader.py" />
     <Compile Include="app\ui\contacts\review.py" />
     <Compile Include="app\ui\contacts\sidebar.py" />
     <Compile Include="app\ui\contacts\smart.py" />
@@ -658,6 +659,7 @@
     <Compile Include="app\ui\widgets\debug_pane.py" />
     <Compile Include="app\ui\widgets\defaults.py" />
     <Compile Include="app\ui\widgets\device_box.py" />
+    <Compile Include="app\ui\widgets\dialog_frame.py" />
     <Compile Include="app\ui\widgets\editor_box.py" />
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\epub_view.py" />
@@ -707,6 +709,8 @@
     <Compile Include="app\ui\widgets\number_field.py" />
     <Compile Include="app\ui\widgets\offline_media_dialogs.py" />
     <Compile Include="app\ui\widgets\offline_media_rows.py" />
+    <Compile Include="app\ui\widgets\page_frame.py" />
+    <Compile Include="app\ui\widgets\page_states.py" />
     <Compile Include="app\ui\widgets\person_card.py" />
     <Compile Include="app\ui\widgets\photo_browser.py" />
     <Compile Include="app\ui\widgets\photo_info.py" />
@@ -741,6 +745,8 @@
     <Compile Include="app\ui\widgets\search_marks.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\select_all.py" />
+    <Compile Include="app\ui\widgets\settings_row.py" />
+    <Compile Include="app\ui\widgets\settings_search.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
     <Compile Include="app\ui\widgets\side_list.py" />
@@ -752,6 +758,7 @@
     <Compile Include="app\ui\widgets\sort_button.py" />
     <Compile Include="app\ui\widgets\sortable_item.py" />
     <Compile Include="app\ui\widgets\space_table.py" />
+    <Compile Include="app\ui\widgets\splitter_memory.py" />
     <Compile Include="app\ui\widgets\spreadsheet_view.py" />
     <Compile Include="app\ui\widgets\status_column.py" />
     <Compile Include="app\ui\widgets\status_funnel.py" />
@@ -1441,7 +1448,9 @@
     <Compile Include="tests\unit\test_ui_aesthetics.py" />
     <Compile Include="tests\unit\test_ui_b_chat.py" />
     <Compile Include="tests\unit\test_ui_b_chat_window.py" />
+    <Compile Include="tests\unit\test_ui_c_contacts.py" />
     <Compile Include="tests\unit\test_ui_consistency.py" />
+    <Compile Include="tests\unit\test_ui_frames.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
     <Compile Include="tests\unit\test_ui_one_app_chat.py" />
@@ -1449,6 +1458,7 @@
     <Compile Include="tests\unit\test_ui_one_app_lists.py" />
     <Compile Include="tests\unit\test_ui_one_app_photos.py" />
     <Compile Include="tests\unit\test_ui_one_app_settings.py" />
+    <Compile Include="tests\unit\test_ui_one_app_settings_b.py" />
     <Compile Include="tests\unit\test_ui_redesign.py" />
     <Compile Include="tests\unit\test_ui_redesign_qt.py" />
     <Compile Include="tests\unit\test_ui_redesign_scenarios.py" />
@@ -1456,6 +1466,7 @@
     <Compile Include="tests\unit\test_ui_review_0x9.py" />
     <Compile Include="tests\unit\test_ui_review_polish.py" />
     <Compile Include="tests\unit\test_ui_stays_responsive.py" />
+    <Compile Include="tests\unit\test_ui_style_rules.py" />
     <Compile Include="tests\unit\test_unchanged_passages_keep_vectors.py" />
     <Compile Include="tests\unit\test_unexpected_skip_is_logged.py" />
     <Compile Include="tests\unit\test_value_suggestions.py" />
@@ -1702,6 +1713,7 @@
     <Content Include="docs\REVIEW-2026-08-26.md" />
     <Content Include="docs\THIRD_PARTY_NOTICES.md" />
     <Content Include="docs\TROUBLESHOOTING.md" />
+    <Content Include="docs\UI_STYLE_GUIDE.md" />
     <Content Include="docs\VERSIONING.md" />
     <Content Include="docs\VISUALSTUDIO.md" />
     <Content Include="docs\VSCODE.md" />

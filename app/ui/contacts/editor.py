@@ -70,7 +70,9 @@ class ContactEditor(QWidget):
     dirty_changed = Signal(bool)
     error = Signal(object)
 
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, parent: Optional[QWidget] = None, *, own_panels: bool = True) -> None:
+        """`own_panels=False`: the enrichment and "From your index" panels are made and driven here
+        but laid out by the page, under the read view (`reader.ContactReader.add_panels`)."""
         super().__init__(parent)
         self.cid: Optional[int] = None
         self.region = "GB"
@@ -215,11 +217,12 @@ class ContactEditor(QWidget):
         # Order 1s 7c, 7e: enrich this contact, and the suggestions turned down for it.
         self.enrich_panel = EnrichPanel()
         self.enrich_panel.error.connect(self.error)
-        col.addWidget(self.enrich_panel)
         # 6f: the mail, files and photos the index holds about this person.
         self.index_panel = IndexPanel()
         self.index_panel.error.connect(self.error)
-        col.addWidget(self.index_panel)
+        if own_panels:
+            col.addWidget(self.enrich_panel)
+            col.addWidget(self.index_panel)
         col.addStretch(1)
         self.scroll = scrollable(body, min_width=300)
 
@@ -428,6 +431,11 @@ class ContactEditor(QWidget):
 
     def is_dirty(self) -> bool:
         return self._dirty
+
+    def needs_attention(self) -> bool:
+        """The contact has a decision waiting (deleted elsewhere, changed in two places): the page
+        opens the editor, where the buttons for it are, rather than the read view."""
+        return not self.banner.isHidden() or not self.review.isHidden()
 
     # ------------------------------------------------------------------ state
     def _touch(self, *_a: object) -> None:

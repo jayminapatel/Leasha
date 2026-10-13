@@ -475,6 +475,7 @@ class SettingsShelves:
             self._nav.restore_single_view()
             self.filter_empty.setVisible(False)
             self.filter_elsewhere.setVisible(False)
+            self._fill_found("")
             return
 
         self._nav.set_sidebar_enabled(False)
@@ -509,6 +510,15 @@ class SettingsShelves:
         self.filter_elsewhere.setText(
             "Also on Indexing, What gets read: " + ", ".join(elsewhere) if elsewhere else "")
         self.filter_elsewhere.setVisible(bool(elsewhere))
+        self._fill_found(needle)
+
+    def _fill_found(self, needle: str) -> None:
+        """The list of what the search found, to go to (`widgets/settings_search.py`)."""
+        if getattr(self, "filter_found", None) is None:
+            return
+        from app.ui.widgets.settings_search import fill_found
+
+        fill_found(self, needle)
 
     def _category_of(self, widget: QWidget) -> Optional[str]:
         """Which category page holds `widget`, or None for one outside every page."""
@@ -520,13 +530,18 @@ class SettingsShelves:
 
     def _form_label_for(self, widget: QWidget) -> Optional[QLabel]:
         """The `QFormLayout` label beside `widget`, searching up through its parents."""
+        # **Every form under the parent, not only its top layout** (2026-10-13): most boxes put
+        # their `QFormLayout` inside a `QVBoxLayout`, so `parent.layout()` was never the form,
+        # the label was never found, and filtering left "Rerank the top" standing beside a
+        # hidden control.
         parent = widget.parentWidget()
         while parent is not None:
-            form = parent.layout()
-            if isinstance(form, QFormLayout):
-                label = form.labelForField(widget)
-                if label is not None:
-                    return label
+            forms = [parent.layout(), *parent.findChildren(QFormLayout)]
+            for form in forms:
+                if isinstance(form, QFormLayout):
+                    label = form.labelForField(widget)
+                    if label is not None:
+                        return label
             parent = parent.parentWidget()
         return None
 

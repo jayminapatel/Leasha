@@ -23,6 +23,17 @@ column - means owning the popup's painting, and the popup belongs to
 **Cached by (character, colour, size).** The menu is rebuilt on every keystroke
 after `/`, and painting eleven pixmaps per keystroke to throw them away is the
 kind of cost that is invisible until somebody types quickly.
+
+**Lucide first, since UI phase B (2026-10-13).** Every other picture in the
+window is a Lucide SVG from `widgets/icons.py`, so a `/` menu of painted
+characters was the one list that did not look like the rest. `PICTURES` names
+a Lucide icon for every switch in every catalogue - Search, Code (index and
+git switches), Mail, Files, Contacts, and the `/saved` action - and
+`command_icon` draws it in the popup's own ink, through the same cache-by-colour
+route as the rail. The painted character stays as the fallback (a heading row,
+or a switch added to a catalogue before it has a row here), and stays in
+`Command.icon` because the terminal (`app.cli`, `app/shell`) has no pictures.
+`tests/unit/test_ui_style_rules.py` fails when a switch has no Lucide row.
 """
 
 from __future__ import annotations
@@ -32,12 +43,91 @@ from typing import Any, Optional
 from PySide6.QtCore import QRectF, Qt
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 
-__all__ = ["icon_for", "clear_cache", "ICON_PX"]
+__all__ = ["icon_for", "clear_cache", "ICON_PX", "PICTURES", "CONTACT_PICTURES",
+           "VALUE_PICTURE", "OFFER_PICTURE", "picture_for", "command_icon"]
 
 #: Drawn at this size and left for Qt to scale down to the row. Larger than any
 #: row so the glyph is sharp on a high-DPI display, where a 16px pixmap drawn
 #: into a 24px slot is visibly soft.
 ICON_PX = 32
+
+#: **Every `/` switch -> its Lucide icon** (from `icons.ICON_NAMES`). Keyed by
+#: the switch's name, which is the same word in every box that offers it -
+#: `/path` is a folder in Search and in Code alike.
+PICTURES: dict[str, str] = {
+    # What kind of thing, and its name.
+    "type": "layout-grid", "extension": "sheet", "name": "file", "file": "file",
+    "size": "gauge", "only": "image", "shows": "sparkles",
+    # Mail.
+    "from": "mail", "to": "send", "subject": "file-text", "has": "list-checks",
+    "attachment": "link", "mailbox": "inbox", "mailfolder": "folder-open",
+    "message": "message-square",
+    # When.
+    "after": "calendar-clock", "before": "calendar-clock", "date": "calendar",
+    "between": "arrow-right-left", "since": "calendar-clock", "until": "calendar-clock",
+    # Where.
+    "path": "folder", "exclude-path": "folder-minus", "exclude-file": "ban",
+    "on": "hard-drive", "place": "map-pin", "repo": "code",
+    # Who.
+    "who": "user", "author": "user-round", "committer": "pencil",
+    # How it is ordered, and what state it is in.
+    "sort": "list", "status": "loader-circle", "depth": "sliders-horizontal",
+    # Git history.
+    "branch": "git-branch", "all-branches": "git-branch", "remote-branches": "cloud",
+    "history": "history", "commit": "clock", "range": "move-horizontal", "tag": "tag",
+    "lifetime": "hourglass", "merges": "merge", "introduced": "plus",
+    "removed": "trash", "changed": "refresh-cw", "lifecycle": "rotate-cw",
+    "file-history": "history", "added-only": "plus", "removed-only": "circle-minus",
+    "deleted-files": "trash-2",
+    # How the words are matched, and what kind of code.
+    "regex": "scan-search", "word": "search", "ignore-case": "keyboard",
+    "class": "package", "interface": "layout-grid", "function": "code",
+    "symbol": "at-sign", "endpoint": "globe", "config": "settings",
+    # The one action.
+    "saved": "bookmark",
+}
+
+#: The Contacts box's switches where its word means something else: `/name` is
+#: a person's name there, not a file's. Every other Contacts switch is new.
+CONTACT_PICTURES: dict[str, str] = {
+    "name": "user", "company": "building-2", "title": "briefcase", "email": "at-sign",
+    "phone": "phone", "tag": "tag", "group": "users", "has": "list-checks",
+    "quiet": "clock", "favourite": "star",
+}
+
+#: Beside a value of the chosen switch, and beside a search this person ran or
+#: saved - the Lucide spellings of `command_popup.VALUE_ICON` and `OFFER_ICON`.
+VALUE_PICTURE = "chevron-right"
+OFFER_PICTURE = "rotate-ccw"
+
+
+def picture_for(command: Any) -> str:
+    """The Lucide name for a `Command`, or "" when it has none (painted instead)."""
+    name = str(getattr(command, "name", "") or "")
+    try:
+        from app.ui.presenter.contact_commands import CONTACT_COMMANDS  # noqa: PLC0415
+
+        if any(command is c for c in CONTACT_COMMANDS):
+            return CONTACT_PICTURES.get(name, "")
+    except Exception:                # noqa: BLE001 - a picture, never a failure
+        pass
+    return PICTURES.get(name, "")
+
+
+def command_icon(picture: str, glyph: str, colour: Any) -> QIcon:
+    """The Lucide `picture` in `colour`, or the painted `glyph` when there is no
+    Lucide picture (or its file is missing). Never raises - see `icon_for`."""
+    try:
+        from app.ui.widgets.icons import ICON_NAMES, icon  # noqa: PLC0415
+
+        if picture and picture in ICON_NAMES:
+            ink = QColor(colour) if not isinstance(colour, QColor) else colour
+            found = icon(picture, ink.name())
+            if not found.isNull():
+                return found
+    except Exception:                # noqa: BLE001
+        pass
+    return icon_for(glyph, colour)
 
 _cache: dict[tuple[str, str, int], QIcon] = {}
 

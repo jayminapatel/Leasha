@@ -19,8 +19,8 @@ The rules, in plain English
    left of the space it was given.)
 2. **Buttons that belong together sit in one row** (`button_row`), the
    standard `ROW_SPACING` apart, starting at the left. A dialog's own
-   OK / Cancel row is the one exception: it stays where the operating
-   system's convention puts it (the right), because that is where people look.
+   OK / Cancel row is the one exception: it sits on the right, because that
+   is where people look, with the primary last (`dialog_frame.py`).
 3. **One height and one padding for all of them.** Set in `theme.py`
    (`BUTTON`), not here, so the look lives with the rest of the look. The
    height follows the system font, so "Make text bigger" still grows every
@@ -71,6 +71,8 @@ from PySide6.QtWidgets import (
 
 from app.ui.widgets.icons import ICON_PX as ICON_RENDER_PX
 from app.ui.widgets.icons import icon as themed_icon
+from app.ui.widgets.icons import ICON_SIZES
+from app.ui.theme import SPACE_S, SPACE_XS
 
 __all__ = [
     "BUTTONS", "ROLES", "ICON_PX", "ROW_SPACING", "action_button", "style_button",
@@ -82,11 +84,11 @@ __all__ = [
 ROLES = ("primary", "secondary", "danger")
 
 #: Every action button's icon is drawn this size, in pixels.
-ICON_PX = 16
+ICON_PX = ICON_SIZES["button"]
 
 #: The gap between two buttons in a row, in pixels. The same gap Qt's own
 #: dialog button boxes leave, so a page row and a dialog row look alike.
-ROW_SPACING = 8
+ROW_SPACING = SPACE_S
 
 #: **Every action button in the app: its words -> (icon, kind).**
 #:
@@ -512,7 +514,7 @@ def put_on_row(tree: QWidget, item: object, column: int, button: QPushButton) ->
     # Offline page). Named so the theme can make it transparent.
     cell.setObjectName("rowCell")
     layout = QHBoxLayout(cell)
-    layout.setContentsMargins(4, 0, 4, 0)
+    layout.setContentsMargins(SPACE_XS, 0, SPACE_XS, 0)
     layout.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     layout.addWidget(button)
     button.ensurePolished()

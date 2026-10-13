@@ -48,6 +48,7 @@ from app.search.policy import (
     SURFACES,
     for_surface,
 )
+from app.ui.widgets.settings_row import add_row, add_under
 
 __all__ = ["SearchBehaviourBox"]
 
@@ -101,12 +102,12 @@ class SearchBehaviourBox(QGroupBox):
                 control.addItem("Never", "off")
                 control.currentIndexChanged.connect(
                     lambda _i, k=_KEYS[name]: self._emit(k))
-                form.addRow(label, control)
+                add_row(form, control, label)
             else:
                 control = QCheckBox(label)
                 control.stateChanged.connect(
                     lambda _s, k=_KEYS[name]: self._emit(k))
-                form.addRow(control)
+                add_row(form, control)
             control.setObjectName(_KEYS[name])
             control.setToolTip(help_text)
             self.controls[name] = control
@@ -139,7 +140,7 @@ class SearchBehaviourBox(QGroupBox):
             "looked for, and the searches you saved. Switch it off on a "
             "screen other people can see.")
         self.offer_recent.stateChanged.connect(lambda _s: self._emit("SEARCH_OFFER_RECENT"))
-        form.addRow(self.offer_recent)
+        add_row(form, self.offer_recent)
 
         # **Workspace §3a.** A global shortcut is the most intrusive thing
         # this application does to a machine, so it is switchable and its
@@ -153,7 +154,7 @@ class SearchBehaviourBox(QGroupBox):
             "Press the shortcut in any application and a small search box "
             "appears. Type, press Enter, and the document opens.")
         self.mini_search.stateChanged.connect(lambda _s: (self._sync_mini(), self._emit("MINI_SEARCH_ENABLED")))
-        form.addRow(self.mini_search)
+        add_row(form, self.mini_search)
 
         self.mini_hotkey = QLineEdit()
         self.mini_hotkey.setObjectName("MINI_SEARCH_HOTKEY")
@@ -167,12 +168,12 @@ class SearchBehaviourBox(QGroupBox):
             "Shift or Win. If another program is already using it, Leasha "
             "says so and nothing changes.")
         self.mini_hotkey.editingFinished.connect(lambda: self._emit("MINI_SEARCH_HOTKEY"))
-        form.addRow("The shortcut that opens it", self.mini_hotkey)
+        add_row(form, self.mini_hotkey, "The shortcut that opens it")
 
         self.mini_status = QLabel("")
         self.mini_status.setObjectName("settingsHint")
         self.mini_status.setWordWrap(True)
-        form.addRow("", self.mini_status)
+        add_under(form, self.mini_status)
 
         # **Adoptions §4a, and its own switch.** Reading a selection out of
         # whatever application you were looking at is the more intrusive half
@@ -186,7 +187,7 @@ class SearchBehaviourBox(QGroupBox):
             "selected, so the next keystroke replaces it. It never searches "
             "by itself.")
         self.mini_prefill.stateChanged.connect(lambda _s: self._emit("MINI_SEARCH_PREFILL_SELECTION"))
-        form.addRow(self.mini_prefill)
+        add_row(form, self.mini_prefill)
 
         # **The Files page's Kinds list** (the owner, 2026-10-12: Visio and Microsoft Project were missing). The
         # commonest types are listed; the ones named here are listed as well, whatever their rank.
@@ -198,7 +199,7 @@ class SearchBehaviourBox(QGroupBox):
             "The Files page's Kinds list holds the commonest file types. Types named here, as extensions "
             "separated by commas (vsdx,vsd,mpp), are listed as well whenever the index holds any.")
         self.kinds_always.editingFinished.connect(lambda: self._emit("FILE_KINDS_ALWAYS"))
-        form.addRow("Always list these file types", self.kinds_always)
+        add_row(form, self.kinds_always, "Always list these file types")
         self.kinds_shown = QSpinBox()
         self.kinds_shown.setObjectName("FILE_KINDS_SHOWN")
         self.kinds_shown.setRange(3, 60)
@@ -208,7 +209,7 @@ class SearchBehaviourBox(QGroupBox):
         # value nobody chose. Arrows still save at once; typing saves on Enter or leaving.
         self.kinds_shown.setKeyboardTracking(False)
         self.kinds_shown.valueChanged.connect(lambda _v: self._emit("FILE_KINDS_SHOWN"))
-        form.addRow("Common types listed", self.kinds_shown)
+        add_row(form, self.kinds_shown, "Common types listed")
 
         self.grid = self._build_grid()
 

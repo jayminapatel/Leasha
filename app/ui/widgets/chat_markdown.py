@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (
     QToolButton, QVBoxLayout, QWidget,
 )
 
-from app.ui.theme import RADIUS, font_sizes, text_size, theme_colours
+from app.ui.theme import RADIUS, SPACE_S, font_sizes, text_size, theme_colours
 
 __all__ = [
     "AnswerBody", "render_markdown_html", "strip_markers", "split_segments",
@@ -905,7 +905,7 @@ class AnswerBody(QWidget):
         self._shown_numbers: set[int] = set()
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(8)
+        self._layout.setSpacing(SPACE_S)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         # The window sheet paints every QWidget in the window colour; an answer
         # sits on the bubble's surface and must let it show.

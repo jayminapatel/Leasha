@@ -50,6 +50,10 @@ class EpubView(QWidget):
         split.setStretchFactor(0, 1)
         split.setStretchFactor(1, 3)
         split.setChildrenCollapsible(False)
+        # Built per book, after the page's splitters were given theirs: its own memory (UI phase B).
+        from app.ui.widgets.splitter_memory import remember
+
+        remember(split, "preview:epubSplit")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)

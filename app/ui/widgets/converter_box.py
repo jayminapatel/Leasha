@@ -21,6 +21,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QFormLayout, QGroupBox, QSpinBox
 
 from app.ui.widgets.debounce import Debounced
+from app.ui.widgets.defaults import SentValues
 
 __all__ = ["ConverterBox"]
 
@@ -58,7 +59,9 @@ class ConverterBox(QGroupBox):
         for widget in (self.workers, self.timeout):
             widget.setKeyboardTracking(False)
 
-        self._save = Debounced(lambda: self.changed.emit(self.values()), parent=self)
+        # Only the keys that moved (UI phase B, 2026-10-13) - see `widgets/defaults.SentValues`.
+        self._sent = SentValues(self.values)
+        self._save = Debounced(self._send, parent=self)
         for widget in (self.workers, self.timeout):
             widget.valueChanged.connect(lambda _v: self._save())
 
@@ -82,12 +85,23 @@ class ConverterBox(QGroupBox):
             for widget in (self.workers, self.timeout):
                 widget.blockSignals(False)
         self._save.cancel()
+        self._sent.mark()
 
     def values(self) -> dict:
         return {
             "CONVERTER_WORKERS": int(self.workers.value()),
             "CONVERTER_TIMEOUT_S": int(self.timeout.value()),
         }
+
+    def _send(self) -> None:
+        """One `changed` with the keys that moved since the last load or send, if any."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
 
     def flush(self) -> None:
         """Persist anything still inside the debounce window, before closing."""

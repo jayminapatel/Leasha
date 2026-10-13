@@ -112,8 +112,8 @@ class TuningBox(QGroupBox):
         for box in (self.compute, self.devices, self.resources, self.strategy,
                     self.converter):
             box.changed.connect(self.changed)
-        self.coverage.changed.connect(
-            lambda: self.coverage_changed.emit(self.coverage.values()))
+        # Only the levers that moved (UI phase B, 2026-10-13) - see `LongRunBox.changes`.
+        self.coverage.changed.connect(self._coverage_moved)
 
         #: §4f. **The evidence that makes Manual worth having.** Without it
         #: manual tuning is folklore: somebody moves a number, the run feels
@@ -230,6 +230,12 @@ class TuningBox(QGroupBox):
         # Manual would silently revert on the next start, which is exactly the
         # kind of quiet undo that makes people distrust a settings screen.
         self.changed.emit({"INDEX_TUNING_MODE": self.current_mode()})
+
+    def _coverage_moved(self) -> None:
+        """A lever on What gets read moved: send the ones that changed, if any did."""
+        moved = self.coverage.changes()
+        if moved:
+            self.coverage_changed.emit(moved)
 
     def flush_pending(self) -> None:
         """Persist anything still inside a debounce window, before closing."""

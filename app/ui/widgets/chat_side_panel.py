@@ -27,7 +27,7 @@ from __future__ import annotations
 import weakref
 from typing import Any, Callable, Mapping, Optional
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtWidgets import QFrame, QToolButton, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import (
@@ -35,8 +35,9 @@ from app.ui.presenter.chat import (
     panel_state_from_text, panel_state_text,
 )
 from app.ui.state_writes import save_state
-from app.ui.theme import PALETTES, Theme
+from app.ui.theme import PALETTES, SPACE_S, SPACE_XS, Theme
 from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon_size
 
 __all__ = ["SideTabs", "PanelSwitch", "panel_toggle", "side_toggles", "TAB_ICONS",
            "WIDTH_SETTLE_MS"]
@@ -87,8 +88,8 @@ class SideTabs(QFrame):
         self.setAccessibleName("Side panel tabs")
         self.buttons: dict[str, QToolButton] = {}
         column = QVBoxLayout(self)
-        column.setContentsMargins(4, 8, 4, 8)
-        column.setSpacing(4)
+        column.setContentsMargins(SPACE_XS, SPACE_S, SPACE_XS, SPACE_S)
+        column.setSpacing(SPACE_XS)
         for name, words in labels.items():
             tab = QToolButton()
             tab.setText(words)
@@ -98,7 +99,7 @@ class SideTabs(QFrame):
             tab.setAutoRaise(True)
             tab.setCursor(Qt.CursorShape.PointingHandCursor)
             tab.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
-            tab.setIconSize(QSize(20, 20))
+            tab.setIconSize(icon_size("rail"))
             tab.setFocusPolicy(Qt.FocusPolicy.TabFocus)
             tab.setProperty("sideTab", name)
             # `clicked`, not `toggled`: Qt flips the check before the slot runs, and

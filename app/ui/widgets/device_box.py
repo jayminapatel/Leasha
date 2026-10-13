@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QComboBox, QGridLayout, QGroupBox, QHBoxLayout, Q
                              QPushButton, QVBoxLayout)
 
 from app.core.model_devices import MODELS
+from app.ui.widgets.defaults import SentValues
 
 __all__ = ["DeviceBox", "result_text", "CHOICE_LABELS"]
 
@@ -73,7 +74,8 @@ class DeviceBox(QGroupBox):
             for value, text in CHOICE_LABELS:
                 combo.addItem(text, value)
             combo.setToolTip(f"Which processor runs {label.lower()}. Takes effect on restart.")
-            combo.currentIndexChanged.connect(lambda _i: self.changed.emit(self.values()))
+            # The one processor that changed, not all three (UI phase B, 2026-10-13).
+            combo.currentIndexChanged.connect(lambda _i: self._send())
             result = QLabel(UNTESTED)
             result.setObjectName(f"{key}_result")
             result.setWordWrap(True)
@@ -102,6 +104,7 @@ class DeviceBox(QGroupBox):
         layout.addWidget(intro)
         layout.addLayout(grid)
         layout.addLayout(row)
+        self._sent = SentValues(self.values)
         if settings is not None:
             self.load(settings)
 
@@ -118,11 +121,22 @@ class DeviceBox(QGroupBox):
                 combo.setCurrentIndex(found if found >= 0 else 0)
             finally:
                 combo.blockSignals(False)
+        self._sent.mark()
         self._read_results()
 
     def values(self) -> dict:
         return {key: str(self.combos[model].currentData() or "auto")
                 for model, key, _label in MODELS}
+
+    def _send(self) -> None:
+        """One `changed` with the choices that moved since the last load or send, if any."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
 
     # -- the test ------------------------------------------------------------------------
 

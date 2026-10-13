@@ -50,6 +50,7 @@ from PySide6.QtWidgets import (
 )
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 
 __all__ = ["AddFileTypeWizard", "TIER_ROUTE", "TIER_CONVERT", "TIER_CODE"]
@@ -99,13 +100,9 @@ class AddFileTypeWizard(QDialog):
         # The theme's danger, read at build (the dialog is modal): #c62828 was 2.9:1 on a dark card.
         self.problem.setStyleSheet(f"color: {theme_colours()['danger']};")
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = dialog_buttons(self)          # UI phase B: one dialog frame
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addLayout(heading)
         layout.addWidget(self.tabs, 1)
         layout.addWidget(self.summary)
@@ -448,14 +445,9 @@ class ConfirmScaffoldDialog(QDialog):
         listing.setReadOnly(True)
         listing.setPlainText(_describe(scaffold))
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Write them")
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        buttons = dialog_buttons(self, "Write them")          # UI phase B: one dialog frame
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addWidget(heading)
         layout.addWidget(listing, 1)
         layout.addWidget(buttons)

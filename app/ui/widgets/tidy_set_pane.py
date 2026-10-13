@@ -28,6 +28,7 @@ from app.tidy import keep
 from app.ui.presenter.tidy import set_heading
 from app.ui.widgets import list_keys, menus
 from app.ui.widgets.file_menu import copy_paths
+from app.ui.theme import SPACE_S
 
 __all__ = ["TidySetPane", "TAB_ICONS"]
 
@@ -104,7 +105,7 @@ class TidySetPane(QWidget):
         self.tiles.setIconSize(QSize(_TILE, _TILE))
         self.tiles.setResizeMode(QListView.ResizeMode.Adjust)
         self.tiles.setMovement(QListView.Movement.Static)
-        self.tiles.setSpacing(8)
+        self.tiles.setSpacing(SPACE_S)
         self.tiles.setWordWrap(True)
         self.tiles.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.tiles.itemChanged.connect(self._tile_changed)

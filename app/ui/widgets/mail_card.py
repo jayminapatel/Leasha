@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.presenter.mail import RECIPIENTS_LABEL, RECIPIENTS_TIP, MailCard
 from app.ui.widgets.flow_layout import FlowLayout
+from app.ui.theme import SPACE_S
 
 __all__ = ["MailCardView", "MailBody", "attach_mail"]
 
@@ -104,14 +105,14 @@ class MailCardView(QFrame):
         self.address.setAccessibleName("Sender's address")
         who = QHBoxLayout()
         who.setContentsMargins(0, 0, 0, 0)
-        who.setSpacing(8)
+        who.setSpacing(SPACE_S)
         who.addWidget(self.sender)
         who.addWidget(self.address, 1, Qt.AlignmentFlag.AlignBottom)
 
         self.recipients_row = QWidget()
         to_row = QHBoxLayout(self.recipients_row)
         to_row.setContentsMargins(0, 0, 0, 0)
-        to_row.setSpacing(8)
+        to_row.setSpacing(SPACE_S)
         to_label = QLabel(RECIPIENTS_LABEL)
         to_label.setObjectName("factLabel")
         to_label.setToolTip(RECIPIENTS_TIP)

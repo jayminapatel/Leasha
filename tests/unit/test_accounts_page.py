@@ -530,6 +530,10 @@ def test_every_action_button_on_the_page_is_in_the_button_system(world):
     p.resize(900, 4200)                       # tall: in the window it sits in a scroll area
     p.show()
     _select(p, svc.accounts.list()[0].id)
+    # 2026-10-13: as tall as the page asks for once an account is open. Order 1s's Enrichment group
+    # took it past the fixed 4,200 pixels (4,242), and a page shorter than its own size hint squeezes
+    # its buttons - which this test then read as two button heights.
+    p.resize(900, max(4200, p.sizeHint().height()))
     wait_until(lambda: False, 0.1)
     buttons = [b for b in p.findChildren(QPushButton) if not is_exempt(b)]
     assert len(buttons) >= 16

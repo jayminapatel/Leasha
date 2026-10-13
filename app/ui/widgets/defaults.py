@@ -41,9 +41,103 @@ from PySide6.QtWidgets import QPushButton, QWidget
 
 from app.core.settings_registry import by_key, keys
 
-__all__ = ["attach_resets", "restore_button", "pinned_in", "show_default", "RESET_LABEL"]
+__all__ = ["attach_resets", "restore_button", "pinned_in", "show_default", "RESET_LABEL",
+           "same_as_default", "unpin_defaults", "SentValues"]
 
 RESET_LABEL = "Restore defaults"
+
+
+# -- never pin a default (UI phase B, 2026-10-13) ----------------------------------------------
+#
+# Phase A found the owner's `.env` holding search keys equal to their code defaults, because the
+# Search behaviour box saved all thirteen keys on any change. The same sweep then found 28 more,
+# from the indexing, OCR, archive, video and MCP controls. Two faults, one each below:
+#
+# * a box sent **every** key when one changed - `SentValues` keeps what each box last loaded or
+#   sent, so it sends only the keys that moved;
+# * a value **equal to the default** was written down - `unpin_defaults` turns it into `None`,
+#   which removes the line, so the code default (and a better one in a later version) applies.
+#
+# **Correct only while the registry's default is the default `config.py` uses** when a key is
+# absent. `test_every_registry_default_is_the_default_config_uses` in
+# `tests/unit/test_ui_one_app_settings_b.py` checks that for every key, so the two cannot drift apart.
+
+
+def same_as_default(key: str, value: Any) -> bool:
+    """True when `value` is what `key` would be with no line in `.env`.
+
+    Compared by the registry's own kind, because a box hands over `12`, a text box `"12"` and a
+    switch `True`. A key the registry does not know, a location (`protected()`), and `None` are
+    never "the default" here - they are passed on exactly as given.
+    """
+    from app.core.settings_registry import protected
+
+    setting = by_key(str(key).upper())
+    if setting is None or value is None or setting.key in protected():
+        return False
+    default = setting.default
+    if isinstance(default, bool):
+        if isinstance(value, str):
+            return value.strip().lower() in (("true", "1", "yes", "on") if default
+                                             else ("false", "0", "no", "off", ""))
+        return bool(value) == default
+    if isinstance(default, (int, float)):
+        try:
+            return float(value) == float(default)
+        except (TypeError, ValueError):
+            return False
+    return str(value).strip() == str("" if default is None else default).strip()
+
+
+def unpin_defaults(values: Any) -> dict:
+    """`values` with every default-equal value turned into `None`, which removes its line.
+
+    The last step before `.env` is written (`SettingsController._settings_changed`), so no box
+    can pin a default however it was built. Keys keep the spelling they arrived with.
+    """
+    return {key: (None if same_as_default(key, value) else value)
+            for key, value in dict(values or {}).items()}
+
+
+class SentValues:
+    """What a settings box last loaded or sent, so a change sends **only the keys that moved**.
+
+    `read` is the box's own `values()`. `mark()` after a load; `changes()` when a control
+    moved, which returns the keys that differ and records them as sent; `shown(keys)` when
+    `show_default` put some back with their signals held (the box's `defaults_shown`), and
+    `settle(before)` when the box itself moved a value nobody chose - a range clamped to the
+    machine - so that number is never written as though somebody had picked it.
+    """
+
+    def __init__(self, read: Any) -> None:
+        self._read = read
+        self._sent: dict = {}
+        self.mark()
+
+    def mark(self) -> None:
+        """Everything shown now is what is in force: nothing is waiting to be sent."""
+        self._sent = dict(self._read())
+
+    def changes(self) -> dict:
+        """The keys whose value differs from what was last loaded or sent; now sent."""
+        now = self._read()
+        moved = {key: value for key, value in now.items()
+                 if key not in self._sent or self._sent[key] != value}
+        self._sent.update(moved)
+        return moved
+
+    def shown(self, keys: Any) -> None:
+        """These keys were put back to their defaults on screen: that is what is in force.
+        Matched without case, because some boxes use `Settings` field names."""
+        wanted = {str(key).upper() for key in keys}
+        now = self._read()
+        self._sent.update({key: value for key, value in now.items() if key.upper() in wanted})
+
+    def settle(self, before: dict) -> None:
+        """Whatever moved since `before` moved without anybody choosing it: take it as sent."""
+        now = self._read()
+        self._sent.update({key: value for key, value in now.items()
+                           if before.get(key, value) != value})
 
 
 def pinned_in(env_file: Any) -> list[str]:
@@ -244,7 +338,8 @@ def restore_button(parent: Optional[QWidget], env_file: Any,
     known, guarded = set(keys()), protected()
 
     def note_written(values: dict) -> None:
-        for key, value in values.items():
+        # What is really written: a default-equal value removes its line (`unpin_defaults`).
+        for key, value in unpin_defaults(values).items():
             if value is None and key in pinned:
                 pinned.remove(key)
             elif value is not None and key in known and key not in guarded \

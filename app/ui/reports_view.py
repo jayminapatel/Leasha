@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 # The PDF writer, kept under the name it had while it lived in this file
 # (2026-10-02: moved to keep this view under its line limit).
 from app.ui.report_pdf import write_pdf as _write_pdf
+from app.ui.widgets.page_states import BusyLine
 from app.ui.widgets.space_table import SpaceTables
 from app.ui.workers import CallableWorker, run
 
@@ -64,10 +65,10 @@ class ReportsView(QWidget):
         self.timestamp = QLabel("")
         self.timestamp.setObjectName("resultsSummary")
 
-        #: Order 0n section 3c: a worker stage, not a spinner - cleared the
-        #: instant the worker finishes or is skipped as unchanged.
-        self.progress_label = QLabel("")
-        self.progress_label.setObjectName("resultsSummary")
+        #: Order 0n section 3c: the worker's stage in words - cleared the instant the worker
+        #: finishes or is skipped as unchanged. UI phase B: the one busy line, so the words
+        #: have the small moving bar every page's work has beside them.
+        self.progress_label = BusyLine()
 
         self.body = QTextBrowser()
         self.body.setAccessibleName("Report contents")
@@ -128,12 +129,13 @@ class ReportsView(QWidget):
     def _load_done(self) -> None:
         """UI thread: the load's worker is done; run a refresh asked for meanwhile."""
         self._loading = False
+        self.progress_label.stop()
         if self._refresh_again:
             self._refresh_again = False
             self.refresh()
 
     def _on_progress(self, stage: Any) -> None:
-        self.progress_label.setText(str(stage))
+        self.progress_label.start(str(stage))
 
     def _loaded(self, snapshot: Any) -> None:
         """UI thread: keep the snapshot (None means unchanged) and redraw the report."""

@@ -37,6 +37,7 @@ from app.ui.widgets.run_log import RunLog
 from app.ui.widgets.scroll import scrollable
 from app.ui.widgets.status_funnel import StatusFunnel
 from app.ui.widgets.timed_out_panel import TimedOutPanel
+from app.ui.theme import SPACE_S, SPACE_L
 
 __all__ = [
     "CATEGORY_OFFLINE", "add_offline_shelf", "show_offline_shelf",
@@ -71,7 +72,7 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     status_page = QWidget()
     status_layout = QVBoxLayout(status_page)
     status_layout.setContentsMargins(0, 0, 0, 0)
-    status_layout.setSpacing(8)
+    status_layout.setSpacing(SPACE_S)
     status_layout.addWidget(view.headline)
     # The words the view opened with, read off the label rather than copied,
     # so `paint_totals` can tell "no run has been shown yet" without a flag
@@ -99,11 +100,11 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     # the right (this panel, the run's log, the skipped files). The same
     # widgets, in the same order within each column.
     columns = QHBoxLayout()
-    columns.setSpacing(16)
+    columns.setSpacing(SPACE_L)
     run_column = QVBoxLayout()
-    run_column.setSpacing(8)
+    run_column.setSpacing(SPACE_S)
     index_column = QVBoxLayout()
-    index_column.setSpacing(8)
+    index_column.setSpacing(SPACE_S)
     columns.addLayout(run_column, 3)
     columns.addLayout(index_column, 2)
     status_layout.addLayout(columns, 1)
@@ -182,12 +183,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     nav.add_category(schedule_name, scrollable(schedule_page))
     nav.add_category(tuning_name, scrollable(tuning_page))
 
-    layout = QVBoxLayout(view)
-    # 9, the margin every other page gets from Qt by default. This was 0, so the
-    # stats card, the progress bar and "Reset index..." ran flush to the window's
-    # right edge and the buttons sat 5px from the bottom (seen on the real window
-    # at 125%, 2026-09-20).
-    layout.setContentsMargins(9, 9, 9, 9)
+    # The one page frame (UI phase B), as every main page has: its margins keep the stats
+    # card, the progress bar and "Reset index..." off the window's edges (this was 0 once, and
+    # they ran flush to the right edge - seen on the real window at 125%, 2026-09-20).
+    from app.ui.widgets.page_frame import PageFrame
+
+    layout = PageFrame(view)
     layout.addWidget(nav)
     return nav
 

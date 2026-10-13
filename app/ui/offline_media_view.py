@@ -42,6 +42,7 @@ from app.ui.presenter import (
 )
 from app.ui.widgets.offline_media_dialogs import DeleteVolumeDialog, ScanNameDialog
 from app.ui.widgets.offline_media_rows import EXTRA_COLUMNS, LineActions
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
 from app.ui.workers import CallableWorker, run
 
@@ -152,8 +153,7 @@ class OfflineMediaView(LineActions, QWidget):
         buttons.addWidget(self.delete)
         buttons.addStretch(1)
 
-        self.empty = QLabel(offline_media_empty_state())
-        self.empty.setWordWrap(True)
+        self.empty = EmptyState(offline_media_empty_state(), glyph="hard-drive", align=Qt.AlignmentFlag.AlignLeft)
 
         self.status_line = QLabel("")
         self.status_line.setWordWrap(True)

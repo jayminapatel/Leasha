@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.7 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.8 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -30,6 +30,7 @@ disagree, the one named below wins.
 | Per-stage performance budget | `BUILD_SPEC_V2.md` |
 | What is queued, and what shipped | `docs/ORDER_REGISTER.md` |
 | Ideas approved but not ordered | `docs/PARKED-IDEAS.md` |
+| How the UI looks and behaves | `docs/UI_STYLE_GUIDE.md` |
 
 ## Standing rules
 

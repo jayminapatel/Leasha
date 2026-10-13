@@ -42,6 +42,7 @@ from app.ui.presenter.needed_models import (
 )
 from app.ui.widgets.buttons import refresh_icon, style_button
 from app.ui.workers import CallableWorker, run
+from app.ui.theme import SPACE_XS, SPACE_M, SPACE_L
 
 __all__ = ["NeededModelsBox"]
 
@@ -194,9 +195,9 @@ class NeededModelsBox(QGroupBox):
         self._grid_host = QWidget()
         self._grid_host.setObjectName("rowCell")   # transparent on the card
         self._grid = QGridLayout(self._grid_host)
-        self._grid.setContentsMargins(0, 4, 0, 0)
-        self._grid.setHorizontalSpacing(16)
-        self._grid.setVerticalSpacing(12)
+        self._grid.setContentsMargins(0, SPACE_XS, 0, 0)
+        self._grid.setHorizontalSpacing(SPACE_L)
+        self._grid.setVerticalSpacing(SPACE_M)
         self._grid.setColumnStretch(0, 3)
         self._grid.setColumnStretch(2, 2)
 

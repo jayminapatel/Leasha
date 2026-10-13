@@ -20,7 +20,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices
-from PySide6.QtWidgets import QHBoxLayout, QSplitter, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QSplitter, QVBoxLayout, QWidget
 
 from app.ui.presenter.chat import NOT_BUILT_LINE, PREVIEW_TAB, THINKING_LINE, unavailable_text
 from app.ui.widgets.chat_answer_run import AnswerRun, NoShelf
@@ -32,6 +32,8 @@ from app.ui.widgets.chat_shelf import ShelfBar
 from app.ui.widgets.chat_side_panel import PanelSwitch
 from app.ui.widgets.chat_sources import SourcesPane
 from app.ui.widgets.model_picker import ModelPicker
+from app.ui.theme import SPACE_S
+from app.ui.widgets.page_frame import page_row
 
 __all__ = ["ChatView"]
 
@@ -90,7 +92,7 @@ class ChatView(QWidget):
         # them, so the footer line, the question box and "Send" all touched it.
         # 2026-10-08: one 8px rhythm down the column (it had Qt's default gaps).
         column.setContentsMargins(10, 0, 10, 0)
-        column.setSpacing(8)
+        column.setSpacing(SPACE_S)
         column.addLayout(notice_row)
         column.addLayout(head)
         column.addWidget(self.speed_note)
@@ -103,7 +105,7 @@ class ChatView(QWidget):
             self.split.addWidget(part)
             self.split.setStretchFactor(self.split.indexOf(part), weight)
         self.split.setChildrenCollapsible(False)
-        self.panel.lay_out(QHBoxLayout(self), self.split)
+        self.panel.lay_out(page_row(self), self.split)     # UI phase B: one frame for every page
 
         self.box.submitted.connect(self.question_submitted)
         self.box.stop_requested.connect(self.stop_requested)

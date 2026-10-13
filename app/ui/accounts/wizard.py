@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
 from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import btn, hint, notice
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["AddAccountDialog"]
 
@@ -65,7 +66,7 @@ class AddAccountDialog(QDialog):
         self.kind = "google"
         #: The kind the mail and contacts ticks were last set for (`_layout_for`).
         self._ticks_for = ""
-        outer = QVBoxLayout(self)
+        outer = frame(self)                                  # UI phase B: one dialog frame
         self.stack = QStackedWidget()
         outer.addWidget(self.stack)
 

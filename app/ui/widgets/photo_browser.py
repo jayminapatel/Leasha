@@ -52,7 +52,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QHeaderView, QLa
 
 from app.ui.presenter.photos import (COLUMNS, column_text, date_text, heading_sorted, month_heading,
                                      people_text)
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_XS, theme_colours
 from app.ui.widgets import list_keys
 from app.ui.widgets.file_menu import copy_paths
 from app.ui.widgets.menus import global_point
@@ -457,7 +457,7 @@ class PhotoBrowser(QWidget):
         self.grid.setUniformItemSizes(True)
         self.grid.setLayoutMode(QListView.LayoutMode.Batched)
         self.grid.setBatchSize(400)
-        self.grid.setSpacing(4)
+        self.grid.setSpacing(SPACE_XS)
         self.grid.setWordWrap(False)
         self.grid.setTextElideMode(Qt.TextElideMode.ElideMiddle)
         self.grid.setToolTip("Your pictures - double-click one to see it full size")

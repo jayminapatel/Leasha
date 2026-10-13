@@ -41,6 +41,7 @@ from app.ui.presenter.chat import (
 )
 from app.ui.results_view import ResultsView
 from app.ui.widgets.chat_markdown import AnswerBody
+from app.ui.theme import SPACE_S, SPACE_M, SPACE_L
 
 __all__ = ["BubbleList", "UserBubble", "AnswerBubble"]
 
@@ -462,7 +463,7 @@ def centred(*widgets: QWidget) -> QWidget:
     (`COLUMN_MAX`) and centred under it."""
     outer = QWidget()
     row = QHBoxLayout(outer)
-    row.setContentsMargins(16, 0, 16, 8)
+    row.setContentsMargins(SPACE_L, 0, SPACE_L, SPACE_S)
     row.addStretch(1)
     inner = QWidget()
     inner.setMaximumWidth(COLUMN_MAX)
@@ -494,7 +495,7 @@ class BubbleList(QScrollArea):
         self._holder = QWidget()
         # Order 1o D1: the messages in a centred column (`COLUMN_MAX`), stretch either side.
         centring = QHBoxLayout(self._holder)
-        centring.setContentsMargins(16, 12, 16, 12)
+        centring.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
         centring.addStretch(1)
         self.column_widget = QWidget()
         self.column_widget.setMaximumWidth(COLUMN_MAX)
@@ -523,7 +524,7 @@ class BubbleList(QScrollArea):
         # grey text, are cards that send themselves - `EMPTY_HINT`'s own questions.
         self.starters = [_starter(q, self.starter_chosen.emit) for q in STARTER_QUESTIONS]
         grid = QGridLayout()
-        grid.setSpacing(8)
+        grid.setSpacing(SPACE_S)
         for index, card in enumerate(self.starters):
             grid.addWidget(card, index // 2, index % 2)
         stack.addLayout(grid)

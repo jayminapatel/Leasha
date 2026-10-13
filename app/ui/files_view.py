@@ -26,9 +26,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
-from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QWidget
 
 from app.core.logging import logger
 from app.ui.presenter import (
@@ -42,6 +40,7 @@ from app.ui.widgets.chips import list_chips, say_failed, say_skipped, show_page
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets import list_keys
 from app.ui.widgets.file_menu import FileActions, copy_paths, show_for, table_pairs
+from app.ui.widgets.page_frame import PageFrame
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import STATUS_COLUMN, fill_rows
@@ -219,7 +218,7 @@ class FilesView(QWidget):
         top.addWidget(self.volume_picker)
         self.view_button.add_to(top)         # 2026-10-04: the Preview toggle, then View
 
-        layout = QVBoxLayout(self)
+        layout = PageFrame(self)             # UI phase B: one frame for every page
         self.chips = list_chips(self, layout, top, self._run)
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)
