@@ -1,6 +1,6 @@
 """Microsoft contacts: batches that half succeed, throttling that never ends, folders that vanish, refusals.
 
-Order 1u §4d. `test_provider_graph_contacts.py` covers the single reads and writes and the delta walk;
+Order 1u section 4d. `test_provider_graph_contacts.py` covers the single reads and writes and the delta walk;
 `test_sync_transport_and_batches.py` an update batch and one throttled read. These pin the rest of what a
 sync of many contacts leans on: `create_many`, `update_many` and `delete_many` answering each contact on its
 own (a conflict, a refusal, a contact already gone, a whole change refused and sent again one property at a

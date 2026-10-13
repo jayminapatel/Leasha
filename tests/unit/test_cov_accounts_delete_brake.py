@@ -1,6 +1,6 @@
 """The delete brake at its edges: exactly at the limit, one past it, the master's deletes, and Allow.
 
-Order 1u §4d. `test_contact_sync_engine.py`, `test_contact_sync_trust.py` and `test_contact_master.py` show the
+Order 1u section 4d. `test_contact_sync_engine.py`, `test_contact_sync_trust.py` and `test_contact_master.py` show the
 brake holding a mass delete well past the limit. These pin the edges of `app.accounts.engine._too_many` (a
 count, or a share of the book, both strictly "more than"), the push brake at the limit and one past it with
 creates still written, and the master's own brake (`_apply_master_deletes`): flagged, not deleted, what was

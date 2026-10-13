@@ -1,6 +1,6 @@
 """People who mail often and are in no contact: who is suggested, who never is, and accepting them.
 
-Order 1u §4d. `app.contacts.enrich.suggest` is reached through the enrichment window and switches, but no
+Order 1u section 4d. `app.contacts.enrich.suggest` is reached through the enrichment window and switches, but no
 test imported the module itself (static scan 2026-10-13). These pin `suggest_contacts`, `looks_automatic`
 and `accept_suggestions` against a real store.
 """

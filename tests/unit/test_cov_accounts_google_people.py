@@ -1,6 +1,6 @@
 """Google contacts: batches that half succeed, batches refused and sent one at a time, deletes, refusals.
 
-Order 1u §4d. `test_provider_google_people.py` covers the single reads and writes and the sync token;
+Order 1u section 4d. `test_provider_google_people.py` covers the single reads and writes and the sync token;
 `test_sync_transport_and_batches.py` an update batch, a refused one and a delete batch. These pin the rest of
 what a sync of many contacts leans on: `create_many` answering each contact on its own, a refused batch sent
 again contact by contact where a sign-in failure still stops everything, a delete batch refused and done one

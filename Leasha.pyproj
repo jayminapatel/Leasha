@@ -1728,6 +1728,7 @@
     <Content Include="docs\REFERENCE-model-backends.md" />
     <Content Include="docs\REVIEW-2026-08-25.md" />
     <Content Include="docs\REVIEW-2026-08-26.md" />
+    <Content Include="docs\TEST_COVERAGE.md" />
     <Content Include="docs\THIRD_PARTY_NOTICES.md" />
     <Content Include="docs\TROUBLESHOOTING.md" />
     <Content Include="docs\UI_STYLE_GUIDE.md" />

@@ -1,6 +1,6 @@
 """'Merge all safe matches' on a real book: what it merges, what it refuses, that nothing is lost, and its undo.
 
-Order 1u §4d. `app.contacts.book_actions.plan_safe_merges` and `merge_safe` had no test that imported them
+Order 1u section 4d. `app.contacts.book_actions.plan_safe_merges` and `merge_safe` had no test that imported them
 (static scan 2026-10-13). These run them against a real `ContactHub` on a scratch SQLite store, so the
 journal, the account links and the sources are the ones the app writes.
 """

@@ -1,6 +1,6 @@
 """Which country a signature is in: a named country, then the sender's domain, then the owner's region.
 
-Order 1u §4d. `app.contacts.enrich.sigplaces` had no test that imported it (static scan 2026-10-13). A number
+Order 1u section 4d. `app.contacts.enrich.sigplaces` had no test that imported it (static scan 2026-10-13). A number
 typed without `+` is read in the region this returns, so a wrong answer is a wrong number offered.
 """
 

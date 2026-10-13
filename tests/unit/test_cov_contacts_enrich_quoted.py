@@ -1,6 +1,6 @@
 """Signatures quoted in other people's mail: whose block is whose, its date, and which messages are read.
 
-Order 1u §4d. `app.contacts.enrich.quoted` had no test that imported it (static scan 2026-10-13). These pin
+Order 1u section 4d. `app.contacts.enrich.quoted` had no test that imported it (static scan 2026-10-13). These pin
 its promises: a quoted block is credited only to the address in its own From line, a From line with no
 address credits nobody, the Sent line is read in the shapes Outlook and Gmail write, and `mail_quoting`
 returns the messages *to* the person and not from them, newest first, inside the window, through the

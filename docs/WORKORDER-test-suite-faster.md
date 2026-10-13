@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.3 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 **Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of
@@ -255,10 +255,15 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   the flags. **Found and fixed on the way:** `tests/conftest.py`'s Florence-2 guard let every `slow` test load
   the real model, so this marking would have let 428 more tests try a 1 GB download; the opt-out is a new
   `real_florence` marker on the two real-model proofs, with a test that a merely slow test is still guarded.
-- [ ] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
+- [x] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
   commit the summary as `docs/TEST_COVERAGE.md`, and list:
   - every module under `app/` below 60% branch coverage;
   - every module that no test imports at all.
+
+  *Done 2026-10-13.* `docs/TEST_COVERAGE.md`: the full suite on `main` 08aadaa under branch coverage in four
+  parts, then the §4d files on top. 667 modules; 3 that no test runs; 91 under 60% branch. Two limits it
+  states: code in a child process and code on Qt's thread pool are not traced, so those modules read lower
+  than they are tested (the Contacts merge, conflicts and import paths among them).
 - [x] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
   each test first shown to fail when its behaviour breaks:
   - indexing (`app/index/`);
@@ -334,6 +339,12 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     (`contact_sources`) to the survivor - they stay on the folded contact in the Bin, so a value it brought
     shows no source on the survivor until the merge is undone. Whether the survivor should inherit them is
     a product decision.
+  - *2026-10-13, measured (4c):* branch coverage with §4d - indexing 82.5%, search 91.3%, storage 81.0%,
+    contacts 80.6%, the error contract (`app/core/errors.py`) 91.7%; accounts 79.1%, then 86.2% with the note
+    below (measured on the accounts tests). Every path at 80% or more; indexing and search were there
+    without new tests. The one fault fixed here besides the two above: a Graph update retried one property at
+    a time counted an expired sign-in as that property refused, so every contact was reported refused
+    instead of the account needing sign-in (`graph_contacts._update_piecewise`).
   - *2026-10-13, accounts to 80%:* `test_cov_accounts_carddav.py` (22 tests, on the loopback CardDAV server),
     `test_cov_accounts_graph_contacts.py` (25) and `test_cov_accounts_google_people.py` (21): the three contact
     connectors' batches answering each contact on its own (conflict, refusal, already gone, a sign-in failure
@@ -403,4 +414,8 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   229 cases (223 test functions in 96 files) took 1 s or more without a `slow` mark now that §2's
   exemptions end; all are marked (#93), and `test_ui_redesign_scenarios` lets go of its keys, so
   `KNOWN_INPUT_LEAKERS` is empty (4b, 4f).
-- [ ] **3d** The records: `CHANGELOG.md`, `HANDOFF.md`, and this order's row in `docs/ORDER_REGISTER.md`.
+- [x] **3d** The records: `CHANGELOG.md`, `HANDOFF.md`, and this order's row in `docs/ORDER_REGISTER.md`.
+
+  *Done 2026-10-13.* `CHANGELOG.md`, `HANDOFF.md`, the register row (#93). **Left open: 4e** - groups B and
+  D wrote what they found (one decision moved, `presenter.expansions_kept`; nothing to move in D); groups A,
+  C and E did not say whether they looked, so it is not ticked on their behalf.

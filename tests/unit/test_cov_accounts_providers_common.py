@@ -1,6 +1,6 @@
 """What the account connectors share: an HTTP failure as the right error, times, tokens and safe XML.
 
-Order 1u §4d. `app.accounts.providers._common` (contacts) and `_mailcommon` (mail) had no test that imported
+Order 1u section 4d. `app.accounts.providers._common` (contacts) and `_mailcommon` (mail) had no test that imported
 them (static scan 2026-10-13). Every connector's error message, change token and XML reply goes through them.
 """
 

@@ -1,6 +1,6 @@
 """The error contract at a worker's edge: `guard` and `to_app_error` beyond the basics.
 
-Order 1u §4d. `test_errors.py` shows the plain case (an exception becomes `ERR_UNEXPECTED`, an `AppError`
+Order 1u section 4d. `test_errors.py` shows the plain case (an exception becomes `ERR_UNEXPECTED`, an `AppError`
 passes through). These pin the rest of what `app.core.errors.guard` and `to_app_error` promise: the
 component and the context ride along, a chosen code fills its message from the context, the cause stays
 chained, an `AppErrorException` is the very same error whatever code is asked for, an interrupt is not

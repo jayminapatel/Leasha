@@ -1,6 +1,6 @@
 """One migration step and its version: both or neither, once, and the version moves last.
 
-Order 1u §4d. `test_storage_code_review.py` pins the first two promises of `_apply_step` for an ordinary
+Order 1u section 4d. `test_storage_code_review.py` pins the first two promises of `_apply_step` for an ordinary
 step. These cover the rest of what `app.storage.migrations._apply_step` and `_roll_back` promise: a step
 that fails part way through a run of several, a step that raises an `AppErrorException` of its own, the
 steps that manage their own transaction, the version as another connection sees it while a step runs, and

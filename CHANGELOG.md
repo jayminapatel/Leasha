@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.129 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.130 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,30 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### The test suite in half the time, and a coverage map (2026-10-13, order 1u)
+
+- **Measured on `main` with `scripts/run_suite.py`:** 2,901 s of test time against 5,043 s (-42%) with 120 more
+  test files; 947 s from start to end in four parts. The 20 slowest files: 535 s against 2,520 s (-79%). Nothing
+  an assertion checked was dropped; each file's before and after is in the order.
+- **Test tiers and truthful markers.** Every test that takes a second or more is marked `slow` (223 more, from
+  the run's own times); CI runs them, `--quick` does not. No test file is excused from leaving a key or mouse
+  button held: `test_ui_redesign_scenarios` lets go after each shortcut.
+- **`docs/TEST_COVERAGE.md`** (new): branch coverage of `app/` by package and module, the 3 modules no test
+  runs and the 91 under 60%. Indexing, search, storage, accounts, contacts and the error contract are each at
+  80% or more after 11 new test files (215 tests), every one shown to fail when its behaviour breaks.
+- **Fixed, found by those tests:** an Outlook contact update retried one property at a time reported an
+  expired sign-in as every contact refused, and went on sending; it now stops at the first property and says the
+  account needs signing in (`graph_contacts.py`). A city of two or more words in a signature ("Abu Dhabi") was
+  never matched as written (`sigplaces.city_in`). An error report given extra `details` raised a `TypeError` in
+  place of the error (`errors.to_app_error`).
+- **Tests that failed only beside other tests**, fixed: the converter test counted another test's sleeping
+  processes as its own; the walker test counted another thread's folder listings; the verbatim-labels guard now
+  reads the error box's title where it moved.
+
+### Docs
+
+- `docs/WORKORDER-test-suite-faster.md` 1.4 and `docs/ORDER_REGISTER.md`: order 1u's results, 30 of 31.
 
 ### An error box never holds the window, and the test windows go quiet (2026-10-13)
 

@@ -1,6 +1,6 @@
 """CardDAV batches, group cards that move, deletes and the server's refusals.
 
-Order 1u §4d. `test_provider_carddav.py` and `test_provider_carddav_server.py` cover discovery, paging, delta
+Order 1u section 4d. `test_provider_carddav.py` and `test_provider_carddav_server.py` cover discovery, paging, delta
 and single writes. These pin what a sync of many contacts leans on: `create_many` / `update_many` /
 `delete_many` (a conflict or a refusal costs one contact, a sign-in failure stops the batch), each group card
 written once a batch, a group card that moved under us retried once, `get_many` and `list_ids` leaving group
