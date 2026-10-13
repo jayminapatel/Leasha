@@ -103,6 +103,8 @@ def test_naming_faces_makes_a_new_person_or_joins_the_one_with_that_name(store):
     joined = store.name_faces([third], "  leah ")
 
     assert joined == leah
+    third_file = store.get_file("/photos/c.jpg").id
+    assert "People: Leah" in [c.text for c in store.chunks_for_file(third_file)]
     piles = {p.id: p for p in store.piles_with_counts()}
     assert piles[leah].name == "Leah" and piles[leah].face_count == 3
     assert store.faces_seen_once() == []

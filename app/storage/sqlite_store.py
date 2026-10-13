@@ -5287,8 +5287,20 @@ class SqliteStore:
         taken = self.pile_id_named(cleaned)
         if taken is None:
             return self.split_pile(ids, new_name=cleaned)
-        for face_id in ids:
-            self.assign_face(face_id, taken)
+        # One transaction for the whole selection, as `split_pile` does: a
+        # failure files none of them, and an index run cannot slip in between.
+        placeholders = ",".join("?" for _ in ids)
+        rows = self.conn.execute(
+            f"SELECT DISTINCT file_id FROM faces WHERE id IN ({placeholders})", ids
+        ).fetchall()
+        with self.write() as conn:
+            conn.execute(
+                f"UPDATE faces SET pile_id = ?, confidence = NULL, suggested_pile_id = NULL "
+                f"WHERE id IN ({placeholders})",
+                (taken, *ids),
+            )
+        for row in rows:
+            self.sync_people_segment(int(row["file_id"]))
         return taken
 
     def remove_face_from_pile(self, face_id: int) -> None:

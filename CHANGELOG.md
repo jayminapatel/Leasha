@@ -24,7 +24,8 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   They now wait on a last tile, "Faces seen once"; its window shows them newest first, and **Name
   them…** files the selected faces under a name - joining the person already called that, or starting
   one (`SqliteStore.faces_seen_once`, `name_faces`). Make a new person and Move to work there too.
-- **Faces smaller than 40 pixels are not kept.** Measured on the owner's index: the faces left unsorted
+- **Newly found faces smaller than 40 pixels are not kept**; small faces already in the index stay
+  there, only hidden (below). Measured on the owner's index: the faces left unsorted
   had a median shortest side of 21 pixels, against 180 for the faces that grouped; 159 of the 228 were
   under 40. The face finder drops them (`app/core/face_size.py`); any found before are left out of
   "Faces seen once" and of the indexing line's "still to sort". A small face already in a group stays.
