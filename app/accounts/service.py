@@ -462,8 +462,10 @@ class AccountService:
                 pass
         rep.remote = len(remote)
         rows = self.store.conn.execute(
-            "SELECT l.contact_id, l.remote_id, l.version_tag, l.state, l.hub_rev, c.rev, c.display_name FROM contact_links l "
-            "JOIN contacts c ON c.id = l.contact_id WHERE l.account_id = ? AND c.deleted_at IS NULL",
+            "SELECT l.contact_id, l.remote_id, l.version_tag, l.state, l.hub_rev, c.rev, c.display_name, c.deleted_at "
+            "FROM contact_links l "
+            "JOIN contacts c ON c.id = l.contact_id WHERE l.account_id = ? "
+            "AND (c.deleted_at IS NULL OR l.state IN ('pending_remove', 'synced'))",
             (account.id,)).fetchall()
         known: set[str] = set()
         for r in rows:
@@ -471,7 +473,8 @@ class AccountService:
                 rep.waiting_to_write += 1
                 continue
             known.add(r["remote_id"])
-            if r["state"] == "pending_remove":
+            # In the Bin and still at the account: a delete waiting to be written, not a contact missing here.
+            if r["state"] == "pending_remove" or r["deleted_at"] is not None:
                 rep.waiting_to_write += 1
                 continue
             rep.linked += 1

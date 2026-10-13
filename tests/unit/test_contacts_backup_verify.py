@@ -103,6 +103,17 @@ def test_verify_counts_a_local_change_that_is_waiting_to_be_written(world):
     assert _service(world).verify_contacts(world.accounts.get(g)).waiting_to_write == 1
 
 
+def test_verify_counts_a_binned_contact_still_at_the_account_as_a_delete_waiting_not_missing_here(world):
+    """Verify said "at the account, not yet here" for contacts binned here whose delete had not been written."""
+    g = world.account("Google")
+    world.servers[g].add(person("Ann", "Lee"))
+    world.sync()
+    world.hub.delete(world.hub.list_rows()[0].id)
+    report = _service(world).verify_contacts(world.accounts.get(g))
+    assert report.missing_here == [] and report.waiting_to_write == 1
+    assert "not yet here" not in report.summary()
+
+
 def test_removing_the_master_account_keeps_its_contacts_and_clears_the_master(world):
     g, m = world.account("Google"), world.account("Work")
     world.servers[g].add(person("Ann", "Lee", email="ann@x.example"))
