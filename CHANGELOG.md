@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.131 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.132 · **Updated:** 2026-10-14 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -42,6 +42,7 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   account needs signing in (`graph_contacts.py`). A city of two or more words in a signature ("Abu Dhabi") was
   never matched as written (`sigplaces.city_in`). An error report given extra `details` raised a `TypeError` in
   place of the error (`errors.to_app_error`).
+- **`test_ui_stays_responsive` no longer counts another thread's sleep** (the document converter's session reaper) as the indexing run's yield; it failed now and then on a busy machine.
 - **Tests that failed only beside other tests**, fixed: the converter test counted another test's sleeping
   processes as its own; the walker test counted another thread's folder listings; the verbatim-labels guard now
   reads the error box's title where it moved.
