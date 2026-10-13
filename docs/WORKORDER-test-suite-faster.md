@@ -276,10 +276,10 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     only calls it. The rest of these four files' slow tests check widgets - pictures against goldens,
     contrast read off grabbed pixels, the window's own construction and deferral, focus and keys - so
     there was no decision to move.
-- [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   - *2026-10-13, Group D:* none of `test_staging.py`, `test_resolve_gpu_regression.py`,
     `test_clip_lane_wiring.py` or `test_ui_never_blocks.py` builds a Qt widget; their time was a device test, a
     model download, repeated staging and repeated parsing. Nothing to move.
+- [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
   fixture exists keeps it from being removed.

@@ -28,6 +28,8 @@ from typing import Any
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QMessageBox, QWidget
 
+from app.core.logging import logger
+
 __all__ = ["TITLE", "show_error"]
 
 TITLE = "Something needs attention"
@@ -50,6 +52,14 @@ def _showing(parent: QWidget) -> QMessageBox | None:
         return None
 
 
+#: How many different errors may wait behind the one showing. A burst past this (a failing
+#: drive, a dead model server) is not queued box after box: each one is still in the log
+#: (review of #92). Not a setting - nobody wants a sixth box in a row.
+MAX_WAITING = 5
+
+_log = logger.bind(component="ui.error_box")
+
+
 def show_error(parent: QWidget, error: Any) -> QMessageBox | None:
     """Put `error` in front of the person without waiting for them to read it.
 
@@ -64,7 +74,10 @@ def show_error(parent: QWidget, error: Any) -> QMessageBox | None:
     if current is not None:
         if words != getattr(current, "_words", None) and all(
                 words != _words(queued) for queued in waiting):
-            waiting.append(error)
+            if len(waiting) < MAX_WAITING:
+                waiting.append(error)
+            else:
+                _log.warning("error not shown, {} already waiting: {}", MAX_WAITING, words[0])
         return None
 
     text, fix, details = words

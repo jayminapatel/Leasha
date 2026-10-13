@@ -100,3 +100,24 @@ def test_a_closed_box_lets_the_next_error_open_one(parent, qtbot):
     first.done(0)
     qtbot.waitUntil(lambda: not _boxes(parent), timeout=5_000)
     assert show_error(parent, _error()) is not None
+
+
+
+def test_a_burst_of_errors_waits_at_most_max_waiting_boxes(qtbot):
+    """Review of #92: a burst of different errors must not queue box after box."""
+    from types import SimpleNamespace
+
+    from PySide6.QtWidgets import QWidget
+
+    from app.ui.widgets import error_box
+
+    parent = QWidget()
+    qtbot.addWidget(parent)
+    first = error_box.show_error(parent, SimpleNamespace(message="first", fix="", details=""))
+    try:
+        for n in range(error_box.MAX_WAITING + 4):
+            error_box.show_error(parent, SimpleNamespace(message=f"error {n}", fix="", details=""))
+        assert len(parent._errors_waiting) == error_box.MAX_WAITING
+    finally:
+        if first is not None:
+            first.close()
