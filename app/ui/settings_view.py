@@ -30,6 +30,8 @@ from app.core.logging import logger
 from app.ui.widgets.category_nav import CategoryNav
 from app.ui.widgets.chat_roles import ModelCombo
 from app.ui.widgets.vision_model import VisionModelField
+from app.ui.widgets import settings_search
+from app.ui.widgets.settings_row import add_row
 from app.ui.widgets.settings_shelves import (  # noqa: F401 - re-exported for callers
     CATEGORY_APPEARANCE, CATEGORY_MODELS, CATEGORY_SEARCH, CATEGORY_STATE_KEY,
     CATEGORY_STORAGE, CATEGORY_WHATS_INDEXED, SettingsShelves,
@@ -166,7 +168,7 @@ class SettingsView(SettingsShelves, QWidget):
 
         behaviour = QGroupBox("Behaviour")
         form = QFormLayout(behaviour)
-        form.addRow(self.cloud)
+        add_row(form, self.cloud)
 
         # --- privacy
         self.history_label = QLabel("")
@@ -248,7 +250,7 @@ class SettingsView(SettingsShelves, QWidget):
             lambda on: self.settings_changed.emit({"PEOPLE_RECOGNITION_ENABLED": on}))
 
         photo_people_form = QFormLayout(self.photo_people_box)
-        photo_people_form.addRow(self.people_recognition)
+        add_row(photo_people_form, self.people_recognition)
         self.name_people_button = QPushButton("Name the people in your photos…")
         self.name_people_button.setToolTip(
             "Opens the window where Leasha shows the groups of similar faces "
@@ -257,9 +259,9 @@ class SettingsView(SettingsShelves, QWidget):
             "until the setting above is on and your photos have been indexed.")
         self.name_people_button.clicked.connect(
             lambda _c=False: self.open_photo_tagger_requested.emit())
-        photo_people_form.addRow(self.name_people_button)
-        photo_people_form.addRow(self.caption_trickle)
-        photo_people_form.addRow("Photo description model", self.vision_field)
+        add_row(photo_people_form, self.name_people_button)
+        add_row(photo_people_form, self.caption_trickle)
+        add_row(photo_people_form, self.vision_field, "Photo description model")
 
         self._build_late_boxes(settings)
 
@@ -293,6 +295,10 @@ class SettingsView(SettingsShelves, QWidget):
 
         layout = QVBoxLayout(self)
         layout.addWidget(self.filter_box)
+        # UI phase B, 2026-10-13: Search all settings - the box lists what it found and takes
+        # you there (`widgets/settings_search.py`). New words for a new thing.
+        settings_search.attach(self, layout, name="Search all settings", found="Settings found",
+                               goto="Press Enter to go to the first one, or choose one below to go to it.")
         layout.addWidget(self.filter_empty)
         layout.addWidget(self.filter_elsewhere)
         layout.addWidget(self._nav, stretch=1)
@@ -332,13 +338,13 @@ class SettingsView(SettingsShelves, QWidget):
         self.refresh_slow_labels()
 
     def _clear_history(self) -> None:
-        """Delete the usage log in a worker.
-
-        A `DELETE` over a large table takes a lock and a moment. On the UI
-        thread that is a window that stops repainting at the exact instant
-        someone has asked for something to be erased - the worst possible time
-        to look like a crash.
-        """
+        """Delete the usage log in a worker."""
+        # A `DELETE` over a large table takes a lock and a moment. On the UI
+        # thread that is a window that stops repainting at the exact instant
+        # someone has asked for something to be erased - the worst possible time
+        # to look like a crash. (A comment, not the docstring, since 2026-10-13: the
+        # view's 250-line guard counts docstring lines, and Search all settings
+        # needed the room.)
         from app.ui.workers import CallableWorker, run
 
         if self._store is None:

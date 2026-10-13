@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.settings_row import add_row, add_under
 
 
 __all__ = ["StorageBox"]
@@ -172,13 +173,13 @@ class StorageBox(QGroupBox):
         models_buttons.addStretch(1)
 
         form = QFormLayout()
-        form.addRow("Index location", self.data_path)
-        form.addRow("", self.move_index)
-        form.addRow("Models folder", self.model_cache)
-        form.addRow("", models_buttons)
-        form.addRow("Meaning model", self.embed_model)
-        form.addRow("", self.rebuild_vectors)
-        form.addRow("Cloud content download limit", self.cloud_content_cap)
+        add_row(form, self.data_path, "Index location")
+        add_under(form, self.move_index)
+        add_row(form, self.model_cache, "Models folder")
+        add_under(form, models_buttons)
+        add_row(form, self.embed_model, "Meaning model")
+        add_under(form, self.rebuild_vectors)
+        add_row(form, self.cloud_content_cap, "Cloud content download limit")
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)

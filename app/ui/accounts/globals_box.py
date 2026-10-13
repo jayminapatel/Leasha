@@ -23,6 +23,7 @@ from app.ui.accounts import enrich_settings, logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, set_quiet
 from app.ui.widgets.region_box import RegionBox
+from app.ui.widgets.settings_row import add_row
 
 __all__ = ["GlobalSettingsBox"]
 
@@ -47,17 +48,17 @@ class GlobalSettingsBox(QWidget):
         self.same_for_all.setAccessibleName("Schedule for accounts")
         self.same_for_all.addItem("The same schedule for every account", True)
         self.same_for_all.addItem("Each account has its own", False)
-        form.addRow("Schedule for", self.same_for_all)
-        form.addRow(hint("With 'Each account has its own', every account's panel shows its own pair of "
+        add_row(form, self.same_for_all, "Schedule for",
+                hint=hint("With 'Each account has its own', every account's panel shows its own pair of "
                          "schedules, starting from the ones below."))
         self.mail_schedule = ScheduleRow("Mail")
         self.contacts_schedule = ScheduleRow("Contacts")
-        form.addRow("Mail", self.mail_schedule)
-        form.addRow(hint("How often mail is fetched from your accounts. Manual (the default) means only "
+        add_row(form, self.mail_schedule, "Mail",
+                hint=hint("How often mail is fetched from your accounts. Manual (the default) means only "
                          "when you press Sync now. Mail read from files and Outlook follows the indexing "
                          "schedule instead."))
-        form.addRow("Contacts", self.contacts_schedule)
-        form.addRow(hint("How often your contacts are read from and written to your accounts. Nothing "
+        add_row(form, self.contacts_schedule, "Contacts",
+                hint=hint("How often your contacts are read from and written to your accounts. Nothing "
                          "syncs when Leasha starts, wakes or reconnects - only this schedule or Sync now."))
         self.same_for_all.currentIndexChanged.connect(
             lambda _i: self._save(same_for_all=bool(self.same_for_all.currentData())))
@@ -75,9 +76,9 @@ class GlobalSettingsBox(QWidget):
         row.addWidget(self.pause)
         row.addWidget(self.pause_for)
         row.addStretch(1)
-        form.addRow(row)
+        add_row(form, row)
         self.pause_note = hint("")
-        form.addRow(self.pause_note)
+        add_row(form, self.pause_note)
         self.pause.toggled.connect(lambda _c: self._pause_changed())
         self.pause_for.currentIndexChanged.connect(lambda _i: self.pause.isChecked() and self._pause_changed())
 
@@ -91,8 +92,8 @@ class GlobalSettingsBox(QWidget):
         for w in (self.quiet, QLabel("from"), self.quiet_start, QLabel("to"), self.quiet_end):
             qrow.addWidget(w)
         qrow.addStretch(1)
-        form.addRow(qrow)
-        form.addRow(hint("No scheduled sync starts between these times (off by default). Sync now still "
+        add_row(form, qrow,
+                hint=hint("No scheduled sync starts between these times (off by default). Sync now still "
                          "works, and an account's row says when quiet hours are holding a sync back."))
         self.quiet.toggled.connect(lambda c: self._save(quiet_on=bool(c)))
         self.quiet_start.timeChanged.connect(lambda t: self._save(quiet_start=t.toString("HH:mm")))
@@ -107,8 +108,8 @@ class GlobalSettingsBox(QWidget):
         self.cap.setSpecialValueText("No cap")
         self.cap.setKeyboardTracking(False)
         self.cap.setAccessibleName("Speed cap for the first fetch")
-        form.addRow("Speed cap", self.cap)
-        form.addRow(hint("Limits how fast a mailbox is downloaded the first time, so the internet stays "
+        add_row(form, self.cap, "Speed cap",
+                hint=hint("Limits how fast a mailbox is downloaded the first time, so the internet stays "
                          "usable. No cap is the default."))
         self.cap.valueChanged.connect(lambda v: self._save(first_fetch_kb_s=int(v)))
 
@@ -118,9 +119,9 @@ class GlobalSettingsBox(QWidget):
         self.conflict.setAccessibleName("When a contact changed in two places")
         for key, text in logic.CONFLICT_CHOICES:
             self.conflict.addItem(text, key)
-        form.addRow("Rule", self.conflict)
+        add_row(form, self.conflict, "Rule")
         self.conflict_note = hint("")
-        form.addRow(self.conflict_note)
+        add_row(form, self.conflict_note)
         self.conflict.currentIndexChanged.connect(self._conflict_changed)
 
         # ---- 10l safety
@@ -137,14 +138,14 @@ class GlobalSettingsBox(QWidget):
         self.brake_percent.setAccessibleName("Delete brake: percent of the book")
         self.brake_percent.setToolTip("A sync that would delete more than this share of your contact book "
                                       "stops and asks first. 5 % is the default.")
-        form.addRow("Stop a sync that deletes more than", self.brake_count)
-        form.addRow("or more than", self.brake_percent)
-        form.addRow(hint("A sync that would delete more contacts than this (20 contacts or 5% of your book "
+        add_row(form, self.brake_count, "Stop a sync that deletes more than")
+        add_row(form, self.brake_percent, "or more than",
+                hint=hint("A sync that would delete more contacts than this (20 contacts or 5% of your book "
                          "is the default) stops and asks. Nothing is deleted until you press Allow."))
         self.check_after = QCheckBox("Check each account after every sync")
         self.check_after.setToolTip("After a sync, read the account's own list of contacts and compare it with "
                                     "Leasha's. It changes nothing; it says In step, or which contacts differ")
-        form.addRow(self.check_after)
+        add_row(form, self.check_after)
         self.churn = QSpinBox()
         self.churn.setRange(0, 100)
         self.churn.setSuffix(" %")
@@ -154,14 +155,14 @@ class GlobalSettingsBox(QWidget):
         self.churn.setToolTip("When an account returns more than this share of its contacts changed in one and "
                               "the same way, nothing is written to any account until you press Allow. 50 % is "
                               "the default; Off turns it off.")
-        form.addRow("Hold a sync when an account changes more than", self.churn)
-        form.addRow(hint("of its contacts in the same way - a server rewriting every card, not you. Nothing is "
+        add_row(form, self.churn, "Hold a sync when an account changes more than",
+                hint=hint("of its contacts in the same way - a server rewriting every card, not you. Nothing is "
                          "written to any account until you look and press Allow."))
         self.check_after.toggled.connect(lambda on: self._save(check_after_sync=bool(on)))
         self.churn.valueChanged.connect(lambda v: self._save(churn_guard_percent=int(v)))
         self.dry_run = QCheckBox("Dry run before an account's first sync")
-        form.addRow(self.dry_run)
-        form.addRow(hint("Off by default. When on, the first sync of an account lists what it would add, "
+        add_row(form, self.dry_run,
+                hint=hint("Off by default. When on, the first sync of an account lists what it would add, "
                          "merge and change, and writes nothing until you press Approve."))
         self.brake_count.valueChanged.connect(lambda v: self._save(brake_count=int(v)))
         self.brake_percent.valueChanged.connect(lambda v: self._save(brake_percent=float(v)))
@@ -173,15 +174,15 @@ class GlobalSettingsBox(QWidget):
         self.master.setAccessibleName("Master account")
         self.master.setToolTip("The account whose list is the master: a contact deleted there is deleted "
                                "here and from your other accounts")
-        form.addRow("Master account", self.master)
-        form.addRow(hint("Leasha's own contact book is the master copy; this chooses the account whose "
+        add_row(form, self.master, "Master account",
+                hint=hint("Leasha's own contact book is the master copy; this chooses the account whose "
                          "deletes count. A contact deleted in it goes to the Bin here and is removed from "
                          "the other accounts. A delete in any other account only flags the contact. A big "
                          "batch of deletes is held by the delete brake until you press Allow."))
         self.mirror = QCheckBox("Keep every contact in every account")
         self.mirror.setToolTip("Adds and changes made in any account reach all of them, through Leasha")
-        form.addRow(self.mirror)
-        form.addRow(hint("Off by default. When on, every contact is written to each account that takes "
+        add_row(form, self.mirror,
+                hint=hint("Off by default. When on, every contact is written to each account that takes "
                          "contacts back, so a person added in one appears in all."))
         self.backup = QCheckBox("Copy the contact book before a first sync, and daily")
         self.backup_keep = QSpinBox()
@@ -190,9 +191,9 @@ class GlobalSettingsBox(QWidget):
         self.backup_keep.setAccessibleName("Contact copies to keep")
         self.backup.setToolTip("Write a copy of the contact book before an account's first sync and once a day")
         self.backup_keep.setToolTip("How many copies to keep; older ones are removed as new ones are written")
-        form.addRow(self.backup)
-        form.addRow("Copies to keep", self.backup_keep)
-        form.addRow(hint("A vCard file and a small database of the contact tables, in the backups folder "
+        add_row(form, self.backup)
+        add_row(form, self.backup_keep, "Copies to keep",
+                hint=hint("A vCard file and a small database of the contact tables, in the backups folder "
                          "of your data. Both can put the book back as it was."))
         self.master.currentIndexChanged.connect(
             lambda _i: self._save(master_account_id=self.master.currentData()))
@@ -208,30 +209,30 @@ class GlobalSettingsBox(QWidget):
         self.notify_failed = QCheckBox("An account has failed for 24 hours")
         for c, key in ((self.notify_brake, "notify_brake"), (self.notify_conflict, "notify_conflict"),
                        (self.notify_signin, "notify_signin"), (self.notify_failed, "notify_failed_24h")):
-            form.addRow(c)
+            add_row(form, c)
             c.toggled.connect(lambda on, k=key: self._save(**{k: bool(on)}))
-        form.addRow(hint("Windows notifications come from the Leasha icon by the clock (switch it on in "
+        add_row(form, hint("Windows notifications come from the Leasha icon by the clock (switch it on in "
                          "Settings > Window). Nothing is sent for an ordinary successful sync."))
 
         # ---- 10n default account, phone region, maps
         box, form = self._group("Contacts defaults", outer)
         self.default_account = QComboBox()
         self.default_account.setAccessibleName("Default account for new contacts")
-        form.addRow("New contacts go to", self.default_account)
-        form.addRow(hint("A contact you make in Leasha is kept in this account. By default it is the first "
+        add_row(form, self.default_account, "New contacts go to",
+                hint=hint("A contact you make in Leasha is kept in this account. By default it is the first "
                          "account added with contact sync on."))
         self.phone_region = RegionBox()
         self.phone_region.setAccessibleName("Phone number region")
         self.phone_region.setToolTip("The country a phone number is from, with its dialling code")
-        form.addRow("Phone numbers are from", self.phone_region)
-        form.addRow(hint("Pick a country, or type its name, two-letter code or dialling code. A number typed "
+        add_row(form, self.phone_region, "Phone numbers are from",
+                hint=hint("Pick a country, or type its name, two-letter code or dialling code. A number typed "
                          "without a country code is read as belonging to it."))
         self.maps_site = QComboBox()
         self.maps_site.setAccessibleName("Maps site")
         for key, text in logic.MAPS_CHOICES:
             self.maps_site.addItem(text, key)
-        form.addRow("Show addresses on", self.maps_site)
-        form.addRow(hint("The site opened when you click an address."))
+        add_row(form, self.maps_site, "Show addresses on",
+                hint=hint("The site opened when you click an address."))
         self.default_account.currentIndexChanged.connect(self._default_changed)
         self.phone_region.editingFinished.connect(self._region_done)
         self.maps_site.currentIndexChanged.connect(lambda _i: self._save(maps_site=str(self.maps_site.currentData())))
@@ -244,7 +245,7 @@ class GlobalSettingsBox(QWidget):
 
         # ---- 1a client IDs
         box, form = self._group("Sign-in set-up (Google and Microsoft)", outer)
-        form.addRow(hint("Leasha ships with no sign-in key of its own: you make a free one with your own "
+        add_row(form, hint("Leasha ships with no sign-in key of its own: you make a free one with your own "
                          "Google and Microsoft logins, and paste it here. Never a file."))
         self.google_id = QLineEdit()
         self.google_id.setAccessibleName("Google client ID")
@@ -262,19 +263,19 @@ class GlobalSettingsBox(QWidget):
                               tip="How to make an app-specific password at Apple")
         self.imap_help = btn("Show me how: other servers", "external-link",
                              tip="How to connect any IMAP or CardDAV server")
-        form.addRow("Google client ID", self.google_id)
-        form.addRow("Google client secret", self.google_secret)
+        add_row(form, self.google_id, "Google client ID")
+        add_row(form, self.google_secret, "Google client secret")
         self.google_note = hint("Google gives a desktop app a client ID and a secret. The secret is kept in "
                                 "Windows Credential Manager, never in a file or the database.")
-        form.addRow(self.google_note)
-        form.addRow(self.google_help)
-        form.addRow("Microsoft client ID", self.microsoft_id)
-        form.addRow(hint("From your Microsoft Entra app registration (a public client with a loopback "
+        add_row(form, self.google_note)
+        add_row(form, self.google_help)
+        add_row(form, self.microsoft_id, "Microsoft client ID",
+                hint=hint("From your Microsoft Entra app registration (a public client with a loopback "
                          "redirect). Personal, work and school accounts can all use it."))
-        form.addRow(self.microsoft_help)
-        form.addRow(parts.hint("Apple and other servers use an app password made at the provider."))
-        form.addRow(self.apple_help)
-        form.addRow(self.imap_help)
+        add_row(form, self.microsoft_help)
+        add_row(form, parts.hint("Apple and other servers use an app password made at the provider."))
+        add_row(form, self.apple_help)
+        add_row(form, self.imap_help)
         self.google_id.editingFinished.connect(lambda: self._save(google_client_id=self.google_id.text().strip()))
         self.microsoft_id.editingFinished.connect(
             lambda: self._save(microsoft_client_id=self.microsoft_id.text().strip()))

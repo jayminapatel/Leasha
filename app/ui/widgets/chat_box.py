@@ -59,6 +59,7 @@ from app.ui.widgets.chat_roles import ModelCombo, RolesGrid
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.workers import CallableWorker, run
 from app.ui.theme import SPACE_S
+from app.ui.widgets.settings_row import add_row, add_under
 
 __all__ = ["ChatBox", "chat_settings", "ROLE_KEYS", "DESCRIBE_KEY", "INTRO"]
 
@@ -210,7 +211,7 @@ class ChatBox(QGroupBox):
         self.web_intro = QLabel(WEB_INTRO)
         self.web_intro.setObjectName("chatWebNote")
         self.web_intro.setWordWrap(True)
-        web_form.addRow(self.web_intro)
+        add_row(web_form, self.web_intro)
         box.addWidget(self.web_part)
         found = chat_settings()
         for setting in found:
@@ -224,17 +225,17 @@ class ChatBox(QGroupBox):
             if isinstance(control, ModelCombo):
                 self.roles.add_role(setting.label, control, setting.help)
             elif isinstance(control, QCheckBox):
-                target.addRow(control)
+                add_row(target, control)
             else:
-                target.addRow(setting.label, control)
+                add_row(target, control, setting.label)
                 if isinstance(control, QSpinBox) and envelope.for_setting(setting.key, None):
                     note = QLabel("")
                     note.setWordWrap(True)
                     note.setObjectName(setting.key + "_WHY")
                     note.hide()
                     self.notes[setting.key] = note
-                    form.addRow("", note)
-        engine_form.addRow("Chat model", self.onnx_download)
+                    add_under(form, note)
+        add_row(engine_form, self.onnx_download, "Chat model")
         engine = self.controls.get(ENGINE_KEY)
         if isinstance(engine, QComboBox):
             engine.currentIndexChanged.connect(

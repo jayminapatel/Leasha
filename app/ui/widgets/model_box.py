@@ -53,6 +53,7 @@ from app.search.translate import TEST_SENTENCE
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.widgets.number_field import fit
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.settings_row import add_row
 
 __all__ = ["ModelBox", "TEST_SENTENCE"]
 
@@ -190,12 +191,12 @@ class ModelBox(QGroupBox):
         self._engine = "ollama"
         form = QFormLayout(self)
         self._form = form
-        form.addRow(self.enabled)
-        form.addRow("Address", self.url)
-        form.addRow("Model", self.model)
-        form.addRow("Give it up to", self.timeout)
-        form.addRow(buttons)
-        form.addRow(self.status)
+        add_row(form, self.enabled)
+        add_row(form, self.url, "Address")
+        add_row(form, self.model, "Model")
+        add_row(form, self.timeout, "Give it up to")
+        add_row(form, buttons)
+        add_row(form, self.status)
 
     # -- loading ---------------------------------------------------------------
 

@@ -30,7 +30,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.extract import media_tools, transcribe
+from app.ui.widgets.defaults import SentValues
 from app.ui.widgets.model_download import DownloadRow
+from app.ui.widgets.settings_row import add_row, add_under
 
 #: How a saved speech model the list does not offer is marked (2026-09-29).
 NOT_LISTED = "(current, not in the list)"
@@ -170,12 +172,12 @@ class MediaBox(QGroupBox):
         self.model_note = self._note("mediaModelNote")
 
         form = QFormLayout()
-        form.addRow(self.video)
-        form.addRow("Longest gap between pictures", self.interval)
-        form.addRow("Most pictures per video", self.cap)
-        form.addRow(self.audio)
-        form.addRow("Speech model size", self.model)
-        form.addRow("", self.download)
+        add_row(form, self.video)
+        add_row(form, self.interval, "Longest gap between pictures")
+        add_row(form, self.cap, "Most pictures per video")
+        add_row(form, self.audio)
+        add_row(form, self.model, "Speech model size")
+        add_under(form, self.download)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -183,6 +185,8 @@ class MediaBox(QGroupBox):
                      self.speech_note, self.model_note):
             layout.addWidget(note)
 
+        #: What was last loaded or sent, so a change sends only its own key (UI phase B).
+        self._sent = SentValues(self.values)
         if settings is not None:
             self.load(settings)
         self.video.toggled.connect(lambda _on: (self._sync_dependents(), self._emit()))
@@ -230,6 +234,7 @@ class MediaBox(QGroupBox):
         finally:
             for control in controls:
                 control.blockSignals(False)
+        self._sent.mark()
         self.refresh()
 
     def refresh(self) -> None:
@@ -272,4 +277,17 @@ class MediaBox(QGroupBox):
         }
 
     def _emit(self) -> None:
-        self.changed.emit(self.values())
+        """One `changed` with the keys that moved since the last load or send, if any.
+
+        **Not all five** (UI phase B, 2026-10-13): ticking "video" wrote the speech model, the
+        gap and the cap as well, pinning the three at their defaults in `.env`.
+        """
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now,
+        and what greys with the two switches follows them again."""
+        self._sent.shown(keys)
+        self._sync_dependents()

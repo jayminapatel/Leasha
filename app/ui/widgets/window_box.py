@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QFormLayout, QGroupBox, QLabel, QLineEdit, QSpinBox, QVBoxLayout,
     QWidget,
 )
+from app.ui.widgets.settings_row import add_row, add_under
 
 __all__ = ["WindowBox", "CUSTOM_DATE"]
 
@@ -140,11 +141,11 @@ class WindowBox(QGroupBox):
         self.date_custom.textEdited.connect(self._date_typed)
 
         appearance = QFormLayout()
-        appearance.addRow("Appearance", self.theme)
-        appearance.addRow("Text size", self.text_size)
-        appearance.addRow("Dates", self.date_format)
-        appearance.addRow("", self.date_custom)
-        appearance.addRow("", self.date_note)
+        add_row(appearance, self.theme, "Appearance")
+        add_row(appearance, self.text_size, "Text size")
+        add_row(appearance, self.date_format, "Dates")
+        add_under(appearance, self.date_custom)
+        add_under(appearance, self.date_note)
 
         # §5c. **Off by default**, and the only perceivable motion the redesign
         # adds (the preview pane sliding open) is gated on it - the standing

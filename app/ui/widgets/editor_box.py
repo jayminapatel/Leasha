@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.editors import AUTO, EDITORS, detect
+from app.ui.widgets.defaults import SentValues
+from app.ui.widgets.settings_row import add_row
 
 __all__ = ["EditorBox"]
 
@@ -75,8 +77,8 @@ class EditorBox(QGroupBox):
         self.command.editingFinished.connect(self._emit)
 
         form = QFormLayout()
-        form.addRow("Open code results in", self.editor)
-        form.addRow("Or a command of your own", self.command)
+        add_row(form, self.editor, "Open code results in")
+        add_row(form, self.command, "Or a command of your own")
 
         note = QLabel(
             "Copying a result gives you path:line, which pastes into a "
@@ -91,6 +93,8 @@ class EditorBox(QGroupBox):
         layout.addLayout(form)
         layout.addWidget(note)
 
+        #: What was last loaded or sent, so a change sends only its own key (UI phase B).
+        self._sent = SentValues(self.values)
         if settings is not None:
             self.load(settings)
 
@@ -114,6 +118,7 @@ class EditorBox(QGroupBox):
         finally:
             for control in (self.editor, self.command):
                 control.blockSignals(False)
+        self._sent.mark()
 
     def values(self) -> dict:
         """`{registry key: value}` for the writer."""
@@ -123,4 +128,12 @@ class EditorBox(QGroupBox):
         }
 
     def _emit(self) -> None:
-        self.changed.emit(self.values())
+        """The key that moved, not both (UI phase B, 2026-10-13): choosing an editor wrote an
+        empty command line too, and leaving the command box unchanged wrote both."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
