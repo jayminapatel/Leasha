@@ -32,9 +32,9 @@ from urllib.parse import urlencode
 from app.accounts.provider import Transport
 from app.contacts.card import Card
 from app.contacts.enrich.base import Proposal
-from app.contacts.enrich.company import company_key
+from app.contacts.enrich.company import LEGAL_SUFFIX, agrees_with_domain, company_key, work_domains
 
-__all__ = ["company_term", "lookup_company", "wikidata_proposals", "CompanyFacts", "API"]
+__all__ = ["company_term", "clean_company", "lookup_company", "wikidata_proposals", "CompanyFacts", "API"]
 
 API = "https://www.wikidata.org/w/api.php"
 _USER_AGENT = "Leasha (desktop app; looks up public company facts by name)"
@@ -65,14 +65,52 @@ def _person_names(card: Card) -> set[str]:
     return {n for n in names if n}
 
 
+#: Order 1s 6c. Words that name a part of a company or a person's job, not the company: a card's company
+#: field often holds "Wipro Technologies Account Energy" (company, account team, sector), which matches no
+#: Wikidata label. Only words that are rarely the second word of a company's own name are here; sector
+#: words such as "Energy" are not, because they are ("Shell Energy").
+_DEPARTMENT_WORDS = frozenset({
+    "account", "accounts", "department", "dept", "division", "unit", "team", "practice", "desk", "region",
+    "regional", "function", "sales", "marketing", "finance", "procurement", "purchasing", "operations", "hr",
+    "support", "management", "commercial", "projects", "project"})
+#: "Acme - Procurement", "Acme | Senior Engineer", "Acme / EMEA": the company is the part before.
+_SEPARATOR = re.compile(r"\s+[-/]\s+|\s*[|\u2013\u2014]\s*")
+
+
+def clean_company(text: str) -> str:
+    """The company in a company field, without department and role words (6c).
+
+    A name ending in a legal form ("Orlesk Sales Ltd") is a registered name and kept whole; otherwise the
+    name ends before its first department or role word after the first word."""
+    from app.contacts.enrich.sigparse import _TITLE_WORDS  # noqa: PLC0415 - one title list for the package
+
+    first = _SEPARATOR.split((text or "").strip())[0].strip()
+    if "," in first:                                     # "Acme, Inc." keeps its form; ", Sales Department" goes
+        head, rest = first.split(",", 1)
+        first = first if (LEGAL_SUFFIX.search(rest) and len(rest.split()) <= 2) else head.strip()
+    if LEGAL_SUFFIX.search(first):
+        return first
+    words = first.split()
+    for i, w in enumerate(words[1:], start=1):
+        bare = re.sub(r"[^\w-]", "", w).lower()
+        if bare in _DEPARTMENT_WORDS or (bare == "business" and i + 1 < len(words)
+                                         and words[i + 1].lower().startswith("unit")) or _TITLE_WORDS.fullmatch(w):
+            return " ".join(words[:i]).rstrip(" &,-")
+    return first
+
+
 def company_term(card: Card) -> str:
     """The company name to look up, or "" when there is nothing safe to ask.
 
     Never a person's name: if the company field holds the person's own name (or
-    part of it) it is not sent.
+    part of it) it is not sent. Order 1s 6c: what is sent is `clean_company`'s name, and only when it
+    carries a legal form or agrees with one of the card's work-email domains - a name that is neither
+    could be anyone's company, and a wrong match puts another company's facts on the card.
     """
-    term = card.get("company").strip()
+    term = clean_company(card.get("company"))
     if not term or len(term) < 3 or len(term) > 80 or company_key(term) in _person_names(card):
+        return ""
+    if not (LEGAL_SUFFIX.search(term) or agrees_with_domain(term, work_domains(card))):
         return ""
     return term
 

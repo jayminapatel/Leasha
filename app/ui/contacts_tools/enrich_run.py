@@ -29,6 +29,8 @@ class EnrichRun(QObject):
         self.error = ""
         #: Indexes into `data.proposals` already accepted: they stay put so the others keep their numbers.
         self.done: set[int] = set()
+        #: Indexes the person turned down (Never suggest these, order 1s D5): not offered again in this run either.
+        self.declined: set[int] = set()
         #: How far a look-up has got: `{"done", "total", "found"}`, or None before the first contact.
         self.progress: Any = None
         self._stop = threading.Event()
@@ -38,7 +40,8 @@ class EnrichRun(QObject):
         return self.state == "running"
 
     def pending(self) -> int:
-        return sum(1 for i in range(len(self.data.proposals)) if i not in self.done) if self.data else 0
+        gone = self.done | self.declined
+        return sum(1 for i in range(len(self.data.proposals)) if i not in gone) if self.data else 0
 
     def start(self, ctx: Any, force: bool = False) -> bool:
         """Begin a look-up unless one is going. Returns whether it began. `force` is Look again."""
@@ -47,6 +50,7 @@ class EnrichRun(QObject):
         from app.ui.contacts_tools.enrich_dialog import gather_proposals     # noqa: PLC0415
 
         self.state, self.data, self.error, self.done, self.progress = "running", None, "", set(), None
+        self.declined = set()
         self._notify = getattr(ctx, "notify", None)
         self._stop.clear()
         stop = self._stop

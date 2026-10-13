@@ -226,12 +226,14 @@ def test_the_logo_comes_from_the_contacts_own_domain_and_the_host_is_forgotten(h
     assert hub.get_card(cid).photo is None
 
 
-def test_the_contacts_web_address_beats_the_email_domain(hub):
+def test_the_contacts_web_address_beats_the_email_domain_when_it_is_the_companys(hub):
+    """Order 1s 6d: the web address is still asked first, but only when it is the company's own site -
+    its registrable name is the work email's (acme-widgets.com for acme-widgets.co.uk)."""
     cid = person(hub, email="ann@acme-widgets.co.uk")
-    hub.update(cid, _with_url(hub.get_card(cid), "www.other-site.net/about"))
-    fake = Fake(("https://www.other-site.net/favicon.ico", HttpResponse(200, body=png())))
+    hub.update(cid, _with_url(hub.get_card(cid), "www.acme-widgets.com/about"))
+    fake = Fake(("https://www.acme-widgets.com/favicon.ico", HttpResponse(200, body=png())))
     enrich_selection(hub, _logo_settings(), [cid], transport=fake)
-    assert fake.hosts == {"www.other-site.net"}
+    assert fake.hosts == {"www.acme-widgets.com"}
 
 
 def test_the_home_page_icon_is_used_when_there_is_no_favicon_file_and_never_from_another_host(hub):
@@ -398,7 +400,9 @@ def test_the_same_lookup_is_not_repeated_within_90_days(hub):
     n = len(fake.calls)
     assert n >= 4 and {p.source for p in first} >= {"logo", "wikidata"}
     clock.t += 89 * DAY
-    assert enrich_selection(hub, s, [cid], transport=fake, clock=clock) == [] and len(fake.calls) == n
+    # not asked again - and, since order 1s 6a, the remembered answer is offered again rather than lost
+    again = enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    assert len(fake.calls) == n and {p.source for p in again} == {p.source for p in first}
     clock.t += 2 * DAY                                                       # 91 days after the first
     assert enrich_selection(hub, s, [cid], transport=fake, clock=clock) and len(fake.calls) == 2 * n
     # "Look again" ignores the memory
@@ -480,6 +484,204 @@ def test_a_social_profile_is_not_taken_for_the_company_site(hub):
     hub.update(lonely, _with_url(hub.get_card(lonely), "https://www.facebook.com/bo"))
     assert logo.company_domain(hub.get_card(lonely)) == ""
     assert logo.company_domain(Card(fields=[Field("url", "https://boxcom.co.uk", "work")])) == "boxcom.co.uk"
+
+
+# ---- order 1s section 6: internet sources, made sensible --------------------------------------------------------
+
+def _all_three():
+    """Gravatar (a photo and a link), the logo and Wikidata, all answering."""
+    want = hashlib.sha256(b"ann@acme-widgets.co.uk").hexdigest()
+    profile = {"entry": [{"urls": [{"value": "https://ann.example/", "title": "Blog"}]}]}
+    return Fake((f"https://www.gravatar.com/avatar/{want}", HttpResponse(200, body=png((200, 10, 10)))),
+                (f"https://www.gravatar.com/{want}.json", HttpResponse(200, body=json.dumps(profile).encode())),
+                ("https://acme-widgets.co.uk/favicon.ico", HttpResponse(200, body=png())),
+                ("https://www.wikidata.org/w/api.php", wd_transport().routes[0][1]))
+
+
+def _offered(props):
+    return sorted((p.source, p.field_kind, p.field_label, p.new.sha if p.is_photo else str(p.new), p.receipt)
+                  for p in props)
+
+
+def test_a_remembered_lookup_offers_its_answer_again_without_a_request(hub):
+    """6a. Before, a result not accepted in the run that found it was lost for ninety days: the lookup was
+    remembered, its answer was not. Now the answer is kept and offered again, and nothing is asked."""
+    cid = person(hub, email="ann@acme-widgets.co.uk", company="Acme Ltd")
+    s = AccountSettings(**LOCAL_OFF, **ON)
+    clock = Clock()
+    fake = _all_three()
+    first = enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    assert {p.source for p in first} == {"gravatar", "logo", "wikidata"}
+    clock.t += 30 * DAY
+    boom = Boom()
+    again = enrich_selection(hub, s, [cid], transport=boom, clock=clock)
+    assert boom.calls == [] and _offered(again) == _offered(first)
+    assert all(p.contact_id == cid for p in again)
+    gphoto = [p for p in again if p.source == "gravatar" and p.is_photo][0]
+    assert gphoto.new.data == [p for p in first if p.source == "gravatar" and p.is_photo][0].new.data
+
+
+def test_a_remembered_answer_is_offered_to_a_colleague_and_not_again_once_on_the_card(hub):
+    a = person(hub, email="a@acme-widgets.co.uk", company="Acme Ltd")
+    s = AccountSettings(**LOCAL_OFF, enrich_wikidata=True)
+    clock = Clock()
+    first = enrich_selection(hub, s, [a], transport=wd_transport(), clock=clock)
+    apply_proposals(hub, first, [i for i, p in enumerate(first) if p.field_kind == "url"])
+    b = person(hub, email="b@acme-widgets.co.uk", company="ACME LTD")
+    clock.t += DAY
+    again = enrich_selection(hub, s, [a, b], transport=Boom(), clock=clock)
+    assert {(p.contact_id, p.field_kind) for p in again} == {
+        (a, "address"), (a, "custom"), (b, "url"), (b, "address"), (b, "custom")}   # a's url is on its card
+
+
+def test_what_is_kept_of_an_answer_is_small_and_never_an_address(hub, tmp_path):
+    cid = person(hub, email="ann@acme-widgets.co.uk", company="Acme Ltd")
+    enrich_selection(hub, AccountSettings(**LOCAL_OFF, **ON), [cid], transport=_all_three(), clock=Clock())
+    rows = hub.conn.execute("SELECT key, value FROM index_state WHERE key LIKE 'enrich:result:%'").fetchall()
+    assert {r["key"].split(":")[2] for r in rows} == {"gravatar", "logo", "wikidata"}
+    for r in rows:
+        assert "@" not in r["key"] and "@" not in r["value"]
+        assert len(r["value"]) < 1024, r["key"]                       # a small JSON: no picture in index_state
+        json.loads(r["value"])
+    keys = {r["key"] for r in rows}
+    assert f"enrich:result:gravatar:{gravatar.email_hash('ann@acme-widgets.co.uk')}" in keys
+    assert "enrich:result:logo:acme-widgets.co.uk" in keys and "enrich:result:wikidata:acme" in keys
+    pictures = list((tmp_path / "cache" / "enrich").glob("*.png"))
+    assert len(pictures) == 2                                           # the Gravatar photo and the logo
+
+
+def test_a_remembered_photo_whose_file_was_cleared_is_not_offered(hub, tmp_path):
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    s = AccountSettings(**LOCAL_OFF, enrich_logo=True)
+    clock = Clock()
+    assert enrich_selection(hub, s, [cid], transport=_all_three(), clock=clock)
+    for f in (tmp_path / "cache" / "enrich").glob("*"):
+        f.unlink()
+    clock.t += DAY
+    assert enrich_selection(hub, s, [cid], transport=Boom(), clock=clock) == []
+
+
+def test_a_lookup_that_failed_keeps_no_answer(hub):
+    cid = person(hub, email="ann@acme-widgets.co.uk", company="Acme Ltd")
+    enrich_selection(hub, AccountSettings(**LOCAL_OFF, **ON), [cid], transport=Down(), notes=[])
+    assert hub.conn.execute("SELECT COUNT(*) FROM index_state WHERE key LIKE 'enrich:result:%'").fetchone()[0] == 0
+
+
+def test_look_again_replaces_the_remembered_answer(hub):
+    cid = hub.create(Card(scalars={"company": "Acme Ltd"}))
+    s = AccountSettings(**LOCAL_OFF, enrich_wikidata=True)
+    clock = Clock()
+    assert enrich_selection(hub, s, [cid], transport=wd_transport(), clock=clock)
+    assert enrich_selection(hub, s, [cid], transport=Fake(), clock=clock, force=True) == []   # now nothing found
+    assert enrich_selection(hub, s, [cid], transport=Boom(), clock=clock) == []
+
+
+def test_the_repeat_interval_is_the_setting(hub):
+    """6b: "Ask the internet again after" (AccountSettings.enrich_repeat_days) replaces the fixed 90 days."""
+    cid = person(hub)
+    s = AccountSettings(**LOCAL_OFF, enrich_gravatar=True, enrich_repeat_days=30)
+    clock = Clock()
+    fake = Fake()
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    n = len(fake.calls)
+    clock.t += 29 * DAY
+    notes: list[str] = []
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock, notes=notes)
+    assert len(fake.calls) == n and notes and "in the last 30 days" in notes[0]
+    clock.t += 2 * DAY
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    assert len(fake.calls) == 2 * n
+
+
+def test_a_repeat_interval_of_never_asks_once_and_look_again_still_asks(hub):
+    cid = person(hub)
+    s = AccountSettings(**LOCAL_OFF, enrich_gravatar=True, enrich_repeat_days=0)
+    clock = Clock()
+    fake = Fake()
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock)
+    n = len(fake.calls)
+    clock.t += 3650 * DAY
+    notes: list[str] = []
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock, notes=notes)
+    assert len(fake.calls) == n
+    assert len(notes) == 1 and "Never" in notes[0] and "Look again" in notes[0] and "90" not in notes[0]
+    enrich_selection(hub, s, [cid], transport=fake, clock=clock, force=True)
+    assert len(fake.calls) == 2 * n
+
+
+@pytest.mark.parametrize("company,email,term", [
+    ("Zentrix Technologies Account Energy", "ann@zentrix.com", "Zentrix Technologies"),   # the owner's shape
+    ("Quorvale Ltd - Procurement", "ann@gmail.com", "Quorvale Ltd"),
+    ("Brightmoor Systems | Senior Engineer", "ann@brightmoor.co.uk", "Brightmoor Systems"),
+    ("Brightmoor Systems, Sales Department", "ann@brightmoor.co.uk", "Brightmoor Systems"),
+    ("Halvern Partners", "ann@halvern-partners.com", "Halvern Partners"),                  # agrees with the domain
+    ("Halvern Ltd", "ann@gmail.com", "Halvern Ltd"),                                        # a legal suffix
+    ("Halvern Ltd", "", "Halvern Ltd"),                                                     # an organisation card
+    ("Orlesk Trading LLC", "ann@othercorp.com", "Orlesk Trading LLC"),
+    ("Orlesk Sales Ltd", "ann@othercorp.com", "Orlesk Sales Ltd"),                          # a legal name is whole
+    ("Halvern Partners", "ann@othercorp.com", ""),                                         # disagrees, no suffix
+    ("Halvern Partners", "ann@gmail.com", ""),                                             # free mail is no domain
+    ("Halvern", "", ""),
+    ("Account Management", "ann@zentrix.com", ""),                                          # only department words
+])
+def test_the_wikidata_term_is_cleaned_and_sent_only_when_it_is_the_company(company, email, term):
+    """6c. Found on the owner's index: "Wipro Technologies Account Energy" (a company, its account team and
+    its sector) was sent as one name, matched nothing, and was remembered for ninety days."""
+    card = Card(scalars={"given": "Ann", "family": "Lee", "company": company},
+                fields=[Field("email", email, "work")] if email else [])
+    assert wikidata.company_term(card) == term
+
+
+def test_only_the_cleaned_company_name_reaches_wikidata(hub):
+    cid = person(hub, email="ann@zentrix.com", company="Zentrix Technologies Account Energy")
+    fake = wd_transport()
+    enrich_selection(hub, _wd_settings(), [cid], transport=fake)
+    searches = [parse_qs(urlsplit(u).query).get("search") for u in fake.urls]
+    assert [x for x in searches if x] == [["Zentrix Technologies"]]
+    other = person(hub, email="bo@othercorp.com", company="Halvern Partners")
+    boom = Boom()
+    assert enrich_selection(hub, _wd_settings(), [other], transport=boom) == [] and boom.calls == []
+
+
+@pytest.mark.parametrize("email,url,domain", [
+    ("ann@acme-widgets.co.uk", "https://www.other-site.net/about", "acme-widgets.co.uk"),   # not the company's
+    ("ann@acme-widgets.co.uk", "https://shop.acme-widgets.com/", "shop.acme-widgets.com"),  # the same name
+    ("ann@mail.acme-widgets.co.uk", "acme-widgets.co.uk", "acme-widgets.co.uk"),
+    ("ann@gmail.com", "https://www.other-site.net/", "www.other-site.net"),                 # free mail: no work email
+    ("", "https://www.other-site.net/", "www.other-site.net"),
+])
+def test_a_logo_comes_only_from_a_domain_that_is_the_companys(email, url, domain):
+    """6d: a web address on the card is used for the logo only when it shares its registrable name with a
+    work email's domain, or the card has no work email."""
+    card = Card(fields=[*([Field("email", email, "work")] if email else []), Field("url", url, "work")])
+    assert logo.company_domain(card) == domain
+
+
+def test_a_web_address_that_is_not_the_companys_is_not_asked(hub):
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    hub.update(cid, _with_url(hub.get_card(cid), "https://www.other-site.net/about"))
+    fake = Fake(("https://acme-widgets.co.uk/favicon.ico", HttpResponse(200, body=png())))
+    out = enrich_selection(hub, _logo_settings(), [cid], transport=fake)
+    assert fake.hosts == {"acme-widgets.co.uk"} and out[0].receipt == "https://acme-widgets.co.uk/favicon.ico"
+
+
+def test_kept_pictures_are_capped_and_the_oldest_go_first(tmp_path, monkeypatch):
+    """Order 1s 6a kept pictures with no limit, so the cache only grew (found merging, 2026-10-12)."""
+    import os
+
+    from app.contacts.enrich import remember
+
+    monkeypatch.setattr(remember, "PHOTO_CACHE_BYTES", 2500)
+    folder = tmp_path / "cache" / "enrich"
+    folder.mkdir(parents=True)
+    for n in range(5):
+        f = folder / f"{n:040x}.png"
+        f.write_bytes(b"x" * 1000)
+        os.utime(f, (1_000_000 + n, 1_000_000 + n))
+    newest = folder / f"{4:040x}.png"
+    remember._prune(folder, newest)
+    left = sorted(p.name for p in folder.iterdir())
+    assert len(left) == 2 and newest.name in left and f"{3:040x}.png" in left
 
 
 @pytest.mark.parametrize("domain, social", [

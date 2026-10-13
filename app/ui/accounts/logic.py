@@ -61,6 +61,37 @@ ENRICH_NET = (
      "The company name is looked up; companies only, never people. Website, headquarters and industry."),
 )
 
+#: Order 1s D7: more of your own sources. On by default except documents (5e), and reading the
+#: original messages again (4b), which is slower.
+ENRICH_LOCAL_MORE = (
+    ("enrich_vcards", "vCard files on this computer",
+     "Read the .vcf files in your index and offer what a matching contact lacks."),
+    ("enrich_calendar", "Calendar invitations",
+     "Fill a missing name for an address from the people invited to your meetings."),
+    ("enrich_linkedin", "A LinkedIn export",
+     "Read company and position from the Connections.csv you download from LinkedIn. Nothing is fetched."),
+    ("enrich_documents", "Documents",
+     "Org charts, contracts and scanned business cards. Less reliable, so off, and never ticked for you."),
+    ("enrich_read_originals", "Read the original messages again (slower)",
+     "When the index cut a signature, open the newest few messages from the person again, read-only."),
+)
+
+#: Order 1s: the choices beside the switches. (AccountSettings field, label, [(value, words)], hint).
+ENRICH_CHOICES = (
+    ("enrich_max_months", "Look at mail from the last",
+     ((3, "3 months"), (6, "6 months"), (12, "12 months"), (24, "24 months"), (0, "Any age")),
+     "Older mail is not read for suggestions at all, so a title from five years ago is not offered."),
+    ("enrich_repeat_days", "Ask the internet again after",
+     ((30, "30 days"), (90, "90 days"), (180, "180 days"), (0, "Never")),
+     "The same lookup is not repeated sooner. Look again in Enrich contacts asks anyway."),
+    ("enrich_tick_from", "Tick automatically from",
+     ((0.95, "Very sure (95%)"), (0.85, "Sure (85%)"), (0.75, "Fairly sure (75%)"), (2.0, "Never")),
+     "A suggestion this sure starts ticked. Nothing is kept until you press Accept."),
+    ("enrich_hide_below", "Hide suggestions below",
+     ((0.3, "30% sure"), (0.5, "50% sure"), (0.7, "70% sure")),
+     "Less sure suggestions are not shown at all."),
+)
+
 MAPS_CHOICES = (("openstreetmap", "OpenStreetMap"), ("google", "Google Maps"),
                 ("apple", "Apple Maps"), ("bing", "Bing Maps"))
 

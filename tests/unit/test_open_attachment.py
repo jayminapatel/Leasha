@@ -396,3 +396,48 @@ def test_show_in_folder_on_an_attachment_shows_its_archive(gui_mainwindow, qtbot
     workers.open_async(ATTACHMENT, reveal=True)
     qtbot.waitUntil(lambda: bool(shown), timeout=5_000)
     assert shown == [("D:/OutlookArchive/2024.pst", True)]
+
+
+def test_inside_kept_open_an_archive_is_opened_once_and_closed_at_the_end(monkeypatch):
+    """2026-10-13: an open costs 2-3 s; enrichment read 139 attachments, each opening its archive afresh."""
+    from app.extract import pst_attachment, pst_libpff
+
+    opened = []
+
+    class Counting(FakeArchive):
+        def open(self, path):
+            opened.append(path)
+
+    target = FakeMessage(identifier=2097188, attachments=[FakeAttachment("Model CED.xlsm", SHEET)])
+    archive = Counting(FakeFolder("Top of Personal Folders", children=[FakeFolder("Inbox", messages=[target])]))
+    module = types.ModuleType("pypff")
+    module.file = lambda: archive                       # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "pypff", module)
+    monkeypatch.setattr(pst_libpff, "available", lambda: True)
+    where = {"folder_path": "Top of Personal Folders/Inbox", "folder_index": 0}
+    with pst_attachment.kept_open():
+        for _ in range(3):
+            assert pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where) == SHEET
+        pst_attachment.read_message_body("D:/a.pst", "2097188", **where)   # 4b's re-read, same archive
+        assert len(opened) == 1 and not archive.closed
+    assert archive.closed
+    pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where)
+    assert len(opened) == 2                              # outside the block: opened and closed per call
+
+
+def test_inside_kept_open_the_folder_tree_is_walked_once(monkeypatch):
+    """A message fetched through a folder libpff has loaded takes milliseconds; through a fresh one, seconds."""
+    from app.extract import pst_attachment, pst_libpff
+
+    walks = []
+    real = pst_libpff._walk_folders
+    monkeypatch.setattr(pst_libpff, "_walk_folders", lambda root, *a: walks.append(1) or real(root, *a))
+    target = FakeMessage(identifier=2097188, attachments=[FakeAttachment("Model CED.xlsm", SHEET)])
+    _install(monkeypatch, FakeFolder("Top of Personal Folders", children=[FakeFolder("Inbox", messages=[target])]))
+    where = {"folder_path": "Top of Personal Folders/Inbox", "folder_index": 0}
+    with pst_attachment.kept_open():
+        for _ in range(3):
+            assert pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where) == SHEET
+    assert len(walks) == 1
+    pst_attachment.read_attachment("D:/a.pst", "2097188", "Model CED.xlsm", **where)
+    assert len(walks) == 2

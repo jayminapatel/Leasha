@@ -89,6 +89,8 @@ class ContactsPage(QWidget):
 
         self.editor = ContactEditor()
         self.editor.index_panel.configure(hub)
+        self.editor.enrich_panel.configure(hub)
+        self.editor.enrich_panel.enrich_requested.connect(self.enrich_one)
         self.history = HistoryPanel()
         self.placeholder = QLabel("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
         self.placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -915,8 +917,9 @@ class ContactsPage(QWidget):
         quick.show_menu(self, view.viewport().mapToGlobal(pos))
 
     # ----------------------------------------------------------------- tools
-    def context(self) -> openers.Ctx:
-        selected, visible = self.selected_ids(), self.model.ids()
+    def context(self, only: Optional[list[int]] = None) -> openers.Ctx:
+        """What a tool is given. `only` narrows it to those contacts (7e, Enrich this contact)."""
+        selected, visible = (list(only), list(only)) if only is not None else (self.selected_ids(), self.model.ids())
         hub, accounts = self.hub, self.accounts
 
         def enrich(on_progress: Any = None, cancelled: Any = None, force: bool = False) -> Any:
@@ -934,6 +937,16 @@ class ContactsPage(QWidget):
         return openers.Ctx(hub=hub, accounts=accounts, selected_ids=selected, visible_ids=visible,
                            refresh=self.refresh, service=self.service, enrich=enrich,
                            notify=self.notice.emit)
+
+    def enrich_one(self, cid: int, force: bool = False) -> None:
+        """Order 1s 7e: Enrich this contact (Look again with `force`) - this contact only, on the page's one
+        `EnrichRun`, so it carries on if the window is closed; the window opens to show it and to accept."""
+        from app.ui.contacts_tools.enrich_run import run_for  # noqa: PLC0415
+
+        ctx = self.context(only=[cid])
+        if not run_for(self, ctx).start(ctx, force=force):
+            self.notice.emit("A look for suggestions is already going. Enrich this contact once it has finished.")
+        openers.open("enrich", self, ctx)
 
     def open_tool(self, name: str) -> None:
         if name == "select_all":

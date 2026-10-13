@@ -109,7 +109,7 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <header class="hero">
   <h1>Leasha User Guide</h1>
   <p>Find anything on your computer by describing it in plain English: documents, photos, code and years of email, all searched on this machine and nothing sent anywhere.</p>
-  <div class="meta">For Leasha 1.0.3 · Guide updated 11 October 2026 · Windows 10 and 11; macOS and Linux from source</div>
+  <div class="meta">For Leasha 1.0.3 · Guide updated 13 October 2026 · Windows 10 and 11; macOS and Linux from source</div>
 </header>
 
 <h2 id="welcome"><span class="num">1</span>Welcome</h2>
@@ -567,6 +567,45 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
   <li><b>Scan again</b> looks through the whole book again after you have changed it.</li>
 </ul>
 
+<h3 id="contacts-enrich">Enriching contacts: suggestions for missing details</h3>
+<p>Enrichment looks through what Leasha already holds (your mail, your photos, files on this computer) for details your contacts are missing: a phone number or job title from someone's email signature, a company from a work address, a photo from a named face. It only <b>suggests</b>. Nothing is added to a contact until you accept it, every suggestion says where it came from, and one step undoes what you accepted.</p>
+<p><b>Starting it.</b> On the Contacts page, open <b>More tools</b> and choose <b>Enrich selection…</b> (it reads <b>Enrich this contact…</b> when one contact is picked, and <b>Enrich the contacts shown…</b> when none is). The look-up runs on the page: you can close the window and carry on, and the page tells you when the suggestions are waiting in <b>Enrich contacts</b>. A contact's own page has an <b>Enrichment</b> panel with <b>Enrich this contact</b> and <b>Look again</b>, which look at that one contact only.</p>
+
+<h4>Fresh details only: the age window</h4>
+<p>People change jobs and numbers, so old mail is not read. <b>Settings › Accounts › Enrichment › Look at mail from the last</b> sets how far back: 3, 6, 12 or 24 months, or <b>Any age</b>. The default is <b>6 months</b>. Mail older than that is not read for suggestions at all, so a title from five years ago is never offered. The line under the suggestions says where the window starts ("Reading mail since 12 April 2026."). If nothing was found because of the window, it says so and how many contacts have older mail that <b>Any age</b> would read. A vCard file counts from the date it was last changed, and an invitation or a LinkedIn connection from its own date.</p>
+
+<h4>Where suggestions come from</h4>
+<p>Each source is a switch under <b>Settings › Accounts › Enrichment</b>, with a sentence saying exactly what it reads or sends.</p>
+<table class="wrap"><tr><th>Source</th><th>What it does</th><th>Starts</th></tr>
+<tr><td><b>Email signatures</b></td><td>Reads phone numbers, job title, company, department, address, website and other email addresses from the signatures in mail the person sent you. A signature counts even with no "Kind regards": it is the part of their messages that repeats each time. Details that several messages agree on count for more, and the newest wins. A signature quoted inside someone else's reply counts only for the person whose own From line it sits under, and counts for less.</td><td>On</td></tr>
+<tr><td><b>Company from the email domain</b></td><td>Fills a blank company from a work email address. Free mail such as gmail.com is skipped.</td><td>On</td></tr>
+<tr><td><b>Photo from named faces</b></td><td>Offers a photo of the person from your own pictures, once you have named them on the Photos page.</td><td>On</td></tr>
+<tr><td><b>Contact history</b></td><td>Shows the first and last time you were in touch, how often, and who else is on the thread.</td><td>On</td></tr>
+<tr><td><b>Suggested contacts</b></td><td>Lists people who mail you often, or are often in your meetings, but are in no contact.</td><td>On</td></tr>
+<tr><td><b>vCard files on this computer</b></td><td>Reads the <code>.vcf</code> files in your index, including ones that came attached to a message, and offers what a matching contact lacks.</td><td>On</td></tr>
+<tr><td><b>Calendar invitations</b></td><td>Fills in a missing name for an email address from the people invited to your meetings. Never a phone number or a title.</td><td>On</td></tr>
+<tr><td><b>A LinkedIn export</b></td><td>Reads company and position from the <code>Connections.csv</code> you download from LinkedIn ("Get a copy of your data"). Press <b>Use a LinkedIn export…</b> to choose the file. Nothing is fetched from LinkedIn.</td><td>On, once a file is chosen</td></tr>
+<tr><td><b>Documents</b></td><td>Org charts, contracts and scanned business cards. Less reliable, so it is off, and its suggestions are never ticked for you.</td><td>Off</td></tr>
+<tr><td><b>Read the original messages again (slower)</b></td><td>When the index cut a signature off a message, opens the newest few messages from that person again, read only, to read it.</td><td>Off</td></tr>
+<tr><td><b>Gravatar</b>, <b>Company logo</b>, <b>Wikidata</b></td><td>The three internet look-ups. Each says what it sends: a scrambled form (a hash) of the email address to Gravatar, the company's own web address for its icon, the company name to Wikidata (companies only, never people).</td><td>Off</td></tr></table>
+<p>A suggestion is never one of <b>your own</b> details. A client's reply that quotes your signature does not offer your mobile as theirs, and neither does a signature from a job you have since left. Only mail that came from the contact's own address is read, and a message sent "on behalf of" someone else is skipped.</p>
+<p><b>The internet look-ups</b> are not repeated for the same contact sooner than <b>Ask the internet again after</b> (30, 90 or 180 days, or Never; 90 by default). What a look-up found is remembered, so a suggestion you did not accept the first time is offered again without asking the internet again. <b>Look again</b> asks anyway.</p>
+
+<h4>The Enrich contacts window</h4>
+<p>Suggestions are grouped by contact, the contact Leasha is surest about first, with the columns <b>Contact / detail</b>, <b>Now</b> (what the card has), <b>Suggested</b>, <b>Where from</b>, <b>When</b> (the date of the message it came from, and how long ago: "12 Mar 2026, 3 weeks ago") and <b>Confidence</b>. Confidence is said in words: "Seen in 4 messages" when several messages agree, "Once, 5 months ago" when one message said it, and otherwise how sure, as in Settings ("Sure (85%)").</p>
+<ul>
+  <li><b>What starts ticked.</b> A suggestion at least as sure as <b>Tick automatically from</b> (Very sure 95%, Sure 85%, Fairly sure 75%, or Never; Sure by default) starts ticked. One less sure than <b>Hide suggestions below</b> (30%, 50% or 70%; 50% by default) is not shown, and the line under the list says how many were hidden. A suggestion that would <b>replace</b> something the contact already has is never ticked for you, however sure: it shows both, what is there now and what is suggested.</li>
+  <li><b>Accept selected</b> keeps the ticked suggestions. It is the button that writes to your contacts.</li>
+  <li><b>Accept all</b> keeps every suggestion shown. If that includes any that were not ticked for you, it asks first, saying how many, with Cancel as the default.</li>
+  <li><b>Undo these</b> takes back what was just accepted, in one step.</li>
+  <li><b>Never suggest these.</b> Untick the suggestions you never want, or select ones that start unticked, then press it. Those values are not offered for that contact again, by any source.</li>
+  <li><b>Stop looking</b> stops at the next contact; what was found so far stays to accept. <b>Look again</b> looks once more, and asks the internet look-ups you switched on even if they were asked recently.</li>
+  <li><b>The notes line</b> under the list says in one line what the run said besides suggestions: where the age window starts, any source that could not be reached or was not asked again, what Any age would add, and how many less sure suggestions are hidden.</li>
+</ul>
+
+<h4>Suggestions you turned down</h4>
+<p>A contact's page lists, under <b>Suggestions you turned down</b>, what <b>Never suggest these</b> remembered for that contact, each with <b>Undo</b> so it can be suggested again. An email address you turned down is not kept as text, so it is listed only as "an email address". <b>Settings › Accounts › Enrichment</b> shows <b>Suggestions you turned down: N</b> for the whole book; <b>Clear</b> forgets them all, and asks first. Nothing on your contacts changes either way.</p>
+
 <h3 id="contacts-print">Printing labels, envelopes and an address book</h3>
 <p>Press <b>Print contacts</b>. <b>Print</b> chooses whose: the whole book, the contacts in view, or the ones you picked. Then a tab:</p>
 <ul>
@@ -1020,7 +1059,9 @@ nav.toc.open{transform:none}main{padding:24px 16px 80px}header.hero{padding:24px
 <tr><td>In step</td><td>An account holds exactly what Leasha has linked there, with nothing waiting: what the check after a sync looks for.</td></tr>
 <tr><td>Changed in two places</td><td>A contact whose same detail was changed in Leasha and at an account since they last agreed. The newest edit is kept and the other is in History.</td></tr>
 <tr><td>Deleted elsewhere</td><td>A contact an account no longer has. Leasha and your other accounts keep it until you decide.</td></tr>
-<tr><td>Bin</td><td>Where a deleted contact waits for 30 days before it goes for good.</td></tr></table>
+<tr><td>Bin</td><td>Where a deleted contact waits for 30 days before it goes for good.</td></tr>
+<tr><td>Age window</td><td>How far back enrichment reads your mail for suggestions (6 months unless you change it). Older mail is not read at all. See <a href="#contacts-enrich">Enriching contacts</a>.</td></tr>
+<tr><td>Signature tail</td><td>The end of a message (the signature, or the quoted mail under it) that Leasha leaves out of search so a thread is not found twice, but keeps beside the message so enrichment can read the signature.</td></tr></table>
 
 <footer>Leasha User Guide · for app v1.0.3 · 11 October 2026. Screenshots are of Leasha itself, taken against a small demonstration index; your own numbers and files will differ. The technical reference, with the command line, is <a href="TECHNICAL_REFERENCE.html">TECHNICAL_REFERENCE.html</a>.</footer>
 
