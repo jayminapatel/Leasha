@@ -136,10 +136,16 @@ class DownloadRow(QWidget):
         self._pending = False
         self.status.setText(f"Looking for {self._target} on this computer...")
         worker = CallableWorker(self._is_here, self._target, component="ui.models.download")
-        worker.signals.finished.connect(
-            lambda here, g=self._probe_generation, n=self._target: self._probed(g, n, here))
-        worker.signals.failed.connect(
-            lambda _e, g=self._probe_generation, n=self._target: self._probed(g, n, False))
+        # Through `when_done` (2026-10-13): a lambda connection outlived the row, and a page closed
+        # while the look was running painted into a deleted label ("Internal C++ object already
+        # deleted", raised into the next test). The relay dies with the row and drops the call.
+        from app.ui.later import when_done
+
+        when_done(self, worker,
+                  finished=lambda here, g=self._probe_generation, n=self._target:
+                  self._probed(g, n, here),
+                  failed=lambda _e, g=self._probe_generation, n=self._target:
+                  self._probed(g, n, False))
         run(QThreadPool.globalInstance(), worker)
 
     def showEvent(self, event: Any) -> None:       # noqa: N802 - Qt's naming

@@ -42,6 +42,7 @@ from app.core import envelope
 from app.index import backends
 from app.ui.tuning import MANUAL, limit_note, quantised_note, resolved_text
 from app.ui.widgets.debounce import Debounced
+from app.ui.widgets.defaults import SentValues
 
 __all__ = ["ComputeBox", "ResourcesBox", "StrategyBox", "AutoSpin"]
 
@@ -156,8 +157,10 @@ class ComputeBox(QGroupBox):
         self.warning.setWordWrap(True)
         self.warning.setVisible(False)
 
-        self._save = Debounced(lambda: self.changed.emit(self.values()),
-                               parent=self)
+        # Only the keys that moved (UI phase B, 2026-10-13): sending all of them on any change
+        # pinned every other one in `.env` - see `widgets/defaults.SentValues`.
+        self._sent = SentValues(self.values)
+        self._save = Debounced(self._send, parent=self)
         for widget in (self.workers, self.threads, self.batch):
             widget.valueChanged.connect(lambda _v: self._save())
         self.quantised.stateChanged.connect(lambda _s: self._save())
@@ -195,6 +198,7 @@ class ComputeBox(QGroupBox):
             for widget in widgets:
                 widget.blockSignals(False)
         self._save.cancel()
+        self._sent.mark()
 
     def values(self) -> dict:
         """`{registry key: value}` for the writer."""
@@ -205,6 +209,16 @@ class ComputeBox(QGroupBox):
             "EMBED_BATCH": int(self.batch.value()),
             "EMBED_QUANTISED": bool(self.quantised.isChecked()),
         }
+
+    def _send(self) -> None:
+        """One `changed` with the keys that moved since the last load or send, if any."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
 
     def flush(self) -> None:
         """Persist anything still inside the debounce window.
@@ -228,6 +242,7 @@ class ComputeBox(QGroupBox):
         became one just by looking at the screen - a settings panel quietly
         overwriting settings, which is the worst thing a settings panel can do.
         """
+        before = self.values()
         for widget in (self.workers, self.threads, self.batch,
                        self.embed_device, self.quantised):
             widget.blockSignals(True)
@@ -257,6 +272,8 @@ class ComputeBox(QGroupBox):
         # Anything a clamp queued before the block took hold was about a value
         # nobody typed. Firing it would write it.
         self._save.cancel()
+        # And a value the clamp moved is not a change to send with the next real one.
+        self._sent.settle(before)
         self._warn(profile)
 
     def _grey_unavailable(self, profile: Any) -> None:
@@ -396,8 +413,10 @@ class ResourcesBox(QGroupBox):
             # quietly lose its explanation.
             widget.setKeyboardTracking(False)
 
-        self._save = Debounced(lambda: self.changed.emit(self.values()),
-                               parent=self)
+        # Only the keys that moved (UI phase B, 2026-10-13): sending all of them on any change
+        # pinned every other one in `.env` - see `widgets/defaults.SentValues`.
+        self._sent = SentValues(self.values)
+        self._save = Debounced(self._send, parent=self)
         for widget in (self.memory_mb, self.cpu_percent, self.min_free_gb,
                        self.required_free_gb):
             widget.valueChanged.connect(lambda _v: self._save())
@@ -437,6 +456,7 @@ class ResourcesBox(QGroupBox):
             for widget in widgets:
                 widget.blockSignals(False)
         self._save.cancel()
+        self._sent.mark()
 
     def values(self) -> dict:
         """`{registry key: value}` for the writer."""
@@ -448,6 +468,16 @@ class ResourcesBox(QGroupBox):
             "INDEX_LOW_PRIORITY": bool(self.low_priority.isChecked()),
             "INDEX_PAUSE_ON_BATTERY": bool(self.pause_on_battery.isChecked()),
         }
+
+    def _send(self) -> None:
+        """One `changed` with the keys that moved since the last load or send, if any."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
 
     def flush(self) -> None:
         """Persist anything still inside the debounce window.
@@ -470,6 +500,7 @@ class ResourcesBox(QGroupBox):
         # narrowing a range clamps the value, and a clamp emits. Saving a
         # number the person never chose, on the way in, is how a settings
         # panel loses somebody's settings.
+        before = self.values()
         for widget in (self.memory_mb, self.min_free_gb, self.required_free_gb):
             widget.blockSignals(True)
         try:
@@ -494,6 +525,8 @@ class ResourcesBox(QGroupBox):
                            self.required_free_gb):
                 widget.blockSignals(False)
         self._save.cancel()
+        # A value the narrowed range clamped is not a change to send with the next real one.
+        self._sent.settle(before)
 
 
 class StrategyBox(QGroupBox):
@@ -608,8 +641,10 @@ class StrategyBox(QGroupBox):
             "that makes its reader fail is skipped without stopping the run.\n"
             "Takes effect from the next Start.")
 
-        self._save = Debounced(lambda: self.changed.emit(self.values()),
-                               parent=self)
+        # Only the keys that moved (UI phase B, 2026-10-13): sending all of them on any change
+        # pinned every other one in `.env` - see `widgets/defaults.SentValues`.
+        self._sent = SentValues(self.values)
+        self._save = Debounced(self._send, parent=self)
         for widget in (self.two_phase, self.dedup, self.separate_process,
                        self.read_processes, self.spreadsheet_meaning, self.group_by_length):
             widget.stateChanged.connect(lambda _s: self._save())
@@ -662,6 +697,7 @@ class StrategyBox(QGroupBox):
             for widget in widgets:
                 widget.blockSignals(False)
         self._save.cancel()
+        self._sent.mark()
 
     def values(self) -> dict:
         """`{registry key: value}` for the writer."""
@@ -677,6 +713,16 @@ class StrategyBox(QGroupBox):
             "INDEX_SEPARATE_PROCESS": bool(self.separate_process.isChecked()),
             "INDEX_READ_PROCESSES": bool(self.read_processes.isChecked()),
         }
+
+    def _send(self) -> None:
+        """One `changed` with the keys that moved since the last load or send, if any."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
 
     def flush(self) -> None:
         """Persist anything still inside the debounce window.

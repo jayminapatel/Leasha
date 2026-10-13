@@ -32,6 +32,7 @@ from app.ui.presenter.coverage import (
     ATTACHMENTS, CODE, EMAIL, FILES, MEDIA, PICTURES, PLACES, ZIPS, place_sentence,
 )
 from app.ui.tuning import cost_hint
+from app.ui.widgets.defaults import SentValues
 
 __all__ = ["LongRunBox"]
 
@@ -330,6 +331,8 @@ class LongRunBox(QGroupBox):
         self.changed.connect(self._refresh)
         self._sync_junk()
         self._refresh()
+        #: What was last loaded or sent, so a change sends only its own key (UI phase B).
+        self._sent = SentValues(self.values)
 
     def place_in(self, place: str, widget: Any) -> None:
         """Show a lever that another page owns in `place`'s block.
@@ -413,6 +416,22 @@ class LongRunBox(QGroupBox):
         finally:
             for widget in widgets:
                 widget.blockSignals(False)
+        self._sent.mark()
+        self._sync_junk()
+        self._refresh()
+
+    def changes(self) -> dict:
+        """The levers that moved since the last load or send, by `Settings` field name; now sent.
+
+        **What `TuningBox` relays, not `values()`** (UI phase B, 2026-10-13): relaying all twelve
+        on any change wrote the OCR, archive and attachment levers into `.env` at their defaults
+        the first time anybody touched one of them.
+        """
+        return self._sent.changes()
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now."""
+        self._sent.shown(keys)
         self._sync_junk()
         self._refresh()
 

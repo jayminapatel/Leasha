@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QFileDialog, QFormLayout, Q
 
 from app.ui.accounts import logic, parts
 from app.ui.accounts.parts import btn, hint
+from app.ui.widgets.settings_row import add_row
 
 __all__ = ["EnrichControls", "DeclinesRow", "build", "load"]
 
@@ -43,8 +44,8 @@ def _switch(ctl: EnrichControls, form: QFormLayout, key: str, words: str, said: 
     box.setObjectName(key)
     box.setAccessibleName(words)
     box.setToolTip(said)
-    form.addRow(box)
-    form.addRow(hint(said))
+    add_row(form, box,
+            hint=hint(said))
     ctl.checks[key] = box
     box.toggled.connect(lambda on, k=key: save(**{k: bool(on)}))
 
@@ -57,8 +58,8 @@ def _choice(ctl: EnrichControls, form: QFormLayout, key: str, label: str, option
     combo.setToolTip(said)
     for value, words in options:
         combo.addItem(words, value)
-    form.addRow(label, combo)
-    form.addRow(hint(said))
+    add_row(form, combo, label,
+            hint=hint(said))
     ctl.choices[key] = combo
     combo.currentIndexChanged.connect(lambda _i, k=key, c=combo: save(**{k: c.currentData()}))
 
@@ -93,8 +94,8 @@ def _linkedin_button(ctl: EnrichControls, form: QFormLayout, save: Callable[...,
             save(enrich_linkedin_file=path)
 
     button.clicked.connect(choose)
-    form.addRow(button)
-    form.addRow(label)
+    add_row(form, button)
+    add_row(form, label)
 
 
 def _count(factory: Callable[[], Any]) -> int:
@@ -149,22 +150,22 @@ def build(form: QFormLayout, save: Callable[..., None], backend: Any = None) -> 
     """Fill the Enrichment group's form. `save(**values)` writes `AccountSettings`; `backend`, when given,
     reads and clears the suggestions turned down (D5)."""
     ctl = EnrichControls()
-    form.addRow(hint("From your own index - nothing leaves this computer. On by default."))
+    add_row(form, hint("From your own index - nothing leaves this computer. On by default."))
     for key, words, said in logic.ENRICH_OWN + logic.ENRICH_LOCAL_MORE:
         _switch(ctl, form, key, words, said, save)
         if key == "enrich_linkedin":
             _linkedin_button(ctl, form, save)
-    form.addRow(hint("From the internet - off until you switch each one on. Each says exactly what it sends."))
+    add_row(form, hint("From the internet - off until you switch each one on. Each says exactly what it sends."))
     for key, words, said in logic.ENRICH_NET:
         _switch(ctl, form, key, words, said, save)
     for key, label, options, said in logic.ENRICH_CHOICES:
         _choice(ctl, form, key, label, options, said, save)
     if backend is not None:
         ctl.declines = DeclinesRow(backend)
-        form.addRow(ctl.declines)
-        form.addRow(hint("What you told Enrich contacts never to suggest again. Each one can be taken back on "
+        add_row(form, ctl.declines,
+                hint=hint("What you told Enrich contacts never to suggest again. Each one can be taken back on "
                          "its contact's page; Clear forgets them all."))
-    form.addRow(hint("Nothing is kept until you accept it."))
+    add_row(form, hint("Nothing is kept until you accept it."))
     return ctl
 
 

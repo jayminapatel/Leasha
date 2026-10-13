@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.127 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,32 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: Settings (2026-10-13)
+
+- **Search all settings.** The box at the top of Settings now lists what it found, each with its category, and
+  takes you there: **Enter** for the first, a click (or **Down**, then **Enter**) for any other. The box clears, the
+  category opens - an **Advanced** section around the setting too - the page scrolls to it, it takes the focus and
+  its row is lit for a moment. New words: "Press Enter to go to the first one, or choose one below to go to it."
+  and the accessible names "Search all settings" and "Settings found". The box's own placeholder and tooltip are
+  unchanged.
+- **One row helper.** Every row on Settings and Settings > Accounts is built by `app/ui/widgets/settings_row.py`
+  (`add_row`, `add_under`): a label and its control side by side, a tick box or button across the row, a help
+  sentence across the foot of its row. No words changed. A tick box that sat in the field column (Rerank results)
+  now runs across the row like every other.
+- **No setting is pinned at its default any more.** Ten boxes saved every key they hold when one changed, or wrote
+  a value that was only being left alone: Compute, Resources, Strategy, the old-Office converter, Devices, What
+  gets read (OCR, archives, attachments), Media (video and speech), Opening code results, Search (reranking), and
+  the AI programs port. Each now sends only the key that moved. And whatever a box sends, a value equal to the
+  default removes the line from `.env` instead of writing it (`defaults.unpin_defaults`), so a better default in a
+  later version still arrives. **Restore defaults** counts that correctly. The owner's own `.env` is untouched: 39
+  of its lines hold exactly the default and can be removed (listed in `HANDOFF.md`).
+- Found on the way and fixed: filtering left a hidden control's label standing beside the gap (the label was
+  looked for only in the box's top layout, and most boxes keep their form inside another layout); a Download row
+  closed while it was still looking for its model painted into a deleted label; and `test_accounts_page`'s fixed
+  4,200-pixel page had become shorter than the page asks for (4,242) since the Enrichment group, which squeezed
+  two of its buttons.
+- Not yet seen in the real window: the list under the search box, the lit row and the scroll to it.
 
 ### One app, phase B: a steady Search page (2026-10-13)
 

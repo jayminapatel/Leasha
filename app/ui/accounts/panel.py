@@ -27,6 +27,7 @@ from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, notice, set_quiet
 from app.ui.widgets.activity_table import ActivityTable
 from app.ui.widgets.select_all import SelectBar
+from app.ui.widgets.settings_row import add_row
 
 __all__ = ["AccountPanel", "ask_remove", "choose_from"]
 
@@ -221,8 +222,8 @@ class AccountPanel(QGroupBox):
         self.name = QLineEdit()
         self.name.setAccessibleName("Account name")
         self.name.setToolTip("Your own name for this account, such as Work or Home. It is only shown here.")
-        form.addRow("Name", self.name)
-        form.addRow(hint("Your own name for it, such as Work or Home."))
+        add_row(form, self.name, "Name",
+                hint=hint("Your own name for it, such as Work or Home."))
         self.colour_button = btn("Colour…", "palette", tip="Choose the colour shown beside this account")
         self.colour_swatch = QLabel("")
         self.colour_swatch.setFixedSize(18, 18)
@@ -230,54 +231,54 @@ class AccountPanel(QGroupBox):
         row.addWidget(self.colour_swatch)
         row.addWidget(self.colour_button)
         row.addStretch(1)
-        form.addRow("Colour", row)
-        form.addRow(hint("Shown on its row, and as a stripe on its contacts."))
+        add_row(form, row, "Colour",
+                hint=hint("Shown on its row, and as a stripe on its contacts."))
         self.what = QComboBox()
         self.what.setAccessibleName("What to sync")
         self.what.setToolTip("Choose whether this account brings in its mail, its contacts, or both")
         for key, text in logic.WHAT_CHOICES:
             self.what.addItem(text, key)
-        form.addRow("What to sync", self.what)
-        form.addRow(hint("Mail is only read. Contacts follow the direction set on the Contacts tab."))
+        add_row(form, self.what, "What to sync",
+                hint=hint("Mail is only read. Contacts follow the direction set on the Contacts tab."))
         self.signin = QLabel("")
         self.signin.setWordWrap(True)
         self.reconnect = btn("Reconnect", "key-round", tip="Sign in to this account again")
         self.change_password = btn("Change app password…", "lock", tip="Type a new app password")
-        form.addRow("Sign-in", self.signin)
+        add_row(form, self.signin, "Sign-in")
         srow = QHBoxLayout()
         srow.addWidget(self.reconnect)
         srow.addWidget(self.change_password)
         srow.addStretch(1)
-        form.addRow(srow)
-        form.addRow(hint("Reconnect opens your browser to sign in again. Nothing already in Leasha is lost."))
+        add_row(form, srow,
+                hint=hint("Reconnect opens your browser to sign in again. Nothing already in Leasha is lost."))
         self.test_button = btn("Test connection", "link", tip="Check the sign-in and what Leasha may read")
         self.sync_button = btn("Sync now", "refresh-cw", tip="Sync this account now")
         trow = QHBoxLayout()
         trow.addWidget(self.test_button)
         trow.addWidget(self.sync_button)
         trow.addStretch(1)
-        form.addRow(trow)
-        form.addRow(hint("Test connection reaches the server and reports each permission granted. "
+        add_row(form, trow,
+                hint=hint("Test connection reaches the server and reports each permission granted. "
                          "Sync now runs this account's sync at once, whatever the schedule says."))
         self.schedules = QWidget()
         sform = QFormLayout(self.schedules)
         sform.setContentsMargins(0, 0, 0, 0)
         self.own_mail = ScheduleRow("This account's mail")
         self.own_contacts = ScheduleRow("This account's contacts")
-        sform.addRow("Mail schedule", self.own_mail)
-        sform.addRow("Contacts schedule", self.own_contacts)
-        sform.addRow(hint("Shown because the schedule above is 'Each account has its own'. They start "
+        add_row(sform, self.own_mail, "Mail schedule")
+        add_row(sform, self.own_contacts, "Contacts schedule",
+                hint=hint("Shown because the schedule above is 'Each account has its own'. They start "
                           "from the global schedule and change only this account."))
-        form.addRow(self.schedules)
+        add_row(form, self.schedules)
         self.idle = QCheckBox("New inbox mail as it arrives")
-        form.addRow(self.idle)
+        add_row(form, self.idle)
         self.idle_hint = hint("Keeps a connection open while Leasha runs, so new inbox mail is fetched "
                               "at once. Off by default; the schedule and Sync now are the usual starters.")
-        form.addRow(self.idle_hint)
+        add_row(form, self.idle_hint)
         self.remove_button = btn("Remove account", "trash-2", "danger",
                                  tip="Sign out and remove this account from Leasha")
-        form.addRow(self.remove_button)
-        form.addRow(hint("Asks first whether to keep this account's contacts and its mail in Leasha."))
+        add_row(form, self.remove_button,
+                hint=hint("Asks first whether to keep this account's contacts and its mail in Leasha."))
         self.tabs.addTab(page, "General")
 
         self.name.editingFinished.connect(self._name_done)
@@ -298,11 +299,11 @@ class AccountPanel(QGroupBox):
         form = QFormLayout(page)
         head = QLabel("Read only - Leasha never changes this mailbox")
         head.setObjectName("accountsMailHead")
-        form.addRow(head)
-        form.addRow(hint("Mail is only read: never moved, flagged, marked read or deleted on the server."))
+        add_row(form, head,
+                hint=hint("Mail is only read: never moved, flagged, marked read or deleted on the server."))
         self.mail_on = QCheckBox("Fetch this account's mail")
-        form.addRow(self.mail_on)
-        form.addRow(hint("Off, nothing of this account's mail is fetched. What was fetched stays until you "
+        add_row(form, self.mail_on,
+                hint=hint("Off, nothing of this account's mail is fetched. What was fetched stays until you "
                          "remove it below."))
         self.folders_all = QRadioButton("All folders and labels")
         self.folders_some = QRadioButton("Only the ones I choose")
@@ -311,8 +312,8 @@ class AccountPanel(QGroupBox):
         for w in (self.folders_all, self.folders_some, self.choose_folders):
             frow.addWidget(w)
         frow.addStretch(1)
-        form.addRow("Folders", frow)
-        form.addRow(hint("All is the default. Spam and Trash are left out by default, and Sent is included."))
+        add_row(form, frow, "Folders",
+                hint=hint("All is the default. Spam and Trash are left out by default, and Sent is included."))
         self.back = QComboBox()
         self.back.setAccessibleName("How far back to fetch")
         for key, text in logic.BACK_CHOICES:
@@ -326,8 +327,8 @@ class AccountPanel(QGroupBox):
         brow.addWidget(self.back)
         brow.addWidget(self.since)
         brow.addStretch(1)
-        form.addRow("How far back", brow)
-        form.addRow(hint("Everything is the default. Choose before the first fetch to download less."))
+        add_row(form, brow, "How far back",
+                hint=hint("Everything is the default. Choose before the first fetch to download less."))
         self.attachments = QCheckBox("Index attachments")
         self.attachment_mb = QSpinBox()
         self.attachment_mb.setRange(0, 4096)
@@ -339,21 +340,21 @@ class AccountPanel(QGroupBox):
         arow.addWidget(self.attachments)
         arow.addWidget(self.attachment_mb)
         arow.addStretch(1)
-        form.addRow(arow)
-        form.addRow(hint("Attachments are searched by their text, as in the rest of your index. A larger "
+        add_row(form, arow,
+                hint=hint("Attachments are searched by their text, as in the rest of your index. A larger "
                          "one than the limit is listed but not read."))
         self.space = QLabel("")
-        form.addRow("Space used", self.space)
+        add_row(form, self.space, "Space used")
         self.drop_mail = btn("Remove this account's mail from the index…", "trash-2", "danger")
-        form.addRow(self.drop_mail)
-        form.addRow(hint("Takes the fetched mail out of search. The mailbox itself is not touched."))
+        add_row(form, self.drop_mail,
+                hint=hint("Takes the fetched mail out of search. The mailbox itself is not touched."))
         self.progress = QLabel("")
         self.sync_mail_button = btn("Sync mail now", "refresh-cw", tip="Fetch this account's mail now")
-        form.addRow(self.sync_mail_button)
+        add_row(form, self.sync_mail_button)
         self.pause_fetch = btn("Pause fetch", "pause", tip="Pause or resume the first fetch of mail")
-        form.addRow("First fetch", self.progress)
-        form.addRow(self.pause_fetch)
-        form.addRow(hint("Messages fetched of the total. Pausing keeps what is fetched; resuming carries on."))
+        add_row(form, self.progress, "First fetch")
+        add_row(form, self.pause_fetch,
+                hint=hint("Messages fetched of the total. Pausing keeps what is fetched; resuming carries on."))
         self.tabs.addTab(page, "Mail")
 
         self.sync_mail_button.clicked.connect(lambda: self.sync_requested.emit(self._id, "mail"))
@@ -375,9 +376,9 @@ class AccountPanel(QGroupBox):
         self.direction.setAccessibleName("Contacts direction")
         for key, text in logic.DIRECTION_CHOICES:
             self.direction.addItem(text, key)
-        form.addRow("Direction", self.direction)
+        add_row(form, self.direction, "Direction")
         self.direction_note = hint("")
-        form.addRow(self.direction_note)
+        add_row(form, self.direction_note)
         self.groups_all = QRadioButton("All folders and groups")
         self.groups_some = QRadioButton("Only the ones I choose")
         self.choose_groups = btn("Choose groups…", "folder-open", tip="Pick which groups to sync")
@@ -385,23 +386,23 @@ class AccountPanel(QGroupBox):
         for w in (self.groups_all, self.groups_some, self.choose_groups):
             grow.addWidget(w)
         grow.addStretch(1)
-        form.addRow("Which contacts", grow)
-        form.addRow(hint("All is the default. Choosing syncs only those groups."))
+        add_row(form, grow, "Which contacts",
+                hint=hint("All is the default. Choosing syncs only those groups."))
         self.sync_contacts_button = btn("Sync contacts now", "refresh-cw", tip="Sync this account's contacts now")
-        form.addRow(self.sync_contacts_button)
+        add_row(form, self.sync_contacts_button)
         self.verify_button = btn("Check this account's contacts", "circle-check",
                                  tip="Compare what the account holds with what is linked here. Changes nothing")
-        form.addRow(self.verify_button)
+        add_row(form, self.verify_button)
         self.kept = QLabel("")
         self.last_changes = QLabel("")
         self.last_changes.setWordWrap(True)
-        form.addRow("Kept here", self.kept)
+        add_row(form, self.kept, "Kept here")
         self.at_account = QLabel("")
         self.at_account.setWordWrap(True)
         self.at_account.setAccessibleName("What the account holds, from the last check")
-        form.addRow("At the account", self.at_account)
-        form.addRow("Last changes", self.last_changes)
-        form.addRow(hint("How many of your contacts are kept in this account, and what the last sync did "
+        add_row(form, self.at_account, "At the account")
+        add_row(form, self.last_changes, "Last changes",
+                hint=hint("How many of your contacts are kept in this account, and what the last sync did "
                          "in each direction."))
         self.tabs.addTab(page, "Contacts")
 

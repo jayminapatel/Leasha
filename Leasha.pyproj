@@ -741,6 +741,8 @@
     <Compile Include="app\ui\widgets\search_marks.py" />
     <Compile Include="app\ui\widgets\segmented.py" />
     <Compile Include="app\ui\widgets\select_all.py" />
+    <Compile Include="app\ui\widgets\settings_row.py" />
+    <Compile Include="app\ui\widgets\settings_search.py" />
     <Compile Include="app\ui\widgets\settings_shelves.py" />
     <Compile Include="app\ui\widgets\shimmer_bar.py" />
     <Compile Include="app\ui\widgets\side_list.py" />
@@ -1449,6 +1451,7 @@
     <Compile Include="tests\unit\test_ui_one_app_lists.py" />
     <Compile Include="tests\unit\test_ui_one_app_photos.py" />
     <Compile Include="tests\unit\test_ui_one_app_settings.py" />
+    <Compile Include="tests\unit\test_ui_one_app_settings_b.py" />
     <Compile Include="tests\unit\test_ui_redesign.py" />
     <Compile Include="tests\unit\test_ui_redesign_qt.py" />
     <Compile Include="tests\unit\test_ui_redesign_scenarios.py" />

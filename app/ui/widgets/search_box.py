@@ -34,7 +34,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.ui.widgets.debounce import Debounced
+from app.ui.widgets.defaults import SentValues
 from app.ui.widgets.model_download import DownloadRow
+from app.ui.widgets.settings_row import add_row, add_under
 
 __all__ = ["SearchBox", "RERANK_MODELS", "NOT_LISTED"]
 
@@ -173,13 +175,13 @@ class SearchBox(QGroupBox):
         restart.setWordWrap(True)
 
         form = QFormLayout()
-        form.addRow("", self.rerank)
-        form.addRow("Rerank the top", self.rerank_top_n)
-        form.addRow("Reading", self.rerank_window)
-        form.addRow("Model", self.rerank_model)
+        add_row(form, self.rerank)
+        add_row(form, self.rerank_top_n, "Rerank the top")
+        add_row(form, self.rerank_window, "Reading")
+        add_row(form, self.rerank_model, "Model")
         self.rerank_download = DownloadRow(
             "rerank", model_cache=getattr(settings, "model_cache", None))
-        form.addRow("", self.rerank_download)
+        add_under(form, self.rerank_download)
 
         layout = QVBoxLayout(self)
         layout.addLayout(form)
@@ -188,7 +190,10 @@ class SearchBox(QGroupBox):
         # Debounced for the same reason the indexing ceilings are: typing 600
         # into a spin box otherwise writes at 6, 60 and 600, two of which
         # nobody chose.
-        self._save = Debounced(lambda: self.changed.emit(self.values()), parent=self)
+        self._save = Debounced(self._send, parent=self)
+        #: Only the keys that moved are sent (UI phase B, 2026-10-13): all four on any change
+        #: pinned the other three in `.env`. See `widgets/defaults.SentValues`.
+        self._sent = SentValues(self.values)
 
         for widget in (self.rerank_top_n, self.rerank_window):
             widget.setKeyboardTracking(False)
@@ -226,6 +231,18 @@ class SearchBox(QGroupBox):
         if data:
             return str(data)
         return self.rerank_model.currentText().split("   —   ")[0].strip()
+
+    def _send(self) -> None:
+        """One `changed` with the keys that moved since they were loaded or last sent."""
+        moved = self._sent.changes()
+        if moved:
+            self.changed.emit(moved)
+
+    def defaults_shown(self, keys: list) -> None:
+        """`show_default` put these back with signals held: they are what is in force now,
+        and the numbers grey with the switch again."""
+        self._sent.shown(keys)
+        self._sync()
 
     def values(self) -> dict[str, Any]:
         """What the controls currently say, keyed by registry key."""

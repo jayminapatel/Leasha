@@ -333,7 +333,13 @@ class SettingsController(QObject):
         # or slow disk stalls the window. The live overrides below are applied
         # in `_apply_written_settings` once the file is really written, so a failed
         # write never leaves the window believing a value the file does not hold.
-        values = dict(values)
+        # **A value equal to its default is written as None, which removes the line** (UI phase B,
+        # 2026-10-13): writing the default down pins it, and a better default in a later version
+        # never reaches this machine. The owner's `.env` held dozens of such lines. See
+        # `widgets/defaults.unpin_defaults`; the live overrides below read None as the default.
+        from app.ui.widgets.defaults import unpin_defaults
+
+        values = unpin_defaults(values)
         start(CallableWorker(apply_values, Path(self._w._settings.env_file), values,
                              component="ui.settings.env"),
               owner=self._w, on_saved=lambda: _apply_written_settings(self._w, values),

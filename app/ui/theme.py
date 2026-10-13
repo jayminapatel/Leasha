@@ -808,6 +808,9 @@ QComboBox QAbstractItemView {{
 /* The hint under a setting, and the tree's `N of M` line. One rule, because
    they are the same thing: a quiet sentence explaining the control above it. */
 #settingsHint {{ color: {text_faint}; font-size: {small}; }}
+/* Search all settings (UI phase B, 2026-10-13): the row it took you to, lit for a moment
+   (`widgets/settings_search.py`), on the same soft accent ground a selection uses. */
+*[settingsFound="true"] {{ background: {accent_soft}; border-radius: {radius_control}; }}
 /* A notice is not an error. It sits on the accent's soft ground so it reads as
    information the application is volunteering, rather than as a failure. */
 #noticeBar {{
