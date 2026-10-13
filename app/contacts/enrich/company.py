@@ -17,7 +17,8 @@ from typing import Any, Optional
 from app.contacts.card import Card
 from app.contacts.enrich.base import Proposal
 
-__all__ = ["company_guess", "company_proposals", "group_by_company", "company_key"]
+__all__ = ["company_guess", "company_proposals", "group_by_company", "company_key", "registrable_name",
+           "work_domains", "agrees_with_domain", "LEGAL_SUFFIX"]
 
 # A small standalone copy, used only when app.contacts.cleanup cannot be imported.
 _FALLBACK_FREE = frozenset({
@@ -73,6 +74,67 @@ _SUFFIX = re.compile(r"\b(?:ltd|limited|llc|llp|inc|plc|gmbh|corp|corporation|co
 def company_key(name: str) -> str:
     """What makes two spellings one company: case, punctuation and a legal suffix ignored."""
     return re.sub(r"[^a-z0-9]+", " ", _SUFFIX.sub(" ", (name or "").casefold())).strip()
+
+
+def _fallback_registrable(domain: str) -> tuple[str, str]:
+    labels = [x for x in (domain or "").lower().strip(".").split(".") if x]
+    if len(labels) < 2:
+        return "", ""
+    take = 3 if len(labels) >= 3 and len(labels[-1]) == 2 and labels[-2] in {"co", "com", "org", "ac", "gov"} else 2
+    reg = labels[-take:]
+    return reg[0], ".".join(reg)
+
+
+try:                                                     # one public-suffix rule for the package, as above
+    from app.contacts.cleanup import _registrable
+except Exception:                                        # noqa: BLE001
+    _registrable = _fallback_registrable
+
+
+def registrable_name(domain: str) -> str:
+    """The name part of a domain's registrable domain: `shop.acme-widgets.co.uk` -> `acme-widgets`.
+
+    Order 1s 6d compares sites by this, so `acme-widgets.com` and `acme-widgets.co.uk` are one company
+    but `other-site.net` is not."""
+    return _registrable((domain or "").strip().lower())[0]
+
+
+def work_domains(card: Card) -> list[str]:
+    """The domains of the card's work emails - free mail is not a work email (`company_guess` says None)."""
+    out: list[str] = []
+    for f in card.values("email"):
+        if company_guess(f.value):
+            d = f.value.strip().rsplit("@", 1)[-1].lower()
+            if d not in out:
+                out.append(d)
+    return out
+
+
+#: Order 1s 6c. A legal form says a text is a registered company's name, so it may go to Wikidata even when
+#: no work email agrees. Narrower than `_SUFFIX`: "Group" or "Partners" is a word in many names, not a form.
+LEGAL_SUFFIX = re.compile(
+    r"\b(?:ltd|limited|llc|l\.l\.c|llp|inc|incorporated|plc|gmbh|ag|bv|b\.v|nv|n\.v|sa|s\.a|sarl|sas|spa|"
+    r"s\.p\.a|srl|pty|corp|corporation|co|company|oy|ab|kk|pjsc|psc|wll|w\.l\.l|fze|fzco|fz-llc|fzllc|"
+    r"lp|pte|bhd|sdn)\.?\s*$", re.I)
+
+
+def agrees_with_domain(name: str, domains: list[str]) -> bool:
+    """Is `name` the company these work-email domains belong to? `Halvern Partners` and `halvern-partners.com`
+    agree; so do `ACME` and `acme-corp.com` (a name of four letters or more the domain starts with), and
+    `IBM` and `ibm.com` (initials). Anything looser would send someone else's company to Wikidata."""
+    words = company_key(name).split()
+    if not words:
+        return False
+    joined = "".join(words)
+    initials = "".join(w[0] for w in words) if len(words) > 1 else ""
+    for d in domains:
+        reg = re.sub(r"[^a-z0-9]", "", registrable_name(d))
+        if not reg:
+            continue
+        if reg in (joined, words[0], initials) or (len(joined) >= 4 and reg.startswith(joined)) \
+                or (len(reg) >= 4 and joined.startswith(reg)):
+            return True
+    return False
 
 
 def group_by_company(hub: Any, *, min_members: int = 1) -> dict[str, list[int]]:

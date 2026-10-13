@@ -101,6 +101,7 @@ def turn_to_dict(turn: ChatTurn) -> dict[str, Any]:
         "result_set": (None if turn.result_set is None
                        else [_result_to_dict(r) for r in turn.result_set]),
         "details": details_to_json(turn.details),
+        "work": list(getattr(turn, "work", None) or ()),
     }
 
 
@@ -141,7 +142,8 @@ def turn_from_dict(data: dict[str, Any]) -> ChatTurn:
         result_set=restored, kind=str(data.get("kind", "answer")),
         notes=[str(n) for n in data.get("notes", [])],
         model=str(data.get("model", "") or ""), partial=bool(data.get("partial", False)),
-        details=details_from_json(data.get("details")))
+        details=details_from_json(data.get("details")),
+        work=[str(w) for w in data.get("work", ()) or ()])
 
 
 def title_for(turns: list[ChatTurn], limit: int = 60) -> str:

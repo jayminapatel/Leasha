@@ -6,11 +6,17 @@ Work order 202626270611 3a and 4e-3. The keyboard flow is the search tab's
 muscle memory, so somebody who lives on the keyboard never reaches for the
 mouse:
 
-* Enter sends; Shift+Enter starts a new line.
-* Up and Down walk the Sources list **with focus staying in the box** - they
-  only move the text cursor when there is a line above or below to move to.
-* Enter with the box empty and a source picked opens that source.
+* Enter sends; Shift+Enter starts a new line. Enter in an empty box does nothing.
+* Alt+Up and Alt+Down walk the Sources list **with focus staying in the box**.
+* Up in an empty box brings your last message back to be changed, as every chat
+  does. It replaces that message and its answer only when it is sent; Esc, or
+  emptying the box, lets it go and nothing is lost.
 * Esc drops the picked source and returns to the conversation.
+
+UI phase B (2026-10-13): plain Up and Down walked the Sources list and Enter in an
+empty box opened the picked source. Up is the chat's own key now, so the walk moved
+to Alt (free in the window: `shell._build_shortcuts` binds no Alt key), and a stray
+Enter in an empty box no longer opens a document.
 
 While an answer is being written Send gives way to Stop.
 
@@ -37,12 +43,12 @@ MAX_LINES = 5
 
 
 class _Edit(QPlainTextEdit):
-    """The text box itself: Enter sends, Shift+Enter breaks the line, Up/Down at
-    the edge walk the Sources list, Esc is claimed from the window.
+    """The text box itself: Enter sends, Shift+Enter breaks the line, Alt+Up/Down
+    walk the Sources list, Up in an empty box recalls, Esc is claimed from the window.
     """
     submitted = Signal()
-    open_source = Signal()
     walk = Signal(int)
+    recall = Signal()
     escaped = Signal()
 
     def event(self, event: QEvent) -> bool:
@@ -55,20 +61,22 @@ class _Edit(QPlainTextEdit):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:           # noqa: N802 - Qt
         key = event.key()
-        shift = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        modifiers = event.modifiers()
+        shift = bool(modifiers & Qt.KeyboardModifier.ShiftModifier)
+        alt = bool(modifiers & Qt.KeyboardModifier.AltModifier)
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not shift:
-            (self.submitted if self.toPlainText().strip() else self.open_source).emit()
+            if self.toPlainText().strip():
+                self.submitted.emit()
             event.accept()
             return
-        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down) and not shift:
-            cursor = self.textCursor()
-            block = cursor.block()
-            edge = (not block.previous().isValid() if key == Qt.Key.Key_Up
-                    else not block.next().isValid())
-            if edge:
-                self.walk.emit(-1 if key == Qt.Key.Key_Up else 1)
-                event.accept()
-                return
+        if key in (Qt.Key.Key_Up, Qt.Key.Key_Down) and alt and not shift:
+            self.walk.emit(-1 if key == Qt.Key.Key_Up else 1)
+            event.accept()
+            return
+        if key == Qt.Key.Key_Up and not (shift or alt) and not self.toPlainText():
+            self.recall.emit()
+            event.accept()
+            return
         if key == Qt.Key.Key_Escape:
             self.escaped.emit()
             event.accept()
@@ -82,7 +90,10 @@ class MessageBox(QWidget):
     submitted = Signal(str)
     stop_requested = Signal()
     walk_requested = Signal(int)
-    open_source_requested = Signal()
+    #: Up in the empty box: bring the last message back (`begin_edit`).
+    recall_requested = Signal()
+    #: A message brought back by Up, sent changed: it replaces the last one.
+    edit_submitted = Signal(str)
     escaped = Signal()
     #: The Web chip was switched (`True` = on for this conversation).
     web_toggled = Signal(bool)
@@ -96,16 +107,19 @@ class MessageBox(QWidget):
         self.edit.setToolTip(
             "Type your question. Enter sends it; Shift+Enter starts a new line. "
             "Type / for the switches every other search box has (/from, /type, /after, /attachment ...). "
-            "Up and Down move through the sources on the right without leaving "
-            "this box.")
+            "Alt+Up and Alt+Down move through the sources on the right without leaving "
+            "this box. Up in an empty box brings back your last message to change.")
         self.edit.setTabChangesFocus(True)
         from app.ui.widgets.chat_commands import attach_chat_commands
 
         self.commands = attach_chat_commands(self.edit)             # `/` offers the same switches as every box
         self.edit.submitted.connect(self._submit)
-        self.edit.open_source.connect(self.open_source_requested)
         self.edit.walk.connect(self.walk_requested)
-        self.edit.escaped.connect(self.escaped)
+        self.edit.recall.connect(self.recall_requested)
+        self.edit.escaped.connect(self._escaped)
+        #: The box holds the last message, brought back by Up (`begin_edit`).
+        self.editing = False
+        self.edit.textChanged.connect(self._emptied)
         self.edit.document().documentLayout().documentSizeChanged.connect(
             lambda _size: self._fit())
         self.edit.textChanged.connect(self._fit)
@@ -194,6 +208,28 @@ class MessageBox(QWidget):
             self.web.blockSignals(False)
         self.web.setToolTip(WEB_ON_TIP if self.web.isChecked() else WEB_OFF_TIP)
 
+    def begin_edit(self, text: str) -> None:
+        """The last message, back in the box to be changed. Nothing is taken from the
+        conversation until it is sent (`edit_submitted`)."""
+        if self._busy or self._reason:
+            return
+        self.set_text(text)
+        self.editing = True
+
+    def _emptied(self) -> None:
+        if not self.edit.toPlainText():
+            self.editing = False             # emptied: it is a new message from here
+
+    def _escaped(self) -> None:
+        if self.editing:
+            self.edit.clear()                # Esc lets the brought-back message go
+        self.escaped.emit()
+
+    def send_text(self, text: str) -> None:
+        """Put `text` in the box and send it (a starter card)."""
+        self.edit.setPlainText(text)
+        self._submit()
+
     def set_text(self, text: str) -> None:
         """Put text in the box (an edited message coming back to be changed)."""
         self.edit.setPlainText(text)
@@ -204,8 +240,9 @@ class MessageBox(QWidget):
         text = self.edit.toPlainText().strip()
         if self._busy or self._reason or not text:
             return
+        editing, self.editing = self.editing, False
         self.edit.clear()
-        self.submitted.emit(text)
+        (self.edit_submitted if editing else self.submitted).emit(text)
 
     def set_busy(self, busy: bool) -> None:
         """An answer is being written: Send gives way to Stop."""

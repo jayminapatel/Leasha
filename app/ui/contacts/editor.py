@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QGridLayout, QHBoxLayout, QL
                              QMessageBox, QPlainTextEdit, QToolButton, QVBoxLayout, QWidget)
 
 from app.contacts.card import KINDS, SCALARS, Card, Field, Photo, display_name, field_key
+from app.ui.contacts.enrich_panel import EnrichPanel
 from app.ui.contacts.fields import FieldList
 from app.ui.contacts.index_panel import IndexPanel
 from app.ui.contacts.loader import Detail, read_photo, run_task
@@ -211,6 +212,10 @@ class ContactEditor(QWidget):
         col.addWidget(self.groups)
         col.addWidget(self._section("tag", "Tags"))
         col.addWidget(self.tags)
+        # Order 1s 7c, 7e: enrich this contact, and the suggestions turned down for it.
+        self.enrich_panel = EnrichPanel()
+        self.enrich_panel.error.connect(self.error)
+        col.addWidget(self.enrich_panel)
         # 6f: the mail, files and photos the index holds about this person.
         self.index_panel = IndexPanel()
         self.index_panel.error.connect(self.error)
@@ -322,6 +327,7 @@ class ContactEditor(QWidget):
         self.setEnabled(False)
         self.heading.setText("")
         self.index_panel.clear()
+        self.enrich_panel.clear()
 
     def start_new(self, default_account: Optional[int]) -> None:
         """Ctrl+N: an empty card, kept in the default account (D5)."""
@@ -330,6 +336,7 @@ class ContactEditor(QWidget):
         kept = [default_account] if default_account in self._accounts else []
         self._load(Card(), kept, [], {}, {}, "")
         self.index_panel.clear()
+        self.enrich_panel.clear()
         for kind in ("email", "phone"):                 # blank rows are not saved; they invite typing
             self.lists[kind].add_row(None, emit=False)
         self.heading.setText("New contact")
@@ -357,6 +364,7 @@ class ContactEditor(QWidget):
         self.banner_detail.setText("\n".join(self.review.decided))
         self.banner_detail.setVisible(flagged and bool(self.review.decided))
         self.index_panel.show_for(d.id, [f.value for f in d.card.values("email")])
+        self.enrich_panel.show_for(d.id)
 
     def _load(self, card: Card, kept: list[int], tags: list[str], sources: dict, meta: dict, name: str) -> None:
         self._loading = True
