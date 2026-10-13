@@ -279,6 +279,7 @@ def _settle_env_write(app) -> None:
         app.processEvents()
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_pressing_the_switch_saves_it_and_starts_a_watch_on_the_folders_shown(
         watch) -> None:

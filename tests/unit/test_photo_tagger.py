@@ -339,6 +339,7 @@ def test_pending_suggestions_excludes_assigned_and_undecided_faces(store):
     assert store.pending_suggestions() == []
 
 
+@pytest.mark.slow
 def test_confirming_a_suggestion_removes_it_from_the_queue(store):
     file_id = _photo(store)
     daddy = store.create_pile(name="Daddy")

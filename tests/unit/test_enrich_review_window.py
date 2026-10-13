@@ -203,6 +203,7 @@ def test_suggestions_turned_down_are_listed_on_the_contact_and_undo_takes_one_ba
     assert declines.count(page_world.store) == 1 and len(panel.declined_texts()) == 1
 
 
+@pytest.mark.slow
 def test_settings_say_how_many_were_turned_down_and_clear_asks_first(page_world, qtbot, monkeypatch):
     from app.ui.accounts import enrich_settings, parts
     from app.ui.accounts.backend import Backend

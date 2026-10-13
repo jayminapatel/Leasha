@@ -201,6 +201,7 @@ def test_a_stop_while_meaning_catches_up_loses_nothing_and_embeds_nothing_twice(
     assert second.vectors_repaired >= 1, second.vectors_repaired
 
 
+@pytest.mark.slow
 def test_a_long_file_left_unembedded_is_repaired_whole(tmp_path):
     r"""**The repair bug, classic mode.** One file with many passages, left with
     no vectors, embed batch smaller than the file: every passage must end up

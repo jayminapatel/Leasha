@@ -305,6 +305,7 @@ def test_the_mail_lists_open_opens_the_message_in_outlook(qapp, store, monkeypat
         view.shutdown()
 
 
+@pytest.mark.slow
 def test_the_mail_lists_menu_offers_open_and_show_in_folder_the_archive(
         qapp, store, monkeypatch) -> None:
     from app.ui import mail_view as mail_view_module

@@ -73,6 +73,7 @@ def _answer(result):
 
 # -- the tools ----------------------------------------------------------------
 
+@pytest.mark.slow
 def test_four_tools_all_marked_read_only(settings):
     from app.serve.mcp import TOOL_NAMES, build_server
 
@@ -135,6 +136,7 @@ def _free_port() -> int:
         return probe.getsockname()[1]
 
 
+@pytest.mark.slow
 def test_the_server_runs_on_this_computer_only_and_needs_its_key(settings):
     import httpx2
 
@@ -271,6 +273,7 @@ def test_the_command_line_has_the_bridge():
     assert parsed.func.__name__ == "cmd_mcp"
 
 
+@pytest.mark.slow
 def test_the_bridge_as_its_own_process_speaks_clean_mcp_on_stdout(settings, tmp_path):
     """As Claude Desktop starts it: a separate process on stdin/stdout. Anything
     printed to stdout would break the protocol, so this is the test that would see it."""
@@ -305,6 +308,7 @@ def test_the_bridge_as_its_own_process_speaks_clean_mcp_on_stdout(settings, tmp_
 
 # -- Settings: Start, Stop, Connect ---------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_settings_starts_and_stops_it_and_connects_a_program(gui_mainwindow, qtbot, tmp_path,
                                                              monkeypatch):
@@ -426,6 +430,7 @@ def test_closing_refuses_new_calls_and_waits_for_one_in_flight(settings):
     assert index.store._closed, "the last call out did not close it"
 
 
+@pytest.mark.slow
 def test_stop_returns_with_an_event_stream_still_open(settings):
     r"""Finding 5: an AI program holding its stream open kept uvicorn waiting
     forever, so each Stop leaked a loop and a thread."""

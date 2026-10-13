@@ -49,14 +49,9 @@ run_suite = _run_suite()
 #: that are about to stop being slow. Each is re-audited when its group's PR merges, and
 #: comes off this list then.
 _SECTION_2_REASON = "order 1u section 2 is speeding this file up; re-audited when its PR merges"
-EXEMPT: dict[str, str] = {name: _SECTION_2_REASON for name in (
-    "test_index_tuning_acceptance", "test_speed_work", "test_run_setup", "test_read_process",
-    "test_grab_ui", "test_window_opens", "test_ui_redesign_scenarios", "test_ui_review_0x9",
-    "test_diagnostics", "test_index_child_process", "test_timed_out_retry",
-    "test_pst_folder_resume", "test_staging", "test_resolve_gpu_regression",
-    "test_clip_lane_wiring", "test_ui_never_blocks", "test_query_plans", "test_converter",
-    "test_layer4_acceptance", "test_layer3_acceptance",
-)}
+#: *2026-10-13:* every section 2 PR merged (#92), the files were re-audited on that run's times
+#: and their slow tests marked, so no file is exempt now.
+EXEMPT: dict[str, str] = {}
 
 
 def _is_param(node: ast.AST) -> bool:

@@ -296,6 +296,7 @@ def _editor_for(world, page, cid):
     return page.editor
 
 
+@pytest.mark.slow
 def test_editing_round_trips_through_the_hub(world):
     cid = world.add(card("Ann", "Lee", email="ann@acme.example", phone="07700900123", company="Acme"),
                     kept=[world.a_home])

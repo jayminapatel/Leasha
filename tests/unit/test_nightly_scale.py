@@ -193,6 +193,7 @@ def test_an_empty_reference_cannot_pass(monkeypatch, tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_generated_ladder_images_are_two_kinds_with_neutral_names(tmp_path):
     pytest.importorskip("PIL")
     pages, photos = nightly_probe._ladder_images(tmp_path)
@@ -200,6 +201,7 @@ def test_the_generated_ladder_images_are_two_kinds_with_neutral_names(tmp_path):
     assert not any(p.name.lower().startswith(("img_", "dsc_", "screenshot")) for p in pages + photos)
 
 
+@pytest.mark.slow
 def test_rung_zero_and_one_are_measured_without_any_model(monkeypatch):
     pytest.importorskip("PIL")
     from app.extract import ocr
@@ -211,6 +213,7 @@ def test_rung_zero_and_one_are_measured_without_any_model(monkeypatch):
     assert any("rung 2 not measured" in n for n in out["notes"])
 
 
+@pytest.mark.slow
 def test_the_pages_route_to_ocr_at_rung_one_and_the_photos_do_not(tmp_path):
     pytest.importorskip("PIL")
     from app.extract.ocr_ladder import RouteDecision, route

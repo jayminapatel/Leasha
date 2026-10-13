@@ -71,6 +71,7 @@ def _rail_labels_fit(window) -> list[str]:
     return squeezed
 
 
+@pytest.mark.slow
 def test_a_short_window_shows_rail_icons_rather_than_labels_cut_in_half(gui_mainwindow, qtbot):
     r"""**Before:** at 560 pixels tall every rail label was cut in half -
     "Searcn", "Files" with its lower half missing - because the rail measured
@@ -193,6 +194,7 @@ def _most_contrasting(image, rect, ground) -> float:
     return best
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, qtbot, scheme):
     r"""**Before:** in the light theme the chosen page's icon was drawn white on
@@ -307,6 +309,7 @@ def test_quiet_text_still_reaches_wcag_aa(gui_mainwindow, qtbot, scheme):
     window.rail.setCurrentIndex(0)
 
 
+@pytest.mark.slow
 def test_an_empty_index_does_not_call_itself_up_to_date(gui_mainwindow, qtbot):
     r"""**Before:** on a first run, with nothing indexed, the rail's pill read
     "Up to date - 0 files" while the Search page beside it said "Nothing has
@@ -670,6 +673,7 @@ def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
             gui_pump(app, 4)
 
 
+@pytest.mark.slow
 def test_files_opens_with_names_at_their_own_width_and_a_drag_is_still_the_one_kept(
         gui_mainwindow, qtbot):
     r"""**Before** (review finding 3): the Files table opened with every column

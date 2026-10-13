@@ -42,6 +42,7 @@ def test_log_folders_are_created_with_a_readme(tmp_path: Path) -> None:
         assert name in readme
 
 
+@pytest.mark.slow
 def test_bundle_contains_the_expected_parts(temp_env: Path, project_root: Path) -> None:
     settings = load_settings(temp_env)
     bundle = build_bundle(settings, project_root)

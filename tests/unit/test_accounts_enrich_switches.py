@@ -28,6 +28,7 @@ MORE_ON = ("enrich_vcards", "enrich_calendar", "enrich_linkedin")
 MORE_OFF = ("enrich_documents", "enrich_read_originals")
 
 
+@pytest.mark.slow
 def test_defaults_are_local_on_and_internet_off(world):
     svc, page = world
     g = page().globals
@@ -49,6 +50,7 @@ def test_every_switch_saves_and_reloads(world, key):
     assert page().globals.enrich[key].isChecked() is want
 
 
+@pytest.mark.slow
 def test_each_internet_switch_says_what_it_sends(world):
     svc, page = world
     g = page().globals

@@ -67,6 +67,7 @@ def allowed(logits: np.ndarray) -> set[int]:
 # Features
 # ==========================================================================
 
+@pytest.mark.slow
 @pytest.mark.parametrize("n_mels", [80, 128])
 def test_the_log_mel_matches_faster_whispers_feature_extractor(n_mels):
     reference = pytest.importorskip("faster_whisper.feature_extractor")
@@ -84,6 +85,7 @@ def test_the_log_mel_matches_faster_whispers_feature_extractor(n_mels):
     assert float(np.abs(whisper.mel_filters(n_mels=n_mels) - extractor.mel_filters).max()) < 1e-6
 
 
+@pytest.mark.slow
 def test_any_recording_is_decoded_to_mono_16_khz_int16(tmp_path):
     pytest.importorskip("av")
     import wave

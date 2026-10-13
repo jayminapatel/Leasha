@@ -76,6 +76,7 @@ def test_first_pull_brings_an_account_in_and_links_it(world):
     assert world.accounts.get(a).first_sync_done
 
 
+@pytest.mark.slow
 def test_two_accounts_and_the_hub_all_change_at_once(world):
     """9a.1 - a phone changed in one account reaches the other within one sync (A2)."""
     g, m = world.account("Google"), world.account("Work")
@@ -249,6 +250,58 @@ def test_a_delete_of_a_record_whose_content_changed_meanwhile_is_still_held_back
     world.hub.delete(cid)
     world.sync()
     assert len(world.servers[g].live()) == 1               # rule 3c: nothing that changed meanwhile is deleted blind
+
+
+def _unbased(world, cid, aid):
+    """The link as a merge-in makes it (`_same_person`): no snapshot, hub_rev -1."""
+    link = world.hub.link(cid, aid)
+    world.hub.set_link(cid, aid, remote_id=link.remote_id, version_tag=link.version_tag, snapshot=None,
+                       hub_rev=-1, state="synced")
+
+
+def _stale_etag_delete(world, aid):
+    from app.accounts.provider import VersionConflict
+
+    provider = world.providers[aid]
+    real_delete = provider.delete
+
+    def delete(remote_id, version):
+        if version != str(world.servers[aid].recs[remote_id].version):
+            raise VersionConflict(remote_id)
+        real_delete(remote_id, version)
+
+    provider.delete = delete
+
+
+def test_a_delete_of_a_merged_in_link_with_no_base_goes_through_when_the_account_holds_what_leasha_holds(world):
+    """Six binned contacts stayed in Gmail for ever: joined by a merge-in they had no snapshot, Google's etag mask
+    moved, and with no base the delete could never prove nothing had changed (the owner, 2026-10-13)."""
+    g = world.account("Google")
+    rid = world.servers[g].add(person("Ann", "Lee"))
+    world.sync()
+    cid = world.hub.list_rows()[0].id
+    _unbased(world, cid, g)
+    world.servers[g].recs[rid].version += 1               # same content, new etag
+    _stale_etag_delete(world, g)
+    world.hub.delete(cid)
+    out = only(world.sync(), g)
+    assert world.servers[g].live() == {} and out.status == "ok" and out.plan.delete_out == 1
+
+
+def test_a_delete_with_no_base_is_held_and_named_when_the_account_holds_something_leasha_does_not(world):
+    g = world.account("Google")
+    rid = world.servers[g].add(person("Ann", "Lee"))
+    world.sync()
+    cid = world.hub.list_rows()[0].id
+    _unbased(world, cid, g)
+    changed = person("Ann", "Lee")
+    changed.scalars["company"] = "Edited At The Account"
+    world.servers[g].edit(rid, changed)
+    _stale_etag_delete(world, g)
+    world.hub.delete(cid)
+    out = only(world.sync(), g)
+    assert len(world.servers[g].live()) == 1               # rule 3c still holds
+    assert out.status == "partial" and out.plan.failed_out == 1   # and the run says so, not "ok"
 
 
 def test_the_delete_brake_stops_a_mass_delete_until_allowed(world):

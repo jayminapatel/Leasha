@@ -78,6 +78,7 @@ ANN_EMAILS = ["ann@acme.com"]
 
 # -- one reading, two readers -------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_panels_facts_are_the_tools_facts(world, store):
     settings, ids = world
     answer = tools_for(settings).contact_activity(ids["ann"], 10)

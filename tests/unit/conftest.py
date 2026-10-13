@@ -257,9 +257,7 @@ def _mouse_buttons() -> list:
 #: this file: Ctrl or Shift left held by its shortcut presses). Not fixed here because
 #: order 1u section 2g is rewriting this file at the same time; it comes off the list
 #: when that lands.
-KNOWN_INPUT_LEAKERS: frozenset[str] = frozenset({
-    "tests/unit/test_ui_redesign_scenarios.py",
-})
+KNOWN_INPUT_LEAKERS: frozenset[str] = frozenset()  # *2026-10-13:* section 2g landed (#92); none left
 
 
 def held_input() -> list[str]:

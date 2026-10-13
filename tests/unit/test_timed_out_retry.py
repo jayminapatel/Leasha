@@ -305,6 +305,7 @@ def _first_run_times_slow_out(tmp_path, monkeypatch, calls, *, seconds=1.5,
     return root
 
 
+@pytest.mark.slow
 def test_a_retry_reads_the_file_under_the_longer_limit_and_nothing_else(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     calls: list[str] = []
@@ -342,6 +343,7 @@ def test_an_ordinary_run_is_not_taken_for_a_retry(tmp_path) -> None:
     pipeline.store.close()
 
 
+@pytest.mark.slow
 def test_the_longer_limit_is_for_that_run_only(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     """The retry writes no setting and changes no limit: a fresh slow file,
@@ -363,6 +365,7 @@ def test_the_longer_limit_is_for_that_run_only(
     third.store.close()
 
 
+@pytest.mark.slow
 def test_a_retry_leaves_the_other_groups_alone(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     calls: list[str] = []
@@ -392,6 +395,7 @@ def test_a_retry_leaves_the_other_groups_alone(
     retry.store.close()
 
 
+@pytest.mark.slow
 def test_a_second_timeout_stays_timed_out_and_says_what_it_was_given(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     calls: list[str] = []
@@ -418,6 +422,7 @@ def test_a_second_timeout_stays_timed_out_and_says_what_it_was_given(
     retry.store.close()
 
 
+@pytest.mark.slow
 def test_a_file_that_has_changed_since_is_read_with_the_usual_limit(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     root = _corpus(tmp_path / "docs", files=1)
@@ -438,6 +443,7 @@ def test_a_file_that_has_changed_since_is_read_with_the_usual_limit(
     retry.store.close()
 
 
+@pytest.mark.slow
 def test_a_file_that_has_gone_is_left_for_the_clean_up(
         tmp_path, monkeypatch, fast_watchdog) -> None:
     calls: list[str] = []
@@ -542,6 +548,7 @@ def test_a_retry_with_nothing_timed_out_says_so_and_is_not_an_error(
     assert code == 0 and "No files are timed out." in out
 
 
+@pytest.mark.slow
 def test_the_command_line_lists_and_retries_a_group(
         capsys, cli_env, tmp_path, monkeypatch, fast_watchdog) -> None:
     env = ["--env", str(cli_env)]
@@ -593,6 +600,7 @@ def test_the_command_line_lists_and_retries_a_group(
     assert "No files are timed out." in out
 
 
+@pytest.mark.slow
 def test_a_retry_from_the_command_line_that_times_out_again_says_the_limit(
         capsys, cli_env, tmp_path, monkeypatch, fast_watchdog) -> None:
     env = ["--env", str(cli_env)]
@@ -627,6 +635,7 @@ def test_the_flags_for_the_indexing_process_round_trip() -> None:
         assert _retry_asked(args) == (retry, None), argv
 
 
+@pytest.mark.slow
 def test_a_retry_through_the_indexing_process(tmp_path, monkeypatch) -> None:
     """The real `app.cli index --events jsonl` child, as the window starts it
     with "Index in a separate process" on: an ordinary run times a slow file

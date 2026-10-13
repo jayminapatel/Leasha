@@ -104,6 +104,7 @@ def test_a_message_is_found_by_the_year_it_was_sent(indexed):
         "Letter E2017"}
 
 
+@pytest.mark.slow
 def test_a_message_is_not_found_outside_the_year_it_was_sent(indexed):
     """The other half: the archive's own (recent) date must no longer place
     the letters. Before the fix every message matched "this year"."""
@@ -120,6 +121,7 @@ def test_the_same_filter_with_words_still_uses_the_sent_date(indexed):
         "Letter E2017"}
 
 
+@pytest.mark.slow
 def test_date_finds_a_message_by_its_sent_date_on_every_path(indexed):
     """Order "dates" §1a: `date:` sets the fields `after:`/`before:` set, so
     the sent-date rule follows it for free - the filter-only browse, the

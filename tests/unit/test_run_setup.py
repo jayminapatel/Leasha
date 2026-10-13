@@ -225,6 +225,7 @@ def _db(env_file: Path) -> Path:
     return Path(load_settings(env_file).fts_db)
 
 
+@pytest.mark.slow
 def test_a_command_line_text_pass_makes_its_next_run_the_images_pass(
         capsys, after_run_env, tmp_path) -> None:
     """Before, only the window knew: `app.cli index` under "after-run" was the
@@ -309,6 +310,7 @@ def test_one_folder_s_images_pass_reads_only_that_folder_s_held_files(tmp_path) 
     assert sorted(queued) == sorted([mine / "scan.pdf", mine / "mail.pst"])
 
 
+@pytest.mark.slow
 def test_a_command_line_run_over_the_saved_folders_uses_what_the_window_saved(
         capsys, after_run_env, tmp_path, monkeypatch, pst_reader) -> None:
     """The cloud opt-ins (master switch and per folder) and the PST reader the

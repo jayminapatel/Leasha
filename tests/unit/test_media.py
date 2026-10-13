@@ -266,6 +266,7 @@ def test_cover_art_inside_an_mp3_does_not_make_it_a_video():
     assert info.has_audio and not info.has_video
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("junk", ["", "not json", "[]", "null", '{"streams": 4}'])
 def test_unreadable_probe_output_is_an_empty_answer_not_a_crash(junk):
     info = media_tools.parse_probe(junk)
@@ -281,6 +282,7 @@ def test_scene_score_is_zero_for_the_same_picture_and_large_for_a_cut():
     assert media_tools.scene_score(dark, np.zeros((9, 16), dtype=np.uint8)) == 1.0
 
 
+@pytest.mark.slow
 def test_thinning_keeps_the_first_and_spreads_the_rest_evenly():
     picked = media_tools._spread(list(range(10)), 3)
     assert picked[0] == 0 and picked[-1] == 9 and len(picked) == 3
@@ -341,6 +343,7 @@ def make_real_video(path: Path, *, colours=((250, 0, 0), (0, 250, 0), (0, 0, 250
     return path
 
 
+@pytest.mark.slow
 def test_a_real_file_yields_length_picture_date_and_place(tmp_path):
     path = make_real_video(tmp_path / "birthday.mp4")
     info = media_tools.probe(path)
@@ -365,6 +368,7 @@ def test_a_real_file_gives_one_picture_per_scene_with_its_time(tmp_path):
     assert all(f.path.is_file() and f.path.stat().st_size > 100 for f in found)
 
 
+@pytest.mark.slow
 def test_hand_held_shake_is_not_a_scene_but_a_real_cut_still_is(tmp_path):
     """Found on the owner's real family clips, and the reason `SCENE_MIN_GAP_S` and
     `HARD_CUT_THRESHOLD` exist: at `SCENE_THRESHOLD` alone, 40 sampled real phone
@@ -390,6 +394,7 @@ def test_hand_held_shake_is_not_a_scene_but_a_real_cut_still_is(tmp_path):
     assert len(found) >= 10                                # every real cut is a picture
 
 
+@pytest.mark.slow
 def test_the_gap_setting_adds_a_picture_when_nothing_changes(tmp_path):
     path = make_real_video(tmp_path / "still.mp4", colours=((90, 90, 90),), seconds_each=6)
     out = tmp_path / "pics"
@@ -402,6 +407,7 @@ def test_the_gap_setting_adds_a_picture_when_nothing_changes(tmp_path):
     assert len(media_tools.extract_keyframes(path, one, interval_s=600, cap=50)) == 1
 
 
+@pytest.mark.slow
 def test_the_cap_thins_evenly_and_deletes_what_it_drops(tmp_path):
     # Neighbours differ a lot in brightness, so every change counts as a scene.
     colours = ((250, 0, 0), (0, 250, 0), (0, 0, 250), (250, 250, 0),
@@ -489,6 +495,7 @@ def _imports(tree):
             yield node.module
 
 
+@pytest.mark.slow
 def test_only_the_media_modules_import_pyav():
     """**The rule changed on 2026-09-20 and this is the new one.** It used to ban
     every FFmpeg binding, so that FFmpeg would only ever be aggregated. That bought
@@ -511,6 +518,7 @@ def test_only_the_media_modules_import_pyav():
     assert av_users <= {"media_tools.py"}, av_users
 
 
+@pytest.mark.slow
 def test_no_module_encodes_media():
     """Leasha only decodes, which is what keeps the libx264/libx265 question in
     `docs/THIRD_PARTY_NOTICES.md` a question about a wheel rather than a question
@@ -553,6 +561,7 @@ def test_both_extractors_are_registered_and_typescript_is_left_alone():
     assert extractor_for(Path("mod.mts")).name != "video"
 
 
+@pytest.mark.slow
 def test_a_video_is_its_container_its_screen_and_its_speech(tmp_path, tools, frames):
     use_engine(FakeEngine())
     media.configure(enabled(tmp_path))
@@ -1111,6 +1120,7 @@ def test_a_text_only_pass_holds_video_like_a_picture_and_the_images_pass_reads_i
     assert second.indexed == 1 and done.status == FileStatus.INDEXED
 
 
+@pytest.mark.slow
 def test_stop_mid_transcription_then_rerun_continues_and_finishes(tmp_path, tools, frames):
     """The acceptance test for 'resumable': a run stopped inside a recording keeps
     its passages, the file is queued rather than failed, and the next run carries
@@ -1197,6 +1207,7 @@ def test_a_film_is_not_too_big_to_read_but_a_big_text_file_still_is(tmp_path):
 # The backlog: videos and recordings are read after everything else
 # ==========================================================================
 
+@pytest.mark.slow
 def test_a_normal_run_reads_the_video_only_after_every_document(tmp_path, tools, frames):
     """The point of the backlog kind: the film does not stand in front of the
     spreadsheets. Asked from inside the speech engine - the most expensive thing
@@ -1237,6 +1248,7 @@ def test_the_main_pass_only_queues_the_video_and_says_so_in_the_ledger(tmp_path,
     assert "ERR_MEDIA_BACKLOG" in Pipeline.DEFERRED_SKIP_CODES
 
 
+@pytest.mark.slow
 def test_a_queued_recording_is_read_by_the_next_run_even_from_another_folder(tmp_path, tools, frames, monkeypatch):
     """The queue is the ledger, not the walk: a run over some *other* folder still
     empties the backlog, so a night's stopped run is finished by any later run."""
@@ -1351,6 +1363,7 @@ def test_two_films_do_not_share_a_moment_and_deleting_a_file_deletes_its_frames(
         assert left == {(8, 5)}
 
 
+@pytest.mark.slow
 def test_the_pipeline_writes_a_row_per_picture_beside_the_mean(tmp_path, tools, frames):
     pytest.importorskip("lancedb")
     from app.storage.vector_store import ImageVectorStore
@@ -1371,6 +1384,7 @@ def test_the_pipeline_writes_a_row_per_picture_beside_the_mean(tmp_path, tools, 
     assert mean is not None and len(mean) == 4                      # and the mean is still written
 
 
+@pytest.mark.slow
 def test_a_failure_writing_frames_never_costs_the_video_its_mean(tmp_path, tools, frames):
     use_engine(FakeEngine())
     root = _corpus(tmp_path)
@@ -1431,6 +1445,7 @@ def test_off_by_default_no_face_code_touches_a_video(tmp_path, tools, frames, mo
     assert calls == [] and faces == [] and scanned == 0
 
 
+@pytest.mark.slow
 def test_switched_on_each_picture_is_scanned_and_a_person_seen_twice_is_one_face(
         tmp_path, tools, frames, monkeypatch):
     """Three pictures: person A, person A again (a little different), and person B."""
@@ -1443,6 +1458,7 @@ def test_switched_on_each_picture_is_scanned_and_a_person_seen_twice_is_one_face
     assert scanned == 1                          # "looked" is recorded, so nobody re-asks
 
 
+@pytest.mark.slow
 def test_a_picture_the_detector_chokes_on_costs_only_that_picture(tmp_path, tools, frames, monkeypatch):
     def detector(n):
         if n == 1:

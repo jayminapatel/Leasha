@@ -181,6 +181,7 @@ def corpus() -> Path:
     return root
 
 
+@pytest.mark.slow
 def test_a_run_records_where_its_time_went(corpus: Path, tmp_path: Path) -> None:
     from app.index.embedder import Embedder
 

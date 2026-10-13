@@ -87,6 +87,7 @@ def test_the_cli_takes_only_the_qt_free_decision_layer_from_the_ui():
     assert not offenders, offenders
 
 
+@pytest.mark.slow
 def test_every_cli_module_imports_without_qt():
     """`app.cli` must run on a machine, or in a process, with no PySide6 at all:
     `leasha-cli.exe`, the installer's model step, a scheduled run. Importing

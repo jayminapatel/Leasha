@@ -20,6 +20,7 @@ FIRST_VISIT_MS = 400
 LATER_VISIT_MS = 120
 
 
+@pytest.mark.slow
 def test_every_page_opens_at_once_and_switches_back_faster(gui_mainwindow, qtbot):
     app, window, _store, _engine = gui_mainwindow
     rail = window.rail

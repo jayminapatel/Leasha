@@ -128,6 +128,7 @@ def _sources():
         yield path
 
 
+@pytest.mark.slow
 def test_no_deferred_lambda_in_the_app_is_left_without_an_owner():
     offenders = []
     for path in _sources():

@@ -347,6 +347,7 @@ def test_the_types_are_counted_so_a_corpus_can_be_understood(tmp_path, mixed):
     assert stats.name_only_by_ext == {"mp4": 1, "zip": 1, "txt": 1}
 
 
+@pytest.mark.slow
 def test_a_name_only_row_is_not_reread_on_the_next_run(tmp_path, mixed):
     """`_classify` treats NAME_ONLY as UNCHANGED. Without that, every run
     rewrites every unreadable file forever - which on a media drive is the

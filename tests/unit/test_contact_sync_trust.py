@@ -78,6 +78,7 @@ class ICloudLike(FakeProvider):
         return super().update(remote_id, version, self._as_stored(card))
 
 
+@pytest.mark.slow
 def test_an_icloud_round_trip_settles_and_a_second_sync_writes_nothing(world):
     home = world.account("Home")
     apple = world.account("Apple", ICloudLike)

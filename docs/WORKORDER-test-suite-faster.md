@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.2 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.4 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 **Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of
@@ -32,7 +32,9 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 
 ## 1. Before starting
 
-- [ ] **1a** Each thread records its four files' times on `main` alone (the "before"), with the machine idle.
+- [x] **1a** Each thread records its four files' times on `main` alone (the "before"), with the machine idle.
+
+  *Done 2026-10-13.* Each §2 item carries its file's before time, measured on `main` alone by its thread.
 
 ## 2. The files, in five groups
 
@@ -253,11 +255,16 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   the flags. **Found and fixed on the way:** `tests/conftest.py`'s Florence-2 guard let every `slow` test load
   the real model, so this marking would have let 428 more tests try a 1 GB download; the opt-out is a new
   `real_florence` marker on the two real-model proofs, with a test that a merely slow test is still guarded.
-- [ ] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
+- [x] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
   commit the summary as `docs/TEST_COVERAGE.md`, and list:
   - every module under `app/` below 60% branch coverage;
   - every module that no test imports at all.
-- [ ] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
+
+  *Done 2026-10-13.* `docs/TEST_COVERAGE.md`: the full suite on `main` 08aadaa under branch coverage in four
+  parts, then the §4d files on top. 667 modules; 3 that no test runs; 91 under 60% branch. Two limits it
+  states: code in a child process and code on Qt's thread pool are not traced, so those modules read lower
+  than they are tested (the Contacts merge, conflicts and import paths among them).
+- [x] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
   each test first shown to fail when its behaviour breaks:
   - indexing (`app/index/`);
   - search (`app/search/`);
@@ -268,7 +275,92 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
 
   Target: **80% branch coverage** on these, and everything else **at least where it is today**, never lower.
   Trivial code (getters, `__repr__`, pure re-exports) and generated or vendored files are left out and listed.
-- [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
+
+  *2026-10-13, the gaps from the static scan (never-imported modules and unpinned promises), in risk order.*
+  Eight new files, 147 tests (counting parametrized cases); every test function was shown red by at least one
+  hand-made break to the app code, run, then undone (79 breaks, listed per file). **Not done here:** indexing and search (`app/index/`, `app/search/`) were not in this
+  thread's list, and the 80% target is not claimed - the coverage numbers come from 4c's separate run.
+  - `test_cov_contacts_merge_safe.py` (`book_actions.plan_safe_merges`, `merge_safe`, on a real hub): two
+    cards with one email are planned and folded into the fuller one; every group of one action is one batch
+    and one `undo_batch` gives every card back exactly; a caller's batch id is used, nothing to merge offers
+    no undo; a group marked safe with a name-only, mixed or empty reason list, a group not flagged safe, and a
+    group with one live card are refused; two people sharing only a name are suggested but never bulk-merged;
+    the survivor holds every value, phone, company and group of what it absorbed; the folded contact keeps
+    its card, sources and a `merged` journal entry naming the survivor; an account link moves to the survivor,
+    a surplus one is queued `pending_remove`, and undo hands the links back. Red: the reason re-check removed;
+    a batch per group; `pick_survivor` taking the first; the merged card not written; a one-card group
+    planned; both safe layers removed (`dupes.safe_groups` and the re-check - either alone is covered by the
+    other); the scan cache served stale (`book_version` ignored and `forget_scan` emptied, likewise).
+  - `test_cov_storage_migration_steps.py` (`_apply_step`, `_roll_back`): a failure in the second of two steps
+    keeps the first and leaves the version after it, `ERR_MIGRATION_FAILED` naming the step; an `AppError`
+    raised by a step is rolled back and passes through as itself; another connection sees the old version
+    while a step runs; a second run applies nothing; a caller's open transaction is committed first, not
+    rolled back with the step; an own-transaction step moves the version once, and a failing one leaves it
+    unchanged; a newer index and a gap in the steps are refused; `_roll_back` never raises, and a failure
+    whose rollback also fails reports the first error. Red: no rollback; the version committed before the
+    step; no second look under the lock; the `AppError` branch removed; the own-transaction first look
+    removed; `_roll_back` unguarded; the caller's transaction not committed; a failure committed; a newer
+    index accepted; a missing step skipped.
+  - `test_cov_accounts_delete_brake.py` (`_too_many`, `_push`, `_apply_master_deletes`, with the `World` of
+    `test_contact_sync_engine.py`): "more than" the count and the share, exactly at each and one past; one
+    delete is never a mass delete; deletes exactly at the limit go through; one past, they wait while a new
+    contact is still written, stay held on the next sync, and Allow carries them out; the master deleting
+    exactly the limit is carried out to the Bin; past it, the contacts are only flagged, what was pulled is
+    kept, the run is recorded `held` with its count, a flag counts again until Allow, and Allow deletes them.
+    Red: `>=` for the count; `>=` for the share; the single-delete exception removed; the push holding all
+    work; the push brake off; the master brake skipped; Allow ignored at the master; the earlier flags not
+    counted again.
+  - `test_cov_core_errors_guard.py` (`guard`, `to_app_error`): an unexpected exception becomes
+    `ERR_UNEXPECTED` with its component, its context and its traceback, the cause chained; a chosen code
+    fills its message from the context; an `AppErrorException` passes through as the same object whatever
+    code is asked; an interrupt is not converted; caller details are kept beside the traceback. Red: the
+    fix below reverted; `guard` wrapping app errors; no pass-through in `to_app_error`; `BaseException`
+    caught; `from None`; the traceback dropped; the context dropped; a caller's suggestion dropped.
+  - `test_cov_contacts_enrich_quoted.py`, `..._sigplaces.py`, `..._suggest.py`,
+    `test_cov_accounts_providers_common.py` (`_common` and `_mailcommon`): the Sent line in seven shapes; a
+    quoted block credited only to its own From address, none for a From with no address; quote marks off;
+    `mail_quoting` to-and-not-from, newest first, window and limit, through the trigram index and the scan;
+    countries whole and longest first, cities as written, domain endings, the region's order of evidence;
+    automatic senders and people who are not; suggestions skip the book (Bin included), the owner and robots,
+    keep the minimum, the limit and the order, and accepting is one sourced batch that never runs twice; each
+    HTTP status and body to its registered error, short error text, times, tokens, refused DOCTYPEs and
+    entities, base64url, a transport close that never fails. Red: 12 breaks in `quoted`, 8 in `sigplaces`
+    (the fix below reverted among them), 9 in `suggest`, 17 in the two provider modules. Three breaks stayed
+    green and are not claimed: the fraction-cutting in `parse_time` and in `epoch_from_iso` cannot be
+    falsified on Python 3.12, whose `fromisoformat` reads seven digits itself, and `b64url_decode`'s padding
+    arithmetic cannot either, because `base64` ignores surplus padding (no padding at all does go red).
+  - **Two faults found and fixed.** `to_app_error(exc, c, details=...)` - and so `guard(c, details=...)` -
+    passed `details` to `make_error` twice and raised a `TypeError` in place of the error it was reporting
+    (`app/core/errors.py`; caller details are now kept above the traceback). `sigplaces.city_in` never gave
+    a city of two or more words back as written ("ABU DHABI" came back "Abu Dhabi"): `re.escape` escapes the
+    space, so replacing the space afterwards left a pattern that matched nothing (`app/contacts/enrich/sigplaces.py`;
+    its only caller, `sigparse`, uses the answer as a yes or no, so no address changes).
+  - **One question for the owner, not changed:** a merge does not carry the folded contact's sources
+    (`contact_sources`) to the survivor - they stay on the folded contact in the Bin, so a value it brought
+    shows no source on the survivor until the merge is undone. Whether the survivor should inherit them is
+    a product decision.
+    *2026-10-13, the owner: "recommended" - the survivor now keeps the folded contacts' sources (`fix/merge-keeps-sources`).*
+  - *2026-10-13, measured (4c):* branch coverage with §4d - indexing 82.5%, search 91.3%, storage 81.0%,
+    contacts 80.6%, the error contract (`app/core/errors.py`) 91.7%; accounts 79.1%, then 86.2% with the note
+    below (measured on the accounts tests). Every path at 80% or more; indexing and search were there
+    without new tests. The one fault fixed here besides the two above: a Graph update retried one property at
+    a time counted an expired sign-in as that property refused, so every contact was reported refused
+    instead of the account needing sign-in (`graph_contacts._update_piecewise`).
+  - *2026-10-13, accounts to 80%:* `test_cov_accounts_carddav.py` (22 tests, on the loopback CardDAV server),
+    `test_cov_accounts_graph_contacts.py` (25) and `test_cov_accounts_google_people.py` (21): the three contact
+    connectors' batches answering each contact on its own (conflict, refusal, already gone, a sign-in failure
+    stopping the batch), a refused batch sent one at a time, each CardDAV group card written once a batch and
+    retried once when it moved, `$batch` refused or throttled past its rounds, folders and labels over pages or
+    gone mid-walk, and single reads and writes whose refusal must not pass for success. Every test was red under
+    at least one of 107 hand breaks (26 CardDAV, 45 Graph, 36 Google), each undone; one more stayed green and is
+    not claimed (a second Graph web page cannot reach `_to_body`, which `project` cuts to one). **One fault
+    found and fixed:** Graph's one-property-at-a-time retry counted a 401 as that property refused, so an
+    expired sign-in sent every property of every contact and reported each as refused by Outlook; it now stops
+    the batch as the account's error (`app/accounts/providers/graph_contacts.py`). Branch coverage of
+    `app/accounts/`, the same 63-file selection (every `tests/unit` file that imports it) before and 66 after:
+    **78.8% -> 86.2%** (1,776 -> 1,944 of 2,254 -> 2,256 branches); `carddav.py` 68.0% -> 88.9%,
+    `graph_contacts.py` 68.3% -> 94.3%, `google_people.py` 74.6% -> 94.1%; nothing lower.
+- [x] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
   - *2026-10-13, group B (2e-2h):* **one decision moved.** Whether an opened group stays open on a
@@ -279,6 +371,10 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   - *2026-10-13, Group D:* none of `test_staging.py`, `test_resolve_gpu_regression.py`,
     `test_clip_lane_wiring.py` or `test_ui_never_blocks.py` builds a Qt widget; their time was a device test, a
     model download, repeated staging and repeated parsing. Nothing to move.
+
+  *Done 2026-10-13, groups A, C and E checked by the master thread:* of their twelve files only
+  `test_index_tuning_acceptance.py` builds a Qt widget, and none of its tests takes a second now (1.1 s for the
+  file); the other eleven build none. **Counted: one decision moved** (group B, `presenter.expansions_kept`).
 - [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
@@ -295,11 +391,36 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
 
 ## 3. Done when
 
-- [ ] **3a** Every file in §2 has its before and after times written under its item, and every changed test was
+- [x] **3a** Every file in §2 has its before and after times written under its item, and every changed test was
   shown to go red when its behaviour breaks.
-- [ ] **3b** The full suite passes once on the combined result (`scripts/run_suite.py`), and its total time is
+
+  *Done 2026-10-13.* Every §2 item has its before and after times and the breaks that turned its
+  changed tests red, written under it by its thread (#92).
+- [x] **3b** The full suite passes once on the combined result (`scripts/run_suite.py`), and its total time is
   written here against the 5,043 s baseline. Target: the 20 files at **half their time or less** (1,260 s from
   2,520 s); a file that cannot get there says why.
-- [ ] **3c** `logs/suite/durations.json` is refreshed by that run, so the runner balances its parts on the new
+
+  *Done 2026-10-13, on `main` 08aadaa (#92) with `scripts/run_suite.py`, four parts, on the laptop.*
+  17,344 passed, 164 skipped, 1 xfailed, 3 failed, 0 crashed; wall 947 s. The three failures were fixed in #93 and
+  pass (144 tests in their files): the verbatim-labels guard could not read the error box's title, which
+  had moved into `widgets/error_box.py` unchanged; `test_converter_warm` counted `test_lo_session`'s
+  sleeping children in another part as its own; `test_walker` counted another thread's `os.scandir`.
+  **Test time: 2,901 s against the 5,043 s baseline (-42%)**, with 684 timed files against 564.
+  **The 20 files: 535 s against 2,520 s (-79%; target 1,260 s, met).** Per file, before and after:
+  2a 436 -> 1.1, 2b 214 -> 3.7, 2c 114 -> 6.5, 2d 69 -> 12.8, 2e 229 -> 51.7, 2f 94 -> 56.6,
+  2g 83 -> 13.4, 2h 79 -> 21.1, 2i 144 -> 14.0, 2j 137 -> 73.9, 2k 84 -> 42.3, 2l 72 -> 20.6,
+  2m 120 -> 19.1, 2n 119 -> 0.1, 2o 111 -> 75.5, 2p 58 -> 20.5, 2q 108 -> 38.3, 2r 97 -> 23.9,
+  2s 91 -> 13.3, 2t 63 -> 26.5 s. Measured with four parts at once, so a single file's number carries
+  the load of the other three.
+- [x] **3c** `logs/suite/durations.json` is refreshed by that run, so the runner balances its parts on the new
   times.
-- [ ] **3d** The records: `CHANGELOG.md`, `HANDOFF.md`, and this order's row in `docs/ORDER_REGISTER.md`.
+
+  *Done 2026-10-13.* That run rewrote `logs/suite/durations.json` (684 files). Read against the source,
+  229 cases (223 test functions in 96 files) took 1 s or more without a `slow` mark now that §2's
+  exemptions end; all are marked (#93), and `test_ui_redesign_scenarios` lets go of its keys, so
+  `KNOWN_INPUT_LEAKERS` is empty (4b, 4f).
+- [x] **3d** The records: `CHANGELOG.md`, `HANDOFF.md`, and this order's row in `docs/ORDER_REGISTER.md`.
+
+  *Done 2026-10-13.* `CHANGELOG.md`, `HANDOFF.md`, the register row (#93). **Left open: 4e** - groups B and
+  D wrote what they found (one decision moved, `presenter.expansions_kept`; nothing to move in D); groups A,
+  C and E did not say whether they looked, so it is not ticked on their behalf.

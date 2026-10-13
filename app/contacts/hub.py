@@ -711,8 +711,33 @@ class ContactHub:
         if survivor is None:
             return UnmergeResult(folded, None, False, res.accounts)
         survivor = int(survivor)
+        self._recopy_folded_sources(survivor)
         rebuilt = self.rebuild_merged(survivor, actor=actor)
         return UnmergeResult(folded, survivor, rebuilt, res.accounts)
+
+    def _recopy_folded_sources(self, survivor: int) -> None:
+        """After one person is given back, a source the survivor held only through them may also be
+        held by a contact still folded in (the copy was not doubled). Copy those back, journalled on
+        that fold and on its merge, so a later undo still removes exactly what merges copied."""
+        with self._write() as conn:
+            for r in conn.execute(
+                    "SELECT id, contact_id, batch_id, detail FROM contact_journal WHERE action = 'merged' "
+                    "AND undone_at IS NULL ORDER BY id").fetchall():
+                detail = json.loads(r["detail"] or "{}") or {}
+                if detail.get("into") != survivor:
+                    continue
+                made = self._copy_sources(conn, int(r["contact_id"]), survivor)
+                if not made:
+                    continue
+                detail["sources"] = list(detail.get("sources") or []) + made
+                conn.execute("UPDATE contact_journal SET detail = ? WHERE id = ?", (json.dumps(detail), r["id"]))
+                m = conn.execute("SELECT id, detail FROM contact_journal WHERE contact_id = ? AND action = 'merge' "
+                                 "AND batch_id IS ? AND undone_at IS NULL ORDER BY id DESC LIMIT 1",
+                                 (survivor, r["batch_id"])).fetchone()
+                if m is not None:
+                    md = json.loads(m["detail"] or "{}") or {}
+                    md["sources"] = list(md.get("sources") or []) + made
+                    conn.execute("UPDATE contact_journal SET detail = ? WHERE id = ?", (json.dumps(md), m["id"]))
 
     def merge_batches(self) -> list[str]:
         """The merges still standing, newest first: each is one "Merge" (or "Merge all safe") batch."""
@@ -812,6 +837,7 @@ class ContactHub:
             if cur_snap is None:
                 return None
             self._apply_snapshot(conn, cid, e.before, links=e.detail.get("links") if e.detail else None)
+            self._drop_merged_sources(conn, e)
             accounts |= {r["account_id"] for r in conn.execute(
                 "SELECT account_id FROM contact_links WHERE contact_id = ?", (cid,))}
         else:
@@ -819,6 +845,19 @@ class ContactHub:
         self._record(conn, cid, actor, "undo", before=cur_snap, after=self.snapshot(cid, conn),
                      batch_id=batch, detail={"of": e.id})
         return accounts
+
+    @staticmethod
+    def _drop_merged_sources(conn: Any, e: JournalRow) -> None:
+        """Undoing a merge (`merge` on the survivor) or one fold (`merged` on the folded contact)
+        takes off the survivor the source rows that merge copied there, and only those."""
+        if e.action not in ("merge", "merged") or not e.detail:
+            return
+        ids = [int(i) for i in e.detail.get("sources") or []]
+        owner = e.contact_id if e.action == "merge" else e.detail.get("into")
+        if not ids or owner is None:
+            return
+        conn.executemany("DELETE FROM contact_sources WHERE id = ? AND contact_id = ?",
+                         [(i, int(owner)) for i in ids])
 
     def _soft_delete(self, conn: Any, cid: int) -> None:
         now = self._now()
@@ -962,6 +1001,11 @@ class ContactHub:
         it lacks, and a surplus link to an account the survivor is already in
         stays on the folded-in contact in the bin as `pending_remove`, so the
         duplicate leaves that account at the next push.
+
+        The survivor also gains a copy of each folded contact's sources (where its
+        details came from) that it does not already hold; the folded contact keeps
+        its own. The ids of the copies are journalled (`detail["sources"]`) so the
+        undo removes exactly them.
         """
         batch = batch_id or uuid.uuid4().hex
         with self._write() as conn:
@@ -971,6 +1015,7 @@ class ContactHub:
             have = {r["account_id"] for r in conn.execute(
                 "SELECT account_id FROM contact_links WHERE contact_id = ?", (survivor,))}
             folded: list[int] = []
+            copied: list[int] = []
             for oid in others:
                 if oid == survivor:
                     continue
@@ -987,12 +1032,15 @@ class ContactHub:
                         conn.execute("UPDATE contact_links SET contact_id = ?, hub_rev = 0 WHERE id = ?",
                                      (survivor, l["id"]))
                         have.add(l["account_id"])
+                o_sources = self._copy_sources(conn, oid, survivor)
+                copied += o_sources
                 now = self._now()
                 conn.execute("UPDATE contacts SET deleted_at = ?, merged_into = ?, updated_at = ?, "
                              "rev = rev + 1 WHERE id = ?", (now, survivor, now, oid))
                 conn.execute("DELETE FROM contacts_fts WHERE rowid = ?", (oid,))
                 self._record(conn, oid, actor, "merged", before=o_before, after=self.snapshot(oid, conn),
-                             batch_id=batch, detail={"into": survivor, "links": o_before.get("links", [])})
+                             batch_id=batch, detail={"into": survivor, "links": o_before.get("links", []),
+                                                     "sources": o_sources})
                 folded.append(oid)
             if card is not None:
                 self._store_card(conn, survivor, card)
@@ -1001,8 +1049,23 @@ class ContactHub:
             conn.execute("UPDATE contacts SET rev = rev + 1 WHERE id = ?", (survivor,))
             self._record(conn, survivor, actor, "merge", before=s_before,
                          after=self.snapshot(survivor, conn, with_links=True), batch_id=batch,
-                         detail={"folded": folded, "links": s_before.get("links", [])})
+                         detail={"folded": folded, "links": s_before.get("links", []), "sources": copied})
         return batch
+
+    @staticmethod
+    def _copy_sources(conn: Any, src: int, dst: int) -> list[int]:
+        """Copy `src`'s sources onto `dst`, skipping any `dst` already holds (same value, source and
+        record). Returns the ids of the new rows, for the journal."""
+        made: list[int] = []
+        for r in conn.execute("SELECT field_key, source, ref, at FROM contact_sources WHERE contact_id = ? "
+                              "ORDER BY id", (src,)).fetchall():
+            if conn.execute("SELECT 1 FROM contact_sources WHERE contact_id = ? AND field_key = ? AND source = ? "
+                            "AND ref = ?", (dst, r["field_key"], r["source"], r["ref"])).fetchone():
+                continue
+            made.append(int(conn.execute(
+                "INSERT INTO contact_sources (contact_id, field_key, source, ref, at) VALUES (?,?,?,?,?)",
+                (dst, r["field_key"], r["source"], r["ref"], r["at"])).lastrowid))
+        return made
 
     # --------------------------------------------------------------- rejected
     def reject_pair(self, a: int, b: int) -> None:

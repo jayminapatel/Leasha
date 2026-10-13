@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from tests.unit.test_contacts_tools_ui_common import open_dialog, settle, world  # noqa: F401
 
 from app.ui.contacts_tools.conflicts_dialog import ConflictsDialog
@@ -11,6 +13,7 @@ def _clash(world, cid, unit, local, remote, winner):
     return world.hub.add_conflict(cid, None, unit, local, remote, winner)    # the hub stores them as JSON
 
 
+@pytest.mark.slow
 def test_tick_all_and_keep_the_accounts_value_switches_each_and_one_undo_restores(world, qtbot):
     a = world.add("Ann", "Lee", company="Acme")
     b = world.add("Bob", "Bell", company="Zeta")

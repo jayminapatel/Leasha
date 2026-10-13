@@ -219,6 +219,7 @@ NOT_A_RIGHT_CLICK: dict[str, tuple[int, str]] = {
 }
 
 
+@pytest.mark.slow
 def test_no_file_builds_a_right_click_menu_by_hand() -> None:
     builder = UI / "widgets" / "menus.py"
     found: dict[str, int] = {}

@@ -196,6 +196,7 @@ def window(tmp_path_factory):
     vectors.close()
 
 
+@pytest.mark.slow
 def test_the_window_can_be_constructed(window):
     r"""**The test that would have caught both.**
 
@@ -348,6 +349,7 @@ def test_window_saves_geometry_on_close(window, tmp_path):
     assert len(state) > 0, "saved geometry must not be empty"
 
 
+@pytest.mark.slow
 def test_window_can_restore_from_saved_state(window, tmp_path):
     r"""§4a-4b: A window can be created and restored from saved geometry.
 
@@ -415,6 +417,7 @@ def test_window_can_restore_from_saved_state(window, tmp_path):
         vectors.close()
 
 
+@pytest.mark.slow
 def test_close_event_persists_geometry_without_raising(tmp_path):
     r"""§3b/§4a: a real close hides the window, persists geometry, and never raises.
 
@@ -479,6 +482,7 @@ def test_close_event_persists_geometry_without_raising(tmp_path):
         vectors.close()
 
 
+@pytest.mark.slow
 def test_close_hides_before_the_staged_teardown_begins(tmp_path):
     r"""§3b, and §4's own coverage gap: "hide-first" as an *ordering*, not
     just an eventual end state.
@@ -901,6 +905,7 @@ def test_mail_and_code_land_in_their_original_tab_order(window):
             f"index refresh in _construct_secondary_views missed")
 
 
+@pytest.mark.slow
 def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_path):
     r"""The rapid-interaction risk item 2b's own task names: Ctrl+M / Ctrl+E
     pressed in the gap between `show()` and `_construct_secondary_views`
@@ -953,6 +958,7 @@ def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_
         vectors.close()
 
 
+@pytest.mark.slow
 def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
     r"""`_tab_changed` reaches for `code_view`/`mail_view` on every switch;
     proves it tolerates the gap before either is built, not just that
@@ -994,6 +1000,7 @@ def test_switching_tabs_before_mail_and_code_exist_does_not_crash(tmp_path):
         vectors.close()
 
 
+@pytest.mark.slow
 def test_closing_before_mail_and_code_exist_does_not_crash(tmp_path):
     r"""`closeEvent`'s teardown loop reaches for `mail_view`/`code_view`
     directly; proves an immediate close (no event-loop turn at all) is
@@ -1165,6 +1172,7 @@ def test_indexing_and_settings_keep_their_place_in_the_rail(window):
     assert built._tab_wrapped[built.indexing_view] is built.indexing_view
 
 
+@pytest.mark.slow
 def test_the_last_open_page_can_be_settings_or_indexing(tmp_path):
     r"""`_restore_last_page` used to run with both pages already in the rail.
     Chaining it after the deferred build is what keeps "reopen on Settings" true.
@@ -1202,6 +1210,7 @@ def test_the_start_up_work_runs_after_the_pages_and_not_before(window):
     assert built.settings_view is not None
 
 
+@pytest.mark.slow
 def test_start_up_work_without_the_pages_skips_instead_of_raising(tmp_path):
     r"""If a page is ever missing, each touch degrades to "skipped".
 
@@ -1230,6 +1239,7 @@ def test_start_up_work_without_the_pages_skips_instead_of_raising(tmp_path):
         assert hasattr(built, "indexing_view") and hasattr(built, "settings_view")
 
 
+@pytest.mark.slow
 def test_reaching_the_deferred_pages_before_they_exist_does_not_crash(tmp_path):
     r"""Every way a person or the system can touch Indexing or Settings in the
     gap: the two shortcuts, the menu actions, F5 / a drop / "Index this folder"
@@ -1278,6 +1288,7 @@ def test_reaching_the_deferred_pages_before_they_exist_does_not_crash(tmp_path):
         assert built.rail.currentIndex() == built._tab_index[built.indexing_view]
 
 
+@pytest.mark.slow
 def test_closing_before_indexing_and_settings_exist_does_not_crash(tmp_path):
     r"""`closeEvent` flushed and stopped the Indexing page by bare attribute;
     the arguments to `stage()` are evaluated before its own `try`, so an
@@ -1337,6 +1348,7 @@ def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(window):
         f"{[type(c).__name__ for c in unguarded]}")
 
 
+@pytest.mark.slow
 def test_restored_settings_reach_the_deferred_settings_page(tmp_path):
     r"""The two switches and the tray boxes that `__init__` used to set on the
     Settings page directly are set by the deferred build from the same stored
@@ -1355,6 +1367,7 @@ def test_restored_settings_reach_the_deferred_settings_page(tmp_path):
         assert built.settings_view.rerank.isChecked() is False
 
 
+@pytest.mark.slow
 def test_a_never_touched_rerank_box_follows_rerank_enabled(tmp_path, monkeypatch):
     r"""2026-10-04, code review: with `RERANK_ENABLED=true` and the box never
     touched, the engine reranked (`main.py` reads `rerank_wanted`) while the
@@ -1456,6 +1469,7 @@ def _wait_until(app, condition, seconds: float = 15.0) -> bool:
     return False
 
 
+@pytest.mark.slow
 def test_startup_sets_the_window_stylesheet_once_not_twice(tmp_path, monkeypatch):
     r"""`_apply_theme` ran in `__init__` (first paint needs it) and again when the
     deferred pages arrived. Setting the same sheet on the top-level window makes
@@ -1497,6 +1511,7 @@ def test_startup_sets_the_window_stylesheet_once_not_twice(tmp_path, monkeypatch
         assert len(sheets) == 2
 
 
+@pytest.mark.slow
 def test_an_f5_in_the_gap_is_replayed_once_the_page_exists(tmp_path):
     r"""F5 before `_construct_deferred_pages` has run was logged and dropped, so a
     person who hit it straight after launch got nothing and no word why."""
@@ -1522,6 +1537,7 @@ def test_an_f5_in_the_gap_is_replayed_once_the_page_exists(tmp_path):
         assert len(seen) == 2
 
 
+@pytest.mark.slow
 def test_a_folder_dropped_in_the_gap_is_indexed_and_shown(tmp_path):
     r"""The same gap for a drop, which carries information that cannot be
     re-derived later: which folder. It also brings the Indexing page forward, as

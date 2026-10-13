@@ -136,6 +136,7 @@ def _cli(tmp_path, *argv):
     return cli, parser_for(["gitsearch", *argv, "--env", env])
 
 
+@pytest.mark.slow
 def test_the_command_line_needs_a_repository_or_every_repository(tmp_path, capsys) -> None:
     cli, args = _cli(tmp_path, "CustomerId /history")
     capsys.readouterr()

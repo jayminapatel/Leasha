@@ -267,6 +267,7 @@ def test_index_status_reports_each_account_without_its_sign_in(world):
 
 # -- 8e: the bridge carries them, and a stopped server answers the same ------
 
+@pytest.mark.slow
 def test_the_bridge_carries_the_new_tools_and_a_stopped_server_answers_each_the_same(world):
     from app.serve.mcp import STOPPED, TOOL_NAMES, McpHost, bridge_server
     from tests.unit.test_mcp_server import _free_port

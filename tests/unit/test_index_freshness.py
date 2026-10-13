@@ -399,6 +399,7 @@ def test_a_memory_pause_does_not_deadlock_the_run(tmp_path, corpus):
     assert stats.pauses >= 1, "it should have actually paused"
 
 
+@pytest.mark.slow
 def test_a_battery_pause_does_not_deadlock_the_run(tmp_path, corpus):
     """Same shape, different cause. On a laptop this is the common one."""
     from app.index.resources import Snapshot
@@ -631,6 +632,7 @@ def test_documents_skipped_inside_an_archive_are_counted_apart_from_files(tmp_pa
     assert second.indexed == 1
 
 
+@pytest.mark.slow
 def test_bytes_are_counted_even_when_the_first_document_is_unchanged(tmp_path, corpus):
     """A 64-second run over 100MB reported "0.0 MB read".
 

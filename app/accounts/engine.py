@@ -891,7 +891,13 @@ class ContactSyncEngine:
                     fresh = provider.get(link.remote_id)
                     if fresh is None or fresh.card is None:
                         break                                       # already gone
+                    # A link joined by a merge-in has no base (2026-10-13: six binned contacts stayed in Gmail,
+                    # their etag's field mask moved while their content did not). Without one, the contact as
+                    # Leasha holds it is the measure: an account holding exactly that has nothing to lose.
                     held = link.snapshot
+                    if held is None:
+                        own = self.hub.get_card(link.contact_id)
+                        held = project(own, provider.caps, self.hub.region) if own is not None else None
                     now = project(fresh.card, provider.caps, self.hub.region)
                     same = held is not None and units(now, provider.caps, self.hub.region) == units(
                         held, provider.caps, self.hub.region)
@@ -1121,6 +1127,9 @@ class _Pusher:
             self._wrote(cid)
         except VersionConflict:
             _log.warning("gave up on {} for {}: it keeps changing; next sync tries again", cid, self.acct.name)
+            # Listed, so the run says "partial" with the name rather than "ok" over a write that never happened.
+            self._record(kind, cid, make_error("ERR_ACCOUNT_REJECTED", "accounts.engine", account=self.acct.name,
+                                               reason="it changed at the account since Leasha last read it"))
         except AppErrorException as exc:
             self._refuse(kind, cid, exc.error)
 
