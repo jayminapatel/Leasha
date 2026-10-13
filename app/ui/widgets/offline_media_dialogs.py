@@ -27,11 +27,11 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPlainTextEdit,
-    QVBoxLayout,
     QWidget,
 )
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 
 __all__ = ["ScanNameDialog", "DeleteVolumeDialog", "RenameSuggestionDialog"]
 
@@ -41,7 +41,7 @@ class ScanNameDialog(QDialog):
 
     def __init__(self, root: str, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("Name this source")
+        layout = frame(self, "Name this source")            # UI phase B: one dialog frame
         self.setMinimumWidth(440)
 
         intro = QLabel("Give this drive a name you'll remember.")
@@ -74,14 +74,8 @@ class ScanNameDialog(QDialog):
         # The theme's danger, read at build (the dialog is modal): #c62828 was 2.9:1 on a dark card.
         self.problem.setStyleSheet(f"color: {theme_colours()['danger']};")
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Scan")
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = dialog_buttons(self, "Scan")
 
-        layout = QVBoxLayout(self)
         layout.addWidget(intro)
         layout.addWidget(location)
         layout.addWidget(self.name)
@@ -126,23 +120,16 @@ class RenameSuggestionDialog(QDialog):
         from app.ui.presenter import rename_suggestion_text
 
         title, body = rename_suggestion_text(suggested_name)
-        self.setWindowTitle(title)
+        layout = frame(self, title)                          # UI phase B: one dialog frame
         self.setMinimumWidth(440)
 
         message = QLabel(body)
         message.setWordWrap(True)
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Yes | QDialogButtonBox.StandardButton.No
-        )
-        self.buttons.button(QDialogButtonBox.StandardButton.Yes).setText(
-            f"Yes — same as {suggested_name!r}")
-        self.buttons.button(QDialogButtonBox.StandardButton.No).setText(
-            "No — catalogue as new")
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        sb = QDialogButtonBox.StandardButton
+        self.buttons = dialog_buttons(self, f"Yes — same as {suggested_name!r}", standard=sb.Yes | sb.No)
+        self.buttons.button(sb.No).setText("No — catalogue as new")
 
-        layout = QVBoxLayout(self)
         layout.addWidget(message)
         layout.addWidget(self.buttons)
         # The button system (widgets/buttons.py): every action button in
@@ -165,25 +152,17 @@ class DeleteVolumeDialog(QDialog):
         from app.ui.presenter import delete_volume_confirmation
 
         title, body = delete_volume_confirmation(name, file_count)
-        self.setWindowTitle(title)
+        layout = frame(self, title)                          # UI phase B: one dialog frame
         self.setMinimumWidth(440)
 
         message = QLabel(body)
         message.setWordWrap(True)
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
         # "Delete", the word on the page's button. The page said Delete and the
         # dialog it opened said "Forget this source", which reads as a second,
         # different action (owner-approved, 2026-10-12). Cancel is the default.
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Delete")
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setAutoDefault(False)
-        self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setDefault(True)
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = dialog_buttons(self, "Delete", danger=True)
 
-        layout = QVBoxLayout(self)
         layout.addWidget(message)
         layout.addWidget(self.buttons)
         # The button system (widgets/buttons.py): every action button in

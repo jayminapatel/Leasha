@@ -54,6 +54,7 @@ from app.ui.presenter.mail_archives import (
 )
 from app.ui.widgets.buttons import icon_button, put_on_row
 from app.ui.widgets.fitted_tree import FittedColumns
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
 
 __all__ = ["MailArchivesBox"]
@@ -92,8 +93,7 @@ class MailArchivesBox(QGroupBox):
         #: first choice is named after.
         self._default_backend = "auto"
 
-        self.empty = QLabel(mail_archives_empty_text())
-        self.empty.setWordWrap(True)
+        self.empty = EmptyState(mail_archives_empty_text(), glyph="archive", align=Qt.AlignmentFlag.AlignLeft)
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(7)

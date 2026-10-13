@@ -29,7 +29,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import QThreadPool, Signal
-from PySide6.QtWidgets import QLabel, QStackedWidget, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QLabel, QStackedWidget, QWidget
 
 from app.reports.timeline import PAGE_SIZE, Period, month_of_ns, refresh_overview, timeline_page
 from app.reports.timeline_words import (
@@ -38,6 +38,8 @@ from app.reports.timeline_words import (
 from app.ui.presenter.timeline import blocks_for, loading_sentence, shown_sentence
 from app.ui.widgets.file_menu import FileActions, build_menu
 from app.ui.widgets.browse_table import BrowsePane
+from app.ui.widgets.page_frame import PageFrame, page_title
+from app.ui.widgets.page_states import BusyLine
 from app.ui.widgets.segmented import SegmentedControl
 from app.ui.widgets.timeline_list import TimelineList
 from app.ui.widgets.timeline_picker import TimelinePicker
@@ -81,12 +83,7 @@ class TimelineView(QWidget):
         self.picker.kind_changed.connect(self._kind_changed)
         self.picker.fold_changed.connect(lambda _on: self._reload())
         self.picker.bad_date.connect(lambda sentence: self.status.setText(sentence))
-        self.heading = QLabel("")
-        self.heading.setObjectName("resultsSummary")
-        heading_font = self.heading.font()               # the period is the page's title
-        heading_font.setBold(True)
-        heading_font.setPointSizeF(max(9.0, heading_font.pointSizeF()) * 1.25)
-        self.heading.setFont(heading_font)
+        self.heading = page_title(QLabel("", objectName="resultsSummary"))   # the period is the page's title
         self.list = TimelineList()
         self.list.near_end.connect(self._fetch_more)
         self.list.opened.connect(self.opened)
@@ -110,14 +107,10 @@ class TimelineView(QWidget):
         self.view_button = self.table.bind_store(store, self.picker.top_row) if store is not None else None
         self.picker.top_row.insertWidget(self.picker.top_row.count() - 1, self.shape)
         self.shape.currentIndexChanged.connect(self._shape_changed)
-        self.status = QLabel("")
-        self.status.setObjectName("resultsSummary")
-        self.status.setWordWrap(True)
+        self.status = BusyLine()                            # UI phase B: the one busy line
 
         self.picker.add_summary(self.summary)               # the count line shares the picker's first row
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(2)
+        layout = PageFrame(self)                            # UI phase B: one frame for every page
         for item in (self.notes, self.picker, self.heading):
             layout.addWidget(item)
         layout.addWidget(self.stack, 1)
@@ -217,7 +210,7 @@ class TimelineView(QWidget):
         self.list.clear_blocks()
         self.table.clear()
         self.heading.setText(period_words(period))
-        self.status.setText(loading_sentence(period_words(period)))
+        self.status.start(loading_sentence(period_words(period)))
         self._fetch_more()
 
     def _fetch_more(self) -> None:
@@ -237,6 +230,7 @@ class TimelineView(QWidget):
         """UI thread: the page failed; said through `error` if still current."""
         if generation == self._generation:
             self._loading = False
+            self.status.stop()
             self.error.emit(error)
 
     def _page_ready(self, generation: int, page: Any) -> None:

@@ -183,12 +183,12 @@ def assemble_pages(view: QWidget, controls: Any, names: tuple[str, ...]) -> Cate
     nav.add_category(schedule_name, scrollable(schedule_page))
     nav.add_category(tuning_name, scrollable(tuning_page))
 
-    layout = QVBoxLayout(view)
-    # 9, the margin every other page gets from Qt by default. This was 0, so the
-    # stats card, the progress bar and "Reset index..." ran flush to the window's
-    # right edge and the buttons sat 5px from the bottom (seen on the real window
-    # at 125%, 2026-09-20).
-    layout.setContentsMargins(9, 9, 9, 9)
+    # The one page frame (UI phase B), as every main page has: its margins keep the stats
+    # card, the progress bar and "Reset index..." off the window's edges (this was 0 once, and
+    # they ran flush to the right edge - seen on the real window at 125%, 2026-09-20).
+    from app.ui.widgets.page_frame import PageFrame
+
+    layout = PageFrame(view)
     layout.addWidget(nav)
     return nav
 

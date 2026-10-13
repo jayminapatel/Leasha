@@ -47,6 +47,23 @@ versioning follows the scheme in `docs/VERSIONING.md`.
   contacts to the bin, Ctrl+C copies their email addresses ("; " between them, ready for a To box).
 - Not yet seen in the real window: the read view's spacing, the labelled bar at the owner's window size and where
   it gives up words, the menu's bold line and key column.
+### One app, phase B: one page frame, one dialog frame (2026-10-13)
+
+The owner: "every screen ... look and feel like using different apps not one app". Not yet seen in the real window.
+
+- **One page frame.** Search, Files, Mail, Code, Photos, Browse, Tidy, Indexing and Chat are laid out in one frame
+  (`widgets/page_frame.py`): Search's margins and 8 px between rows everywhere. Before, Files, Mail, Code and Photos
+  used Qt's 9 and 6, Browse 0 and 2, Indexing 9, so the box and the list moved a few pixels at every rail click.
+  Browse's period is drawn as the page's title. Settings and Contacts are not converted yet.
+- **One dialog frame** (`widgets/dialog_frame.py`): the same margins and rhythm in every dialog, and one button order
+  in every box, the primary last on the right (it was left of Cancel on Windows in most, and on the right in the
+  hand-built ones). Enter presses the default, Esc is Cancel; where the button deletes, Cancel is the default. The
+  order reaches every confirmation (`confirm`) and Qt's own input boxes too.
+- **Dividers are remembered.** Every splitter on every page keeps the sizes it was dragged to across restarts
+  (`widgets/splitter_memory.py`, `ui:split:*`); only Chat's side panel did before. A hidden pane keeps its width.
+- **One empty state and one busy line** (`widgets/page_states.py`). The lists that wrote a bare sentence (Code,
+  Offline, Photos' info pane, Tidy's history, Saved searches, Mail archives, Folders to index, Chat's Sources) show
+  an icon over it; Browse, Tidy and the Reports stage show a small moving bar beside what they are doing.
 
 ### One app, phase B: a steady Search page (2026-10-13)
 

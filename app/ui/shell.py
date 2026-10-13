@@ -1040,6 +1040,10 @@ class MainWindow(QMainWindow):
             self._push_palette()
             self._wire_recorder_pages()
             self._name_clear_buttons()
+            # UI phase B: every page's splitters keep their dragged sizes (`splitter_memory`).
+            self._remember_splitters()
+            self.rail.currentChanged.connect(
+                lambda _index: QTimer.singleShot(0, self, self._remember_splitters))
         finally:
             self._start_background_work(store, settings)
             self._replay_index_requests()
@@ -2146,6 +2150,21 @@ class MainWindow(QMainWindow):
         page = getattr(self.contacts_view, "page", None)
         hub = getattr(page, "hub", None)
         return pick_photo_from_person(self, hub, contact_id) if hub is not None else None
+
+    def _remember_splitters(self) -> None:
+        """Give every splitter on every page a memory of its dragged sizes (`splitter_memory`).
+
+        Once the pages exist, then after each page switch - Contacts builds itself on its first
+        show, so its splitter only exists then. A splitter that already has one is skipped, so
+        a switch costs one walk of the page's widgets and nothing else.
+        """
+        from app.ui.widgets.splitter_memory import remember_all
+
+        for view, index in list(self._tab_index.items()):
+            try:
+                remember_all(view, self.rail.tabText(index) or type(view).__name__, self._store)
+            except RuntimeError:                         # a page Qt has already deleted
+                continue
 
     def _tab_changed(self, index: int) -> None:
         """Refresh what the tab shows, then put the cursor where typing goes.

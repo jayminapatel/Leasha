@@ -22,7 +22,7 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QWidget
 
 from app.ui.widgets.segmented import SegmentedControl
-from app.ui.theme import SPACE_S, SPACE_M, SPACE_L
+from app.ui.theme import SPACE_S
 
 __all__ = [
     "build_input", "build_scope", "build_interpret", "build_rerank",
@@ -350,10 +350,11 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
                       sections=getattr(getattr(view, "saved", None), "sections", lambda: ()))
     view.home = home
 
-    layout = QVBoxLayout(view)
-    layout.setContentsMargins(SPACE_L, SPACE_M, SPACE_L, SPACE_M)
-    layout.setSpacing(SPACE_S)
-    layout.addLayout(box_row)
+    # UI phase B: the one page frame - Search's margins and rhythm were the model for it.
+    from app.ui.widgets.page_frame import PageFrame
+
+    layout = PageFrame(view)
+    layout.addLayout(box_row)                 # its own spacing: the box's width is the goldens'
     layout.addWidget(bar)
     layout.addWidget(home, 1)
     # Order 1k 6f: a query that names a contact shows their card here, above the results.

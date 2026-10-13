@@ -24,7 +24,9 @@ from PySide6.QtWidgets import (
 )
 
 from app.search.saved import clean_name, suggest_name
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["ask_to_save", "SavedSearchesDialog"]
 
@@ -71,10 +73,9 @@ class SavedSearchesDialog(QDialog):
         self.list = QListWidget()
         self.list.setAccessibleName("Saved searches")
         self.list.itemDoubleClicked.connect(lambda _item: self._run())
-        self.empty = QLabel(
+        self.empty = EmptyState(
             "Nothing saved yet. Search for something, then choose "
-            "Edit > Save this search.")
-        self.empty.setWordWrap(True)
+            "Edit > Save this search.", glyph="bookmark", align=Qt.AlignmentFlag.AlignLeft)
 
         self.run_button = QPushButton("Search")
         self.run_button.setToolTip("Run the selected saved search now.")
@@ -98,7 +99,7 @@ class SavedSearchesDialog(QDialog):
         buttons.addStretch(1)
         buttons.addWidget(close)
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)                                 # UI phase B: one dialog frame
         layout.addWidget(self.list, 1)
         layout.addWidget(self.empty)
         layout.addLayout(buttons)

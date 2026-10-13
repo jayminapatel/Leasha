@@ -31,7 +31,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, QThreadPool, QTimer, Signal
-from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QHBoxLayout, QLabel, QLineEdit, QPushButton, QWidget
 
 from app.ui.presenter import (
     REPO_FILE_LIMIT, GitScope, code_page, code_preset, code_route,
@@ -46,10 +46,10 @@ from app.ui.widgets.code_commands import CODE_CATALOGUE, code_command_for, code_
 from app.ui.widgets.code_results import COLUMNS, CodeResults
 from app.ui.widgets.chips import list_chips, say_failed, say_skipped, show_page
 from app.ui.widgets.command_popup import attach_to
-from app.ui.widgets.git_tree import (
-    GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
-    git_search_running, paint_repo_state, start_git_search, stop_git_search,
-)
+from app.ui.widgets.git_tree import (GIT_VIEW_HINT, attach_git_tree, draw_git_result, draw_matches,
+                                     git_search_running, paint_repo_state, start_git_search, stop_git_search)
+from app.ui.widgets.page_frame import PageFrame
+from app.ui.widgets.page_states import EmptyState
 from app.ui.workers import CallableWorker, run, stop_timers
 
 __all__ = ["CodeView", "COLUMNS", "PREFS_KEY"]
@@ -116,8 +116,7 @@ class CodeView(QWidget):
         self.summary = QLabel("", objectName="resultsSummary", wordWrap=True)
         self.health = RepoHealthNote(store, self)
 
-        self.empty = QLabel("", wordWrap=True, openExternalLinks=False,
-                            visible=False)
+        self.empty = EmptyState("", glyph="code", align=Qt.AlignmentFlag.AlignLeft, visible=False)
         self.empty.linkActivated.connect(
             weak_slot(self, lambda view, _l: view.indexing_requested.emit()))
 
@@ -171,7 +170,7 @@ class CodeView(QWidget):
         top.addWidget(self.run_button)
         self.view_button.add_to(top)         # 2026-10-04: the Preview toggle, then View
 
-        layout = QVBoxLayout(self)
+        layout = PageFrame(self)             # UI phase B: one frame for every page
         self.chips = list_chips(self, layout, top, self._typed)
         layout.addWidget(self.summary)
         layout.addWidget(self.health)

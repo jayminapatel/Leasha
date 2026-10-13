@@ -46,7 +46,6 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QDialog,
-    QDialogButtonBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -64,6 +63,7 @@ from PySide6.QtWidgets import (
 from app.ui.widgets.no_scroll import protect_view
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 from app.ui.widgets.confirm import confirm
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.widgets import list_keys, menus
@@ -166,11 +166,7 @@ class EditFileTypeDialog(QDialog):
         form.addRow("Read by", self.reader)
         form.addRow("Skip files over", self.limit)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        buttons = dialog_buttons(self)          # UI phase B: one dialog frame
 
         # OK only stages the change - the list then says "Save to keep the
         # change" - so a note promising it "applies from the next index run"
@@ -182,7 +178,7 @@ class EditFileTypeDialog(QDialog):
         )
         note.setWordWrap(True)
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addLayout(form)
         layout.addWidget(self.warning)
         layout.addWidget(note)

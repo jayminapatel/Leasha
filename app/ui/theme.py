@@ -657,6 +657,13 @@ QRadioButton::indicator:checked {{
 }}
 QRadioButton::indicator:disabled {{ border-color: {border}; background: {surface_alt}; }}
 
+/* One button order in every dialog (`widgets/dialog_frame.py`, UI phase B): the other
+   buttons, then Cancel, then the primary on the right - Qt's GnomeLayout, 3. */
+QDialogButtonBox, QMessageBox {{ button-layout: 3; }}
+
+/* An empty list or page (`widgets/page_states.py`): one quiet sentence under its icon. */
+#emptyStateText {{ color: {text_dim}; }}
+
 QSplitter::handle {{ background: {divider}; }}
 QSplitter::handle:horizontal {{ width: 1px; }}
 QSplitter::handle:vertical {{ height: 1px; }}

@@ -45,6 +45,7 @@ from app.ui.presenter.chat import (
 )
 from app.ui.result_delegate import ROLE_PAYLOAD
 from app.ui.results_view import ResultsView
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.preview import PreviewPane
 from app.ui.theme import SPACE_XS, SPACE_S
 
@@ -82,9 +83,7 @@ class SourcesPane(QWidget):
 
         self.heading = QLabel(HEADING)
         self.heading.setObjectName("chatSourcesHeading")
-        self.empty = QLabel(NOTHING_YET)
-        self.empty.setObjectName("chatSourcesEmpty")
-        self.empty.setWordWrap(True)
+        self.empty = EmptyState(NOTHING_YET, glyph="file-text", align=Qt.AlignmentFlag.AlignLeft)
         self.results = ResultsView()
         self.results.setAccessibleName("Sources for this answer")
         self.results.opened.connect(self.opened.emit)

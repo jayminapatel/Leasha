@@ -14,6 +14,8 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QPushButton, QVBoxLayout, QWidget,
 )
 
+from app.ui.widgets.page_states import EmptyState
+
 __all__ = ["TidySnapshot", "read_snapshot", "read_quality", "read_file_sets", "HistoryPane"]
 
 _BATCH = int(Qt.ItemDataRole.UserRole) + 31
@@ -107,8 +109,7 @@ class HistoryPane(QWidget):
         super().__init__(parent)
         self.batches = QListWidget()
         self.batches.setAccessibleName("Batches moved to the Recycle Bin")
-        self.empty = QLabel("Tidy has not moved anything yet.")
-        self.empty.setObjectName("resultsSummary")
+        self.empty = EmptyState("Tidy has not moved anything yet.", glyph="history", align=Qt.AlignmentFlag.AlignLeft)
         self.button = QPushButton("Put back")
         self.button.setToolTip("Return every file of the chosen batch to where it was. A file "
                                "whose old place is taken by another file is left in the Recycle Bin.")

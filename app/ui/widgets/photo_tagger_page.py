@@ -39,6 +39,7 @@ from PySide6.QtWidgets import (
 from app.core.logging import logger
 from app.ui.later import when_done
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 from app.ui.widgets.face_crops import (blank_tile, cached_face_crop, face_key, remember,
                                        remembered, round_pixmap)
 from app.ui.widgets.number_field import fit_all as fit_number_fields
@@ -975,12 +976,9 @@ class _BatchEraDialog(QDialog):
         row.addWidget(QLabel("to"))
         row.addWidget(self._to)
 
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
+        buttons = dialog_buttons(self)                       # UI phase B: one dialog frame
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addWidget(QLabel(
             "Never overrides a photo's own camera date - only photos with "
             "no date, or an earlier guess, are affected."))
@@ -1068,7 +1066,7 @@ class _ManageFacesDialog(QDialog):
         close_button = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
         close_button.rejected.connect(self._close)
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)                                 # UI phase B: one dialog frame
         layout.addWidget(intro)
         layout.addWidget(self._count)
         layout.addWidget(self._list, 1)
