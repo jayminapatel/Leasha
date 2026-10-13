@@ -31,6 +31,10 @@ from app.extract.base import REGISTRY, NAME_REGISTRY, extractor_for
 from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
 from app.index.read_process import PROCESS_READERS, ReaderProcess, reads_in_process
 
+#: Order 1u §2: an index run here checks what it writes, so it does not wait
+#: for a busy machine or test the graphics card first (`tests/conftest.py`).
+pytestmark = pytest.mark.usefixtures("quiet_machine", "no_hardware_test")
+
 
 def _mbox(path: Path, messages: int) -> Path:
     box = mailbox.mbox(str(path))
@@ -68,6 +72,16 @@ def _local(path: Path) -> list[tuple]:
 def _remote(reader: ReaderProcess, path: Path) -> list[tuple]:
     return [(d.key, d.source_kind, d.meta, [c["text"] for c in chunks])
             for d, chunks in reader.read(path)]
+
+
+@pytest.fixture(scope="module")
+def big_mbox(tmp_path_factory) -> Path:
+    """Three thousand messages, far more than a pipe holds - built once.
+
+    Order 1u §2d, 2026-10-13: each test built its own, ten seconds apiece on the
+    owner's laptop. Nothing writes to it: the crash and the abandoned file only
+    read it, so one copy serves both."""
+    return _mbox(tmp_path_factory.mktemp("big") / "big.mbox", 3000)
 
 
 @pytest.fixture
@@ -115,8 +129,9 @@ def test_a_reader_process_reads_exactly_what_a_thread_reads(tmp_path: Path, read
     assert reader.started == 1, "one child for the whole run, not one per file"
 
 
-def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Path, reader) -> None:
-    big = _mbox(tmp_path / "big.mbox", 3000)      # far more than a pipe holds
+def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Path, reader,
+                                                                   big_mbox: Path) -> None:
+    big = big_mbox                                 # far more than a pipe holds
     small = _eml(tmp_path / "next.eml")
 
     stream = reader.read(big)
@@ -132,8 +147,9 @@ def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Pat
     assert reader.started == 2
 
 
-def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reader) -> None:
-    big = _mbox(tmp_path / "big.mbox", 3000)
+def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reader,
+                                                           big_mbox: Path) -> None:
+    big = big_mbox
     small = _eml(tmp_path / "next.eml")
 
     stream = reader.read(big)

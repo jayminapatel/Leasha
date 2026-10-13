@@ -34,6 +34,10 @@ from app.storage.sqlite_store import SqliteStore
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: Order 1u §2: an index run here checks what it writes, so it does not wait
+#: for a busy machine or test the graphics card first (`tests/conftest.py`).
+pytestmark = pytest.mark.usefixtures("quiet_machine", "no_hardware_test")
+
 #: Long enough to become a chunk of its own, which is the shape that repeats.
 NOTICE = ("This message and any attachments are confidential and intended "
           "solely for the addressee. If you have received it in error please "

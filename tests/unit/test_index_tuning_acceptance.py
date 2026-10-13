@@ -29,6 +29,10 @@ from app.index import backends
 
 ROOT = Path(__file__).resolve().parents[2]
 
+#: Order 1u §2: an index run here checks what it writes, so it does not wait
+#: for a busy machine or test the graphics card first (`tests/conftest.py`).
+pytestmark = pytest.mark.usefixtures("quiet_machine", "no_hardware_test")
+
 # --- the machines, per §0 ---------------------------------------------------
 
 #: The owner's: i7-1365U, two performance cores with hyper-threading, eight
