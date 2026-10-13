@@ -36,7 +36,7 @@ from PySide6.QtCore import QRect, Qt  # noqa: E402
 from PySide6.QtGui import QColor, QImage, QPainter, QStandardItem, QStandardItemModel  # noqa: E402
 from PySide6.QtWidgets import QStyleOptionViewItem  # noqa: E402
 
-from tests.unit.conftest import gui_pump  # noqa: E402
+from tests.unit.conftest import gui_pump, release_held_input  # noqa: E402
 
 pytestmark = pytest.mark.gui
 
@@ -79,6 +79,9 @@ def _key(qtbot, app, key, mod=MOD.NoModifier, *, text: str = "") -> None:
     else:
         qtbot.keyClick(target, key, mod)
     gui_pump(app, 2)
+    # And let go, as a person does (order 1u 4f): `keyClick` with Ctrl or Shift leaves Qt
+    # believing the modifier is still held, for whichever test runs next.
+    release_held_input()
 
 
 def _front(app, window, qtbot) -> None:
@@ -147,6 +150,7 @@ def _settled(qtbot, window) -> None:
     qtbot.wait(150)
 
 
+@pytest.mark.slow
 def test_the_first_run_opens_on_search_with_the_box_ready(relaunch, qtbot):
     app, launch, store = relaunch
     assert store.get_state("ui:page", "") == "", "this scenario needs a store nobody has used"
@@ -157,6 +161,7 @@ def test_the_first_run_opens_on_search_with_the_box_ready(relaunch, qtbot):
     assert window.search_view.home.isVisibleTo(window.search_view)
 
 
+@pytest.mark.slow
 def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
     from PySide6.QtWidgets import QApplication
     app, launch, store = relaunch
@@ -1010,6 +1015,7 @@ def test_the_home_box_is_640_wide_however_small_the_window_when_there_is_room(
     window.resize(1100, 760)
 
 
+@pytest.mark.slow
 def test_a_search_still_out_when_the_box_is_cleared_does_not_come_back(
         gui_mainwindow, quokkas, qtbot, monkeypatch):
     """**Regression, found because `test_gui_scenarios.py::

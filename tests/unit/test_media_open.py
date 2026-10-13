@@ -225,6 +225,7 @@ class Row:
         self.path, self.ext, self.label = path, ext, label
 
 
+@pytest.mark.slow
 def test_clicking_a_transcript_hit_opens_the_recording_at_that_time(window, monkeypatch):
     """The window hands the row to the one open route (2026-10-04), which reads
     the moment off it - `presenter.opening.plan_for` is that decision."""

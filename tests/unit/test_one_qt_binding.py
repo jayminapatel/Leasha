@@ -11,6 +11,8 @@ runs and is left as it was.
 
 from __future__ import annotations
 
+import pytest
+
 import ast
 from pathlib import Path
 
@@ -29,6 +31,7 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
+@pytest.mark.slow
 def test_no_code_imports_another_qt_binding() -> None:
     files = [p for top in ("app", "tests", "tools", "scripts")
              for p in (ROOT / top).rglob("*.py") if "__pycache__" not in p.parts]

@@ -262,6 +262,7 @@ def scan_tree(app_root: Path, repo_root: Path) -> dict[str, list[tuple[int, str,
 # The tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_no_windows_only_call_outside_osbridge() -> None:
     """The rule itself: Windows-only calls live in `app/core/osbridge/`."""
     offenders = {path: hits for path, hits in scan_tree(APP, ROOT).items()
@@ -275,6 +276,7 @@ def test_no_windows_only_call_outside_osbridge() -> None:
                     for line, kind, detail in hits))
 
 
+@pytest.mark.slow
 def test_every_allow_listed_file_still_needs_its_entry() -> None:
     """An entry whose file is clean (or gone) must come off: the list only shrinks."""
     found = scan_tree(APP, ROOT)
@@ -332,6 +334,7 @@ def test_each_detector_catches_its_violation(kind: str, source: str) -> None:
     assert kind in kinds, f"the {kind!r} detector missed: {source!r}"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("source", [
     '"""We used to call os.startfile and powershell here."""\n',
     "# ctypes.windll.kernel32 in a comment\nx = 1\n",

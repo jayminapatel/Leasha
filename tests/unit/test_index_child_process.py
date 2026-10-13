@@ -154,6 +154,7 @@ def _finish(run: ChildIndexRun, seen: list, timeout: float = 300.0):
     return outcome["stats"]
 
 
+@pytest.mark.slow
 def test_a_whole_run_arrives_as_the_stats_the_page_draws(setup) -> None:
     seen: list = []
     stats = _finish(_child(setup), seen)
@@ -170,6 +171,7 @@ def test_a_whole_run_arrives_as_the_stats_the_page_draws(setup) -> None:
         assert active_run(store) is None
 
 
+@pytest.mark.slow
 def test_pause_holds_the_run_and_stop_ends_it_cleanly(setup) -> None:
     run = _child(setup)
     run.pause()                        # pressed before the model has even loaded
@@ -192,6 +194,7 @@ def test_pause_holds_the_run_and_stop_ends_it_cleanly(setup) -> None:
         assert read_unfinished_run(store, lock_dir=setup["locks"]) is None
 
 
+@pytest.mark.slow
 def test_the_child_takes_the_test_runs_own_lock_not_the_machines(setup) -> None:
     """The real indexer, started by a test, must not hold Leasha's real run lock.
 
@@ -225,6 +228,7 @@ def test_the_child_takes_the_test_runs_own_lock_not_the_machines(setup) -> None:
         assert not is_indexing(store, lock_dir=setup["locks"])
 
 
+@pytest.mark.slow
 def test_a_killed_child_is_reported_and_the_next_run_carries_on(setup) -> None:
     run = _child(setup)
     run.pause()
@@ -291,6 +295,7 @@ def _first_line(parent, timeout: float, child_log: Path, parent_log: Path) -> in
     return int(got["line"].strip())
 
 
+@pytest.mark.slow
 def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
     """The window killed outright - Task Manager, a crash - must not leave an
     indexer running with no window: the "closed but still running" incident."""
@@ -332,6 +337,7 @@ def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
         assert read_unfinished_run(store, lock_dir=setup["locks"]) is None
 
 
+@pytest.mark.slow
 def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(
         tmp_path, monkeypatch) -> None:
     """Order 0x §2d's "after" number: `bench-pipeline --child-process` indexes

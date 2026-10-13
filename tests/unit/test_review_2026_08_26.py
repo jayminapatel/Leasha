@@ -725,6 +725,7 @@ def test_a_file_held_for_the_ocr_pass_is_never_settled(tmp_path):
         store.close()
 
 
+@pytest.mark.slow
 def test_no_text_layer_is_settled_in_a_text_pass_and_work_in_an_ocr_pass(tmp_path):
     """The same code, opposite answers, decided by which pass is asking.
 

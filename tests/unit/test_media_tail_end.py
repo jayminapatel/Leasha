@@ -174,6 +174,7 @@ def test_an_ordinary_run_does_its_end_once_each(tmp_path, monkeypatch):
         assert calls.get(name) == 1, (name, calls)
 
 
+@pytest.mark.slow
 def test_the_media_tails_run_leaves_the_end_to_the_run_that_started_it(tmp_path, monkeypatch):
     from app.index import media_backlog
 

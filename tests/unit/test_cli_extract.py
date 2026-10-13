@@ -127,6 +127,7 @@ def test_binary_file_advice_is_not_about_scanning(
 
 # --- folders ----------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_folder_is_walked_and_summarised(
     capsys: pytest.CaptureFixture[str], env: list[str], fixture_root: Path
 ) -> None:

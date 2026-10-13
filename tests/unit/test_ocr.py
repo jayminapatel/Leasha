@@ -158,6 +158,7 @@ def test_available_never_raises():
 # With OCR actually installed
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (HAS_OCR and HAS_PIL), reason="OCR is not installed")
 def test_real_text_in_a_real_image_comes_back(tmp_path):
     from PIL import Image, ImageDraw
@@ -175,6 +176,7 @@ def test_real_text_in_a_real_image_comes_back(tmp_path):
     assert documents[0].meta["ocr_seconds"] > 0
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not (HAS_OCR and HAS_PIL), reason="OCR is not installed")
 def test_a_blank_page_yields_nothing_when_florence_is_unavailable(tmp_path, monkeypatch):
     """Which becomes ERR_NO_TEXT_LAYER upstream - the honest answer for a

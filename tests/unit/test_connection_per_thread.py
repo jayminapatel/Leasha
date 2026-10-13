@@ -165,6 +165,7 @@ def test_the_same_thread_gets_the_same_connection_back(store):
     assert _in_thread(twice) is True
 
 
+@pytest.mark.slow
 def test_a_worker_thread_never_had_to_call_connect(store):
     """Qt creates threads this code never sees, so opening must be lazy.
 

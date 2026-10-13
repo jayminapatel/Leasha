@@ -68,6 +68,7 @@ def test_mail_from_asks_the_index_not_every_message(store):
     assert "idx_messages_sender_addr" in plan and "SCAN" not in plan
 
 
+@pytest.mark.slow
 def test_the_indexed_and_the_old_way_find_the_same_messages(store):
     for n, (sender, sent) in enumerate([("Ann Lee <ann@acme.co.uk>", 300), ("ann@acme.co.uk", 200),
                                         ("joann@acme.co.uk", 250), ("Bob <bob@acme.co.uk>", 400),

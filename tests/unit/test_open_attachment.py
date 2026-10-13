@@ -256,6 +256,7 @@ def test_open_saves_the_copy_and_opens_it_on_a_worker(store, tmp_path, qtbot, mo
                         "Changes to it are not saved back to the email.")
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_window_routes_open_on_an_attachment_to_the_copy_and_keeps_open_in_outlook(
         gui_mainwindow, monkeypatch):

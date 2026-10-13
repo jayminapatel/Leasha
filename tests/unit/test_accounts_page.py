@@ -44,6 +44,7 @@ def reload(world_page):
     return world_page()
 
 
+@pytest.mark.slow
 def test_the_page_starts_empty_and_builds_on_first_use(tmp_path):
     qt()
     store, svc = make_service(tmp_path)
@@ -187,6 +188,7 @@ def test_notifications_region_maps_and_client_ids_save_and_reload(world):
     assert q.google_secret.text() == "" and "Saved" in q.google_secret.placeholderText()
 
 
+@pytest.mark.slow
 def test_a_bad_region_is_put_back(world):
     svc, page = world
     p = page()
@@ -572,6 +574,7 @@ def test_an_account_can_be_set_to_mail_only_contacts_only_or_both(world):
         pn = _select(p, aid)
 
 
+@pytest.mark.slow
 def test_contacts_only_after_off_comes_back_two_way_not_silently_off(world):
     svc, page = world
     aid = svc.accounts.add("google", "g@x.com", "G", mail_on=True)

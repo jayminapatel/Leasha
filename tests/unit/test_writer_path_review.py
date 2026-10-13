@@ -287,6 +287,7 @@ class _ImageVectors:
         return lambda *args, **kwargs: None
 
 
+@pytest.mark.slow
 def test_a_vanished_file_loses_its_picture_vectors_too(tmp_path):
     root = tmp_path / "docs"
     gone = _write(root / "gone.txt", "pump station")

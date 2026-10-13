@@ -443,6 +443,7 @@ class _Trickle:
         self.closed.set()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("blocking", [False, True])
 def test_a_trickling_server_is_cut_off_at_the_time_limit(monkeypatch, blocking):
     import requests

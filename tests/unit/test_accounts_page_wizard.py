@@ -151,6 +151,7 @@ def _run(svc, acct, status, *, added=0, changed=0, deleted=0, held=0, dry=False,
     return rid
 
 
+@pytest.mark.slow
 def test_the_log_lists_runs_filters_and_shows_the_fix(world):
     svc, page = world
     a = svc.accounts.get(svc.accounts.add("carddav", "a@x.com", "Home"))

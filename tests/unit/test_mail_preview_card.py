@@ -429,6 +429,7 @@ def preview_now(pane, row) -> None:
     pump()
 
 
+@pytest.mark.slow
 def test_a_message_selected_in_the_mail_tab_shows_its_card(qapp, store) -> None:
     from app.ui.mail_view import MailView
 

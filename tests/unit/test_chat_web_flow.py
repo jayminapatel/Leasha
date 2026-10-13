@@ -115,6 +115,7 @@ def _remote(seen: list[str]) -> list[str]:
 
 # =========================================================================== the files answered
 
+@pytest.mark.slow
 @pytest.mark.parametrize("question", [FILES_ANSWER, "What is a tenancy agreement?"])
 @pytest.mark.parametrize("ask_first", [True, False])
 def test_when_the_files_answer_there_is_no_prompt_and_no_connection(env, only_this_computer, question, ask_first):

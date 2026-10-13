@@ -76,6 +76,7 @@ def test_first_pull_brings_an_account_in_and_links_it(world):
     assert world.accounts.get(a).first_sync_done
 
 
+@pytest.mark.slow
 def test_two_accounts_and_the_hub_all_change_at_once(world):
     """9a.1 - a phone changed in one account reaches the other within one sync (A2)."""
     g, m = world.account("Google"), world.account("Work")

@@ -227,6 +227,7 @@ def test_a_new_file_is_never_hashed_on_the_walker_thread(tmp_path, monkeypatch, 
     assert all(hashes.values()), "every row still has its hash"
 
 
+@pytest.mark.slow
 def test_a_restored_copy_with_a_new_date_is_still_found_unchanged(tmp_path) -> None:
     """The `robocopy` case: the date moved, the bytes did not, the row has a
     hash - still decided on the walker thread, and not read again."""

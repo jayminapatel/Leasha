@@ -236,6 +236,7 @@ def test_restoring_without_sizing_first_changes_nothing(store):
     assert _cache_kib(store) == default
 
 
+@pytest.mark.slow
 def test_a_run_gives_the_cache_back(tmp_path):
     vectors = RecordingVectors()
     db, root = tmp_path / "i.db", _corpus(tmp_path, archive=True)

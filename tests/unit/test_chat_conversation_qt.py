@@ -233,6 +233,7 @@ def test_a_failure_offers_try_again_too(chat):
     assert not last_answer(c).retry_button.isHidden()
 
 
+@pytest.mark.slow
 def test_a_short_title_replaces_the_first_words_after_the_first_answer(chat):
     c = chat
     engine = ConversationalFake()
@@ -333,6 +334,7 @@ def test_source_numbers_are_live_links_while_the_answer_streams_and_the_pane_fol
     assert c.view.sources.receipt(1).path == other.path             # rebuilt from the finished turn
 
 
+@pytest.mark.slow
 def test_the_web_chip_is_absent_until_settings_allow_the_web_and_off_until_turned_on(chat):
     c = chat
     engine = ConversationalFake()
@@ -457,6 +459,7 @@ def test_no_web_service_is_offered_without_saying_what_was_seen_of_it(chat):
     assert combo.currentData() == "duckduckgo"
 
 
+@pytest.mark.slow
 def test_the_new_settings_have_controls_that_emit_their_key(chat):
     box = chat.window.settings_view.chat_box
     seen = []

@@ -154,6 +154,7 @@ def test_readers_with_process_wide_state_stay_on_the_thread(tmp_path: Path) -> N
     assert reads_in_process(_eml(tmp_path / "note.eml"))
 
 
+@pytest.mark.slow
 def test_a_reader_process_reads_exactly_what_a_thread_reads(tmp_path: Path, reader) -> None:
     files = [
         _eml(tmp_path / "note.eml"),
@@ -168,6 +169,7 @@ def test_a_reader_process_reads_exactly_what_a_thread_reads(tmp_path: Path, read
     assert reader.started == 1, "one child for the whole run, not one per file"
 
 
+@pytest.mark.slow
 def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Path, reader,
                                                                    big_mbox: Path) -> None:
     big = big_mbox                                 # far more than a pipe holds
@@ -186,6 +188,7 @@ def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Pat
     assert reader.started == 2
 
 
+@pytest.mark.slow
 def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reader,
                                                            big_mbox: Path) -> None:
     big = big_mbox
@@ -202,6 +205,7 @@ def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reade
     assert _remote(reader, small) == _local(small)
 
 
+@pytest.mark.slow
 def test_a_reader_error_comes_back_as_the_same_error(tmp_path: Path, reader) -> None:
     empty = tmp_path / "empty.eml"
     empty.write_bytes(b"")
@@ -215,6 +219,7 @@ def test_a_reader_error_comes_back_as_the_same_error(tmp_path: Path, reader) -> 
         assert _remote(reader, empty) == expected
 
 
+@pytest.mark.slow
 def test_the_benchmark_corpus_indexes_the_same_with_reader_processes(tmp_path: Path) -> None:
     """End to end, through the real pipeline: same documents, passages, vectors."""
     results = {}

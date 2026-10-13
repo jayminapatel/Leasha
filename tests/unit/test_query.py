@@ -489,6 +489,7 @@ def test_any_generated_string_parses_without_raising(raw: str) -> None:
     parse_query(raw, today=TODAY)
 
 
+@pytest.mark.slow
 @given(st.text(min_size=0, max_size=MAX_QUERY_CHARS + 200))
 def test_arbitrarily_long_input_still_does_not_raise(raw: str) -> None:
     """Past `MAX_QUERY_CHARS` the parser truncates or caps rather than
