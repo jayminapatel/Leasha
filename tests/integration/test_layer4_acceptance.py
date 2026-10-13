@@ -99,22 +99,65 @@ def _age(root: Path, *, seconds: int = 3600) -> None:
             os.utime(path, (when, when))
 
 
-@pytest.fixture()
-def indexed(tmp_path: Path):
-    """A real index over a real corpus."""
-    root = tmp_path / "corpus"
+@pytest.fixture(scope="module")
+def built_index(tmp_path_factory):
+    """A real index over a real corpus, built **once** for the module.
+
+    Order 1u, 2026-10-13: the same `Pipeline.run()` as before - real files,
+    walked, extracted, chunked, written to SQLite and LanceDB - but run once
+    rather than once per test. Each test then gets its own copy of the result
+    (`indexed`), because several of them write to it: the usage log, the
+    cache-invalidation re-index, the corpus edits.
+    """
+    import shutil
+
+    base = tmp_path_factory.mktemp("layer4")
+    root = base / "corpus"
     root.mkdir()
     for name, body in CORPUS.items():
         (root / name).write_text(body, encoding="utf-8")
     _age(root)
 
-    store = SqliteStore(tmp_path / "index.db").connect()
-    vectors = VectorStore(tmp_path / "vectors", dim=DIM).connect()
+    state = base / "state"
+    state.mkdir()
+    store = SqliteStore(state / "index.db").connect()
+    vectors = VectorStore(state / "vectors", dim=DIM).connect()
     embedder = Embedder(dim=DIM, encoder=bag_of_words_encoder)
+    try:
+        Pipeline(store, vectors, embedder, PipelineConfig(
+            walk=WalkConfig(roots=[root], extensions=frozenset({".txt"})), workers=2,
+        )).run()
+    finally:
+        store.close()
+        vectors.close()
 
-    Pipeline(store, vectors, embedder, PipelineConfig(
-        walk=WalkConfig(roots=[root], extensions=frozenset({".txt"})), workers=2,
-    )).run()
+    # The corpus exactly as it was indexed, timestamps included, so each test
+    # can be handed it back however the one before left it.
+    pristine = base / "corpus-as-indexed"
+    shutil.copytree(root, pristine, copy_function=shutil.copy2)
+    return root, pristine, state
+
+
+@pytest.fixture()
+def indexed(tmp_path: Path, built_index):
+    """A real index over a real corpus - this test's own copy of it.
+
+    The stores are copied from the one built for the module, and the corpus
+    they point at is put back to exactly what was indexed. The files keep
+    their path, because the index records absolute paths and a re-index of
+    `root` has to find the same files it recorded.
+    """
+    import shutil
+
+    root, pristine, state = built_index
+    shutil.rmtree(root)
+    shutil.copytree(pristine, root, copy_function=shutil.copy2)
+    mine = tmp_path / "state"
+    shutil.copytree(state, mine)
+
+    store = SqliteStore(mine / "index.db").connect()
+    vectors = VectorStore(mine / "vectors", dim=DIM).connect()
+    embedder = Embedder(dim=DIM, encoder=bag_of_words_encoder)
 
     yield store, vectors, embedder, root
     store.close()
