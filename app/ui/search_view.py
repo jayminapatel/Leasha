@@ -307,8 +307,7 @@ class SearchView(QWidget):
         if generation < self._shown_generation or not rows:
             return
         total = self.results.append_results(rows, self._last_terms)
-        self.status.setText(
-            federated_summary(self._index_count, total - self._index_count))
+        self.status.say_keeping_details(federated_summary(self._index_count, total - self._index_count))
 
     # -- results ------------------------------------------------------------
 
@@ -338,7 +337,7 @@ class SearchView(QWidget):
             interpret_enabled=self.interpret_button.isVisible())
         self.notices.show_notices(notices)
         self._shown_anything = self._shown_anything or bool(response.results)
-        self.status.setText(status)
+        self.status.counted(response, status)          # UI phase B: timing in its tooltip
         # 2026-10-08: both once per search - from the finished answer, not the
         # early one drawn before the reranker had ordered the rows.
         if not early:

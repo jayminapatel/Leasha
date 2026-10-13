@@ -214,6 +214,7 @@ NOT_A_RIGHT_CLICK: dict[str, tuple[int, str]] = {
     "app/ui/widgets/side_panel.py": (1, "a line added to the View menu"),
     "app/ui/widgets/photo_page_parts.py": (9, "the Photos tab's View menu"),
     "app/ui/widgets/photo_tagger_page.py": (4, "Accept all's drop-down"),
+    "app/ui/widgets/sort_button.py": (3, "the Sort button's drop-down: an order to choose, beside the scope"),
 }
 
 

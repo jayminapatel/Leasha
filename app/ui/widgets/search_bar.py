@@ -235,32 +235,39 @@ def build_rerank(parent: Optional[QWidget], on_change: Any) -> QAction:
 
 
 def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
-    r"""Lay the search page out: the home state, the compact bar, the results.
+    r"""Lay the search page out: the box, the bar, the home state, the results.
 
     **Assembly, not decision** - and here because this module is already "the
     search bar and its controls", while `search_view.py` is held under 250 lines
     by `test_every_qt_view_keeps_its_logic_in_the_presenter`.
 
-    UI Redesign (202626160950 §3). Two states, one box:
+    UI Redesign (202626160950 §3), made steady by UI phase B (owner, 2026-10-13).
 
-    * **home** (§3a) - nothing typed: `SearchHome` holds the box in its slot.
-    * **compact** (§3b) - the box at the top at full width; under it one row
-      with the segmented scope (§3c), the filter chips (§3d), the icon toggles
-      and the `⋯` menu (§3e); then the summary line (§3f), the notice bar
-      (§3g, unchanged) and the results.
+    * **The box lives in one place, at the top, always.** It used to be lent to
+      the home page's slot and taken back on the first keystroke - re-parented
+      on every empty/non-empty change, so the one thing somebody was typing
+      into jumped down the page and back. Now the home page (§3a) sits *under*
+      it, and the empty state is styling only: a ceiling of `BOX_WIDTH`,
+      centred, and roomier sides (`#searchBox[empty_state]`, same height).
+    * **compact** (§3b): under the box one row with the segmented scope (§3c),
+      the filter chips (§3d), Sort, the icon toggles and the `⋯` menu (§3e);
+      then the summary line (§3f), which now also holds the notice bar (§3g).
+    * **Nothing pushes rows already on screen.** The notice bar is one line in
+      the summary row and keeps its height hidden or shown; the answer card
+      reserves its slot from the keystroke (`answer_card`); the contact strip
+      holds a late answer until the rows change anyway (`person_card`).
 
-    The switch is driven from the box's own `textChanged`, so the view file
-    gained no lines for it. `controls` is `(interpret, scope, rerank, view)`
-    as the view has always passed it; the actions are already in the menu.
-
-    Returns the notice bar, which the view needs to write degradations into.
+    `controls` is `(interpret, scope, rerank, view)` as the view has always
+    passed it; the actions are already in the menu. Returns the notice bar,
+    which the view needs to write degradations into.
     """
     from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout
 
     from app.ui.widgets.chips import ChipRow
     from app.ui.widgets.notice_bar import NoticeBar
-    from app.ui.widgets.search_home import SearchHome
+    from app.ui.widgets.search_home import BOX_WIDTH, SearchHome
+    from app.ui.widgets.sort_button import build_sort
 
     scope = next(c for c in controls if isinstance(c, SegmentedControl))
     view_button = next(c for c in controls if isinstance(c, QWidget) and c is not scope)
@@ -270,20 +277,27 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     chips = ChipRow(view)
     view.chips = chips
 
+    # -- the box, in its one place ------------------------------------------------
+    box_row = QHBoxLayout()
+    box_row.setContentsMargins(0, 0, 0, 0)
+    box_row.addStretch(1)
+    box_row.addWidget(view.input, 100)
+    box_row.addStretch(1)
+
     # -- the compact bar ------------------------------------------------------
     bar = QWidget(view)
     bar.setObjectName("searchBar")
     bar_layout = QVBoxLayout(bar)
     bar_layout.setContentsMargins(0, 0, 0, 0)
     bar_layout.setSpacing(8)
-    box_slot = QHBoxLayout()
-    bar_layout.addLayout(box_slot)
 
     row = QHBoxLayout()
     row.setSpacing(8)
     row.addWidget(scope)
     row.addWidget(chips, 1)
     row.addStretch(1)
+    sort_frame, view.sort_button = build_sort(view)
+    row.addWidget(sort_frame)
     view.toggles = _mirror_switches(view, row, body)
     # 2026-10-04: the View button is an icon on every tab (`view_options._as_icon`),
     # retinted with the toggles beside it.
@@ -294,7 +308,13 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     bar_layout.addLayout(row)
 
     summary = QHBoxLayout()
-    summary.addWidget(status, 1)
+    summary.addWidget(status)
+    # The notice bar, in the summary row: one line that keeps its height whether
+    # or not it has anything to say, so a notice arriving after the rows (a
+    # filter offer from its worker, the finished tier's spelling note) never
+    # pushes them down. The whole text is in its tooltip.
+    notices.retain_line()
+    summary.addWidget(notices, 1)
     hint = QLabel("Interpret  Ctrl+Enter")
     hint.setObjectName("searchStatus")
     hint.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -313,8 +333,13 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     fold = getattr(getattr(view, "results", None), "fold_summary_with", None)
     if callable(fold):
         fold(status)
+    # The count follows the rows the list really drew - see `StatusLine`.
+    recount = getattr(status, "recount", None)
+    rows_changed = getattr(getattr(view, "results", None), "rows_changed", None)
+    if callable(recount) and rows_changed is not None:
+        rows_changed.connect(lambda _rows: recount(getattr(view.results, "shown", 0)))
 
-    # -- the home state -------------------------------------------------------
+    # -- the home state, under the box ------------------------------------------
     def type_into(text: str) -> None:
         """A pill or a recent row: put its words in the box and search now."""
         view.input.setText(text)
@@ -327,11 +352,9 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     layout = QVBoxLayout(view)
     layout.setContentsMargins(16, 12, 16, 12)
     layout.setSpacing(8)
-    layout.addWidget(home, 1)
+    layout.addLayout(box_row)
     layout.addWidget(bar)
-    # Above the results and below the status line: a degradation is about the
-    # results, so it belongs where the eye lands before reading them.
-    layout.addWidget(notices)
+    layout.addWidget(home, 1)
     # Order 1k 6f: a query that names a contact shows their card here, above the results.
     # It reads on a worker after its own pause and never touches the search itself.
     # Order smarter-answers 3a: a question gets a short answer above the results,
@@ -347,28 +370,24 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
     state = {"home": None}
 
     def show_home(on: bool) -> None:
-        """Move the one box between the home page's slot and the compact bar.
-        Focus is given back if the box had it, so typing is never interrupted.
-        """
+        """Swap what is under the box. **The box itself is not touched** beyond
+        its width ceiling and a property the sheet reads: it keeps its parent,
+        its top edge, its height and its focus."""
         if state["home"] is on:
             return
         state["home"] = on
-        had_focus = view.input.hasFocus()
         if on:
             home.refresh()
-            home.lend(view.input)
-        else:
-            view.input.setMaximumWidth(16777215)
-            view.input.setProperty("empty_state", False)
-            view.input.style().unpolish(view.input)
-            view.input.style().polish(view.input)
-            box_slot.addWidget(view.input, 1)
+        view.input.setMaximumWidth(BOX_WIDTH if on else 16777215)
+        # The flanks centre the box at its ceiling, and give way to it after.
+        box_row.setStretch(0, 1 if on else 0)
+        box_row.setStretch(2, 1 if on else 0)
+        view.input.setProperty("empty_state", on)
+        view.input.style().unpolish(view.input)
+        view.input.style().polish(view.input)
         home.setVisible(on)
         bar.setVisible(not on)
-        notices.setVisible(not on)
         body.setVisible(not on)
-        if had_focus:
-            view.input.setFocus()
 
     def on_text(text: str) -> None:
         """Every edit: redraw the chips and pick the home or compact state."""
@@ -507,7 +526,6 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
     No columns: a result is not a table.
     """
     from PySide6.QtGui import QKeySequence, QShortcut
-    from PySide6.QtWidgets import QLabel
 
     from app.ui.view_options import button as view_button
 
@@ -538,9 +556,16 @@ def build_controls(view: Any, *, on_scope: Any, on_interpret: Any,
     interpret.changed.connect(_follow_interpret)
     _follow_interpret()
 
+    from app.ui.view_options import defaults_for
+
     chooser = view_button(view, None, "", on_change=on_view, grouping=True)
-    status = QLabel("")
-    status.setObjectName("searchStatus")
+    # The same starting point the list has (`build_results_pane`), so the View
+    # menu's first change does not fold or unfold the list behind the person.
+    chooser.prefs = defaults_for("ui:results")
+    # UI phase B: counts documents, and recounts when the list folds further.
+    from app.ui.widgets.status_line import StatusLine
+
+    status = StatusLine()
     # The `⋯` menu (§3e). Interpret and Rerank live here; `build_toolbar`
     # adds the two switches that used to be checkboxes on the results pane.
     view.more_button, view.more_menu = _build_more(view, interpret, rerank)

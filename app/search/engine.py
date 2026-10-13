@@ -1096,7 +1096,15 @@ class SearchEngine:
         # this feature exists to remove is silence about exactly that.
         notices.extend(
             Notice(NOTICE_WILDCARD, found.message()) for found in wildcards)
-        if parsed.sort:
+        if parsed.sort == "name":
+            # The same promise for the name order the Sort control added
+            # (UI phase B): said, with the way back.
+            notices.append(Notice(
+                NOTICE_SORTED,
+                "Sorted by name, A to Z — not by best match. "
+                "Remove /sort name to rank by relevance again.",
+            ))
+        elif parsed.sort:
             # **Said on screen, every time.** A list silently ordered by date
             # while somebody believes it is ordered by relevance is worse than
             # not having the feature: they read the top three, conclude the
@@ -1746,7 +1754,11 @@ class SearchEngine:
         if not parsed.sort:
             fused = filename_match.blend(fused, parsed.terms)
 
-        if parsed.sort:
+        if parsed.sort == "name":
+            # A to Z by the file's own name, folder ignored - what Explorer's
+            # Name column does, which is what the word on the control promises.
+            fused.sort(key=lambda hit: _name_key(hit.get("path")))
+        elif parsed.sort:
             fused.sort(
                 key=lambda hit: int(hit.get("taken_at_ns") or hit.get("mtime_ns") or 0),
                 reverse=parsed.sort != "oldest")
@@ -2180,3 +2192,10 @@ class SearchEngine:
         except Exception as exc:        # noqa: BLE001 - Layer 10's data is never worth a
             _log.debug("usage logging failed, search unaffected: {}", exc)
             return None
+
+
+def _name_key(path: Any) -> tuple[str, str]:
+    """The sort key for `/sort name`: the file name, case-folded, then the path
+    so two files of one name keep a stable order."""
+    text = str(path or "").replace("\\", "/")
+    return text.rstrip("/").rpartition("/")[2].casefold(), text.casefold()

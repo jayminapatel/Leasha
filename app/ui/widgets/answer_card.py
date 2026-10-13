@@ -14,6 +14,17 @@ and is dropped the moment the box changes. It never runs while Chat is answering
 there is one chat model, and the question somebody is waiting for in Chat comes
 first. Wired like the contact cards (`person_card.attach`), so `search_view.py`
 does not grow.
+
+**A fixed slot, reserved from the keystroke** (UI phase B, owner, 2026-10-13).
+The card arrived 1.2 s after the rows and pushed every one of them down. The two
+ways out were a slot above the list or a collapsible first row inside it; the
+slot won because whether a card is wanted is known the moment the box changes
+(`answer_wanted` reads only the words), before any row is painted - so the space
+is there first and the rows are drawn under it, never moved. A first row would
+have arrived with the answer instead, and moved the list just the same. The slot
+is one height whatever it holds - "Reading your files…", the answer (scrolling
+inside the card when it is long), or the line saying there was none - and it is
+given up only when the box changes or the person presses Hide.
 """
 
 from __future__ import annotations
@@ -22,13 +33,16 @@ import threading
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QThreadPool, Qt, QTimer, Signal
-from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
+)
 
 from app.ui.later import when_done
 from app.ui.presenter.answer import answer_wanted, card_kinds_shown
-from app.ui.widgets.buttons import action_button
+from app.ui.widgets.buttons import action_button, icon_button
 
-__all__ = ["AnswerCard", "attach", "ANSWER_DEBOUNCE_MS", "HEADING", "WORKING", "CHECKED_NOTE"]
+__all__ = ["AnswerCard", "attach", "ANSWER_DEBOUNCE_MS", "HEADING", "WORKING", "CHECKED_NOTE",
+           "NO_ANSWER", "BODY_LINES"]
 
 #: How long the box must be still before a question is asked. Not a setting
 #: (non-negotiable 11): long enough that a question is not asked half-typed, short
@@ -39,6 +53,13 @@ ANSWER_DEBOUNCE_MS = 1200
 HEADING = "Answer from your files"
 WORKING = "Reading your files to answer that…"
 CHECKED_NOTE = "Written by Leasha's AI. Every sentence is checked against the source it cites."
+#: New copy (UI phase B): what the reserved slot says when no short answer came.
+#: Collapsing instead would pull every row up under the person reading them.
+NO_ANSWER = "No short answer from your files for that. The results are below."
+#: Lines of answer the slot shows before the answer scrolls inside the card. Not
+#: a setting (non-negotiable 11): enough for the two or three sentences the
+#: engine writes, few enough that the first results stay on a laptop screen.
+BODY_LINES = 4
 
 
 class AnswerCard(QFrame):
@@ -60,7 +81,10 @@ class AnswerCard(QFrame):
         self._generation = 0
         self._stop: Optional[threading.Event] = None
         self._question = ""
+        #: The query the person pressed Hide on: no card for it until the box changes.
+        self._hidden_for = ""
         self._receipts: list = []
+        self._order: list = []
         self.asked: list[str] = []                        # for tests and the debug log
 
         self.answer_timer = QTimer(self)
@@ -70,9 +94,16 @@ class AnswerCard(QFrame):
 
         self.heading = QLabel(HEADING)
         self.heading.setObjectName("answerCardHeading")
+        self.hide_button = icon_button(
+            "Hide answer", name="Hide this answer",
+            tooltip="Hide this answer. It stays hidden for this search; "
+                    "a new question gets its own.")
+        self.hide_button.setObjectName("answerCardHide")
+        self.hide_button.clicked.connect(self.hide_for_query)
         self.body = QLabel("")
         self.body.setObjectName("answerCardBody")
         self.body.setWordWrap(True)
+        self.body.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         self.body.setTextFormat(Qt.TextFormat.RichText)
         self.body.setOpenExternalLinks(False)
         self.body.linkActivated.connect(self._link)
@@ -89,15 +120,38 @@ class AnswerCard(QFrame):
         self.more.setToolTip("Ask this in Chat, where you can follow it up")
         self.more.clicked.connect(lambda: self.continue_requested.emit(self._question))
 
+        top = QHBoxLayout()
+        top.addWidget(self.heading, 1)
+        top.addWidget(self.hide_button)
+        # The answer scrolls inside the slot rather than growing it.
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("answerCardScroll")
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # The sources scroll with the answer: several long names wrap, and outside
+        # the scroll they would eat the answer's lines or be cut (review of #74).
+        content = QWidget()
+        inner = QVBoxLayout(content)
+        inner.setContentsMargins(0, 0, 0, 0)
+        inner.setSpacing(6)
+        inner.addWidget(self.body)
+        inner.addWidget(self.sources)
+        inner.addStretch(1)
+        self.scroll.setWidget(content)
+        # The card's own ground shows through: a scroll area paints the window
+        # colour by default, which would draw a second box inside the card.
+        self.scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget "
+                                  "{ background: transparent; }")
+        self.scroll.viewport().setAutoFillBackground(False)
         foot = QHBoxLayout()
         foot.addWidget(self.note, 1)
         foot.addWidget(self.more)
         column = QVBoxLayout(self)
         column.setContentsMargins(12, 10, 12, 10)
         column.setSpacing(6)
-        column.addWidget(self.heading)
-        column.addWidget(self.body)
-        column.addWidget(self.sources)
+        column.addLayout(top)
+        column.addWidget(self.scroll, 1)
         column.addLayout(foot)
         self.hide()
 
@@ -111,19 +165,57 @@ class AnswerCard(QFrame):
     # -- the box ----------------------------------------------------------------------
 
     def typed(self, _text: str = "") -> None:
-        """The box changed: whatever was being answered is stale."""
+        """The box changed: whatever was being answered is stale.
+
+        The slot is decided here, at the keystroke, from the words alone - so a
+        question has its space before the first row is painted under it.
+        """
         self._cancel()
-        self.clear()
-        if self._wanted():
+        if self._query() != self._hidden_for:
+            self._hidden_for = ""
+        if self._reserve_wanted():
+            self._reset()
+            self._reserve()
             self.answer_timer.start()
         else:
             self.answer_timer.stop()
+            self.clear()
 
     def submitted(self) -> None:
         """Enter: ask now rather than after the pause."""
-        if self._wanted() and self._question != self._query():
+        if self._reserve_wanted() and self._question != self._query():
             self.answer_timer.stop()
             self.ask_now()
+
+    def hide_for_query(self) -> None:
+        """Hide: put the card away for this query only (the owner's Hide control)."""
+        self._hidden_for = self._query()
+        self.answer_timer.stop()
+        self._cancel()
+        self.clear()
+
+    def _reserve_wanted(self) -> bool:
+        """A slot for this query: a question, not hidden, and Chat free to answer it."""
+        return (self._wanted() and self._query() != self._hidden_for
+                and getattr(self._chat, "_ask", None) is None)
+
+    def _reserve(self) -> None:
+        """Show the slot at its one height, saying the files are being read."""
+        self.body.setText(WORKING)
+        self.setFixedHeight(self.slot_height())
+        self.show()
+
+    def slot_height(self) -> int:
+        """Margins, the heading row, `BODY_LINES` of answer, the sources and the foot."""
+        self.ensurePolished()
+        for part in (self.heading, self.body, self.sources, self.note, self.more, self.hide_button):
+            part.ensurePolished()
+        margins = self.layout().contentsMargins()
+        line = self.body.fontMetrics().lineSpacing()
+        top = max(self.heading.sizeHint().height(), self.hide_button.sizeHint().height())
+        foot = max(self.note.fontMetrics().lineSpacing(), self.more.sizeHint().height())
+        return (margins.top() + margins.bottom() + top + BODY_LINES * line
+                + self.sources.fontMetrics().lineSpacing() + foot + 3 * self.layout().spacing())
 
     def _query(self) -> str:
         return " ".join(str(self._text_of() or "").split())
@@ -140,7 +232,13 @@ class AnswerCard(QFrame):
     def ask_now(self) -> None:
         """Ask Chat's engine on a worker. Skipped while Chat itself is answering."""
         question = self._query()
-        if not self._wanted() or getattr(self._chat, "_ask", None) is not None:
+        if not self._wanted() or question == self._hidden_for:
+            return
+        if getattr(self._chat, "_ask", None) is not None:
+            # Chat started answering during the pause: the slot is already
+            # there, so it says so rather than collapsing under the rows.
+            if not self.isHidden():
+                self._nothing()
             return
         from app.ui.workers import CallableWorker, run
 
@@ -154,7 +252,7 @@ class AnswerCard(QFrame):
         self.body.setText(WORKING)
         self.sources.setText("")
         self.more.setEnabled(True)
-        self.show()
+        self._reserve()
         worker = CallableWorker(_answer, self._chat, question, stop, component="ui.answer_card")
         when_done(self, worker,
                   finished=lambda got: self._landed(generation, got),
@@ -177,13 +275,20 @@ class AnswerCard(QFrame):
             adopt(engine, chosen_at)                      # Chat keeps the engine it built
         if turn is None or not card_kinds_shown(getattr(turn, "kind", "")) \
                 or not str(getattr(turn, "text", "") or "").strip():
-            self.clear()
+            self._nothing()
             return
         self._show_turn(turn)
 
     def _failed(self, generation: int) -> None:
         if generation == self._generation:
-            self.clear()
+            self._nothing()
+
+    def _nothing(self) -> None:
+        """No answer to show: the slot stays, and says so - see `NO_ANSWER`."""
+        self._receipts, self._order = [], []
+        self.body.setText(NO_ANSWER)
+        self.sources.setText("")
+        self.note.setVisible(False)
 
     # -- drawing --------------------------------------------------------------------------
 
@@ -200,6 +305,12 @@ class AnswerCard(QFrame):
             f'{_escape(getattr(self._receipts[n - 1], "name", "") or "")}'
             for n in linkable))
         self.note.setVisible(bool(self._receipts))
+        self._settle_slot()
+
+    def _settle_slot(self) -> None:
+        """Back to the top of a fresh answer, at the slot's one height."""
+        self.scroll.verticalScrollBar().setValue(0)
+        self.setFixedHeight(self.slot_height())
         self.show()
 
     def _link(self, href: str) -> None:
@@ -215,12 +326,18 @@ class AnswerCard(QFrame):
 
         self.open_requested.emit(receipt_to_result(receipt, shown))
 
-    def clear(self) -> None:
+    def _reset(self) -> None:
+        """Empty the card's words without giving up its slot."""
         self._question = ""
         self._receipts = []
         self._order = []
         self.body.setText("")
         self.sources.setText("")
+        self.note.setVisible(True)
+
+    def clear(self) -> None:
+        """Empty the card and give its slot up."""
+        self._reset()
         self.hide()
 
 

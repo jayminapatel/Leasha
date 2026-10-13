@@ -30,13 +30,14 @@ from PySide6.QtWidgets import QStyle, QStyledItemDelegate, QStyleOptionViewItem
 
 from app.ui.kind_badge import badge_token, badge_word
 from app.ui.presenter import (
-    ResultGroup, Terminator, group_subtitle, is_code_kind, offline_volume_note,
-    why,
+    MISSING_MARK, ResultGroup, Terminator, group_subtitle, is_code_kind,
+    offline_volume_note, why,
 )
+from app.ui.presenter.snippets import term_spans
 from app.ui.theme import theme_colours
 from app.ui.view_options import Density, Metrics, ViewPreferences
 
-__all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED", "Skeleton",
+__all__ = ["ResultDelegate", "ROLE_PAYLOAD", "ROLE_EXPANDED", "ROLE_MISSING", "Skeleton",
            "BADGE_SIZE", "ROW_RADIUS"]
 
 
@@ -61,50 +62,9 @@ ROLE_PAYLOAD = int(Qt.ItemDataRole.UserRole)
 #: True when this group is currently showing its chunks.
 ROLE_EXPANDED = int(Qt.ItemDataRole.UserRole) + 1
 
-#: Side, in pixels, of the file-type icon painted where the `[PDF]` text tag
-#: used to sit. Item 3a.
-ICON_SIZE = 16
-
-#: One `QIcon` per `kind`, ever. Item 3a: `QFileIconProvider` asks the shell
-#: for a type icon per call, and doing that once per repaint of fifty rows of
-#: the same kind is the cost this cache exists to remove - the same reasoning
-#: as painting instead of building a widget per row, one layer down.
-_ICON_CACHE: dict[str, Any] = {}
-_ICON_PROVIDER: Any = None
-
-
-def _icon_for(kind: str) -> Any:
-    """A cached file-type `QIcon` for `kind`. Never raises: an icon that
-    cannot be produced falls back to the provider's generic file icon rather
-    than leaving the row with nothing painted at all.
-
-    The lookup is by **suffix**, not by an existing file - `QFileIconProvider`
-    asks the Windows shell for the icon a `.pdf` (or `.eml`, for mail) is
-    *associated with*, which is the same icon Explorer shows for any file of
-    that type and needs no file to exist on disk. `kind_tag` still supplies
-    the word ("PDF", "MAIL") for the tooltip and accessible text - this only
-    replaces what used to be a bracketed text tag in the painted row.
-    """
-    global _ICON_PROVIDER
-    if kind not in _ICON_CACHE:
-        try:
-            if _ICON_PROVIDER is None:
-                from PySide6.QtWidgets import QFileIconProvider
-                _ICON_PROVIDER = QFileIconProvider()
-            from PySide6.QtCore import QFileInfo
-            # A message has no real file extension; "eml" is the nearest
-            # real one and the shell knows it, so mail gets an actual
-            # envelope-style icon rather than the generic-file fallback.
-            suffix = "eml" if kind == "email" else (kind or "")
-            icon = _ICON_PROVIDER.icon(QFileInfo(f"x.{suffix}" if suffix else "x"))
-            if icon is None or icon.isNull():
-                from PySide6.QtWidgets import QFileIconProvider as _P
-                icon = _ICON_PROVIDER.icon(_P.IconType.File)
-            _ICON_CACHE[kind] = icon
-        except Exception:                        # noqa: BLE001 - never blocks a paint
-            from PySide6.QtGui import QIcon
-            _ICON_CACHE[kind] = QIcon()
-    return _ICON_CACHE[kind]
+#: True when this row's file is gone (`presenter.missing_paths`, on a worker).
+#: UI phase B: painted on the row as `MISSING_MARK`, not left to the tooltip.
+ROLE_MISSING = int(Qt.ItemDataRole.UserRole) + 2
 
 
 class ResultDelegate(QStyledItemDelegate):
@@ -289,7 +249,8 @@ class ResultDelegate(QStyledItemDelegate):
             y = self._paint_group(painter, payload, left, y, width,
                                   name_font, meta_font, text_colour, faint, metrics,
                                   expanded=bool(index.data(ROLE_EXPANDED)),
-                                  selected=selected, colours=colours)
+                                  selected=selected, colours=colours,
+                                  missing=bool(index.data(ROLE_MISSING)))
         else:
             left += metrics.indent
             width -= metrics.indent
@@ -305,10 +266,25 @@ class ResultDelegate(QStyledItemDelegate):
                           max_lines=_max_snippet_lines(self.prefs.density))
         painter.restore()
 
+    def side_word(self, index: Any) -> tuple[str, str]:
+        """The word left of a row's date, and the theme token it is drawn in.
+
+        UI phase B: a file that has gone says `MISSING_MARK` in `warning`. It
+        outranks the Status word, because "Indexed" beside a file that will not
+        open is the less useful of the two true things.
+        """
+        return self._side_word(index.data(ROLE_PAYLOAD), bool(index.data(ROLE_MISSING)))
+
+    def _side_word(self, group: Any, missing: bool) -> tuple[str, str]:
+        if missing:
+            return MISSING_MARK, "warning"
+        word = self.statuses.get(int(getattr(group, "file_id", 0) or 0), "")
+        return (word, "text_faint") if word else ("", "")
+
     def _paint_group(self, painter, group, left, y, width,
                      name_font, meta_font, colour, faint, metrics,
                      expanded: bool = False, selected: bool = False,
-                     colours: Optional[dict] = None) -> int:
+                     colours: Optional[dict] = None, missing: bool = False) -> int:
         """One document row: badge, date, status word, name and grey subtitle.
         Returns the y the snippet starts at.
         """
@@ -325,20 +301,19 @@ class ResultDelegate(QStyledItemDelegate):
         # The owner: *"it must show the single word status ... visible in the
         # results"*. The word sits just left of the date, in the same faint
         # meta font, so it is on every row without competing with the name.
-        word = self.statuses.get(int(getattr(group, "file_id", 0) or 0), "")
+        word, token = self._side_word(group, missing)
         status_width = QFontMetrics(meta_font).horizontalAdvance(word) + 14 if word else 0
         meta_h = QFontMetrics(meta_font).height()
 
         # **UI Redesign §4a: a kind badge spanning the name and meta lines.**
         # A rounded square in the kind's stripe colour with `kind_tag`'s word
-        # in it, and the shell's own file-type icon small in its corner when
-        # the provider has one. Clamped to the two-line block so `sizeHint`
-        # is untouched by it - one source of geometry, still.
+        # in it. Clamped to the two-line block so `sizeHint` is untouched by
+        # it - one source of geometry, still. UI phase B (owner, 2026-10-13):
+        # the word or the icon, not both. The shell's icon in the corner went
+        # and the word stayed, because the word is what reads at 36px.
         badge_side = min(BADGE_SIZE, name_metrics.height() + metrics.gap + meta_h)
-        badge_left = left
         if group.kind:
-            _paint_badge(painter, QRect(left, y, badge_side, badge_side), group.kind, colours,
-                         icon=_icon_for(group.kind))
+            _paint_badge(painter, QRect(left, y, badge_side, badge_side), group.kind, colours)
             indent = self.text_indent(group, name_font, meta_font, metrics)   # the snippet's too
             left += indent
             width -= indent
@@ -351,26 +326,35 @@ class ResultDelegate(QStyledItemDelegate):
                          int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                          group.when)
         if word:
+            painter.setPen(QPen(QColor(colours.get(token, colours["text_faint"]))))
             painter.drawText(QRect(left + width - date_width - status_width, y,
                                    status_width, name_metrics.height()),
                              int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter),
                              word)
 
-        # **Item 3a: a real file icon where the `[PDF]` text tag used to
-        # sit.** Recognised faster than read - the kind word itself moved to
-        # the tooltip and accessible text (`kind_tag`, still used there),
-        # which is where it stays useful to someone who cannot see the icon.
-        text_left = left
-        # The badge owns the slot the 16px icon used to; see above.
-
         painter.setFont(name_font)
         painter.setPen(QPen(colour))
-        name_width = width - date_width - status_width - (text_left - left)
+        name_width = width - date_width - status_width
         name = name_metrics.elidedText(
             group.name, Qt.TextElideMode.ElideMiddle, name_width)
-        painter.drawText(QRect(text_left, y, name_width, name_metrics.height()),
-                         int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
-                         name)
+        # UI phase B: the matched words are marked in the name too, with the
+        # snippet's own `mark` and `mark_text`. A word found in the file name
+        # was marked in the passage under it and nowhere in the line people
+        # read first. Found in the elided name, so the offsets are the drawn ones.
+        marks = term_spans(name, getattr(group.best, "terms", ()) or ())
+        if marks:
+            bold = QFont(name_font)
+            bold.setBold(True)
+            baseline = y + (name_metrics.height() + name_metrics.ascent()
+                            - name_metrics.descent()) // 2
+            _draw_run(painter, name, 0, len(name), marks, left, baseline,
+                      left + name_width, name_font, bold, QPen(colour),
+                      QPen(QColor(colours.get("mark_text", colours["highlight"]))),
+                      mark=QColor(colours["mark"]) if "mark" in colours else None)
+        else:
+            painter.drawText(QRect(left, y, name_width, name_metrics.height()),
+                             int(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter),
+                             name)
         y += name_metrics.height() + metrics.gap
 
         subtitle = self._subtitle(group, expanded=expanded)
@@ -517,10 +501,10 @@ def _fill_row(painter: QPainter, rect: QRect, colour: QColor) -> None:
 BADGE_INK = "#ffffff"
 
 
-def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict,
-                 icon: Any = None) -> None:
-    """§4a: the kind badge - stripe colour, white word, provider icon in the
-    corner. The colours are the same in both themes by design."""
+def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict) -> None:
+    """§4a: the kind badge - stripe colour, white word. The colours are the same
+    in both themes by design. No corner icon since UI phase B: the word or the
+    icon, not both."""
     painter.save()
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     fill = QColor(colours.get(badge_token(kind), colours.get("kind_other", "#6c6685")))
@@ -532,9 +516,6 @@ def _paint_badge(painter: QPainter, rect: QRect, kind: str, colours: dict,
     painter.setFont(font)
     painter.setPen(QPen(QColor(BADGE_INK)))
     painter.drawText(rect, int(Qt.AlignmentFlag.AlignCenter), word)
-    if icon is not None and not icon.isNull() and rect.height() >= 28:
-        side = 12
-        icon.paint(painter, rect.right() - side - 1, rect.bottom() - side - 1, side, side)
     painter.restore()
 
 def _snippet_payload(payload: Any) -> Any:
