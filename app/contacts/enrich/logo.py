@@ -31,7 +31,7 @@ from app.accounts.http import AllowedHosts
 from app.accounts.provider import HttpResponse, Transport
 from app.contacts.card import Card
 from app.contacts.enrich.base import MAX_IMAGE_BYTES, Proposal, normalise_image
-from app.contacts.enrich.company import company_guess
+from app.contacts.enrich.company import company_guess, registrable_name, work_domains
 
 __all__ = ["company_domain", "usable_domain", "logo_proposals"]
 
@@ -65,7 +65,7 @@ def _social(domain: str) -> bool:
     matches itself or a subdomain of it; a brand matches when it is the domain's own name with only a short
     country or generic ending after it (`linkedin.com`, `ae.linkedin.com`, `linkedin.co.uk`) - so
     `linkedin.com.example.org`, somebody's own site, is not LinkedIn."""
-    from app.contacts.enrich.signatures import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
+    from app.contacts.enrich.sigparse import _SOCIAL_HOSTS  # noqa: PLC0415 - one list for the package
 
     d = domain.lower().strip(".")
     labels = d.split(".")
@@ -83,7 +83,12 @@ def _social(domain: str) -> bool:
 
 
 def company_domain(card: Card) -> str:
-    """The one domain to ask: the contact's web address first, then a work email's domain."""
+    """The one domain to ask: the contact's web address first, then a work email's domain.
+
+    Order 1s 6d: a web address is the company's only when its registrable name is a work email's
+    (`shop.acme-widgets.com` for `ann@acme-widgets.co.uk`), or the card has no work email to say otherwise.
+    A card's link to a supplier, a client or a personal site would otherwise put that site's icon on it."""
+    names = {registrable_name(d) for d in work_domains(card)} - {""}
     for f in card.values("url"):
         text = f.value.strip()
         if not text:
@@ -92,7 +97,7 @@ def company_domain(card: Card) -> str:
         d = usable_domain(host)
         # A LinkedIn or Facebook profile is the person's page, not the company's site: its icon would be
         # LinkedIn's. Found on the owner's index, 2026-10-12 (`ae.linkedin.com` asked for a logo).
-        if d and not _social(d):
+        if d and not _social(d) and (not names or registrable_name(d) in names):
             return d
     for f in card.values("email"):
         if company_guess(f.value):

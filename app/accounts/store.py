@@ -162,6 +162,24 @@ class AccountSettings:
     enrich_gravatar: bool = False
     enrich_logo: bool = False
     enrich_wikidata: bool = False
+    # Order 1s (2026-10-12). D1, the owner's: mail older than this many months is not read for
+    # suggestions at all (0 = any age). A hard cut, not a weighting.
+    enrich_max_months: int = 6
+    # 4b: open the original messages again for a signature the index cut. Off: it is slower.
+    enrich_read_originals: bool = False
+    # D7: more of the owner's own sources, on by default, each saying what it reads. (No Outlook contact
+    # items: section 5b found no reader exposes them, so there is no switch for them - owner's decision.)
+    enrich_vcards: bool = True
+    enrich_calendar: bool = True
+    enrich_linkedin: bool = True
+    enrich_linkedin_file: str = ""
+    # 5e: documents name people with titles too, but less reliably: off until the owner turns it on.
+    enrich_documents: bool = False
+    # 6b: an internet lookup is not repeated within this many days (0 = never asked again).
+    enrich_repeat_days: int = 90
+    # D4: confidence decides what starts ticked and what is shown, never what is applied.
+    enrich_tick_from: float = 0.85
+    enrich_hide_below: float = 0.5
     # order 1t (owner, 2026-10-12): after every contact sync, a read-only check that each account holds what
     # Leasha thinks it holds ("In step", or the contacts that differ, by name).
     check_after_sync: bool = True

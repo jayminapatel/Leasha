@@ -216,6 +216,19 @@ class _DeferredFts:
 VOLUME_PATH_SCHEME = "leasha-volume://"
 
 
+def _sender_address(sender: Any) -> Optional[str]:
+    """The lower-cased bare address in `Ann Lee <ann@x.com>`, or None (schema 41, `sender_addr`).
+
+    The same rule as `app.contacts.enrich.base.address_of`, which reads it back; a test holds the two
+    to each other. Kept here rather than imported, because storage sits below the contacts layer."""
+    from email.utils import parseaddr  # noqa: PLC0415 - one message at a time, cheap
+
+    if sender is None:
+        return None
+    found = parseaddr(str(sender))[1].strip().lower()
+    return found if "@" in found else None
+
+
 def volume_synthetic_path(volume_id: int, relative_path: str) -> str:
     r"""The letter-free identity `files.path` holds for a catalogued file.
 
@@ -5657,7 +5670,10 @@ class SqliteStore:
                    # done. See `migrations._v14_folded_mail_columns`.
                    "sender_lc", "recipients_lc", "subject_lc",
                    # Schema 32: where it sits in its archive (`pst_attachment`).
-                   "folder_path", "folder_index")
+                   "folder_path", "folder_index",
+                   # Schema 41: the sender's bare address, derived like the folds above
+                   # (`migrations._v41_enrichment_that_finds`).
+                   "sender_addr")
         # has_attach is NOT NULL DEFAULT 0, so it cannot be passed through as
         # None when the caller omits it.
         defaults: dict[str, Any] = {"has_attach": 0}
@@ -5668,6 +5684,7 @@ class SqliteStore:
                                ("subject", "subject_lc")):
             value = fields.get(source)
             fields[folded] = str(value).lower() if value is not None else None
+        fields["sender_addr"] = _sender_address(fields.get("sender"))
         values = [
             fields.get(name, defaults.get(name)) if fields.get(name) is not None
             else defaults.get(name)
@@ -7454,6 +7471,48 @@ class SqliteStore:
         return [dict(r) for r in self.conn.execute(
             "SELECT kind, ref, store_path, entry_id FROM message_places WHERE file_id = ? ORDER BY id",
             (int(file_id),))]
+
+    # -- order 1s 4a: the tail the index cut (`migrations._v42_message_tails`) --
+
+    def set_message_tail(self, file_id: int, text: Optional[str], reason: Optional[str] = "") -> None:
+        """Keep, replace or clear what `strip_quoted` cut from this message.
+
+        Written on every write of a mail message, empty included: a message read again
+        without its signature must lose the old tail, not keep one it no longer has."""
+        with self.write() as conn:
+            if text:
+                conn.execute(
+                    "INSERT INTO message_tails (file_id, text, reason) VALUES (?, ?, ?) "
+                    "ON CONFLICT(file_id) DO UPDATE SET text = excluded.text, reason = excluded.reason",
+                    (int(file_id), str(text), str(reason or "")))
+            else:
+                conn.execute("DELETE FROM message_tails WHERE file_id = ?", (int(file_id),))
+
+    def keep_message_tails(self, rows: Sequence[tuple[str, str, str]]) -> None:
+        """`(files.path, text, reason)` for messages found unchanged, in one transaction.
+
+        A message whose words are unchanged is not written again (`Pipeline._already_current`
+        compares the indexed text only), but its signature may have changed - a new title
+        under the same "Thursday works." - and a message indexed before schema 42 has no
+        tail at all. So each row is put as `set_message_tail` would: a changed or missing
+        tail is written, an empty one clears the row, an identical one is left alone."""
+        if not rows:
+            return
+        put = [(str(text), str(reason or ""), str(path)) for path, text, reason in rows if text]
+        gone = [(str(path),) for path, text, _reason in rows if not text]
+        with self.write() as conn:
+            conn.executemany(
+                "INSERT INTO message_tails (file_id, text, reason) SELECT id, ?, ? FROM files WHERE path = ? "
+                "ON CONFLICT(file_id) DO UPDATE SET text = excluded.text, reason = excluded.reason "
+                "WHERE text != excluded.text OR reason != excluded.reason", put)
+            conn.executemany(
+                "DELETE FROM message_tails WHERE file_id = (SELECT id FROM files WHERE path = ?)", gone)
+
+    def message_tail(self, file_id: int) -> Optional[tuple[str, str]]:
+        """`(text, reason)` of this message's kept tail, or None when it has none."""
+        row = self.conn.execute("SELECT text, reason FROM message_tails WHERE file_id = ?",
+                                (int(file_id),)).fetchone()
+        return (str(row[0]), str(row[1] or "")) if row else None
 
     def place_ref_known(self, kind: str, ref: str) -> bool:
         """Is `ref` recorded as another place of a live message (so its own row stays out)?"""

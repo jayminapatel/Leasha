@@ -23,6 +23,12 @@ why this is deduplication *within a message*, and never across the corpus.
 **Nothing is deleted from disk, ever.** This shapes what goes into the index. The
 original file is untouched, so a bad rule costs a re-index and nothing more.
 
+**What is cut is handed back, not thrown away** (order 1s 4a, D6). The signature
+block is the one place a person's title and phone are written down, and cutting it
+here meant enrichment could never read it. `StripResult.tail` is everything after
+the cut; `tail_for_storage` tidies it for `message_tails`, which is never embedded
+and never in the word index - so search sees exactly what it saw before.
+
 The markers are matched conservatively. A false positive truncates a real
 message and silently loses content, which is far worse than a missed quote
 leaving some duplication behind - so every pattern here is anchored to the start
@@ -34,7 +40,8 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-__all__ = ["StripResult", "strip_quoted", "QUOTE_MARKERS", "SIGNATURE_MARKERS"]
+__all__ = ["StripResult", "strip_quoted", "tail_for_storage", "TAIL_MAX_CHARS",
+           "QUOTE_MARKERS", "SIGNATURE_MARKERS"]
 
 
 #: Where a quoted chain begins. Everything from here to the end of the message
@@ -101,6 +108,9 @@ class StripResult:
     original_chars: int
     #: Named for what it is: the reason the cut was made, or "" if nothing was.
     reason: str = ""
+    #: Everything from the cut to the end - the signature, the quoted chain - or ""
+    #: when nothing was cut. Raw: `tail_for_storage` is what is kept of it.
+    tail: str = ""
 
     @property
     def removed_chars(self) -> int:
@@ -150,6 +160,7 @@ def strip_quoted(text: str, *, strip_signatures: bool = True) -> StripResult:
         reason = f"quoted: {reason}"
 
     kept = text[:cut_at].rstrip()
+    tail = text[cut_at:].strip()
 
     # Whatever survives, drop any `>`-prefixed lines still in it. A reply
     # interleaved with quotes has no single cut point, so the quoted lines are
@@ -172,4 +183,36 @@ def strip_quoted(text: str, *, strip_signatures: bool = True) -> StripResult:
         # loses a real message with no way to notice.
         return StripResult(text, original)
 
-    return StripResult(kept, original, reason)
+    return StripResult(kept, original, reason, tail)
+
+
+#: The most of a tail that is kept. A signature is a dozen lines; what runs on past
+#: 2,000 characters is the quoted chain, and the first message of that chain - the
+#: one 4c reads for a quoted signature - is at its top. Raising it costs only
+#: database size (about 2KB a message at most); lowering it below a long legal
+#: footer would cut signatures written under one.
+TAIL_MAX_CHARS = 2000
+
+#: A line that is nothing but a link: a bare or bracketed URL, or a `mailto:`. These
+#: are the rewritten tracking links and social icons that pad a signature out
+#: (Mimecast, Safelinks), and they carry nothing a person reads.
+_LINK_ONLY = re.compile(r"^<?(?:(?:https?|mailto|tel):\S+|www\.\S+)>?$", re.I)
+
+
+def tail_for_storage(tail: str) -> str:
+    """A cut-off tail as `message_tails` keeps it: lines right-stripped, link-only
+    lines dropped, runs of blank lines made one, at most `TAIL_MAX_CHARS`.
+
+    Deliberately simple. The signature reader cleans properly (order 1s 3a) when it
+    reads; this only stops a tail being mostly blank lines and tracking links, so
+    the 2,000 characters are spent on words.
+    """
+    lines: list[str] = []
+    for line in tail.splitlines():
+        line = line.rstrip()
+        if _LINK_ONLY.match(line.strip()):
+            continue
+        if not line and (not lines or not lines[-1]):
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()[:TAIL_MAX_CHARS]
