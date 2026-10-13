@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from app.core.logging import logger
 from app.ui.widgets.category_nav import CategoryNav
+from app.ui.widgets.page_frame import PageFrame
 from app.ui.widgets.chat_roles import ModelCombo
 from app.ui.widgets.vision_model import VisionModelField
 from app.ui.widgets import settings_search
@@ -293,7 +294,7 @@ class SettingsView(SettingsShelves, QWidget):
         self._nav.category_changed.connect(self._category_selected)
         self._build_categories(pst_box, behaviour, privacy)
 
-        layout = QVBoxLayout(self)
+        layout = PageFrame(self)                 # the one page frame (UI phase B)
         layout.addWidget(self.filter_box)
         # UI phase B, 2026-10-13: Search all settings - the box lists what it found and takes
         # you there (`widgets/settings_search.py`). New words for a new thing.
