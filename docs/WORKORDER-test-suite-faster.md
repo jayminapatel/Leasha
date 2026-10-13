@@ -49,10 +49,17 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 - [ ] **2h** `tests/unit/test_ui_review_0x9.py` (79 s)
 
 **Group C - the index process and its recovery** (437 s)
-- [ ] **2i** `tests/unit/test_diagnostics.py` (144 s)
-- [ ] **2j** `tests/unit/test_index_child_process.py` (137 s)
-- [ ] **2k** `tests/unit/test_timed_out_retry.py` (84 s)
-- [ ] **2l** `tests/unit/test_pst_folder_resume.py` (72 s)
+
+Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`) and after run back to back, twice, lower of the two, wall seconds of the pytest run. The laptop was shared: other threads' suites had it at 100% CPU throughout, so both numbers are well above the idle figure in brackets; the ratio is the point.
+
+- [x] **2i** `tests/unit/test_diagnostics.py` (144 s)
+  *2026-10-13: **205 s -> 46 s** (-78%).* The time was `build_bundle` running `doctor.py --json --quick` as a child (20-60 s each) in all six bundle tests. Five of them (no nesting, a broken section, an explicit path, `.env` redaction, log truncation) now take a `no_doctor` fixture that stubs `diagnostics._doctor`; `test_bundle_contains_the_expected_parts` keeps the real doctor child, and now also asserts the `doctor` section is in the report. Red-checked: emptying `SKIP_FOLDERS`, re-raising in `_guarded`, ignoring `out_path`, making `redact_env` return its input and switching off `_tail_bytes`'s cut each turned its test red. Left slow: the one real-doctor bundle (about 30 s under load), on purpose. §4e: no Qt in this file.
+- [x] **2j** `tests/unit/test_index_child_process.py` (137 s)
+  *2026-10-13: **201 s -> 105 s** (-48%).* Every test still starts the real `app.cli index --events jsonl` child - that is this file's point (crash, kill, orphan, pipes) - but each child is lighter: `INDEX_READ_PROCESSES=false` (reader processes, on by default since 2026-10-09, meant one more Python per worker per child; on the busy laptop they missed their 60 s start and `test_a_whole_run_arrives_as_the_stats_the_page_draws` ran out its 300 s), `INDEX_LOW_PRIORITY=false`, and `COMPUTE_PROFILE_OVERRIDE` to a fixed profile so no child runs the two PowerShell machine probes (`light_children`, `LIGHT_CHILD_ENV`). Red-checked: a different code for a dead child, no `window_gone` stop, and a child that ignores pause each turned their test red. Found on the way: breaking only the stdin reader's call to `window_gone` did not turn the orphan test red - a second path still stops the child - so the check was made on `window_gone` itself. Left slow: about 15 s a child (interpreter and pipeline import), which is the real process this file exists to prove. §4e: no Qt in this file.
+- [x] **2k** `tests/unit/test_timed_out_retry.py` (84 s)
+  *2026-10-13: **147 s -> 81 s** (-45%).* The time was `test_a_retry_through_the_indexing_process`: two real children at below-normal priority, each probing the machine (one sat 240 s without reading a file and failed). It now uses `light_children` and `LIGHT_CHILD_ENV` from `test_index_child_process.py`, and `cli_env` adds the profile override and `INDEX_LOW_PRIORITY=false` for the in-process command-line runs. The child test stays - it is the only proof the retry crosses the pipe. Real-time waits (the 1 s minimum limit, 2.5 s and 3 s slow reads) were left: shortening them would cut the margin that makes the timeout land. Red-checked: `child_arguments` dropping the retry flags turned the child test red; `clamp_factor` returning 1 turned both command-line retry tests red. §4e: no Qt in this file.
+- [x] **2l** `tests/unit/test_pst_folder_resume.py` (72 s)
+  *2026-10-13: **64 s -> 31 s** (-52%).* Its ~30 pipeline runs used the default `ResourceLimits` (pause over 80% CPU, 10 s quiet to resume, below-normal priority, a real system probe). They now go through one `_pipeline` with `test_file_watch._pipeline`'s limits and a governor on a fixed `Snapshot`; the fake `pypff` tree, the stops and every comparison are unchanged. Red-checked: never loading the archive cursor turned five tests red (`[5]`, `[6]`, `[8]`, `[9]`, the killed run); stamping each document one folder on turned seven red. §4e: no Qt in this file.
 
 **Group D - staging, the GPU and pictures** (407 s)
 - [ ] **2m** `tests/unit/test_staging.py` (120 s)
