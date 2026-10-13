@@ -12,6 +12,8 @@ already in carries on.
 
 from __future__ import annotations
 
+import contextlib
+
 from types import SimpleNamespace
 
 import pytest
@@ -45,10 +47,8 @@ def parent(qtbot, monkeypatch):
     yield widget
     box = getattr(widget, "_error_box", None)
     if box is not None:
-        try:
+        with contextlib.suppress(RuntimeError):     # the box may already be gone
             box.close()
-        except RuntimeError:
-            pass
 
 
 def _boxes(widget):
