@@ -14,6 +14,12 @@ most the page in flight and the next sync carries on from the last token saved. 
 first fetch is recorded in `account_sync_state.extra["first_fetch"]` (its window,
 how many fetched, the server's total, the rate), kept after it finishes as a record.
 
+**One page ahead.** The provider's pages are read on a thread of their own
+(`_ReadAhead`), one page ahead of the page being parsed, written and embedded, so the
+network and the embedder work at the same time instead of in turn. Only the page
+being applied has its token saved; a page read ahead and not applied (Stop, giving
+way to contacts, a failure) is simply read again by the next sync.
+
 **Read only (rule 10).** The provider is wrapped in `_ReadOnly`, which has `pull`,
 `list_folders` and `close` and nothing else; the syncer cannot reach a verb that
 could change a mailbox. The connectors are policed by their own tests
@@ -54,7 +60,8 @@ mail panel; read by `MailOptions.from_account`):**
 
 from __future__ import annotations
 
-import json
+import queue
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -143,6 +150,68 @@ class MailProgress:
 # The provider, as the syncer may use it
 # --------------------------------------------------------------------------
 
+class _ReadAhead:
+    """Iterate `pages` on a thread of its own, at most `depth` pages ahead of the reader.
+
+    The provider's generator runs, fails and is closed on that thread only; a failure
+    there is raised here, in order, after the pages before it. `close()` stops it.
+    """
+
+    _END = object()
+
+    def __init__(self, pages: Iterator[MailPage], depth: int = 1) -> None:
+        self._pages = pages
+        self._q: queue.Queue[Any] = queue.Queue(maxsize=max(1, depth))
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="mail-read-ahead", daemon=True)
+        self._thread.start()
+
+    def _put(self, item: Any) -> bool:
+        while not self._stop.is_set():
+            try:
+                self._q.put(item, timeout=0.2)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _run(self) -> None:
+        try:
+            for page in self._pages:
+                if not self._put(page):
+                    return
+            self._put(self._END)
+        except BaseException as exc:                              # noqa: BLE001 - handed to the reader
+            self._put(exc)
+        finally:
+            close = getattr(self._pages, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:                                 # noqa: BLE001 - closing is best effort
+                    _log.debug("closing the mail pages failed", exc_info=True)
+
+    def __iter__(self) -> _ReadAhead:
+        return self
+
+    def __next__(self) -> MailPage:
+        item = self._q.get()
+        if item is self._END:
+            raise StopIteration
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    def close(self) -> None:
+        self._stop.set()
+        while self._thread.is_alive():
+            try:                                                  # free a put that is waiting
+                self._q.get_nowait()
+            except queue.Empty:
+                pass
+            self._thread.join(timeout=0.2)
+
+
 class _ReadOnly:
     """What the syncer holds of a provider: three verbs, none of which writes."""
 
@@ -175,7 +244,9 @@ def build_mail_provider(service: Any, account: Account) -> MailProvider:
     if p == "microsoft":
         from app.accounts.providers.graph_mail import GraphMailProvider
 
-        return GraphMailProvider(service.transport_for(account), service.token_source(account),
+        # Kept connections (one per download thread): a new TLS connection cost about
+        # 240 ms a message against 50 ms on a kept one, measured 2026-10-13.
+        return GraphMailProvider(service.contact_transport(account), service.token_source(account),
                                  account_name=account.name)
     from app.accounts.providers.imap_mail import ImapMailProvider
 
@@ -310,8 +381,8 @@ class MailSyncer:
         run_started = self._mono()
         bytes_run = 0
         last_token = token
-        pages = provider.pull(token, folders=opts.folders, since=since,
-                              include_spam_trash=opts.include_spam_trash)
+        pages = _ReadAhead(provider.pull(token, folders=opts.folders, since=since,
+                                         include_spam_trash=opts.include_spam_trash))
         try:
             for page in pages:
                 prepared: list[PreparedMessage] = []
@@ -359,9 +430,7 @@ class MailSyncer:
                     self._pause(account, out, ff, extra, last_token, "a contact sync is due")
                     return
         finally:
-            close = getattr(pages, "close", None)
-            if close is not None:
-                close()
+            pages.close()
 
     # --------------------------------------------------------------- helpers
     @staticmethod
