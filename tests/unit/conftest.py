@@ -219,7 +219,13 @@ _MODIFIER_KEYS = (
     ("AltModifier", "Key_Alt"),
     ("MetaModifier", "Key_Meta"),
 )
-_MOUSE_BUTTONS = ("LeftButton", "RightButton", "MiddleButton", "BackButton", "ForwardButton")
+def _mouse_buttons() -> list:
+    """Every single Qt mouse button, read from the enum rather than listed by hand, so a held
+    Task or Extra button is caught too (review of #85). Aliases come once; the masks are not buttons."""
+    from PySide6.QtCore import Qt
+
+    return [b for b in Qt.MouseButton
+            if b.name not in ("NoButton", "AllButtons", "MouseButtonMask") and int(b.value).bit_count() == 1]
 
 #: Test files known to leave input held: released and warned about instead of failed.
 #: Every other test that leaves a key or button held fails. Found 2026-10-13 (13 tests in
@@ -248,7 +254,7 @@ def held_input() -> list[str]:
     buttons = QApplication.mouseButtons()
     held = [name for name, _key in _MODIFIER_KEYS
             if modifiers & getattr(Qt.KeyboardModifier, name)]
-    held += [name for name in _MOUSE_BUTTONS if buttons & getattr(Qt.MouseButton, name)]
+    held += [b.name for b in _mouse_buttons() if buttons & b]
     return held
 
 
@@ -269,8 +275,7 @@ def release_held_input() -> None:
         for name, key in _MODIFIER_KEYS:
             if modifiers & getattr(Qt.KeyboardModifier, name):
                 QTest.keyRelease(scratch, getattr(Qt.Key, key))
-        for name in _MOUSE_BUTTONS:
-            button = getattr(Qt.MouseButton, name)
+        for button in _mouse_buttons():
             if buttons & button:
                 QTest.mouseRelease(scratch, button)
     finally:
