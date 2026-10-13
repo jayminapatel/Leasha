@@ -48,7 +48,7 @@ from app.core.errors import AppErrorException
 
 __all__ = ["REPEAT_DAYS", "LOCAL_SOURCES", "INTERNET_SOURCES", "SWITCHES", "enrich_contact", "enrich_selection",
            "proposals_for", "history_for", "suggestions_for", "seen_key", "owner_addresses", "skipped_notes",
-           "window_of", "window_notes", "MAIL_SOURCES", "repeat_days", "is_recent"]
+           "window_of", "window_notes", "MAIL_SOURCES", "repeat_days", "is_recent", "unreached_notes"]
 
 #: The same lookup is not repeated within this many days (7i) - the default of the setting
 #: `AccountSettings.enrich_repeat_days` (order 1s 6b), which is what a run uses.
@@ -143,7 +143,8 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                    clock: Callable[[], float] = time.time, force: bool = False,
                    sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
                    owner_emails: Iterable[str] = (), _net: Optional[_Net] = None, _wiki: Optional[dict] = None,
-                   _skipped: Optional[dict] = None, _owner: Optional[dict] = None) -> list[Proposal]:
+                   _skipped: Optional[dict] = None, _owner: Optional[dict] = None,
+                   _unreached: Optional[dict] = None) -> list[Proposal]:
     """Proposals for one contact from every source that is switched on. Applies nothing.
 
     `owner_emails` are the owner's own addresses (`owner_addresses`): the signature reader never offers
@@ -151,7 +152,11 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     whole run, so it is read once, not once a contact.
 
     `_skipped` counts, per internet source, the contacts not asked again because the same lookup was made
-    within the repeat interval (`repeat_days`) - so the run can say so rather than look as if the source found nothing."""
+    within the repeat interval (`repeat_days`) - so the run can say so rather than look as if the source found nothing.
+
+    `_unreached` collects, for a whole run, the sources and logo domains that could not be reached, so the run
+    says so once (`unreached_notes`) rather than once a contact, and a domain that failed is not asked again for
+    a colleague in the same run. Without it each failure is a note of its own."""
     row = hub.get_row(contact_id)
     card = hub.get_card(contact_id)
     if row is None or card is None or row.deleted_at is not None:
@@ -165,6 +170,14 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
     def note(text: str) -> None:
         if notes is not None:
             notes.append(text)
+
+    def unreached(kind: str, text: str, domain: str = "") -> None:
+        if _unreached is None:
+            note(text)
+        elif domain:
+            _unreached.setdefault(kind, {})[domain] = None    # a dict keeps the order and each domain once
+        else:
+            _unreached[kind] = True
 
     def skip(kind: str) -> None:
         if _skipped is not None:
@@ -211,7 +224,7 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             try:
                 got = gravatar.gravatar_proposals(net.transport, contact_id, one)
             except AppErrorException:
-                note("Gravatar could not be reached.")
+                unreached("gravatar", "Gravatar could not be reached.")
                 break
             _remember(store, "gravatar", k, now)
             remember.keep(store, "gravatar", k, got)
@@ -221,14 +234,16 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
             skip("gravatar")
     if "logo" in wanted and _on(settings, "logo"):
         domain = logo.company_domain(card)
-        if domain and (force or not _recent(store, "logo", domain, now, days)):
+        if domain and _unreached is not None and domain in _unreached.get("logo", {}):
+            pass                                          # failed for a colleague a moment ago in this run
+        elif domain and (force or not _recent(store, "logo", domain, now, days)):
             try:
                 got = logo.logo_proposals(net.transport, net.allowed, contact_id, card)
                 out += got
                 _remember(store, "logo", domain, now)
                 remember.keep(store, "logo", domain, got)
             except AppErrorException:
-                note(f"{domain} could not be reached.")
+                unreached("logo", f"{domain} could not be reached.", domain)
         elif domain:
             out += remember.offer_again(store, "logo", domain, contact_id, card, hub.region) or []
             skip("logo")
@@ -246,7 +261,7 @@ def enrich_contact(hub: Any, settings: Any, contact_id: int, *, transport: Any =
                     _remember(store, "wikidata", key, now)
                     remember.keep_facts(store, key, cache[key])
                 except AppErrorException:
-                    note("Wikidata could not be reached.")
+                    unreached("wikidata", "Wikidata could not be reached.")
             else:
                 kept, facts = remember.facts_again(store, key)
                 if kept:
@@ -289,6 +304,31 @@ def skipped_notes(skipped: dict, days: int = REPEAT_DAYS) -> list[str]:
     return out
 
 
+#: How many unreachable websites a run names before it says "and N more".
+UNREACHED_NAMED = 3
+
+
+def unreached_notes(unreached: dict) -> list[str]:
+    """One sentence per internet source that could not be reached during a run.
+
+    Each failure used to be a note of its own: a run over the owner's contacts put some 150 "<domain> could
+    not be reached." sentences, repeats included, into the Enrich window's notes line (found 2026-10-14)."""
+    out = []
+    if unreached.get("gravatar"):
+        out.append("Gravatar could not be reached.")
+    sites = list(unreached.get("logo", {}))
+    if len(sites) == 1:
+        out.append(f"{sites[0]} could not be reached.")
+    elif sites:
+        named = ", ".join(sites[:UNREACHED_NAMED])
+        more = len(sites) - UNREACHED_NAMED
+        out.append(f"Company logos: {len(sites):,} websites could not be reached ({named}"
+                   + (f" and {more:,} more" if more > 0 else "") + ").")
+    if unreached.get("wikidata"):
+        out.append("Wikidata could not be reached.")
+    return out
+
+
 def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, transport: Any = None,
                      clock: Callable[[], float] = time.time, force: bool = False,
                      sources: Optional[Iterable[str]] = None, notes: Optional[list[str]] = None,
@@ -304,6 +344,7 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
     wiki: dict = {}
     skipped: dict = {}
     owner: dict = {}
+    unreached: dict = {}
     out: list[Proposal] = []
     wanted = list(sources) if sources is not None else None
     ids = list(dict.fromkeys(int(c) for c in contact_ids))
@@ -315,11 +356,12 @@ def enrich_selection(hub: Any, settings: Any, contact_ids: Iterable[int], *, tra
                 break
             out += enrich_contact(hub, settings, cid, transport=transport, clock=clock, force=force,
                                   sources=wanted, notes=notes, owner_emails=owner_emails, _net=net, _wiki=wiki,
-                                  _skipped=skipped, _owner=owner)
+                                  _skipped=skipped, _owner=owner, _unreached=unreached)
             if on_progress is not None:
                 on_progress({"done": done + 1, "total": len(ids), "found": len(out)})
     out = drop_declined(hub.store, out, region=hub.region)        # order 1s D5: never offered again
     if notes is not None:
+        notes.extend(unreached_notes(unreached))
         notes.extend(skipped_notes(skipped, repeat_days(settings)))
         notes.extend(window_notes(hub, settings, ids, out, wanted))
     return out

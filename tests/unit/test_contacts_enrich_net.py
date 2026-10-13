@@ -696,3 +696,41 @@ def test_a_social_site_is_matched_at_its_own_name_not_inside_another(domain, soc
     from app.contacts.enrich import logo
 
     assert logo._social(domain) is social
+
+
+# ---- unreachable sites: one sentence a run, not one a contact (2026-10-14) --------------------------
+
+class _DownCounted(Down):
+    def __init__(self):
+        self.urls = []
+
+    def request(self, method, url, **kw):
+        self.urls.append(url)
+        return super().request(method, url, **kw)
+
+
+def test_unreachable_logo_sites_are_one_note_a_run_and_a_failed_domain_is_not_asked_again(hub):
+    """The Enrich window's notes line held some 150 "<domain> could not be reached." sentences, one a
+    contact and the same domain more than once. A run now says it once, names three, counts the rest."""
+    emails = ["ann@acme-widgets.co.uk", "bob@acme-widgets.co.uk", "cy@b-corp.com", "di@c-ltd.com",
+              "ed@d-group.com", "fa@acme-widgets.co.uk"]
+    ids = [person(hub, email=e) for e in emails]
+    down = _DownCounted()
+    notes: list[str] = []
+    assert enrich_selection(hub, _logo_settings(), ids, transport=down, notes=notes) == []
+    assert sum(1 for u in down.urls if "acme-widgets" in u) == 1           # asked once, not three times
+    unreached = [n for n in notes if "could not be reached" in n]
+    assert unreached == ["Company logos: 4 websites could not be reached "
+                         "(acme-widgets.co.uk, b-corp.com, c-ltd.com and 1 more)."]
+
+
+def test_one_unreachable_site_keeps_its_own_sentence_and_one_contact_alone_still_notes_it(hub):
+    from app.contacts.enrich.run import enrich_contact, unreached_notes
+    assert unreached_notes({"logo": {"acme-widgets.co.uk": None}}) == ["acme-widgets.co.uk could not be reached."]
+    assert unreached_notes({"gravatar": True, "wikidata": True}) == [
+        "Gravatar could not be reached.", "Wikidata could not be reached."]
+    assert unreached_notes({}) == []
+    cid = person(hub, email="ann@acme-widgets.co.uk")
+    notes: list[str] = []
+    enrich_contact(hub, _logo_settings(), cid, transport=Down(), notes=notes)
+    assert notes == ["acme-widgets.co.uk could not be reached."]
