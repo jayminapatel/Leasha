@@ -58,12 +58,14 @@ def _texts(menu):
 
 
 def test_the_actions_show_on_hover_only_and_keep_their_room(app):
-    bubble = _answer(app)
+    # UI phase B (2026-10-13): on an older answer. The newest keeps its row in view
+    # (`test_ui_b_chat.py`).
+    bubble = _answer(app, last=False)
     bubble.set_hover(False)                    # offscreen, a new widget may open under the pointer
     assert not bubble.actions.isVisible(), "the action row shows without the pointer"
     assert bubble.actions.sizePolicy().retainSizeWhenHidden()
     bubble.set_hover(True)
-    assert bubble.actions.isVisible() and bubble.regenerate_button.isVisible()
+    assert bubble.actions.isVisible() and bubble.copy_button.isVisible()
     bubble.set_hover(False)
     assert not bubble.actions.isVisible()
 
@@ -117,7 +119,8 @@ def test_the_persons_message_has_copy_and_edit_in_its_menu(app):
     _MADE.append(bubble)
     bubble.set_last(True)
     assert _texts(user_menu(bubble)) == ["Copy", "Edit"]
-    assert bubble.edit_button.isHidden(), "Edit shows without the pointer"
+    # UI phase B (2026-10-13): Edit is in view on the last message, pointer or not.
+    assert not bubble.edit_button.isHidden()
     bubble.set_last(False)
     assert _texts(user_menu(bubble)) == ["Copy"]
 
@@ -140,11 +143,12 @@ def test_the_conversation_and_the_box_share_one_centred_column(app):
 
 
 def test_an_empty_conversation_reads_like_the_search_pages_empty_box(app):
-    from app.ui.presenter.chat import EMPTY_HEADING, EMPTY_HINT
+    from app.ui.presenter.chat import EMPTY_HEADING, STARTER_QUESTIONS
     from app.ui.widgets.chat_bubbles import BubbleList
 
     bubbles = BubbleList()
     _MADE.append(bubbles)
     assert bubbles.empty_heading.objectName() == "emptyHeadline"      # Search's headline
-    assert bubbles.empty_hint.objectName() == "emptyGreeting"         # and its greeting
-    assert bubbles.empty_heading.text() == EMPTY_HEADING and bubbles.empty_hint.text() == EMPTY_HINT
+    assert bubbles.empty_heading.text() == EMPTY_HEADING
+    # UI phase B (2026-10-13): the greeting's example questions are cards to click.
+    assert [c.text() for c in bubbles.starters] == list(STARTER_QUESTIONS)

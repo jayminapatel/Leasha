@@ -9,6 +9,9 @@ the pointer is over that message (its room is kept, so nothing jumps) - and
 every action, plus Copy as plain text, is in the message's right-click menu,
 which the keyboard's menu key opens too. Nothing is taken away: the same
 actions, in quieter places.
+
+UI phase B (2026-10-13): the newest answer's row and the last message's Edit are
+in view without the pointer (`chat_bubbles`); hover is for the older answers.
 """
 
 from __future__ import annotations

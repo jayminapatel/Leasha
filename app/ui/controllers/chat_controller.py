@@ -108,10 +108,14 @@ class _Bridge(QObject):
 class _Ask:
     """One question in flight."""
 
-    def __init__(self, token: int, run_view: Any) -> None:
+    def __init__(self, token: int, run_view: Any, session: Any = None) -> None:
         """One question's state, shared between the window thread and its worker."""
         self.token = token
         self.run = run_view
+        #: UI phase B (2026-10-13): the conversation that asked. The person may open
+        #: another while this is written; the reply is still saved here, never into
+        #: whichever conversation is on screen when it lands.
+        self.session = session
         self.stopped = False
         self.finalised = False
         #: Stop was pressed and the worker did not come back in time: the box was handed back
@@ -249,6 +253,8 @@ class ChatController(QObject):
         view.sessions.new_requested.connect(self._new)
         view.sessions.renamed.connect(self._rename)
         view.sessions.deleted.connect(self._delete)
+        view.sessions.pinned.connect(self._pin_chat)
+        view.question_edited.connect(self.resend_edited)
         view.model_picker.chosen.connect(self._model_chosen)
         view.shelf.set_shelf(self.session.shelf)
         self._w.rail.currentChanged.connect(self._tab_changed)
@@ -513,7 +519,7 @@ class ChatController(QObject):
             self._refresh_list()
             return
         self.sessions = found
-        if found:
+        if found and not getattr(self, "_fresh", False):
             self._open_session(found[0])
         else:
             self._refresh_list()
@@ -525,26 +531,41 @@ class ChatController(QObject):
             active = self.session.id if self.session in self.sessions else ""
             self.view.sessions.set_sessions(self.sessions, active)
 
+    def _live(self, session: ChatSession) -> bool:
+        """Is an answer being written for `session` right now?"""
+        ask = self._ask
+        return ask is not None and not ask.finalised and ask.session is session
+
     def _open_session(self, session: ChatSession) -> None:
-        """Show a saved conversation: its turns, its shelf and its Web switch."""
+        """Show a saved conversation: its turns, its shelf and its Web switch - and,
+        when it is the one being answered, the answer as far as it has got."""
         self.session = session
-        self.view.show_turns(session.turns)
+        self.view.show_turns(session.turns, live=self._live(session))
         self.view.shelf.set_shelf(session.shelf)
         self.view.set_web(self._web_allowed, session.web)
         self._refresh_list()
 
+    def new_chat(self) -> None:
+        """Ctrl+Shift+O (UI phase B): a fresh conversation, from anywhere in the window."""
+        if self.view is not None:
+            self._new()
+            # Asked for before the saved ones have been read: when they come, they
+            # are listed but the newest is not opened over this one (`_loaded`).
+            self._fresh = True
+
     def _new(self) -> None:
         """Start an empty conversation and put the cursor in the box."""
         self.session = new_session()
-        self.view.show_turns([])
+        self.view.show_turns([], live=False)
         self.view.shelf.set_shelf(self.session.shelf)
         self.view.set_web(self._web_allowed, False)
         self._refresh_list()
         self.view.focus()
 
     def _select(self, session_id: str) -> None:
-        """The list chose a session; ignored while an answer is in flight."""
-        if session_id == self.session.id or self._ask is not None:
+        """The list chose a session. Allowed while an answer is written (UI phase B):
+        the answer is its own conversation's (`_Ask.session`) and keeps going."""
+        if session_id == self.session.id:
             return
         found = next((s for s in self.sessions if s.id == session_id), None)
         if found is not None:
@@ -557,11 +578,24 @@ class ChatController(QObject):
             found.title, found.titled = title, True
             self._persist(found)
 
+    def _pin_chat(self, session_id: str, on: bool) -> None:
+        """Pin a conversation to the top of the list, or let it go back to its date.
+        Saved, but not "used": its place among the dates stays where it was."""
+        found = next((s for s in self.sessions if s.id == session_id), None)
+        if found is not None and found.pinned != bool(on):
+            found.pinned = bool(on)
+            self._persist(found, touch=False)
+            self._refresh_list()
+
     def _delete(self, session_id: str) -> None:
-        """Forget a session, on a worker; a new one opens if it was the current one."""
+        """Forget a session, on a worker; a new one opens if it was the current one.
+        An answer still being written for it is stopped first."""
         self.sessions = [s for s in self.sessions if s.id != session_id]
         # Remembered for this run: a read or a save still on its way must not bring it back.
         self._deleted.add(session_id)
+        ask = self._ask
+        if ask is not None and ask.session is not None and ask.session.id == session_id:
+            self.stop()                          # after `_deleted`: its partial is not saved
         worker = CallableWorker(self._sessions.delete, session_id, component="ui.chat")
         worker.signals.failed.connect(lambda error: _log.warning("chat: {}", error))
         run(QThreadPool.globalInstance(), worker)
@@ -571,11 +605,17 @@ class ChatController(QObject):
         else:
             self._refresh_list()
 
-    def _persist(self, session: ChatSession) -> None:
-        """Queue a save. One at a time, newest wins, never on the window thread."""
+    def _persist(self, session: ChatSession, *, touch: bool = True) -> None:
+        """Queue a save. One at a time, newest wins, never on the window thread.
+        `touch=False` saves without moving it to the top of its dates (a pin)."""
         if not (session.turns or session.shelf.items or session.titled):
             return
-        session.updated = time.time()
+        if session.id in self._deleted:
+            # A stopped answer for a conversation deleted meanwhile lands here; saving
+            # it would bring the conversation back.
+            return
+        if touch:
+            session.updated = time.time()
         if session not in self.sessions:
             self.sessions.insert(0, session)
             self._refresh_list()
@@ -825,6 +865,15 @@ class ChatController(QObject):
         if question:
             self.ask(question, again=0)
 
+    def resend_edited(self, question: str) -> None:
+        """Up in the empty box brought the last message back and it was sent changed:
+        it replaces the last message and its answer, as Edit does - only now, when it
+        is sent, so a stray Up loses nothing."""
+        if self._ask is not None or self.view is None or not question.strip():
+            return
+        if self._rewind_to_last_question():
+            self.ask(question)
+
     def edit_last(self) -> None:
         """The last message comes back into the box to be changed and sent again."""
         if self._ask is not None or self.view is None:
@@ -857,7 +906,7 @@ class ChatController(QObject):
             session.title = title_from_question(question)
         view.add_user(question)
         self._token += 1
-        ask = _Ask(self._token, view.begin_answer())
+        ask = _Ask(self._token, view.begin_answer(), session)
         self._ask = ask
         view.set_busy(True)
         self._persist(session)
@@ -946,21 +995,27 @@ class ChatController(QObject):
             self.view.set_busy(False)
             self.view.end_answer()
             self.view.focus()
-        self._maybe_title(self.session)
+        self._maybe_title(ask.session or self.session)
         self._show_deferred_list()
 
     def _close_answer(self, ask: _Ask, turn: Any, *, stopped: bool = False) -> None:
         """Finish the bubble and record the turn - the partial words when stopped."""
         ask.finalised = True
+        # The lines it narrated go with the turn, so its folded "Searched your files"
+        # line still opens to them when the conversation is reopened (UI phase B).
+        steps = list(getattr(ask.run.bubble, "steps", ()) or ())
+        if turn is not None and not getattr(turn, "work", None):
+            turn.work = steps
         ask.run.finish(turn, stopped=stopped)
-        session = self.session
+        session = ask.session or self.session
         if turn is not None:
             session.turns.append(turn)
         elif ask.run.bubble.raw.strip():
             # What arrived before Stop. Its source numbers were the model's own and are
             # not checked yet, so they are not kept - the words are.
             session.turns.append(ChatTurn("assistant", plain_answer_text(ask.run.bubble.raw),
-                                          kind="chat", notes=["stopped"], partial=True))
+                                          kind="chat", notes=["stopped"], partial=True,
+                                          work=steps))
         self._persist(session)
 
     def _answered(self, ask: _Ask, turn: Any) -> None:
@@ -992,7 +1047,7 @@ class ChatController(QObject):
             self.view.set_busy(False)
             self.view.end_answer()
             self.view.focus()
-        self._maybe_title(self.session)
+        self._maybe_title(ask.session or self.session)
         if self._title_pending is not None:      # 3c: a title that waited for this answer
             later(self, TITLE_IDLE_MS, self._title_when_idle)
         if self._rebuild_after:                  # a model was picked while it answered

@@ -558,6 +558,7 @@
     <Compile Include="app\ui\presenter\activity.py" />
     <Compile Include="app\ui\presenter\answer.py" />
     <Compile Include="app\ui\presenter\chat.py" />
+    <Compile Include="app\ui\presenter\chat_history.py" />
     <Compile Include="app\ui\presenter\code.py" />
     <Compile Include="app\ui\presenter\commands.py" />
     <Compile Include="app\ui\presenter\contact_commands.py" />
@@ -636,6 +637,7 @@
     <Compile Include="app\ui\widgets\chat_box.py" />
     <Compile Include="app\ui\widgets\chat_bubbles.py" />
     <Compile Include="app\ui\widgets\chat_commands.py" />
+    <Compile Include="app\ui\widgets\chat_head.py" />
     <Compile Include="app\ui\widgets\chat_markdown.py" />
     <Compile Include="app\ui\widgets\chat_message_box.py" />
     <Compile Include="app\ui\widgets\chat_message_menu.py" />
@@ -1429,6 +1431,8 @@
     <Compile Include="tests\unit\test_tuning.py" />
     <Compile Include="tests\unit\test_tuning_screen.py" />
     <Compile Include="tests\unit\test_ui_aesthetics.py" />
+    <Compile Include="tests\unit\test_ui_b_chat.py" />
+    <Compile Include="tests\unit\test_ui_b_chat_window.py" />
     <Compile Include="tests\unit\test_ui_consistency.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
