@@ -378,6 +378,7 @@ _WORDS = ("deposit pounds tenancy landlord scheme returned deductions boiler ser
           "purchase invoice 2031 March June garden quote licence never not").split()
 
 
+@pytest.mark.slow
 @settings(max_examples=150, deadline=None)
 @given(words=st.lists(st.sampled_from(_WORDS), min_size=2, max_size=12),
        marker=st.sampled_from(["[1]", "[2]", "[1][2]", "[9]", ""]))

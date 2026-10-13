@@ -231,6 +231,7 @@ def _synthetic(store, *, conversations: int, each: int) -> int:
     return file_id
 
 
+@pytest.mark.slow
 def test_the_conversation_strip_stays_inside_its_budget(tmp_path) -> None:
     """Section 5: under 20 ms. 40,000 messages in 10,000 conversations of four,
     and one of sixty - longer than the list - which is the worst case the

@@ -385,6 +385,7 @@ def test_a_zero_vector_is_not_divided_by(tmp_path) -> None:
 # --- §1c: download progress reaches the splash, not just the model cache ---
 
 
+@pytest.mark.slow
 def test_on_progress_reports_a_simulated_download(tmp_path, monkeypatch) -> None:
     """fastembed itself has no progress hook this application can reach -
     `TextEmbedding.__init__` calls `download_model(...)` with a fixed
@@ -430,6 +431,7 @@ def test_on_progress_reports_a_simulated_download(tmp_path, monkeypatch) -> None
     assert progress == sorted(progress)
 
 
+@pytest.mark.slow
 def test_on_progress_is_not_called_for_an_already_cached_model(tmp_path) -> None:
     """An ordinary warm-up of a cached model is not a download - no spurious
     progress bar should appear for it."""

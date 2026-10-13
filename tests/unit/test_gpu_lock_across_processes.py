@@ -50,6 +50,7 @@ with open({out!r}, "w") as out:
 """
 
 
+@pytest.mark.slow
 def test_two_processes_never_hold_the_card_at_once(shared) -> None:
     folder, env = shared
     outs = [folder / "a.txt", folder / "b.txt"]
@@ -63,6 +64,7 @@ def test_two_processes_never_hold_the_card_at_once(shared) -> None:
         assert start >= end, "two processes were inside the gate at the same time"
 
 
+@pytest.mark.slow
 def test_a_holder_that_is_killed_gives_the_card_back(shared) -> None:
     folder, env = shared
     flag = folder / "held"

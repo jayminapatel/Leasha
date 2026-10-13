@@ -151,6 +151,7 @@ def test_one_process_serves_many_files(helper, tmp_path):
         session.close()
 
 
+@pytest.mark.slow
 def test_a_session_is_recycled_after_its_quota(helper, tmp_path):
     session = _session(helper, tmp_path, recycle_after=2)
     try:
@@ -180,6 +181,7 @@ def test_a_file_that_fails_is_an_error_and_the_session_carries_on(helper, tmp_pa
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_a_hung_file_is_killed_at_its_limit_with_its_whole_tree(helper, tmp_path):
     session = _session(helper, tmp_path)
     try:
@@ -217,6 +219,7 @@ def test_a_session_killed_from_outside_is_replaced_between_files(helper, tmp_pat
         session.close()
 
 
+@pytest.mark.slow
 def test_a_session_killed_mid_file_is_retried_once_by_the_pool(helper, tmp_path):
     pool = SessionPool(1, session_factory=lambda n: _session(helper, tmp_path, name=f"s{n}"))
     try:
@@ -229,6 +232,7 @@ def test_a_session_killed_mid_file_is_retried_once_by_the_pool(helper, tmp_path)
         pool.close()
 
 
+@pytest.mark.slow
 def test_a_file_that_kills_it_twice_is_skipped_not_looped_on(helper, tmp_path):
     session_holder: list[LoSession] = []
 
@@ -249,6 +253,7 @@ def test_a_file_that_kills_it_twice_is_skipped_not_looped_on(helper, tmp_path):
         pool.close()
 
 
+@pytest.mark.slow
 def test_four_crashing_files_in_a_row_open_the_circuit(helper, tmp_path, monkeypatch):
     """The crash loop, ended: after that many, LibreOffice is left alone."""
     monkeypatch.setattr(lo_session, "RESTART_BACKOFF_S", 0.0)
@@ -269,6 +274,7 @@ def test_four_crashing_files_in_a_row_open_the_circuit(helper, tmp_path, monkeyp
         pool.close()
 
 
+@pytest.mark.slow
 def test_a_success_ends_the_streak(helper, tmp_path, monkeypatch):
     monkeypatch.setattr(lo_session, "RESTART_BACKOFF_S", 0.0)
     pool = SessionPool(1, session_factory=lambda n: _session(helper, tmp_path, name=f"s{n}"))
@@ -295,6 +301,7 @@ def test_a_dead_bridge_is_the_sessions_fault_and_is_replaced(helper, tmp_path):
         session.close()
 
 
+@pytest.mark.slow
 def test_restarts_back_off_after_a_crash(helper, tmp_path, monkeypatch):
     monkeypatch.setattr(lo_session, "RESTART_BACKOFF_S", 0.6)
     session = _session(helper, tmp_path)
@@ -313,6 +320,7 @@ def test_restarts_back_off_after_a_crash(helper, tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_stop_ends_a_conversion_in_progress_quickly(helper, tmp_path):
     session = _session(helper, tmp_path)
     try:
@@ -333,6 +341,7 @@ def test_stop_ends_a_conversion_in_progress_quickly(helper, tmp_path):
         session.close()
 
 
+@pytest.mark.slow
 def test_runaway_memory_is_killed(helper, tmp_path):
     session = _session(helper, tmp_path, memory_limit_mb=150)
     try:
@@ -359,6 +368,7 @@ def test_closing_leaves_no_process(helper, tmp_path):
     session.close()                     # twice is harmless
 
 
+@pytest.mark.slow
 def test_the_pool_reaps_a_session_that_has_been_idle(helper, tmp_path):
     pool = SessionPool(1, session_factory=lambda n: _session(helper, tmp_path, name=f"s{n}"),
                        idle_close_s=0.6)
@@ -376,6 +386,7 @@ def test_the_pool_reaps_a_session_that_has_been_idle(helper, tmp_path):
         pool.close()
 
 
+@pytest.mark.slow
 def test_closing_the_pool_does_not_wait_for_a_file_in_progress(helper, tmp_path):
     import threading
 
@@ -495,6 +506,7 @@ _PARENT = textwrap.dedent(r'''
 ''')
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(os.name != "nt", reason="the kill-on-close job object is Windows'")
 def test_killing_the_parent_abruptly_leaves_no_child_process(tmp_path):
     """**The guarantee that no orphan `soffice.exe` outlives Leasha.**
@@ -536,6 +548,7 @@ _SERVER_DRIVER = textwrap.dedent(r'''
 ''')
 
 
+@pytest.mark.slow
 def test_the_helper_takes_libreoffice_with_it_when_its_parent_goes_away(tmp_path):
     """The parent-death watchdog, in the real helper's own main loop.
 
@@ -563,6 +576,7 @@ def test_the_helper_takes_libreoffice_with_it_when_its_parent_goes_away(tmp_path
         proc.kill()
 
 
+@pytest.mark.slow
 def test_a_dead_bridge_makes_the_real_helper_report_fatal_and_stop(tmp_path):
     """After a `DisposedException` the helper says so and exits, taking `soffice`
     with it - instead of failing every later request in 60 ms."""

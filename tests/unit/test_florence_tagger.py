@@ -64,6 +64,7 @@ def test_tag_image_returns_none_for_an_unreadable_path(monkeypatch):
 
 
 @pytest.mark.slow
+@pytest.mark.real_florence
 @pytest.mark.skipif(not HAS_FLORENCE_DEPS, reason="the Florence-2 ONNX model is not downloaded")
 def test_a_real_image_gets_a_real_caption_and_tags(tmp_path):
     """The real-model proof, independent of `ocr.py`'s wiring. Caption text

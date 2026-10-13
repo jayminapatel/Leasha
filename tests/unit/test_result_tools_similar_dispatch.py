@@ -22,6 +22,9 @@ from PySide6.QtWidgets import QApplication
 
 from app.ui.widgets.result_tools import _wire_similar
 
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
+
 
 class _Row:
     def __init__(self, chunk_id: int, ext: str) -> None:

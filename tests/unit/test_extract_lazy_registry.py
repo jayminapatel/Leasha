@@ -58,6 +58,7 @@ def _extract_modules_after(statement: str) -> set[str]:
 class TestNothingLoadsUntilItIsAsked:
     """The saving: the parsers stay unimported until the registry is read."""
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("statement", [
         "import app.extract",
         "import app.extract.cells",
@@ -80,6 +81,7 @@ class TestNothingLoadsUntilItIsAsked:
             "path - see app/extract/__init__.py."
         )
 
+    @pytest.mark.slow
     def test_reading_the_registry_does_import_them(self) -> None:
         """The other half: asked a question, it loads everything at once."""
         loaded = _extract_modules_after(

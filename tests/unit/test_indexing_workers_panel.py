@@ -108,6 +108,7 @@ def test_two_readers_show_as_two_lines_under_the_bar(qtbot) -> None:
     assert layout.indexOf(panel) == layout.indexOf(view.detail) + 1
 
 
+@pytest.mark.slow
 def test_the_heartbeat_turns_quiet_by_itself_without_a_new_tick(qtbot) -> None:
     view = _view(qtbot)
     panel = view.workers_panel

@@ -143,6 +143,7 @@ def _readable(widget) -> tuple[int, int]:
     return widget.height(), QFontMetrics(widget.font()).height()
 
 
+@pytest.mark.slow
 def test_every_checkbox_on_the_settings_page_can_be_read(settings_page):
     r"""**The two that were zero pixels high.**
 

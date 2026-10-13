@@ -57,6 +57,7 @@ def _blank_pdf(path: Path) -> Path:
 
 # --- 1b: PDF is read in the reader process, and the child never OCRs -----------------------
 
+@pytest.mark.slow
 def test_pdf_is_on_the_list_and_the_zip_reader_is_not(tmp_path):
     assert "PdfExtractor" in PROCESS_READERS
     pdf = _text_pdf(tmp_path / "report.pdf", "Pump station drawings, revision C.")
@@ -65,6 +66,7 @@ def test_pdf_is_on_the_list_and_the_zip_reader_is_not(tmp_path):
     assert not reads_in_process(tmp_path / "backup.zip"), "the zip reader stays on the thread"
 
 
+@pytest.mark.slow
 def test_a_pdf_read_in_a_child_matches_the_thread(tmp_path, reader):
     pdf = _text_pdf(tmp_path / "report.pdf", "Pump station drawings, revision C.")
     local = [(d.key, d.source_kind, [c.text for c in base_chunks(d)]) for d in extract(pdf)]
@@ -104,6 +106,7 @@ def test_in_a_reader_process_the_pdf_reader_never_ocrs(tmp_path, monkeypatch):
     assert not base.in_reader_process()
 
 
+@pytest.mark.slow
 def test_the_child_itself_knows_its_role(tmp_path, reader):
     """The flag is set by `read_process.main` in the child, not by the test."""
     pdf = _blank_pdf(tmp_path / "scan.pdf")
@@ -123,6 +126,7 @@ def _zip(path: Path, members: dict[str, bytes]) -> Path:
     return path
 
 
+@pytest.mark.slow
 def test_read_raw_returns_documents_the_thread_would_build(tmp_path, reader):
     note = tmp_path / "note.txt"
     note.write_text("Lava is hot.\n\nVolcanoes erupt. " * 20, encoding="utf-8")
@@ -155,6 +159,7 @@ def test_without_a_member_reader_members_are_read_on_the_thread(tmp_path):
     assert documents and "alpha" in documents[0].text
 
 
+@pytest.mark.slow
 def test_a_member_that_kills_the_child_costs_that_member_only(tmp_path, reader):
     """2c. The child dies on the second member; the first and third are indexed,
     the second is recorded by name under the archive with

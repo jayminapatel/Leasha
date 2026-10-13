@@ -177,6 +177,7 @@ def test_picture_models_run_on_the_worker_not_the_consumer(tmp_path, ocr_reads):
     assert not [t for t in threading.enumerate() if t.name == "pictures"]
 
 
+@pytest.mark.slow
 def test_the_letters_behind_a_slow_photo_are_written_before_its_model_finishes(
         tmp_path, ocr_reads):
     """The review's complaint, as an outcome: six photos at 0.2 s each ahead

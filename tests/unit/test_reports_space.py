@@ -87,6 +87,7 @@ def test_two_files_sharing_a_hash_are_one_group(tmp_path):
     assert group.reclaimable_bytes == 1000        # keep one, reclaim the other
 
 
+@pytest.mark.slow
 def test_reclaimable_bytes_totals_every_group_not_only_the_shown_ones(tmp_path):
     with SqliteStore(tmp_path / "i.db") as store:
         for n in range(3):

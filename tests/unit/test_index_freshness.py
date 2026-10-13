@@ -147,6 +147,7 @@ def corpus(tmp_path: Path) -> Path:
 
 # -- the bug that hid every PST ---------------------------------------------
 
+@pytest.mark.slow
 def test_an_archive_is_indexed_the_first_time_it_is_ever_seen(tmp_path, corpus):
     """The one that cost two rounds of "the PST did not index".
 
@@ -182,6 +183,7 @@ def test_unchanged_is_a_sentinel_and_not_a_missing_hash():
 
 # -- not re-reading what has not changed ------------------------------------
 
+@pytest.mark.slow
 def test_a_second_run_over_an_untouched_corpus_reads_nothing(tmp_path, corpus):
     """The property the whole incremental design exists for."""
     db = tmp_path / "index.db"
@@ -444,6 +446,7 @@ def test_a_full_disk_still_ends_the_run_rather_than_pausing(tmp_path, corpus):
     assert stats.stopped_early.code == "ERR_DISK_SPACE"
 
 
+@pytest.mark.slow
 def test_a_disk_stop_never_prunes_files_the_walk_did_not_reach(tmp_path, corpus):
     """The guard that keeps a resource stop from becoming data loss.
 
@@ -607,6 +610,7 @@ def test_files_and_documents_are_counted_separately(tmp_path, corpus):
     assert stats.seen != stats.indexed, "the two units must not be conflated"
 
 
+@pytest.mark.slow
 def test_documents_skipped_inside_an_archive_are_counted_apart_from_files(tmp_path, corpus):
     """335 unchanged *messages* and 17 rewritten ones is a completely different
     story from 352 unchanged *files*, and only one of them is true."""

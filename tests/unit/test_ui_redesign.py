@@ -331,6 +331,7 @@ def _pre_order_text(relative: str) -> str:
     return result.stdout
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("relative", [
     "app/ui/shell.py",
     "app/ui/widgets/search_bar.py",

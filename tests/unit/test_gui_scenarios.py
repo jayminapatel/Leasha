@@ -39,6 +39,7 @@ pytestmark = pytest.mark.gui
 # S1b - type -> interim -> full results render
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_typing_a_real_word_renders_results(gui_mainwindow, qtbot):
     app, window, store, engine = gui_mainwindow
     view = window.search_view

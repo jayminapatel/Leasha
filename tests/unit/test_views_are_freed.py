@@ -203,6 +203,7 @@ def test_the_watcher_registry_does_not_hold_a_view(
     assert not any(reaches(look, _table(view)) for _timer, look in mine)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("which", sorted(BUILDERS))
 def test_a_dead_view_leaves_nothing_in_the_registry_after_the_next_view(
         _qt_application, store, no_collector, which) -> None:

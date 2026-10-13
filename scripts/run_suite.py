@@ -23,6 +23,12 @@ and reports on each:
     python scripts/run_suite.py --quick                # no Qt, no slow tests: a sanity pass
     python scripts/run_suite.py --audit-markers        # tests over a second not marked `slow`
 
+**The tiers** (order 1u section 4a; `TIERS` below holds each one's marker expression):
+`--quick` is Qt-free logic and presenters, a sanity pass under two minutes; `--affected`
+runs the files that can see a change; a plain run is everything but `e2e` and `jvm`, `slow`
+included - the same selection as PR CI. The weekly CI run adds `jvm`, and `e2e` runs on
+the owner's laptop against the packaged app before a release.
+
 **How many processes.** Each one loads Qt, onnxruntime, pyarrow and LanceDB, and the
 heaviest were measured at 1.2-2.0 GB resident, so the default is derived from what is
 actually free rather than being a flat four; an explicit `-j` is obeyed, and warned about
@@ -93,6 +99,29 @@ DURATIONS_FILE = ROOT / "logs" / "suite" / "durations.json"
 #: command line *replaces* it rather than adding to it, so `--quick` must repeat it.
 PROJECT_DESELECT = "not jvm and not e2e"
 QUICK_DESELECT = "not gui and not slow and not qt"
+
+#: The test tiers, each with one job (order 1u section 4a, 2026-10-13), as the marker
+#: expression each one runs. `tests/unit/test_suite_tiers.py` reads `.github/workflows/ci.yml`
+#: and `docs/VERSIONING.md` and fails if either says something else.
+#:
+#: - quick: local, under two minutes - Qt-free logic and presenters only (`--quick`).
+#: - affected: local, after each change - the files that can see it (`--affected`), the
+#:   project's own deselection, `slow` included.
+#: - full: local, this runner with no tier flag - the same deselection over every file.
+#: - pr_ci: every push and pull request on CI (the Windows job) - everything except `e2e`
+#:   and `jvm`. `slow` is included: at 377 s it was too small to be worth a blind spot.
+#: - weekly_ci_adds: the Windows job on the weekly schedule adds the `jvm` tests, in a process
+#:   of their own (JPype can take the process down); the macOS job runs beside it.
+#: - release: the owner's laptop, before a release - `e2e` against the packaged app
+#:   (`docs/VERSIONING.md`'s release checklist).
+TIERS = {
+    "quick": f"{PROJECT_DESELECT} and {QUICK_DESELECT}",
+    "affected": PROJECT_DESELECT,
+    "full": PROJECT_DESELECT,
+    "pr_ci": PROJECT_DESELECT,
+    "weekly_ci_adds": "jvm",
+    "release": "e2e",
+}
 
 #: How long one part may run before it is killed with its process tree. Twice the
 #: slowest part ever recorded with the machine free (23 minutes, 2026-10-08).
@@ -380,7 +409,7 @@ def main(argv: list[str] | None = None) -> int:
                    f"--timeout={args.timeout}",
                    f"--basetemp={work / f'tmp{number}'}"]
         if args.quick:
-            command += ["-m", f"{PROJECT_DESELECT} and {QUICK_DESELECT}"]
+            command += ["-m", TIERS["quick"]]
         env = dict(os.environ)
         env["LEASHA_SUITE_DURATIONS"] = str(work / f"durations{number}.json")
         extra = {} if sys.platform == "win32" else {"start_new_session": True}

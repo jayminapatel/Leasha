@@ -168,6 +168,7 @@ def _growth(store: SqliteStore) -> float:
     return large / small
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("defer", [True, False])
 def test_a_message_costs_the_same_to_write_into_a_large_index_as_a_small_one(tmp_path, defer):
     with SqliteStore(tmp_path / "t.db") as store:
@@ -180,6 +181,7 @@ def test_a_message_costs_the_same_to_write_into_a_large_index_as_a_small_one(tmp
         "held 2,200 messages instead of 200")
 
 
+@pytest.mark.slow
 def test_with_the_stale_row_counts_it_does_not(tmp_path):
     """The same measurement on a database left as they used to be: the
     instrument sees the fault this file is about."""

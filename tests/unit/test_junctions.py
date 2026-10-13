@@ -38,6 +38,7 @@ def _tree_with_a_loop(tmp_path: Path) -> Path:
     return root
 
 
+@pytest.mark.slow
 def test_the_premise_still_holds(tmp_path):
     """If a future Python stops descending into junctions, this says so and
     the guards below become belt and braces rather than the fix."""

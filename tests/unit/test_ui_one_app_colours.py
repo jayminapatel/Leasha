@@ -309,6 +309,7 @@ def hex_literals(source: str, rel: str) -> list[str]:
     return found
 
 
+@pytest.mark.slow
 def test_no_colour_in_the_window_is_a_literal_outside_the_theme():
     offenders = []
     for path in sorted((ROOT / "app" / "ui").rglob("*.py")):

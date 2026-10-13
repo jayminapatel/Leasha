@@ -27,6 +27,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from app.index.embedder import Embedder
 from app.index.pipeline import PHASE_MEANING, Pipeline, PipelineConfig
 from app.index.resources import ResourceLimits
@@ -86,6 +88,7 @@ def _scalar(store: SqliteStore, sql: str) -> int:
     return int(store.conn.execute(sql).fetchone()[0])
 
 
+@pytest.mark.slow
 def test_readers_do_not_wait_while_the_model_is_busy(tmp_path):
     """**The fault itself.** The model is held on its first batch; every file is
     still written and searchable by its words before it is let go."""
@@ -134,6 +137,7 @@ def test_readers_do_not_wait_while_the_model_is_busy(tmp_path):
     store.close()
 
 
+@pytest.mark.slow
 def test_the_end_of_a_run_says_it_is_finishing_the_meaning(tmp_path):
     root = _files(tmp_path / "docs", 6)
 
@@ -153,6 +157,7 @@ def test_the_end_of_a_run_says_it_is_finishing_the_meaning(tmp_path):
     assert PHASE_WORDS[PHASE_MEANING], "the window has nothing to say for it"
 
 
+@pytest.mark.slow
 def test_a_stop_while_meaning_catches_up_loses_nothing_and_embeds_nothing_twice(tmp_path):
     root = _files(tmp_path / "docs", 10)
     vectors = Vectors()

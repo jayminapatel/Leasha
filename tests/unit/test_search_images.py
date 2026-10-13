@@ -322,6 +322,7 @@ def test_search_images_on_progress_never_breaks_the_search() -> None:
     assert embedder.calls == ["a photo"]
 
 
+@pytest.mark.slow
 def test_search_images_reports_a_mid_life_cache_empty_download(
     tmp_path, monkeypatch,
 ) -> None:

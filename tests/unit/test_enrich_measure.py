@@ -208,6 +208,7 @@ def test_read_originals_re_reads_through_full_text_and_reports_how_many_and_how_
     assert on.proposed > off.proposed                             # Bob's original holds his signature
 
 
+@pytest.mark.slow
 def test_the_command_takes_read_originals(book, tmp_path, capsys, monkeypatch):
     from app.cli import main
     from app.extract import reread

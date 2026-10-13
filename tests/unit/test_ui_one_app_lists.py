@@ -42,6 +42,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # -- 1. Contacts: a double-click opens a contact once ------------------------------------
 
+@pytest.mark.slow
 def test_a_double_click_on_a_contact_opens_it_once(world, qapp):
     cid = world.add(card("Ann", "Lee"))
     page = world.page()
@@ -95,6 +96,7 @@ def test_enter_in_a_side_list_does_what_a_click_does(qtbot):
     assert picked == ["kind:pdf"] and doors == ["dupes"]
 
 
+@pytest.mark.slow
 def test_arrow_keys_in_a_side_list_only_move(qtbot):
     r"""A door opens a dialog: walking past one with the arrows must not open it."""
     side = _side(qtbot)
@@ -183,6 +185,7 @@ def _find_shortcuts(widget):
     return [s for s in widget.findChildren(QShortcut) if s.key() == find]
 
 
+@pytest.mark.slow
 def test_the_in_app_preview_binds_no_window_wide_ctrl_f(qapp):
     r"""The main window binds Ctrl+F (Search); two window-wide Ctrl+F and Qt fires neither."""
     from app.ui.widgets.preview import PreviewPane

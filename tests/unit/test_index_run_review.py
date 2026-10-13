@@ -107,6 +107,7 @@ def env(temp_env: Path) -> Path:
     return temp_env
 
 
+@pytest.mark.slow
 def test_a_run_over_one_folder_does_not_prune_the_others(capsys, env, tmp_path) -> None:
     """The reviewer's reproduction: index A and B, take B's file away, run
     over A alone - B's row was deleted. A run over the saved folders still
@@ -202,6 +203,7 @@ def test_the_held_pictures_list_is_written_with_the_resume_cursors(tmp_path) -> 
 # 4. A new file is hashed by a reader, not on the walker thread
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("order", ["found", "newest"])
 def test_a_new_file_is_never_hashed_on_the_walker_thread(tmp_path, monkeypatch, order) -> None:
     from app.index import walker

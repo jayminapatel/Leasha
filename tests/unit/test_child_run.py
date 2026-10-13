@@ -115,6 +115,7 @@ def test_a_stop_pressed_before_the_child_existed_is_sent_when_it_does(tmp_path) 
     assert time.monotonic() - started < 20
 
 
+@pytest.mark.slow
 def test_a_command_to_a_child_that_has_gone_is_harmless(tmp_path) -> None:
     run = _run("normal", tmp_path)
     run.run()
@@ -125,6 +126,7 @@ def test_a_command_to_a_child_that_has_gone_is_harmless(tmp_path) -> None:
 
 # --- when it goes wrong -----------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_child_that_dies_is_reported_in_plain_words_naming_its_file(tmp_path) -> None:
     run = _run("crash", tmp_path)
     with pytest.raises(AppErrorException) as caught:
@@ -147,6 +149,7 @@ def test_a_child_that_exits_without_finishing_is_not_taken_for_a_success(tmp_pat
     assert "exit code 0" in caught.value.error.details
 
 
+@pytest.mark.slow
 def test_a_child_that_never_says_anything_is_ended_and_reported(tmp_path, monkeypatch) -> None:
     """2026-09-29: the first Windows CI run waited ten minutes on a silent child."""
     monkeypatch.setattr(child_run, "FIRST_WORD_S", 1.0)
@@ -161,6 +164,7 @@ def test_a_child_that_never_says_anything_is_ended_and_reported(tmp_path, monkey
     assert _gone(run.pid) and not live_children()
 
 
+@pytest.mark.slow
 def test_a_child_that_goes_quiet_after_starting_is_ended_too(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(child_run, "SILENCE_S", 1.0)
     script = "import sys, time; print('hello', flush=True); time.sleep(120)"
@@ -172,6 +176,7 @@ def test_a_child_that_goes_quiet_after_starting_is_ended_too(tmp_path, monkeypat
     assert _gone(run.pid)
 
 
+@pytest.mark.slow
 def test_a_child_that_could_not_start_its_run_passes_its_own_error_on(tmp_path) -> None:
     with pytest.raises(AppErrorException) as caught:
         _run("error", tmp_path).run()

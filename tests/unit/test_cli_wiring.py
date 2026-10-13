@@ -727,6 +727,7 @@ def test_gitsearch_rejects_a_missing_folder(tmp_path, capsys):
     assert cli.cmd_gitsearch(args) == cli.EXIT_ERROR
 
 
+@pytest.mark.slow
 def test_gitsearch_rejects_depths_that_are_not_numbers(tmp_path, capsys):
     """`--depths 1k,10k` is the obvious thing to type and is not a number."""
     env = env_file(tmp_path)

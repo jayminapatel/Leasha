@@ -522,6 +522,7 @@ def test_applying_asks_the_store_only_what_could_change_the_query():
     assert ("distinct", "sender") in asked and ("distinct", "ext") not in asked
 
 
+@pytest.mark.slow
 def test_holds_ext_is_a_real_answer(tmp_path):
     from app.storage.sqlite_store import SqliteStore
 

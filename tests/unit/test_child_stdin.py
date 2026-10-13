@@ -24,6 +24,11 @@ import textwrap
 import threading
 from pathlib import Path
 
+import pytest
+
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
+
 PROJECT = Path(__file__).resolve().parents[2]
 
 CHILD = textwrap.dedent("""

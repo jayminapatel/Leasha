@@ -247,6 +247,7 @@ def _windows_essentials() -> dict:
     return {key: os.environ[key] for key in ("SYSTEMROOT", "TEMP", "TMP") if key in os.environ}
 
 
+@pytest.mark.slow
 def test_the_cli_leaves_the_link_for_the_window(tmp_path, temp_env):
     r"""**The outcome, end to end.** `leasha open leasha://search?q=...` is
     what Windows runs, and what it has to do is leave a query somewhere the
@@ -284,6 +285,7 @@ def test_the_cli_leaves_the_link_for_the_window(tmp_path, temp_env):
         assert take_pending(opened).query == "pump station"
 
 
+@pytest.mark.slow
 def test_the_cli_refuses_a_link_that_is_not_ours(tmp_path):
     """With a sentence naming what a link looks like, rather than silence."""
     import subprocess

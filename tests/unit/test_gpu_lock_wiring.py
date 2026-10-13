@@ -14,6 +14,8 @@ from __future__ import annotations
 import threading
 import time
 
+import pytest
+
 from app.extract import ocr as ocr_module
 from app.index import backends
 from app.index.embedder import Embedder
@@ -55,6 +57,7 @@ class _Overlap:
 # --- the embedder and the reranker never overlap on the graphics card -------
 
 
+@pytest.mark.slow
 def test_embedder_and_reranker_gpu_sections_never_overlap() -> None:
     overlap = _Overlap()
 

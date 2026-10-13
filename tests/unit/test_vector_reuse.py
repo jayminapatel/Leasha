@@ -16,6 +16,8 @@ from __future__ import annotations
 import shutil
 from pathlib import Path
 
+import pytest
+
 from app.index.embedder import Embedder
 from app.index.pipeline import Pipeline, PipelineConfig
 from app.index.resources import ResourceLimits
@@ -91,6 +93,7 @@ def _flags(db: Path, path: Path) -> list[int]:
             "SELECT embedded FROM chunks WHERE file_id = ?", (file_id,))]
 
 
+@pytest.mark.slow
 def test_copies_of_an_embedded_file_take_its_vectors_and_never_reach_the_model(tmp_path):
     first = tmp_path / "docs" / "2024"
     first.mkdir(parents=True)
@@ -133,6 +136,7 @@ def test_a_file_that_differs_is_embedded_as_before(tmp_path):
     assert stats.vectors_reused == 0
 
 
+@pytest.mark.slow
 def test_off_with_embed_repeated_passages_once(tmp_path):
     root = tmp_path / "docs"
     (root / "a").mkdir(parents=True)

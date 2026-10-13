@@ -241,11 +241,13 @@ def _html_snippet(draw) -> str:
     return "".join(parts)
 
 
+@pytest.mark.slow
 @given(st.text(max_size=300))
 def test_arbitrary_text_never_raises(markup: str) -> None:
     sanitise_email_html(markup)
 
 
+@pytest.mark.slow
 @given(_html_snippet())
 def test_no_remote_reference_ever_survives_under_fuzz(markup: str) -> None:
     result = sanitise_email_html(markup)

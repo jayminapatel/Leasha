@@ -297,6 +297,7 @@ def test_code_box_applies_between_and_a_date_range_to_repository_files(qapp, qtb
 
 # --- The mini-search ---------------------------------------------------------
 
+@pytest.mark.slow
 def test_mini_search_applies_between_and_a_date_range(qapp, qtbot, engine):
     from app.ui.widgets.mini_search import MiniSearch, row_label
 

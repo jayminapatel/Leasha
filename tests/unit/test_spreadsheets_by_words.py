@@ -15,6 +15,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import pytest
+
 from app.core.settings_registry import SETTINGS
 from app.index.embedder import Embedder
 from app.index.pipeline import Pipeline, PipelineConfig
@@ -90,6 +92,7 @@ def test_a_spreadsheet_is_found_by_its_words_and_never_sent_to_the_model(tmp_pat
     assert hits >= 1, "the spreadsheet is not findable by its words"
 
 
+@pytest.mark.slow
 def test_switching_it_on_gives_meaning_without_reading_the_spreadsheet_again(tmp_path):
     root, vectors, db = _corpus(tmp_path / "docs"), Vectors(), tmp_path / "i.db"
     _run(db, root, vectors, meaning=False)
@@ -101,6 +104,7 @@ def test_switching_it_on_gives_meaning_without_reading_the_spreadsheet_again(tmp
     assert sheet.id in set(vectors.rows.values())
 
 
+@pytest.mark.slow
 def test_a_spreadsheet_read_again_with_it_off_loses_its_old_vectors(tmp_path):
     root, vectors, db = _corpus(tmp_path / "docs"), Vectors(), tmp_path / "i.db"
     _stats, _counts, sheet, _flags = _run(db, root, vectors, meaning=True)

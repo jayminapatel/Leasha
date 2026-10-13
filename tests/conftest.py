@@ -417,9 +417,14 @@ def _no_florence_model_load(request, monkeypatch):
     (2026-09-20): the extraction worker sat in `florence_tagger._load` while
     `Pipeline._consume` polled its queue every 0.25 s - a live worker, not a lost
     sentinel. A test that wants a tagger patches `_load` itself, which overrides this;
-    the two real-model proofs are marked `slow`, and that marker opts them out.
+    the two real-model proofs are marked `real_florence`, and that marker opts them out.
+
+    **Not `slow` (order 1u section 4b, 2026-10-13).** The opt-out used to be the `slow`
+    mark. Marking every test over a second `slow` would then have let hundreds of them
+    load the real model - the hang this fixture exists to prevent - so the opt-out is a
+    marker that says what it means, and `slow` says only how long a test takes.
     """
-    if request.node.get_closest_marker("slow") is not None:
+    if request.node.get_closest_marker("real_florence") is not None:
         return
     try:
         from app.extract import florence_tagger

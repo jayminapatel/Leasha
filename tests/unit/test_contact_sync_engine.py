@@ -466,6 +466,7 @@ def test_into_leasha_only_never_writes_to_the_account(world):
     assert world.hub.get_card(cid).get("company") == "Mine"               # the edit stays in Leasha
 
 
+@pytest.mark.slow
 def test_a_sync_against_a_two_thousand_contact_account_is_fast_enough_to_measure(world):
     """3f - measured, not assumed. The number is printed with -s and recorded in the order."""
     import time as _t

@@ -58,6 +58,7 @@ def _logits(seed: int, *, peaked: bool = True) -> np.ndarray:
     return out
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("temperature", [0.2, 0.4, 0.7, 1.0, 1.5])
 @pytest.mark.parametrize("seed", range(6))
 def test_the_same_token_as_the_full_sort_for_the_same_seed(temperature, seed):

@@ -227,6 +227,7 @@ def test_advanced_is_closed_until_asked_for_and_says_when_it_was_clicked(app):
         page.deleteLater()
 
 
+@pytest.mark.slow
 def test_settings_folds_the_expert_groups_and_the_filter_still_finds_them(app, tmp_path):
     """Six groups most people never change sit under "Advanced", closed. Each
     is still the same box, in its own category, and typing in the filter shows

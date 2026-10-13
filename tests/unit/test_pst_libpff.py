@@ -280,6 +280,7 @@ def test_a_message_with_nothing_in_it_is_dropped(monkeypatch) -> None:
     assert list(pst_libpff.read_archive(Path("a.pst"))) == []
 
 
+@pytest.mark.slow
 def test_attachment_names_are_searchable(monkeypatch) -> None:
     message = FakeMessage(1, attachments=[FakeAttachment("costs.xlsx")])
     root = FakeFolder("Top", children=[FakeFolder("Inbox", messages=[message])])

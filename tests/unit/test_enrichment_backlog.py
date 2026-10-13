@@ -92,6 +92,7 @@ def _run(store, root, vectors, embedder, **config):
     return pipeline.run()
 
 
+@pytest.mark.slow
 def test_unembedded_chunk_kind_is_recorded(tmp_path):
     """A migrated behaviour, not a new one - matches vectors_repaired exactly."""
     root = _corpus(tmp_path / "docs")
@@ -109,6 +110,7 @@ def test_unembedded_chunk_kind_is_recorded(tmp_path):
         assert second.vectors_repaired == first.chunks
 
 
+@pytest.mark.slow
 def test_a_healthy_run_records_zero_not_absence(tmp_path):
     """0 means 'ran, found nothing outstanding' - present in the dict, not
     missing from it. See the comment on IndexStats.enrichment_counts."""
@@ -214,6 +216,7 @@ class StopGovernor:
         return False
 
 
+@pytest.mark.slow
 def test_a_stopped_governor_lets_no_batch_through(tmp_path):
     """2b: the repair respects the same pacing an ordinary run does. The
     first run uses the real default governor (nothing to throttle in a

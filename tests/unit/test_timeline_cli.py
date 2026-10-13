@@ -85,6 +85,7 @@ def test_a_month_lists_everything_from_it_oldest_first_with_the_drives_badge(jun
     assert "july.docx" not in out and "main.py" not in out and "odd.txt" not in out
 
 
+@pytest.mark.slow
 def test_a_year_and_a_free_range_and_a_kind_all_reach_the_same_places(june_index, capsys):
     env, _ids, _ = june_index
     run(["timeline", "--year", "2015", "--env", env])
@@ -100,6 +101,7 @@ def test_a_year_and_a_free_range_and_a_kind_all_reach_the_same_places(june_index
     assert "main.py" in capsys.readouterr().out
 
 
+@pytest.mark.slow
 def test_json_is_machine_readable_and_pages_by_cursor_without_repeats(june_index, capsys):
     env, _ids, _ = june_index
     seen, cursor = [], None
@@ -120,6 +122,7 @@ def test_json_is_machine_readable_and_pages_by_cursor_without_repeats(june_index
     assert {"path", "kind", "when", "date_from", "reachable_now", "source"} <= set(item)
 
 
+@pytest.mark.slow
 def test_json_says_how_each_date_was_arrived_at_and_where_an_offline_item_lives(june_index, capsys):
     env, _ids, _ = june_index
     run(["timeline", "--month", "2015-06", "--json", "--env", env])
@@ -130,6 +133,7 @@ def test_json_says_how_each_date_was_arrived_at_and_where_an_offline_item_lives(
     assert items["Wedding plans"]["date_from"] == "sent"
 
 
+@pytest.mark.slow
 def test_something_that_is_not_a_date_is_a_plain_error_and_reads_nothing(june_index, capsys):
     env, _ids, _ = june_index
     assert run(["timeline", "--month", "banana", "--env", env]) != cli.EXIT_OK
@@ -162,6 +166,7 @@ def test_an_empty_month_says_so_and_no_fold_lists_every_photograph(tmp_path, cap
     assert "Nothing in Leasha's records is dated January 1999." in capsys.readouterr().out
 
 
+@pytest.mark.slow
 def test_the_command_leaves_the_index_exactly_as_it_found_it(june_index):
     env, _ids, tmp = june_index
     target = tmp / "data" / "index.db"

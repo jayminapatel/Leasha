@@ -338,6 +338,7 @@ def test_every_thread_the_run_starts_lowers_itself_when_the_window_shares_the_pr
     assert any(name.startswith("extract-") for name in lowered)
 
 
+@pytest.mark.slow
 def test_the_process_is_lowered_only_when_nobody_else_lives_in_it(tmp_path, monkeypatch):
     calls: list[str] = []
     monkeypatch.setattr(ResourceGovernor, "apply_priority",

@@ -215,6 +215,7 @@ def window(tmp_path, monkeypatch):
         vectors.close()
 
 
+@pytest.mark.slow
 def test_a_press_in_the_window_builds_a_retry_and_saves_no_setting(window) -> None:
     from tests.unit.test_start_indexing_resolves_off_thread import _pump
 
@@ -242,6 +243,7 @@ def test_a_press_in_the_window_builds_a_retry_and_saves_no_setting(window) -> No
     assert not built._resolving_index
 
 
+@pytest.mark.slow
 def test_with_the_separate_process_switch_on_the_child_is_asked_for_the_retry(
         window) -> None:
     from app.index.child_run import ChildIndexRun
@@ -266,6 +268,7 @@ def test_with_the_separate_process_switch_on_the_child_is_asked_for_the_retry(
     assert _retry_asked(args) == (RetryTimedOut(group="pdf", factor=4.0), None)
 
 
+@pytest.mark.slow
 def test_a_press_while_a_run_is_going_starts_nothing_and_says_why(window) -> None:
     from tests.unit.test_start_indexing_resolves_off_thread import _pump
 
@@ -299,6 +302,7 @@ def _settle_workers(app) -> None:
         app.processEvents()
 
 
+@pytest.mark.slow
 def test_a_finished_retry_teaches_the_tuner_nothing_and_offers_no_images_pass(
         window, monkeypatch) -> None:
     """A retry reads the slowest files in the index: it is not a measurement of
@@ -341,6 +345,7 @@ def test_nothing_is_collected_in_the_middle_of_a_test() -> None:
     assert not gc.isenabled()
 
 
+@pytest.mark.slow
 def test_under_after_run_the_start_after_a_text_pass_is_the_images_pass(window) -> None:
     """2026-10-04, the owner: "this is the second time it is running why is it
     not scanning for faces". Under "after-run" every Start was the text pass,
@@ -366,6 +371,7 @@ def test_under_after_run_the_start_after_a_text_pass_is_the_images_pass(window) 
         del built.notify
 
 
+@pytest.mark.slow
 def test_a_run_in_its_own_process_is_told_which_pass_it_is(window) -> None:
     """2026-10-04, the owner: "confirm the individual index and main index is
     same code". They are; but a child process was never told the pass, and

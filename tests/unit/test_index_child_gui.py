@@ -80,6 +80,7 @@ def child_mode(gui_mainwindow, qtbot, tmp_path, monkeypatch):
         window._settings = before
 
 
+@pytest.mark.slow
 def test_start_pause_resume_and_stop_drive_the_child(child_mode, qtbot) -> None:
     from app.ui.indexing_view import PAUSE_LABEL, PAUSED_HEADLINE, RESUME_LABEL
 
@@ -122,6 +123,7 @@ def test_start_pause_resume_and_stop_drive_the_child(child_mode, qtbot) -> None:
     assert run.returncode is not None
 
 
+@pytest.mark.slow
 def test_a_child_that_dies_is_explained_on_the_page(child_mode, qtbot, monkeypatch) -> None:
     window, _corpus = child_mode
     view = window.indexing_view

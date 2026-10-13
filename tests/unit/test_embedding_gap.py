@@ -139,6 +139,7 @@ def _run(store, root, vectors, embedder, **config):
 # The ratchet - the reason this was 95% rather than one batch
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_failed_run_does_not_leave_less_coverage_than_it_found(tmp_path):
     r"""**The load-bearing one.**
 
@@ -168,6 +169,7 @@ def test_a_failed_run_does_not_leave_less_coverage_than_it_found(tmp_path):
             "a run that could not embed destroyed the vectors it could not replace")
 
 
+@pytest.mark.slow
 def test_the_delete_happens_in_the_flush_immediately_before_the_add(tmp_path):
     """The ordering, stated as an ordering rather than as an outcome."""
     root = _corpus(tmp_path / "docs", files=2)
@@ -229,6 +231,7 @@ def test_a_document_that_chunks_to_nothing_takes_its_vectors_with_it(tmp_path):
         assert vectors.count() == 0, "vectors left behind for chunks that are gone"
 
 
+@pytest.mark.slow
 def test_a_file_nothing_can_extract_leaves_both_stores_alone(tmp_path):
     """The neighbouring case, and it must not be confused with the one above.
 
@@ -254,6 +257,7 @@ def test_a_file_nothing_can_extract_leaves_both_stores_alone(tmp_path):
 # Saying so - the number whose absence hid this
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_run_counts_the_vectors_it_wrote(tmp_path):
     root = _corpus(tmp_path / "docs")
     vectors = FakeVectors()
@@ -267,6 +271,7 @@ def test_the_run_counts_the_vectors_it_wrote(tmp_path):
     assert stats.as_dict()["vectors"] == stats.vectors
 
 
+@pytest.mark.slow
 def test_a_run_that_embedded_nothing_says_so_rather_than_reporting_success(tmp_path):
     r"""**A run wrote 3,355 chunks and 0 vectors and called itself successful.**
 

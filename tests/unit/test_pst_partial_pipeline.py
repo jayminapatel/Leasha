@@ -99,12 +99,14 @@ def touch_archive(root: Path, size: int) -> None:
 
 # --- 3e: the warning on an unchanged last message -----------------------------
 
+@pytest.mark.slow
 def test_a_partial_warning_is_counted_on_the_first_read(tmp_path, corpus) -> None:
     PartialArchive.warn_transient = False
     stats = run(tmp_path / "index.db", corpus)
     assert stats.warned_by_code == {"ERR_PST_PARTIAL": 1}
 
 
+@pytest.mark.slow
 def test_a_partial_warning_on_an_unchanged_last_message_is_still_counted(
     tmp_path, corpus,
 ) -> None:
@@ -121,6 +123,7 @@ def test_a_partial_warning_on_an_unchanged_last_message_is_still_counted(
     assert second.warned_by_code == {"ERR_PST_PARTIAL": 1}
 
 
+@pytest.mark.slow
 def test_a_warning_is_never_counted_twice(tmp_path, corpus) -> None:
     """Counting before the `_already_current` check would double a written one."""
     PartialArchive.warn_transient = False
@@ -131,6 +134,7 @@ def test_a_warning_is_never_counted_twice(tmp_path, corpus) -> None:
 
 # --- 4a: retry only what will pass -------------------------------------------
 
+@pytest.mark.slow
 def test_a_transient_partial_read_is_retried_next_pass(tmp_path, corpus) -> None:
     db = tmp_path / "index.db"
     PartialArchive.warn_transient = True
@@ -143,6 +147,7 @@ def test_a_transient_partial_read_is_retried_next_pass(tmp_path, corpus) -> None
     assert second.unchanged_documents == MESSAGES
 
 
+@pytest.mark.slow
 def test_a_transient_partial_read_settles_once_outlook_is_not_busy(tmp_path, corpus) -> None:
     db = tmp_path / "index.db"
     PartialArchive.warn_transient = True
@@ -156,6 +161,7 @@ def test_a_transient_partial_read_settles_once_outlook_is_not_busy(tmp_path, cor
     assert PartialArchive.opened == 2, "a clean read must settle the archive"
 
 
+@pytest.mark.slow
 def test_a_damaged_archive_is_not_re_read_every_pass(tmp_path, corpus) -> None:
     """Real damage skips the same messages every time; retrying is pure cost."""
     db = tmp_path / "index.db"

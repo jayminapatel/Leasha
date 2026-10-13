@@ -20,6 +20,8 @@ import json
 import os
 import pathlib
 
+import pytest
+
 from app.extract.base import change_marker
 from app.extract.email_pst import MARKER_PREFIX, archive_marker
 
@@ -258,6 +260,7 @@ class TestAnInterruptedArchiveKeepsItsPlace:
         finally:
             store.close()
 
+    @pytest.mark.slow
     def test_new_mail_since_sends_it_back_to_the_start(self, tmp_path):
         archive = _archive(tmp_path)
         store, pipeline = _classifier(tmp_path)

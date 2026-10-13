@@ -155,6 +155,7 @@ def test_every_ladder_passed_image_gets_a_clip_vector(tmp_path):
     assert len(clip.calls) == 2
 
 
+@pytest.mark.slow
 def test_image_vector_is_written_regardless_of_ocr_text(tmp_path, monkeypatch):
     """The whole point: a photo with no OCR text at all must still get a CLIP
     vector, because that is precisely the photo a caption-based search
@@ -215,6 +216,7 @@ def test_no_image_embedder_configured_means_ocr_still_works(tmp_path):
 # --- H7: batched writes, not one Lance version per image ----------------------
 
 
+@pytest.mark.slow
 def test_many_images_flush_in_a_batch_not_one_delete_per_file(tmp_path):
     root = tmp_path / "docs"
     for i in range(10):

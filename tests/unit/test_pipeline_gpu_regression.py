@@ -10,6 +10,8 @@ this.
 
 from __future__ import annotations
 
+import pytest
+
 from app.index.pipeline import IndexStats, Pipeline, PipelineConfig
 from app.index.walker import WalkConfig
 
@@ -35,6 +37,7 @@ class _Pipeline:
         self._log = _Log()
 
 
+@pytest.mark.slow
 def test_a_real_notice_lands_on_the_run() -> None:
     stats = IndexStats()
     pipeline = _Pipeline("this machine lost its graphics card provider")

@@ -79,6 +79,7 @@ the_function_that_was_running()
 """
 
 
+@pytest.mark.slow
 def test_a_native_fault_leaves_the_python_stack_in_the_file(tmp_path) -> None:
     """The whole point: the file names the function, where the Windows record
     named only the `.dll`. Run in a process of its own, because the fault

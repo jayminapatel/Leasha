@@ -222,6 +222,7 @@ CRASH_SCRIPT = textwrap.dedent(
 )
 
 
+@pytest.mark.slow
 def test_acceptance_4_survives_a_kill_mid_write(tmp_path: Path, project_root: Path) -> None:
     db = tmp_path / "k.db"
     script = tmp_path / "crasher.py"
