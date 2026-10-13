@@ -361,3 +361,22 @@ def test_the_lists_that_had_their_own_use_the_shared_states(gui_mainwindow) -> N
     assert isinstance(window.timeline_view.status, BusyLine)
     assert isinstance(window.tidy_view.progress, BusyLine)
     assert isinstance(window.tidy_view.report.progress_label, BusyLine)
+
+
+def test_a_divider_dragged_just_before_closing_is_saved(qapp, tmp_path):
+    """Review of #78: closing within the settle time of a drag lost it; `flush_all` saves it first."""
+    from PySide6.QtWidgets import QLabel, QSplitter, QWidget
+
+    from app.ui.widgets import splitter_memory
+
+    saved = []
+    root = QWidget()
+    split = QSplitter(root)
+    split.addWidget(QLabel("a"))
+    split.addWidget(QLabel("b"))
+    memory = splitter_memory.remember(split, "test:split", store=object())
+    memory.save = lambda: saved.append(split.sizes())
+    memory._timer.start()                                   # a drag, still settling
+    assert splitter_memory.flush_all(root) == 1 and saved
+    assert not memory._timer.isActive()
+    assert splitter_memory.flush_all(root) == 0             # nothing settling: nothing saved again

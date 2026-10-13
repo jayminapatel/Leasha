@@ -2912,6 +2912,9 @@ class MainWindow(QMainWindow):
         photo_tagger = getattr(self, "_photo_tagger", None)
         if photo_tagger is not None:
             stage("photo tagger", photo_tagger.close)
+        from app.ui.widgets.splitter_memory import flush_all  # noqa: PLC0415
+
+        stage("dividers", lambda: flush_all(self))          # a drag still settling is saved first
         stage("workers", self._drain_workers)
         # Work order 0x §2c. **An indexer in a child process must not outlive
         # the window.** It was asked to stop with everything else above, and

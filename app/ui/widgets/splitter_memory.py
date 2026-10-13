@@ -34,8 +34,8 @@ from typing import Any, Optional
 from PySide6.QtCore import QEvent, QObject, QTimer
 from PySide6.QtWidgets import QSplitter, QWidget
 
-__all__ = ["KEY_PREFIX", "SETTLE_MS", "remember", "remember_all", "sizes_text", "sizes_from_text",
-           "merged", "restored"]
+__all__ = ["KEY_PREFIX", "SETTLE_MS", "remember", "remember_all", "flush_all", "sizes_text",
+           "sizes_from_text", "merged", "restored"]
 
 KEY_PREFIX = "ui:split:"
 #: Quiet after the last move before the sizes are written: one drag, one write.
@@ -124,6 +124,12 @@ class _Memory(QObject):
         if sizes is not None:
             split.setSizes(sizes)
 
+    def flush(self) -> None:
+        """Save now if a drag is still settling - the window is closing (review of #78)."""
+        if self._timer.isActive():
+            self._timer.stop()
+            self.save()
+
     def save(self) -> None:
         from app.ui.state_writes import save_state
 
@@ -147,6 +153,18 @@ def remember(split: QSplitter, key: str, store: Any = None) -> Optional[_Memory]
     if split.isVisible():                                  # already on screen: no Show to wait for
         QTimer.singleShot(0, memory, memory.restore)
     return memory
+
+
+def flush_all(root: QWidget) -> int:
+    """Save every divider still settling after a drag under `root`; how many were saved. Called on
+    close before the state writes are drained, so a drag in the last `SETTLE_MS` is not lost."""
+    count = 0
+    for split in root.findChildren(QSplitter):
+        memory = getattr(split, "_size_memory", None)
+        if memory is not None and memory._timer.isActive():
+            memory.flush()
+            count += 1
+    return count
 
 
 def remember_all(root: QWidget, prefix: str, store: Any = None) -> int:

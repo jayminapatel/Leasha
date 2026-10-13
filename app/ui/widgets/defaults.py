@@ -59,7 +59,8 @@ RESET_LABEL = "Restore defaults"
 #   which removes the line, so the code default (and a better one in a later version) applies.
 #
 # **Correct only while the registry's default is the default `config.py` uses** when a key is
-# absent. `test_settings_pins.py` checks that for every key, so the two cannot drift apart.
+# absent. `test_every_registry_default_is_the_default_config_uses` in
+# `tests/unit/test_ui_one_app_settings_b.py` checks that for every key, so the two cannot drift apart.
 
 
 def same_as_default(key: str, value: Any) -> bool:

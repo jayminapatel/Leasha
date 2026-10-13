@@ -234,7 +234,7 @@ class ChatBox(QGroupBox):
                     note.setObjectName(setting.key + "_WHY")
                     note.hide()
                     self.notes[setting.key] = note
-                    add_under(form, note)
+                    add_under(target, note)            # with its control
         add_row(engine_form, self.onnx_download, "Chat model")
         engine = self.controls.get(ENGINE_KEY)
         if isinstance(engine, QComboBox):

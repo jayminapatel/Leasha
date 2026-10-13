@@ -36,7 +36,8 @@ unified look ... icons are must.* Every screen should feel like one app.
 
 1. A button is as wide as its words and icon, never stretched.
 2. Buttons that belong together sit in one row (`button_row`), `ROW_SPACING` apart (8px,
-   `theme.SPACE_S`), from the left. A dialog's OK / Cancel row stays where the platform puts it.
+   `theme.SPACE_S`), from the left. A dialog's row is the one order everywhere: Cancel first, the
+   primary on the right (`button-layout: 3` on `QDialogButtonBox` and `QMessageBox` in `theme.py`).
 3. One height and one padding for all of them, from `theme.BUTTON`.
 4. Every action button carries a 16px Lucide icon before its words; `BUTTONS` is the one
    table of every button's words, icon and kind. A button on every line of a list shows its
