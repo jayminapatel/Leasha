@@ -157,6 +157,7 @@ def test_a_corrupt_file_raises_through_the_default_hasher(tmp_path):
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_same_image_hashed_twice_gives_the_same_hash(tmp_path):
     path = tmp_path / "solid.png"
     _solid((10, 120, 200)).save(path)

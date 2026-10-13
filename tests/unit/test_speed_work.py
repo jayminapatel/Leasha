@@ -91,6 +91,7 @@ def _run(corpus: Path, tmp_path: Path, name: str, **config):
 # --- §6e: each distinct passage embedded once -------------------------------
 
 
+@pytest.mark.slow
 def test_repeated_text_is_embedded_once(repetitive: Path, tmp_path: Path) -> None:
     """The measurement §6e asked for, on the shape that actually repeats:
     signatures, disclaimers and letterheads attached to everything."""

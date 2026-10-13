@@ -87,6 +87,7 @@ def _application_trees() -> tuple[tuple[Path, ast.Module], ...]:
 
 # --- the manifest cannot drift ---------------------------------------------
 
+@pytest.mark.slow
 def test_every_folder_the_application_imports_is_shipped():
     """**Reads the imports, not the manifest.**
 
@@ -175,6 +176,7 @@ def test_files_the_application_opens_by_path_are_shipped():
 
 # --- what the tree contains -------------------------------------------------
 
+@pytest.mark.slow
 def test_the_application_and_its_configuration_are_there(staged):
     assert (staged / "app" / "cli" / "__init__.py").is_file()
     assert (staged / "config" / "extractors.toml").is_file()
@@ -277,6 +279,7 @@ def test_staging_twice_removes_what_the_first_run_wrote(tmp_path, monkeypatch, s
     assert (dest / "VERSION").exists()
 
 
+@pytest.mark.slow
 def test_re_staging_does_not_delete_an_index_living_in_the_destination(tmp_path):
     """**The one that would have cost a hundred gigabytes.**
 
@@ -398,6 +401,7 @@ def test_tests_are_absent_by_default(staged):
     assert not (staged / "pyproject.toml").exists()
 
 
+@pytest.mark.slow
 def test_with_tests_stages_the_suite_and_its_configuration(staged_with_tests):
     """`pyproject.toml` is not optional: it carries the pytest settings, and
     without it the suite runs differently in the staged tree than in
@@ -428,6 +432,7 @@ def test_the_readme_says_when_a_tree_is_not_what_ships(staged_with_tests):
     assert "WITH TESTS" in (dest / "README.txt").read_text(encoding="utf-8")
 
 
+@pytest.mark.slow
 def test_a_name_in_the_manifest_that_does_not_exist_is_reported(
         tmp_path, monkeypatch, small_source):
     """Named but absent means the manifest and the repository have drifted -

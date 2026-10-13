@@ -93,6 +93,7 @@ def test_cloud_content_cap_mb_reaches_the_walk_config_in_bytes(captured_config):
     assert config.walk.cloud_content_cap_bytes == 5 * 1024 * 1024
 
 
+@pytest.mark.slow
 def test_no_cloud_flags_means_nothing_opted_in(captured_config):
     tmp_path, corpus = captured_config
 

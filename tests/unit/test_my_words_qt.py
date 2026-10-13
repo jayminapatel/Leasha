@@ -14,6 +14,7 @@ from PySide6.QtCore import Qt
 pytestmark = pytest.mark.gui
 
 
+@pytest.mark.slow
 def test_a_word_is_added_shown_and_removed(gui_mainwindow, qtbot):
     _app, window, store, _engine = gui_mainwindow
     box = window.settings_view.my_words

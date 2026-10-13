@@ -124,6 +124,7 @@ def test_line_numbers_stop_when_the_time_budget_is_spent(store) -> None:
     assert [m.text for m in resolved] == [m.text for m in found], "order never changes"
 
 
+@pytest.mark.slow
 def test_nothing_to_look_for_is_no_rows(store) -> None:
     assert _matches(store, "/type py") == []
 

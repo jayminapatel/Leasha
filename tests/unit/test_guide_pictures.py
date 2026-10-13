@@ -42,6 +42,7 @@ def test_importing_the_tool_does_not_change_the_platform_the_tests_run_on():
     assert os.environ.get("QT_QPA_PLATFORM") != "windows"
 
 
+@pytest.mark.slow
 def test_every_caption_is_exactly_one_picture_in_the_guide():
     html = (ROOT / "docs" / "USER_GUIDE.html").read_text(encoding="utf-8")
     for name, caption in guide_pictures.CAPTIONS.items():

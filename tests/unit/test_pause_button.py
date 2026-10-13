@@ -206,6 +206,7 @@ def test_resuming_into_a_busy_machine_waits_and_gives_the_machines_reason():
 # A real run, held and let go
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_paused_run_stops_making_progress_and_finishes_the_same(tmp_path):
     reference, ref_store = _pipeline(tmp_path, name="reference")
     try:
@@ -249,6 +250,7 @@ def test_a_paused_run_stops_making_progress_and_finishes_the_same(tmp_path):
     assert after.manual_paused_seconds > 0       # and counted while it lasted
 
 
+@pytest.mark.slow
 def test_pause_then_stop_still_stops(tmp_path):
     pipeline, store = _pipeline(tmp_path, name="stopped")
     try:
@@ -267,6 +269,7 @@ def test_pause_then_stop_still_stops(tmp_path):
         store.close()
 
 
+@pytest.mark.slow
 def test_the_command_lines_pause_file_holds_and_releases_a_run(tmp_path):
     flag = tmp_path / "pause.flag"
     flag.write_text("held", encoding="utf-8")

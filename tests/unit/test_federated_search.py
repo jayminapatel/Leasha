@@ -304,6 +304,7 @@ def test_the_engine_still_cannot_reach_git():
     assert not [line for line in imported if "gitsearch" in line or "federate" in line]
 
 
+@pytest.mark.slow
 def test_importing_the_federator_does_not_import_git():
     r"""**Why `gitsearch` is imported inside the function.**
 

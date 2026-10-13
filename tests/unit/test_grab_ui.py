@@ -97,6 +97,7 @@ def grabbed(tmp_path_factory):
     return out, written
 
 
+@pytest.mark.slow
 def test_the_script_produces_a_non_empty_png_per_surface(grabbed):
     from tools import grab_ui
     out, written = grabbed
@@ -128,6 +129,7 @@ def test_the_goldens_are_the_twelve_9i_describes():
     assert have == want, f"missing {sorted(want - have)}, stray {sorted(have - want)}"
 
 
+@pytest.mark.slow
 def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
     """0m §4a: the only automated catch for the theme-token bug class (the
     unreadable-QListView incident). Perceptual hash, not pixel equality.

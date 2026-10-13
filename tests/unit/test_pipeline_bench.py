@@ -55,6 +55,7 @@ def test_the_same_seed_makes_the_same_bytes(tmp_path: Path) -> None:
                 == (tmp_path / "b" / CORPUS_DIR / name).read_bytes()), name
 
 
+@pytest.mark.slow
 def test_a_different_seed_makes_a_different_corpus(tmp_path: Path) -> None:
     """Otherwise the seed would be decoration."""
     first = generate(tmp_path / "a", TINY)
@@ -132,6 +133,7 @@ def no_person_env(tmp_path: Path) -> Path:
     return tmp_path / "missing.env"
 
 
+@pytest.mark.slow
 def test_a_fake_run_produces_a_well_formed_report(tmp_path: Path, no_person_env: Path) -> None:
     """The report has its conditions, its results, and says FAKE everywhere
     the embedder matters."""
@@ -164,6 +166,7 @@ def test_a_fake_run_produces_a_well_formed_report(tmp_path: Path, no_person_env:
     assert not (tmp_path / "work").exists()
 
 
+@pytest.mark.slow
 def test_a_busy_machine_does_not_pause_these_runs(
         tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """The machine reads as fully busy for the first few looks, as it does while
@@ -202,6 +205,7 @@ def test_a_folder_holding_a_different_corpus_is_refused(
             env_file=no_person_env))
 
 
+@pytest.mark.slow
 def test_the_probe_reports_heartbeat_lateness(
         tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """2d's instrument: idle and indexing lateness from the lag monitor."""
@@ -219,6 +223,7 @@ def test_the_probe_reports_heartbeat_lateness(
     assert "heartbeat lateness" in format_report(report)
 
 
+@pytest.mark.slow
 def test_the_command_prints_parseable_json(tmp_path: Path, no_person_env: Path,
                                            capsys: pytest.CaptureFixture) -> None:
     """`--json` stdout is the report and nothing else (progress is on stderr)."""
@@ -308,6 +313,7 @@ def _files_held_inside(work: Path) -> list[str]:
     return json.loads(done.stdout)
 
 
+@pytest.mark.slow
 def test_nothing_inside_the_throwaway_folder_is_left_open(
         tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """**Windows cannot delete an open file; Linux can.** So a handle left open
@@ -345,6 +351,7 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
     assert not work.exists()
 
 
+@pytest.mark.slow
 def test_the_open_files_check_sees_a_file_held_open(tmp_path: Path) -> None:
     """The child-process check is not blind: a file this process has open
     inside the folder is reported, and one outside it is not."""

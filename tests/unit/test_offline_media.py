@@ -157,6 +157,7 @@ def test_the_same_volume_walked_at_two_mount_points_is_one_row(tmp_path):
     assert rows_after_f[0].relative_path == "reports/q3.txt"
 
 
+@pytest.mark.slow
 def test_two_different_volumes_at_the_same_letter_never_collide(tmp_path):
     r"""The other half of the same guarantee: volume A unplugged, volume B
     plugged in at the letter A used to have, must never be read as one file.
@@ -199,6 +200,7 @@ def test_two_different_volumes_at_the_same_letter_never_collide(tmp_path):
 
 # --- 1d: offline is not deleted ----------------------------------------------
 
+@pytest.mark.slow
 def test_a_run_elsewhere_does_not_prune_an_offline_volumes_rows(tmp_path):
     r"""**The other acceptance test named in the order**: "full run with the
     volume absent -> zero prunes, zero changes to its rows."
@@ -347,6 +349,7 @@ def test_the_real_fixed_drive_on_this_machine_round_trips_through_its_guid():
 
 # --- 1e: rescan efficiency - hash-match-means-move ---------------------------
 
+@pytest.mark.slow
 def test_a_moved_file_is_repaired_without_re_extraction(tmp_path):
     r"""**The order's own acceptance line, word for word**: "moved files
     move (1e), extraction count ~ 0."
@@ -446,6 +449,7 @@ def test_resolve_unc_says_none_for_an_ordinary_local_drive():
     assert resolve_unc("C") is None
 
 
+@pytest.mark.slow
 def test_probe_unc_reachable_times_out_rather_than_hanging():
     r"""1c: "availability probes hard-timeout on workers." A host that does
     not exist must come back within budget, not block on the OS's own SMB
@@ -472,6 +476,7 @@ def test_identify_source_recognises_a_unc_path(tmp_path):
     assert fields["identity_key"] == r"\\nas01\projects"
 
 
+@pytest.mark.slow
 def test_a_network_share_unreachable_is_offline_not_an_error(tmp_path):
     r"""**202626270514's own acceptance line**: "a share scanned before
     decommission stays searchable years later." A fake UNC identity never
@@ -492,6 +497,7 @@ def test_a_network_share_unreachable_is_offline_not_an_error(tmp_path):
     assert volume_id not in online
 
 
+@pytest.mark.slow
 def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
     r"""The letter-free identity guarantee (1c) extends past drives: even
     though a network share is walked through whatever path the user typed
@@ -527,6 +533,7 @@ def test_a_network_scan_is_recorded_with_no_letter_and_the_right_kind(tmp_path):
 # `--same-as` predates both and is unchanged.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_suggest_renamed_source_finds_a_structurally_similar_offline_share(tmp_path):
     from app.index.offline_media import suggest_renamed_source
 
@@ -652,6 +659,7 @@ def test_check_renamed_source_never_raises_for_an_unreadable_path(tmp_path):
     assert suggestion is None
 
 
+@pytest.mark.slow
 def test_scan_new_source_with_same_as_reattaches_instead_of_duplicating(tmp_path, monkeypatch):
     r"""1a's offer, accepted through the tab's dialog: `same_as` reattaches
     to the existing catalogue rather than cataloguing a second, duplicate
@@ -723,6 +731,7 @@ def test_scan_new_source_same_as_an_unknown_name_is_a_clean_error(tmp_path, monk
     assert excinfo.value.error.code == "ERR_CONFIG_INVALID"
 
 
+@pytest.mark.slow
 def test_rename_volume_identity_keeps_every_file_row(tmp_path):
     r"""The acceptance half: repointing `identity_key` must not touch a
     single `files` row - they key on `volume_id`, never `identity_key`."""
@@ -1090,6 +1099,7 @@ def test_online_only_note_names_the_exact_words():
 # 202626270514 §4 - share-offline immunity, network's own copy of 0513's
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_run_elsewhere_does_not_prune_an_offline_shares_rows(tmp_path):
     r"""**§4**: "share-offline immunity mirrors 0513's (never prune, never
     wait)." The mechanism is the same one `test_a_run_elsewhere_does_not_
@@ -1127,6 +1137,7 @@ def test_a_run_elsewhere_does_not_prune_an_offline_shares_rows(tmp_path):
 # The manual guarantee (202626270513 order-level test list, item 5)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_nothing_outside_the_cli_command_and_tests_calls_a_scan(tmp_path):
     r"""**"Plugging in any volume triggers NO index activity and NO
     prompt."** Nothing here can plug in a real drive and watch for a
@@ -1183,6 +1194,7 @@ def test_scan_new_source_requires_a_name(tmp_path):
         assert excinfo.value.error.code == "ERR_CONFIG_INVALID"
 
 
+@pytest.mark.slow
 def test_scan_new_source_catalogues_and_indexes_a_real_folder(tmp_path, monkeypatch):
     r"""The shared core, end to end: identify, catalogue, and the same
     `Pipeline` run `_run_offline_media_pipeline` always did - now behind

@@ -24,7 +24,7 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from app.ui.later import later
 from app.ui.shell import MainWindow
-from app.ui.widgets.error_box import TITLE, show_error
+from app.ui.widgets.error_box import show_error
 
 pytestmark = pytest.mark.gui
 
@@ -58,7 +58,7 @@ def test_the_window_shows_its_error_without_waiting_and_with_the_same_words(pare
     MainWindow._show_error(parent, _error(details="Waited 30 s for the lock."))
 
     (box,) = _boxes(parent)
-    assert box.windowTitle() == TITLE == "Something needs attention"
+    assert box.windowTitle() == "Something needs attention"
     assert box.text() == "The index did not answer."
     assert box.informativeText() == "Wait a minute and try again."
     assert box.detailedText() == "Waited 30 s for the lock."

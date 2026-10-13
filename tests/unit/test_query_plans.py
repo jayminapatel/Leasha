@@ -198,6 +198,7 @@ def test_no_index_exists_that_nothing_uses(store):
 
 # --- the plans ---------------------------------------------------------------
 
+@pytest.mark.slow
 def test_filter_only_browse_neither_scans_nor_sorts(populated):
     """P6: `WHERE c.ordinal = 0 ORDER BY f.mtime_ns DESC`.
 
@@ -321,6 +322,7 @@ def _vm_steps(store, call):
     return steps[0], result
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("query", [
     "type:pdf", "type:txt", "type:xlsx", "type:dwg", "type:docx", "type:rare",
     "type:nothing", "type:pdf,txt", "type:pdf after:1970-01-10"])

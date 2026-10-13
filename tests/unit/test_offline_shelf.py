@@ -34,6 +34,7 @@ def reads(gui_mainwindow, monkeypatch):
     gui_pump(app, 2)
 
 
+@pytest.mark.slow
 def test_offline_is_the_indexing_pages_last_shelf_and_not_on_the_rail(gui_mainwindow):
     from app.ui.widgets.indexing_layout import CATEGORY_OFFLINE
 

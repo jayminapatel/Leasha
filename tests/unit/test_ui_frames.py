@@ -74,6 +74,7 @@ def _pages(window):
             "Tidy": window.tidy_view, "Indexing": window.indexing_view}
 
 
+@pytest.mark.slow
 def test_every_main_page_is_laid_out_in_the_one_frame(gui_mainwindow) -> None:
     """**Before:** Search 16/12 and 8 apart, Files, Mail, Code and Photos Qt's 9 and 6, Browse 0
     and 2, Indexing 9 - the page moved a few pixels at every rail click."""

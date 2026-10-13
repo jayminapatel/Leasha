@@ -132,6 +132,7 @@ def test_the_damage_row_is_unchanged() -> None:
 
 # --- end to end: stop inside an archive, see it, carry on, see it go ------------
 
+@pytest.mark.slow
 def test_a_run_stopped_inside_an_archive_is_shown_until_one_finishes_it(
         tmp_path, archive, monkeypatch) -> None:
     db = tmp_path / "index.db"

@@ -413,6 +413,7 @@ def test_the_photo_grids_open_reaches_the_results_open_and_its_lightbox_is_a_pop
     assert opened == [photo] and built == [(photo, [photo], None)]
 
 
+@pytest.mark.slow
 def test_the_window_pins_through_pop_out_with_its_store_and_error_box(gui_mainwindow, monkeypatch):
     from app.ui.widgets import preview_window
 

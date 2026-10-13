@@ -63,6 +63,7 @@ def test_every_model_setting_is_known_here():
     ]
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_no_model_control_in_the_window_can_be_typed_into(gui_mainwindow):
     app, window, _store, _engine = gui_mainwindow
@@ -370,6 +371,7 @@ class _FakeChild:
         return self.poll()
 
 
+@pytest.mark.slow
 def test_a_file_model_downloads_in_a_child_running_the_applications_own_loader(tmp_path):
     started: list = []
 

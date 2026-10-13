@@ -353,6 +353,7 @@ def test_a_model_that_cannot_load_costs_nothing_at_all(tmp_path):
         assert vectors.count() == 0
 
 
+@pytest.mark.slow
 def test_an_embedder_without_warm_up_still_runs(tmp_path):
     """Half the suite passes a double. Requiring the method would break them."""
     root = _corpus(tmp_path / "docs", files=1)

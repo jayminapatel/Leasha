@@ -315,6 +315,7 @@ def test_the_two_evaluate_modes_say_which_they_are(tmp_path, capsys):
     assert "keyword only" in capsys.readouterr().out
 
 
+@pytest.mark.slow
 def test_ollama_runs_without_ollama(tmp_path, capsys):
     """Most machines have no Ollama. The diagnostic has to work there - that is
     precisely when somebody runs it."""

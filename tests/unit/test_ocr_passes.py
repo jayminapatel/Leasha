@@ -192,6 +192,7 @@ def test_the_images_pass_does_not_walk_the_rest_of_the_corpus(tmp_path, corpus):
     assert stats.seen == 1                         # the .png, and nothing else
 
 
+@pytest.mark.slow
 def test_the_images_pass_does_not_prune_the_documents_it_never_looked_at(tmp_path, corpus):
     """Its walk saw only pictures, so "missing" would mean "not an image" for
     every document in the corpus."""
@@ -231,6 +232,7 @@ def test_both_is_the_default_and_reads_everything(tmp_path, corpus):
     assert not stats.skipped_by_code
 
 
+@pytest.mark.slow
 def test_a_held_file_is_picked_up_again_rather_than_left_for_ever(tmp_path, corpus):
     r"""A held row is `SKIPPED`, not `INDEXED` - so change detection re-queues
     it on every later run. That is what makes the queue a queue: switching

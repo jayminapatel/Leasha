@@ -137,6 +137,7 @@ def test_moving_a_settings_lever_rewrites_its_place_sentence(settings_and_store)
     assert "Faces in photos" in box.sentences[PICTURES].text()
 
 
+@pytest.mark.slow
 def test_the_settings_filter_says_where_a_moved_lever_went(settings_and_store):
     box, view = _gathered(*settings_and_store)
     view.filter_box.setText("video")

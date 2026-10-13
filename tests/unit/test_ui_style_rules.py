@@ -258,6 +258,7 @@ def _literal_icon_sizes(source: str) -> list:
     return found
 
 
+@pytest.mark.slow
 def test_every_icon_size_comes_from_the_one_table():
     loose = [f"{_rel(p)}:{line}" for p in _modules() if _rel(p) not in _SIZE_LITERALS_OK
              for line in _literal_icon_sizes(p.read_text(encoding="utf-8"))]
@@ -322,6 +323,7 @@ def test_the_scale_is_the_8px_rhythm():
     assert ROW_SPACING == theme.SPACE_S
 
 
+@pytest.mark.slow
 def test_every_gap_the_scale_names_is_written_by_its_name():
     loose = [f"{_rel(p)}:{line}" for p in _modules() if _rel(p) not in _SPACING_LITERALS_OK
              for line in _scale_numbers(p.read_text(encoding="utf-8"))]

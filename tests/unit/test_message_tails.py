@@ -303,6 +303,7 @@ def _append(mbox: Path, n: int) -> None:
                 f"A new message {n}.\n")
 
 
+@pytest.mark.slow
 def test_an_unchanged_message_keeps_its_tail_and_one_indexed_before_tails_gains_it(tmp_path, mailbox):
     mbox = mailbox / "tails.mbox"
     with SqliteStore(tmp_path / "i.db") as store:
@@ -322,6 +323,7 @@ def test_an_unchanged_message_keeps_its_tail_and_one_indexed_before_tails_gains_
         assert _tails(store, mailbox) == before
 
 
+@pytest.mark.slow
 def test_a_rewritten_message_replaces_its_tail(tmp_path, mailbox):
     mbox = mailbox / "tails.mbox"
     with SqliteStore(tmp_path / "i.db") as store:

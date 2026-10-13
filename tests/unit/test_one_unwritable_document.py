@@ -95,6 +95,7 @@ def _run(tmp_path: Path, store: SqliteStore):
     return pipeline.run()
 
 
+@pytest.mark.slow
 def test_a_write_that_raises_is_a_skipped_file_not_a_dead_run(tmp_path, monkeypatch):
     """The exact shape of 2026-10-08, with the store refusing one document."""
     with SqliteStore(tmp_path / "i.db") as store:

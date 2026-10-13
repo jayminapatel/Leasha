@@ -239,6 +239,7 @@ def real_doc(tmp_path_factory):
     return produced
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(not HAS_SOFFICE, reason="LibreOffice is not installed")
 def test_a_real_document_converts_and_the_text_comes_back(real_doc):
     rule = load_rules().converter_for(".doc")
@@ -377,6 +378,7 @@ RESOLVED_SOFFICE = resolve_binary("soffice")
 NOT_WINDOWS = os.name != "nt"
 
 
+@pytest.mark.slow
 @pytest.mark.windows
 @pytest.mark.skipif(NOT_WINDOWS or RESOLVED_SOFFICE is None,
                     reason="Windows with LibreOffice installed")

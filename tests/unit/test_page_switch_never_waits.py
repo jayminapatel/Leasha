@@ -62,6 +62,7 @@ def _wait_for(app, predicate, timeout_s: float = 5.0) -> bool:
     return predicate()
 
 
+@pytest.mark.slow
 def test_switching_page_during_an_index_batch_returns_at_once(gui_mainwindow):
     app, window, store, _engine = gui_mainwindow
     rail = window.rail
@@ -87,6 +88,7 @@ def test_switching_page_during_an_index_batch_returns_at_once(gui_mainwindow):
         "the page switch returned promptly but ui:page was never saved")
 
 
+@pytest.mark.slow
 def test_queued_writes_land_in_the_order_they_were_made(gui_mainwindow):
     """One writer thread, so the last choice is the one that sticks.
 

@@ -167,6 +167,7 @@ def test_a_code_view_that_ran_a_history_search_is_still_freed(
     held["worker"].signals.done.emit()           # into a view that has gone: nothing
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("which", sorted(BUILDERS))
 def test_the_watcher_registry_does_not_hold_a_view(
         _qt_application, store, no_collector, which) -> None:

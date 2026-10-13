@@ -482,6 +482,7 @@ def _rows_and_hits(store, word: str):
     return rows, hits
 
 
+@pytest.mark.slow
 def test_a_case_only_rename_replaces_the_row_and_does_not_add_a_second(
         renamed_by_case, tmp_path):
     """`Report.txt` renamed to `report.txt` is one file with a new spelling.
@@ -556,6 +557,7 @@ def test_a_folder_renamed_by_case_only_takes_its_files_rows_with_it(
     assert stats.deleted == 1
 
 
+@pytest.mark.slow
 def test_a_folder_typed_in_another_case_than_the_disk_s_is_not_reindexed_every_run(
         renamed_by_case, tmp_path):
     """The walk spells a path as the folder was typed, not as the disk spells
@@ -585,6 +587,7 @@ def test_a_folder_typed_in_another_case_than_the_disk_s_is_not_reindexed_every_r
     assert settled.indexed == 0 and not settled.deleted
 
 
+@pytest.mark.slow
 def test_an_archive_renamed_by_case_only_takes_its_members_rows_with_it(
         renamed_by_case, tmp_path):
     import time

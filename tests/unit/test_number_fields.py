@@ -173,6 +173,7 @@ def _problems(root: QWidget) -> list[str]:
     return found
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_no_number_field_in_the_window_has_arrows_or_lacks_the_button(gui_mainwindow):
     app, window, _store, _engine = gui_mainwindow
@@ -257,6 +258,7 @@ _SPIN_TYPES = {"QSpinBox", "QDoubleSpinBox", "QTimeEdit", "QDateEdit",
                "QDateTimeEdit", "AutoSpin"}
 
 
+@pytest.mark.slow
 def test_every_module_that_builds_a_number_field_is_walked():
     building = set()
     for path in sorted(UI.rglob("*.py")):

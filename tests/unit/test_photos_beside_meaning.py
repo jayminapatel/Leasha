@@ -173,6 +173,7 @@ def _timed_run(tmp_path: Path, monkeypatch, *, beside: "tuple[bool, ...]",
     return took, stats, left, indexed, len(photos), pipeline
 
 
+@pytest.mark.slow
 def test_photo_passes_run_beside_the_meaning_model_on_another_processor(tmp_path, monkeypatch):
     """Meaning on the processor (the fake has no graphics card), the photo models
     on the card: the two waits overlap instead of adding up."""
@@ -200,6 +201,7 @@ def test_photo_passes_run_beside_the_meaning_model_on_another_processor(tmp_path
         f"only {pipeline.overlap} document batch(es) overlapped the photo pass")
 
 
+@pytest.mark.slow
 def test_on_the_same_processor_they_stay_one_after_the_other(tmp_path, monkeypatch):
     started = []
     original = Pipeline._start_pictures_beside_meaning
@@ -216,6 +218,7 @@ def test_on_the_same_processor_they_stay_one_after_the_other(tmp_path, monkeypat
     assert stats.enrichment_counts["photo_tags"] == photos and left == 0
 
 
+@pytest.mark.slow
 def test_the_page_says_meaning_then_photos_and_never_flickers(tmp_path, monkeypatch):
     phases: list[str] = []
     # A short meaning backlog and many photos: the model is done long before
@@ -228,6 +231,7 @@ def test_the_page_says_meaning_then_photos_and_never_flickers(tmp_path, monkeypa
     assert said.count(PHASE_MEANING) == 1 and said.count(PHASE_PHOTO_TAGS) == 1, said
 
 
+@pytest.mark.slow
 def test_a_stop_ends_both_and_leaves_nothing_running(tmp_path, monkeypatch):
     _florence(monkeypatch, delay_s=0.1)
     monkeypatch.setattr(Pipeline, "_picture_models_on_gpu", lambda self: (True, True))
@@ -257,6 +261,7 @@ def test_a_stop_ends_both_and_leaves_nothing_running(tmp_path, monkeypatch):
     assert described < 30, "the stop did not reach the photo passes"
 
 
+@pytest.mark.slow
 def test_what_they_wrote_is_embedded_once_at_the_run_end(tmp_path, monkeypatch):
     """Not by the passes beside the model - their `_embed_pending` would race the
     feeder's - but once, by the run's end, in the form that embeds there."""
@@ -284,6 +289,7 @@ def test_without_the_run_end_form_nothing_is_called_with_it(tmp_path):
     assert built._drain_takes_run_end()
 
 
+@pytest.mark.slow
 def test_a_meaning_model_failure_ends_the_photo_passes_too(tmp_path, monkeypatch):
     """The run raises the model's error, as it always has - and the photo passes
     beside it are told, not left describing photos for a run that has ended."""

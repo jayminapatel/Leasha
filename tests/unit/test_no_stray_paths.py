@@ -28,6 +28,8 @@ project's own source.
 
 from __future__ import annotations
 
+import pytest
+
 import re
 from pathlib import Path
 
@@ -117,6 +119,7 @@ def test_the_guard_leaves_windows_alone(monkeypatch):
 
 # --- the same mistake, one layer up: a Windows path inside a docstring -------
 
+@pytest.mark.slow
 def test_no_module_compiles_with_a_syntax_warning():
     r"""**Third sighting of the same family, so it becomes a test.**
 

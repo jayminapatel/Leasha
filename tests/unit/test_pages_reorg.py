@@ -312,6 +312,7 @@ def test_no_indexing_control_is_laid_out_at_zero_height(indexing_page, size_name
 # §1b: the filter box
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_filter_shows_matches_and_hides_the_rest(settings_and_store):
     """The order's own illustration types "memory" - but every setting whose
     label or tooltip names memory lives on the Indexing/Tuning surface
@@ -340,6 +341,7 @@ def test_filter_shows_matches_and_hides_the_rest(settings_and_store):
         "a category with no hits stayed visible - filtering did nothing")
 
 
+@pytest.mark.slow
 def test_clearing_the_filter_restores_everything(settings_and_store):
     """The hidden setting's visibility is reset even though its category
     (Search) is not the one the sidebar was last showing - `_reveal_all_
@@ -362,6 +364,7 @@ def test_clearing_the_filter_restores_everything(settings_and_store):
     assert hotkey.isVisibleTo(view), "the hidden setting never came back"
 
 
+@pytest.mark.slow
 def test_a_filter_with_no_matches_says_so_in_plain_words(settings_and_store):
     """The order's own word: "memory" matches nothing on the Settings page
     today (see the note on the test above), which makes it the honest
@@ -381,6 +384,7 @@ def test_a_filter_with_no_matches_says_so_in_plain_words(settings_and_store):
     assert view.filter_empty.text().strip(), "the empty state says nothing"
 
 
+@pytest.mark.slow
 def test_the_sidebar_is_disabled_while_filtering_and_reenabled_after(settings_and_store):
     settings, store = settings_and_store
     view = _settings_view(settings, store)
@@ -399,6 +403,7 @@ def test_the_sidebar_is_disabled_while_filtering_and_reenabled_after(settings_an
 # §1c: the last-open category is remembered
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_first_run_opens_the_first_category(settings_and_store):
     from app.ui.settings_view import CATEGORY_WHATS_INDEXED
 
@@ -408,6 +413,7 @@ def test_first_run_opens_the_first_category(settings_and_store):
     assert view._nav.current_category() == CATEGORY_WHATS_INDEXED
 
 
+@pytest.mark.slow
 def test_last_category_is_remembered_across_a_simulated_relaunch(settings_and_store):
     """Two `SettingsView`s against the same store, one after the other - the
     same shape a relaunch has: a fresh window, the same on-disk state."""
@@ -431,6 +437,7 @@ def test_last_category_is_remembered_across_a_simulated_relaunch(settings_and_st
         "the remembered category never arrived")
 
 
+@pytest.mark.slow
 def test_settings_view_construction_never_touches_the_store(monkeypatch, settings_and_store):
     """M13, re-checked against the new code specifically: building the view
     must not read `ui:settings_category` (or anything else) before the

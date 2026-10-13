@@ -839,6 +839,7 @@ def test_progress_reaches_the_screen_through_a_signal():
 # Five more were found in `app/ui` and two in `app/cli.py`, every one redundant.
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_no_function_reimports_a_name_the_module_already_has():
     r"""Every one of these is an `UnboundLocalError` waiting for a caller.
 
@@ -1057,6 +1058,7 @@ def test_the_guard_ignores_a_name_that_never_came_from_tasks(tmp_path) -> None:
     assert _inline_task_calls(path) == []
 
 
+@pytest.mark.slow
 def test_an_image_is_never_decoded_from_a_path_in_a_view():
     """M11: `QPixmap(path)` reads and decodes on the calling thread.
 

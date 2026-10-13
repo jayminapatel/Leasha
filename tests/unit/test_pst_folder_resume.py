@@ -176,6 +176,7 @@ def uninterrupted(tmp_path: Path, root: Path, monkeypatch) -> set[tuple[str, str
 
 # --- stopped and resumed == uninterrupted ------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("stop_after", [1, 3, 5, 6, 8, 9])
 def test_stopped_mid_archive_then_resumed_is_exactly_the_uninterrupted_set(
         tmp_path, archive, monkeypatch, stop_after) -> None:
@@ -201,6 +202,7 @@ def test_stopped_mid_archive_then_resumed_is_exactly_the_uninterrupted_set(
         assert tree["inbox"].fetched == 0, "a resumed read re-read a finished folder"
 
 
+@pytest.mark.slow
 def test_stopped_twice_forgets_nothing_the_first_stop_knew(
         tmp_path, archive, monkeypatch) -> None:
     """The brief is read in Inbox by the first run. The second run resumes
@@ -221,6 +223,7 @@ def test_stopped_twice_forgets_nothing_the_first_stop_knew(
     assert rows == len(found) and found == whole
 
 
+@pytest.mark.slow
 def test_the_cursor_is_written_during_the_run_not_only_at_its_end(
         tmp_path, archive, monkeypatch) -> None:
     """A pulled plug runs no `finally`. The cursor has to be there already."""
@@ -242,6 +245,7 @@ def test_the_cursor_is_written_during_the_run_not_only_at_its_end(
     assert seen_mid_run[0]["folder"] >= 3
 
 
+@pytest.mark.slow
 def test_a_killed_run_resumes_from_the_cursor_it_wrote(tmp_path, archive, monkeypatch) -> None:
     """The same, with no clean end at all: the cursor from a boundary is all
     there is, and carrying on from it still gives exactly the whole set."""
@@ -304,6 +308,7 @@ def test_an_unreadable_cursor_is_a_read_from_the_top(tmp_path, archive, monkeypa
 
 # --- the partial-read rules of order 0v stay true -----------------------------
 
+@pytest.mark.slow
 def test_a_damaged_folder_is_never_resumed_past(tmp_path, archive, monkeypatch) -> None:
     """The cursor stops at the first failure, so the resumed read meets the
     damage again and `ERR_PST_PARTIAL` is still counted for the whole archive."""

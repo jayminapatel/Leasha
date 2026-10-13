@@ -82,6 +82,7 @@ def test_a_passage_is_never_its_own_neighbour(built):
     assert all(result.chunk_id != chunks_a[0] for result in response.results)
 
 
+@pytest.mark.slow
 def test_the_rest_of_its_own_file_is_dropped_by_default(built):
     r"""**"More like this" answering with the next paragraph of the same
     document is a correct answer to a question nobody asked.**"""

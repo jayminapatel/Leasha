@@ -238,6 +238,7 @@ def _ruff(*arguments: str):
     )
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("overrides", [
     {},                                   # a reader with its own library
     {"module": "", "package": ""},        # a standard-library reader

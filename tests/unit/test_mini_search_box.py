@@ -505,6 +505,7 @@ def test_the_first_escape_empties_the_box_and_the_second_closes_it(qapp, mixed_e
     assert box.isHidden()
 
 
+@pytest.mark.slow
 def test_an_empty_box_lists_recent_searches_and_enter_runs_one(qapp):
     engine, store = _fresh_engine()
     try:

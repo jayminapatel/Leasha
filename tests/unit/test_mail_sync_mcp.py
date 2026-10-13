@@ -99,6 +99,7 @@ def test_read_text_also_resolves_the_account_by_name_or_address(settings):
     assert "not in the index" in tools.read_text("account://Nobody/INBOX/w1")["error"]
 
 
+@pytest.mark.slow
 def test_the_tool_is_offered_with_an_account_and_stays_read_only(settings):
     from mcp import Client
 

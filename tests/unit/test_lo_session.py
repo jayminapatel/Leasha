@@ -289,6 +289,7 @@ def test_a_success_ends_the_streak(helper, tmp_path, monkeypatch):
         pool.close()
 
 
+@pytest.mark.slow
 def test_a_dead_bridge_is_the_sessions_fault_and_is_replaced(helper, tmp_path):
     """The `DisposedException` cluster seen on the real run: one crash, then
     every later file failing in 60 ms. It must read as a crash, not as N bad files."""

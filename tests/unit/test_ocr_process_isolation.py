@@ -56,6 +56,7 @@ def _png(path: Path, text: str = "HELLO WORLD 2026") -> Path:
 # --- 2a: a real helper answers, and says what its engine ran on ----------------------------
 
 
+@pytest.mark.slow
 def test_a_real_helper_answers_a_picture_and_the_parent_never_loads_the_engine(tmp_path, monkeypatch):
     picture = _png(tmp_path / "words.png")
     engine_before = ocr._engine
@@ -86,6 +87,7 @@ def test_a_real_helper_answers_a_picture_and_the_parent_never_loads_the_engine(t
     assert ocr._engine is engine_before, "the parent loaded the OCR engine itself"
 
 
+@pytest.mark.slow
 def test_a_dead_helper_is_started_again_for_the_next_picture(tmp_path):
     picture = _png(tmp_path / "words.png")
     helper = OcrProcess(low_priority=False)
@@ -201,6 +203,7 @@ def reader():
         process.close()
 
 
+@pytest.mark.slow
 def test_on_the_images_pass_a_child_renders_the_page_and_the_parent_reads_it(
         tmp_path, reader, monkeypatch):
     pdf = _scanned_pdf(tmp_path / "scan.pdf")
@@ -221,6 +224,7 @@ def test_on_the_images_pass_a_child_renders_the_page_and_the_parent_reads_it(
     assert ocr._engine is engine_before, "the parent loaded the OCR engine itself"
 
 
+@pytest.mark.slow
 def test_on_the_text_pass_the_child_still_holds_a_scanned_pdf(tmp_path, reader, monkeypatch):
     pdf = _scanned_pdf(tmp_path / "scan.pdf")
     monkeypatch.setenv("LEASHA_PDF_OCR_PAGES", "3")
@@ -232,6 +236,7 @@ def test_on_the_text_pass_the_child_still_holds_a_scanned_pdf(tmp_path, reader, 
     assert asked == [], "the text pass holds scanned pages for the pictures pass"
 
 
+@pytest.mark.slow
 def test_a_dead_helper_during_a_relayed_page_records_the_pdf(tmp_path, reader, monkeypatch):
     pdf = _scanned_pdf(tmp_path / "scan.pdf")
     monkeypatch.setenv("LEASHA_PDF_OCR_PAGES", "3")

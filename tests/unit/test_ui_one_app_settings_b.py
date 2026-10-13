@@ -320,6 +320,7 @@ def view(settings, tmp_path):
     store.close()
 
 
+@pytest.mark.slow
 def test_the_search_lists_what_it_found_with_its_category(view):
     from app.ui.settings_view import CATEGORY_SEARCH
 
@@ -334,6 +335,7 @@ def test_the_search_lists_what_it_found_with_its_category(view):
     assert not view.filter_found.isVisible() and not view.filter_goto.isVisible()
 
 
+@pytest.mark.slow
 def test_enter_takes_you_to_the_setting_even_under_advanced(view):
     """`RERANK_TOP_N` sits in Search's Advanced fold, closed by default."""
     from app.ui.settings_view import CATEGORY_APPEARANCE, CATEGORY_SEARCH
@@ -359,6 +361,7 @@ def test_enter_takes_you_to_the_setting_even_under_advanced(view):
     assert shown <= top <= shown + scroll.viewport().height(), "the row is off the screen"
 
 
+@pytest.mark.slow
 def test_a_click_on_a_found_line_goes_there(view):
     from app.ui.settings_view import CATEGORY_STORAGE
 
@@ -373,5 +376,6 @@ def test_a_click_on_a_found_line_goes_there(view):
     assert view.filter_box.text() == ""
 
 
+@pytest.mark.slow
 def test_the_search_has_its_own_accessible_name(view):
     assert view.filter_box.accessibleName() == "Search all settings"

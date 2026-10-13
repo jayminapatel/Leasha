@@ -113,7 +113,9 @@ def city_in(text: str) -> Optional[str]:
     for p in _phrases(text):
         if p in CITIES:
             # The city as the line spells it ("Abu  Dhabi" too): its words with any run of spaces between.
-            m = re.search(r"\b" + re.escape(p).replace(" ", "[ ]+") + r"\b", text, re.I)
+            # Each word escaped on its own: `re.escape` escapes the space too, so replacing the space in the
+            # escaped text left a stray backslash and the pattern never matched (order 1u section 4d).
+            m = re.search(r"\b" + "[ ]+".join(re.escape(w) for w in p.split(" ")) + r"\b", text, re.I)
             return m.group(0) if m else p.title()
     return None
 
