@@ -339,6 +339,7 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     (`contact_sources`) to the survivor - they stay on the folded contact in the Bin, so a value it brought
     shows no source on the survivor until the merge is undone. Whether the survivor should inherit them is
     a product decision.
+    *2026-10-13, the owner: "recommended" - the survivor now keeps the folded contacts' sources (`fix/merge-keeps-sources`).*
   - *2026-10-13, measured (4c):* branch coverage with §4d - indexing 82.5%, search 91.3%, storage 81.0%,
     contacts 80.6%, the error contract (`app/core/errors.py`) 91.7%; accounts 79.1%, then 86.2% with the note
     below (measured on the accounts tests). Every path at 80% or more; indexing and search were there

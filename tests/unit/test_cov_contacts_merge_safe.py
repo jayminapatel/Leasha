@@ -249,3 +249,110 @@ def test_undo_gives_back_each_card_exactly_as_it_was(hub):
 
     assert {a: hub.get_card(a).to_json(), b: hub.get_card(b).to_json()} == before
     assert _live(hub) == {a, b}
+
+
+# ---------------------------------------------------------------- where the details came from (owner, 2026-10-13)
+
+def _rows(hub, cid):
+    return sorted((r["field_key"], r["source"], r["ref"]) for r in hub.conn.execute(
+        "SELECT field_key, source, ref FROM contact_sources WHERE contact_id = ?", (cid,)))
+
+
+def test_merge_all_safe_gives_the_survivor_the_folded_contacts_sources_and_undo_takes_them_off(hub):
+    a = hub.create(_card("Ann", "Lee", email="ann@example.com", phone="+447700900123"),
+                   source="import", source_ref="new.csv")
+    b = hub.create(_card("Ann", "Lee", email="ann@example.com", company="Acme"),
+                   source="import", source_ref="old.csv")
+    before_a, before_b = _rows(hub, a), _rows(hub, b)
+    scan = ba.scan_book(hub, use_cache=False)
+    steps = ba.plan_safe_merges(scan.groups, scan.cards)
+    assert steps[0].survivor == a and steps[0].others == [b]
+
+    summary = ba.merge_safe(hub, steps)
+
+    after = _rows(hub, a)
+    assert set(before_b) <= set(after), "a value the folded contact brought still says where it came from"
+    assert set(before_a) <= set(after)
+    assert len(after) == len(set(after)), "no source row twice"
+    assert ("s:company", "import", "old.csv") in after
+    assert _rows(hub, b) == before_b, "the folded contact keeps its own, so the undo is exact"
+
+    hub.undo_batch(summary.batch_id)
+
+    assert _rows(hub, a) == before_a
+    assert _rows(hub, b) == before_b
+
+
+def test_a_source_the_survivor_already_holds_is_not_copied_twice(hub):
+    a = hub.create(_card("Ann", "Lee", email="ann@example.com", phone="+447700900123"),
+                   source="import", source_ref="people.csv")
+    b = hub.create(_card("Ann", "Lee", email="ann@example.com"), source="import", source_ref="people.csv")
+    before_a = _rows(hub, a)
+    shared = ("f:email:ann@example.com", "import", "people.csv")
+    assert shared in before_a and shared in _rows(hub, b)
+    scan = ba.scan_book(hub, use_cache=False)
+
+    summary = ba.merge_safe(hub, ba.plan_safe_merges(scan.groups, scan.cards))
+
+    after = _rows(hub, a)
+    assert after.count(shared) == 1
+    assert len(after) == len(set(after))
+    hub.undo_batch(summary.batch_id)
+    assert _rows(hub, a) == before_a, "the survivor's own row is not taken by the undo"
+
+
+def test_the_merge_dialog_gives_the_survivor_the_folded_contacts_sources_and_undo_takes_them_off(hub):
+    a = hub.create(_card("Ann", "Lee", email="ann@example.com"), source="import", source_ref="a.vcf")
+    b = hub.create(_card("Ann", "Lee", email="ann.lee@example.org", company="Acme"),
+                   source="import", source_ref="b.vcf")
+    c = hub.create(_card("Ann", "Lee", phone="+447700900123"), source="import", source_ref="c.vcf")
+    before = {i: _rows(hub, i) for i in (a, b, c)}
+    model = ba.MergeModel([a, b, c], [hub.get_card(i) for i in (a, b, c)])
+
+    batch = ba.commit_merge(hub, model)
+
+    after = _rows(hub, a)
+    assert set(before[a]) | set(before[b]) | set(before[c]) == set(after)
+    assert len(after) == len(set(after))
+    assert _rows(hub, b) == before[b] and _rows(hub, c) == before[c]
+    survivor_entry = hub.history(a)[0]
+    assert survivor_entry.action == "merge" and len(survivor_entry.detail["sources"]) == len(after) - len(before[a])
+
+    hub.undo_batch(batch)
+
+    assert {i: _rows(hub, i) for i in (a, b, c)} == before
+
+
+def test_giving_one_person_back_takes_only_their_sources_off_the_survivor(hub):
+    a = hub.create(_card("Ann", "Lee", email="ann@example.com"), source="import", source_ref="a.vcf")
+    b = hub.create(_card("Ann", "Lee", email="ann.lee@example.org"), source="import", source_ref="b.vcf")
+    c = hub.create(_card("Ann", "Lee", phone="+447700900123"), source="import", source_ref="c.vcf")
+    before = {i: _rows(hub, i) for i in (a, b, c)}
+    batch = ba.commit_merge(hub, ba.MergeModel([a, b, c], [hub.get_card(i) for i in (a, b, c)]))
+
+    hub.unmerge(b)
+
+    assert set(_rows(hub, a)) == set(before[a]) | set(before[c])
+    hub.undo_batch(batch)
+    assert {i: _rows(hub, i) for i in (a, b, c)} == before
+
+
+def test_a_source_two_folded_contacts_share_stays_on_the_survivor_while_either_is_folded_in(hub):
+    a = hub.create(_card("Ann", "Lee", email="ann@example.com"), source="manual", source_ref="")
+    b = hub.create(_card("Ann", "Lee", email="ann.lee@example.org", company="Acme"),
+                   source="import", source_ref="old.csv")
+    c = hub.create(_card("Ann", "Lee", phone="+447700900123", company="Acme"),
+                   source="import", source_ref="old.csv")
+    before = {i: _rows(hub, i) for i in (a, b, c)}
+    shared = ("s:company", "import", "old.csv")
+    assert shared in before[b] and shared in before[c]
+    batch = ba.commit_merge(hub, ba.MergeModel([a, b, c], [hub.get_card(i) for i in (a, b, c)]))
+    assert _rows(hub, a).count(shared) == 1
+
+    hub.unmerge(b)
+
+    assert _rows(hub, a).count(shared) == 1, "c is still folded in and brought it too"
+    hub.unmerge(c)
+    assert _rows(hub, a) == before[a]
+    hub.undo_batch(batch)
+    assert {i: _rows(hub, i) for i in (a, b, c)} == before

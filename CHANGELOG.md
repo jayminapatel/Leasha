@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.130 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.131 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,15 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### A merged contact keeps where its details came from (2026-10-13)
+
+- **Fixed:** merging contacts (Merge all safe matches, Merge ticked and the merge dialog) now gives the surviving
+  contact a copy of each folded contact's sources, so a value one of them brought still says where it came from.
+  A source the survivor already holds is not copied twice, and the folded contact in the Bin keeps its own.
+- **Undo stays exact:** the merge journals the ids of the copied rows; undoing the merge takes off exactly those,
+  and giving one person back takes off only theirs (a source another folded contact also brought stays).
+  `app/contacts/hub.py`, tested in `tests/unit/test_cov_contacts_merge_safe.py`.
 
 ### The test suite in half the time, and a coverage map (2026-10-13, order 1u)
 
