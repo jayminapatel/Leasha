@@ -586,11 +586,35 @@ def test_the_metadata_store_keeps_wal_and_a_busy_timeout(tmp_path):
 # 6. A slow window makes the run yield
 # ---------------------------------------------------------------------------
 
-def _yielding(monkeypatch, lag) -> list[float]:
+class _PipelineTime:
+    """`time` as `app/index/pipeline.py` alone sees it, with `sleep` replaced.
+
+    **Only the pipeline's own sleeps are seen.** `pipeline.time` is the one
+    `time` module of the whole process, so patching `sleep` on it hands every
+    thread's sleep to the test - and a test run in a full suite has threads
+    left by earlier tests. The converter pool's idle reaper
+    (`lo_session.SessionPool._reap`) sleeps `min(5.0, IDLE_CLOSE_S / 3)`, five
+    seconds, forever; when one woke during the run, `slept` came back
+    `{0.25, 5.0}`. Whether it woke inside the run was down to how long the run
+    took, which is why it failed only on a loaded machine.
+    """
+
+    def __init__(self, sleep) -> None:
+        self.sleep = sleep
+
+    def __getattr__(self, name: str):
+        return getattr(time, name)
+
+
+def _pipeline_sleeps(monkeypatch, sleep) -> None:
     import app.index.pipeline as module
 
+    monkeypatch.setattr(module, "time", _PipelineTime(sleep))
+
+
+def _yielding(monkeypatch, lag) -> list[float]:
     slept: list[float] = []
-    monkeypatch.setattr(module.time, "sleep", slept.append)
+    _pipeline_sleeps(monkeypatch, slept.append)
     pipeline = Pipeline.__new__(Pipeline)
     pipeline.ui_lag = lag
     pipeline._yield_to_ui()                                               # noqa: SLF001
@@ -621,13 +645,11 @@ def test_a_broken_lag_probe_never_stops_the_run(monkeypatch):
 
 
 def test_a_real_run_yields_between_items_when_the_window_is_slow(tmp_path, monkeypatch):
-    import app.index.pipeline as module
-
     slept: list[float] = []
     real_sleep = time.sleep
-    monkeypatch.setattr(module.time, "sleep",
-                        lambda s: (slept.append(s), real_sleep(0.001))[-1]
-                        if s >= UI_LAG_YIELD_S else real_sleep(s))
+    _pipeline_sleeps(monkeypatch,
+                     lambda s: (slept.append(s), real_sleep(0.001))[-1]
+                     if s >= UI_LAG_YIELD_S else real_sleep(s))
     pipeline = _pipeline(tmp_path)
     pipeline.ui_lag = lambda: 0.3
 
