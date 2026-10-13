@@ -264,6 +264,9 @@ def test_a_dragged_divider_is_where_it_was_left_after_a_restart(qapp) -> None:
     split.splitterMoved.emit(200, 1)                      # what a drag of the handle sends
     qapp.processEvents()
     split._size_memory.save()                             # the settle timer, without the wait
+    # Saved once, not again `SETTLE_MS` later: the timer left running fired into a later test's
+    # patched state writer (`test_ui_one_app_settings_b`) after this page had been put away.
+    assert not split._size_memory._timer.isActive()
     _settle(qapp)
     assert store.rows[KEY_PREFIX + "Test:testSplit"] == ",".join(str(s) for s in split.sizes())
     page.hide()

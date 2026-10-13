@@ -180,6 +180,10 @@ def test_ctrl_a_selects_every_row(qapp) -> None:
     table.setCurrentCell(0, 0)
     QTest.keyClick(table, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
     assert len(table.selectionModel().selectedRows()) == 4
+    # QTest's Ctrl+A leaves Qt believing Ctrl is still held (2026-10-13); a later test's
+    # `setCurrentIndex` would toggle its pick off. Let go of it, and prove it was let go.
+    QTest.keyRelease(table, Qt.Key.Key_Control)
+    assert QApplication.keyboardModifiers() == Qt.KeyboardModifier.NoModifier
     table.deleteLater()
 
 

@@ -133,6 +133,10 @@ class _Memory(QObject):
     def save(self) -> None:
         from app.ui.state_writes import save_state
 
+        # Saved now, so the settle timer has nothing left to do: a direct `save()` with a drag still
+        # settling otherwise wrote the same sizes again `SETTLE_MS` later - from a page already
+        # put away, into whatever store or writer was in place by then (2026-10-13).
+        self._timer.stop()
         split = self._split()
         if split is None:
             return
