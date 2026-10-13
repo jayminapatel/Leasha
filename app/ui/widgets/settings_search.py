@@ -142,7 +142,8 @@ def go_to_item(view: Any, item: Optional[QListWidgetItem]) -> None:
     if item is None:
         return
     key = str(item.data(Qt.ItemDataRole.UserRole))
-    later(view, 0, lambda: go_to_setting(view, key))      # not if Settings has closed
+    # Not if Settings has gone, or was left in the moment between (the view outlives a page switch).
+    later(view, 0, lambda: go_to_setting(view, key) if view.isVisible() else None)
 
 
 def go_to_first(view: Any) -> bool:
