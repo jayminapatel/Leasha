@@ -240,7 +240,23 @@ import json, sys
 from pathlib import Path
 import psutil
 
-pid, work = int(sys.argv[1]), Path(sys.argv[2])
+import os
+
+pid = int(sys.argv[1])
+
+
+# The folder in every spelling it may come back in - as given (perhaps the short 8.3 form,
+# JAYMIN~1.PAT) and fully resolved - with the letter case folded. Each handle's path is then only
+# compared as text: resolving every path the process holds would touch the disk once a handle,
+# which took over 180 s in a long-lived process (review of #83).
+forms = {os.path.normcase(os.path.abspath(sys.argv[2])), os.path.normcase(os.path.realpath(sys.argv[2]))}
+work = Path(sys.argv[2])
+
+
+def inside(path):
+    p = os.path.normcase(str(path))
+    return any(p == f or p.startswith(f.rstrip(os.sep) + os.sep) for f in forms)
+
 
 # **A handle this process may not even look at must not end the check.**
 # psutil lists the open files and then asks the disk whether each is a
@@ -256,11 +272,11 @@ def isfile_or_ours(path):
     try:
         return real_isfile(path)
     except PermissionError:
-        return Path(path).is_relative_to(work)
+        return inside(path)
 
 psutil._psplatform.isfile_strict = isfile_or_ours
 print(json.dumps([f.path for f in psutil.Process(pid).open_files()
-                  if Path(f.path).is_relative_to(work)]))
+                  if inside(f.path)]))
 """
 
 
