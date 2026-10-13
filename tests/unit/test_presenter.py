@@ -910,3 +910,19 @@ def test_a_group_whose_file_left_the_results_does_not_stay_open() -> None:
 
     assert expansions_kept({1, 2}, _shown(2, 3), same_results=True) == {2}
     assert expansions_kept(set(), _shown(2, 3), same_results=True) == set()
+
+
+
+def test_an_opened_conversation_stays_open_when_another_of_its_messages_heads_it():
+    """PR 91 review: a group is remembered by its head; a reranked answer can put another
+    message of the same conversation first, and the group must stay open."""
+    from types import SimpleNamespace
+
+    from app.ui.presenter.results import expansions_by_group
+
+    before = SimpleNamespace(file_id=1, rows=[SimpleNamespace(file_id=1), SimpleNamespace(file_id=2)])
+    after = SimpleNamespace(file_id=2, rows=[SimpleNamespace(file_id=2), SimpleNamespace(file_id=1)])
+    other = SimpleNamespace(file_id=9, rows=[SimpleNamespace(file_id=9)])
+    assert expansions_by_group({1}, [before, other]) == {1}
+    assert expansions_by_group({1}, [after, other]) == {2}         # the new head, so it stays open
+    assert expansions_by_group({7}, [after, other]) == set()        # a file no longer shown is dropped

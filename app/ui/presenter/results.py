@@ -589,6 +589,23 @@ def expansions_kept(expanded: Iterable[int], rows: Iterable[Any], *,
     return {file_id for file_id in expanded if file_id in shown}
 
 
+def expansions_by_group(expanded: Iterable[int], groups: Iterable[Any]) -> set[int]:
+    """The opened groups as their **current** head `file_id`s.
+
+    A group is remembered by its head's `file_id`, but a conversation's head can change
+    between two drawings of the same search - the reranked order puts another message of it
+    first - and the group then closed though the person had opened it (review of PR 91).
+    A remembered id that is any member of a group now stands for that group's head.
+    """
+    wanted = set(expanded)
+    out: set[int] = set()
+    for group in groups:
+        members = {group.file_id, *(getattr(row, "file_id", None) for row in getattr(group, "rows", ()))}
+        if wanted & members:
+            out.add(group.file_id)
+    return out
+
+
 def kind_tag(kind: str) -> str:
     """Four characters at most, so an unknown type still gets a legible tag.
 
