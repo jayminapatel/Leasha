@@ -18,6 +18,20 @@ from app.core.diagnostics import build_bundle, collect_sections
 from app.core.logging import LOG_SUBDIRS, ensure_log_dirs
 
 
+@pytest.fixture()
+def no_doctor(monkeypatch):
+    """The bundle without its `doctor.py --json --quick` child.
+
+    Order 1u (2026-10-13): that child is 20-60 s of every bundle, and these
+    tests are about the zip - what goes in, what is redacted, what is cut - not
+    about doctor. `test_bundle_contains_the_expected_parts` keeps the real one,
+    so the doctor section of a bundle is still proved end to end once.
+    """
+    from app.core import diagnostics
+
+    monkeypatch.setattr(diagnostics, "_doctor", lambda _root: {"_stub": "doctor not run"})
+
+
 def test_log_folders_are_created_with_a_readme(tmp_path: Path) -> None:
     dirs = ensure_log_dirs(tmp_path / "logs")
     for name in LOG_SUBDIRS:
@@ -42,12 +56,14 @@ def test_bundle_contains_the_expected_parts(temp_env: Path, project_root: Path) 
         report = json.loads(archive.read("report.json"))
         for section in ("version", "system", "config", "disk", "stores", "packages", "git"):
             assert section in report
+        # The one bundle in this file built with the real doctor child.
+        assert "doctor" in report
 
         summary = archive.read("summary.txt").decode("utf-8")
         assert "diagnostic summary" in summary
 
 
-def test_bundle_does_not_nest_previous_bundles(temp_env: Path, project_root: Path) -> None:
+def test_bundle_does_not_nest_previous_bundles(temp_env: Path, project_root: Path, no_doctor) -> None:
     settings = load_settings(temp_env)
     build_bundle(settings, project_root)
     second = build_bundle(settings, project_root)
@@ -57,7 +73,7 @@ def test_bundle_does_not_nest_previous_bundles(temp_env: Path, project_root: Pat
             "a bundle nested inside a bundle grows without adding information"
 
 
-def test_collection_survives_a_broken_section(temp_env: Path, project_root: Path) -> None:
+def test_collection_survives_a_broken_section(temp_env: Path, project_root: Path, no_doctor) -> None:
     """The failure of one section is recorded, not propagated."""
     settings = load_settings(temp_env)
 
@@ -76,7 +92,7 @@ def test_collection_survives_a_broken_section(temp_env: Path, project_root: Path
     assert isinstance(sections["packages"], dict)
 
 
-def test_bundle_written_to_an_explicit_path(temp_env: Path, project_root: Path, tmp_path: Path) -> None:
+def test_bundle_written_to_an_explicit_path(temp_env: Path, project_root: Path, tmp_path: Path, no_doctor) -> None:
     settings = load_settings(temp_env)
     target = tmp_path / "custom" / "bundle.zip"
     result = build_bundle(settings, project_root, out_path=target)
@@ -84,7 +100,7 @@ def test_bundle_written_to_an_explicit_path(temp_env: Path, project_root: Path, 
     assert target.is_file()
 
 
-def test_env_in_bundle_is_redacted(temp_env: Path, project_root: Path) -> None:
+def test_env_in_bundle_is_redacted(temp_env: Path, project_root: Path, no_doctor) -> None:
     """A secret added to `.env` must never reach a bundle, and unknown keys
     are redacted by default - the allowlist is opt-in, not opt-out."""
     settings = load_settings(temp_env)
@@ -120,7 +136,7 @@ def test_redact_env_drops_comments_and_blanks() -> None:
     assert "X_AUTH=<redacted>" in out
 
 
-def test_large_logs_are_truncated_not_dropped(temp_env: Path, project_root: Path) -> None:
+def test_large_logs_are_truncated_not_dropped(temp_env: Path, project_root: Path, no_doctor) -> None:
     """A 50MB debug log should contribute its tail, not nothing and not 50MB."""
     from app.core.diagnostics import MAX_LOG_BYTES
 

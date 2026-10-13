@@ -44,8 +44,41 @@ PROJECT = Path(__file__).resolve().parents[2]
 FILES = 30
 
 
+#: The machine every child here is told it runs on (`COMPUTE_PROFILE_OVERRIDE`).
+#: Order 1u (2026-10-13): detecting it costs each child two PowerShell probes,
+#: up to 25 s when the machine is busy, and what it finds is not what these
+#: tests are about - `test_compute_envelope.py` and `test_tuning.py` are.
+QUIET_MACHINE = {
+    "logical_processors": 8, "physical_cores": 4, "ram_mb": 16_000, "avx2": True,
+    "index_disk": "ssd", "gpus": [], "platform": "test",
+}
+
+#: What every child's `.env` adds, and why (order 1u, 2026-10-13):
+#: * `INDEX_READ_PROCESSES=false` - reader processes are on by default since
+#:   2026-10-09, so each child started one Python per worker and waited for it
+#:   to import the readers. `test_read_process.py` is about those; here they
+#:   were the cost, and on a busy machine they did not start in their 60 s.
+#: * `INDEX_LOW_PRIORITY=false` - a child at below-normal priority on a machine
+#:   other test runs are filling waits behind them; on 2026-10-13 two children
+#:   sat for minutes before their first file. Priority is not tested here.
+LIGHT_CHILD_ENV = "INDEX_READ_PROCESSES=false\nINDEX_LOW_PRIORITY=false\n"
+
+
+def light_children(tmp_path: Path, monkeypatch) -> None:
+    """Every child started from here on runs on `QUIET_MACHINE`: it inherits
+    this process's environment, as the window's does."""
+    import json
+
+    from app.core.compute_profile import OVERRIDE_ENV
+
+    profile = tmp_path / "machine.json"
+    profile.write_text(json.dumps(QUIET_MACHINE), encoding="utf-8")
+    monkeypatch.setenv(OVERRIDE_ENV, str(profile))
+
+
 @pytest.fixture()
-def setup(tmp_path: Path) -> dict:
+def setup(tmp_path: Path, monkeypatch) -> dict:
+    light_children(tmp_path, monkeypatch)
     corpus = tmp_path / "docs"
     corpus.mkdir()
     for n in range(FILES):
@@ -57,7 +90,8 @@ def setup(tmp_path: Path) -> dict:
     # machine is shared, and neither is what these tests are about.
     env_file.write_text(
         f"DATA_PATH={data.as_posix()}\nLOG_PATH={(tmp_path / 'logs').as_posix()}\n"
-        "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\nINDEX_CPU_PERCENT=0\n", encoding="utf-8")
+        "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\nINDEX_CPU_PERCENT=0\n" + LIGHT_CHILD_ENV,
+        encoding="utf-8")
     locks = tmp_path / "locks"
     locks.mkdir()
     return {"corpus": corpus, "env": env_file, "db": data / "fts" / "knowledge.db",
@@ -298,13 +332,15 @@ def test_an_indexer_whose_window_dies_stops_by_itself(setup) -> None:
         assert read_unfinished_run(store, lock_dir=setup["locks"]) is None
 
 
-def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(tmp_path) -> None:
+def test_the_benchmark_measures_the_child_the_way_the_window_runs_it(
+        tmp_path, monkeypatch) -> None:
     """Order 0x §2d's "after" number: `bench-pipeline --child-process` indexes
     the same corpus through `ChildIndexRun` and says so in its report."""
     from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
 
     import threading
 
+    light_children(tmp_path, monkeypatch)
     # 2026-09-29: bounded, like `_finish`. On Windows CI this call waited out
     # the suite's ten-minute limit, and pytest was ended before it could print
     # why the four tests above had failed.
