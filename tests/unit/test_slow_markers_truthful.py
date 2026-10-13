@@ -133,6 +133,8 @@ def _marks_in(path: Path) -> tuple[bool, dict[str, bool]]:
                 if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     marks[f"{node.name}::{sub.name}"] = (
                         on_class or any(_is_slow_mark(d) for d in sub.decorator_list))
+                    for case in _slow_case_ids(sub.decorator_list):
+                        marks[f"{node.name}::{sub.name}[{case}]"] = True
     return whole, marks
 
 
@@ -237,7 +239,12 @@ def test_a_slow_case_inside_pytest_param_does_not_mark_the_whole_test(tmp_path):
         @pytest.mark.slow
         def test_all():
             pass
+        class TestGroup:
+            @pytest.mark.parametrize("n", [1, pytest.param(2, marks=pytest.mark.slow)])
+            def test_case(self, n):
+                pass
     """), encoding="utf-8")
     _marks_in.cache_clear()
     whole, marks = _marks_in(f)
-    assert not whole and marks == {"test_some": False, "test_some[2]": True, "test_all": True}
+    assert not whole and marks == {"test_some": False, "test_some[2]": True, "test_all": True,
+                                   "TestGroup::test_case": False, "TestGroup::test_case[2]": True}
