@@ -175,9 +175,15 @@ def windows_left_open_stop_watching_the_run_lock():
     (`run_lock.CONTENTION_WAIT_S`); a bare `is_indexing` cannot, because a
     probe is exactly what it is. So the probing stops with the module that
     built the window: its tests are over, and nothing after it may depend on a
-    timer it cannot see. Only this timer - it is the one that reaches outside
-    the process - and only stopped, never closed or deleted, for the reason in
+    timer it cannot see. Stopped, never closed or deleted, for the reason in
     `gui_mainwindow`.
+
+    **Every timer the window owns, not only that one** (2026-10-13). A left
+    window still ran a dozen more - the Photos page re-reading the index every
+    45 s, the pages' follow-the-index timers, the hourly checks - each sending a
+    worker at a store `gui_mainwindow` had closed, and keeping the shared
+    thread pool busy for every later module. Measured by a spy at the start of
+    each module; see `quieten_a_left_window`.
 
     Module-scoped and autouse, so it is torn down after the module's own
     fixtures: a `gui_mainwindow` has closed its store by then, and a poll
@@ -189,13 +195,32 @@ def windows_left_open_stop_watching_the_run_lock():
     if QApplication.instance() is None:
         return
     for widget in QApplication.topLevelWidgets():
-        timer = getattr(widget, "_watch_timer", None)
-        if timer is None:
-            continue
+        if getattr(widget, "_watch_timer", None) is not None:
+            quieten_a_left_window(widget)
+
+
+def quieten_a_left_window(window) -> int:
+    """Stop every timer `window` owns - its own and its pages' - and say how many.
+
+    A `MainWindow` is known by its `_watch_timer`. A timer whose C++ side is
+    already gone is skipped. Returns the number stopped, for the test that
+    holds this (`test_left_windows_go_quiet.py`).
+    """
+    from PySide6.QtCore import QTimer
+
+    stopped = 0
+    try:
+        timers = window.findChildren(QTimer)
+    except RuntimeError:                 # the window's C++ side is already gone
+        return 0
+    for timer in timers:
         try:
-            timer.stop()
+            if timer.isActive():
+                timer.stop()
+                stopped += 1
         except RuntimeError:             # its C++ side is already gone
             pass
+    return stopped
 
 
 @pytest.fixture(scope="module", autouse=True)

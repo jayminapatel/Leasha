@@ -2623,18 +2623,17 @@ class MainWindow(QMainWindow):
 
 
     def _show_error(self, error: Any) -> None:
-        """Every error shows what happened, the fix, and a working button."""
-        box = QMessageBox(self)
-        box.setIcon(QMessageBox.Icon.Warning)
-        box.setWindowTitle("Something needs attention")
-        box.setText(getattr(error, "message", str(error)))
-        box.setInformativeText(getattr(error, "suggestion", ""))
-        if getattr(error, "details", None):
-            box.setDetailedText(error.details)
-        # Modal on purpose: this box is for an action the person asked for (an open,
-        # a reset) and is worth reading before anything else. A failure that can
-        # repeat per keystroke takes the notice bar instead - `SearchView._search_failed`.
-        box.exec()
+        """Every error shows what happened, the fix, and a working button.
+
+        Modal to the window but never waited for (`widgets.error_box`): most errors
+        arrive from a worker or a timer, and an `exec()` there ran a nested event loop
+        that every other timer kept firing into, a box stacking on a box. One box at a
+        time; a repeat of the one up is not queued. A failure that can repeat per
+        keystroke takes the notice bar instead - `SearchView._search_failed`.
+        """
+        from app.ui.widgets.error_box import show_error
+
+        show_error(self, error)
 
     # -- drag and drop ------------------------------------------------------
 

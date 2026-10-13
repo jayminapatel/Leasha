@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.129 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### An error box never holds the window, and the test windows go quiet (2026-10-13)
+
+- **The window's error box no longer waits for a click before anything else can happen.** It was opened
+  with `exec()`, which runs an event loop of its own; most errors reach it from a worker or a timer (a
+  page re-reading the index, the poll for another process's run), so the code that raised it stopped there
+  while every other timer kept firing inside it, and a second failure opened a second box on top. It now
+  opens with `open()` - the same words, still in front of the window - and only one is up at a time: a
+  repeat of the box showing is not queued, a different error waits its turn (`widgets/error_box.py`).
+- **Tests: a window a finished module leaves open stops every timer it owns**, not only the run-lock poll.
+  Each left window still had 12 or 13 timers running against a closed store (measured at the start of every
+  module), sending work into the thread pool every later module shares (`conftest.quieten_a_left_window`,
+  `test_left_windows_go_quiet.py`). The one-process run that died in `test_index_child_gui.py` did so because
+  a background read failed (ERR_DB_BUSY) and its error box waited for a click, which the change above ends.
 
 ### One app, phase B: tooltips, icons, spacing and the style guide (2026-10-13)
 

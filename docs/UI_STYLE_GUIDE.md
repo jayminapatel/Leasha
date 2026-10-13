@@ -1,6 +1,6 @@
 # UI style guide - One Leasha
 
-**Doc version:** 1.0 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.1 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 How Leasha's window looks and behaves, as it is in the code today. Every rule names the
 module that carries it and the test that fails when it is broken. Where this guide and the
@@ -157,6 +157,19 @@ Tooltips built at run time from data (a file's path, a count) are held only by
 
 *Held by* `tests/unit/test_ui_one_app_settings.py`
 (`test_a_destructive_question_defaults_to_cancel_and_names_its_verb`).
+
+**The error box is the other kind.** `app/ui/widgets/error_box.py` - `show_error(parent, error)`,
+which is what `MainWindow._show_error` calls.
+
+- A question waits for its answer (`exec()`) and is asked only from a click. An error box is
+  never waited for: it opens with `open()`, modal to the window, and the caller returns at once,
+  because most errors arrive from a worker or a timer, where a nested event loop is a hang.
+- One box at a time. An error that arrives while one is up waits behind it; one with the same
+  words as the box up, or as one already waiting, is not queued again.
+- A failure that can repeat per keystroke is never a box: it is said on the page's own line
+  (`chips.say_failed`) or in Search's notice bar (`SearchView._search_failed`).
+
+*Held by* `tests/unit/test_error_box.py`.
 
 ## 9. The 250-line view budget
 
