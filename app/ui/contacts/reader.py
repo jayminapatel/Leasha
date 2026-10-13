@@ -26,7 +26,7 @@ from PySide6.QtWidgets import QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWi
 
 from app.contacts.card import KINDS, Card, display_name
 from app.ui.contacts.logic import KIND_INFO, initials, label_icon
-from app.ui.theme import theme_colours
+from app.ui.theme import SPACE_M, SPACE_S, SPACE_XS, theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 from app.ui.widgets.scroll import scrollable
@@ -121,7 +121,7 @@ class ContactReader(QWidget):
         names.addWidget(self.work)
         names.addStretch(1)
         head = QHBoxLayout()
-        head.setSpacing(12)
+        head.setSpacing(SPACE_M)
         head.addWidget(self.photo_label, 0, Qt.AlignmentFlag.AlignTop)
         head.addLayout(names, 1)
         head.addWidget(self.edit_button, 0, Qt.AlignmentFlag.AlignTop)
@@ -130,7 +130,7 @@ class ContactReader(QWidget):
         self.details = QWidget()
         self._details = QVBoxLayout(self.details)
         self._details.setContentsMargins(0, 0, 0, 0)
-        self._details.setSpacing(12)
+        self._details.setSpacing(SPACE_M)
         #: Where the page puts the panels it lends (`add_panels`).
         self._panels = QVBoxLayout()
         self._panels.setContentsMargins(0, 0, 0, 0)
@@ -231,7 +231,7 @@ class ContactReader(QWidget):
         box.setAccessibleName(words)
         col = QVBoxLayout(box)
         col.setContentsMargins(0, 0, 0, 0)
-        col.setSpacing(4)
+        col.setSpacing(SPACE_XS)
         title_row = QHBoxLayout()
         title_row.setSpacing(6)
         pic = QLabel()
@@ -244,7 +244,7 @@ class ContactReader(QWidget):
         col.addLayout(title_row)
         grid = QGridLayout()
         grid.setContentsMargins(22, 0, 0, 0)
-        grid.setHorizontalSpacing(8)
+        grid.setHorizontalSpacing(SPACE_S)
         grid.setVerticalSpacing(3)
         grid.setColumnStretch(1, 1)
         for row, (line_glyph, value, label) in enumerate(lines):

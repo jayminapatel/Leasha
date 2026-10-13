@@ -26,6 +26,8 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import QEvent, QSize, Qt, Signal
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
+from app.ui.theme import SPACE_S
+
 __all__ = ["EmptyState", "BusyLine", "EMPTY_ICON_PX", "BUSY_BAR_WIDTH"]
 
 #: The empty state's picture: large enough to read as a picture, small enough to stay quiet.
@@ -54,8 +56,8 @@ class EmptyState(QWidget):
         self.label.linkActivated.connect(self.linkActivated)
         self.action: Optional[QPushButton] = None
         column = QVBoxLayout(self)
-        column.setContentsMargins(0, 8, 0, 8)
-        column.setSpacing(8)
+        column.setContentsMargins(0, SPACE_S, 0, SPACE_S)
+        column.setSpacing(SPACE_S)
         column.addWidget(self.icon, 0, Qt.AlignmentFlag.AlignHCenter)
         column.addWidget(self.label)
         self._column = column
@@ -132,7 +134,7 @@ class BusyLine(QWidget):
         self.label.setWordWrap(True)
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(8)
+        row.setSpacing(SPACE_S)
         row.addWidget(self.bar, 0, Qt.AlignmentFlag.AlignVCenter)
         row.addWidget(self.label, 1)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
