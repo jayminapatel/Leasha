@@ -110,6 +110,39 @@ def _WindowSpy():
     return Spy()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _each_program_looked_up_once():
+    """`shutil.which` answers each name once for the module (order 1u, 2026-10-13).
+
+    Every window this module builds looks for the same programs on the PATH -
+    the editors for Settings' "Open code in", the converters for its file-type
+    health - a few thousand `stat`s each, about 1 s of every build on this
+    laptop. The PATH does not change while the module runs, so the first
+    window's answers are the answers; what these tests check is the window,
+    not the PATH."""
+    import functools
+    import shutil
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(shutil, "which", functools.lru_cache(maxsize=None)(shutil.which))
+        yield
+
+
+def _first_look(built) -> dict:
+    """What a just-built window has and has not done yet - no loop turn taken."""
+    return {
+        "mail_view": hasattr(built, "mail_view"),
+        "code_view": hasattr(built, "code_view"),
+        "indexing_view": hasattr(built, "indexing_view"),
+        "settings_view": hasattr(built, "settings_view"),
+        "scheduler": hasattr(built, "scheduler"),
+        "search_view": built.search_view is not None,
+        "rail": [built.rail.tabText(i) for i in range(built.rail.count())],
+        "watch_timer_active": built._watch_timer.isActive(),
+        "optimize_timer_active": built._optimize_timer.isActive(),
+    }
+
+
 @pytest.fixture(scope="module")
 def window(tmp_path_factory):
     r"""**One window, shared.** Building four crashed the interpreter.
@@ -142,8 +175,16 @@ def window(tmp_path_factory):
     # `__init__` or on the first turns of the loop, never later.
     spy = _WindowSpy()
     app.installEventFilter(spy)
-    built = MainWindow(settings, store, vectors, _Engine(store), debug=False)
+    engine = _Engine(store)
+    built = MainWindow(settings, store, vectors, engine, debug=False)
     built._test_window_spy = spy
+    built._test_engine = engine
+    # **What the window is the instant `MainWindow()` returns**, before any
+    # turn of the event loop - read here, because this is the only moment it is
+    # true. The deferral tests below assert on it instead of each building a
+    # window of their own to look once and throw away (order 1u 2f: 27 windows
+    # at 3-7 s each were most of this file's time).
+    built._test_first_look = _first_look(built)
 
     yield app, built
 
@@ -307,11 +348,16 @@ def test_window_saves_geometry_on_close(window, tmp_path):
     assert len(state) > 0, "saved geometry must not be empty"
 
 
-def test_window_can_restore_from_saved_state(tmp_path):
+def test_window_can_restore_from_saved_state(window, tmp_path):
     r"""§4a-4b: A window can be created and restored from saved geometry.
 
     Create a window, save its state, then create a new window and restore
     from that state. The geometries should match.
+
+    *Order 1u 2f (2026-10-13):* the first window is the shared one - it only
+    has to be resized, moved and saved, which any live window can be. The
+    second is still built fresh, at its default geometry, because restoring
+    onto a window that has never been placed is what this proves.
     """
     from PySide6.QtGui import QGuiApplication
     from PySide6.QtWidgets import QApplication
@@ -321,6 +367,7 @@ def test_window_can_restore_from_saved_state(tmp_path):
     from app.ui.shell import MainWindow
     from app.ui.window_state import restore_window_state, save_window_state
 
+    _app, window1 = window
     root = tmp_path / "window_restore"
     root.mkdir()
     env = root / ".env"
@@ -345,8 +392,7 @@ def test_window_can_restore_from_saved_state(tmp_path):
     height = min(700, avail.height() - 60)
 
     try:
-        # Build first window, set a custom geometry, save it
-        window1 = MainWindow(settings, store, vectors, _Engine(store))
+        # The first window, given a custom geometry, saved
         window1.resize(width, height)
         window1.move(150, 100)
         saved_state = save_window_state(window1)
@@ -495,86 +541,55 @@ def test_close_hides_before_the_staged_teardown_begins(tmp_path):
         vectors.close()
 
 
-def test_maximised_window_state_restored(tmp_path):
+def test_maximised_window_state_restored(window):
     r"""§4a: A maximised window is restored as maximised.
 
     When a window is closed while maximised, the saved state includes that
     fact, and restoration puts it back in maximised state.
+
+    *Order 1u 2f:* on the shared window, put back to normal and hidden after.
     """
-    from PySide6.QtWidgets import QApplication
-    from app.core.config import load_settings
-    from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
-    from app.ui.shell import MainWindow
     from app.ui.window_state import save_window_state
 
-    root = tmp_path / "window_maximised"
-    root.mkdir()
-    env = root / ".env"
-    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-    settings = load_settings(env)
-
-    app = QApplication.instance()
-    store = SqliteStore(settings.fts_db).connect()
-    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-
+    app, built = window
     try:
-        window = MainWindow(settings, store, vectors, _Engine(store))
-        window.showMaximized()
+        built.showMaximized()
         app.processEvents()
-        assert window.isMaximized(), "window should be maximised"
+        assert built.isMaximized(), "window should be maximised"
 
         # Save state of maximised window
-        state = save_window_state(window)
+        state = save_window_state(built)
 
         # The blob should contain the maximised state
         assert isinstance(state, bytes) and len(state) > 0
-
     finally:
-        store.close()
-        vectors.close()
+        built.showNormal()
+        built.hide()
+        app.processEvents()
 
 
-def test_minimised_window_opens_normal(tmp_path):
+def test_minimised_window_opens_normal(window):
     r"""§4b: A window closed while minimised opens normal, never minimised.
 
     An app that starts invisible looks broken. Even if somehow a saved state
     says the window was minimised, restoration should show it normally.
+
+    *Order 1u 2f:* on the shared window - `isMinimized` and `showNormal` are
+    patched, so nothing about it changes.
     """
-    from PySide6.QtWidgets import QApplication
-    from app.core.config import load_settings
-    from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
-    from app.ui.shell import MainWindow
+    _app, built = window
 
-    root = tmp_path / "window_minimised"
-    root.mkdir()
-    env = root / ".env"
-    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-    settings = load_settings(env)
+    # If a window somehow got minimised (user action or crash recovery),
+    # we want to ensure it opens normally. We can't easily create a
+    # minimised blob, but we can verify the restore logic handles it.
+    from unittest.mock import patch
+    from app.ui.window_state import restore_window_state
 
-    app = QApplication.instance()
-    store = SqliteStore(settings.fts_db).connect()
-    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-
-    try:
-        window = MainWindow(settings, store, vectors, _Engine(store))
-
-        # If a window somehow got minimised (user action or crash recovery),
-        # we want to ensure it opens normally. We can't easily create a
-        # minimised blob, but we can verify the restore logic handles it.
-        from unittest.mock import patch
-        from app.ui.window_state import restore_window_state
-
-        # Simulate restoration of a state that reports minimised
-        with patch.object(window, "isMinimized", return_value=True):
-            with patch.object(window, "showNormal") as mock_show:
-                restore_window_state(window, b"fake_geometry")
-                mock_show.assert_called_once()
-
-    finally:
-        store.close()
-        vectors.close()
+    # Simulate restoration of a state that reports minimised
+    with patch.object(built, "isMinimized", return_value=True):
+        with patch.object(built, "showNormal") as mock_show:
+            restore_window_state(built, b"fake_geometry")
+            mock_show.assert_called_once()
 
 
 def test_a_second_launch_brings_the_window_forward(window):
@@ -677,7 +692,7 @@ def test_an_ordinary_poll_does_not_steal_focus(window):
     activate.assert_not_called()
 
 
-def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_path):
+def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(window):
     r"""Work order 0r item 1c, second clause.
 
     If the CLIP text-tower embedder's model cache is emptied mid-life (a
@@ -698,55 +713,38 @@ def test_clip_download_progress_reaches_the_status_bar_not_a_second_splash(tmp_p
     **No `SplashScreen` is constructed anywhere in this test** - `app/ui/
     splash.py` is never imported. The whole point of this item is that this
     path does not need one.
+
+    *Order 1u 2f:* the shared window and the engine it was given - the wiring
+    is made in `__init__`, so any window shows it.
     """
-    from PySide6.QtWidgets import QApplication
-    from app.core.config import load_settings
-    from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
-    from app.ui.shell import MainWindow
+    app, built = window
+    engine = built._test_engine
+    app.processEvents()
 
-    root = tmp_path / "clip_download_status"
-    root.mkdir()
-    env = root / ".env"
-    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-    settings = load_settings(env)
+    assert callable(engine.status_callback), (
+        "MainWindow must wire a status_callback onto the engine it is "
+        "given, so a download that starts long after the splash has "
+        "closed still has somewhere to report to")
 
-    app = QApplication.instance()
-    store = SqliteStore(settings.fts_db).connect()
-    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
+    # Not followed by `app.processEvents()`: `_clip_download_progress` is
+    # a signal whose only connection lives on this same thread, so
+    # `.emit()` runs the connected slot synchronously (a direct
+    # connection) - pumping the loop afterwards would let unrelated
+    # startup work (e.g. the background file-count query) land its own
+    # message on top of the one this test is checking.
+    message = "Downloading the picture-search model - 42%"
+    # A fresh window's own scheduler fires an initial state_changed
+    # notice synchronously during __init__ (see the schedule wiring in
+    # shell.py's _start_scheduler), which reaches the toast before this
+    # test runs - Toast queues rather than overwrites (see toast.py's
+    # own docstring), so that unrelated notice would otherwise still be
+    # showing when this asserts. Clear it first, the same way
+    # test_rules_5_and_6_remember_then_upgrade_defaults_to_auto_quietly
+    # does in test_idle_tune_and_space_report_ui.py.
+    built.toast.clear()
+    engine.status_callback(message)
 
-    try:
-        engine = _Engine(store)
-        window = MainWindow(settings, store, vectors, engine)
-        app.processEvents()
-
-        assert callable(engine.status_callback), (
-            "MainWindow must wire a status_callback onto the engine it is "
-            "given, so a download that starts long after the splash has "
-            "closed still has somewhere to report to")
-
-        # Not followed by `app.processEvents()`: `_clip_download_progress` is
-        # a signal whose only connection lives on this same thread, so
-        # `.emit()` runs the connected slot synchronously (a direct
-        # connection) - pumping the loop afterwards would let unrelated
-        # startup work (e.g. the background file-count query) land its own
-        # message on top of the one this test is checking.
-        message = "Downloading the picture-search model - 42%"
-        # A fresh window's own scheduler fires an initial state_changed
-        # notice synchronously during __init__ (see the schedule wiring in
-        # shell.py's _start_scheduler), which reaches the toast before this
-        # test runs - Toast queues rather than overwrites (see toast.py's
-        # own docstring), so that unrelated notice would otherwise still be
-        # showing when this asserts. Clear it first, the same way
-        # test_rules_5_and_6_remember_then_upgrade_defaults_to_auto_quietly
-        # does in test_idle_tune_and_space_report_ui.py.
-        window.toast.clear()
-        engine.status_callback(message)
-
-        assert window.toast.current_text() == message
-    finally:
-        store.close()
-        vectors.close()
+    assert built.toast.current_text() == message
 
 
 def test_a_leasha_link_arriving_while_the_window_is_open_runs_it(window):
@@ -818,7 +816,7 @@ def test_an_ordinary_poll_leaves_the_search_box_alone(window):
 # --- Order 0r item 2b: Mail and Code built a beat after show() -------------
 
 
-def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
+def test_mail_and_code_are_not_built_until_the_event_loop_turns(window):
     r"""The deferral itself: `mail_view`/`code_view` do not exist the instant
     `MainWindow()` returns, and do exist once the event loop has had a turn.
 
@@ -826,61 +824,44 @@ def test_mail_and_code_are_not_built_until_the_event_loop_turns(tmp_path):
     `_construct_secondary_views` were ever folded back into `__init__` by
     accident, this would be the first thing to go red, because the "not yet
     built" half would stop being true.
+
+    *Order 1u 2f:* "the instant `MainWindow()` returns" is read once, by the
+    shared `window` fixture (`_first_look`), not by building a window here.
     """
-    from PySide6.QtWidgets import QApplication
-    from app.core.config import load_settings
-    from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
-    from app.ui.shell import MainWindow
+    app, built = window
+    first = built._test_first_look
+    # Not built yet: the constructor only scheduled it, via the same
+    # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
+    # used before this item existed.
+    assert not first["mail_view"], (
+        "mail_view must not exist the instant MainWindow() returns - "
+        "if it does, the deferral has regressed back into __init__")
+    assert not first["code_view"], (
+        "code_view must not exist the instant MainWindow() returns - "
+        "same reason as mail_view above")
+    # Search is what first paint shows, so it must be built already.
+    assert first["search_view"]
+    assert len(first["rail"]) == 4, (
+        "only Search, Files, Offline Media and Reports exist before the "
+        "event loop turns - Mail and Code are inserted a beat later, and "
+        "so are Indexing and Settings (order 0r item 2b, second pass; "
+        "`test_indexing_and_settings_are_not_built_until_the_event_loop_"
+        "turns` below owns that half). Order 202626270513 added Offline "
+        "Media and order 202626270602 added Reports to this count.")
 
-    root = tmp_path / "deferred_views"
-    root.mkdir()
-    env = root / ".env"
-    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-    settings = load_settings(env)
+    # Let the singleShot(0, ...) callback run.
+    for _ in range(5):
+        app.processEvents()
 
-    app = QApplication.instance()
-    store = SqliteStore(settings.fts_db).connect()
-    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-
-    try:
-        built = MainWindow(settings, store, vectors, _Engine(store))
-
-        # Not built yet: the constructor only scheduled it, via the same
-        # `QTimer.singleShot(0, ...)` idiom `_start_background_work` already
-        # used before this item existed.
-        assert not hasattr(built, "mail_view"), (
-            "mail_view must not exist the instant MainWindow() returns - "
-            "if it does, the deferral has regressed back into __init__")
-        assert not hasattr(built, "code_view"), (
-            "code_view must not exist the instant MainWindow() returns - "
-            "same reason as mail_view above")
-        # Search is what first paint shows, so it must be built already.
-        assert built.search_view is not None
-        assert built.rail.count() == 4, (
-            "only Search, Files, Offline Media and Reports exist before the "
-            "event loop turns - Mail and Code are inserted a beat later, and "
-            "so are Indexing and Settings (order 0r item 2b, second pass; "
-            "`test_indexing_and_settings_are_not_built_until_the_event_loop_"
-            "turns` below owns that half). Order 202626270513 added Offline "
-            "Media and order 202626270602 added Reports to this count.")
-
-        # Let the singleShot(0, ...) callback run.
-        for _ in range(5):
-            app.processEvents()
-
-        assert hasattr(built, "mail_view") and built.mail_view is not None
-        assert hasattr(built, "code_view") and built.code_view is not None
-        # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
-        # 2026-10-11, order 1k 6a: eleven - Contacts is built with them.
-        assert built.rail.count() == 11, (
-                "Mail, Code and Chat must all be inserted")
-    finally:
-        store.close()
-        vectors.close()
+    assert hasattr(built, "mail_view") and built.mail_view is not None
+    assert hasattr(built, "code_view") and built.code_view is not None
+    # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
+    # 2026-10-11, order 1k 6a: eleven - Contacts is built with them.
+    assert built.rail.count() == 11, (
+            "Mail, Code and Chat must all be inserted")
 
 
-def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
+def test_mail_and_code_land_in_their_original_tab_order(window):
     r"""The tab order nobody has to relearn: Search, Files, Mail, Code,
     Offline Media, Reports, Indexing, Settings.
 
@@ -889,53 +870,35 @@ def test_mail_and_code_land_in_their_original_tab_order(tmp_path):
     beat later (`_construct_secondary_views`'s `after_files + 1`/`+ 2`),
     which is what pushes Offline Media one further place along rather than
     ahead of them.
+
+    *Order 1u 2f:* the shared window - a window whose loop has turned.
     """
-    from PySide6.QtWidgets import QApplication
-    from app.core.config import load_settings
-    from app.storage.sqlite_store import SqliteStore
-    from app.storage.vector_store import VectorStore
-    from app.ui.shell import MainWindow
+    app, built = window
+    for _ in range(5):
+        app.processEvents()
 
-    root = tmp_path / "tab_order"
-    root.mkdir()
-    env = root / ".env"
-    env.write_text(ENV.format(d=root.as_posix()), encoding="utf-8")
-    settings = load_settings(env)
-
-    app = QApplication.instance()
-    store = SqliteStore(settings.fts_db).connect()
-    vectors = VectorStore(settings.vector_path, dim=settings.embed_dim).connect()
-
-    try:
-        built = MainWindow(settings, store, vectors, _Engine(store))
-        for _ in range(5):
-            app.processEvents()
-
-        # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
-        # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
-        assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Tidy",
-            "Indexing", "Settings",
-        ]
-        # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
-        # use to navigate) must agree with the tab bar itself, not just with
-        # whatever order the widgets happened to be built in.
-        for view, title in (
-            (built.search_view, "Search"), (built.files_view, "Files"),
-            (built.mail_view, "Mail"), (built.code_view, "Code"),
-            (built.chat_view, "Chat"),
-            (built.timeline_view, "Browse"),
-            (built.tidy_view, "Tidy"),
-            (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
-        ):
-            index = built._tab_index[view]
-            assert built.rail.tabText(index) == title, (
-                f"_tab_index says {title} is at {index}, but the tab bar "
-                f"disagrees - insertTab must have shifted something the "
-                f"index refresh in _construct_secondary_views missed")
-    finally:
-        store.close()
-        vectors.close()
+    # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
+    # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
+    assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
+        "Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat", "Tidy",
+        "Indexing", "Settings",
+    ]
+    # `_tab_index` (what `_show`, `_tab_changed` and the shortcuts all
+    # use to navigate) must agree with the tab bar itself, not just with
+    # whatever order the widgets happened to be built in.
+    for view, title in (
+        (built.search_view, "Search"), (built.files_view, "Files"),
+        (built.mail_view, "Mail"), (built.code_view, "Code"),
+        (built.chat_view, "Chat"),
+        (built.timeline_view, "Browse"),
+        (built.tidy_view, "Tidy"),
+        (built.indexing_view, "Indexing"), (built.settings_view, "Settings"),
+    ):
+        index = built._tab_index[view]
+        assert built.rail.tabText(index) == title, (
+            f"_tab_index says {title} is at {index}, but the tab bar "
+            f"disagrees - insertTab must have shifted something the "
+            f"index refresh in _construct_secondary_views missed")
 
 
 def test_pressing_a_deferred_views_shortcut_before_it_exists_does_not_crash(tmp_path):
@@ -1140,60 +1103,66 @@ def _pump(app, turns: int = 10) -> None:
         app.processEvents()
 
 
-def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(tmp_path):
+def test_indexing_and_settings_are_not_built_until_the_event_loop_turns(window):
     r"""The deferral itself, for the second pair. If `_construct_deferred_pages`
     were ever folded back into `__init__`, the "not yet built" half of this goes
     red first.
+
+    *Order 1u 2f:* on the shared window; "the instant `MainWindow()` returns"
+    is its `_first_look`, read by the `window` fixture before any loop turn.
     """
-    with _unpumped_window(tmp_path, "deferred_pages") as (app, built, _store, _settings):
-        assert not hasattr(built, "indexing_view"), (
-            "indexing_view must not exist the instant MainWindow() returns")
-        assert not hasattr(built, "settings_view"), (
-            "settings_view must not exist the instant MainWindow() returns")
-        # Search and Files (kept synchronous on purpose) plus Browse and
-        # Reports are all that is in the rail before the loop turns (order 1i).
-        assert [built.rail.tabText(i) for i in range(built.rail.count())] == [
-            "Search", "Files", "Browse", "Tidy"]
+    app, built = window
+    first = built._test_first_look
+    assert not first["indexing_view"], (
+        "indexing_view must not exist the instant MainWindow() returns")
+    assert not first["settings_view"], (
+        "settings_view must not exist the instant MainWindow() returns")
+    # Search and Files (kept synchronous on purpose) plus Browse and
+    # Reports are all that is in the rail before the loop turns (order 1i).
+    assert first["rail"] == [
+        "Search", "Files", "Browse", "Tidy"]
 
-        _pump(app)
+    _pump(app)
 
-        assert built.indexing_view is not None and built.settings_view is not None
-        # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
-        # 2026-10-11, order 1k 6a: eleven - Contacts is built with them.
-        assert built.rail.count() == 11
+    assert built.indexing_view is not None and built.settings_view is not None
+    # 2026-10-05: ten - Photos is built with Mail, Code and Chat.
+    # 2026-10-11, order 1k 6a: eleven - Contacts is built with them.
+    assert built.rail.count() == 11
 
 
-def test_indexing_and_settings_keep_their_place_in_the_rail(tmp_path):
+def test_indexing_and_settings_keep_their_place_in_the_rail(window):
     r"""Indexing is the pill at the rail's foot and Settings is the foot page;
     neither moved. The rail's own bookkeeping (`_pill_index`, `_foot`, which
     entries have buttons) is checked as well as the titles, because the titles
     alone would pass with the pill pointing at the wrong page.
-    """
-    with _unpumped_window(tmp_path, "pages_order") as (app, built, _store, _settings):
-        _pump(app)
 
-        titles = [built.rail.tabText(i) for i in range(built.rail.count())]
-        # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
-        # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
-        assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
-                          "Tidy", "Indexing", "Settings"]
-        assert built.rail._pill_index == titles.index("Indexing"), (
-            "the pill must open the Indexing page")
-        assert built.rail._foot == {titles.index("Settings")}, (
-            "Settings, and only Settings, sits at the foot of the rail")
-        assert titles.index("Indexing") not in built.rail._buttons, (
-            "Indexing is the pill's page, not a rail button")
-        for view, title in ((built.indexing_view, "Indexing"),
-                            (built.settings_view, "Settings")):
-            at = built._tab_index[view]
-            assert built.rail.tabText(at) == title
-            assert built.rail.indexOf(built._tab_wrapped[view]) == at, (
-                "`_tab_index` must agree with the rail after Mail/Code were "
-                "inserted ahead of these two")
-        # 2026-10-08: Settings scrolls inside itself (`CategoryNav`), with its
-        # list of sections held still, so neither page is wrapped any more.
-        assert built._tab_wrapped[built.settings_view] is built.settings_view
-        assert built._tab_wrapped[built.indexing_view] is built.indexing_view
+    *Order 1u 2f:* the shared window, once its loop has turned.
+    """
+    app, built = window
+    _pump(app)
+
+    titles = [built.rail.tabText(i) for i in range(built.rail.count())]
+    # 2026-10-05: Photos joins the rail after Files (the owner's Photos tab).
+    # 2026-10-11, order 1k 6a / D14: Contacts has a pill of its own, right after Files.
+    assert titles == ["Search", "Mail", "Photos", "Files", "Contacts", "Code", "Browse", "Chat",
+                      "Tidy", "Indexing", "Settings"]
+    assert built.rail._pill_index == titles.index("Indexing"), (
+        "the pill must open the Indexing page")
+    assert built.rail._foot == {titles.index("Settings")}, (
+        "Settings, and only Settings, sits at the foot of the rail")
+    assert titles.index("Indexing") not in built.rail._buttons, (
+        "Indexing is the pill's page, not a rail button")
+    for view, title in ((built.indexing_view, "Indexing"),
+                        (built.settings_view, "Settings")):
+        at = built._tab_index[view]
+        assert built.rail.tabText(at) == title
+        assert built.rail.indexOf(built._tab_wrapped[view]) == at, (
+            "`_tab_index` must agree with the rail after Mail/Code were "
+            "inserted ahead of these two")
+    # 2026-10-08: Settings scrolls inside itself (`CategoryNav`), with its
+    # list of sections held still, so neither page is wrapped any more.
+    assert built._tab_wrapped[built.settings_view] is built.settings_view
+    assert built._tab_wrapped[built.indexing_view] is built.indexing_view
 
 
 def test_the_last_open_page_can_be_settings_or_indexing(tmp_path):
@@ -1207,26 +1176,30 @@ def test_the_last_open_page_can_be_settings_or_indexing(tmp_path):
             assert built.rail.tabText(built.rail.currentIndex()) == page
 
 
-def test_the_start_up_work_runs_after_the_pages_and_not_before(tmp_path):
+def test_the_start_up_work_runs_after_the_pages_and_not_before(window):
     r"""The ordering guarantee, observed rather than assumed.
 
     `_start_background_work` is chained from the end of the deferred build
     instead of being scheduled beside it, so nothing may have started when
     `MainWindow()` returns, and everything that reaches into the two pages must
     have run - and found them - after one turn.
+
+    *Order 1u 2f:* on the shared window; "the instant `MainWindow()` returns"
+    is its `_first_look`, read by the `window` fixture before any loop turn.
     """
-    with _unpumped_window(tmp_path, "startup_order") as (app, built, _store, _settings):
-        assert not hasattr(built, "scheduler")
-        assert not built._watch_timer.isActive()
-        assert not built._optimize_timer.isActive()
+    app, built = window
+    first = built._test_first_look
+    assert not first["scheduler"]
+    assert not first["watch_timer_active"]
+    assert not first["optimize_timer_active"]
 
-        _pump(app)
+    _pump(app)
 
-        assert hasattr(built, "scheduler"), "`_start_scheduler` never ran"
-        assert built._watch_timer.isActive()
-        assert built._optimize_timer.isActive()
-        # The store-reading Settings labels are filled by that same work.
-        assert built.settings_view is not None
+    assert hasattr(built, "scheduler"), "`_start_scheduler` never ran"
+    assert built._watch_timer.isActive()
+    assert built._optimize_timer.isActive()
+    # The store-reading Settings labels are filled by that same work.
+    assert built.settings_view is not None
 
 
 def test_start_up_work_without_the_pages_skips_instead_of_raising(tmp_path):
@@ -1318,48 +1291,50 @@ def test_closing_before_indexing_and_settings_exist_does_not_crash(tmp_path):
         assert not built.isVisible(), "hide-first must still happen in this gap"
 
 
-def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(tmp_path):
+def test_the_deferred_pages_are_themed_wheel_guarded_and_restart_noted(window):
     r"""Everything `__init__` used to do to the whole window once, that has to be
     done again for the two pages that arrive after it: the theme (the debug pane
     and the rail are pushed a palette), the wheel guard, and the "takes effect
     next launch" note on the controls that need one.
+
+    *Order 1u 2f:* the shared window, once its loop has turned.
     """
     from PySide6.QtWidgets import QWidget
     from app.core.settings_registry import needs_restart
     from app.ui.widgets.restart_note import RESTART_NOTE
 
-    with _unpumped_window(tmp_path, "gap_finish") as (app, built, _store, _settings):
-        _pump(app)
+    app, built = window
+    _pump(app)
 
-        assert built.settings_view.debug_pane._palette, (
-            "`_apply_theme` must have pushed a palette to the Settings log "
-            "pane once it existed")
-        assert built.rail._colours, "the rail's icons were never tinted"
+    assert built.settings_view.debug_pane._palette, (
+        "`_apply_theme` must have pushed a palette to the Settings log "
+        "pane once it existed")
+    assert built.rail._colours, "the rail's icons were never tinted"
 
-        noted = [s.key for s in needs_restart()
-                 if built.findChild(QWidget, s.key) is not None
-                 and RESTART_NOTE in built.findChild(QWidget, s.key).toolTip()]
-        # Not "every restart-only control": `EMBED_QUANTISED`'s tooltip is
-        # rewritten by `TuningGroups._grey_quantised` when hardware detection
-        # answers, which replaces the note. That is independent of when the
-        # page is built; what this pins is that the call ran over the pages.
-        for key in ("EMBED_MODEL", "RERANK_MODEL", "DATA_PATH"):
-            assert key in noted, (
-                f"{key} does not carry the restart note - `mark_restart_needed` "
-                "ran before its page was in the window (noted: {})".format(noted))
+    noted = [s.key for s in needs_restart()
+             if built.findChild(QWidget, s.key) is not None
+             and RESTART_NOTE in built.findChild(QWidget, s.key).toolTip()]
+    # Not "every restart-only control": `EMBED_QUANTISED`'s tooltip is
+    # rewritten by `TuningGroups._grey_quantised` when hardware detection
+    # answers, which replaces the note. That is independent of when the
+    # page is built; what this pins is that the call ran over the pages.
+    for key in ("EMBED_MODEL", "RERANK_MODEL", "DATA_PATH"):
+        assert key in noted, (
+            f"{key} does not carry the restart note - `mark_restart_needed` "
+            "ran before its page was in the window (noted: {})".format(noted))
 
-        # The wheel guard: every combo/spin box on the two pages was guarded by
-        # the second `protect_all` (it sets StrongFocus, which Qt does not).
-        from PySide6.QtCore import Qt
-        from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
-        unguarded = [
-            c for page in (built.settings_view, built.indexing_view)
-            for c in [w for w in page.findChildren(QWidget) if isinstance(w, (QComboBox, QAbstractSpinBox))]
-            if c.focusPolicy() != Qt.FocusPolicy.StrongFocus
-        ]
-        assert not unguarded, (
-            "controls on the deferred pages still take focus from the wheel: "
-            f"{[type(c).__name__ for c in unguarded]}")
+    # The wheel guard: every combo/spin box on the two pages was guarded by
+    # the second `protect_all` (it sets StrongFocus, which Qt does not).
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QAbstractSpinBox, QComboBox
+    unguarded = [
+        c for page in (built.settings_view, built.indexing_view)
+        for c in [w for w in page.findChildren(QWidget) if isinstance(w, (QComboBox, QAbstractSpinBox))]
+        if c.focusPolicy() != Qt.FocusPolicy.StrongFocus
+    ]
+    assert not unguarded, (
+        "controls on the deferred pages still take focus from the wheel: "
+        f"{[type(c).__name__ for c in unguarded]}")
 
 
 def test_restored_settings_reach_the_deferred_settings_page(tmp_path):
@@ -1586,20 +1561,23 @@ def test_a_folder_dropped_in_the_gap_is_indexed_and_shown(tmp_path):
             "a request that names a folder brings the Indexing page forward")
 
 
-def test_clearing_the_history_stops_the_search_box_offering_it(tmp_path):
+def test_clearing_the_history_stops_the_search_box_offering_it(window):
     r"""`history_cleared` was emitted and connected to nothing, so the box's
     "recent searches" - a cached read of the very table being erased - went on
-    offering what had just been cleared until the next launch."""
-    with _unpumped_window(tmp_path, "history_cleared") as (app, built, store, _s):
-        _pump(app)
-        store.log_search("pump curves", hits=3)
-        saved = built.search_view.saved
-        saved.refresh()
-        assert _wait_until(app, lambda: saved._recent), "the recent search never arrived"
-        assert saved.sections(), "the box should be offering it before the clear"
+    offering what had just been cleared until the next launch.
 
-        built.settings_view._clear_history()
-        assert _wait_until(app, lambda: not saved._recent), (
-            "the search box still offers searches that were just cleared")
-        assert store.count_searches() == 0
-        assert not [name for name, _rows in saved.sections() if "ecent" in name]
+    *Order 1u 2f:* the shared window and its store."""
+    app, built = window
+    store = built._store
+    _pump(app)
+    store.log_search("pump curves", hits=3)
+    saved = built.search_view.saved
+    saved.refresh()
+    assert _wait_until(app, lambda: saved._recent), "the recent search never arrived"
+    assert saved.sections(), "the box should be offering it before the clear"
+
+    built.settings_view._clear_history()
+    assert _wait_until(app, lambda: not saved._recent), (
+        "the search box still offers searches that were just cleared")
+    assert store.count_searches() == 0
+    assert not [name for name, _rows in saved.sections() if "ecent" in name]

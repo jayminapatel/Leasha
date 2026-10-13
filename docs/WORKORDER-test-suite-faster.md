@@ -86,10 +86,63 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
     new test red. §4e: no Qt here.
 
 **Group B - the window and the screen** (484 s)
-- [ ] **2e** `tests/unit/test_grab_ui.py` (229 s)
-- [ ] **2f** `tests/unit/test_window_opens.py` (93 s)
-- [ ] **2g** `tests/unit/test_ui_redesign_scenarios.py` (83 s)
-- [ ] **2h** `tests/unit/test_ui_review_0x9.py` (79 s)
+- [x] **2e** `tests/unit/test_grab_ui.py` (229 s)
+  - *2026-10-13, done.* **Before 96.7 s, after 44.6 s (-54%).** Measured 2026-10-13 on the laptop, each file alone, `--durations=0`, `main` and this branch run back to back in turn, twice; the lower of each pair. Six other agents were running, so the absolute numbers drift by 2x across the day (an earlier pair of runs gave 213/59, 181/118, 52/44, 95/44); the ratio is what held. The golden
+    comparison was six `tools/grab_ui.py` processes one after another (76 s of the 97); they now run
+    at once (`GRAB_PROCESSES`, half the cores), each with a `TEMP` of its own ending in `Temp`. They
+    could not overlap before because every grab keeps its store in the one fixed
+    `<temp>/leasha-grab-snapshot`; the pictures draw that path as "... > Temp > leasha-grab-snapshot
+    > documents" at every size, so the glyphs are unchanged. Same twelve goldens, same tolerance, no
+    golden regenerated. **Red check:** with the tolerance forced to -1, `main` (one at a time) and
+    this branch (at once) both list all twelve at **distance 0**; with the window colour changed in
+    `app/ui/theme.py`, all twelve drift (30 to 48) and the test goes red. Left slow: the in-process
+    grab of all 19 surfaces (`grabbed`, 19 s), the only check that every surface can be reached.
+- [x] **2f** `tests/unit/test_window_opens.py` (93 s)
+  - *2026-10-13, done.* **Before 64.0 s, after 34.4 s (-46%).** Measured 2026-10-13 on the laptop, each file alone, `--durations=0`, `main` and this branch run back to back in turn, twice; the lower of each pair. Six other agents were running, so the absolute numbers drift by 2x across the day (an earlier pair of runs gave 213/59, 181/118, 52/44, 95/44); the ratio is what held. 27 windows were
+    built, at 3-7 s each. Eleven tests now use the shared module window: what a window is "the instant
+    `MainWindow()` returns" is read once by the `window` fixture (`_first_look`) before any loop turn,
+    and the three deferral tests assert on that; the tab-order, rail-place, themed/wheel-guarded,
+    history, clip-progress, maximised and minimised tests use the window itself; the restore test
+    builds only its second window. The sixteen that act in the gap before the deferred pages, close a
+    window or need state stored before construction still build their own, and must. `shutil.which`
+    is cached for the module (the PATH does not change in a run; about 1 s of every build). **Red
+    checks:** deferred pages built inside `__init__` - the three `_first_look` tests red; Code
+    inserted one place early - tab order and rail place red; the clip callback not wired, the
+    minimised `showNormal` removed, an empty geometry blob, the history signal not connected and the
+    second `protect_all` skipped - restore, maximised, minimised, clip, themed/wheel-guarded and
+    history red (8 failed). All undone.
+- [x] **2g** `tests/unit/test_ui_redesign_scenarios.py` (83 s)
+  - *2026-10-13, done.* **Before 32.7 s, after 24.5 s (-25%), with one test more.** Measured 2026-10-13 on the laptop, each file alone, `--durations=0`, `main` and this branch run back to back in turn, twice; the lower of each pair. Six other agents were running, so the absolute numbers drift by 2x across the day (an earlier pair of runs gave 213/59, 181/118, 52/44, 95/44); the ratio is what held. The
+    two theme tests undid `theme.stylesheet(...)` with `window._apply_theme()`, which re-polishes the
+    whole window (about 2 s, four times) and put back nothing they had changed; `_theme_back` puts
+    back the palette and the pane's tint, and asserts the window's own palette is back. The relaunch
+    scenario's first window is the first-run scenario's (already a launch over that store), so only
+    the second is built. `shutil.which` cached for the module, as in 2f. **Red checks:** `_theme_back`
+    without its `stylesheet` call - its own guard goes red; the last page not restored - the relaunch
+    test red.
+  - **The flaky keyboard scenario** (`test_the_search_page_start_to_finish_with_the_keyboard_alone`,
+    "4 rows where more were expected"). **Cause:** typing answers several times - the keyword tier,
+    the full tier for the same words, then the mail subtitles for each - and every redraw ran
+    `ResultsView.show_results`, which cleared the set of opened groups. The test waited only for
+    three rows (the keyword tier), so under load the full tier landed on the turn of its Enter and
+    closed the group again. The same happens to a person: on the owner's index the reranked answer
+    lands up to 2.7 s after the first. **Reproduced** on `main` by holding the full tier's answer
+    until the Enter: red, "assert 4 > 4". **Fixed** in the app: the same search redrawn keeps the
+    groups that were opened, while their files are still there (`presenter.expansions_kept`, used by
+    `show_results` with its `keep_scroll`); a new search still starts closed. The same hold is green
+    with it. The test now also waits for the full tier and its workers before pressing keys
+    (`_type_and_let_it_answer`). New: `test_a_group_opened_with_enter_stays_open_when_its_search_answers_again`
+    and three Qt-free tests in `test_presenter.py`; with `expansions_kept` broken, it and two of the
+    three go red.
+- [x] **2h** `tests/unit/test_ui_review_0x9.py` (79 s)
+  - *2026-10-13, done.* **Before 41.2 s, after 18.2 s (-56%).** Measured 2026-10-13 on the laptop, each file alone, `--durations=0`, `main` and this branch run back to back in turn, twice; the lower of each pair. Six other agents were running, so the absolute numbers drift by 2x across the day (an earlier pair of runs gave 213/59, 181/118, 52/44, 95/44); the ratio is what held. `_apply_theme` on the
+    whole window costs about 3 s, and the eight themed tests switched in and out, 16 of the 21 calls in one
+    run, which took 62 s in all (measured with a wrapper round `_apply_theme`). The themed tests are now grouped
+    (`parametrize("scheme", ..., scope="module")`: every light one, then every dark one), `_Theme`
+    switches only when the window is in another theme, and the window's own theme is put back before
+    any test that asks for none and at the end of the module: three switches. **Red check:** the
+    `window` colour changed in both palettes - `test_quiet_text_still_reaches_wcag_aa` red in
+    `[light]` and `[dark]`, so each group really runs in its theme.
 
 **Group C - the index process and its recovery** (437 s)
 - [ ] **2i** `tests/unit/test_diagnostics.py` (144 s)
@@ -173,6 +226,11 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 - [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
+  - *2026-10-13, group B (2e-2h):* **one decision moved.** Whether an opened group stays open on a
+    redraw is `presenter.expansions_kept`, tested without Qt in `test_presenter.py`; `ResultsView`
+    only calls it. The rest of these four files' slow tests check widgets - pictures against goldens,
+    contrast read off grabbed pixels, the window's own construction and deferral, focus and keys - so
+    there was no decision to move.
 - [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the

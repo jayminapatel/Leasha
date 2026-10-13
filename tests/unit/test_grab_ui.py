@@ -17,6 +17,7 @@ the order was ticked. They change only in the commit that changes the look.
 from __future__ import annotations
 
 import ast
+import os
 import re
 from pathlib import Path
 
@@ -29,6 +30,22 @@ GOLDEN = ROOT / "tests" / "golden" / "ui-redesign"
 #: look is called changed. Font hinting and a scrollbar arriving move a few
 #: bits; a new layout moves dozens.
 TOLERANCE = 12
+
+#: How many golden sets are grabbed at once - one process each. Half the
+#: machine's cores: each process builds a whole window, and a grab that cannot
+#: settle within `grab_ui.WAIT_SECONDS` is an error, not a picture.
+GRAB_PROCESSES = max(1, (os.cpu_count() or 2) // 2)
+
+
+def _own_temp(tmp_path: Path, theme: str, size: str) -> dict:
+    """The environment for one grab process, with a temp folder of its own.
+
+    Named `.../Temp` because the pictures draw the store's last parents
+    ("... > Temp > leasha-grab-snapshot"), and the goldens were taken with
+    Windows' own `...\\AppData\\Local\\Temp`."""
+    temp = tmp_path / f"{theme}-{size}-tmp" / "Temp"
+    temp.mkdir(parents=True)
+    return {**os.environ, "TEMP": str(temp), "TMP": str(temp), "TMPDIR": str(temp)}
 
 
 def _surfaces_from_source() -> dict:
@@ -144,9 +161,9 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
 
     import subprocess
     import sys
+    from concurrent.futures import ThreadPoolExecutor
 
-    drifted, compared = [], 0
-    for theme, size, folder in _golden_sets():
+    def grab_set(theme: str, size: str, folder: Path) -> tuple:
         names = sorted(p.stem for p in folder.glob("*.png"))
         out = tmp_path / f"{theme}-{size}"
         # **A fresh process per set, the way the goldens were made.** The
@@ -157,8 +174,23 @@ def test_fresh_grabs_match_the_goldens_within_tolerance(tmp_path):
         run = subprocess.run(
             [sys.executable, str(ROOT / "tools" / "grab_ui.py"), "--theme", theme,
              "--size", size, "--out", str(out), *[f"--surface={n}" for n in names]],
-            cwd=ROOT, capture_output=True, text=True, timeout=240)
-        assert run.returncode == 0, run.stderr[-2000:]
+            cwd=ROOT, capture_output=True, text=True, timeout=240, env=_own_temp(tmp_path, theme, size))
+        return out, theme, size, folder, run
+
+    # **The six sets at once, each in a temp folder of its own** (order 1u 2e,
+    # 2026-10-13): 207 s of the file's 229 was these six processes one after
+    # another. They could not overlap before because each stores its index in
+    # the one fixed `<temp>/leasha-grab-snapshot` (`grab_ui.GRAB_DIR_NAME`), and
+    # two grabs in one folder is an error. Each now has its own `<temp>`, ending
+    # in `Temp` like Windows' own: the pictures draw the path as
+    # "... > Temp > leasha-grab-snapshot > documents" at every size, so the
+    # glyphs - and the phash - are the same as one at a time.
+    sets = _golden_sets()
+    with ThreadPoolExecutor(max_workers=max(1, min(len(sets), GRAB_PROCESSES))) as pool:
+        runs = list(pool.map(lambda s: grab_set(*s), sets))
+    drifted, compared = [], 0
+    for out, theme, size, folder, run in runs:
+        assert run.returncode == 0, f"{theme}-{size}: {run.stderr[-2000:]}"
         for path in sorted((out / theme).glob("*.png")):
             distance = imagehash.phash(Image.open(folder / path.name)) - imagehash.phash(Image.open(path))
             compared += 1
