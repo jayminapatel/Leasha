@@ -1,6 +1,6 @@
 # Versioning
 
-**Doc version:** 1.14 · **Updated:** 2026-10-11 · **Applies to:** app v1.0.3
+**Doc version:** 1.15 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 ## Scheme
 
@@ -137,7 +137,12 @@ git tag -a v0.1.0 -m "Environment, installer, doctor, build spec, skeleton"
    machine and let **Check the installation** say READY. The build refuses to run if one of
    the optional libraries (`av`, `pypff`, `reverse_geocoder`, `insightface`) is missing from
    the venv, naming it; a release build never passes `-AllowMissingOptional`.
-10. Publish it: `.\packaging\build.ps1 -Publish` in place of `-Release` in step 9 (it does
+10. Run the `e2e` tier on the owner's laptop, against the packaged app, with nothing else
+    using the mouse: `venv\Scripts\python.exe -m pytest tests -m e2e -v`. It is the one tier
+    that runs only here: CI runs everything except `e2e` and `jvm` on every push (`slow`
+    included) and adds `jvm` on its weekly schedule, and `scripts/run_suite.py` holds the
+    local tiers (`TIERS`). `tests/unit/test_suite_tiers.py` fails if these disagree.
+11. Publish it: `.\packaging\build.ps1 -Publish` in place of `-Release` in step 9 (it does
     everything `-Release` does). Before building it checks that `gh` is signed in as
     `jayminapatel`, that the checkout is at tag `v<x.y.z>` and the tag is on GitHub, and that
     `CHANGELOG.md` has a `## [x.y.z]` section; after building it creates the GitHub release
