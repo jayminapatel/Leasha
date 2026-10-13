@@ -1386,6 +1386,7 @@
     <Compile Include="tests\unit\test_side_lists.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
+    <Compile Include="tests\unit\test_slow_markers_truthful.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_space_files_only.py" />
     <Compile Include="tests\unit\test_space_report_caching_and_progress.py" />
@@ -1414,6 +1415,7 @@
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_suite_ignores_the_battery.py" />
     <Compile Include="tests\unit\test_suite_speed.py" />
+    <Compile Include="tests\unit\test_suite_tiers.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_sync_dialog.py" />
     <Compile Include="tests\unit\test_sync_transport_and_batches.py" />
