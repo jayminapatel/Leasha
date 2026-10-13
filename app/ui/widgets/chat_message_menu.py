@@ -9,6 +9,9 @@ the pointer is over that message (its room is kept, so nothing jumps) - and
 every action, plus Copy as plain text, is in the message's right-click menu,
 which the keyboard's menu key opens too. Nothing is taken away: the same
 actions, in quieter places.
+
+UI phase B (2026-10-13): the newest answer's row and the last message's Edit are
+in view without the pointer (`chat_bubbles`); hover is for the older answers.
 """
 
 from __future__ import annotations
@@ -32,41 +35,34 @@ def _selection(widget: Any) -> str:
 
 def answer_menu(bubble: Any, under: Any = None) -> QMenu:
     """Copy (what is selected, or the whole answer), Copy as plain text, and
-    Regenerate or Try again when the answer offers them."""
-    menu = QMenu(bubble)
+    Regenerate or Try again when the answer offers them. Built by `menus.build`,
+    in this order: Copy first, as under the message."""
+    from app.ui.widgets.menus import Item, build
+
     chosen = _selection(under)
-    if chosen:
-        menu.addAction("Copy selection").triggered.connect(
-            lambda _c=False: QGuiApplication.clipboard().setText(chosen))
-    copy = menu.addAction("Copy")
-    copy.setEnabled(bool(bubble.raw.strip()))
-    copy.triggered.connect(lambda _c=False: bubble.copy())
-    plain = menu.addAction(COPY_PLAIN)
-    plain.setEnabled(bool(bubble.raw.strip()))
-    plain.triggered.connect(
-        lambda _c=False: QGuiApplication.clipboard().setText(bubble.body_text()))
+    has_words = bool(bubble.raw.strip())
+    lines = [Item("Copy selection", lambda: QGuiApplication.clipboard().setText(chosen),
+                  group="copy")] if chosen else []
+    lines += [Item("Copy", bubble.copy, group="copy", enabled=has_words),
+              Item(COPY_PLAIN, lambda: QGuiApplication.clipboard().setText(bubble.body_text()),
+                   group="copy", enabled=has_words)]
     again = [(bubble.regenerate_button, "Regenerate", bubble.regenerate_requested),
              (bubble.retry_button, "Try again", bubble.retry_requested)]
-    offered = [(label, signal) for button, label, signal in again if bubble.offers(button)]
-    if offered:
-        menu.addSeparator()
-        for label, signal in offered:
-            menu.addAction(label).triggered.connect(lambda _c=False, s=signal: s.emit())
-    return menu
+    lines += [Item(label, signal.emit) for button, label, signal in again if bubble.offers(button)]
+    return build(bubble, lines, grouped=False)
 
 
 def user_menu(bubble: Any, under: Any = None) -> QMenu:
     """Copy, and Edit on the person's newest message."""
-    menu = QMenu(bubble)
+    from app.ui.widgets.menus import Item, build
+
     chosen = _selection(under)
-    if chosen:
-        menu.addAction("Copy selection").triggered.connect(
-            lambda _c=False: QGuiApplication.clipboard().setText(chosen))
-    menu.addAction("Copy").triggered.connect(
-        lambda _c=False: QGuiApplication.clipboard().setText(bubble.text))
+    lines = [Item("Copy selection", lambda: QGuiApplication.clipboard().setText(chosen),
+                  group="copy")] if chosen else []
+    lines.append(Item("Copy", lambda: QGuiApplication.clipboard().setText(bubble.text), group="copy"))
     if bubble.is_last:
-        menu.addAction("Edit").triggered.connect(lambda _c=False: bubble.edit_requested.emit())
-    return menu
+        lines.append(Item("Edit", bubble.edit_requested.emit))
+    return build(bubble, lines, grouped=False)
 
 
 class _Watcher(QObject):
@@ -85,7 +81,7 @@ class _Watcher(QObject):
             under = watched.parent() if isinstance(watched.parent(), QTextBrowser) else watched
             menu = self._build(self._bubble, under)
             self._bubble.last_menu = menu
-            menu.popup(event.globalPos())
+            menu.popup(event.globalPos())        # an event's own screen point: nothing to map
             return True
         return False
 

@@ -31,7 +31,7 @@ from app.ui.result_delegate import ROLE_PAYLOAD, ResultDelegate
 from app.ui.view_options import ViewPreferences, apply_font
 from app.ui.widgets.file_menu import show_for
 from app.ui.widgets.result_drag_model import DraggableResultsModel
-from app.ui.widgets.results_items import refill, result_item, show_result_menu, terminator_item
+from app.ui.widgets.results_items import install_keys, refill, result_item, show_result_menu, terminator_item
 from app.ui.widgets.skeleton import disarm as disarm_skeleton
 
 __all__ = ["ResultsView", "KIND_LABELS"]
@@ -117,7 +117,7 @@ class ResultsView(QWidget):
         self._list.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self._list.setMouseTracking(True)          # item 5a: hover needs it
-        self._list.activated.connect(self._on_activated)
+        install_keys(self)                         # double-click, Enter, Space, Ctrl+C
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
         self._list.viewport().installEventFilter(self)  # item 2a: chevron click

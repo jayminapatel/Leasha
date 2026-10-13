@@ -350,7 +350,7 @@ def test_a_conversation_is_saved_and_comes_back_with_its_shelf_and_sources(chat)
     c.window._show(c.view)
     _wait(c.qtbot, lambda: len(c.view.bubbles.bubbles()) == 2)
 
-    assert c.view.sessions.list.count() == 1
+    assert len(c.view.sessions.items()) == 1
     assert c.view.sessions.list.currentItem().text().startswith("What did we agree")
     assert len(c.view.shelf.chips()) == 2, "it reopens with its shelf intact"
     assert c.view.sources.numbers() == [1, 2]
@@ -437,7 +437,7 @@ def test_new_rename_and_delete(chat):
     assert c.ctl.session.id != first and c.view.bubbles.bubbles() == []
     ask(c, "second question")
     answered(c)
-    assert len(c.backend.records) == 2 and c.view.sessions.list.count() == 2
+    assert len(c.backend.records) == 2 and len(c.view.sessions.items()) == 2
 
     # Go back to the first: its conversation is drawn again.
     for row in range(c.view.sessions.list.count()):
@@ -456,7 +456,7 @@ def test_new_rename_and_delete(chat):
     c.view.sessions.confirm_delete = lambda title: True
     c.qtbot.mouseClick(c.view.sessions.delete_button, Qt.MouseButton.LeftButton)
     _wait(c.qtbot, lambda: first not in c.backend.records)
-    assert c.view.sessions.list.count() == 1
+    assert len(c.view.sessions.items()) == 1
     assert c.view.bubbles.bubbles() == [], "a fresh conversation takes its place"
 
 
@@ -470,12 +470,14 @@ def test_declining_the_delete_keeps_the_conversation(chat):
     assert len(c.backend.records) == 1
 
 
-def test_you_cannot_switch_conversation_while_an_answer_is_being_written(chat):
+def test_the_list_stays_usable_while_an_answer_is_being_written(chat):
+    # UI phase B (2026-10-13): the list no longer locks for an answer - the answer is
+    # its own conversation's (`test_ui_b_chat_window.py` switches mid-answer).
     c = chat
     c.fake.hold_at = 4
     ask(c, "slow one")
     _wait(c.qtbot, c.fake.held.is_set)
-    assert not c.view.sessions.new_button.isEnabled()
+    assert c.view.sessions.new_button.isEnabled() and c.view.sessions.list.isEnabled()
     c.fake.release()
     answered(c)
     assert c.view.sessions.new_button.isEnabled()
@@ -693,25 +695,27 @@ def test_the_keyboard_walks_the_sources_without_leaving_the_box(chat):
     edit = c.view.box.edit
     edit.setFocus()
 
-    c.qtbot.keyClick(edit, Qt.Key.Key_Down)
+    # UI phase B (2026-10-13): the walk is Alt+Up / Alt+Down; plain Up recalls.
+    alt = Qt.KeyboardModifier.AltModifier
+    c.qtbot.keyClick(edit, Qt.Key.Key_Down, alt)
     gui_pump(c.app)
     first = c.view.sources.results.current_row()
     assert first is not None and first.path == LETTER.path
     assert LETTER.quote in passage(c), "preview follows the selection"
     assert edit.toPlainText() == "", "the arrow did not type or move anything in the box"
 
-    c.qtbot.keyClick(edit, Qt.Key.Key_Down)
+    c.qtbot.keyClick(edit, Qt.Key.Key_Down, alt)
     gui_pump(c.app)
     assert c.view.sources.results.current_row().path == AGREEMENT.path
     assert AGREEMENT.quote in passage(c)
 
-    c.qtbot.keyClick(edit, Qt.Key.Key_Up)
+    c.qtbot.keyClick(edit, Qt.Key.Key_Up, alt)
     gui_pump(c.app)
     assert c.view.sources.results.current_row().path == LETTER.path
 
-    # Enter, box empty, a source picked: it opens.
+    # Enter, box empty, a source picked: nothing (UI phase B; it used to open it).
     c.qtbot.keyClick(edit, Qt.Key.Key_Return)
-    assert [row.path for row in c.opened] == [LETTER.path]
+    assert c.opened == []
     assert c.fake.calls[-1]["question"] == "deposit?" and len(c.fake.calls) == 1, \
         "and did not send anything"
 
@@ -730,7 +734,7 @@ def test_enter_sends_and_shift_enter_starts_a_new_line(chat):
     c.qtbot.keyClicks(edit, "second line")
     assert edit.toPlainText() == "first line\nsecond line" and c.fake.calls == []
 
-    # In a two-line box Up moves the caret; it only walks the sources from the top line.
+    # In a two-line box Up moves the caret (it recalls only in an empty box).
     c.qtbot.keyClick(edit, Qt.Key.Key_Up)
     assert edit.textCursor().blockNumber() == 0
 

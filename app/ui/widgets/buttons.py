@@ -252,6 +252,12 @@ BUTTONS: dict[str, tuple[str, str]] = {
     "Move to": ("folder-input", "secondary"),
     # 2026-10-05: the Photos tab, and Accept all on its naming page.
     "Accept all": ("list-checks", "primary"),
+    # -- Enrichment (order 1s 7c, 7e, 8a; 2026-10-12) ------------------------------
+    "Never suggest these": ("ban", "secondary"),
+    "Enrich this contact": ("wand-sparkles", "secondary"),
+    # "Suggestions you turned down": Undo on a contact's page, Clear in Settings (it asks first).
+    "Undo": ("undo-2", "secondary"),
+    "Clear": ("eraser", "danger"),
     # 2026-10-04: each model's processor, measured (`device_box.py`).
     "Test this machine": ("flask-conical", "secondary"),
     "Back to photos": ("image", "secondary"),

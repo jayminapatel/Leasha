@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
 
 from app.core.row_facts import format_size
 from app.ui.view_options import apply_to_table, available_columns, button as view_button, weak_slot
+from app.ui.widgets import list_keys, menus
+from app.ui.widgets.file_menu import copy_paths, table_pairs
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import fill_rows
@@ -131,9 +133,11 @@ class TidyListPane(QWidget):
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
         self.results.itemChanged.connect(self._item_changed)
-        # `activated`, which Qt sends for a double-click and for Enter: with `itemDoubleClicked` alone,
-        # Enter on a line did nothing (2026-10-12).
-        self.results.activated.connect(weak_slot(self, lambda pane, index: pane._double_clicked(index)))
+        # `activated`, which Qt sends for a double-click, and Enter sends the same (`list_keys`): with
+        # `itemDoubleClicked` alone, Enter on a line did nothing (2026-10-12). What it does is unchanged
+        # (the owner's to decide). Space previews, or ticks the box it is on; Ctrl+C copies the paths.
+        list_keys.install(self.results, default=self._double_clicked, preview=list_keys.PAGE_PREVIEW,
+                          copy=self._copy_selected)
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(weak_slot(self, lambda pane, point: pane._menu(point)))
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -275,22 +279,24 @@ class TidyListPane(QWidget):
     def _open_selected(self, *_args: Any) -> None:
         row = self.results.current_row()
         if row is not None:
-            from app.core.osbridge.launch import show_in_file_manager
+            self._reveal(row.path)
 
-            show_in_file_manager(row.path)
+    def _copy_selected(self) -> None:
+        copy_paths(table_pairs(self.results))                     # Ctrl+C
 
     def _menu(self, point: Any) -> None:
-        item = self.results.itemAt(point)
+        item = self.results.itemAt(point)        # the viewport's point, as Qt gives it
         row = self.results.row_object(item.row()) if item is not None else None
         if row is None:
             return
-        menu = QMenu(self)
-        if row.kind in ("copies", "similar"):
-            menu.addAction("Keep this one", lambda p=row.path: self.keep_only.emit(p))
-        menu.addAction("Compare this set", lambda i=row.set_index: self.open_set.emit(i))
-        menu.addAction("Show in folder", lambda p=row.path: self._reveal(p))
-        self.last_menu = menu
-        menu.popup(self.results.viewport().mapToGlobal(point))
+        # The first line is what a double-click does here, so it is the bold one.
+        keeps = row.kind in ("copies", "similar")
+        lines = [menus.Item("Keep this one", lambda p=row.path: self.keep_only.emit(p), group="open",
+                            default=True, shortcut="Enter")] if keeps else []
+        lines += [menus.Item("Compare this set", lambda i=row.set_index: self.open_set.emit(i), group="open",
+                             default=not keeps, shortcut="" if keeps else "Enter"),
+                  menus.Item("Show in folder", lambda p=row.path: self._reveal(p), group="open")]
+        menus.show(menus.build(self, lines), self.results, point, wait=False, keep=self)
 
     @staticmethod
     def _reveal(path: str) -> None:

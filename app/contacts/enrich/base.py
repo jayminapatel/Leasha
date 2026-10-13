@@ -37,7 +37,7 @@ from app.contacts.card import SCALARS, Card, Field, Photo, field_key
 __all__ = [
     "Proposal", "ApplyResult", "apply_proposals", "GuardedTransport", "normalise_image",
     "address_of", "emails_of", "recipients_of", "MailRow", "mail_from", "mail_with", "body_text",
-    "format_day", "SOURCE_PREFIX", "proposal_key",
+    "format_day", "SOURCE_PREFIX", "proposal_key", "drop_declined",
 ]
 
 #: `contact_sources.source` of an accepted value is this plus the proposal's `source`.
@@ -66,6 +66,21 @@ class Proposal:
     receipt: str
     confidence: float = 0.5
     data: dict[str, str] = field(default_factory=dict)
+    #: Order 1s 2d: when the message (or file) the value came from was sent, Unix seconds; None when it
+    #: is not from a dated source.
+    when: Optional[int] = None
+    #: Order 1s 3j: how many messages agreed on this value, and when the first of them was sent; 7a's
+    #: review says "Seen in 4 messages" from it.
+    seen: int = 1
+    first_seen: Optional[int] = None
+    #: 3j: older values that disagreed, in words ("was Senior Engineer until March 2026"). Shown, never offered.
+    history: str = ""
+    #: 3k: this replaces a value the card already holds (`old`). The review never ticks it by itself (D4),
+    #: whatever its confidence: a change a person did not look at is the one that does harm.
+    update: bool = False
+    #: Order 1s 9b: the signature block the value was read from - the receipt's own message's block, so the
+    #: precision sample prints the block the value is in. Empty for every source but the signature reader.
+    block: list = field(default_factory=list, repr=False, compare=False)
 
     @property
     def is_scalar(self) -> bool:
@@ -81,6 +96,16 @@ class Proposal:
     def key(self) -> str:
         """The `contact_sources.field_key` this proposal would own once accepted."""
         return proposal_key(self)
+
+
+def drop_declined(store: Any, proposals: Sequence[Proposal], region: str = "GB") -> list[Proposal]:
+    """Order 1s D5: `proposals` without the values the person turned down for that contact.
+
+    Called once, at the end of a run, so no source has to know: a value turned down is held back
+    whichever source found it. Reads only (`declines.drop`)."""
+    from app.contacts.enrich import declines  # noqa: PLC0415 - declines reads this module's Proposal
+
+    return declines.drop(store, proposals, region=region)
 
 
 def proposal_key(p: Proposal, region: str = "GB") -> str:
@@ -318,29 +343,55 @@ def _row(r: Any) -> MailRow:
                    r["sent_at"])
 
 
-def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50) -> list[MailRow]:
-    """Messages whose sender is one of `emails`, newest first (undated last)."""
+def _has_sender_addr(store: Any) -> bool:
+    """Schema 41's indexed `sender_addr` is there (it is not on an index measured read-only before it)."""
+    known = getattr(store, "_enrich_sender_addr", None)
+    if known is None:
+        known = any(r[1] == "sender_addr" for r in store.conn.execute("PRAGMA table_info(messages)"))
+        try:
+            store._enrich_sender_addr = known
+        except AttributeError:                               # a store that takes no attributes asks each time
+            pass
+    return known
+
+
+def mail_from(store: Any, emails: Sequence[str], *, limit: int = 50, since: Optional[int] = None) -> list[MailRow]:
+    """Messages whose sender is one of `emails`, newest first (undated last).
+
+    `since` (Unix seconds) is order 1s's age window, D1: a message sent before it is not read, and an
+    undated one is outside every window but "any age" (`since=None`).
+
+    Order 1s 1c: one indexed look-up per address on `sender_addr` (schema 41), where it was a scan of
+    every message - about a second a contact on the owner's index. An index without the column (one
+    measured read-only before the migration) is still read the old way, so the answer is the same."""
     out: dict[int, MailRow] = {}
     wanted = {e.lower() for e in emails if e}
+    indexed = _has_sender_addr(store)
     for e in wanted:
-        for r in store.conn.execute(
-                "SELECT file_id, subject, sender, recipients, sent_at FROM messages "
-                "WHERE instr(lower(sender), ?) > 0 ORDER BY sent_at DESC LIMIT ?", (e, int(limit) * 4)):
+        sql = ("SELECT file_id, subject, sender, recipients, sent_at FROM messages "
+               + ("WHERE sender_addr = ? " if indexed else "WHERE instr(lower(sender), ?) > 0 ")
+               + ("AND sent_at >= ? " if since is not None else "")
+               + "ORDER BY sent_at DESC LIMIT ?")
+        params = (e, *(() if since is None else (int(since),)), int(limit) * 4)
+        for r in store.conn.execute(sql, params):
             if address_of(r["sender"] or "") in wanted:      # 'joann@x.com' is not 'ann@x.com'
                 out[int(r["file_id"])] = _row(r)
     rows = sorted(out.values(), key=lambda m: (m.sent_at is None, -(m.sent_at or 0), m.file_id))
     return rows[:limit]
 
 
-def mail_with(store: Any, emails: Sequence[str], *, limit: int = 5000) -> list[MailRow]:
-    """Messages from or to any of `emails`, newest first."""
+def mail_with(store: Any, emails: Sequence[str], *, limit: int = 5000,
+              since: Optional[int] = None) -> list[MailRow]:
+    """Messages from or to any of `emails`, newest first. `since`: the age window, as `mail_from`."""
     out: dict[int, MailRow] = {}
     wanted = {e.lower() for e in emails if e}
+    window = "" if since is None else "AND sent_at >= ? "
     for e in wanted:
+        params = (e, e, *(() if since is None else (int(since),)), int(limit) * 2)
         for r in store.conn.execute(
                 "SELECT file_id, subject, sender, recipients, sent_at FROM messages "
-                "WHERE instr(lower(sender), ?) > 0 OR instr(lower(recipients), ?) > 0 "
-                "ORDER BY sent_at DESC LIMIT ?", (e, e, int(limit) * 2)):
+                "WHERE (instr(lower(sender), ?) > 0 OR instr(lower(recipients), ?) > 0) "
+                + window + "ORDER BY sent_at DESC LIMIT ?", params):
             row = _row(r)
             people = {address_of(row.sender), *(address_of(x) for x in row.recipients)}
             if people & wanted:
@@ -366,6 +417,90 @@ def body_text(store: Any, file_id: int) -> str:
             continue
         parts.append(text)
     return "\n".join(parts)
+
+
+def full_text(store: Any, file_id: int, *, read_original: bool = False) -> str:
+    """Everything enrichment may read of one message: the indexed body, then the tail the index cut.
+
+    Order 1s section 4. The signature reader (section 3) reads this, never `body_text` directly, so
+    a message's cut-off signature (4a, `message_tails`) and, when the person switched it on, the
+    original message read again (4b, `read_original`) reach it without the reader knowing where the
+    text came from.
+
+    **Per message.** It reads one message; how many a contact's are read is the caller's choice - the
+    order's cap for `read_original` is the newest five, because each one opens a file.
+
+    * A kept tail: the indexed body, a newline, the tail. Nothing is opened.
+    * No tail and `read_original`: the original's whole body, nothing cut (`app.extract.reread`), read
+      only when the index says something was cut (`messages.quoted_removed` is not 0) - opened
+      read-only. Where it is not opened (live account mail, an Outlook-read message, a member of an
+      mbox) or cannot be, the indexed body.
+    * Otherwise the indexed body, as `body_text`.
+
+    The tail and the original may hold a quoted chain - other people's messages and signatures.
+    `message_tail(...)[1]` says which the tail was ("signature: ..." or "quoted: ...")."""
+    body = body_text(store, file_id)
+    tail = _tail(store, file_id)
+    if tail:
+        return f"{body}\n{tail}" if body else tail
+    if read_original:
+        place = _place(store, file_id)
+        if place is not None and place.get("quoted_removed") != 0:
+            from app.extract import reread  # noqa: PLC0415 - only a re-read needs the readers
+
+            original = reread.original_body(place)
+            if original:
+                return original
+    return body
+
+
+def _tail(store: Any, file_id: int) -> str:
+    """The message's kept tail, or "" - also on an index from before schema 42, which `--measure`
+    reads read-only and so never migrates."""
+    import sqlite3  # noqa: PLC0415
+
+    try:
+        found = store.message_tail(file_id)
+    except (sqlite3.OperationalError, AttributeError):
+        return ""
+    return found[0] if found else ""
+
+
+def _place(store: Any, file_id: int) -> Optional[dict]:
+    """Where a message can be read again: its `files` and `messages` columns, or None."""
+    row = store.conn.execute(
+        "SELECT f.path, f.source_kind, m.store_path, m.entry_id, m.folder_path, m.folder_index, "
+        "m.quoted_removed FROM files f LEFT JOIN messages m ON m.file_id = f.id WHERE f.id = ?",
+        (int(file_id),)).fetchone()
+    return dict(row) if row is not None else None
+
+
+def window_start(months: int, today: Any = None) -> Optional[int]:
+    """Unix seconds at the start of the age window (order 1s D1): `months` calendar months before today, at
+    midnight UTC, or None for any age. Calendar months, so six months before 12 October is 12 April."""
+    import calendar  # noqa: PLC0415
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    if not months:
+        return None
+    t = today or datetime.now(timezone.utc).date()
+    y, m = divmod(t.month - 1 - int(months), 12)
+    year, month = t.year + y, m + 1
+    day = min(t.day, calendar.monthrange(year, month)[1])
+    return int(datetime(year, month, day, tzinfo=timezone.utc).timestamp())
+
+
+def has_mail_before(store: Any, emails: Sequence[str], since: int) -> bool:
+    """Does any message from one of `emails` predate the window? One indexed look-up an address (2c)."""
+    for e in {x.lower() for x in emails if x}:
+        if _has_sender_addr(store):
+            sql = "SELECT sender FROM messages WHERE sender_addr = ? AND sent_at < ? LIMIT 1"
+        else:
+            sql = "SELECT sender FROM messages WHERE instr(lower(sender), ?) > 0 AND sent_at < ? LIMIT 20"
+        for r in store.conn.execute(sql, (e, int(since))):
+            if address_of(r["sender"] or "") == e:
+                return True
+    return False
 
 
 def format_day(epoch_s: Optional[int]) -> str:

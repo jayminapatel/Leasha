@@ -14,6 +14,8 @@ Order 1k 1g and section 10 (rule 8: the command line ships before the window).
     accounts schedule [--mail M] [--contacts M] [--same-for-all yes|no] [--pause P] [--quiet A-B|off]
     accounts config [--google-client-id ID] [--microsoft-client-id ID] [--default-account A] ...
                     [--enrich-signatures|-company|-faces|-history|-suggest|-gravatar|-logo|-wikidata yes|no]
+                    [--enrich-vcards|-calendar|-linkedin|-documents|-read-originals yes|no]
+                    [--enrich-max-months N] [--enrich-repeat-days N] [--enrich-tick-from F] [--enrich-hide-below F]
     accounts due                          what the schedule would start now (starts nothing)
 
 A password is never an argument (it would sit in shell history and in the run log):
@@ -42,7 +44,34 @@ ENRICH_FLAGS = (
     ("enrich_faces", "enrich_faces"), ("enrich_history", "enrich_history"),
     ("enrich_suggest", "enrich_suggest"), ("enrich_gravatar", "enrich_gravatar"),
     ("enrich_logo", "enrich_logo"), ("enrich_wikidata", "enrich_wikidata"),
+    # Order 1s D7 and 4b: more of your own sources.
+    ("enrich_vcards", "enrich_vcards"),
+    ("enrich_calendar", "enrich_calendar"), ("enrich_linkedin", "enrich_linkedin"),
+    ("enrich_documents", "enrich_documents"), ("enrich_read_originals", "enrich_read_originals"),
 )
+
+#: Order 1s: the rules beside the switches, (argparse dest, AccountSettings field, type, help).
+ENRICH_VALUES = (
+    ("enrich_max_months", "enrich_max_months", int, "only mail from the last N months (0 = any age; default 6)"),
+    ("enrich_repeat_days", "enrich_repeat_days", int, "days before an internet lookup is repeated (0 = never)"),
+    ("enrich_tick_from", "enrich_tick_from", float, "a suggestion at least this sure (0-1) starts ticked"),
+    ("enrich_hide_below", "enrich_hide_below", float, "a suggestion less sure than this (0-1) is not shown"),
+    ("enrich_linkedin_file", "enrich_linkedin_file", str, "the Connections.csv of a LinkedIn export"),
+)
+
+
+def _in_range(name: str, value):
+    """An enrichment rule kept to what it can mean, as `--churn-guard` is: no negative months or days,
+    confidence 0-1, and above 1 on "tick from" read as Never (2.0, the Settings choice)."""
+    if name in ("enrich_max_months", "enrich_repeat_days"):
+        return max(0, int(value))
+    if name == "enrich_hide_below":
+        return max(0.0, min(1.0, float(value)))
+    if name == "enrich_tick_from":
+        return 2.0 if float(value) > 1 else max(0.0, float(value))
+    return value
+
+
 _ENRICH_HELP = {
     "enrich_signatures": "own index: read phone, title and company from email signatures",
     "enrich_company": "own index: company from a work email's domain",
@@ -52,6 +81,11 @@ _ENRICH_HELP = {
     "enrich_gravatar": "internet: a SHA-256 hash of the email address is sent to Gravatar",
     "enrich_logo": "internet: only the company's own domain is contacted",
     "enrich_wikidata": "internet: the company name is looked up; companies only, never people",
+    "enrich_vcards": "own index: vCard files in the index",
+    "enrich_calendar": "own index: names from calendar invitations",
+    "enrich_linkedin": "own files: a LinkedIn Connections.csv export (nothing is fetched)",
+    "enrich_documents": "own index: org charts and business cards (off by default; less reliable)",
+    "enrich_read_originals": "own files: open the newest messages again, read-only, for a cut signature",
 }
 
 _SCHEDULE_HELP = "manual | every:<minutes> | daily:HH:MM   (e.g. every:60)"
@@ -265,6 +299,10 @@ def _dispatch(args: argparse.Namespace, svc: Any) -> int:
             value = getattr(args, flag)
             if value:
                 changes[name] = value.lower() in ("yes", "on", "true")
+        for flag, name, kind, _help in ENRICH_VALUES:          # order 1s: the rules
+            value = getattr(args, flag)
+            if value is not None:
+                changes[name] = _in_range(name, kind(value))
         if args.google_client_secret_stdin:
             from app.accounts.secrets import client_secret_key  # noqa: PLC0415
             svc.secrets.put(client_secret_key("google"), sys.stdin.readline().rstrip("\r\n"))
@@ -369,4 +407,6 @@ def add_accounts_parser(sub: argparse._SubParsersAction, common: argparse.Argume
     cf.add_argument("--backup-keep", type=int, help="how many copies to keep (default 10)")
     for flag, _name in ENRICH_FLAGS:
         cf.add_argument("--" + flag.replace("_", "-"), dest=flag, choices=["yes", "no"], help=_ENRICH_HELP[flag])
+    for flag, _name, kind, words in ENRICH_VALUES:
+        cf.add_argument("--" + flag.replace("_", "-"), dest=flag, type=kind, help=words)
     p.set_defaults(func=cmd_accounts)

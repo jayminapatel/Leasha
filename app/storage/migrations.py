@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from app.core.errors import AppErrorException, make_error
 from app.core.logging import logger
@@ -38,7 +38,7 @@ SCHEMA_BASELINE_VERSION = 4
 Not `CURRENT_VERSION`: see the note beside the seed in `schema.sql`.
 """
 
-CURRENT_VERSION = 40
+CURRENT_VERSION = 43
 
 def _v2_usage_logging(conn: sqlite3.Connection) -> None:
     """Add `searches` and `search_hits` (see schema.sql for why they exist).
@@ -2110,6 +2110,97 @@ def _v40_cards_and_words(conn: sqlite3.Connection) -> None:
         )""")
 
 
+def _v41_enrichment_that_finds(conn: sqlite3.Connection) -> None:
+    r"""The sender's bare address, indexed (order 1s 1c).
+
+    Enrichment asks "every message from this address" once per contact. It did that
+    with `instr(lower(sender), ?)` - a scan of every message (217,162 on the owner's
+    index, about a second a contact). `sender_lc` cannot be compared with `=` instead:
+    measured on the owner's index (2026-10-12), it holds a bare address in three
+    messages of four, "Name <address>" in about one in eleven, and no address at all
+    in the rest. So the address itself is kept: `sender_addr`, the lower-cased address
+    `email.utils.parseaddr` finds, or NULL - the same rule as
+    `app.contacts.enrich.base.address_of`, which a test holds them to. Filled here for
+    every message and in `SqliteStore.set_message` from now on (derived, never passed).
+
+    Additive: one column and one index.
+    """
+    from email.utils import parseaddr  # noqa: PLC0415 - only this step needs it
+
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(messages)")}
+    if "sender_addr" not in cols:
+        conn.execute("ALTER TABLE messages ADD COLUMN sender_addr TEXT")
+
+    def addr(sender: Any) -> Any:
+        found = parseaddr(str(sender or ""))[1].strip().lower()
+        return found if "@" in found else None
+
+    last_id = 0                                  # in batches, so memory does not grow with the mailbox
+    while True:
+        rows = conn.execute("SELECT file_id, sender FROM messages WHERE file_id > ? AND sender IS NOT NULL "
+                            "ORDER BY file_id LIMIT ?", (last_id, _BACKFILL_BATCH)).fetchall()
+        if not rows:
+            break
+        last_id = rows[-1][0]
+        conn.executemany("UPDATE messages SET sender_addr = ? WHERE file_id = ?",
+                         [(addr(r[1]), r[0]) for r in rows])
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_messages_sender_addr ON messages(sender_addr, sent_at)")
+
+
+def _v42_message_tails(conn: sqlite3.Connection) -> None:
+    r"""`message_tails`: the part of a message the index cut, kept beside it (order 1s 4a, D6).
+
+    `strip_quoted` cuts a message at its signature or its quoted chain so a thread is
+    indexed once, and the signature went with it - on the owner's index that is why
+    enrichment found a block for 90 of 526 people with mail. The tail is kept here, a
+    row a message, at most 2,000 characters (`quoting.TAIL_MAX_CHARS`):
+
+    * **not in `chunks`**, so it is never embedded, never in `chunks_fts`, and search
+      is exactly what it was;
+    * **removed with its message** - `ON DELETE CASCADE` from `files`, the same way
+      `chunks` and `messages` go;
+    * `reason` is `StripResult.reason` ("signature: ..." or "quoted: ..."), so a
+      reader can tell a signature from a quoted chain written by somebody else.
+
+    Additive: one empty table. Mail indexed before it has no rows until it is read
+    again (D6); enrichment can re-read the original on demand (4b).
+    """
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS message_tails ("
+        " file_id INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,"
+        " text    TEXT NOT NULL,"
+        " reason  TEXT NOT NULL DEFAULT '')")
+
+
+def _v43_enrich_declines(conn: sqlite3.Connection) -> None:
+    r"""What the person told enrichment never to suggest again (order 1s 7c, D5).
+
+    "Never suggest these" in Enrich contacts promises the same value is not offered
+    again for that contact by any source; without a memory the next run offers it
+    again and the person learns the button lies. One row per (contact, field, value):
+    `field_key` is the slot only (`s:title`, `f:phone`, `photo`), never the value, and
+    `value_hash` a salted SHA-256 of the normalised value
+    (`app.contacts.enrich.declines`), so an email address turned down cannot be read
+    back from here. `shown` is what the contact's page lists under "Suggestions you
+    turned down" - left empty for an email address, for the same reason. Gone with
+    the contact (`ON DELETE CASCADE`).
+
+    Additive, and it does not depend on schema 42: one table, whose key is the look-up.
+    """
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS enrich_declines (
+            contact_id  INTEGER NOT NULL REFERENCES contacts(id) ON DELETE CASCADE,
+            field_key   TEXT    NOT NULL,
+            value_hash  TEXT    NOT NULL,
+            label       TEXT    NOT NULL DEFAULT '',
+            shown       TEXT    NOT NULL DEFAULT '',
+            source      TEXT    NOT NULL DEFAULT '',
+            at          INTEGER NOT NULL,
+            PRIMARY KEY (contact_id, field_key, value_hash)
+        ) WITHOUT ROWID
+    """)
+
+
 MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     2: _v2_usage_logging,
     3: _v3_knowledge_graph,
@@ -2150,6 +2241,9 @@ MIGRATIONS: dict[int, Callable[[sqlite3.Connection], None]] = {
     38: _v38_live_mail,
     39: _v39_tidy_journal,
     40: _v40_cards_and_words,
+    41: _v41_enrichment_that_finds,
+    42: _v42_message_tails,
+    43: _v43_enrich_declines,
 }
 
 #: Released migrations that open and close transactions of their own -

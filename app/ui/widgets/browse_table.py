@@ -22,6 +22,9 @@ from PySide6.QtWidgets import QHeaderView, QVBoxLayout, QWidget
 
 from app.core.row_facts import format_size
 from app.ui.view_options import apply_to_table, available_columns, button as view_button, weak_slot
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import copy_paths
+from app.ui.widgets.menus import global_point
 from app.ui.widgets.preview import attach_preview
 from app.ui.widgets.result_table import ResultTable
 from app.ui.widgets.status_column import fill_rows
@@ -103,9 +106,10 @@ class BrowsePane(QWidget):
         self.results.setAccessibleName("Everything from this time, as a table")
         header = self.results.horizontalHeader()
         header.setSectionResizeMode(len(COLUMNS) - 1, QHeaderView.ResizeMode.Stretch)
-        # `activated`, which Qt sends for a double-click and for Enter: with `itemDoubleClicked` alone,
-        # Enter on a line did nothing (2026-10-12).
-        self.results.activated.connect(weak_slot(self, lambda pane, index: pane._open_row(index.row())))
+        # `activated`, which Qt sends for a double-click, and Enter sends the same (`list_keys`): with
+        # `itemDoubleClicked` alone, Enter on a line did nothing (2026-10-12). Space previews; Ctrl+C copies.
+        list_keys.install(self.results, default=self._open_index, preview=list_keys.PAGE_PREVIEW,
+                          copy=self._copy_selected)
         self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results.customContextMenuRequested.connect(weak_slot(self, lambda pane, point: pane._menu(point)))
         header.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -184,10 +188,18 @@ class BrowsePane(QWidget):
         if bar.maximum() and bar.value() >= bar.maximum() - max(4, bar.pageStep()):
             self.near_end.emit()
 
-    def _open_row(self, row_no: int) -> None:
-        row = self.results.row_object(row_no)
+    def _open_index(self, index: Any) -> None:
+        row = self.results.row_object(index.row())
         if row is not None:
             self.opened.emit(row.fold.head)
+
+    def selected_folds(self) -> list:
+        """Every selected line's group, top to bottom: the menu's Copy path and Show in
+        folder act on all of them (UI phase B)."""
+        return [row.fold for row in self.results.selected_objects()]
+
+    def _copy_selected(self) -> None:
+        copy_paths([(row.path, row.fold.head) for row in self.results.selected_objects()])
 
     def _open_selected(self, *_args: Any) -> None:
         row = self.results.current_row()
@@ -195,7 +207,8 @@ class BrowsePane(QWidget):
             self.opened.emit(row.fold.head)
 
     def _menu(self, point: Any) -> None:
-        item = self.results.itemAt(point)
-        row = self.results.row_object(item.row()) if item is not None else None
+        # A line among several selected keeps them all (`ResultTable.right_clicked`).
+        row = self.results.row_object(self.results.rowAt(point.y()))
         if row is not None:
-            self.menu_requested.emit(row.fold, self.results.viewport().mapToGlobal(point))
+            self.results.right_clicked(point)
+            self.menu_requested.emit(row.fold, global_point(self.results, point))

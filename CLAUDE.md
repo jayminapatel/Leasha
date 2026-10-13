@@ -1,6 +1,6 @@
 # Leasha — session briefing
 
-**Doc version:** 1.6 · **Updated:** 2026-10-10 · **Applies to:** app v1.0.3
+**Doc version:** 1.7 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 **Leasha** is a Windows desktop app that searches ~100GB of local files and Outlook
 mail from a plain-English description. One process, fully offline, single user.
@@ -64,6 +64,13 @@ in the same session, with a test, and reported at close-out - not listed back as
 question. Ask only when the owner's input is genuinely needed: their data, their
 accounts, anything destructive, or a product decision only they can make. New work
 orders still wait for the owner (above).
+
+**Parallel, then test together (owner, 2026-10-13).** Independent pieces of work run at
+the same time - agents or worktrees side by side, not one after another. Do all the
+coding first, then test everything together in one pass. PRs that are green on their own
+and conflict only in records are merged back to back and verified once, combined (local
+suite and CI on `main`), not one PR, one CI wait, then the next. The test still runs and
+a red result is still reported; it just runs once, at the end.
 
 ## Where a session runs (2026-09-30)
 

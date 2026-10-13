@@ -20,7 +20,7 @@ from typing import Any
 
 from PySide6.QtCore import QEvent, QMimeData, QObject, Qt
 from PySide6.QtGui import QDrag
-from PySide6.QtWidgets import QApplication, QMenu
+from PySide6.QtWidgets import QApplication
 
 __all__ = ["make_movable", "MIME", "target_index", "move_up", "move_down", "apply_order",
            "wire", "restore", "DEFAULT_ORDER", "STATE_KEY"]
@@ -67,19 +67,18 @@ def _menu(rail: Any, button: Any, point: Any) -> None:
     index = rail.index_of_button(button)
     if not rail.movable(index):
         return
-    menu = QMenu(button)
-    up = menu.addAction("Move up")
-    up.setEnabled(_neighbour(rail, index, -1) >= 0)
-    up.triggered.connect(lambda _c=False: move_up(rail, rail.index_of_button(button)))
-    down = menu.addAction("Move down")
-    down.setEnabled(_neighbour(rail, index, +1) >= 0)
-    down.triggered.connect(lambda _c=False: move_down(rail, rail.index_of_button(button)))
-    menu.addSeparator()
-    reset = menu.addAction("Reset page order")
-    reset.setToolTip("Put the pages back in Leasha's order")
-    reset.triggered.connect(lambda _c=False: rail.reset_requested.emit())
-    rail.last_menu = menu
-    menu.popup(button.mapToGlobal(point))
+    from app.ui.widgets import menus
+
+    menu = menus.build(button, [
+        menus.Item("Move up", lambda: move_up(rail, rail.index_of_button(button)),
+                   enabled=_neighbour(rail, index, -1) >= 0),
+        menus.Item("Move down", lambda: move_down(rail, rail.index_of_button(button)),
+                   enabled=_neighbour(rail, index, +1) >= 0),
+        # The order the window remembers, put back: after a separator, as before.
+        menus.Item("Reset page order", rail.reset_requested.emit, group="remember",
+                   tip="Put the pages back in Leasha's order"),
+    ])
+    menus.show(menu, button, point, wait=False, keep=rail)
 
 
 class _Dragger(QObject):

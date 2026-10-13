@@ -33,7 +33,7 @@ from typing import Any, Iterable, Optional
 from app.core.errors import raise_error
 from app.core.format_health import Requirement
 from app.core.logging import logger
-from app.extract.quoting import strip_quoted
+from app.extract.quoting import strip_quoted, tail_for_storage
 from app.extract.base import (
     Document,
     DocumentBuilder,
@@ -198,6 +198,12 @@ def build_email_document(
             # its thread gone. Without this the pane cannot say so, and a
             # message looks as though it was sent with no context.
             "quoted_removed": stripped.removed_chars,
+            # Order 1s 4a (D6): what was cut, tidied, for `message_tails` - never
+            # for `chunks`. Always present on mail ("" when nothing was cut), so the
+            # writer can tell a message that lost its tail on a re-read from a
+            # document that is not mail at all, and clear the old row.
+            "tail": tail_for_storage(stripped.tail),
+            "tail_reason": stripped.reason if stripped.tail else "",
         }
     )
     return builder.build()

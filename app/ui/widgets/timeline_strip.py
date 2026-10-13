@@ -26,10 +26,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QMenu, QToolButton, QWidget
+from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QToolButton, QWidget
 
 from app.ui.timeline import bands
-from app.ui.qtsip import open_menu
+from app.ui.widgets import menus
 
 __all__ = ["TimelineStrip", "STRIP_ENABLED_KEY"]
 
@@ -74,12 +74,12 @@ class TimelineStrip(QWidget):
 
     def _menu(self, button: QToolButton, point: Any, band: Any) -> None:
         """Right-click on a bar: the other thing you might want from a period."""
-        menu = QMenu(button)
-        action = menu.addAction("See everything from this period")
-        action.setToolTip("Open your timeline on this period - photos, files and mail from "
-                          "then, not only the results of this search.")
-        action.triggered.connect(lambda: self.browse_requested.emit(band.after, band.before))
-        open_menu(menu, button.mapToGlobal(point))
+        menu = menus.build(button, [menus.Item(
+            "See everything from this period",
+            lambda: self.browse_requested.emit(band.after, band.before),
+            tip="Open your timeline on this period - photos, files and mail from "
+                "then, not only the results of this search.")])
+        menus.show(menu, button, point)
 
     def _redraw(self, found: tuple) -> None:
         """Rebuild the bars; each is as wide as its share of the hits."""

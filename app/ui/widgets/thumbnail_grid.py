@@ -37,7 +37,8 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import QAbstractItemView, QCheckBox, QListView, QListWidget, QListWidgetItem, QVBoxLayout, QWidget
 
 from app.ui.thumbnail_loader import decode_thumbnail, is_image_result
-from app.ui.widgets.file_menu import FileActions, show_for, viewport_point
+from app.ui.widgets import list_keys
+from app.ui.widgets.file_menu import FileActions, copy_paths, show_for
 
 __all__ = ["ThumbnailGrid", "enabled_checkbox", "GRID_ENABLED_KEY"]
 
@@ -180,7 +181,10 @@ class ThumbnailGrid(QWidget):
         self._list.setWordWrap(True)
         self._list.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self._list.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self._list.itemActivated.connect(self._on_activated)
+        # Double-click and Enter open the lightbox, from one signal; Space is the page's
+        # preview, Ctrl+C copies the selected photos' paths (`list_keys`).
+        list_keys.install(self._list, default=self._on_activated, preview=list_keys.PAGE_PREVIEW,
+                          copy=self._copy_selected)
         self._list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self._list.customContextMenuRequested.connect(self._on_context_menu)
 
@@ -326,14 +330,18 @@ class ThumbnailGrid(QWidget):
         """The result row behind a grid item, or None."""
         return item.data(ROLE_ROW) if item is not None else None
 
-    def _on_activated(self, item: QListWidgetItem) -> None:
-        row = self._row_at(item)
+    def _on_activated(self, index: Any) -> None:
+        row = self._row_at(self._list.itemFromIndex(index))
         if row is not None:
             self.opened.emit(row, self.image_rows())
 
+    def _copy_selected(self) -> None:
+        rows = [self._row_at(item) for item in self._list.selectedItems()]
+        copy_paths([(str(getattr(row, "path", "") or ""), row) for row in rows if row is not None])
+
     def _on_context_menu(self, point: Any) -> None:
         """Right-click: the shared file menu, with View (the lightbox) added."""
-        item = self._list.itemAt(viewport_point(self._list, point))
+        item = self._list.itemAt(point)          # the viewport's point, as Qt gives it
         row = self._row_at(item)
         if row is None:
             selected = self._list.selectedItems()
@@ -342,7 +350,7 @@ class ThumbnailGrid(QWidget):
             return
 
         show_for(self._list, point, str(getattr(row, "path", "") or ""), FileActions(
-            open_file=lambda: self.file_requested.emit(row),
+            open_file=lambda: self.file_requested.emit(row), default="view",
             view=lambda: self.opened.emit(row, self.image_rows()),
             reveal=lambda: self.reveal_requested.emit(row), row=row,
             pin=lambda: self.pin_requested.emit(row),

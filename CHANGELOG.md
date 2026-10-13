@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.123 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.127 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -34,6 +34,73 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 - Not yet seen in the real window: the answer's height and scrolling, the one-line notice, the Sort button beside
   the scope, the empty page's spacing. The user guide's screenshots of Search are out of date.
 
+### One app, phase B: one right-click menu and one way every list behaves (2026-10-13)
+
+- **Every right-click menu is built the same way**: an icon on every line (the button's own where a button does
+  the same thing), the default line first and bold, groups in one order - open, act on it, copy, remember - and
+  anything that removes last, with a warning-coloured icon. The words on each line are unchanged.
+- **Menus open where you clicked, on the row you clicked.** In Files, Mail, Code, Search and the photo grid a
+  right-click acted on the row above the pointer and opened the menu a header's height too high; Name people
+  placed its menu wrongly too.
+- **Every list answers the same keys**: double-click and Enter do the default; Space is Preview (on Photos, the
+  info panel); F2 and Delete where a list has something to rename or remove (Name people, file types); Ctrl+C
+  copies the paths (in Offline, the drive's ID).
+- **Several rows at once**: in Files, Mail, Code and Browse, Copy path and Show in folder act on every selected
+  row, and a right-click on a selected row keeps the selection (Show in folder opens at most ten windows).
+- Not yet seen in the real window: the bold default line, the warning colour, the shortcut column, where menus
+  open, the keyboard's Menu key, and Explorer with several folders.
+
+### One app, phase B: Chat behaves like a chat (2026-10-13)
+
+- **The conversations list** is grouped by date (Pinned, Today, Yesterday, Previous 7 days, Previous 30 days, then by
+  month), has **Search chats**, and a right-click menu: Rename (F2), Pin to top / Unpin, Delete (Del, asks first).
+- **Switching conversation while an answer is being written** is allowed: the answer stays with the conversation it
+  belongs to and is there when you come back. Deleting that conversation stops the answer.
+- **Keys:** Up in an empty box brings back your last message; Alt+Up and Alt+Down walk the sources; Ctrl+Shift+O
+  (and File > New chat) starts a new chat.
+- **On the newest answer**, Copy and Try again are always shown; Edit is always shown on your last message.
+- **What the answer did** folds into one line under it ("Searched your files · 12 found") that opens to the steps,
+  and is kept when the conversation is opened again. The footer names the model and how many documents were read.
+- **Starter questions** on an empty chat are cards; a click asks it. The shelf reads "In scope (N)" and hides when
+  empty.
+- Not yet seen in the real window: right-click, F2 and Del, Alt+Up and Alt+Down (Windows may take Alt for the menu
+  bar), how the cards look, and switching during a real model's answer.
+
+### Enrich contacts finds more, and only fresh details (order 1s, 2026-10-13)
+
+Measured on a copy of the owner's index, read-only: with mail of any age, 113 contacts now get a suggestion from a
+signature, against 53 before. The order asked for 200, so it is not met yet: nearly a quarter of the indexed mail has a
+sender with no email address, which cannot be matched to anyone. Of 100 suggestions checked by hand, 98 were right.
+Not yet seen in the real window.
+
+- **Fresh details only.** Enrichment reads mail from the last 6 months unless you change **Look at mail from the
+  last** (3, 6, 12 or 24 months, or Any age). Older mail is not read at all, so a title from five years ago is not
+  offered. The window says where it starts, and when it found nothing because of the window it says how many
+  contacts have older mail.
+- **Signatures without "Kind regards".** The signature is what repeats across a person's messages, so "FYI" and
+  unknown sign-offs no longer hide it. Gateway links, social icons, legal notices, meeting dial-ins and footer
+  country lists are cleaned away first. Phone numbers are read in the right country. Several messages that agree
+  make a suggestion surer, and the newest wins.
+- **Never your own details.** A client's reply quoting your signature, or a signature from a job you have left,
+  no longer offers your own mobile or address as theirs. Leasha learns your details from your Sent folders.
+- **The signature the index cut is kept** beside each message from now on, out of search. A new switch, **Read
+  the original messages again (slower)**, off by default, re-reads older mail read-only.
+- **More of your own sources**, each a switch: vCard files on this computer (attachments too), calendar
+  invitations, and a LinkedIn export you choose with **Use a LinkedIn export...**. Nothing is fetched from
+  LinkedIn. Outlook contact items cannot be read yet, so that switch was taken out.
+- **The review window.** Suggestions are grouped by contact, surest first, with the date and how sure in words
+  ("Seen in 4 messages"). The sure ones start ticked (**Tick automatically from**), the unsure are hidden (**Hide
+  suggestions below**), and one that would replace something on the card is never ticked for you. **Accept all**
+  asks first when it takes rows that were not ticked. **Never suggest these** remembers what you turned down; a
+  contact's page lists it under **Suggestions you turned down**, each with Undo, and Settings can clear them all.
+  The run's notes are one line under the list.
+- **Enrich this contact** and **Look again** on a contact's page. Internet answers are remembered, so one you did
+  not accept is offered again without asking again; **Ask the internet again after** sets how long (90 days by
+  default). Wikidata gets a cleaner company name, and a logo comes only from the company's own domain.
+- **Faster.** A contact's mail is found through an index, and an Outlook archive is opened once a run, not once
+  for every attachment or message read again: with every source on, 0.14 seconds a contact, against 0.4 before.
+  The upgrade takes about 15 seconds on 217,000 messages. `leasha contacts enrich --measure` counts all of this
+  without writing anything.
 ### Contact sync that is fast and can be trusted - order 1t (2026-10-12)
 
 - **Written a batch at a time, every account at once.** Google takes 200 contacts a request, Microsoft 20 (`$batch`),
@@ -335,6 +402,9 @@ the code; each is fixed with a test. Not yet seen in the real window.
 
 ### Docs
 
+- Order 1s close-out (2026-10-13): `docs/USER_GUIDE.html` (Enriching contacts) and `docs/TECHNICAL_REFERENCE.html`
+  (Contact enrichment, schema 43) rewritten in place; `docs/GLOSSARY.md` 1.17 (age window, signature tail);
+  `docs/ORDER_REGISTER.md` 1.89; `HANDOFF.md` 7.163; the order 1.2.
 - `docs/VERSIONING.md`: release checklist step 10, publishing. `docs/ORDER_REGISTER.md` §5 and the
   install order: dated notes recording that distribution is on again (owner, 2026-10-11).
 

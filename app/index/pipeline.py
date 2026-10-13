@@ -3731,6 +3731,37 @@ class Pipeline:
             return UNCHANGED
         return fresh
 
+    #: Unchanged messages' tails gathered before they are written in one go. A few
+    #: hundred rows of at most 2KB each: enough to make the writes cheap, small enough
+    #: that a 200,000-message archive never holds them all in memory.
+    TAIL_FILL_BATCH = 500
+
+    def _keep_unchanged_tail(self, item: _Extracted) -> None:
+        """Order 1s 4a: a message found unchanged (`_already_current`) is not written
+        again, but its tail is brought up to date from the text this pass has already
+        read - kept when it is the same, gained by a message indexed before schema 42,
+        replaced when only the signature changed (the hash covers the indexed words, not
+        the tail), cleared when it went. Written in batches by `_flush_tails`."""
+        meta = item.meta or {}
+        if "tail" not in meta or not item.key:
+            return
+        waiting = self.__dict__.setdefault("_tails_waiting", [])
+        waiting.append((str(item.key), str(meta.get("tail") or ""), str(meta.get("tail_reason") or "")))
+        if len(waiting) >= self.TAIL_FILL_BATCH:
+            self._flush_tails()
+
+    def _flush_tails(self) -> None:
+        """Write the tails `_keep_unchanged_tail` gathered (`SqliteStore.keep_message_tails`).
+        Never raises: a tail not written now is gathered again on the next pass."""
+        rows = self.__dict__.get("_tails_waiting") or []
+        self._tails_waiting = []
+        if not rows:
+            return
+        try:
+            self.store.keep_message_tails(rows)
+        except Exception as exc:                  # noqa: BLE001 - housekeeping
+            self._log.warning("could not keep {} message tail(s): {}", len(rows), exc)
+
     def _flush_restamps(self) -> None:
         """Write the dates `_check_deferred_hash` collected, on the writer's
         thread, in one transaction (`SqliteStore.restamp_files`). A restore of
@@ -5287,6 +5318,7 @@ class Pipeline:
                 # repeat on every incremental pass.
                 self._note_warnings(item, log=False)
                 self._note_read_stamp(item)
+                self._keep_unchanged_tail(item)
                 if self._note_resume_progress(item):
                     self._persist_at_folder_boundary(pending_vectors)
                 continue
@@ -5408,6 +5440,7 @@ class Pipeline:
                 try:
                     self._checkpoint(item.candidate, stats)
                     self._flush_restamps()
+                    self._flush_tails()
                     stats.sample(now=now)
                     self._maybe_summarise(stats, now=now)
                     if on_progress is not None:
@@ -5437,6 +5470,7 @@ class Pipeline:
         # joined - and nothing after this line meets it running.
         self._finish_picture_work()
         self._flush_restamps()
+        self._flush_tails()
         self._flush_pending_images()
         if self._text_first():
             # 2026-10-08: the last of the text is committed and searchable;
@@ -8359,6 +8393,11 @@ class Pipeline:
         fields["has_attach"] = int(meta.get("has_attach", 0) or 0)
         try:
             self.store.set_message(file_id, **fields)
+            # Order 1s 4a: the cut-off tail, beside the message and never in its
+            # chunks. Every mail document carries the key ("" when nothing was cut),
+            # so a message read again without its signature loses the old row.
+            if "tail" in meta:
+                self.store.set_message_tail(file_id, meta.get("tail"), meta.get("tail_reason"))
             # Order 1k D13: the Message-ID, normalised, so an account's copy of
             # this message can be matched to it. Only when a reader put one on.
             if meta.get("message_id"):

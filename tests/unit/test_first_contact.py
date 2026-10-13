@@ -136,12 +136,31 @@ def test_search_is_the_tab_people_land_on():
 def test_pressing_enter_on_a_result_opens_it():
     """§2e's "Enter opens the document" - already true. Qt's `activated`
     fires for Enter and for a double click, which is why one connection
-    covers both and why this is easy to remove by accident."""
-    from app.ui import results_view
+    covers both and why this is easy to remove by accident.
 
-    with open(results_view.__file__ or "", encoding="utf-8") as handle:
-        text = handle.read()
-    assert "self._list.activated.connect" in text
+    UI phase B (2026-10-13): the connection is made by the one list behaviour
+    (`results_items.install_keys` -> `list_keys`), so this presses Enter rather
+    than looking for the line that used to make it."""
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+    from PySide6.QtWidgets import QApplication
+
+    from app.ui.results_view import ResultsView
+    from tests.unit.test_adoption_scenarios import _result
+
+    QApplication.instance() or QApplication([])
+    view = ResultsView()
+    view.show_results([_result()], ["safety"])
+    opened = []
+    view.opened.connect(opened.append)
+    view._list.setCurrentIndex(view._model.index(0, 0))
+    QApplication.sendEvent(view._list, QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Return,
+                                                 Qt.KeyboardModifier.NoModifier))
+    assert len(opened) == 1
+    view.deleteLater()
 
 
 def test_the_search_box_already_has_its_placeholder():

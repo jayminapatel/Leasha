@@ -56,6 +56,23 @@ class AnswerRun:
         self._placed: set[int] = set()          # engine numbers already shown
         self.finished = False
         self.streamed = False
+        #: UI phase B: its conversation is not on screen (`park`).
+        self.parked = False
+
+    def park(self, shelf: Any) -> None:
+        """Another conversation was opened while this answer was written. It keeps
+        going into its bubble (taken off the page, not deleted); its documents go on
+        its own conversation's shelf - `shelf`, the presenter's `Shelf` - never
+        the one now on screen, and it stops drawing into the Sources pane."""
+        self.parked = True
+        self.sources = None
+        self.shelf = shelf
+
+    def resume(self, shelf: Any) -> None:
+        """Its conversation is back on screen: the shelf bar again. The view puts the
+        Sources pane back when it shows this answer's sources."""
+        self.parked = False
+        self.shelf = shelf
 
     def event(self, event: Any) -> None:
         """One engine event. UI thread. Nothing after `finish` changes the screen:

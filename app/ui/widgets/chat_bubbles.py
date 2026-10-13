@@ -30,13 +30,14 @@ from typing import Any, Optional
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextBrowser,
-    QVBoxLayout, QWidget,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy,
+    QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from app.ui.presenter.chat import (
-    COPIED_LABEL, COPY_LABEL, EDIT_LABEL, EMPTY_HEADING, EMPTY_HINT, REGENERATE_LABEL,
-    RETRY_LABEL, Numbering, closing_line, plain_answer_text,
+    COPIED_LABEL, COPY_LABEL, EDIT_LABEL, EMPTY_HEADING, REGENERATE_LABEL, RETRY_LABEL,
+    STARTER_QUESTIONS, THINKING_LINE, Numbering, answer_meta, closing_line,
+    plain_answer_text, work_summary,
 )
 from app.ui.results_view import ResultsView
 from app.ui.widgets.chat_markdown import AnswerBody
@@ -139,7 +140,8 @@ class UserBubble(QFrame):
         layout.addWidget(self.label)
         layout.addWidget(self.edit_button, alignment=Qt.AlignmentFlag.AlignRight)
         self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
-        # Order 1o: Edit shows while the pointer is over the message, and is in its menu.
+        # UI phase B (2026-10-13): Edit is in view on the last message, always - order
+        # 1o had it show only under the pointer, and it was not found. In its menu too.
         self.is_last = False
         self._hover = False
         from app.ui.widgets.chat_message_menu import install, user_menu
@@ -153,11 +155,10 @@ class UserBubble(QFrame):
     def set_last(self, last: bool) -> None:
         """Only the newest message of the person's can be edited."""
         self.is_last = bool(last)
-        self.edit_button.setVisible(self.is_last and self._hover)
+        self.edit_button.setVisible(self.is_last)
 
     def set_hover(self, over: bool) -> None:
-        self._hover = bool(over)
-        self.edit_button.setVisible(self.is_last and self._hover)
+        self._hover = bool(over)            # Edit no longer waits for the pointer
 
 
 class AnswerBubble(QFrame):
@@ -206,6 +207,23 @@ class AnswerBubble(QFrame):
         self.footer.setObjectName("chatFooter")
         self.footer.setWordWrap(True)
         self.footer.setVisible(False)
+        #: UI phase B: the lines narrated while it worked, folded under it once done.
+        self.steps: list[str] = []
+        self._work_words = ""
+        self.work_button = _action("", "Show what was searched and read", "work")
+        self.work_button.setObjectName("chatWork")
+        self.work_button.setCheckable(True)
+        self.work_button.setVisible(False)
+        self.work_button.toggled.connect(self._show_work)
+        self.work_detail = QLabel("")
+        self.work_detail.setObjectName("chatWorkDetail")
+        self.work_detail.setWordWrap(True)
+        self.work_detail.setVisible(False)
+        #: The model that wrote it and how many documents it read (UI phase B).
+        self.meta = QLabel("")
+        self.meta.setObjectName("chatMeta")
+        self.meta.setWordWrap(True)
+        self.meta.setVisible(False)
 
         self.copy_button = _action(COPY_LABEL, "Copy this answer", "copy")
         self.copy_button.clicked.connect(lambda _c=False: self.copy())
@@ -242,8 +260,11 @@ class AnswerBubble(QFrame):
         self.actions.setVisible(False)
 
         self._layout = QVBoxLayout(self)
-        for part in (self.narration, self.web_prompt, self.body, self.footer, self.actions):
+        for part in (self.narration, self.web_prompt, self.body, self.work_button,
+                     self.work_detail, self.footer, self.meta, self.actions):
             self._layout.addWidget(part)
+        # The work line is as wide as its words, under the prose, not a bar across it.
+        self._layout.setAlignment(self.work_button, Qt.AlignmentFlag.AlignLeft)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.setInterval(RENDER_MS)
@@ -265,6 +286,12 @@ class AnswerBubble(QFrame):
     def narrate(self, text: str) -> None:
         self.narration.setText(text)
         self.narration.setVisible(bool(text))
+        if text and text != THINKING_LINE:
+            self.steps.append(text)
+
+    def _show_work(self, opened: bool) -> None:
+        self.work_detail.setVisible(bool(opened) and bool(self.work_detail.text()))
+        self.work_button.setText(self._work_words + ("  \u25be" if opened else "  \u25b8"))
 
     def append(self, text: str) -> None:
         """A streamed token. The redraw is coalesced by `request_render` (`RENDER_MS`)."""
@@ -335,11 +362,28 @@ class AnswerBubble(QFrame):
         line = closing_line(turn, stopped=stopped)
         self.footer.setText(line)
         self.footer.setVisible(bool(line))
+        self._fold_work(turn)
+        meta = answer_meta(turn) if turn is not None else ""
+        self.meta.setText(meta)
+        self.meta.setVisible(bool(meta))
         failed = turn is not None and getattr(turn, "kind", "") == "error"
         self._retryable = bool(stopped or failed or getattr(turn, "partial", False)) \
             and not (turn is not None and getattr(turn, "kind", "") == "clarify")
         self.done = True
         self._refresh_actions()
+
+    def _fold_work(self, turn: Any) -> None:
+        """The narration as one "Searched your files \u00b7 N found" line under the
+        answer, which opens to the lines themselves. A reopened answer has no live
+        narration; its turn kept the lines (`ChatTurn.work`)."""
+        steps = self.steps or list(getattr(turn, "work", None) or ())
+        summary = work_summary(steps, turn)
+        self.work_button.setVisible(summary is not None)
+        if summary is None:
+            return
+        self._work_words, lines = summary
+        self.work_detail.setText("\n".join(lines))
+        self._show_work(self.work_button.isChecked())
 
     def set_last(self, last: bool) -> None:
         """Regenerate is offered on the newest answer only."""
@@ -362,11 +406,14 @@ class AnswerBubble(QFrame):
         self._refresh_actions()
 
     def _refresh_actions(self) -> None:
-        """The buttons the answer offers (`offers`), in a row that shows while the
-        pointer is over it (order 1o) - the same actions are in its menu always."""
+        """The buttons the answer offers (`offers`). On the newest answer the row is
+        always in view (UI phase B, 2026-10-13: Copy and Regenerate or Try again are
+        what a chat reaches for next); on older ones it shows while the pointer is over
+        it (order 1o). The same actions are in its menu always."""
         for button in (self.copy_button, self.retry_button, self.regenerate_button):
             button.setVisible(self.offers(button))
-        self.actions.setVisible(self.done and getattr(self, "_hover", False) and any(
+        shown = self._is_last or getattr(self, "_hover", False)
+        self.actions.setVisible(self.done and shown and any(
             self.offers(b) for b in (self.copy_button, self.retry_button,
                                      self.regenerate_button)))
 
@@ -387,6 +434,27 @@ class AnswerBubble(QFrame):
         heights = [list_view.sizeHintForRow(i) for i in range(rows)]
         total = sum(h if h > 0 else _ROW_GUESS for h in heights) + 8
         self.results.setFixedHeight(total)
+
+
+def _starter(question: str, chosen: Any) -> QPushButton:
+    """One suggestion card: the question, word-wrapped; a click sends it. Flat, so the
+    button system leaves it alone - it is a card, not an action button."""
+    card = QPushButton(question)
+    card.setObjectName("chatStarter")
+    card.setFlat(True)
+    card.setCursor(Qt.CursorShape.PointingHandCursor)
+    card.setToolTip("Ask this")
+    card.setAccessibleName(question)
+    try:                                         # the house rule: a text button carries an icon
+        from app.ui.theme import theme_colours
+        from app.ui.widgets.icons import icon
+
+        card.setIcon(icon("sparkles", theme_colours()["text_dim"]))
+    except Exception:                            # noqa: BLE001 - decoration; the card still works
+        pass
+    card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+    card.clicked.connect(lambda _c=False, q=question: chosen(q))
+    return card
 
 
 def centred(*widgets: QWidget) -> QWidget:
@@ -411,6 +479,9 @@ def centred(*widgets: QWidget) -> QWidget:
 
 class BubbleList(QScrollArea):
     """A vertical run of messages that follows new text only from the bottom."""
+
+    #: UI phase B: a starter card was clicked - its question, to be sent.
+    starter_chosen = Signal(str)
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -444,13 +515,18 @@ class BubbleList(QScrollArea):
         stack.setSpacing(10)
         heading = QLabel(EMPTY_HEADING)
         heading.setObjectName("emptyHeadline")
-        hint = QLabel(EMPTY_HINT)
-        hint.setObjectName("emptyGreeting")
-        for label in (heading, hint):
-            label.setWordWrap(True)
-            label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            stack.addWidget(label)
-        self.empty_heading, self.empty_hint = heading, hint
+        heading.setWordWrap(True)
+        heading.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stack.addWidget(heading)
+        self.empty_heading = heading
+        # UI phase B (2026-10-13): the example questions, which were one line of
+        # grey text, are cards that send themselves - `EMPTY_HINT`'s own questions.
+        self.starters = [_starter(q, self.starter_chosen.emit) for q in STARTER_QUESTIONS]
+        grid = QGridLayout()
+        grid.setSpacing(8)
+        for index, card in enumerate(self.starters):
+            grid.addWidget(card, index // 2, index % 2)
+        stack.addLayout(grid)
         self._column.addWidget(self.empty)
         self._column.addStretch(1)
         self.setWidget(self._holder)
@@ -510,6 +586,13 @@ class BubbleList(QScrollArea):
                 bubble.set_last(bubble is last_user and (last_answer is None or last_answer.done))
             elif isinstance(bubble, AnswerBubble):
                 bubble.set_last(bubble is last_answer)
+
+    def take(self, bubble: QWidget) -> None:
+        """Take a bubble off the page without deleting it (an answer still being
+        written for a conversation that is no longer on screen)."""
+        self._column.removeWidget(bubble)
+        bubble.setParent(None)
+        bubble.hide()
 
     def scroll_to_end(self) -> None:
         self._stick = True

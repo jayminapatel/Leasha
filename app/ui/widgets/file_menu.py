@@ -30,11 +30,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import QMenu, QWidget
-from app.ui.qtsip import open_menu
 
-__all__ = ["FileActions", "build_menu"]
+from app.ui.widgets.menus import Item, build, show
+
+__all__ = ["FileActions", "build_menu", "show_for", "copy_paths", "table_pairs", "REVEAL_AT_MOST"]
 
 
 class FileActions:
@@ -62,6 +63,9 @@ class FileActions:
         copy: Optional[list[tuple[str, str]]] = None,
         extra: Optional[list[tuple[str, str, Callable[[], None]]]] = None,
         view: Optional[Callable[[], None]] = None,
+        default: str = "open",
+        selected: Optional[list[tuple[str, Any]]] = None,
+        reveal_one: Optional[Callable[[str, Any], None]] = None,
         row: Any = None,
         missing: bool = False,
         offline: bool = False,
@@ -70,6 +74,15 @@ class FileActions:
         #: 2026-10-04: the photo grid's lightbox, now that its "Open" opens the
         #: file as every other list's does.
         self.view = view
+        #: What a double-click on the list does, so the menu shows that line first
+        #: and bold: "open", or "view" where a double-click opens the lightbox.
+        self.default = default
+        #: UI phase B: `(path, row)` of every selected line, on a list that allows
+        #: several. With more than one, Copy path copies them all and Show in folder
+        #: shows each through `reveal_one(path, row)`; every other line stays the
+        #: clicked row's.
+        self.selected = selected
+        self.reveal_one = reveal_one
         #: The row the menu is for. Read for its offline mark and, by "Copy
         #: path", for a catalogued drive's real path (`workers.copy_path_async`).
         self.row = row
@@ -127,121 +140,137 @@ def build_menu(parent: QWidget, path: str, actions: FileActions) -> QMenu:
     "Copy path" is always available and never disabled, because it works whether
     or not the file still exists - and when a file has gone missing, its path is
     often exactly what somebody needs in order to work out where it went.
+
+    UI phase B (2026-10-13): built by `menus.build`, so every line has its icon,
+    the line a double-click runs is first and bold, the keys are shown, and the
+    lines fall into the builder's groups. The words are the ones they always were.
     """
     from app.ui.presenter.opening import usable
 
-    menu = QMenu(parent)
     exists = usable(actions.row if actions.row is not None else path,
                     missing=actions.missing, offline=actions.offline)
+    many = [pair for pair in (actions.selected or ()) if pair[0]]
+    several = len(many) > 1
+    items: list[Item] = []
+    viewing = actions.default == "view" and actions.view is not None
 
     if actions.open_file is not None:
-        action = QAction("Open", parent)
-        action.setEnabled(exists)
-        action.triggered.connect(lambda: actions.open_file())
-        menu.addAction(action)
-
+        items.append(Item("Open", actions.open_file, group="open", enabled=exists,
+                          default=not viewing, shortcut="" if viewing else "Enter"))
     if actions.view is not None:
-        action = QAction("View", parent)
-        action.setToolTip("Shows the picture in a window of its own; the arrow keys "
-                          "move through the others.")
-        action.triggered.connect(lambda: actions.view())
-        menu.addAction(action)
-
+        items.append(Item(
+            "View", actions.view, group="open", default=viewing,
+            shortcut="Enter" if viewing else "",
+            tip="Shows the picture in a window of its own; the arrow keys move through the others."))
     if actions.reveal is not None:
-        action = QAction("Show in folder", parent)
-        action.setEnabled(exists)
-        action.triggered.connect(lambda: actions.reveal())
-        menu.addAction(action)
+        # Several lines selected: each one's folder, not only the line clicked (UI phase B).
+        reveal = actions.reveal
+        if several and actions.reveal_one is not None:
+            reveal = lambda: _reveal_each(many, actions.reveal_one)       # noqa: E731
+        items.append(Item("Show in folder", reveal, group="open", enabled=exists))
+    if actions.missing and actions.reindex is not None:
+        # In the open group: it is offered *instead of* opening, for a file that has gone.
+        items.append(Item("File is missing - re-index this folder", actions.reindex, group="open"))
 
     if actions.search_inside is not None:
         # The bridge between the two lists: found it by name, now find what is
         # in it. Without this, the filename browser is a dead end.
-        action = QAction(actions.search_words or _search_inside_words(actions.row), parent)
-        action.triggered.connect(lambda: actions.search_inside())
-        menu.addAction(action)
-
+        items.append(Item(actions.search_words or _search_inside_words(actions.row),
+                          actions.search_inside))
     if actions.index_file is not None and _is_a_file_on_disk(path, actions.row):
-        action = QAction("Index this file now", parent)
-        action.setToolTip(
-            "Reads this one file again and brings the index up to date with it, "
-            "whatever the index already says. Nothing else is read. A mail "
-            "archive is read in full, which can take a long time.")
-        action.setEnabled(exists)
-        action.triggered.connect(lambda: actions.index_file())
-        menu.addAction(action)
-
-    if actions.pin is not None:
-        action = QAction("Pin", parent)
-        action.triggered.connect(lambda: actions.pin())
-        menu.addAction(action)
-
+        items.append(Item(
+            "Index this file now", actions.index_file, enabled=exists,
+            tip="Reads this one file again and brings the index up to date with it, "
+                "whatever the index already says. Nothing else is read. A mail "
+                "archive is read in full, which can take a long time."))
     if actions.similar is not None:
-        action = QAction("More like this", parent)
-        action.setToolTip(
-            "Find other results with a similar meaning, using the vector "
-            "already stored for this one."
-        )
-        action.triggered.connect(lambda: actions.similar())
-        menu.addAction(action)
-
+        items.append(Item("More like this", actions.similar,
+                          tip="Find other results with a similar meaning, using the vector "
+                              "already stored for this one."))
     if actions.explain is not None:
-        action = QAction("Why is this here?", parent)
-        action.setToolTip(
-            "Says, in plain words, what put this result on the page - your "
-            "words, meaning, how recent it is, whether you have opened it "
-            "before. Facts only; it never shows a score.")
-        action.triggered.connect(lambda: actions.explain())
-        menu.addAction(action)
-
+        items.append(Item(
+            "Why is this here?", actions.explain,
+            tip="Says, in plain words, what put this result on the page - your "
+                "words, meaning, how recent it is, whether you have opened it "
+                "before. Facts only; it never shows a score."))
     if actions.same_period is not None:
-        action = QAction("See everything from this month", parent)
-        action.setToolTip(
-            "Open your timeline at the month this file is from - photos, files and "
-            "mail from then, wherever they are kept now.")
-        action.triggered.connect(lambda: actions.same_period())
-        menu.addAction(action)
-
+        items.append(Item(
+            "See everything from this month", actions.same_period,
+            tip="Open your timeline at the month this file is from - photos, files and "
+                "mail from then, wherever they are kept now."))
     if actions.find_copies is not None and _is_a_file_on_disk(path, actions.row):
-        action = QAction("Find copies of this…", parent)
-        action.setToolTip(
-            "Open Tidy on this file's copies on this computer - and its similar photos, for a "
-            "picture - with nothing marked, so you choose what goes.")
-        action.triggered.connect(lambda: actions.find_copies())
-        menu.addAction(action)
+        items.append(Item(
+            "Find copies of this…", actions.find_copies,
+            tip="Open Tidy on this file's copies on this computer - and its similar photos, for a "
+                "picture - with nothing marked, so you choose what goes."))
+    # Actions only one list has - each is about more than this one file, so last of its group.
+    for label, tip, callback in actions.extra:
+        items.append(Item(label, callback, tip=tip))
 
-    menu.addSeparator()
-
-    copy_path = QAction("Copy path", parent)
-    copy_path.triggered.connect(lambda: _copy_path(path, actions.row))
-    menu.addAction(copy_path)
-
+    copy_path = lambda: _copy_path(path, actions.row)                     # noqa: E731
+    if several:
+        copy_path = lambda: copy_paths(many)                                # noqa: E731
+    items.append(Item("Copy path", copy_path, group="copy", shortcut="Ctrl+C"))
     if actions.copy:
         # Given explicitly, so a caller that has better things to offer than a
         # basename can say so. Mail does: subject and sender.
         for label, text in actions.copy:
-            action = QAction(label, parent)
-            action.triggered.connect(lambda _checked=False, value=text: _copy(value))
-            menu.addAction(action)
+            items.append(Item(label, lambda value=text: _copy(value), group="copy"))
     else:
-        copy_name = QAction("Copy file name", parent)
-        copy_name.triggered.connect(lambda: _copy(Path(path).name))
-        menu.addAction(copy_name)
+        items.append(Item("Copy file name", lambda: _copy(Path(path).name), group="copy"))
 
-    if actions.extra:
-        menu.addSeparator()
-        for label, tip, callback in actions.extra:
-            action = QAction(label, parent)
-            action.setToolTip(tip)
-            action.triggered.connect(lambda _checked=False, run=callback: run())
-            menu.addAction(action)
+    if actions.pin is not None:
+        items.append(Item("Pin", actions.pin, group="remember"))
 
-    if actions.missing and actions.reindex is not None:
-        menu.addSeparator()
-        action = QAction("File is missing - re-index this folder", parent)
-        action.triggered.connect(lambda: actions.reindex())
-        menu.addAction(action)
+    return build(parent, items)
 
-    return menu
+
+#: How many folders one "Show in folder" opens for a selection, at most. Each is a
+#: window of its own; a thousand selected files across a drive must not open a
+#: thousand Explorer windows. Fixed, not a setting: a person who wants more selects
+#: fewer at a time. Evidence that would change it: somebody asking for more.
+REVEAL_AT_MOST = 10
+
+
+def _reveal_each(pairs: list, reveal_one: Callable[[str, Any], None]) -> None:
+    """Show each selected line in its folder - one window a folder, `REVEAL_AT_MOST` at most."""
+    import posixpath
+
+    seen: set[str] = set()
+    for path, row in pairs:
+        folder = posixpath.dirname(str(path).replace(chr(92), "/")).casefold()
+        if folder in seen:
+            continue
+        seen.add(folder)
+        reveal_one(path, row)
+        if len(seen) >= REVEAL_AT_MOST:
+            return
+
+
+def copy_paths(pairs: list) -> None:
+    """Every selected line's path on the clipboard, one a line - Copy path and Ctrl+C.
+
+    `pairs` is `(path, row)`. A file on a catalogued drive is copied as its real
+    path (`workers.copy_paths_async`), as one line's Copy path always was.
+    """
+    pairs = [(str(path), row) for path, row in pairs if path]
+    if not pairs:
+        return
+    if len(pairs) == 1:
+        _copy_path(*pairs[0])
+        return
+    if any(getattr(row, "volume_id", None) is not None for _path, row in pairs):
+        from app.ui.workers import copy_paths_async
+
+        copy_paths_async([row if row is not None else path for path, row in pairs])
+        return
+    _copy("\n".join(path for path, _row in pairs))
+
+
+def table_pairs(table: Any, path_of: str = "path") -> list:
+    """`(path, row)` for every selected line of a `ResultTable` - what `copy_paths` and
+    `FileActions.selected` take. `path_of` names the row's path attribute."""
+    return [(str(getattr(row, path_of, "") or ""), row) for row in table.selected_objects()]
 
 
 def _search_inside_words(row: Any) -> str:
@@ -281,35 +310,10 @@ def _copy(text: str) -> None:
 
 
 def show_for(widget: Any, point: Any, path: str, actions: FileActions) -> None:
-    """Pop the menu at the cursor. The one line a view needs to call.
+    """Pop the menu at the pointer. The one line a view needs to call.
 
-    `point` stays widget-relative here - `mapToGlobal` on the view is what
-    places the popup correctly. Only the *row lookup* needs the viewport, which
-    is what `viewport_point` below is for.
+    `point` is the `customContextMenuRequested` point as Qt gives it - in the
+    viewport's coordinates on a list - and `menus.show` places it by the one
+    rule (`menus.global_point`).
     """
-    menu = build_menu(widget, path, actions)
-    open_menu(menu, widget.mapToGlobal(point))
-
-
-def viewport_point(view: Any, point: Any) -> Any:
-    """Convert a `customContextMenuRequested` point into viewport coordinates.
-
-    **This is why right-click appeared not to work.** The signal delivers a
-    point relative to the *widget*; `itemAt`, `rowAt` and `indexAt` all expect
-    the *viewport*. Between them sits the header and the frame - about 25
-    pixels on a table.
-
-    So the lookup was consistently one row low. Right-clicking the first row
-    acted on the second, and right-clicking the last row produced a y past the
-    end of the viewport, `rowAt` returned -1, and the handler returned without
-    showing anything. Reported as "right click menu don't work", and from the
-    outside that is exactly what it looks like: sometimes the wrong thing,
-    sometimes nothing.
-
-    Both symptoms are the same missing line, which is the argument for it being
-    a named function that every view calls rather than a `- 25` somewhere.
-    """
-    viewport = view.viewport()
-    if viewport is None or viewport is view:
-        return point
-    return viewport.mapFrom(view, point)
+    show(build_menu(widget, path, actions), widget, point)

@@ -30,6 +30,11 @@ from app.storage.sqlite_store import SqliteStore
 
 OWNER = "me@home.example"
 
+#: Order 1s D1 (2026-10-12): enrichment reads only the last six months of mail by default. These tests are
+#: about the sources, not the window (test_enrich_window.py has that), and their mail is dated 2026 - it
+#: would age out as the calendar moves - so they read mail of any age.
+ANY_AGE = {"enrich_max_months": 0}
+
 
 def epoch(y, m, d):
     return timegm((y, m, d, 12, 0, 0))
@@ -107,7 +112,7 @@ def test_nothing_changes_until_a_proposal_is_accepted(hub):
     seed(hub, "Ann Lee <ann@acme-widgets.co.uk>", SIGNED, sent=epoch(2026, 9, 1))
     before = hub.get_card(cid).to_json()
     journal_before = len(hub.history(cid))
-    props = enrich_selection(hub, AccountSettings(), [cid])
+    props = enrich_selection(hub, AccountSettings(**ANY_AGE), [cid])
     assert props
     assert hub.get_card(cid).to_json() == before and len(hub.history(cid)) == journal_before
     assert hub.sources(cid) == {}
@@ -375,7 +380,7 @@ def test_a_local_source_that_is_switched_off_is_not_run(hub):
     seed(hub, "Ann Lee <ann@acme-widgets.co.uk>", SIGNED, sent=epoch(2026, 1, 1))
     off = AccountSettings(enrich_signatures=False, enrich_company=False, enrich_faces=False)
     assert enrich_selection(hub, off, [cid]) == []
-    only_sig = AccountSettings(enrich_company=False, enrich_faces=False)
+    only_sig = AccountSettings(enrich_company=False, enrich_faces=False, **ANY_AGE)
     assert {p.source for p in enrich_selection(hub, only_sig, [cid])} == {"signature"}
 
 

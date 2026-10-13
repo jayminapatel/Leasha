@@ -35,8 +35,8 @@ from app.ui.widgets.photo_info import PhotoInfo
 # worker (`read_library`, `read_the_box`, `arrange_rows`) live in photo_page_parts, and
 # the pure sorting step in `presenter.photos.arrange`, to keep this view under the 250
 # lines test_presenter allows a view.
-from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, follow_index, arrange_rows, photo_menu,
-                                             open_viewer, read_library, read_the_box, same_day_box,
+from app.ui.widgets.photo_page_parts import (STATE_KEYS, ViewButton, follow_index, arrange_rows, page_menu,
+                                             open_viewer, read_library, read_the_box,
                                              tree_toggle)
 from app.ui.widgets.photo_sidebar import PhotoSidebar
 from app.ui.widgets.photo_thumbs import ThumbLoader
@@ -99,6 +99,7 @@ class PhotosView(QWidget):
         self.browser.selection_changed.connect(self._selection)
         self.browser.opened.connect(self.view_photo)
         self.browser.menu_requested.connect(self._menu)
+        self.browser.preview_requested.connect(self._flip_info)
         self._position = self.browser.position  # "n of total", for the viewer's caption
         self.info = PhotoInfo(store)
         self.info.open_requested.connect(self._open)
@@ -252,14 +253,11 @@ class PhotosView(QWidget):
         open_viewer(self, row)                  # one viewer; its neighbours read ahead
 
     def _menu(self, row: Any, point: Any) -> None:
-        day = same_day_box(row)
-        menu = photo_menu(
-            self, row, view=lambda: self.view_photo(row), open_file=lambda: self._open(row),
-            reveal=lambda: self._reveal(row),
-            name=(lambda: self.show_naming()) if row.faces else None,
-            write=lambda: self.write_names(selected_only=True),
-            same_day=(lambda: self.input.setText(day)) if day else None)
-        open_menu(menu, point)
+        open_menu(page_menu(self, row), point)          # `point` is global already
+
+    def _flip_info(self) -> None:
+        """Space on a photo: the info panel, shown or put away - this page's preview."""
+        self.show_info(self.info.isHidden())
 
     # -- naming, and writing names into photos ---------------------------------------
 

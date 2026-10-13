@@ -282,7 +282,10 @@ class TimelineList(QListView):
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._on_context_menu)
-        self.doubleClicked.connect(lambda _index: self._open_current())
+        # Double-click and Enter open, from one signal; Ctrl+C copies (`list_keys`).
+        from app.ui.widgets import list_keys
+
+        list_keys.install(self, default=self._open_current, copy=self._copy_current)
         self.verticalScrollBar().valueChanged.connect(self._maybe_more)
         self._cell = 0
         self._pictures: "OrderedDict[str, Optional[QPixmap]]" = OrderedDict()
@@ -413,7 +416,7 @@ class TimelineList(QListView):
         super().mousePressEvent(event)
 
     def keyPressEvent(self, event: Any) -> None:                  # noqa: N802
-        """Left/Right move within a band; Enter opens; everything else is Qt's."""
+        """Left/Right move within a band; everything else is Qt's (Enter is `list_keys`)."""
         block = self.currentIndex().data(ROLE_BLOCK) if self.currentIndex().isValid() else None
         key = event.key()
         if block is not None and block.kind == "band" and key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
@@ -421,15 +424,20 @@ class TimelineList(QListView):
             self._cell = max(0, min(len(block.folds) - 1, self._cell + step))
             self.viewport().update()
             return
-        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            self._open_current()
-            return
         super().keyPressEvent(event)
 
-    def _open_current(self) -> None:
+    def _open_current(self, *_index: Any) -> None:
+        """A double-click or Enter (`activated`): the photo in a band is the cell pressed or moved to."""
         fold = self.current_fold()
         if fold is not None:
             self.opened.emit(fold.head)
+
+    def _copy_current(self) -> None:
+        from app.ui.widgets.file_menu import copy_paths
+
+        fold = self.current_fold()
+        if fold is not None:
+            copy_paths([(fold.head.real_path or fold.head.path, fold.head)])
 
     def _on_context_menu(self, point: Any) -> None:
         """Right-click: select the row and hand the fold and the global point to the view."""
@@ -437,4 +445,6 @@ class TimelineList(QListView):
         fold = self._fold_at(index, point.x())
         if fold is not None:
             self.setCurrentIndex(index)
-            self.menu_requested.emit(fold, self.viewport().mapToGlobal(point))
+            from app.ui.widgets.menus import global_point
+
+            self.menu_requested.emit(fold, global_point(self, point))

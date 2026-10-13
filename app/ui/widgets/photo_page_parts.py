@@ -258,6 +258,17 @@ def photo_menu(parent: QWidget, row: Any, *, view: Callable[[], None],
     if same_day is not None:
         extra.append(("Photos from the same day", "Narrow to the day this was taken",
                       same_day))
+    # A double-click views the photo, so View is the menu's first line, in bold.
     return build_menu(parent, str(row.path), FileActions(
-        open_file=open_file, reveal=reveal, view=view, row=row,
+        open_file=open_file, reveal=reveal, view=view, row=row, default="view",
         copy=[("Copy name", PurePath(row.path).name)], extra=extra))
+
+
+def page_menu(page: Any, row: Any) -> QMenu:
+    """`photo_menu` for one photo on the Photos page, wired to the page's own actions."""
+    day = same_day_box(row)
+    return photo_menu(
+        page, row, view=lambda: page.view_photo(row), open_file=lambda: page._open(row),
+        reveal=lambda: page._reveal(row), name=(lambda: page.show_naming()) if row.faces else None,
+        write=lambda: page.write_names(selected_only=True),
+        same_day=(lambda: page.input.setText(day)) if day else None)

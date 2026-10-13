@@ -53,7 +53,6 @@ from PySide6.QtWidgets import (
     QHeaderView,
     QLabel,
     QLineEdit,
-    QMenu,
     QPushButton,
     QSpinBox,
     QTableWidget,
@@ -67,7 +66,7 @@ from app.ui.widgets.result_table import align_headers
 from app.ui.widgets.buttons import style_all
 from app.ui.widgets.confirm import confirm
 from app.ui.widgets.number_field import fit_all as fit_number_fields
-from app.ui.qtsip import open_menu
+from app.ui.widgets import list_keys, menus
 from app.ui.theme import theme_colours
 
 __all__ = ["FileTypesEditor", "EditFileTypeDialog"]
@@ -276,8 +275,10 @@ class FileTypesEditor(QGroupBox):
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table.customContextMenuRequested.connect(self._menu_at)
         # Double-click is what people try first on a table of settings, and it
-        # used to do nothing whatsoever.
-        self.table.cellDoubleClicked.connect(lambda row, _column: self.edit_row(row))
+        # used to do nothing whatsoever. Enter does the same, from the same signal;
+        # Delete removes a type this machine added, as the menu's last line does
+        # (`list_keys`).
+        list_keys.install(self.table, default=self._edit_index, delete=self._remove_current)
         # Otherwise scrolling the Settings page stops dead the moment the
         # pointer crosses this table - see no_scroll.ViewWheelGuard.
         protect_view(self.table)
@@ -761,30 +762,28 @@ class FileTypesEditor(QGroupBox):
             return
         extension = item.text().replace(" *", "").strip()
 
-        menu = QMenu(self)
         status = self._statuses.get(extension)
-
-        edit = menu.addAction(f"Edit {extension}...")
-        edit.triggered.connect(lambda _checked=False, r=row: self.edit_row(r))
-        menu.addSeparator()
-
+        lines = [menus.Item(f"Edit {extension}...", lambda r=row: self.edit_row(r), group="open",
+                            default=True, shortcut="Enter")]
         if status is not None and status.fix:
-            copy_fix = menu.addAction("Copy the fix command")
-            copy_fix.triggered.connect(
-                lambda _checked=False, text=status.fix: _to_clipboard(text)
-            )
-
+            lines.append(menus.Item("Copy the fix command", lambda text=status.fix: _to_clipboard(text),
+                                    group="copy"))
         if extension in self._added:
-            remove = menu.addAction(f"Remove {extension}")
-            remove.triggered.connect(
-                lambda _checked=False, ext=extension: self.remove_type(ext)
-            )
+            lines.append(menus.Item(f"Remove {extension}", lambda ext=extension: self.remove_type(ext),
+                                    group="danger", shortcut="Del"))
         else:
-            disabled = menu.addAction("Built in - cannot be removed here")
-            disabled.setEnabled(False)
+            lines.append(menus.Item("Built in - cannot be removed here", group="danger", enabled=False))
+        menus.show(menus.build(self, lines), self.table, point)
 
-        if not menu.isEmpty():
-            open_menu(menu, self.table.viewport().mapToGlobal(point))
+    def _edit_index(self, index: Any) -> None:
+        self.edit_row(index.row())
+
+    def _remove_current(self) -> None:
+        """Delete on the list: the menu's "Remove" for the current line, when it is offered."""
+        item = self.table.item(self.table.currentRow(), 1)
+        extension = item.text().replace(" *", "").strip() if item is not None else ""
+        if extension in self._added:
+            self.remove_type(extension)
 
     def remove_type(self, extension: str) -> None:
         """Drop a user-added route. Built-ins are not offered, because removing
