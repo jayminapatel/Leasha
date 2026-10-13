@@ -32,6 +32,7 @@ from app.ui.contacts_tools import actions
 from app.ui.contacts_tools._common import ToolDialog, btn, ink, make_table, named, plural
 from app.ui.widgets.icons import icon
 from app.ui.widgets.select_all import SelectBar
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["DuplicatesDialog", "PlanDialog"]
 
@@ -45,7 +46,7 @@ class PlanDialog(QDialog):
         self.setWindowTitle(title)
         self.setAccessibleName("What will be merged")
         self.resize(560, 420)
-        layout = QVBoxLayout(self)
+        layout = frame(self)                      # the one dialog frame (UI phase B)
         intro = QLabel(f"These {plural(len(steps), 'group')} will each become one contact. {why}")
         intro.setWordWrap(True)
         named(intro, "What this will do", "What this will do")

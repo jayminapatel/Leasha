@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (QComboBox, QDialog, QDialogButtonBox, QHBoxLayout
 from app.ui.contacts.logic import RULE_FIELDS, RULE_OPS, SMART_EXAMPLES
 from app.ui.contacts.parts import tool_button
 from app.ui.widgets.buttons import action_button, style_all
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["SmartDialog", "RuleRow"]
 
@@ -117,7 +118,7 @@ class SmartDialog(QDialog):
         self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.buttons.accepted.connect(self.accept)
         self.buttons.rejected.connect(self.reject)
-        layout = QVBoxLayout(self)
+        layout = frame(self)                      # the one dialog frame (UI phase B)
         layout.addWidget(QLabel("A contact is in this group when it matches every rule."))
         layout.addWidget(self.name_edit)
         layout.addWidget(self.examples)

@@ -213,11 +213,8 @@ _OWN_FRAME = {
     "app/ui/widgets/about_dialog.py": "the brand's clear space, the L's height (36/24)",
     "app/ui/widgets/photo_viewer.py": "a photo filling a window, not a dialog with a body",
 }
-#: Owned by the Contacts work in progress (branch ui/c-contacts) - to convert there.
-_CONTACTS_TO_DO = {
-    "app/ui/contacts/smart.py", "app/ui/contacts/person_photo.py",
-    "app/ui/contacts_tools/_common.py", "app/ui/contacts_tools/duplicates_dialog.py",
-}
+#: Every Contacts dialog is converted now (2026-10-13); the set stays so a new one is noticed.
+_CONTACTS_TO_DO: set[str] = set()
 
 
 def test_every_dialog_is_built_in_the_one_frame() -> None:
@@ -264,6 +261,9 @@ def test_a_dragged_divider_is_where_it_was_left_after_a_restart(qapp) -> None:
     split.splitterMoved.emit(200, 1)                      # what a drag of the handle sends
     qapp.processEvents()
     split._size_memory.save()                             # the settle timer, without the wait
+    # Saved once, not again `SETTLE_MS` later: the timer left running fired into a later test's
+    # patched state writer (`test_ui_one_app_settings_b`) after this page had been put away.
+    assert not split._size_memory._timer.isActive()
     _settle(qapp)
     assert store.rows[KEY_PREFIX + "Test:testSplit"] == ",".join(str(s) for s in split.sizes())
     page.hide()

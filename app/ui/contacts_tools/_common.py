@@ -33,6 +33,7 @@ from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import action_button
 from app.ui.widgets.icons import icon
 from app.ui.workers import CallableWorker, run
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = [
     "named", "btn", "Job", "idle", "ToolDialog", "CardList", "make_table", "kind_icon",
@@ -169,7 +170,7 @@ class ToolDialog(QDialog):
         self.setAccessibleName(title)
         self.setMinimumSize(560, 420)
         self.resize(*size)
-        root = QVBoxLayout(self)
+        root = frame(self)                        # the one dialog frame (UI phase B)
         head = QHBoxLayout()
         self.header_icon = QLabel()
         self.header_icon.setPixmap(pixmap(glyph, 28, "accent"))

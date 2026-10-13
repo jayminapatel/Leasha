@@ -14,11 +14,11 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget, QListWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QListWidget, QListWidgetItem)
 
 from app.contacts.card import Photo
 from app.ui.contacts import loader
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["pick_photo_from_person", "candidate_faces"]
 
@@ -47,7 +47,7 @@ def pick_photo_from_person(parent: Any, hub: Any, contact_id: Optional[int]) -> 
     dialog = QDialog(parent)
     dialog.setWindowTitle("Photo from my photos")
     dialog.setMinimumSize(460, 360)
-    layout = QVBoxLayout(dialog)
+    layout = frame(dialog)                        # the one dialog frame (UI phase B)
     note = QLabel("Looking for this person's photos...")
     note.setWordWrap(True)
     note.setAccessibleName("Photo picker status")
