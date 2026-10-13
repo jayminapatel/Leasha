@@ -334,6 +334,20 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     (`contact_sources`) to the survivor - they stay on the folded contact in the Bin, so a value it brought
     shows no source on the survivor until the merge is undone. Whether the survivor should inherit them is
     a product decision.
+  - *2026-10-13, accounts to 80%:* `test_cov_accounts_carddav.py` (22 tests, on the loopback CardDAV server),
+    `test_cov_accounts_graph_contacts.py` (25) and `test_cov_accounts_google_people.py` (21): the three contact
+    connectors' batches answering each contact on its own (conflict, refusal, already gone, a sign-in failure
+    stopping the batch), a refused batch sent one at a time, each CardDAV group card written once a batch and
+    retried once when it moved, `$batch` refused or throttled past its rounds, folders and labels over pages or
+    gone mid-walk, and single reads and writes whose refusal must not pass for success. Every test was red under
+    at least one of 107 hand breaks (26 CardDAV, 45 Graph, 36 Google), each undone; one more stayed green and is
+    not claimed (a second Graph web page cannot reach `_to_body`, which `project` cuts to one). **One fault
+    found and fixed:** Graph's one-property-at-a-time retry counted a 401 as that property refused, so an
+    expired sign-in sent every property of every contact and reported each as refused by Outlook; it now stops
+    the batch as the account's error (`app/accounts/providers/graph_contacts.py`). Branch coverage of
+    `app/accounts/`, the same 63-file selection (every `tests/unit` file that imports it) before and 66 after:
+    **78.8% -> 86.2%** (1,776 -> 1,944 of 2,254 -> 2,256 branches); `carddav.py` 68.0% -> 88.9%,
+    `graph_contacts.py` 68.3% -> 94.3%, `google_people.py` 74.6% -> 94.1%; nothing lower.
 - [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.

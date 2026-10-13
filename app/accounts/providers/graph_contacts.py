@@ -456,6 +456,11 @@ class GraphContactsProvider:
             elif resp.status in (409, 412, 404):
                 raise VersionConflict(remote_id)
             else:
+                # A sign-in that ran out (or a limit) is the account's, not this property's: stop here, as every
+                # other request would, rather than report the contact as refused (order 1u 4d).
+                err = _common.fail(resp, self._account, _COMPONENT, "update a contact")
+                if err.error.code in _common.ACCOUNT_WIDE:
+                    raise err
                 failed.append(name)
         if not written:
             raise self._fail(refused, "update a contact")
