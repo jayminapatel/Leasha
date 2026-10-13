@@ -263,9 +263,11 @@ QTextEdit, QPlainTextEdit, QTextBrowser {{
     padding: 9px 14px; font-size: {large};
 }}
 #searchBox:focus {{ border: 2px solid {focus_ring}; padding: 8px 13px; }}
-/* The same box in its opening state, centred and roomy. */
-#searchBox[empty_state="true"] {{ padding: 13px 18px; font-size: {large}; }}
-#searchBox[empty_state="true"]:focus {{ padding: 12px 17px; }}
+/* The same box in its opening state, centred and roomy - roomier at the sides
+   only (UI phase B): the box no longer moves between the two states, and a
+   taller opening box would still have shifted everything under it. */
+#searchBox[empty_state="true"] {{ padding: 9px 20px; font-size: {large}; }}
+#searchBox[empty_state="true"]:focus {{ padding: 8px 19px; }}
 /* **Two pixels of accent, not one.** A focus ring that only changes hue is
    invisible to somebody who cannot separate those hues, and hard to spot for
    everybody else on a dense screen. Width carries it as well as colour - the

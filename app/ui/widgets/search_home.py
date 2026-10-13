@@ -3,12 +3,15 @@ r"""The opening state of the Search page: one box, and what sits around it.
 Layer: L5
 
 UI Redesign (202626160950 §3a). With nothing typed, the page is a headline,
-the existing `first_contact.greeting` line, the search box at 640px, four
-suggested searches as pills, and the recent/saved rows
-`first_contact.sections()` already produces for the `/` popup - drawn here
-as a two-column list instead. **The box is the same `QLineEdit`**; this widget
-lends it a slot and hands it back to the toolbar on the first keystroke
-(`search_bar.build_toolbar` does the moving).
+the existing `first_contact.greeting` line, four suggested searches as pills,
+and the recent/saved rows `first_contact.sections()` already produces for the
+`/` popup - drawn here as a two-column list instead.
+
+**The box is not here.** It used to be lent to a slot in this page and taken
+back by the toolbar on the first keystroke, so it jumped every time the box
+went empty or stopped being empty (UI phase B, owner, 2026-10-13). It now lives
+at the top of the Search page in both states and this page is drawn under it;
+`BOX_WIDTH` is the ceiling `search_bar.build_toolbar` gives it while empty.
 
 Nothing here reads the store: the greeting's count is pushed in by the window
 from the Indexing page's totals worker, and the recent rows come from lists
@@ -21,7 +24,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QGridLayout, QHBoxLayout, QLabel, QToolButton, QVBoxLayout, QWidget,
+    QGridLayout, QLabel, QToolButton, QVBoxLayout, QWidget,
 )
 
 from app.ui.first_contact import SUGGESTIONS, greeting
@@ -46,9 +49,9 @@ class SearchHome(QWidget):
         self._sections = sections
 
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(24, 40, 24, 40)
+        outer.setContentsMargins(24, 28, 24, 40)
         outer.setSpacing(18)
-        outer.addStretch(2)
+        outer.addStretch(1)
 
         self.headline = QLabel(HEADLINE)
         self.headline.setObjectName("emptyHeadline")
@@ -59,13 +62,6 @@ class SearchHome(QWidget):
         self.greeting.setObjectName("emptyGreeting")
         self.greeting.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(self.greeting)
-
-        # The box's slot. `lend()` puts the QLineEdit here; `reclaim` is the
-        # toolbar's business.
-        self.slot = QHBoxLayout()
-        self.slot.addStretch(1)
-        self.slot.addStretch(1)
-        outer.addLayout(self.slot)
 
         # **Wrapping, not squeezing** (order 0x section 9, review finding 14).
         # In a `QHBoxLayout` the four pills were squeezed below their words on
@@ -101,7 +97,7 @@ class SearchHome(QWidget):
         self._recent_layout.setContentsMargins(0, 8, 0, 0)
         self._recent_layout.setSpacing(6)
         outer.addWidget(self.recent, 0, Qt.AlignmentFlag.AlignHCenter)
-        outer.addStretch(3)
+        outer.addStretch(4)
 
     # -- sizing -----------------------------------------------------------------
 
@@ -126,18 +122,6 @@ class SearchHome(QWidget):
     def set_count(self, count: Optional[int]) -> None:
         """`first_contact.greeting`, verbatim, in the slot under the headline."""
         self.greeting.setText(greeting(count))
-
-    def lend(self, box: QWidget) -> None:
-        """Put the search box in this page's slot, centred, at `BOX_WIDTH`."""
-        box.setMaximumWidth(BOX_WIDTH)
-        box.setProperty("empty_state", True)
-        box.style().unpolish(box)
-        box.style().polish(box)
-        # A stretch far above the two flanks': at equal weights the box got a
-        # third of the page, so on a 1100px window it was 316px wide and its
-        # placeholder was cut off mid-word. `BOX_WIDTH` is a ceiling; below it
-        # the box takes what there is (found by reading the 1100x760 golden).
-        self.slot.insertWidget(1, box, 100)
 
     def refresh(self) -> None:
         """Redraw the recent/saved rows from lists already in memory."""

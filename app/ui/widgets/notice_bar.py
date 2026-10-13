@@ -28,15 +28,19 @@ mistake inside the fix for it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable
 from typing import Any
 
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QTextDocument
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QWidget
 
 from app.ui.presenter import notice_line
 
 __all__ = ["NoticeBar"]
+
+_FIRST_LINK = re.compile(r"<a\s[^>]*>.*?</a>", re.IGNORECASE | re.DOTALL)
 
 
 class NoticeBar(QWidget):
@@ -66,6 +70,15 @@ class NoticeBar(QWidget):
             | Qt.TextInteractionFlag.LinksAccessibleByMouse)
         self.label.setOpenExternalLinks(False)
         self.label.linkActivated.connect(self.chosen.emit)
+        # On one line (`retain_line`) a link past the cut would be out of reach, so
+        # the notice's first link is repeated here, beside the dismiss button.
+        self.action = QLabel("")
+        self.action.setObjectName("statWarn")
+        self.action.setTextFormat(Qt.TextFormat.RichText)
+        self.action.setOpenExternalLinks(False)
+        self.action.linkActivated.connect(self.chosen.emit)
+        self.action.hide()
+        self._one_line = False
 
         self.close_button = QPushButton("Dismiss")
         self.close_button.setToolTip(
@@ -84,6 +97,7 @@ class NoticeBar(QWidget):
         row.setContentsMargins(0, 0, 0, 4)
         row.setSpacing(8)
         row.addWidget(self.label, 1)
+        row.addWidget(self.action, 0)
         row.addWidget(self.close_button, 0)
 
         self.setAccessibleName("Search notices")
@@ -108,7 +122,44 @@ class NoticeBar(QWidget):
         # decides is whether to be visible, and that follows from the text.
         text = notice_line(items)
         self.label.setText(text)
+        # On one line (`retain_line`) the end of a long notice is cut off, so
+        # the whole of it is one hover away. Harmless where the bar wraps.
+        self.setToolTip(text)
         self.setVisible(bool(text))
+        self._place_action()
+
+    def _place_action(self) -> None:
+        """Show the first link beside the bar when the one line cuts the text short."""
+        link = _FIRST_LINK.search(self.label.text()) if self._one_line else None
+        if link is None:
+            self.action.hide()
+            return
+        plain = QTextDocument()
+        plain.setHtml(self.label.text())
+        cut = self.label.fontMetrics().horizontalAdvance(plain.toPlainText()) > self.label.width()
+        self.action.setText(link.group(0))
+        self.action.setVisible(cut)
+
+    def resizeEvent(self, event: Any) -> None:                  # noqa: N802 - Qt's name
+        super().resizeEvent(event)
+        self._place_action()
+
+    def retain_line(self) -> None:
+        """One line, the same height shown or hidden - UI phase B, 2026-10-13.
+
+        For a bar that sits above a list somebody is reading: a notice arriving
+        after the rows were painted (a filter offer from its worker, the
+        finished tier's spelling note) used to grow the bar and push every row
+        down. Kept to one line and its height kept while hidden, it cannot.
+        """
+        self._one_line = True
+        self.label.setWordWrap(False)
+        self.label.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        self.layout().setContentsMargins(0, 0, 0, 0)
+        policy = self.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        policy.setRetainSizeWhenHidden(True)
+        self.setSizePolicy(policy)
 
     def _dismiss(self) -> None:
         """Hide, and say so - a view may stop re-showing the same notice."""

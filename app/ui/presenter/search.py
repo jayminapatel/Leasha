@@ -5,6 +5,7 @@ Layer: L5. Part of the presenter package; imports no Qt.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -197,21 +198,55 @@ def results_message(response: Any) -> tuple[str, str]:
     return summary, semantic_health(response) or ""
 
 
-def status_line(response: Any) -> str:
-    """The line under the search box: how many, how fast, and with what caveats.
+def status_line(response: Any, shown: Optional[int] = None) -> str:
+    """The line under the search box: how many documents, in plain words.
 
-    **The caveats are the point.** "12 results" beside a list that is still
-    being reranked is a different claim from "12 results" beside a finished one,
-    and a cached result that looks identical to a fresh one is how somebody
-    concludes the index is not picking up their new files. Each qualifier is
-    there because leaving it out would let the line say something untrue.
+    UI phase B (owner, 2026-10-13). It said *"37 result(s) · 212ms · keyword
+    only, still searching… · reranked"* - passages counted as results, and four
+    pieces of machinery nobody searching for their homework can act on. It now
+    counts what the list shows: *"9 documents"*, *"1 document"*, and while the
+    keyword tier is still out, *"Still searching…"*. The timing and the
+    qualifiers moved to `status_details`, the line's tooltip, because they are
+    still true and still worth having one hover away.
+
+    `shown` is the number of rows the list actually drew, when the caller knows
+    it: folding a mail with its attachments makes three files one row, and the
+    line must agree with the list under it. Without it, distinct files are
+    counted, which is what the list draws before the mail details arrive.
     """
-    bits = [
-        f"{len(getattr(response, 'results', []) or [])} result(s)",
-        f"{getattr(response, 'elapsed_ms', 0) or 0:.0f}ms",
-    ]
+    count = shown if shown is not None else _documents_in(getattr(response, "results", None))
+    return documents_line(count, interim=bool(getattr(response, "interim", False)))
+
+
+def documents_line(count: int, *, interim: bool = False) -> str:
+    """`9 documents`, `1 document`, and the still-searching words. Shared so a
+    recount (the list folded further) says it the same way."""
+    count = max(0, int(count or 0))
+    if not count:
+        return "Still searching…" if interim else "No documents"
+    words = "1 document" if count == 1 else f"{count:,} documents"
+    return f"{words}  ·  Still searching…" if interim else words
+
+
+def _documents_in(results: Any) -> int:
+    """Distinct files among `results` - a document matching in five places is one."""
+    seen = set()
+    for result in results or ():
+        seen.add(getattr(result, "file_id", None) or getattr(result, "path", None) or id(result))
+    return len(seen)
+
+
+def status_details(response: Any) -> str:
+    """The status line's tooltip: what the line no longer says aloud.
+
+    **The caveats still matter**, which is why they moved rather than went: a
+    cached answer that looks identical to a fresh one is how somebody concludes
+    the index is not picking up their new files, and the hover is where the
+    person who wonders finds out.
+    """
+    bits = [f"{getattr(response, 'elapsed_ms', 0) or 0:.0f}ms"]
     if getattr(response, "interim", False):
-        bits.append("keyword only, still searching…")
+        bits.append("keyword results so far, the full search is still running")
     if getattr(response, "from_cache", False):
         bits.append("cached")
     if getattr(response, "reranked", False):
@@ -253,15 +288,17 @@ def semantic_health(response: Any) -> Optional[str]:
     """A sentence for the status bar when meaning-based search is not working.
 
     None when it is fine. The condition - keyword results but no vector results -
-    is not something a person can infer from a results list, and the fix is a
-    single command, so saying it is far better than letting the results quietly
-    be worse than they should be.
+    is not something a person can infer from a results list, so it is said.
+
+    **No command line in the window** (UI phase B, owner-approved wording,
+    2026-10-13). It ended *"Check it with: app.cli stats"*, an instruction for a
+    terminal the person at the window does not have open; the Code tab's
+    technical notice and `app.cli stats` itself still carry the check.
     """
     keyword = getattr(response, "keyword_count", 0) or 0
     vector = getattr(response, "vector_count", 0) or 0
     if keyword and not vector:
-        return ("Keyword results only - meaning-based search returned nothing. "
-                "Check it with: app.cli stats")
+        return "Meaning-based search found nothing; keyword results are shown."
     return None
 
 
@@ -621,3 +658,53 @@ def unanswered(chips: Any, applied: Any) -> tuple:
     covered = {field for chosen in applied or ()
                for field in _ANSWERED_BY.get(getattr(chosen, "kind", ""), ())}
     return tuple(chip for chip in chips or () if chip.field not in covered)
+
+
+# ---------------------------------------------------------------------------
+# UI phase B - the Sort control, over the one sort there is
+# ---------------------------------------------------------------------------
+
+#: `(label, value)`: the Sort control's choices (owner-approved words, 2026-10-13).
+#: `value` is what `ParsedQuery.sort` holds; `""` is relevance order.
+SORT_CHOICES: tuple[tuple[str, str], ...] = (
+    ("Best match", ""), ("Newest", "newest"), ("Oldest", "oldest"), ("Name", "name"),
+)
+
+#: What each value is written as in the box - the same switches a person types.
+_SORT_TYPED = {"newest": "/newest", "oldest": "/oldest", "name": "/sort name"}
+
+#: Every way a sort can already be written, slash or colon, so choosing one
+#: replaces it rather than leaving two that disagree.
+_SORT_WRITTEN = re.compile(
+    r"(?:(?<=\s)|^)(?:/(?:newest|latest|oldest)\b|/sort(?:\s+[^\s/]+)?|"
+    r"(?:sort|newest|latest|oldest):\S*)", re.IGNORECASE)
+
+
+def sort_in(text: str) -> str:
+    """The sort the box's text asks for, read by the parser the search uses.
+
+    **Not a second reading of the grammar.** `/newest` and `sort:name` mean what
+    `parse_query` says they mean; the control only shows that. Never raises.
+    """
+    from app.search.commands import expand_slashes
+    from app.search.query import parse_query
+
+    try:
+        return str(parse_query(expand_slashes(str(text or ""))).sort or "")
+    except Exception:                                   # noqa: BLE001 - a label, not a search
+        return ""
+
+
+def with_sort(text: str, value: str) -> str:
+    r"""`text` with its sort switch replaced by `value`'s, or removed for best match.
+
+    **The Sort control writes into the box** rather than holding a sort of its
+    own. One sort exists - `ParsedQuery.sort`, set by the typed `/newest` - and a
+    control that sorted on the side would be a second system: two places that
+    could disagree, a notice saying "Remove /newest" about a switch nobody
+    typed, and a saved search that lost the order it was saved with.
+    """
+    # Only the switch goes: `split()` would also squeeze the spaces inside a quoted
+    # filter (`name:"Project  Plan"`) and change what it matches (review of #74).
+    kept = re.sub(r"\s*\x00\s*", " ", _SORT_WRITTEN.sub("\x00", str(text or ""))).strip()
+    return f"{kept} {_SORT_TYPED.get(value, '')}".strip()

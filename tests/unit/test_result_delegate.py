@@ -676,43 +676,16 @@ def test_sizehint_stays_one_line_tall_at_compact_density():
 
 
 # ---------------------------------------------------------------------------
-# Item 3a: real file icons, cached per extension
+# Item 3a, superseded by UI phase B (owner, 2026-10-13): the badge shows its
+# word or an icon, not both - the word stayed, the shell's corner icon went.
 # ---------------------------------------------------------------------------
 
 def test_the_bracketed_kind_tag_is_gone_from_the_painted_row():
-    """The `[PDF]` text tag gives way to a real icon - item 3a."""
+    """No `[PDF]` text tag, and no shell icon in the badge's corner either."""
     source = DELEGATE.read_text(encoding="utf-8")
     body = source.split("def _paint_group")[1].split("\n    def ")[0]
     assert "[{kind_tag" not in body
-    assert "_icon_for" in body
-
-
-def test_an_icon_is_cached_after_the_first_lookup():
-    from app.ui.result_delegate import _icon_for, _ICON_CACHE
-
-    _ICON_CACHE.clear()
-    first = _icon_for("pdf")
-    assert "pdf" in _ICON_CACHE
-    second = _icon_for("pdf")
-    assert first is second, "a second lookup for the same kind must not re-ask the shell"
-
-
-def test_an_unknown_kind_still_returns_a_usable_icon():
-    from app.ui.result_delegate import _icon_for
-
-    icon = _icon_for("sevenzip")
-    assert icon is not None
-    assert not icon.isNull()
-
-
-def test_mail_gets_its_own_icon_rather_than_a_generic_one():
-    """`.eml` is a real extension the shell recognises - mail should not fall
-    back to the generic-file icon every other unrecognised kind gets."""
-    from app.ui.result_delegate import _icon_for, _ICON_CACHE
-
-    _ICON_CACHE.clear()
-    mail_icon = _icon_for("email")
-    assert not mail_icon.isNull()
+    assert "_icon_for" not in body and "_paint_badge(" in body
 
 
 def test_the_kind_word_still_reaches_the_tooltip_and_accessible_text():
@@ -873,13 +846,14 @@ def test_hover_never_wins_over_selection():
 def test_the_terminator_is_appended_after_every_rebuild():
     text = RESULTS_VIEW.read_text(encoding="utf-8")
     body = text.split("def _rebuild")[1].split("\n    def ")[0]
-    assert "_append_terminator" in body
+    # Inlined (UI phase B) when the count it carries became the status line's too.
+    assert "terminator_item(" in body
     assert "results_terminator" in body
 
 
 def test_the_terminator_row_is_not_selectable():
     # Built in `widgets/results_items.py` since results_view.py reached the
-    # 250-line guard; `_append_terminator` is one call to it.
+    # 250-line guard; `_rebuild` makes one call to it.
     text = (RESULTS_VIEW.parent / "widgets" / "results_items.py").read_text(encoding="utf-8")
     body = text.split("def terminator_item(")[1].split("\n\n\ndef ")[0]
     assert "ItemIsSelectable" in body

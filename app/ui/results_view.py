@@ -280,8 +280,9 @@ class ResultsView(QWidget):
         # scrolling is what answers "are there more" - see `Terminator`.
         # It counts what is shown: grouped by file, one result per file, not one per passage -
         # three passages of one report said "3 results" under a single row (2026-10-12).
-        if self._rows:
-            self._append_terminator(results_terminator(len(groups if self._prefs.group_by_document else self._rows)), items)
+        # `shown` is also what the status line counts (UI phase B), so the two agree.
+        self.shown = len(groups if self._prefs.group_by_document else self._rows) if self._rows else 0
+        if self.shown: items.append(terminator_item(results_terminator(self.shown)))
         refill(self, items, anchor)
 
         if bar is not None:
@@ -293,10 +294,6 @@ class ResultsView(QWidget):
             payload, expanded=expanded, missing=self._missing,
             volumes=self._volumes, placeholders=self._placeholders,
             statuses=self._delegate.statuses))
-
-    def _append_terminator(self, text: str, items: list) -> None:
-        if text:
-            items.append(terminator_item(text))
 
     def clear(self, message: str = "") -> None:
         disarm_skeleton(self)                     # §6d

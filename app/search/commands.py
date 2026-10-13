@@ -334,7 +334,8 @@ COMMANDS: tuple[Command, ...] = (
         example="/newest",
         value_hint="no value needed - or /oldest for the other direction",
         icon="↓",
-        values=("newest", "oldest"),
+        # "name" since UI phase B: the Sort control's A-to-Z, as `/sort name`.
+        values=("newest", "oldest", "name"),
     ),
     Command(
         name="size",

@@ -94,6 +94,11 @@ class ResultRow:
     #: shows by then. None for a row no logged search produced: nothing is
     #: recorded for it.
     search_id: Optional[int] = None
+    #: The words this row was found by - UI phase B, 2026-10-13. The delegate
+    #: marks them in the row's *name* with the same `mark` ground the snippet
+    #: uses; the snippet's own highlights are offsets into the passage and
+    #: say nothing about the name.
+    terms: tuple = ()
 
     def as_dict(self) -> dict[str, Any]:
         """The row as plain data, for the debug recorder and tests."""
@@ -184,6 +189,7 @@ def to_row(result: Any, terms: Sequence[str], *, path_limit: int = 70,
                    else None),
         relative_path=str(getattr(result, "relative_path", "") or ""),
         search_id=search_id,
+        terms=tuple(str(term) for term in terms or ()),
     )
 
 
@@ -652,6 +658,12 @@ def group_subtitle(group: Any, *, show_scores: bool = False,
     if show_scores and best is not None:
         bits.append(f"{best.explain}  ·  score {group.score:.2f}")
     return "  ·  ".join(bit for bit in bits if bit)
+
+
+#: The word painted on a row whose file has gone, in the warning colour - UI
+#: phase B. Only the tooltip said so before, and nobody hovers over a row to
+#: learn that it will not open.
+MISSING_MARK = "Missing"
 
 
 def result_tooltip(payload: Any, *, missing: bool = False, volume_note: str = "",

@@ -13,6 +13,12 @@ with their icons, the accounts the contact is kept in as coloured dots, and "Ope
 is dropped by generation; no match, an empty book, a missing table or a failed read all leave
 the strip hidden and the results exactly as they were. The decision of *who* a query names is
 `app.contacts.activity.strong_matches`, so a test reads it without a window.
+
+**It never moves rows already painted** (UI phase B, owner, 2026-10-13). The card used to
+land a moment after the first rows and push them all down. Two things stop that: the pause is
+shorter than the keyword tier's (`LOOKUP_DEBOUNCE_MS`), so the card is normally in place before
+the first row is drawn; and an answer that lands after the rows for the same words is *held*
+(`rows_moved`) and shown with the next set of rows, which move anyway, never on its own.
 """
 
 from __future__ import annotations
@@ -35,9 +41,11 @@ __all__ = ["PersonInfo", "PersonCard", "PersonStrip", "lookup_people", "attach",
 
 _log = logger.bind(component="ui.person_card")
 
-#: Still time after the last keystroke before the contacts are read. A little after the
-#: keyword tier's 150 ms, so a name that is still being typed does not read the book each letter.
-LOOKUP_DEBOUNCE_MS = 250
+#: Still time after the last keystroke before the contacts are read. UI phase B: *under* the
+#: keyword tier's 150 ms (it was 250, just after it), so the card normally lands before the
+#: first row is painted instead of pushing it down. Still a pause, so a name being typed at
+#: speed does not read the book every letter; the read is on a worker either way.
+LOOKUP_DEBOUNCE_MS = 120
 PHOTO_SIDE = 44
 #: Cards shown at most. Two: a search for "Ann" that names three Anns is a search, not a card.
 MAX_CARDS = 2
@@ -230,6 +238,11 @@ class PersonStrip(QWidget):
         self._store = store
         self._generation = 0
         self._shown_for = ""
+        #: Rows have been painted since the last keystroke; a change now would push them.
+        self._painted = False
+        #: `(people, query)` that landed after the rows, waiting for them to change.
+        self._held: Optional[tuple] = None
+        self._rows_key: Any = None
         self.cards: list[PersonCard] = []
         self.person_timer = QTimer(self)
         self.person_timer.setSingleShot(True)
@@ -244,6 +257,9 @@ class PersonStrip(QWidget):
     def typed(self, _text: str = "") -> None:
         """The box changed: look again after the person pauses."""
         self._generation += 1                    # whatever is out there is stale now
+        # `_painted` stays: it is about the rows on screen, which are still there
+        # until the new ones replace them (`rows_moved`) - review of #74.
+        self._held = None
         if not self._query():
             self.person_timer.stop()
             self.clear()
@@ -274,10 +290,31 @@ class PersonStrip(QWidget):
     def _landed(self, people: Any, generation: int, query: str) -> None:
         if generation != self._generation:
             return
+        people = list(people or ())[:MAX_CARDS]
+        if [c.info.id for c in self.cards] == [p.id for p in people]:
+            self._shown_for = query if people else ""
+            return                               # nothing on screen would change
+        if self._painted:
+            self._held = (people, query)         # see `rows_moved`
+            return
+        self._apply(people, query)
+
+    def rows_moved(self, rows: Any) -> None:
+        """The results list redrew. If its rows changed, a held card may move with them.
+
+        A redraw of the same rows (the mail details arriving, a preference) is not a
+        change: showing the card then would be the push this exists to prevent.
+        """
+        key = tuple(getattr(row, "chunk_id", id(row)) for row in rows or ())
+        changed, self._rows_key = key != self._rows_key, key
+        if changed and self._held is not None:
+            held, self._held = self._held, None
+            self._apply(*held)
+        self._painted = bool(key)
+
+    def _apply(self, people: list, query: str) -> None:
         if not people:
             self.clear()
-            return
-        if query == self._shown_for and [c.info.id for c in self.cards] == [p.id for p in people]:
             return
         self.clear()
         self._shown_for = query
@@ -308,6 +345,9 @@ def attach(view: Any) -> PersonStrip:
     store = getattr(getattr(view, "_engine", None), "store", None)
     strip = PersonStrip(view.input.text, store, view)
     view.input.textChanged.connect(strip.typed)
+    results = getattr(view, "results", None)
+    if results is not None and hasattr(results, "rows_changed"):
+        results.rows_changed.connect(strip.rows_moved)
     view.person_strip = strip
     view.person_timer = strip.person_timer
     return strip

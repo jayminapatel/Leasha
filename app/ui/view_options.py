@@ -107,6 +107,11 @@ class ViewPreferences:
     #: menu. Nothing is hidden by it: the summary still counts messages, and a
     #: folded row says how many it stands for.
     group_by_conversation: bool = False
+    #: *2026-10-13, UI phase B (owner):* **on by default for the Search list**,
+    #: whose prefix is in `FOLD_BY_DEFAULT` below - a mail and its attachments
+    #: are one thing somebody received, and three rows for it is the list
+    #: moving under them. Mail keeps the default above. A choice already saved
+    #: is kept either way (`parse_prefs`).
     #: `{column key: pixels}` for columns somebody has dragged.
     #:
     #: **Empty means "fit to the contents", which is the starting state.** A
@@ -253,6 +258,16 @@ def row_height_for(density: str, font_height_px: int) -> int:
     return max(14, int(round(max(1, font_height_px) * multiplier)))
 
 
+#: Lists that fold a conversation - a mail with its attachments - until told
+#: otherwise. `ui:results` is the Search list (`shell.RESULTS_PREFS_KEY`).
+FOLD_BY_DEFAULT = frozenset({"ui:results"})
+
+
+def defaults_for(prefix: str) -> ViewPreferences:
+    """The preferences a list starts with before anything is saved for it."""
+    return ViewPreferences(group_by_conversation=prefix in FOLD_BY_DEFAULT)
+
+
 def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
     """Read one list's preferences out of `index_state`. Never raises.
 
@@ -298,7 +313,7 @@ def parse_prefs(state: Mapping[str, str], prefix: str) -> ViewPreferences:
         group_by_document=flag("group", True),
         show_scores=flag("scores", False),
         preview=flag("preview", False),
-        group_by_conversation=flag("conversations", False),
+        group_by_conversation=flag("conversations", prefix in FOLD_BY_DEFAULT),
         widths=tuple(sorted(widths)),
     )
 
@@ -327,7 +342,7 @@ def load_prefs(store: Any, prefix: str) -> ViewPreferences:
     try:
         return parse_prefs(store.all_state(), prefix)
     except Exception:                                # noqa: BLE001
-        return ViewPreferences()
+        return defaults_for(prefix)
 
 
 def save_prefs(store: Any, prefix: str, prefs: ViewPreferences) -> bool:
