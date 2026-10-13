@@ -242,10 +242,34 @@ def _clip_towers_or_reason(cache_dir: Optional[str] = None):
     return _TOWERS, None
 
 
+def _model_cache(config, tmp_path_factory) -> str:
+    r"""Where the two real towers are kept between runs.
+
+    **Order 1u, 2026-10-13: the 108 s was the download, not the test.** The
+    cache used to be a fresh temporary folder, so every run fetched both CLIP
+    towers from the Hugging Face hub again before indexing two pictures. The
+    models are still the real ones, loaded through the same `ClipImageEmbedder`
+    and `Embedder`; only a second download of the same files is gone.
+
+    `LEASHA_REAL_EMBED_CACHE` first, the convention `test_picture_model_threads.py`
+    already uses for a folder that holds the real models; then pytest's own
+    cache folder (`.pytest_cache`, ignored by git, so never the owner's
+    `D:\LeashaIndex\Data`); a temporary folder only when pytest runs without
+    its cache, which downloads as before.
+    """
+    named = os.environ.get("LEASHA_REAL_EMBED_CACHE", "")
+    if named:
+        return named
+    cache = getattr(config, "cache", None)
+    if cache is not None:
+        return str(cache.mkdir("clip_lane_models"))
+    return str(tmp_path_factory.mktemp("model_cache"))
+
+
 @pytest.fixture(scope="module")
-def clip_towers(tmp_path_factory):
+def clip_towers(request, tmp_path_factory):
     towers, reason = _clip_towers_or_reason(
-        cache_dir=str(tmp_path_factory.mktemp("model_cache")))
+        cache_dir=_model_cache(request.config, tmp_path_factory))
     if towers is None:
         pytest.skip(reason)
     return towers

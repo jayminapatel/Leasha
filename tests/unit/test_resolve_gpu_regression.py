@@ -10,8 +10,27 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from app.core.compute_profile import ComputeProfile, GpuAdapter, PROFILE_STATE_KEY
+from app.index import resolve
 from app.index.resolve import resolve_for_run
+
+
+@pytest.fixture(autouse=True)
+def _this_machine_is_already_tested(monkeypatch):
+    r"""No real device test inside a resolve.
+
+    **119 s for four tests (order 1u, 2026-10-13).** `resolve_for_run` first calls
+    `test_this_machine_if_new`, and `_Settings` below has no `state_path`, so the
+    stored result can never be found and every call counted as an untested
+    machine. On a laptop with a usable graphics card each of the four calls then
+    ran every model on the processor and the card for real - about 30 s each - and
+    the result was saved nowhere. What this file checks is the lost-provider
+    notice; the once-per-machine test is pinned in `test_model_devices.py`
+    (`test_a_run_tests_an_untested_machine_only_when_run_models_on_is_automatic`).
+    """
+    monkeypatch.setattr(resolve, "test_this_machine_if_new", lambda settings: False)
 
 
 class _Store:

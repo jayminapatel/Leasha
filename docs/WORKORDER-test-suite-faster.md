@@ -158,10 +158,44 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   *2026-10-13: **64 s -> 31 s** (-52%).* Its ~30 pipeline runs used the default `ResourceLimits` (pause over 80% CPU, 10 s quiet to resume, below-normal priority, a real system probe). They now go through one `_pipeline` with `test_file_watch._pipeline`'s limits and a governor on a fixed `Snapshot`; the fake `pypff` tree, the stops and every comparison are unchanged. Red-checked: never loading the archive cursor turned five tests red (`[5]`, `[6]`, `[8]`, `[9]`, the killed run); stamping each document one folder on turned seven red. §4e: no Qt in this file.
 
 **Group D - staging, the GPU and pictures** (407 s)
-- [ ] **2m** `tests/unit/test_staging.py` (120 s)
-- [ ] **2n** `tests/unit/test_resolve_gpu_regression.py` (119 s)
-- [ ] **2o** `tests/unit/test_clip_lane_wiring.py` (110 s)
-- [ ] **2p** `tests/unit/test_ui_never_blocks.py` (58 s)
+- [x] **2m** `tests/unit/test_staging.py` (120 s)
+  - *2026-10-13, Group D:* **53.1 s -> 17.0 s** (each alone, `--durations=0`, before on `main` and after
+    alternated, twice, lower taken; before 60.2/53.1, after 21.4/17.0). The two AST checks parsed all of `app/`
+    (666 files, ~8 s a parse) once each - now parsed once and shared. The read-only checks share one
+    module-scoped staging (and one `--with-tests` staging) instead of staging the whole tree eleven and four
+    times. The re-staging tests (staging twice, a foreign folder, a corrupt manifest, a missing name) stage a
+    small source tree with every shipped name in it; the real tree's re-stage, where the read-only file once
+    broke it, still runs in `test_re_staging_does_not_delete_an_index_living_in_the_destination`. **Found:**
+    with `PYTHONDONTWRITEBYTECODE=1` (set on this laptop) the checkout has no `__pycache__`, so the bytecode
+    checks passed with `__pycache__` taken out of `EXCLUDED`; `test_bytecode_in_the_source_is_not_copied`
+    added, red with that break. Every changed test shown red by a break in `scripts/stage.py`.
+- [x] **2n** `tests/unit/test_resolve_gpu_regression.py` (119 s)
+  - *2026-10-13, Group D:* **131.0 s -> 3.0 s** (before 131.0/153.6, after 3.0/4.0). The cause was not the
+    GPU check: `resolve_for_run` first calls `test_this_machine_if_new`, and this file's `_Settings` has no
+    `state_path`, so no stored result is ever found and every call is an untested machine - on a laptop with a
+    usable graphics card two of the four tests ran the real device test (every model on the processor and the
+    card) and saved the result nowhere. An autouse fixture stubs `test_this_machine_if_new`; that behaviour is
+    pinned in `test_model_devices.py`. Red: `_gpu_regression` returning `""` fails the lost-provider test.
+    **For Group A:** `test_index_tuning_acceptance.py` calls `resolve_for_run` with invented settings too and
+    may pay the same cost (UNCONFIRMED - not measured here).
+- [x] **2o** `tests/unit/test_clip_lane_wiring.py` (110 s)
+  - *2026-10-13, Group D:* **112.4 s -> 23.7 s** (before 112.4/130.8, after 23.7/26.2, cache already
+    filled). The real-model test (`slow`, kept, the only proof that CLIP finds a photo by its description) spent
+    ~90 s downloading both CLIP towers (580 MB) into a fresh temporary folder on every run. The cache is now
+    `LEASHA_REAL_EMBED_CACHE` if set, else pytest's own cache (`.pytest_cache/d/clip_lane_models`, gitignored);
+    the first run in a checkout, and CI, still download. Models, pipeline, LanceDB and search are all still real.
+    Red: the query vector built from a fixed string instead of the typed description fails it. **Seen, not
+    explained:** two of the "before" runs, under heavy load from other threads, sat idle for over 20 minutes
+    after the image vectors were written and were killed; four later runs with `faulthandler_timeout` did not
+    hang, so no stack was caught.
+- [x] **2p** `tests/unit/test_ui_never_blocks.py` (58 s)
+  - *2026-10-13, Group D:* **73.3 s -> 40.7 s** (before 84.2/73.3, after 62.8/40.7). Six parametrized
+    checks over every `app/ui` module, and `enclosing_function` per call, re-parsed the same files thousands of
+    times; the parse and the call list are now cached on the file's text (so a file a test writes is never
+    answered from an older tree). What is left is ~1,900 tests' own overhead and
+    `test_no_function_reimports_a_name_the_module_already_has` (one parse of all of `app/`, ~10 s), which stays.
+    Red: a `time.sleep`, a `processEvents` and a `store.stats()` added to `files_view.py` each fail their check.
+    No Qt in the file, so §4e has nothing to move.
 
 **Group E - search, conversion and the acceptance layers** (358 s)
 - [ ] **2q** `tests/unit/test_query_plans.py` (107 s)
@@ -239,6 +273,9 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     contrast read off grabbed pixels, the window's own construction and deferral, focus and keys - so
     there was no decision to move.
 - [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
+  - *2026-10-13, Group D:* none of `test_staging.py`, `test_resolve_gpu_regression.py`,
+    `test_clip_lane_wiring.py` or `test_ui_never_blocks.py` builds a Qt widget; their time was a device test, a
+    model download, repeated staging and repeated parsing. Nothing to move.
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
   fixture exists keeps it from being removed.
