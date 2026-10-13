@@ -1,7 +1,7 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.0 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
-**Thread:** Five parallel threads, one per group in §2 (`tests/unit/`, `tests/integration/`, test fixtures and
+**Doc version:** 1.1 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of
 testing files .py can they be optimised or they are all needed".
@@ -65,6 +65,58 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 - [ ] **2r** `tests/unit/test_converter.py` (97 s)
 - [ ] **2s** `tests/integration/test_layer4_acceptance.py` (91 s)
 - [ ] **2t** `tests/integration/test_layer3_acceptance.py` (63 s)
+
+## 4. Optimal testing, not only faster testing
+
+*Added 2026-10-13 at the owner's word ("also make sure it is optimal testing"). Measured on `main` the same day.*
+
+**What was found.**
+- **The mix.** `tests/unit` holds 670 files and 9,911 tests, `tests/integration` 8 files and 127 tests, and
+  `tests/live` 3 tests. One e2e file (pywinauto, excluded by default) and one jvm file. 209 of the "unit" files
+  build real Qt widgets and 65 drive the real window (`gui`), so a good part of "unit" is integration in practice.
+- **The markers are wrong.** 698 tests take over a second, but only 93 are marked `slow` (377 s). The other
+  **605 (3,687 s) are not**, so `run_suite.py --quick` (`not gui and not slow and not qt`) is not quick, and
+  `--audit-markers` already lists them.
+- **A gap on CI.** The Windows CI job runs `-m "not jvm and not e2e and not slow"` on every push and PR, and the
+  weekly schedule runs only the macOS job. **The 93 `slow` tests never run on CI**, only in a local full run.
+- **No coverage map.** `pytest-cov` is installed, but nothing records which modules no test reaches.
+
+**The plan.**
+- [ ] **4a** **Tiers, each with one job.**
+  - *Quick* (`--quick`, local, under 2 minutes): Qt-free logic and presenters only.
+  - *Affected* (`--affected`, local, after each change): the files that can see the change.
+  - *PR CI* (every push): everything except `e2e` and `jvm`. **`slow` is included**, because at 377 s it is too
+    small to be worth a blind spot.
+  - *Weekly CI*: the Windows job as well as macOS, with `jvm`.
+  - *Before a release* (the owner's laptop): `e2e` against the packaged app.
+
+  The workflow, `run_suite.py`'s tiers and `docs/VERSIONING.md`'s release checklist are changed to say exactly
+  this. A guard test checks that the CI command and the tiers agree.
+- [ ] **4b** **Markers that tell the truth.** After §2's speed work, every test still over 1 s is either sped up or
+  marked `slow`, so `--audit-markers` lists nothing. A guard test fails on a new unmarked test over the threshold
+  (from `logs/suite/durations.json`), so the markers cannot drift again.
+- [ ] **4c** **A coverage map, measured once.** Run the full suite once under `pytest-cov` (branch coverage),
+  commit the summary as `docs/TEST_COVERAGE.md`, and list:
+  - every module under `app/` below 60% branch coverage;
+  - every module that no test imports at all.
+- [ ] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
+  each test first shown to fail when its behaviour breaks:
+  - indexing (`app/index/`);
+  - search (`app/search/`);
+  - storage and migrations (`app/storage/`);
+  - account sync writes and the delete brake (`app/accounts/`);
+  - contact merges and enrichment (`app/contacts/`);
+  - the error contract (`app/core/errors`).
+
+  Target: **80% branch coverage** on these, and everything else **at least where it is today**, never lower.
+  Trivial code (getters, `__repr__`, pure re-exports) and generated or vendored files are left out and listed.
+- [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
+  than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
+  is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
+- [ ] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
+  `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
+  `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
+  fixture exists keeps it from being removed.
 
 ## 3. Done when
 
