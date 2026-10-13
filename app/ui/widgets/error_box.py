@@ -30,9 +30,8 @@ from PySide6.QtWidgets import QMessageBox, QWidget
 
 from app.core.logging import logger
 
-__all__ = ["TITLE", "show_error"]
+__all__ = ["show_error"]
 
-TITLE = "Something needs attention"
 
 
 def _words(error: Any) -> tuple[str, str, str]:
@@ -83,7 +82,7 @@ def show_error(parent: QWidget, error: Any) -> QMessageBox | None:
     text, fix, details = words
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Warning)
-    box.setWindowTitle(TITLE)
+    box.setWindowTitle("Something needs attention")
     box.setText(text)
     box.setInformativeText(fix)
     if details:

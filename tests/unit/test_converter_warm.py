@@ -177,10 +177,10 @@ def test_a_killed_converter_takes_its_children_with_it(tmp_path):
     launcher = tmp_path / "launcher.py"
     launcher.write_text(textwrap.dedent('''
         import subprocess, sys, time
-        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1000)"])
+        child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(1000)  # MARK"])
         print(child.pid, flush=True)
         time.sleep(1000)
-    '''), encoding="utf-8")
+    ''').replace("MARK", tmp_path.name), encoding="utf-8")
 
     seen: list[int] = []
     real_popen = subprocess.Popen
@@ -198,12 +198,12 @@ def test_a_killed_converter_takes_its_children_with_it(tmp_path):
     # The child's pid went to the launcher's stdout, which `_run_tree` captured
     # and discarded; find survivors by their command line instead.
     survivors = [p for p in psutil.process_iter(["cmdline"])
-                 if "time.sleep(1000)" in " ".join(p.info["cmdline"] or [])
+                 if tmp_path.name in " ".join(p.info["cmdline"] or [])
                  and p.ppid() != os.getpid() or False]
     deadline = time.monotonic() + 5
     while time.monotonic() < deadline:
         survivors = [p for p in psutil.process_iter(["cmdline", "create_time"])
-                     if "time.sleep(1000)" in " ".join(p.info["cmdline"] or [])
+                     if tmp_path.name in " ".join(p.info["cmdline"] or [])
                      and p.info["create_time"] > time.time() - 30]
         if not survivors:
             break

@@ -150,7 +150,8 @@ def test_excluded_directories_are_not_descended_into(tmp_path: Path, monkeypatch
     real_scandir = module.os.scandir
 
     def counting_scandir(path=".", *args, **kwargs):
-        visited.append(str(path))
+        if str(path).startswith(str(tmp_path)):        # this walk's folders, not another thread's
+            visited.append(str(path))
         return real_scandir(path, *args, **kwargs)
 
     monkeypatch.setattr(module.os, "scandir", counting_scandir)

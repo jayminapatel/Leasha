@@ -356,6 +356,8 @@ def test_every_pre_order_label_tooltip_and_message_still_exists_verbatim(relativ
         # of the shell and its controllers together, not of the shell alone.
         for controller in sorted((UI / "controllers").glob("*.py")):
             after |= _ui_strings(controller.read_text(encoding="utf-8"))
+        # *2026-10-13 (order 1u):* the error box moved into its own widget, words unchanged.
+        after |= _ui_strings((UI / "widgets" / "error_box.py").read_text(encoding="utf-8"))
     missing = before - after
     assert not missing, (
         f"{relative}: these pre-order strings are gone or changed:\n  "
