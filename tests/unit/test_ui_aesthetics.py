@@ -170,6 +170,7 @@ print("RESULT " + json.dumps({"ok": ok, "read": read}))
 '''
 
 
+@pytest.mark.slow
 def test_the_relaunch_properties_can_be_read_back_from_a_real_window() -> None:
     """**What this proves, and what it does not.** It proves the four properties
     reach the window's property store on the Windows platform plugin - written,

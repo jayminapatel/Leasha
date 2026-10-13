@@ -36,6 +36,7 @@ import pytest
 from app.extract import email_pst, pst_libpff
 from app.index import pipeline as pipeline_module
 from app.index.pipeline import ARCHIVE_RESUME_PREFIX, Pipeline, PipelineConfig
+from app.index.resources import ResourceGovernor, ResourceLimits, Snapshot
 from app.index.walker import WalkConfig
 from app.storage.sqlite_store import SqliteStore
 from tests.unit.test_index_freshness import NullVectors, fake_embedder, write_aged
@@ -114,11 +115,33 @@ def _libpff_backend(monkeypatch):
     monkeypatch.setattr(pipeline_module, "RESUME_PERSIST_S", 0.0)
 
 
+def _pipeline(store: SqliteStore, root: Path) -> Pipeline:
+    """One worker, a write at every document, and **a governor that never
+    pauses**.
+
+    Order 1u (2026-10-13): these ran on the default limits - pause while the
+    machine's CPU is over 80% for 5 s, resume after 10 s quiet, below-normal
+    priority, a real system probe. On a machine other test runs were filling,
+    the file's ~30 runs waited on all of that: one case took 14 s on those
+    limits and 5 s on these, and the whole file had run four tests in twenty
+    minutes. Folder resume is what is tested here, not the resource governor
+    (`test_resources.py`); the limits are `test_file_watch._pipeline`'s.
+    """
+    config = PipelineConfig(
+        walk=WalkConfig(roots=[root]), workers=1, checkpoint_every=1,
+        min_free_gb=0, required_free_gb=0,
+        limits=ResourceLimits(pause_on_battery=False, cpu_percent=0, min_free_gb=0,
+                              poll_seconds=0.05, low_priority=False))
+    pipeline = Pipeline(store, NullVectors(), fake_embedder(), config)
+    pipeline.governor = ResourceGovernor(
+        config.resolved_limits(), probe=lambda: Snapshot(),
+        manual_check=pipeline._pause_file_set)          # noqa: SLF001 - as the window's
+    return pipeline
+
+
 def index(db: Path, root: Path, *, stop_after: int = 0):
     with SqliteStore(db) as store:
-        config = PipelineConfig(walk=WalkConfig(roots=[root]), workers=1,
-                                checkpoint_every=1)
-        pipeline = Pipeline(store, NullVectors(), fake_embedder(), config)
+        pipeline = _pipeline(store, root)
 
         def maybe_stop(stats) -> None:
             if stop_after and stats.indexed >= stop_after:
@@ -205,9 +228,7 @@ def test_the_cursor_is_written_during_the_run_not_only_at_its_end(
     seen_mid_run: list[dict] = []
     db = tmp_path / "index.db"
     with SqliteStore(db) as store:
-        config = PipelineConfig(walk=WalkConfig(roots=[archive]), workers=1,
-                                checkpoint_every=1)
-        pipeline = Pipeline(store, NullVectors(), fake_embedder(), config)
+        pipeline = _pipeline(store, archive)
 
         def look(stats) -> None:
             if stats.indexed == 7:                # into Barnsley, folder 3
@@ -233,9 +254,7 @@ def test_a_killed_run_resumes_from_the_cursor_it_wrote(tmp_path, archive, monkey
         as near as one process gets to the power going."""
 
     with SqliteStore(db) as store:
-        config = PipelineConfig(walk=WalkConfig(roots=[archive]), workers=1,
-                                checkpoint_every=1)
-        pipeline = Pipeline(store, NullVectors(), fake_embedder(), config)
+        pipeline = _pipeline(store, archive)
 
         def die(stats) -> None:
             if stats.indexed == 7:

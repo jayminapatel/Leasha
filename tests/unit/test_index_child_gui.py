@@ -80,6 +80,7 @@ def child_mode(gui_mainwindow, qtbot, tmp_path, monkeypatch):
         window._settings = before
 
 
+@pytest.mark.slow
 def test_start_pause_resume_and_stop_drive_the_child(child_mode, qtbot) -> None:
     from app.ui.indexing_view import PAUSE_LABEL, PAUSED_HEADLINE, RESUME_LABEL
 
@@ -122,6 +123,7 @@ def test_start_pause_resume_and_stop_drive_the_child(child_mode, qtbot) -> None:
     assert run.returncode is not None
 
 
+@pytest.mark.slow
 def test_a_child_that_dies_is_explained_on_the_page(child_mode, qtbot, monkeypatch) -> None:
     window, _corpus = child_mode
     view = window.indexing_view
@@ -129,13 +131,14 @@ def test_a_child_that_dies_is_explained_on_the_page(child_mode, qtbot, monkeypat
                         lambda *a, **k: [sys.executable, str(FAKE), "crash"])
     errors: list = []
     view.error.connect(errors.append)
-    # The window also puts the error in a message box (`_show_error`), which
-    # would wait for a click; its words are recorded instead of shown.
+    # The window also puts the error in its message box (`_show_error`, which
+    # opens it without waiting - `widgets.error_box`); its words are recorded
+    # instead of shown.
     from PySide6.QtWidgets import QMessageBox
 
     boxes: list = []
-    monkeypatch.setattr(QMessageBox, "exec", lambda box: boxes.append(
-        (box.text(), box.informativeText(), box.detailedText())) or 0)
+    monkeypatch.setattr(QMessageBox, "open", lambda box: boxes.append(
+        (box.text(), box.informativeText(), box.detailedText())))
 
     qtbot.mouseClick(view.start_button, Qt.MouseButton.LeftButton)
     qtbot.waitUntil(lambda: bool(errors), timeout=60_000)

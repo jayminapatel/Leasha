@@ -50,6 +50,7 @@ tmp_path_retention_count = 3
 tmp_path_retention_policy = "failed"
 markers = [
     "slow: takes more than a second (model loading, large fixtures)",
+    "real_florence: loads the real Florence-2 captioning model on purpose; the one opt-out from the guard in tests/conftest.py that stops every other test loading it",
     "windows: requires Windows (Outlook MAPI, named mutex)",
     "jvm: starts a JVM in-process via JPype/mpxj; excluded by default, run with `pytest -m jvm`",
     "gui: a pytest-qt scenario driving the real MainWindow with keystrokes - offscreen, in the default run (order 0m S1a: this subset must count as RUN, never skipped - the vacuous-skip lesson from the PySide6 draft)",

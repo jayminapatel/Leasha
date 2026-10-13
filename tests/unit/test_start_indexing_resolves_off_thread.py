@@ -158,6 +158,7 @@ def test_a_long_operation_entry_exists_for_start_indexing() -> None:
 # --- the warm/fast path: resolving still reaches indexing -------------------
 
 
+@pytest.mark.slow
 def test_a_resolved_run_still_reaches_indexing_view_start(tmp_path) -> None:
     r"""No regression on the fast path: whatever `resolve_for_run` returns -
     warm cache or cold - still ends up as a Pipeline handed to `IndexingView.
@@ -195,6 +196,7 @@ def test_a_resolved_run_still_reaches_indexing_view_start(tmp_path) -> None:
         vectors.close()
 
 
+@pytest.mark.slow
 def test_the_start_button_is_disabled_while_resolving_and_restored_after(
     tmp_path
 ) -> None:
@@ -264,6 +266,7 @@ def test_the_start_button_is_disabled_while_resolving_and_restored_after(
         vectors.close()
 
 
+@pytest.mark.slow
 def test_a_second_click_while_resolving_does_not_dispatch_a_second_worker(
     tmp_path
 ) -> None:
@@ -310,6 +313,7 @@ def test_a_second_click_while_resolving_does_not_dispatch_a_second_worker(
         vectors.close()
 
 
+@pytest.mark.slow
 def test_the_watch_timers_poll_does_not_re_enable_start_while_resolving(
     tmp_path
 ) -> None:
@@ -414,6 +418,7 @@ def test_the_watch_timers_poll_does_not_re_enable_start_while_resolving(
 # --- resolution failure: still surfaced, never swallowed --------------------
 
 
+@pytest.mark.slow
 def test_a_resolution_failure_shows_the_same_error_dialog_a_synchronous_one_would(
     tmp_path
 ) -> None:
@@ -460,6 +465,7 @@ def test_a_resolution_failure_shows_the_same_error_dialog_a_synchronous_one_woul
 # --- the bar during the resolve step ------------------------------------------
 
 
+@pytest.mark.slow
 def test_the_bar_is_busy_from_the_click_and_settles_if_the_resolve_fails(
     tmp_path
 ) -> None:

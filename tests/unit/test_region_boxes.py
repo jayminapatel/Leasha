@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.ui.presenter.regions import code_of, flag, regions, row_text
 from app.ui.widgets.region_box import CountryBox, RegionBox
 
 
+@pytest.mark.slow
 def test_a_row_shows_the_flag_the_name_and_the_dialling_code() -> None:
     uk = next(r for r in regions() if r.code == "GB")
     assert uk.dial == "+44" and uk.name == "United Kingdom"

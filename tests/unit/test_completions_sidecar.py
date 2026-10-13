@@ -206,6 +206,7 @@ def test_a_prefix_narrows_it(indexed) -> None:
     assert _run(["ext", "doc"], data).stdout.split() == ["docx"]
 
 
+@pytest.mark.slow
 def test_it_says_nothing_rather_than_saying_it_failed(indexed) -> None:
     """A completer offers whatever it is given, so an error message would
     become a completion - which is worse than offering nothing."""
@@ -261,6 +262,7 @@ def test_it_answers_inside_the_budget(indexed) -> None:
     assert best < 300, f"a cold suggest took {best:.0f}ms"
 
 
+@pytest.mark.slow
 def test_the_standalone_suggester_agrees_with_the_store(indexed) -> None:
     r"""**Two copies of the value queries, held to each other.**
 

@@ -13,6 +13,12 @@ The Reset index confirmation (`index_controller._reset_index`) has always been
 built this way. This is that shape, once, so the next destructive action does
 not have to remember it. `accounts/parts.confirm` is the same function under
 the name the Accounts page's tests replace.
+
+**A question waits for its answer; an error does not.** `confirm` uses `exec()`
+because the action it guards cannot go on until somebody decides, and it is only
+ever asked from a click. The window's error box (`error_box.show_error`) is the
+other kind: it is opened with `open()` and never waited for, because most errors
+arrive from a worker or a timer, where a nested event loop is a hang.
 """
 
 from __future__ import annotations

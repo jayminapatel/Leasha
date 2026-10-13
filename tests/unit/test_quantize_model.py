@@ -101,6 +101,7 @@ def fake_catalogue(tmp_path, monkeypatch):
     return source_dir, description
 
 
+@pytest.mark.slow
 def test_an_unknown_model_name_returns_none(tmp_path):
     assert quantised_model_dir("not/a/real-model", str(tmp_path)) is None
 

@@ -79,6 +79,7 @@ def _with(**changes):
 # Each of the six, proved against the response
 # --------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_typo_correction_changes_the_query_that_runs(engine):
     """**And the query, not only the notice.** That distinction is the bug
     the scenario tests found: the correction reached the message and left the

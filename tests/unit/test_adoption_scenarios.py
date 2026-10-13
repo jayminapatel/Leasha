@@ -235,6 +235,7 @@ def saved_engine():
     store.close()
 
 
+@pytest.mark.slow
 def test_typing_a_saved_name_and_pressing_enter_runs_the_search_it_stands_for(
         qtbot, saved_engine):
     r"""§3a's acceptance sentence, as keystrokes: *keep your favourite

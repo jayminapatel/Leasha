@@ -663,6 +663,7 @@
     <Compile Include="app\ui\widgets\editor_box.py" />
     <Compile Include="app\ui\widgets\environment_box.py" />
     <Compile Include="app\ui\widgets\epub_view.py" />
+    <Compile Include="app\ui\widgets\error_box.py" />
     <Compile Include="app\ui\widgets\external_run.py" />
     <Compile Include="app\ui\widgets\face_crops.py" />
     <Compile Include="app\ui\widgets\field_width.py" />
@@ -1030,6 +1031,7 @@
     <Compile Include="tests\unit\test_env_never_loses_paths.py" />
     <Compile Include="tests\unit\test_epub_preview.py" />
     <Compile Include="tests\unit\test_era_hints.py" />
+    <Compile Include="tests\unit\test_error_box.py" />
     <Compile Include="tests\unit\test_errors.py" />
     <Compile Include="tests\unit\test_exif.py" />
     <Compile Include="tests\unit\test_exif_any_format.py" />
@@ -1132,6 +1134,7 @@
     <Compile Include="tests\unit\test_later.py" />
     <Compile Include="tests\unit\test_launcher.py" />
     <Compile Include="tests\unit\test_layering_below_the_ui.py" />
+    <Compile Include="tests\unit\test_left_windows_go_quiet.py" />
     <Compile Include="tests\unit\test_legacy_office_completeness.py" />
     <Compile Include="tests\unit\test_legacy_office_readers.py" />
     <Compile Include="tests\unit\test_libraries_before_converters.py" />
@@ -1386,6 +1389,7 @@
     <Compile Include="tests\unit\test_side_lists.py" />
     <Compile Include="tests\unit\test_similar_to.py" />
     <Compile Include="tests\unit\test_slash_context.py" />
+    <Compile Include="tests\unit\test_slow_markers_truthful.py" />
     <Compile Include="tests\unit\test_source_types.py" />
     <Compile Include="tests\unit\test_space_files_only.py" />
     <Compile Include="tests\unit\test_space_report_caching_and_progress.py" />
@@ -1414,6 +1418,7 @@
     <Compile Include="tests\unit\test_storage_code_review.py" />
     <Compile Include="tests\unit\test_suite_ignores_the_battery.py" />
     <Compile Include="tests\unit\test_suite_speed.py" />
+    <Compile Include="tests\unit\test_suite_tiers.py" />
     <Compile Include="tests\unit\test_switch_parity.py" />
     <Compile Include="tests\unit\test_sync_dialog.py" />
     <Compile Include="tests\unit\test_sync_transport_and_batches.py" />

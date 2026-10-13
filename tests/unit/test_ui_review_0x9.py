@@ -37,7 +37,18 @@ def _leave_no_window_showing(gui_mainwindow):
     A window left showing takes the clicks `QTest` aims at the next module's
     hidden one, so it is hidden again afterwards."""
     yield
+    _Theme.restore(gui_mainwindow[1])
     gui_mainwindow[1].hide()
+
+
+@pytest.fixture(autouse=True)
+def _own_theme_unless_one_is_asked_for(request, gui_mainwindow):
+    """A test that takes no `scheme` runs in the window's own theme, as it
+    always did - see `_Theme` for why the themed ones leave theirs on."""
+    callspec = getattr(request.node, "callspec", None)
+    if callspec is None or "scheme" not in callspec.params:
+        _Theme.restore(gui_mainwindow[1])
+    yield
 
 
 def _front(app, window, qtbot, width: int, height: int) -> None:
@@ -122,21 +133,43 @@ def _contrast(a, b) -> float:
 
 
 class _Theme:
-    """Switch the real window to one theme for a test, and back afterwards -
-    the same path the Appearance setting takes, stylesheet and pixmaps both."""
+    """Switch the real window to one theme for a test - the same path the
+    Appearance setting takes, stylesheet and pixmaps both.
+
+    **Switched once per theme, not twice per test** (order 1u 2h, 2026-10-13).
+    `_apply_theme` on the whole built window costs about 3 s - Qt re-polishes
+    every widget - and the eight themed tests here switched in and back out,
+    sixteen times (62 s of one run went in `_apply_theme`, measured). The themed tests are now grouped by
+    theme (`parametrize(..., scope="module")`: every light one, then every dark
+    one), `__enter__` switches only when the window is in another theme, and
+    `__exit__` leaves it on for the next. The window's own theme is put back by
+    `restore` - before any test that asks for no theme
+    (`_own_theme_unless_one_is_asked_for`) and when the module ends."""
+
+    #: The window's own preference while another is forced, else None.
+    own = None
 
     def __init__(self, window, scheme: str) -> None:
         self.window, self.scheme = window, scheme
 
     def __enter__(self):
-        self.before = self.window._theme_preference
-        self.window._theme_preference = self.scheme
-        self.window._apply_theme()
+        if _Theme.own is None:
+            _Theme.own = self.window._theme_preference
+        if self.window._theme_preference != self.scheme:
+            self.window._theme_preference = self.scheme
+            self.window._apply_theme()
         return self
 
     def __exit__(self, *_exc) -> None:
-        self.window._theme_preference = self.before
-        self.window._apply_theme()
+        pass                                   # left on - see the class note
+
+    @classmethod
+    def restore(cls, window) -> None:
+        """The window's own theme back, if another was forced."""
+        if cls.own is not None and window._theme_preference != cls.own:
+            window._theme_preference = cls.own
+            window._apply_theme()
+        cls.own = None
 
 
 def _most_contrasting(image, rect, ground) -> float:
@@ -160,7 +193,7 @@ def _most_contrasting(image, rect, ground) -> float:
     return best
 
 
-@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_the_chosen_page_icon_can_be_seen_on_its_own_highlight(gui_mainwindow, qtbot, scheme):
     r"""**Before:** in the light theme the chosen page's icon was drawn white on
     the pale lavender highlight - 1.2 to 1, all but invisible - so the one icon
@@ -212,7 +245,7 @@ def _show_preview_with_a_result(app, window, qtbot) -> object:
     return view.preview
 
 
-@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_the_open_button_label_is_readable_on_its_own_fill(gui_mainwindow, qtbot, scheme):
     r"""**Before:** in the dark theme the filled "Open" button was white text
     on the light lavender accent - 2.8 to 1, under the 4.5 WCAG asks of body
@@ -240,7 +273,7 @@ def test_the_open_button_label_is_readable_on_its_own_fill(gui_mainwindow, qtbot
     window.search_view.input.clear()
 
 
-@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_quiet_text_still_reaches_wcag_aa(gui_mainwindow, qtbot, scheme):
     r"""**Before:** the faint text colour - result counts, hints, table headers,
     "Nothing logged yet" - measured 3.2 to 3.9 to 1 on its grounds, under the
@@ -307,7 +340,7 @@ def test_an_empty_index_does_not_call_itself_up_to_date(gui_mainwindow, qtbot):
         gui_pump(app, 4)
 
 
-@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_the_suggested_searches_and_filter_chips_are_round_not_square(gui_mainwindow, qtbot, scheme):
     r"""**Before:** every "pill" had square corners - the four suggested
     searches under the empty box and each filter chip - because they asked for
@@ -579,7 +612,7 @@ def test_the_suggested_searches_are_shown_whole_at_any_width(gui_mainwindow, qtb
         gui_pump(app, 4)
 
 
-@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize("scheme", ["light", "dark"], scope="module")
 def test_report_names_and_the_activity_card_sit_at_the_same_inset_as_the_rest(
         gui_mainwindow, qtbot, scheme):
     r"""**Before** (review finding 13): each report name on Reports sat behind

@@ -212,6 +212,7 @@ def test_transport_refuses_an_unlisted_host_before_any_socket(monkeypatch):
     assert err.value.error.code == "ERR_ACCOUNT_UNREACHABLE"
 
 
+@pytest.mark.slow
 def test_no_answer_is_account_unreachable():
     s = socket.socket()
     s.bind(("127.0.0.1", 0))

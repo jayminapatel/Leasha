@@ -21,6 +21,7 @@ changes, which is the moment the manifest is wrong.
 from __future__ import annotations
 
 import ast
+import functools
 import sys
 from pathlib import Path
 
@@ -33,11 +34,55 @@ import stage as staging  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 
 
-@pytest.fixture()
-def staged(tmp_path):
-    dest = tmp_path / "Leasha"
+@pytest.fixture(scope="module")
+def staged(tmp_path_factory):
+    r"""One real staging of this checkout, shared by every test that only reads it.
+
+    **Order 1u, 2026-10-13.** Each of those tests used to stage the whole tree
+    again - eleven full copies of `app/` for checks that never write to it. A
+    test that changes the destination, or stages again, still makes its own.
+    """
+    dest = tmp_path_factory.mktemp("staged") / "Leasha"
     staging.stage(ROOT, dest, Path(sys.executable))
     return dest
+
+
+@pytest.fixture(scope="module")
+def staged_with_tests(tmp_path_factory):
+    """The same, staged `--with-tests`: four read-only checks, one copy of the suite."""
+    dest = tmp_path_factory.mktemp("staged_with_tests") / "Leasha"
+    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    return dest
+
+
+@pytest.fixture()
+def small_source(tmp_path):
+    r"""A source tree with every shipped name in it and almost nothing inside.
+
+    For the tests about *re-staging* - what the manifest makes it delete and
+    keep - where the size of `app/` is not what is checked. The real tree's
+    re-stage (and the read-only file that once broke it) is still proved, by
+    `test_re_staging_does_not_delete_an_index_living_in_the_destination`.
+    """
+    source = tmp_path / "source"
+    folders = {name for name in staging.SHIPPED if (ROOT / name).is_dir()}
+    for name in staging.SHIPPED:
+        if name in folders:
+            (source / name).mkdir(parents=True)
+            (source / name / "__init__.py").write_text("", encoding="utf-8")
+        else:
+            (source / name).parent.mkdir(parents=True, exist_ok=True)
+            (source / name).write_text(f"{name}\n", encoding="utf-8")
+    return source
+
+
+@functools.lru_cache(maxsize=1)
+def _application_trees() -> tuple[tuple[Path, ast.Module], ...]:
+    """Every module under `app/`, parsed once for the two checks that read them
+    (about 8 s a parse on the owner's laptop, and it was done twice)."""
+    return tuple(
+        (path, ast.parse(path.read_text(encoding="utf-8")))
+        for path in sorted((ROOT / "app").rglob("*.py")))
 
 
 # --- the manifest cannot drift ---------------------------------------------
@@ -64,8 +109,7 @@ def test_every_folder_the_application_imports_is_shipped():
     ours -= set(staging.EXCLUDED) | {"scripts", "docs", "build", "dist"}
 
     needed: set[str] = set()
-    for path in (ROOT / "app").rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for _path, tree in _application_trees():
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 needed |= {alias.name.split(".")[0] for alias in node.names}
@@ -94,8 +138,7 @@ def test_the_test_suite_is_never_imported_at_module_scope():
     working feature out of the source build.
     """
     offenders: list[str] = []
-    for path in (ROOT / "app").rglob("*.py"):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+    for path, tree in _application_trees():
         for node in tree.body:                    # top level only
             text = ast.unparse(node) if isinstance(
                 node, (ast.Import, ast.ImportFrom)) else ""
@@ -152,6 +195,22 @@ def test_no_compiled_bytecode_is_copied(staged):
     assert not list(staged.rglob("__pycache__"))
 
 
+def test_bytecode_in_the_source_is_not_copied(tmp_path, small_source):
+    """The check above, made to bite. **Found 2026-10-13 (order 1u):** with
+    `PYTHONDONTWRITEBYTECODE=1` - set on the owner's laptop - the checkout has no
+    `__pycache__` at all, so the test above passed even with `__pycache__`
+    taken out of `EXCLUDED`. Here the source has one by construction."""
+    cache = small_source / "app" / "__pycache__"
+    cache.mkdir()
+    (cache / "stale.cpython-312.pyc").write_bytes(b"\x00")
+    dest = tmp_path / "Leasha"
+
+    staging.stage(small_source, dest, Path(sys.executable))
+
+    assert (dest / "app" / "__init__.py").is_file()
+    assert not list(dest.rglob("__pycache__"))
+
+
 def test_the_owner_s_env_is_never_copied(staged, tmp_path):
     """**Non-negotiable 11: `.env` is written by the application, never by the
     user - and never by a copy.** It holds this machine's paths; staging it
@@ -201,18 +260,18 @@ def test_the_window_and_the_command_line_have_separate_launchers(staged):
 
 # --- staging again ----------------------------------------------------------
 
-def test_staging_twice_removes_what_the_first_run_wrote(tmp_path, monkeypatch):
+def test_staging_twice_removes_what_the_first_run_wrote(tmp_path, monkeypatch, small_source):
     """A stale file from a previous layout is the thing that makes a staged
     tree lie about what ships - so anything the last staging wrote and this one
     does not is removed."""
     dest = tmp_path / "Leasha"
     monkeypatch.setattr(staging, "SHIPPED", ("app", "VERSION", "leasha.cmd"))
-    staging.stage(ROOT, dest, Path(sys.executable))
+    staging.stage(small_source, dest, Path(sys.executable))
     assert (dest / "leasha.cmd").exists()
 
     # The layout changes: leasha.cmd is no longer shipped.
     monkeypatch.setattr(staging, "SHIPPED", ("app", "VERSION"))
-    staging.stage(ROOT, dest, Path(sys.executable))
+    staging.stage(small_source, dest, Path(sys.executable))
 
     assert not (dest / "leasha.cmd").exists(), "a file dropped from SHIPPED survived"
     assert (dest / "VERSION").exists()
@@ -249,14 +308,14 @@ def test_re_staging_does_not_delete_an_index_living_in_the_destination(tmp_path)
     assert (dest / "logs" / "run.log").is_file(), "the logs were deleted"
 
 
-def test_a_destination_nobody_staged_is_not_emptied(tmp_path):
+def test_a_destination_nobody_staged_is_not_emptied(tmp_path, small_source):
     """Somebody typed the wrong path. Overwrite what collides; touch nothing
     else. Deleting a stranger's folder is never the right response to a typo."""
     dest = tmp_path / "SomeoneElsesFolder"
     dest.mkdir()
     (dest / "important.txt").write_text("not ours", encoding="utf-8")
 
-    staging.stage(ROOT, dest, Path(sys.executable))
+    staging.stage(small_source, dest, Path(sys.executable))
 
     assert (dest / "important.txt").is_file()
     assert (dest / "app").is_dir()
@@ -280,38 +339,31 @@ def test_no_generated_launcher_collides_with_a_shipped_name(tmp_path):
     )
 
 
-def test_the_shipped_launcher_survives_staging(tmp_path):
+def test_the_shipped_launcher_survives_staging(staged):
     """The consequence of the above, asserted against a real staged tree."""
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable))
-    body = (dest / "leasha.cmd").read_text(encoding="utf-8")
+    body = (staged / "leasha.cmd").read_text(encoding="utf-8")
     assert "not installed yet" in body, "the real launcher was overwritten"
 
 
-def test_a_generated_launcher_prefers_the_trees_own_venv(tmp_path):
+def test_a_generated_launcher_prefers_the_trees_own_venv(staged):
     """One file works before and after `run-install.cmd`.
 
     Without this, a launcher staged against the development venv keeps using it
     forever - so the production tree reads the development tree's packages while
     claiming to be a clean install.
     """
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable))
-    body = (dest / staging.STAGED_WINDOW).read_text(encoding="utf-8")
+    body = (staged / staging.STAGED_WINDOW).read_text(encoding="utf-8")
     assert "venv\\Scripts\\python.exe" in body
     assert body.index("venv\\Scripts\\python.exe") < body.index(str(sys.executable)), (
         "the staged interpreter is tried before the tree's own venv"
     )
 
 
-def test_the_manifest_records_what_was_written(tmp_path):
+def test_the_manifest_records_what_was_written(staged):
     """It is what makes the next staging safe, so it has to be there."""
     import json
 
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable))
-
-    manifest = json.loads((dest / staging.MANIFEST).read_text(encoding="utf-8"))
+    manifest = json.loads((staged / staging.MANIFEST).read_text(encoding="utf-8"))
     assert "app" in manifest["wrote"]
     assert staging.STAGED_WINDOW in manifest["wrote"]
     assert "logs" not in manifest["wrote"], (
@@ -320,14 +372,14 @@ def test_the_manifest_records_what_was_written(tmp_path):
     )
 
 
-def test_a_corrupt_manifest_is_treated_as_no_manifest(tmp_path):
+def test_a_corrupt_manifest_is_treated_as_no_manifest(tmp_path, small_source):
     """Failing towards 'delete nothing' is the only safe direction here."""
     dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable))
+    staging.stage(small_source, dest, Path(sys.executable))
     (dest / staging.MANIFEST).write_text("{not json", encoding="utf-8")
     (dest / "user-data.txt").write_text("keep me", encoding="utf-8")
 
-    staging.stage(ROOT, dest, Path(sys.executable))
+    staging.stage(small_source, dest, Path(sys.executable))
 
     assert (dest / "user-data.txt").is_file()
 
@@ -340,52 +392,47 @@ def test_it_refuses_to_stage_over_the_source():
 
 # --- --with-tests -----------------------------------------------------------
 
-def test_tests_are_absent_by_default(tmp_path):
+def test_tests_are_absent_by_default(staged):
     """A product does not ship its test suite."""
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable))
-    assert not (dest / "tests").exists()
-    assert not (dest / "pyproject.toml").exists()
+    assert not (staged / "tests").exists()
+    assert not (staged / "pyproject.toml").exists()
 
 
-def test_with_tests_stages_the_suite_and_its_configuration(tmp_path):
+def test_with_tests_stages_the_suite_and_its_configuration(staged_with_tests):
     """`pyproject.toml` is not optional: it carries the pytest settings, and
     without it the suite runs differently in the staged tree than in
     development - which makes any difference in the results meaningless."""
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    dest = staged_with_tests
 
     assert (dest / "tests" / "unit").is_dir()
     assert (dest / "tests" / "conftest.py").is_file()
     assert (dest / "pyproject.toml").is_file()
 
 
-def test_with_tests_keeps_the_fixtures(tmp_path):
+def test_with_tests_keeps_the_fixtures(staged_with_tests):
     """`fixtures` is in EXCLUDED so it is skipped inside `app/`. Inside `tests/`
     it is the content - a suite without its fixtures fails on the first file."""
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    dest = staged_with_tests
     assert (dest / "tests" / "fixtures").is_dir()
 
 
-def test_with_tests_still_excludes_bytecode(tmp_path):
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+def test_with_tests_still_excludes_bytecode(staged_with_tests):
+    dest = staged_with_tests
     assert not list((dest / "tests").rglob("__pycache__"))
 
 
-def test_the_readme_says_when_a_tree_is_not_what_ships(tmp_path):
+def test_the_readme_says_when_a_tree_is_not_what_ships(staged_with_tests):
     """A tree with tests in it is not a production tree, and somebody looking at
     it later should not have to guess which kind they are holding."""
-    dest = tmp_path / "Leasha"
-    staging.stage(ROOT, dest, Path(sys.executable), with_tests=True)
+    dest = staged_with_tests
     assert "WITH TESTS" in (dest / "README.txt").read_text(encoding="utf-8")
 
 
-def test_a_name_in_the_manifest_that_does_not_exist_is_reported(tmp_path, monkeypatch):
+def test_a_name_in_the_manifest_that_does_not_exist_is_reported(
+        tmp_path, monkeypatch, small_source):
     """Named but absent means the manifest and the repository have drifted -
     which is the failure staging exists to make visible, not to hide."""
     monkeypatch.setattr(staging, "SHIPPED", ("app", "no-such-file"))
-    written = staging.stage(ROOT, tmp_path / "Leasha", Path(sys.executable))
+    written = staging.stage(small_source, tmp_path / "Leasha", Path(sys.executable))
 
     assert any("MISSING" in line and "no-such-file" in line for line in written)

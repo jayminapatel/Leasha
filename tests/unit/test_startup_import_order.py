@@ -22,6 +22,8 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
+import pytest
+
 MAIN_PY = Path(__file__).resolve().parents[2] / "app" / "main.py"
 
 # First-party packages allowed to precede splash-show: the lightweight
@@ -152,6 +154,7 @@ class TestStartupImportOrder:
             f"{violations}. Move these imports to after splash.show()."
         )
 
+    @pytest.mark.slow
     def test_the_extractor_set_is_not_imported_before_the_window(self) -> None:
         """§2b: importing the window's module imports no file parser.
 

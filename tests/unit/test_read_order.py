@@ -242,6 +242,7 @@ def _record_reads(pipeline: Pipeline, root: Path, reads: list[str], *,
     pipeline._write_one = write_one
 
 
+@pytest.mark.slow
 def test_a_run_reads_the_chosen_folder_first_then_newest(tmp_path: Path) -> None:
     root = tmp_path / "corpus"
     ages = _corpus(root)
@@ -272,6 +273,7 @@ def test_as_found_is_still_the_walk_order(tmp_path: Path) -> None:
     assert sorted(reads) == sorted(ages)
 
 
+@pytest.mark.slow
 def test_an_interrupted_run_resumes_in_the_same_order(tmp_path: Path) -> None:
     root = tmp_path / "corpus"
     ages = _corpus(root)
@@ -294,6 +296,7 @@ def test_an_interrupted_run_resumes_in_the_same_order(tmp_path: Path) -> None:
     assert stats.unchanged == len(first)
 
 
+@pytest.mark.slow
 def test_a_rerun_with_nothing_changed_reads_nothing(tmp_path: Path, monkeypatch) -> None:
     root = tmp_path / "corpus"
     ages = _corpus(root)
@@ -316,6 +319,7 @@ def test_a_rerun_with_nothing_changed_reads_nothing(tmp_path: Path, monkeypatch)
     assert hashed == [], "a settled file is decided from its row and stat alone"
 
 
+@pytest.mark.slow
 def test_the_scan_does_not_hash_new_files(tmp_path: Path, monkeypatch) -> None:
     """Every new file is hashed exactly once - on its turn, not in the scan
     as well - and only after the whole walk has finished.
@@ -345,6 +349,7 @@ def test_the_scan_does_not_hash_new_files(tmp_path: Path, monkeypatch) -> None:
     assert all(name.startswith("chosen/") for name in early), early
 
 
+@pytest.mark.slow
 def test_a_large_scan_goes_to_disk_and_is_tidied_away(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(read_order, "SPILL_AT", 3)
     root = tmp_path / "corpus"
@@ -418,6 +423,7 @@ def test_index_order_is_a_registered_choice_with_newest_the_default(tmp_path: Pa
     assert load_settings(env).index_order == "found"
 
 
+@pytest.mark.slow
 def test_the_command_line_uses_the_setting_and_the_saved_first_folders(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
@@ -464,6 +470,7 @@ def test_the_command_line_accepts_order() -> None:
         parser.parse_args(["index", "--order", "sideways"])
 
 
+@pytest.mark.slow
 def test_every_found_file_is_listed_by_name_before_the_first_is_read(tmp_path: Path) -> None:
     """2026-10-04, the owner: "it should get the names first and then scan faces
     or text ... file list comes up first". When the first file is read, every
@@ -551,6 +558,7 @@ def _move_dates(root: Path, names: list[str], *, by_ns: int = 10 * DAY_NS) -> No
         os.utime(root / name, ns=(stat.st_atime_ns, stat.st_mtime_ns + by_ns))
 
 
+@pytest.mark.slow
 def test_each_file_s_row_is_looked_up_once_not_twice(tmp_path: Path) -> None:
     """The scan asked `_classify` with the hash held back, and the file's turn
     asked it all again - a second `get_file`, and a `.pst` header read, for
@@ -576,6 +584,7 @@ def test_each_file_s_row_is_looked_up_once_not_twice(tmp_path: Path) -> None:
     assert again.unchanged == len(ages)
 
 
+@pytest.mark.slow
 def test_a_moved_date_with_new_contents_is_read_again_with_its_new_hash(
         tmp_path: Path) -> None:
     """The deferred hash decides both ways: same bytes are unchanged, other
@@ -606,6 +615,7 @@ def test_a_moved_date_with_new_contents_is_read_again_with_its_new_hash(
 # 2026-10-10, review item W4: a moved date is hashed by the readers
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.parametrize("order", ["newest", "found"])
 def test_a_moved_date_is_hashed_by_a_reader_not_the_walker(tmp_path: Path,
                                                            monkeypatch, order) -> None:
@@ -672,6 +682,7 @@ def test_a_reader_that_cannot_hash_the_file_reports_it_as_before(tmp_path: Path,
 # 2026-10-10, review item W1: the folders marked first are read during the walk
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_chosen_folder_is_read_while_the_rest_is_walked(tmp_path: Path,
                                                             monkeypatch) -> None:
     """The rest of the walk is held until a file from the marked folder has
@@ -711,6 +722,7 @@ def test_the_chosen_folder_is_read_while_the_rest_is_walked(tmp_path: Path,
     assert stats.indexed == len(ages)
 
 
+@pytest.mark.slow
 def test_a_marked_folder_s_names_are_listed_before_its_first_file_is_read(
         tmp_path: Path) -> None:
     root = tmp_path / "corpus"
@@ -750,6 +762,7 @@ def test_an_interrupted_run_with_a_marked_folder_resumes_in_order(tmp_path: Path
     assert first + second == expected
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("order", ["newest", "found"])
 def test_a_matched_hash_records_the_new_date_so_the_next_run_does_not_hash(
         tmp_path: Path, monkeypatch, order) -> None:

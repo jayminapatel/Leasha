@@ -71,6 +71,7 @@ def test_add_list_status_and_remove(world, capsys):
     assert ("Leasha", "account:1:app_password") not in world.backend.data
 
 
+@pytest.mark.slow
 def test_schedule_pause_quiet_and_config(world, capsys):
     assert world("accounts", "schedule", "--contacts", "every:30", "--mail", "daily:03:15",
                  "--quiet", "22:00-07:00", "--pause", "hour") == 0
@@ -85,6 +86,7 @@ def test_schedule_pause_quiet_and_config(world, capsys):
     assert world("accounts", "due") == 0
 
 
+@pytest.mark.slow
 def test_contacts_sync_dry_run_then_real_then_log_and_undo(world, capsys):
     world("accounts", "add", "carddav", "--address", "me@fast.com", "--name", "Fast", "--server",
           "carddav.fast.com", "--password-stdin", stdin="pw\n")
@@ -114,6 +116,7 @@ def test_contacts_sync_dry_run_then_real_then_log_and_undo(world, capsys):
     assert "Ann" not in capsys.readouterr().out                      # the sync was put back
 
 
+@pytest.mark.slow
 def test_contacts_sync_measure_and_log_timing(world, capsys):
     """Order 1t 1a, 1b: what the waiting writes would cost, and where a real run's time went."""
     world("accounts", "add", "carddav", "--address", "me@fast.com", "--name", "Fast", "--server",

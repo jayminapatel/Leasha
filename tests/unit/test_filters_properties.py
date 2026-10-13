@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -66,6 +67,7 @@ def _executes_cleanly(where: str, params: list) -> None:
             ).fetchall()
 
 
+@pytest.mark.slow
 @given(_filter_query())
 def test_the_where_fragment_always_executes_against_the_real_schema(raw: str) -> None:
     parsed = parse_query(raw)

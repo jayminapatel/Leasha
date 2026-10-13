@@ -49,6 +49,7 @@ def make_cache(tmp_path: Path, models: dict[str, int]) -> Path:
 # It must describe the model it is about to time
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_reranker_is_not_mistaken_for_the_embedder(tmp_path):
     """The bug this file exists for.
 
@@ -83,6 +84,7 @@ def test_the_largest_file_within_the_right_model_is_still_chosen(tmp_path):
     assert result.model_mb == pytest.approx(133, abs=1)
 
 
+@pytest.mark.slow
 def test_nothing_is_reported_when_the_model_is_not_in_the_cache(tmp_path):
     """Sizes are not comparable across models, so reporting the wrong one is
     worse than reporting none. It says so rather than guessing."""

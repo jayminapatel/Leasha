@@ -158,6 +158,7 @@ def page_world(tmp_path, qapp):
     w.close()
 
 
+@pytest.mark.slow
 def test_enrich_this_contact_runs_that_contact_only_and_look_again_asks_anyway(page_world, monkeypatch):
     from app.contacts.enrich import run as enrich_run
     from app.ui.contacts import openers
@@ -182,6 +183,7 @@ def test_enrich_this_contact_runs_that_contact_only_and_look_again_asks_anyway(p
     assert asked[-1] == ([ann], True)
 
 
+@pytest.mark.slow
 def test_suggestions_turned_down_are_listed_on_the_contact_and_undo_takes_one_back(page_world, monkeypatch):
     from tests.unit.test_contacts_view_world import card, settle as page_settle
 

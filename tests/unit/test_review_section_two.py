@@ -109,6 +109,7 @@ def _pipeline(tmp_path, vectors=None, **overrides):
     return store, built
 
 
+@pytest.mark.slow
 def test_pruning_many_files_is_a_handful_of_deletes_not_one_each(tmp_path):
     r"""**H7.** One `delete_by_file_ids([file_id])` per file is one LanceDB
     dataset version per file - deleting a 10,000-file folder produced 10,000

@@ -324,6 +324,7 @@ def test_discovery_picks_the_named_book(srv):
     assert changes == [] and cd.addressbook_url.endswith("/dav/books/u/other/")
 
 
+@pytest.mark.slow
 def test_a_typed_in_address_book_url_skips_discovery(srv):
     seed(srv, 2)
     cd = make(srv, server_url="", addressbook_url=srv.base + BOOK)
@@ -363,6 +364,7 @@ def test_full_pull_pages_then_incremental_delta_with_deletes(srv):
     assert none == []                                   # nothing changed: nothing comes back
 
 
+@pytest.mark.slow
 def test_paging_resumes_after_any_page(srv):
     seed(srv, 5)
     it = make(srv, page_size=2).pull(None)
@@ -392,6 +394,7 @@ def test_an_expired_sync_token_is_token_expired(srv):
         drain(make(srv), "not json")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("broken", [False, True])
 def test_without_sync_collection_etags_and_ctag_find_the_changes(broken):
     s = Server(sync=broken, sync_broken=broken)         # absent, or advertised but refused with 501

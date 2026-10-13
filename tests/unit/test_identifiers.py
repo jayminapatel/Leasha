@@ -141,6 +141,7 @@ def _symbol_tokens_before_5d(text: str, *, limit: int = 4_000) -> str:
 _ALPHABET = "aAbBxXyYzZ09 1_.-'(\n\téÉßİıΣ中"  # noqa: RUF001 - deliberate look-alikes
 
 
+@pytest.mark.slow
 @given(st.text(alphabet=_ALPHABET, max_size=200),
        st.integers(min_value=1, max_value=60))
 @settings(max_examples=3000, deadline=None)

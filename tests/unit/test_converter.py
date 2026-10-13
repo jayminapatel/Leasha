@@ -200,12 +200,20 @@ def test_available_binaries_reports_every_allowed_one():
 # A real conversion, when the machine has one
 # ---------------------------------------------------------------------------
 
-@pytest.fixture
-def real_doc(tmp_path):
-    """A genuine `.doc`, made by asking LibreOffice for one."""
+@pytest.fixture(scope="module")
+def real_doc(tmp_path_factory):
+    """A genuine `.doc`, made by asking LibreOffice for one.
+
+    **Made once for the module (order 1u, 2026-10-13).** Every test that takes
+    it only reads it - each conversion writes into its own temporary folder -
+    so one `.doc` serves them all. Made per test it was one LibreOffice start
+    (8-13 s) for each of five tests. Every test still runs its own real
+    conversion of it; only the making of the input is shared.
+    """
     binary = resolve_binary("soffice")
     if not binary:
         pytest.skip("LibreOffice is not installed")
+    tmp_path = tmp_path_factory.mktemp("real_doc")
     source = tmp_path / "leeds.txt"
     source.write_text(
         "Leeds site safety report. Findings from the annual inspection.",

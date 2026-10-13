@@ -71,6 +71,7 @@ def _kill_mid_run(db: Path, root: Path, locks: Path) -> subprocess.CompletedProc
 
 # --- detection: the store, the lock and a real process ----------------------
 
+@pytest.mark.slow
 def test_a_killed_run_is_recognised_as_not_finished(tmp_path, corpus, locks) -> None:
     db = tmp_path / "index.db"
     before = time.time()
@@ -267,6 +268,7 @@ def test_cli_stats_reports_a_run_that_did_not_finish(capsys, planted) -> None:
     assert payload["unfinished_run"]["owner"] == COMMAND_LINE
 
 
+@pytest.mark.slow
 def test_cli_index_says_it_is_carrying_on(capsys, planted, corpus, monkeypatch) -> None:
     from app.cli import main
     from tests.unit.test_cli_index import fake_embedder as cli_fake

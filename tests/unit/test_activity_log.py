@@ -24,6 +24,8 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from app.index import activity as activity_module
 from app.index import pipeline as pipeline_module
 from app.index.activity import (
@@ -296,6 +298,7 @@ def _pipeline(store, roots) -> Pipeline:
         required_free_gb=0, limits=_limits()))
 
 
+@pytest.mark.slow
 def test_a_real_run_records_its_story_in_order(tmp_path: Path, monkeypatch) -> None:
     corpus = tmp_path / "docs"
     corpus.mkdir()

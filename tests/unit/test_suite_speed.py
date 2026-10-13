@@ -289,6 +289,7 @@ def test_a_part_that_never_ends_is_killed_with_its_tree_and_reported(tmp_path, m
     assert "1 process(es) crashed" in out
 
 
+@pytest.mark.slow
 def test_kill_tree_ends_a_real_process_and_the_child_it_started():
     """Not a stand-in: a Python process that starts another and sleeps. After
     `kill_tree` neither is alive - the child is what `taskkill /T` is for."""
@@ -382,6 +383,7 @@ def _tree_tests(root: Path) -> list[str]:
     return sorted(p.relative_to(root).as_posix() for p in (root / "tests").rglob("test_*.py"))
 
 
+@pytest.mark.slow
 def test_a_changed_leaf_selects_the_tests_that_import_it_and_the_modules_above_it(tmp_path):
     _tree(tmp_path)
     chosen = _select(tmp_path, ["app/core/leaf.py"])

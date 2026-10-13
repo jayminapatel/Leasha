@@ -128,6 +128,7 @@ def test_a_minimised_viewer_comes_back_when_a_photo_is_opened_again(view):
 
 # -- 2. the window's View menu empties itself ---------------------------------------------
 
+@pytest.mark.slow
 def test_the_view_button_hands_the_window_a_menu_of_its_own(view):
     from PySide6.QtWidgets import QMenu
 

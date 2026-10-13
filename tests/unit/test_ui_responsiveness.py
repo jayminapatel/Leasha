@@ -120,6 +120,7 @@ def test_no_view_reads_the_store_while_painting() -> None:
             )
 
 
+@pytest.mark.slow
 def test_settings_counts_the_usage_log_without_reading_it() -> None:
     """It was `len(recent_searches(limit=100_000))`: a hundred thousand rows
     fetched, turned into dictionaries and discarded, to produce one number."""
@@ -514,6 +515,7 @@ def _init_body_calls() -> set[str]:
     return found
 
 
+@pytest.mark.slow
 def test_construction_starts_no_background_work():
     r"""**The rule the window's own comment states, enforced.**
 

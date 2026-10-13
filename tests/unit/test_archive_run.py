@@ -90,6 +90,7 @@ def _run(db: Path, roots, *, store=None, **config):
         return go(opened)
 
 
+@pytest.mark.slow
 def test_the_first_run_walks_an_archive_and_records_what_it_found(tmp_path, corpus):
     archive, live = corpus
     db = tmp_path / "index.db"
@@ -108,6 +109,7 @@ def test_the_first_run_walks_an_archive_and_records_what_it_found(tmp_path, corp
     assert normalise(live) not in records          # a live root gets no record
 
 
+@pytest.mark.slow
 def test_the_second_run_does_not_walk_it_at_all(tmp_path, corpus):
     r"""**The whole point, measured by the file that was added and missed.**
 
@@ -137,6 +139,7 @@ def test_the_second_run_does_not_walk_it_at_all(tmp_path, corpus):
     assert stats.seen == 1                         # only the live root was walked
 
 
+@pytest.mark.slow
 def test_a_folder_dropped_into_the_archive_is_caught(tmp_path, corpus):
     """The case the mtime tripwire exists for, and the common one."""
     archive, live = corpus
@@ -228,6 +231,7 @@ def test_rows_under_a_skipped_archive_are_not_pruned(tmp_path, corpus):
     )
 
 
+@pytest.mark.slow
 def test_an_interrupted_run_records_no_pass(tmp_path, corpus):
     r"""**The silent, permanent failure this module could have.**
 

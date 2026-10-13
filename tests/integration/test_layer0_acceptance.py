@@ -54,6 +54,7 @@ def run_cli(project_root: Path, *args: str, env_file: Path | None = None,
 
 # --- 1 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_acceptance_1_stats_runs_and_exits_zero(project_root: Path, temp_env: Path) -> None:
     result = run_cli(project_root, "stats", env_file=temp_env)
     assert result.returncode == 0, result.stderr
@@ -61,6 +62,7 @@ def test_acceptance_1_stats_runs_and_exits_zero(project_root: Path, temp_env: Pa
     assert "embed_model" in result.stdout
 
 
+@pytest.mark.slow
 def test_acceptance_1_stats_json_is_valid(project_root: Path, temp_env: Path) -> None:
     result = run_cli(project_root, "--json", "stats", env_file=temp_env)
     assert result.returncode == 0, result.stderr
@@ -71,6 +73,7 @@ def test_acceptance_1_stats_json_is_valid(project_root: Path, temp_env: Path) ->
 
 # --- 2 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_acceptance_2_bad_config_is_readable_not_a_traceback(
     project_root: Path, temp_env: Path, tmp_path: Path
 ) -> None:
@@ -94,6 +97,7 @@ def test_acceptance_2_bad_config_is_readable_not_a_traceback(
     assert "Traceback (most recent call last)" not in combined
 
 
+@pytest.mark.slow
 def test_acceptance_2_missing_env_is_readable(project_root: Path, tmp_path: Path) -> None:
     result = run_cli(project_root, "stats", env_file=tmp_path / "absent.env")
     assert result.returncode == 1
@@ -104,6 +108,7 @@ def test_acceptance_2_missing_env_is_readable(project_root: Path, tmp_path: Path
 
 # --- 3 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_acceptance_3_second_instance_refuses_to_start(
     project_root: Path, temp_env: Path
 ) -> None:

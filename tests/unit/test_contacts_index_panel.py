@@ -187,6 +187,7 @@ def _name_bob_in_photos(store):
     return pile
 
 
+@pytest.mark.slow
 def test_suggest_link_then_accept_shows_the_persons_photos(world, panel, store):
     from app.contacts import people
 

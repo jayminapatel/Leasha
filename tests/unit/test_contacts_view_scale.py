@@ -69,6 +69,7 @@ def _ms(since: float) -> float:
     return (time.perf_counter() - since) * 1000
 
 
+@pytest.mark.slow
 def test_ten_thousand_rows_are_read_on_a_worker_and_land_without_a_stall(big):
     store, hub, accounts = big.store, big.hub, big.accounts
     assert hub.count() == N
@@ -169,6 +170,7 @@ def test_sorting_and_selecting_everything_are_arithmetic(big):
     page.table.clearSelection()
 
 
+@pytest.mark.slow
 def test_narrowing_ten_thousand_is_a_worker_read(big):
     page = big.page
     page.toolbar.filter.setText("Given42")

@@ -174,6 +174,7 @@ def _open(app, window, page: str, category: str = "") -> None:
     gui_pump(app, 5)
 
 
+@pytest.mark.slow
 def test_storage_page_buttons_are_their_own_width_with_an_icon(shown) -> None:
     """**Before:** "Run doctor", "Check that search works", "Save a support
     bundle…" and "Open the recordings folder" ran the whole width of the page,
@@ -264,6 +265,7 @@ def _rule_breaks(buttons, *, visible_to) -> list[str]:
     return broken
 
 
+@pytest.mark.slow
 def test_every_page_every_action_button_follows_the_rules(shown) -> None:
     """**The owner's sentence, as a walk:** every page and every category of
     the real window, and on each one every action button has a kind, a 16px
@@ -417,6 +419,7 @@ def test_every_pill_state_has_a_dot_colour_from_the_theme() -> None:
     assert states["Paused"].tone == states["Stopped"].tone == "held"
 
 
+@pytest.mark.slow
 def test_switching_the_theme_redraws_the_button_icons_on_the_real_window(shown) -> None:
     """Icons are pictures: without a redraw, the dark theme's lavender primary
     ink would stay on the light theme's navy "Start indexing"."""

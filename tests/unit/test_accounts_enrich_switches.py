@@ -36,6 +36,7 @@ def test_defaults_are_local_on_and_internet_off(world):
     assert not any(g.enrich[k].isChecked() for k in NET + MORE_OFF)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("key", OWN + NET)
 def test_every_switch_saves_and_reloads(world, key):
     svc, page = world

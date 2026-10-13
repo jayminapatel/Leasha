@@ -27,6 +27,7 @@ from tests.unit.test_ui_redesign_qt import window  # noqa: E402,F401 - the share
 # §1 - the Space Report
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_space_report_is_an_entry_of_the_tidy_list(window):
     """1q (2026-10-11): Digital Inheritance went, and the Reports page with it; the
     Space Report is the "Report" entry of the Tidy page's list."""

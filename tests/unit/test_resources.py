@@ -588,6 +588,7 @@ def test_the_process_table_is_walked_once_a_second_however_often_it_is_asked(mon
     assert resources.CHILD_LIST_S == 1.0
 
 
+@pytest.mark.slow
 def test_a_real_busy_child_is_counted_as_our_own_load():
     """The suspicion of 2026-09-30, tested for real: a child that burns a core,
     and the probe read a second apart the way the governor reads it. Fails on

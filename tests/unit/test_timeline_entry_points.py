@@ -55,6 +55,7 @@ def test_tidy_lists_the_space_report_and_does_not_host_the_timeline(qtbot, tmp_p
         QThreadPool.globalInstance().waitForDone(5000)
 
 
+@pytest.mark.slow
 def test_the_rail_entry_browse_opens_the_timeline_after_code(dated_window, qtbot):
     _app, window, _store, _ids = dated_window
     titles = [window.rail.tabText(i) for i in range(window.rail.count())]

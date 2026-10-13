@@ -155,6 +155,7 @@ def _status(counts: dict, name: str) -> int:
     return int((counts.get("files") or {}).get(name, 0))
 
 
+@pytest.mark.slow
 def test_a_stop_mid_batch_costs_one_model_call_not_the_batch(tmp_path) -> None:
     """Fails on the code as it was: all 100 passages were embedded before it looked."""
     vectors, model = RecordingVectors(), Model(stop_after_calls=1)
@@ -164,6 +165,7 @@ def test_a_stop_mid_batch_costs_one_model_call_not_the_batch(tmp_path) -> None:
     assert vectors.added == CPU_INFER_BATCH
 
 
+@pytest.mark.slow
 def test_only_files_whose_vectors_were_written_are_marked_indexed(tmp_path) -> None:
     vectors, model = RecordingVectors(), Model(stop_after_calls=1)
     _stats, counts, _p = _run(tmp_path / "i.db", _corpus(tmp_path, archive=False), vectors, model)
@@ -172,6 +174,7 @@ def test_only_files_whose_vectors_were_written_are_marked_indexed(tmp_path) -> N
     assert _status(counts, "INDEXED") == len(vectors.rows), "an INDEXED file with no vector"
 
 
+@pytest.mark.slow
 def test_a_resume_after_a_stop_loses_nothing_and_embeds_nothing_twice(tmp_path) -> None:
     db, root = tmp_path / "i.db", _corpus(tmp_path, archive=False)
     vectors = RecordingVectors()
@@ -185,6 +188,7 @@ def test_a_resume_after_a_stop_loses_nothing_and_embeds_nothing_twice(tmp_path) 
     assert vectors.added == FILES, "a passage was embedded twice across the two runs"
 
 
+@pytest.mark.slow
 def test_a_stop_that_never_comes_embeds_everything_in_smaller_calls(tmp_path) -> None:
     """Slicing must not change a normal run: same vectors, more but smaller calls."""
     vectors, model = RecordingVectors(), Model()
@@ -196,6 +200,7 @@ def test_a_stop_that_never_comes_embeds_everything_in_smaller_calls(tmp_path) ->
 
 # --- what a cut batch must not claim ------------------------------------------
 
+@pytest.mark.slow
 def test_an_archive_cut_by_a_stop_gets_no_completion_marker(tmp_path) -> None:
     """The marker says "read in full, do not open again"; here it would be a lie.
 
@@ -228,6 +233,7 @@ def test_no_resume_position_is_saved_past_an_abandoned_message(tmp_path) -> None
         assert store.get_state(f"{RESUME_STATE_PREFIX}{digest}") is None
 
 
+@pytest.mark.slow
 def test_an_archive_resumed_after_a_stop_ends_with_every_message(tmp_path) -> None:
     db, root = tmp_path / "i.db", _corpus(tmp_path, archive=True)
     vectors = RecordingVectors()

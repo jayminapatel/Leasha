@@ -133,6 +133,7 @@ def _drawn_size(popped) -> tuple[int, int]:
 # pop-out: a real photo, rotated by a real click
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_a_popped_out_photo_is_drawn_and_rotates_a_quarter_turn_per_click(journeys, qtbot):
     app, window, *_ = journeys
     popped = _pop_out_first_result(qtbot, app, window, "harbour sunset")
@@ -159,6 +160,7 @@ def test_a_popped_out_photo_is_drawn_and_rotates_a_quarter_turn_per_click(journe
         gui_pump(app)
 
 
+@pytest.mark.slow
 def test_a_rotation_is_remembered_the_next_time_the_photo_is_popped_out(journeys, qtbot):
     r"""The Rotate tooltip promises "Remembered for this file; the file itself
     is never changed." - so pop it out again after closing and it is still on

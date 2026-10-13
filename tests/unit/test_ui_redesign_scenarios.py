@@ -45,6 +45,24 @@ KEY = Qt.Key
 
 
 @pytest.fixture(scope="module", autouse=True)
+def _each_program_looked_up_once():
+    """`shutil.which` answers each name once for the module (order 1u, 2026-10-13).
+
+    Every window this module builds looks for the same programs on the PATH -
+    the editors for Settings' "Open code in", the converters for its file-type
+    health - a few thousand `stat`s each, about 1 s of every build on this
+    laptop. The PATH does not change while the module runs, so the first
+    window's answers are the answers; what these tests check is the window,
+    not the PATH."""
+    import functools
+    import shutil
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(shutil, "which", functools.lru_cache(maxsize=None)(shutil.which))
+        yield
+
+
+@pytest.fixture(scope="module", autouse=True)
 def _leave_no_window_showing(gui_mainwindow):
     """These scenarios `show()` their windows (shortcuts and focus need an
     active one) and never close them. A window left showing at (0, 0) takes the
@@ -113,6 +131,7 @@ def relaunch(tmp_path_factory):
         window.show()
         return window
 
+    launch.windows = kept                         # every window launched so far
     yield app, launch, store
     for window in kept:
         window.hide()
@@ -141,7 +160,9 @@ def test_the_first_run_opens_on_search_with_the_box_ready(relaunch, qtbot):
 def test_the_last_page_survives_a_relaunch(relaunch, qtbot):
     from PySide6.QtWidgets import QApplication
     app, launch, store = relaunch
-    first = launch()
+    # *Order 1u 2g:* the first-run scenario's window is already a launch over
+    # this store, so it is the "first" here - only the second is built.
+    first = launch.windows[0] if launch.windows else launch()
     _settled(qtbot, first)
     first.activateWindow()
     button = first.rail._buttons[first._tab_index[first.files_view]]
@@ -393,6 +414,43 @@ def _rows(view) -> int:
                if not isinstance(model.item(n).data(ROLE_PAYLOAD), Skeleton))
 
 
+def _type_and_let_it_answer(qtbot, app, view, text: str) -> None:
+    """Type `text`, and wait until the search has **finished** answering.
+
+    **Not "until three rows show".** Typing answers more than once: the
+    keyword tier at 150 ms, the full search at 400 ms, then the mail
+    subtitles for each (`redraw_with_details`) - every one a redraw of the
+    list. Three rows are there after the first, so the keys that followed were
+    pressed while the rest were still arriving, and one landing on the Enter
+    that opened a two-match group closed it again (fixed in
+    `presenter.expansions_kept`, 2026-10-13) - "4 rows where more were
+    expected", about half the runs under load. Waited for by name, as
+    `tools/grab_ui._show_results` does: the full tier's `searched`, then no
+    worker still running for three turns in a row.
+    """
+    from PySide6.QtCore import QThreadPool
+
+    tiers: list = []
+
+    def heard(shape) -> None:
+        tiers.append(shape.get("tier"))
+
+    view.searched.connect(heard)
+    try:
+        _key(qtbot, app, None, text=text)
+        qtbot.waitUntil(lambda: "full" in tiers and _rows(view) >= 3, timeout=10000)
+        pool, quiet = QThreadPool.globalInstance(), 0
+
+        def settled() -> bool:
+            nonlocal quiet
+            quiet = 0 if pool.activeThreadCount() else quiet + 1
+            return quiet >= 3
+
+        qtbot.waitUntil(settled, timeout=10000)
+    finally:
+        view.searched.disconnect(heard)
+
+
 def test_the_search_page_start_to_finish_with_the_keyboard_alone(
         gui_mainwindow, quokkas, qtbot, monkeypatch):
     import app.ui.shell as shell
@@ -412,8 +470,7 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     assert _page(window) == "Search" and app.focusWidget() is view.input
 
     # 2. Type. The home state gives way to results; no Enter needed.
-    _key(qtbot, app, None, text="quokka")
-    qtbot.waitUntil(lambda: _rows(view) >= 3, timeout=4000)
+    _type_and_let_it_answer(qtbot, app, view, "quokka")
     assert not view.home.isVisibleTo(view)
 
     # 3. Down from the box selects the first row without the box losing focus.
@@ -514,6 +571,54 @@ def test_the_search_page_start_to_finish_with_the_keyboard_alone(
     _key(qtbot, app, KEY.Key_Escape)
     _key(qtbot, app, KEY.Key_P, MOD.ControlModifier | MOD.ShiftModifier)
     assert view.preview.isHidden()
+
+
+def test_a_group_opened_with_enter_stays_open_when_its_search_answers_again(
+        gui_mainwindow, quokkas, qtbot):
+    """**Regression, 2026-10-13** - the cause of the keyboard scenario above
+    failing about half its runs: every redraw of the same search (the full tier
+    after the keyword one, the reranked order, the mail subtitles) closed the
+    group a person had just opened with Enter. Here the same words are asked
+    again once it is open - the full tier landing late, exactly as it does
+    under load or behind a slow reranker - and it must still be open."""
+    from app.ui.presenter import Tier
+
+    app, window, store, engine = gui_mainwindow
+    _front(app, window, qtbot)
+    _goto(window, "Search")
+    view = window.search_view
+    view.input.clear()
+    view.input.setFocus()
+    gui_pump(app)
+    _type_and_let_it_answer(qtbot, app, view, "quokka")
+    multi = _first_multi_match_row(view)
+    view.results._list.setCurrentIndex(view.results._model.index(multi, 0))
+    view.results._list.setFocus()
+    before = _rows(view)
+    _key(qtbot, app, KEY.Key_Return)
+    opened = _rows(view)
+    assert opened > before, "Enter on a two-match group must show its matches"
+
+    from PySide6.QtCore import QThreadPool
+
+    tiers: list = []
+
+    def heard(shape) -> None:
+        tiers.append(shape.get("tier"))
+
+    view.searched.connect(heard)
+    try:
+        view._dispatch(Tier.FULL)                 # the same words, answered again
+        qtbot.waitUntil(lambda: "full" in tiers, timeout=10000)
+        # and its mail-subtitle redraw, which comes from a worker after it
+        qtbot.waitUntil(lambda: QThreadPool.globalInstance().activeThreadCount() == 0, timeout=10000)
+        gui_pump(app, 10)
+    finally:
+        view.searched.disconnect(heard)
+    assert _rows(view) == opened, "the same search redrawn closed the group that was open"
+
+    view.input.clear()
+    gui_pump(app)
 
 
 def test_escape_still_clears_the_box_while_the_preview_is_open(gui_mainwindow, quokkas, qtbot):
@@ -808,6 +913,27 @@ def test_a_skeleton_row_is_as_tall_as_the_real_row_it_stands_in_for(gui_mainwind
         _set_prefs(window, density="normal", font_pt=0)
 
 
+def _theme_back(window, *panes) -> None:
+    """Undo what `theme.stylesheet(...)` and `pane.retint(...)` did - and only that.
+
+    **Not `window._apply_theme()`** (order 1u 2g, 2026-10-13). The two tests
+    below never set the window's sheet: `theme.stylesheet` only records the
+    palette the painters read, and `retint` recolours one pane. Re-setting the
+    sheet on the whole window to undo them cost about 2 s a time - Qt
+    re-polishes every widget - and put back nothing they had changed.
+    """
+    from PySide6.QtGui import QGuiApplication
+
+    from app.ui import theme
+
+    detected = theme.detect_scheme(QGuiApplication.instance())
+    theme.stylesheet(window._theme_preference, detected=detected)
+    for pane in panes:
+        pane.retint(theme.theme_colours())
+    assert theme.theme_colours() == theme.palette_for(window._theme_preference, detected=detected), (
+        "the window's own palette is not back")
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
 def test_each_kind_badge_is_filled_with_its_own_token_in_both_themes(gui_mainwindow, scheme):
     from app.ui import theme
@@ -835,7 +961,7 @@ def test_each_kind_badge_is_filled_with_its_own_token_in_both_themes(gui_mainwin
             tokens.add(badge_token(kind))
         assert len(tokens) == 4, "documents, mail, code and the rest must not share a colour"
     finally:
-        window._apply_theme()                              # back to the window's own
+        _theme_back(window)                                # back to the window's own
 
 
 # ---------------------------------------------------------------------------
@@ -862,7 +988,7 @@ def test_code_in_the_preview_is_coloured_for_the_theme_not_for_the_operating_sys
             lightness = formats[role].foreground().color().lightness()
             assert (lightness > 128) is dark_ground, (scheme, role, lightness)
     finally:
-        window._apply_theme()
+        _theme_back(window, pane)
 
 
 @pytest.mark.parametrize("width", [1024, 1100, 1400])

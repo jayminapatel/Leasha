@@ -37,6 +37,7 @@ pytestmark = pytest.mark.gui
 # 0a - the `/` menu's scoped values
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_slash_type_then_a_space_offers_the_types_the_index_actually_holds(gui_mainwindow, qtbot):
     app, window, _store, _engine = gui_mainwindow
     view = window.search_view
@@ -222,6 +223,7 @@ def _row_named(view, name: str):
 # 2026-10-05, later (order `offline-drives-on-a-mac`): the gap is closed, so
 # the `windows` marker is gone and this runs on a Mac too. Only Windows and
 # macOS can tell whether a drive is plugged in; anywhere else it is skipped.
+@pytest.mark.slow
 @pytest.mark.skipif(__import__("sys").platform not in ("win32", "darwin"),
                     reason="telling whether a drive is plugged in needs Windows or macOS")
 def test_offline_media_scan_rescan_and_delete_pressed_for_real(gui_mainwindow, offline_source, qtbot):

@@ -54,6 +54,7 @@ def test_the_converter_binary_is_on_the_allow_list():
     assert rule.binary in ALLOWED_BINARIES
 
 
+@pytest.mark.slow
 def test_no_module_imports_libredwgs_python_bindings():
     r"""The licence rule, as code.
 
@@ -131,6 +132,7 @@ def _dxf_document(path: Path):
     return list(CadExtractor().extract(path))[0]
 
 
+@pytest.mark.slow
 def test_an_unparseable_drawing_is_still_indexed_by_name(tmp_path: Path):
     """Never an empty document: empty means ERR_NO_TEXT_LAYER and the drawing
     disappears from the index entirely - the worst outcome for a file somebody

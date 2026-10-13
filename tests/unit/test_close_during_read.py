@@ -138,6 +138,7 @@ def _run(script: str, *args: str) -> subprocess.CompletedProcess:
         cwd=str(ROOT), capture_output=True, text=True, timeout=CHILD_CAP_S)
 
 
+@pytest.mark.slow
 def test_closing_under_running_readers_does_not_crash_the_process(tmp_path):
     proc = _run(STRESS_CHILD, str(tmp_path), "60")
     assert proc.returncode == 0, (
@@ -150,6 +151,7 @@ def test_closing_under_running_readers_does_not_crash_the_process(tmp_path):
         assert "was closed while a worker was using it" in line, proc.stdout
 
 
+@pytest.mark.slow
 def test_close_interrupts_a_long_query_instead_of_waiting_for_it(tmp_path):
     proc = _run(LONG_QUERY_CHILD, str(tmp_path))
     assert proc.returncode == 0, proc.stderr[-4000:]

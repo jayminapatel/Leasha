@@ -135,6 +135,7 @@ def _combo_names(path: Path) -> set[str]:
     return named
 
 
+@pytest.mark.slow
 def test_a_setting_with_known_values_is_offered_as_a_list():
     """No free text where the answer is one of a handful of known strings.
 
@@ -226,6 +227,7 @@ def _controls_without_tooltips() -> list[str]:
     return sorted(missing)
 
 
+@pytest.mark.slow
 def test_every_interactive_control_says_what_it_will_do():
     r"""**A label says what a control is; a tooltip says what will happen.**
 

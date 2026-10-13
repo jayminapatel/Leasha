@@ -34,6 +34,10 @@ from app.index.run_setup import (
 )
 from app.storage.sqlite_store import SqliteStore
 
+#: Order 1u §2: an index run here checks what it writes, so it does not wait
+#: for a busy machine or test the graphics card first (`tests/conftest.py`).
+pytestmark = pytest.mark.usefixtures("quiet_machine", "no_hardware_test")
+
 
 def _settings(when: str = "with-run", what: str = "both") -> SimpleNamespace:
     return SimpleNamespace(index_ocr_pass=when, index_ocr_mode=what)
@@ -204,9 +208,14 @@ def _cli(capsys, *argv) -> tuple[int, str]:
 
 @pytest.fixture()
 def after_run_env(temp_env: Path) -> Path:
+    # Order 1u §2c, 2026-10-13: `INDEX_READ_PROCESSES=false`. These runs check
+    # which pass a run takes and what it records, not where a file is read; a
+    # reader process cost each run about ten seconds to start and stop, and
+    # `test_read_process.py` is where reading in one is proved.
     with temp_env.open("a", encoding="utf-8") as handle:
         handle.write("\nINDEX_OCR_PASS=after-run\nINDEX_CPU_PERCENT=0\n"
-                     "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n")
+                     "MIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n"
+                     "INDEX_READ_PROCESSES=false\n")
     return temp_env
 
 

@@ -20,6 +20,8 @@ Four promises, each pinned by one test:
 from __future__ import annotations
 
 import mailbox
+import re
+from email import quoprimime
 from email.message import EmailMessage
 from pathlib import Path
 
@@ -30,6 +32,10 @@ from app.extract import chunk_document, extract
 from app.extract.base import REGISTRY, NAME_REGISTRY, extractor_for
 from app.index.pipeline_bench import BenchOptions, run_pipeline_bench
 from app.index.read_process import PROCESS_READERS, ReaderProcess, reads_in_process
+
+#: Order 1u §2: an index run here checks what it writes, so it does not wait
+#: for a busy machine or test the graphics card first (`tests/conftest.py`).
+pytestmark = pytest.mark.usefixtures("quiet_machine", "no_hardware_test")
 
 
 def _mbox(path: Path, messages: int) -> Path:
@@ -68,6 +74,53 @@ def _local(path: Path) -> list[tuple]:
 def _remote(reader: ReaderProcess, path: Path) -> list[tuple]:
     return [(d.key, d.source_kind, d.meta, [c["text"] for c in chunks])
             for d, chunks in reader.read(path)]
+
+
+def _mbox_quickly(path: Path, messages: int) -> Path:
+    """`_mbox`'s file, written without building an `EmailMessage` per message.
+
+    Order 1u §2d, 2026-10-13: three thousand `EmailMessage`s took six to ten
+    seconds on the owner's laptop, nearly all of it header and body encoding.
+    The bytes are `_mbox`'s own - the same headers, and the body quoted-printable
+    at the 78 columns `set_content` uses - apart from each `From ` line's
+    timestamp, which `mailbox` writes from the clock either way.
+    `test_the_quick_mailbox_is_the_same_mailbox` holds that."""
+    box = mailbox.mbox(str(path))
+    try:
+        for number in range(messages):
+            body = quoprimime.body_encode(f"Body of message {number}. " * 40 + "\n",
+                                          maxlinelen=78)
+            box.add((f"From: sender{number}@example.com\n"
+                     "To: someone@example.com\n"
+                     f"Subject: Message number {number}\n"
+                     "Date: Mon, 01 Jan 2024 10:00:00 +0000\n"
+                     f"Message-ID: <m{number}@example.com>\n"
+                     'Content-Type: text/plain; charset="utf-8"\n'
+                     "Content-Transfer-Encoding: quoted-printable\n"
+                     "MIME-Version: 1.0\n\n" + body).encode("ascii"))
+    finally:
+        box.close()
+    return path
+
+
+def _without_from_line_times(data: bytes) -> bytes:
+    return re.sub(rb"^From MAILER-DAEMON [^\r\n]*", b"From MAILER-DAEMON", data, flags=re.M)
+
+
+@pytest.fixture(scope="module")
+def big_mbox(tmp_path_factory) -> Path:
+    """Three thousand messages, far more than a pipe holds - built once.
+
+    Order 1u §2d, 2026-10-13: each test built its own. Nothing writes to it:
+    the crash and the abandoned file only read it, so one copy serves both."""
+    return _mbox_quickly(tmp_path_factory.mktemp("big") / "big.mbox", 3000)
+
+
+def test_the_quick_mailbox_is_the_same_mailbox(tmp_path: Path) -> None:
+    """The big mailbox is `_mbox`'s, byte for byte bar the clock."""
+    slow = _mbox(tmp_path / "slow.mbox", 30).read_bytes()
+    quick = _mbox_quickly(tmp_path / "quick.mbox", 30).read_bytes()
+    assert _without_from_line_times(quick) == _without_from_line_times(slow)
 
 
 @pytest.fixture
@@ -115,8 +168,9 @@ def test_a_reader_process_reads_exactly_what_a_thread_reads(tmp_path: Path, read
     assert reader.started == 1, "one child for the whole run, not one per file"
 
 
-def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Path, reader) -> None:
-    big = _mbox(tmp_path / "big.mbox", 3000)      # far more than a pipe holds
+def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Path, reader,
+                                                                   big_mbox: Path) -> None:
+    big = big_mbox                                 # far more than a pipe holds
     small = _eml(tmp_path / "next.eml")
 
     stream = reader.read(big)
@@ -132,8 +186,9 @@ def test_a_crashed_reader_costs_one_file_and_the_next_file_is_read(tmp_path: Pat
     assert reader.started == 2
 
 
-def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reader) -> None:
-    big = _mbox(tmp_path / "big.mbox", 3000)
+def test_an_abandoned_file_leaves_nothing_for_the_next_one(tmp_path: Path, reader,
+                                                           big_mbox: Path) -> None:
+    big = big_mbox
     small = _eml(tmp_path / "next.eml")
 
     stream = reader.read(big)

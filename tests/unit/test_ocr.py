@@ -211,6 +211,7 @@ def _florence_ready() -> bool:
 
 
 @pytest.mark.slow
+@pytest.mark.real_florence
 @pytest.mark.skipif(
     # 2026-09-30: was torch and transformers; Florence-2 runs on ONNX Runtime now,
     # so the real question is whether its reader says it can run.

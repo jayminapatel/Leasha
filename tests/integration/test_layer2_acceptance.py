@@ -69,6 +69,7 @@ BAD_OF_EACH_TYPE = {
 
 # --- 1 ----------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_fixture_corpus_covers_every_type(fixture_root: Path) -> None:
     for name in (*HEALTHY_OF_EACH_TYPE.values(), *BAD_OF_EACH_TYPE.values()):
         assert (fixture_root / name).exists(), f"missing fixture: {name}"
@@ -105,6 +106,7 @@ def test_bad_fixtures_skip_and_continue(fixture_root: Path, name: str) -> None:
     assert not error.is_fatal
 
 
+@pytest.mark.slow
 def test_a_batch_survives_every_bad_file_in_the_corpus(fixture_root: Path) -> None:
     """The layer's whole purpose: one bad file never halts a 100GB run."""
     everything = sorted(

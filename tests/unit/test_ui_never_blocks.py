@@ -27,6 +27,7 @@ that rule.
 from __future__ import annotations
 
 import ast
+import functools
 import re
 from pathlib import Path
 
@@ -40,8 +41,30 @@ def source(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
+@functools.lru_cache(maxsize=None)
+def _parsed(text: str) -> ast.Module:
+    return ast.parse(text)
+
+
+def tree_of(path: Path) -> ast.Module:
+    r"""The module's syntax tree, parsed once per *content*, not once per check.
+
+    **Order 1u, 2026-10-13.** Six parametrized checks over every `app/ui`
+    module, plus `enclosing_function` re-parsing the whole file for each call it
+    placed, parsed the same unchanged text thousands of times. Keyed on the text
+    rather than the path, so a file a test writes (`_module` below) is never
+    answered from an older tree. Nothing here edits a tree.
+    """
+    return _parsed(source(path))
+
+
+@functools.lru_cache(maxsize=None)
+def _calls(text: str) -> tuple[ast.Call, ...]:
+    return tuple(n for n in ast.walk(_parsed(text)) if isinstance(n, ast.Call))
+
+
 def calls_in(path: Path) -> list[ast.Call]:
-    return [n for n in ast.walk(ast.parse(source(path))) if isinstance(n, ast.Call)]
+    return list(_calls(source(path)))
 
 
 def called_name(node: ast.Call) -> str:
@@ -56,7 +79,7 @@ def called_name(node: ast.Call) -> str:
 def enclosing_function(path: Path, line: int) -> str:
     """Which def a line sits in. Used to allow one named exception."""
     best = ""
-    for node in ast.walk(ast.parse(source(path))):
+    for node in ast.walk(tree_of(path)):
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.lineno <= line <= (node.end_lineno or node.lineno):
                 best = node.name
@@ -341,7 +364,7 @@ PAINT_PATHS = {"paint", "sizeHint", "_append", "_rebuild", "data", "_redraw"}
 @pytest.mark.parametrize("path", MODULES, ids=lambda p: p.name)
 def test_no_filesystem_call_in_a_paint_path(path):
     """Per-row work must be arithmetic, not syscalls."""
-    tree = ast.parse(source(path))
+    tree = tree_of(path)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -422,7 +445,7 @@ def test_no_store_call_outside_a_worker(path):
     """A query on the UI thread is a freeze waiting for a busy index."""
     if path.name in WORKER_ONLY:
         pytest.skip(f"{path.name} is called from workers by design")
-    tree = ast.parse(source(path))
+    tree = tree_of(path)
     off_thread = OFF_THREAD | worker_bodies(path)
     for node in ast.walk(tree):
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
@@ -501,7 +524,7 @@ TASKS = UI / "tasks.py"
 def _task_functions() -> frozenset[str]:
     """Every function `tasks.py` defines at module level, read off the file."""
     return frozenset(
-        node.name for node in ast.parse(source(TASKS)).body
+        node.name for node in tree_of(TASKS).body
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     )
 
@@ -543,7 +566,7 @@ def _inline_task_calls(path: Path) -> list[str]:
     counts only if the name was imported from `tasks` or the presenter, or is
     reached through one of those modules.
     """
-    tree = ast.parse(source(path))
+    tree = tree_of(path)
     functions, modules = _task_bindings(tree)
     if not functions and not modules:
         return []
@@ -600,7 +623,7 @@ def test_no_presenter_module_defines_a_worker_body():
     """A function `tasks.py` owns must not be defined a second time in the
     package, where the exemption would not reach it and a copy could drift."""
     for path in PRESENTER.glob("*.py"):
-        defined = {node.name for node in ast.parse(source(path)).body
+        defined = {node.name for node in tree_of(path).body
                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         assert not defined & TASK_FUNCTIONS, (
             f"{path.name} defines {sorted(defined & TASK_FUNCTIONS)}, which tasks.py owns")
@@ -613,7 +636,7 @@ def test_the_presenter_package_never_imports_the_worker_bodies():
     for path in PRESENTER.glob("*.py"):
         if path.name == "__init__.py":
             continue
-        for node in ast.walk(ast.parse(source(path))):
+        for node in ast.walk(tree_of(path)):
             if isinstance(node, ast.ImportFrom):
                 reached = [node.module] + [f"{node.module}.{a.name}" for a in node.names]
             elif isinstance(node, ast.Import):
@@ -872,7 +895,7 @@ def test_no_function_reimports_a_name_the_module_already_has():
 
 def _offenders(path: Path) -> list[str]:
     """Store calls this module makes outside a worker. The check, as data."""
-    tree = ast.parse(source(path))
+    tree = tree_of(path)
     off_thread = OFF_THREAD | worker_bodies(path)
     found = []
     for node in ast.walk(tree):

@@ -111,6 +111,7 @@ def test_the_reading_order_control_loads_and_saves(qtbot) -> None:
     assert fresh.values()["INDEX_ORDER"] == "newest", "the default"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("separate", [False, True])
 def test_start_hands_the_marks_and_the_order_to_the_run(tmp_path, separate) -> None:
     """The window's Start: in-process, the `Pipeline` gets the marks as

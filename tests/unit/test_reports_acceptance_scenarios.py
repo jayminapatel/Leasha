@@ -80,6 +80,7 @@ def family(gui_mainwindow, qtbot):
     return app, window, view, ids
 
 
+@pytest.mark.slow
 def test_the_owner_sees_in_one_glance_which_drive_holds_the_only_copy(family, qtbot):
     app, _window, view, _ids = family
     view.refresh()

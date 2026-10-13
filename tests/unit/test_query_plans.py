@@ -52,9 +52,21 @@ def _add(store, *, path, kind="file", mtime, sender="", subject="", to="[]",
     return file_id
 
 
-@pytest.fixture
-def populated(store):
-    """Enough rows, and enough variety, that a scan is not accidentally cheap."""
+@pytest.fixture(scope="module")
+def populated(tmp_path_factory):
+    """Enough rows, and enough variety, that a scan is not accidentally cheap.
+
+    **Built once for the module (order 1u, 2026-10-13).** Every test that uses
+    it only reads - `EXPLAIN QUERY PLAN`, a `SELECT`, or `keyword.search` - so
+    one copy answers them all. Built per test it was 2-4 s of 800 single-row
+    writes each time, fifteen times over, and most of this file's run.
+    """
+    path = tmp_path_factory.mktemp("populated") / "index.db"
+    with SqliteStore(path) as store:
+        yield _populate(store)
+
+
+def _populate(store):
     for n in range(400):
         _add(store, path=f"/docs/dir{n % 20}/report{n}.pdf", kind="file",
              mtime=(n * 7919) % 3_000_000)

@@ -202,6 +202,7 @@ def test_start_pause_resume_stop_pressed_for_real(qtbot, monkeypatch) -> None:
     view.pool.waitForDone(5000)
 
 
+@pytest.mark.slow
 def test_the_window_still_wires_start_to_the_moved_button(gui_mainwindow) -> None:
     """`shell.py` connects `indexing_view.start_button.clicked` by that name;
     after the move it must still be the button on screen."""
@@ -389,6 +390,7 @@ def test_the_glide_stops_when_the_window_is_minimised(qtbot, monkeypatch) -> Non
     assert not bar.gliding() and bar.value() == 95
 
 
+@pytest.mark.slow
 def test_the_glide_costs_next_to_nothing(qtbot) -> None:
     """A simulated run: a tick every 0.25 s (the paint throttle's rate) for
     three seconds, each moving the bar. Asserted on the work, not the clock:

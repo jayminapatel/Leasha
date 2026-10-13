@@ -171,6 +171,7 @@ def test_a_file_in_the_checkout_is_still_read_from_disk(monkeypatch, tmp_path) -
     assert preview.kind == KIND_TEXT and "CustomerId = 1" in preview.body
 
 
+@pytest.mark.slow
 def test_git_show_is_only_ever_run_by_the_loader() -> None:
     """Only when selected, and on a worker: the window's own modules never call it.
 

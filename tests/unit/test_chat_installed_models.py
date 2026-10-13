@@ -222,6 +222,7 @@ def test_a_number_with_an_envelope_states_its_range_its_reason_and_what_automati
     assert "Automatic uses 2" in rounds.text()                              # under 8GB a retry costs a model reload
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_choosing_a_role_emits_its_key_and_the_photo_model_stays_in_step_with_its_other_control(chat):
     c = chat

@@ -250,6 +250,7 @@ def test_the_copies_inside_a_row_are_made_when_it_is_opened_and_only_once(qtbot)
     assert zeta.childCount() == 3, "opening it twice made the copies twice"
 
 
+@pytest.mark.slow
 def test_a_group_with_thousands_of_copies_costs_nothing_until_it_is_opened(qtbot):
     """Counted, not timed: a number of rows is the same on every machine."""
     big = tuple(DuplicateGroup(f"h{g}", 40 * KB, tuple(
@@ -377,6 +378,7 @@ def space_window(gui_mainwindow, qtbot):
     return app, window, view
 
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_the_space_report_appears_as_a_table_not_a_document(space_window):
     _app, _window, view = space_window

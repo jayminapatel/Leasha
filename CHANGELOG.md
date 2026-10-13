@@ -17,6 +17,20 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### An error box never holds the window, and the test windows go quiet (2026-10-13)
+
+- **The window's error box no longer waits for a click before anything else can happen.** It was opened
+  with `exec()`, which runs an event loop of its own; most errors reach it from a worker or a timer (a
+  page re-reading the index, the poll for another process's run), so the code that raised it stopped there
+  while every other timer kept firing inside it, and a second failure opened a second box on top. It now
+  opens with `open()` - the same words, still in front of the window - and only one is up at a time: a
+  repeat of the box showing is not queued, a different error waits its turn (`widgets/error_box.py`).
+- **Tests: a window a finished module leaves open stops every timer it owns**, not only the run-lock poll.
+  Each left window still had 12 or 13 timers running against a closed store (measured at the start of every
+  module), sending work into the thread pool every later module shares (`conftest.quieten_a_left_window`,
+  `test_left_windows_go_quiet.py`). The one-process run that died in `test_index_child_gui.py` did so because
+  a background read failed (ERR_DB_BUSY) and its error box waited for a click, which the change above ends.
+
 ### Microsoft mail sync, faster (2026-10-13)
 
 - **Measured before:** about 59 messages a minute on the owner's Microsoft account. A page of 50 spent ~25 s

@@ -50,6 +50,7 @@ def window(tmp_path, monkeypatch):
         vectors.close()
 
 
+@pytest.mark.slow
 def test_start_builds_the_configuration_every_run_builds(window, tmp_path) -> None:
     """The window's run had a `PipelineConfig` of its own and had drifted: it
     never left out Leasha's own folders, so a folder holding the index, the
@@ -72,6 +73,7 @@ def test_start_builds_the_configuration_every_run_builds(window, tmp_path) -> No
     assert str(built._settings.data_path) in started[0].config.walk.exclude_paths
 
 
+@pytest.mark.slow
 def test_only_a_whole_run_moves_the_schedule(window, tmp_path) -> None:
     """"Index now" on one folder, or a retry, pushed the next scheduled run
     over every folder back by a whole interval."""
@@ -97,6 +99,7 @@ def test_only_a_whole_run_moves_the_schedule(window, tmp_path) -> None:
     assert told == [1], "a whole run"
 
 
+@pytest.mark.slow
 def test_one_folder_s_index_now_neither_reads_nor_records_the_images_pass(
         window, tmp_path) -> None:
     """2026-10-04, code review: "Index now" on one folder read the index-wide
@@ -128,6 +131,7 @@ def test_one_folder_s_index_now_neither_reads_nor_records_the_images_pass(
         del built.notify
 
 
+@pytest.mark.slow
 def test_the_what_gets_read_page_hears_that_the_images_are_due(window) -> None:
     """2026-10-04, code review: the pictures sentence re-implemented the pass
     rule and never knew the images were due."""
@@ -148,6 +152,7 @@ def test_the_what_gets_read_page_hears_that_the_images_are_due(window) -> None:
         box.note_levers({"images_due": False})
 
 
+@pytest.mark.slow
 def test_a_stopped_text_pass_does_not_make_the_images_due(window) -> None:
     from app.index.pipeline import IndexStats
 
@@ -170,6 +175,7 @@ def test_a_stopped_text_pass_does_not_make_the_images_due(window) -> None:
         del built.notify
 
 
+@pytest.mark.slow
 def test_a_finished_text_pass_starts_the_images_pass_on_its_own(window, monkeypatch) -> None:
     """*2026-10-04, the owner* ("it is skipping all the files"): a text pass over
     a photo library holds every picture, and the images pass waited for a second
@@ -204,6 +210,7 @@ def test_a_finished_text_pass_starts_the_images_pass_on_its_own(window, monkeypa
         del built.notify
 
 
+@pytest.mark.slow
 def test_what_another_process_recorded_reaches_the_window(window) -> None:
     """`app.cli index` records the images pass as the window does; the window
     reads it on the external-run tick it already has."""
@@ -225,6 +232,7 @@ def test_what_another_process_recorded_reaches_the_window(window) -> None:
         ctl._images_due = False
 
 
+@pytest.mark.slow
 def test_the_window_saves_the_pst_reader_where_every_run_reads_it(window) -> None:
     from app.index.run_setup import PST_BACKEND_STATE_KEY
     from tests.unit.test_start_indexing_resolves_off_thread import _pump

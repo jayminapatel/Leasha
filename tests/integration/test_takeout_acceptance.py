@@ -93,6 +93,7 @@ def minimal_takeout_zip(tmp_path: Path) -> Path:
 class TestTakeoutZipStructure:
     """Test that Takeout zips index through the archive route."""
 
+    @pytest.mark.slow
     def test_takeout_zip_is_extracted(self, minimal_takeout_zip: Path) -> None:
         """A Takeout zip file itself is recognized and extracted."""
         documents = list(extract(minimal_takeout_zip))
@@ -100,6 +101,7 @@ class TestTakeoutZipStructure:
         # (photos won't produce documents, just metadata)
         assert len(documents) >= 2
 
+    @pytest.mark.slow
     def test_takeout_mbox_inside_zip_extracted(self, minimal_takeout_zip: Path) -> None:
         """Gmail mbox inside the Takeout zip is extracted via the mbox extractor."""
         documents = list(extract(minimal_takeout_zip))

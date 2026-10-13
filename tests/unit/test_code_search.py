@@ -159,6 +159,7 @@ def test_with_nothing_typed_the_list_is_unchanged() -> None:
 
 # --- the typing budget ------------------------------------------------------------
 
+@pytest.mark.slow
 def test_one_keystroke_stays_inside_the_typing_budget(tmp_path) -> None:
     repo = tmp_path / "big"
     repo.mkdir()

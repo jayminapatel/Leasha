@@ -175,9 +175,15 @@ def windows_left_open_stop_watching_the_run_lock():
     (`run_lock.CONTENTION_WAIT_S`); a bare `is_indexing` cannot, because a
     probe is exactly what it is. So the probing stops with the module that
     built the window: its tests are over, and nothing after it may depend on a
-    timer it cannot see. Only this timer - it is the one that reaches outside
-    the process - and only stopped, never closed or deleted, for the reason in
+    timer it cannot see. Stopped, never closed or deleted, for the reason in
     `gui_mainwindow`.
+
+    **Every timer the window owns, not only that one** (2026-10-13). A left
+    window still ran a dozen more - the Photos page re-reading the index every
+    45 s, the pages' follow-the-index timers, the hourly checks - each sending a
+    worker at a store `gui_mainwindow` had closed, and keeping the shared
+    thread pool busy for every later module. Measured by a spy at the start of
+    each module; see `quieten_a_left_window`.
 
     Module-scoped and autouse, so it is torn down after the module's own
     fixtures: a `gui_mainwindow` has closed its store by then, and a poll
@@ -189,13 +195,32 @@ def windows_left_open_stop_watching_the_run_lock():
     if QApplication.instance() is None:
         return
     for widget in QApplication.topLevelWidgets():
-        timer = getattr(widget, "_watch_timer", None)
-        if timer is None:
-            continue
+        if getattr(widget, "_watch_timer", None) is not None:
+            quieten_a_left_window(widget)
+
+
+def quieten_a_left_window(window) -> int:
+    """Stop every timer `window` owns - its own and its pages' - and say how many.
+
+    A `MainWindow` is known by its `_watch_timer`. A timer whose C++ side is
+    already gone is skipped. Returns the number stopped, for the test that
+    holds this (`test_left_windows_go_quiet.py`).
+    """
+    from PySide6.QtCore import QTimer
+
+    stopped = 0
+    try:
+        timers = window.findChildren(QTimer)
+    except RuntimeError:                 # the window's C++ side is already gone
+        return 0
+    for timer in timers:
         try:
-            timer.stop()
+            if timer.isActive():
+                timer.stop()
+                stopped += 1
         except RuntimeError:             # its C++ side is already gone
             pass
+    return stopped
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -210,6 +235,114 @@ def the_open_route_forgets_a_finished_modules_window():
     except Exception:                    # noqa: BLE001 - no Qt, nothing was set
         return
     set_open_context(None)
+
+
+#: The keys QTest presses for each modifier, so a held one can be let go.
+_MODIFIER_KEYS = (
+    ("ShiftModifier", "Key_Shift"),
+    ("ControlModifier", "Key_Control"),
+    ("AltModifier", "Key_Alt"),
+    ("MetaModifier", "Key_Meta"),
+)
+def _mouse_buttons() -> list:
+    """Every single Qt mouse button, read from the enum rather than listed by hand, so a held
+    Task or Extra button is caught too (review of #85). Aliases come once; the masks are not buttons."""
+    from PySide6.QtCore import Qt
+
+    return [b for b in Qt.MouseButton
+            if b.name not in ("NoButton", "AllButtons", "MouseButtonMask") and int(b.value).bit_count() == 1]
+
+#: Test files known to leave input held: released and warned about instead of failed.
+#: Every other test that leaves a key or button held fails. Found 2026-10-13 (13 tests in
+#: this file: Ctrl or Shift left held by its shortcut presses). Not fixed here because
+#: order 1u section 2g is rewriting this file at the same time; it comes off the list
+#: when that lands.
+KNOWN_INPUT_LEAKERS: frozenset[str] = frozenset({
+    "tests/unit/test_ui_redesign_scenarios.py",
+})
+
+
+def held_input() -> list[str]:
+    """The keyboard modifiers and mouse buttons Qt believes are still held, by name.
+
+    Empty when no `QApplication` exists: this never creates one."""
+    import sys
+
+    if "PySide6.QtWidgets" not in sys.modules:
+        return []
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QApplication
+
+    if QApplication.instance() is None:
+        return []
+    modifiers = QApplication.keyboardModifiers()
+    buttons = QApplication.mouseButtons()
+    held = [name for name, _key in _MODIFIER_KEYS
+            if modifiers & getattr(Qt.KeyboardModifier, name)]
+    held += [b.name for b in _mouse_buttons() if buttons & b]
+    return held
+
+
+def release_held_input() -> None:
+    """Let go of every held modifier and mouse button, through a hidden scratch widget.
+
+    Checked on PySide6 offscreen (2026-10-13): `QTest.keyRelease` / `mouseRelease` on a
+    widget that was never shown clears `QApplication.keyboardModifiers()` and
+    `mouseButtons()` without delivering anything to the widgets a test built."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtTest import QTest
+    from PySide6.QtWidgets import QApplication, QWidget
+
+    modifiers = QApplication.keyboardModifiers()
+    buttons = QApplication.mouseButtons()
+    scratch = QWidget()
+    try:
+        for name, key in _MODIFIER_KEYS:
+            if modifiers & getattr(Qt.KeyboardModifier, name):
+                QTest.keyRelease(scratch, getattr(Qt.Key, key))
+        for button in _mouse_buttons():
+            if buttons & button:
+                QTest.mouseRelease(scratch, button)
+    finally:
+        scratch.deleteLater()
+
+
+@pytest.fixture(autouse=True)
+def no_input_left_held(request):
+    r"""After a test that used Qt, no keyboard modifier or mouse button is still held.
+
+    **Order 1u section 4f (2026-10-13).** Two order-dependent failures came from QTest
+    leaving input held: `QTest.keyClick(..., ControlModifier)` leaves
+    `QApplication.keyboardModifiers()` at Ctrl (#80), and `QTest.mouseDClick` leaves
+    `mouseButtons()` at the left button. The next test that reads either - a click
+    that toggles instead of selecting, an arrow key taken for a drag - then failed,
+    but only when it ran after the leaker. Both were found by bisecting a full run.
+
+    So the test that leaves input held fails *itself*, at teardown, by name - and the
+    input is released first either way, so the leak never reaches the next test. A
+    test that presses a modifier or a button lets go of it (`QTest.keyRelease`,
+    `QTest.mouseRelease`) before it ends. `KNOWN_INPUT_LEAKERS` holds the files whose
+    tests are released and warned about instead, each with its reason.
+
+    Autouse and function-scoped, so it is torn down after the test's own fixtures
+    (`qtbot` closes its widgets first). It never creates a `QApplication`: a test that
+    did not use Qt has nothing to check. `test_suite_tiers.py` guards that it exists.
+    """
+    yield
+    held = held_input()
+    if not held:
+        return
+    release_held_input()
+    message = (f"{request.node.nodeid} left input held after it ended: {', '.join(held)}. "
+               f"Release it in the test (QTest.keyRelease / QTest.mouseRelease) - a held "
+               f"key or button changes what the next test's clicks and keys do "
+               f"(order 1u section 4f).")
+    if request.node.nodeid.split("::", 1)[0] in KNOWN_INPUT_LEAKERS:
+        import warnings
+
+        warnings.warn(message, stacklevel=1)
+        return
+    pytest.fail(message, pytrace=False)
 
 
 @pytest.fixture

@@ -144,6 +144,7 @@ def _pdf_pages(path) -> int:
     return data.count(b"/Type /Page\n") + data.count(b"/Type /Page ") + data.count(b"/Type/Page\n")
 
 
+@pytest.mark.slow
 def test_pdf_list_paginates_and_describes_its_layout(tmp_path):
     cards = [person(f"Given{i}", f"Family{i:03d}", email=f"p{i}@x.example", phone="+441632960001")
              for i in range(120)]

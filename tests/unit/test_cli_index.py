@@ -112,6 +112,7 @@ def test_a_missing_root_mentions_a_disconnected_drive(capsys, env: list[str], tm
 
 # --- it writes --------------------------------------------------------------
 
+@pytest.mark.slow
 def test_indexing_populates_both_stores(capsys, env: list[str], corpus: Path) -> None:
     code, out, _err = run(capsys, *env, "index", str(corpus), "--quiet")
     assert code == 0
@@ -123,6 +124,7 @@ def test_indexing_populates_both_stores(capsys, env: list[str], corpus: Path) ->
     assert stats["vectors"]["rows"] == stats["sqlite"]["chunks_total"] > 0
 
 
+@pytest.mark.slow
 def test_json_output_carries_the_throughput_numbers(capsys, env: list[str], corpus: Path) -> None:
     """The UI's ETA has to come from a real measurement."""
     _code, out, _err = run(capsys, *env, "--json", "index", str(corpus))
@@ -132,6 +134,7 @@ def test_json_output_carries_the_throughput_numbers(capsys, env: list[str], corp
     assert "mb_per_minute" in payload
 
 
+@pytest.mark.slow
 def test_a_second_run_does_nothing(capsys, env: list[str], corpus: Path) -> None:
     run(capsys, *env, "index", str(corpus), "--quiet")
     _code, out, _err = run(capsys, *env, "--json", "index", str(corpus))
@@ -140,6 +143,7 @@ def test_a_second_run_does_nothing(capsys, env: list[str], corpus: Path) -> None
     assert payload["unchanged"] == 2
 
 
+@pytest.mark.slow
 def test_progress_lines_can_be_silenced(capsys, env: list[str], corpus: Path) -> None:
     _code, noisy, _ = run(capsys, *env, "index", str(corpus))
     run(capsys, *env, "index", str(corpus), "--quiet")
@@ -256,6 +260,7 @@ def test_the_progress_sink_does_not_double_every_log_line(tmp_path):
 
 # --- files nothing can read -------------------------------------------------
 
+@pytest.mark.slow
 def test_files_nothing_can_read_are_reported_as_names_not_skips(
     capsys, env: list[str], corpus: Path
 ) -> None:
@@ -282,6 +287,7 @@ def test_files_nothing_can_read_are_reported_as_names_not_skips(
     assert "Skipped   0" in out            # nothing went wrong, and it says so
 
 
+@pytest.mark.slow
 def test_an_archive_that_cannot_be_opened_says_so_and_stays_findable(
     capsys, env: list[str], corpus: Path, temp_env: Path
 ) -> None:
@@ -316,6 +322,7 @@ def test_an_archive_that_cannot_be_opened_says_so_and_stays_findable(
         assert found[0]["ext"] == "zip", "a skipped file still has a type"
 
 
+@pytest.mark.slow
 def test_the_by_name_block_is_absent_when_everything_was_read(
     capsys, env: list[str], corpus: Path
 ) -> None:
@@ -326,6 +333,7 @@ def test_the_by_name_block_is_absent_when_everything_was_read(
     assert "By name" not in out
 
 
+@pytest.mark.slow
 def test_the_count_reaches_the_json_summary_too(
     capsys, env: list[str], corpus: Path
 ) -> None:
@@ -344,6 +352,7 @@ def test_the_count_reaches_the_json_summary_too(
 # Work order 0w §2d: the run's log, printed as it arrives
 # ---------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_the_command_line_prints_the_runs_log_with_times(
         capsys, env: list[str], corpus: Path) -> None:
     """The same entries and words as the Indexing page's log, each with its
@@ -368,6 +377,7 @@ def test_the_command_line_prints_the_runs_log_with_times(
     assert out.index("Finished.") < out.index("Indexed")
 
 
+@pytest.mark.slow
 def test_the_log_is_not_printed_when_asked_for_quiet_or_json(
         capsys, env: list[str], corpus: Path) -> None:
     _code, quiet, _ = run(capsys, *env, "index", str(corpus), "--quiet")

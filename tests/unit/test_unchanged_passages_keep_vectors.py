@@ -243,6 +243,7 @@ def _chunk_ids(store: SqliteStore) -> set[int]:
     return {int(r[0]) for r in store.conn.execute("SELECT id FROM chunks")}
 
 
+@pytest.mark.slow
 def test_a_forced_re_read_of_the_same_words_embeds_nothing(tmp_path: Path) -> None:
     root = tmp_path / "docs"
     root.mkdir()
@@ -268,6 +269,7 @@ def test_a_forced_re_read_of_the_same_words_embeds_nothing(tmp_path: Path) -> No
         assert statuses == {FileStatus.INDEXED}
 
 
+@pytest.mark.slow
 def test_one_paragraph_edited_re_embeds_only_what_changed(tmp_path: Path) -> None:
     root = tmp_path / "docs"
     root.mkdir()
@@ -298,6 +300,7 @@ def test_one_paragraph_edited_re_embeds_only_what_changed(tmp_path: Path) -> Non
         assert status == FileStatus.INDEXED
 
 
+@pytest.mark.slow
 def test_a_paragraph_deleted_with_nothing_new_takes_only_its_vector(tmp_path: Path) -> None:
     root = tmp_path / "docs"
     root.mkdir()
@@ -322,6 +325,7 @@ def test_a_paragraph_deleted_with_nothing_new_takes_only_its_vector(tmp_path: Pa
         assert status == FileStatus.INDEXED
 
 
+@pytest.mark.slow
 def test_the_start_of_run_repair_keeps_the_vectors_a_file_already_has(tmp_path: Path) -> None:
     """The delete before the add used to be every vector of the file. A file
     with some passages embedded and some not - two vectors lost, say - had

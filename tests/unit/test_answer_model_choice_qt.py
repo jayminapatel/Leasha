@@ -72,6 +72,7 @@ def chat(gui_mainwindow, qtbot):
     store.set_state(chat_controller.MODEL_KEY, "")
 
 
+@pytest.mark.slow
 def test_the_chat_tab_lists_every_model_and_starts_on_settings_choice(chat):
     chat.window._show(chat.window.search_view)
     chat.window._show(chat.view)

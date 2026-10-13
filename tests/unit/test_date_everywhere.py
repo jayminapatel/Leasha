@@ -315,6 +315,7 @@ def test_the_date_values_say_the_period_they_cover():
 
 # --- The command line (non-negotiable #8) ------------------------------------
 
+@pytest.mark.slow
 def test_the_cli_search_applies_date(tmp_path, capsys, monkeypatch):
     r"""`app.cli search "date:2017"` - the same parse, the same filter, and the
     applied range in the JSON, so a headless check sees what the window does.

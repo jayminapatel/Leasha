@@ -133,6 +133,7 @@ def chat(gui_mainwindow, qtbot, monkeypatch):
     store.set_state(chat_controller.MODEL_KEY, "")
 
 
+@pytest.mark.slow
 def test_a_big_model_picked_on_the_tab_is_not_loaded_when_it_does_not_fit(chat):
     """gemma4:26b (17 GB) on a laptop with 16 GB free: picked, remembered, not loaded."""
     chat.ctl._models_listed(("", menu()), full=True)
@@ -143,6 +144,7 @@ def test_a_big_model_picked_on_the_tab_is_not_loaded_when_it_does_not_fit(chat):
     assert chat.engine.warmed == 0
 
 
+@pytest.mark.slow
 def test_a_small_model_picked_on_the_tab_is_loaded_once_it_settles(chat):
     chat.ctl._models_listed(("", menu()), full=True)
     chat.ctl._model_chosen("ollama:qwen2.5:1.5b")

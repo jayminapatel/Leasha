@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import pytest
 
+#: Every test here takes over 1 s (order 1u section 4b, from `logs/suite/durations.json`).
+pytestmark = pytest.mark.slow
+
 pytest.importorskip("PySide6")
 
 

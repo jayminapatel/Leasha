@@ -259,6 +259,7 @@ def test_a_run_with_only_one_batch_never_starts_the_feeder_for_nothing(tmp_path)
     store.close()
 
 
+@pytest.mark.slow
 def test_the_feeder_thread_ends_when_the_run_does(tmp_path):
     """No thread left running after `run()` returns - a daemon thread that
     outlives the run it belonged to is a leak the next run should not have

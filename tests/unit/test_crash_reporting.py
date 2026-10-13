@@ -150,6 +150,7 @@ class TestAHandledWindowsExceptionIsNotACrash:
     is only waiting must not appear in the report of an exception elsewhere.
     """
 
+    @pytest.mark.slow
     @pytest.mark.parametrize("stderr", ["windowed", "console"])
     def test_other_threads_are_not_walked(self, tmp_path, stderr) -> None:
         import subprocess

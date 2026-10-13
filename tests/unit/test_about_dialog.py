@@ -94,6 +94,7 @@ def test_a_copy_without_the_notices_file_says_so_rather_than_nothing(qtbot, monk
     assert "not in this copy" in box.version.text()
 
 
+@pytest.mark.slow
 def test_the_help_menu_offers_it(gui_mainwindow):
     _app, window, _store, _engine = gui_mainwindow
     from PySide6.QtWidgets import QMenu

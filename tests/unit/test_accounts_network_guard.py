@@ -113,6 +113,7 @@ def test_reading_status_asking_what_is_due_and_editing_contacts_open_nothing(con
     assert svc.accounts.runs() == []                   # and no sync was recorded either
 
 
+@pytest.mark.slow
 def test_a_scan_of_a_folder_opens_nothing_with_accounts_connected(connected, only_this_computer, tmp_path):
     from app.cli import main
     from tests.unit.test_cli_wiring import env_file

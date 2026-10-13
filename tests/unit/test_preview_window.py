@@ -544,6 +544,7 @@ class _FakeStoreForDescribe:
         self.added.append((file_id, caption))
 
 
+@pytest.mark.slow
 def test_describe_button_greys_with_a_reason_when_ollama_is_unreachable(qapp, files):
     r"""Never an error - a disabled button with a plain-words tooltip."""
     png, _txt = files
@@ -561,6 +562,7 @@ def test_describe_button_greys_with_a_reason_when_ollama_is_unreachable(qapp, fi
     assert "not running" in window.describe_button.toolTip()
 
 
+@pytest.mark.slow
 def test_describe_button_is_disabled_when_already_described(qapp, files):
     """Second click instant: the button already knows and never re-asks."""
     png, _txt = files
@@ -632,6 +634,7 @@ def _slow_describe(monkeypatch):
     monkeypatch.setattr(vision_caption, "describe_image", answer)
 
 
+@pytest.mark.slow
 def test_describe_pressed_before_the_photo_has_loaded_is_still_the_answer(
         qapp, files, monkeypatch):
     """2026-10-05, found by GitHub's Mac. Describe and the "is Describe

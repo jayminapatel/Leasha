@@ -152,6 +152,7 @@ def test_a_right_click_offers_the_entrys_own_actions(qapp):
 
 # -- every page, in the window ------------------------------------------------------------
 
+@pytest.mark.slow
 @pytest.mark.gui
 def test_every_list_page_has_its_list_its_switch_and_its_view_entry(gui_mainwindow):
     from tests.unit.conftest import gui_pump

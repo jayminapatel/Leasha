@@ -162,6 +162,7 @@ def test_the_search_tab_the_command_line_and_mcp_find_the_same_documents(
     assert [d.best.path for d in _shared(settings, text).documents] == window
 
 
+@pytest.mark.slow
 def test_the_filters_are_read_the_same_way_and_the_switch_turns_them_off(qapp, index, capsys):
     env, settings, _real = index
     on = _window(settings, "report from 2017")

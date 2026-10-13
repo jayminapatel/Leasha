@@ -476,7 +476,7 @@ def _cli(capsys, *argv):
 
 
 @pytest.fixture()
-def cli_env(temp_env: Path) -> Path:
+def cli_env(temp_env: Path, tmp_path: Path, monkeypatch) -> Path:
     """`temp_env` with a 1 s limit for text (the smallest a setting can hold)
     and nothing that would pause a run on a busy test machine.
 
@@ -485,10 +485,17 @@ def cli_env(temp_env: Path) -> Path:
     monkeypatch on `pipeline.extract` in *this* process, which a child cannot
     see - with them on, `slow.txt` read in a child in no time and nothing
     timed out. These tests are about the retry, so they read in-process."""
+    from tests.unit.test_index_child_process import light_children
+
+    light_children(tmp_path, monkeypatch)          # no machine probes (order 1u)
     with temp_env.open("a", encoding="utf-8") as handle:
         handle.write("\nINDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n"
                      "INDEX_CPU_PERCENT=0\nMIN_FREE_GB=0\nREQUIRED_FREE_GB=0\n"
-                     "INDEX_READ_PROCESSES=false\n")
+                     "INDEX_READ_PROCESSES=false\n"
+                    # Order 1u (2026-10-13): an in-process run at low priority
+                    # lowers this test process, which then waits behind every
+                    # other test run on a shared machine.
+                    "INDEX_LOW_PRIORITY=false\n")
     return temp_env
 
 
@@ -620,7 +627,7 @@ def test_the_flags_for_the_indexing_process_round_trip() -> None:
         assert _retry_asked(args) == (retry, None), argv
 
 
-def test_a_retry_through_the_indexing_process(tmp_path) -> None:
+def test_a_retry_through_the_indexing_process(tmp_path, monkeypatch) -> None:
     """The real `app.cli index --events jsonl` child, as the window starts it
     with "Index in a separate process" on: an ordinary run times a slow file
     out, and a retry run reads that file and only that file."""
@@ -629,7 +636,11 @@ def test_a_retry_through_the_indexing_process(tmp_path) -> None:
 
     from app.index.child_run import ChildIndexRun, child_command
     from tests.unit.test_file_watch import PROJECT
+    from tests.unit.test_index_child_process import LIGHT_CHILD_ENV, light_children
 
+    # Order 1u (2026-10-13): no machine probes, and not at low priority - see
+    # `test_index_child_process.LIGHT_CHILD_ENV`.
+    light_children(tmp_path, monkeypatch)
     corpus = _corpus(tmp_path / "docs", files=3)
     (corpus / "slow.txt").write_text("the slow pump station report", encoding="utf-8")
     env_file = tmp_path / ".env"
@@ -640,7 +651,7 @@ def test_a_retry_through_the_indexing_process(tmp_path) -> None:
         "INDEX_FILE_TIME_LIMIT_S=1\nINDEX_STALL_LIMIT_S=0\n"
         # 2026-10-09: the slow reader below is patched into the indexing child
         # by `-c`; a reader process of its own would not have it (see `cli_env`).
-        "INDEX_READ_PROCESSES=false\n", encoding="utf-8")
+        "INDEX_READ_PROCESSES=false\n" + LIGHT_CHILD_ENV, encoding="utf-8")
     locks = tmp_path / "locks"
     locks.mkdir()
     opened = tmp_path / "opened.txt"

@@ -96,6 +96,35 @@ def test_a_folder_with_files_in_it_is_refused(tmp_path: Path) -> None:
 # --- the runner --------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _no_cpu_ceiling(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These runs never wait for the machine to be free.
+
+    **A hang, not a failure (2026-10-13).** The benchmark measures what
+    `app.cli index` does, resource governor included, and the governor pauses a
+    run while other programs use more than `INDEX_CPU_PERCENT` (80) of the
+    machine - "Indexing waits until it is free". In `scripts/run_suite.py` the
+    other programs are the suite's own parts: four pytest processes on one
+    machine. So a run here sat in `resources.wait_while_throttled` for as long
+    as the rest of the suite kept the CPU busy. Seen directly: this file's last
+    test alone, with other test runs on the machine, still paused after fifteen
+    minutes ("87% CPU used by other programs" in the run's own log, the stack in
+    `wait_while_throttled`). The part killed after 3600 s on
+    `feat/enrichment-that-finds` had the same symptom; its logs were not kept.
+
+    Only the CPU ceiling goes, through the one place every run reads its limits
+    (`build_pipeline_config` -> `limits_from_settings`): workers, priority and
+    everything else this file checks stay exactly what a real run gets. Not
+    `full_speed`, which also changes the worker count and priority. The
+    governor's own CPU rule is tested in `test_resources.py`.
+    """
+    from app.index import resources
+
+    real = resources.limits_from_settings
+    monkeypatch.setattr(resources, "limits_from_settings",
+                        lambda settings: replace(real(settings), cpu_percent=0))
+
+
 @pytest.fixture()
 def no_person_env(tmp_path: Path) -> Path:
     """Point the runner at a `.env` that does not exist, so it cannot find a
@@ -133,6 +162,25 @@ def test_a_fake_run_produces_a_well_formed_report(tmp_path: Path, no_person_env:
     assert "FAKE EMBEDDER" in table
     # Nothing is left behind unless asked for.
     assert not (tmp_path / "work").exists()
+
+
+def test_a_busy_machine_does_not_pause_these_runs(
+        tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The machine reads as fully busy for the first few looks, as it does while
+    the rest of the suite runs beside this file. Without `_no_cpu_ceiling` the
+    governor pauses on the first look and holds for its `quiet_seconds`; with
+    the machine busy for real, it held for as long as the suite ran."""
+    import psutil
+
+    busy = iter([100.0] * 3)
+    monkeypatch.setattr(psutil, "cpu_percent", lambda *a, **k: next(busy, 0.0))
+
+    report = run_pipeline_bench(BenchOptions(
+        corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
+        env_file=no_person_env, work_dir=tmp_path / "work"))
+
+    assert report["results"]["pauses"] == 0, report["results"]
+    assert report["results"]["documents"] == report["results"]["expected_documents"]
 
 
 def test_the_real_embedder_is_refused_when_no_model_is_downloaded(
@@ -185,6 +233,81 @@ def test_the_command_prints_parseable_json(tmp_path: Path, no_person_env: Path,
     assert report["tool"] == "app.cli bench-pipeline"
 
 
+#: Run in a child process by `_files_held_inside`: prints, as JSON, the files the
+#: process `argv[1]` holds open inside the folder `argv[2]`.
+_HELD_INSIDE = r"""
+import json, sys
+from pathlib import Path
+import psutil
+
+import os
+
+pid = int(sys.argv[1])
+
+
+# The folder in every spelling it may come back in - as given (perhaps the short 8.3 form,
+# JAYMIN~1.PAT) and fully resolved - with the letter case folded. Each handle's path is then only
+# compared as text: resolving every path the process holds would touch the disk once a handle,
+# which took over 180 s in a long-lived process (review of #83).
+forms = {os.path.normcase(os.path.abspath(sys.argv[2])), os.path.normcase(os.path.realpath(sys.argv[2]))}
+work = Path(sys.argv[2])
+
+
+def inside(path):
+    p = os.path.normcase(str(path))
+    return any(p == f or p.startswith(f.rstrip(os.sep) + os.sep) for f in forms)
+
+
+# **A handle this process may not even look at must not end the check.**
+# psutil lists the open files and then asks the disk whether each is a
+# file; one it may not ask about raises, and the whole list is lost. On the
+# Windows CI that was `C:\$Extend\$Deleted\...` - a file some earlier
+# test deleted while it was still open, which NTFS parks there until the
+# handle closes - and psutil.AccessDenied failed the check before it had
+# looked at `work` at all (2026-09-29). Such a path is counted as held only
+# if it is inside `work`, so nothing the check is for can slip past it.
+real_isfile = psutil._psplatform.isfile_strict
+
+def isfile_or_ours(path):
+    try:
+        return real_isfile(path)
+    except PermissionError:
+        return inside(path)
+
+psutil._psplatform.isfile_strict = isfile_or_ours
+print(json.dumps([f.path for f in psutil.Process(pid).open_files()
+                  if inside(f.path)]))
+"""
+
+
+def _files_held_inside(work: Path) -> list[str]:
+    """The files this process holds open inside `work`, asked of the system
+    from a child process.
+
+    **Never from inside the test process (2026-10-13).** On Windows psutil's
+    `open_files` asks each handle its name on a helper thread and, if that
+    thread has not answered in 100 ms, kills it with `TerminateThread`
+    (psutil 7.1.3, `arch/windows/proc_handles.c`). A thread killed that way
+    can die holding the process heap's lock or half-way through an
+    allocation, and what follows is a hang or an access violation somewhere
+    else, later. That is a risk a test may not bring into a pytest process
+    that `scripts/run_suite.py` keeps alive for a hundred more files. Run
+    from a child, the helper threads are the child's: the parent's handles
+    are duplicated into it, and whatever a killed thread leaves behind ends
+    with the child. The time limit turns a child that stalls into a failure
+    with a reason, not a part that sits until it is killed.
+    """
+    import os
+    import subprocess
+    import sys
+
+    done = subprocess.run(
+        [sys.executable, "-c", _HELD_INSIDE, str(os.getpid()), str(work)],
+        capture_output=True, text=True, timeout=180, check=False)
+    assert done.returncode == 0, f"the open-files check failed: {done.stderr[-2000:]}"
+    return json.loads(done.stdout)
+
+
 def test_nothing_inside_the_throwaway_folder_is_left_open(
         tmp_path: Path, no_person_env: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """**Windows cannot delete an open file; Linux can.** So a handle left open
@@ -193,8 +316,6 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
     escaped for a while. This asks the operating system which files the process
     still holds inside the folder at the moment it is about to be deleted, so
     the same mistake fails here too, on any system."""
-    import psutil
-
     import app.index.pipeline_bench as bench
 
     work = tmp_path / "work"
@@ -212,27 +333,9 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
         # the Windows CI they filled this list with 14 x 5 "leaks" that were
         # nothing of the kind (2026-09-29).
         if Path(path) == work:
-            held.extend(f.path for f in psutil.Process().open_files()
-                        if Path(f.path).is_relative_to(work))
+            held.extend(_files_held_inside(work))
         return real_rmtree(path, *args, **kwargs)
 
-    # **A handle this process may not even look at must not end the check.**
-    # psutil lists the open files and then asks the disk whether each is a
-    # file; one it may not ask about raises, and the whole list is lost. On the
-    # Windows CI that was `C:\\$Extend\\$Deleted\\...` - a file some earlier
-    # test deleted while it was still open, which NTFS parks there until the
-    # handle closes - and psutil.AccessDenied failed this test before it had
-    # looked at `work` at all (2026-09-29). Such a path is counted as held only
-    # if it is inside `work`, so nothing the check is for can slip past it.
-    real_isfile = psutil._psplatform.isfile_strict
-
-    def isfile_or_ours(path):
-        try:
-            return real_isfile(path)
-        except PermissionError:
-            return Path(path).is_relative_to(work)
-
-    monkeypatch.setattr(psutil._psplatform, "isfile_strict", isfile_or_ours)
     monkeypatch.setattr(bench.shutil, "rmtree", spy)
     run_pipeline_bench(BenchOptions(
         corpus_folder=tmp_path / "corpus", size="tiny", embedder="fake",
@@ -240,3 +343,15 @@ def test_nothing_inside_the_throwaway_folder_is_left_open(
 
     assert held == [], f"still open when the folder was deleted: {held}"
     assert not work.exists()
+
+
+def test_the_open_files_check_sees_a_file_held_open(tmp_path: Path) -> None:
+    """The child-process check is not blind: a file this process has open
+    inside the folder is reported, and one outside it is not."""
+    inside = tmp_path / "work" / "held.log"
+    inside.parent.mkdir()
+    outside = tmp_path / "elsewhere.log"
+    with inside.open("w", encoding="utf-8"), outside.open("w", encoding="utf-8"):
+        held = _files_held_inside(tmp_path / "work")
+
+    assert [Path(p).name for p in held] == ["held.log"], held

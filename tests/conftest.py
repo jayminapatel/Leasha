@@ -405,6 +405,54 @@ def _on_mains_power(monkeypatch):
     monkeypatch.setattr(psutil, "sensors_battery", lambda: _Plugged(), raising=False)
 
 
+@pytest.fixture()
+def quiet_machine(monkeypatch):
+    """The machine reads as idle to the resource governor (order 1u §2a-2d).
+
+    **A wait, not a test.** The governor pauses a real index run while the
+    rest of the machine is over `INDEX_CPU_PERCENT` (80) and resumes only after
+    ten quiet seconds - right on the owner's laptop, and the wrong thing to
+    measure in a test that starts a run to check what the run *writes*. While
+    the suite runs in four processes beside other work the machine sits at
+    100%, so such a test waits for as long as the machine stays busy: found
+    2026-10-13, `test_read_process.py`'s benchmark test parked for over twenty
+    minutes in `resources.wait_while_throttled`, under the card pass.
+
+    The same reading `_on_mains_power` gives the battery, for the CPU: the
+    governor's own tests hand it a snapshot and never ask psutil, so nothing
+    about the busy rule is lost. Opt-in (by `usefixtures`), not autouse.
+    """
+    try:
+        import psutil
+    except Exception:                            # noqa: BLE001 - no psutil, nothing to pin
+        return
+    monkeypatch.setattr(psutil, "cpu_percent", lambda *a, **k: 0.0)
+
+
+@pytest.fixture()
+def no_hardware_test(monkeypatch):
+    """No index run in a test tests this machine's graphics card first.
+
+    **The suite runs on the processor** (`EMBED_DEVICE=cpu`, above), but
+    `resolve_for_run` calls `test_this_machine_if_new(settings)` first, and a
+    stand-in settings object with no `embed_device` reads as "auto" - so on a
+    machine with DirectML every such call built the real models on the
+    processor *and* the card, timed them, and (with no `state_path` to save
+    to) did it again on the next call. Found 2026-10-13 by a stack dump:
+    `test_speed_work.py::test_the_tuning_mode_reaches_the_run` took 146 s, all
+    of it in `device_test.run_device_test`. On a machine with no usable card
+    (CI) `gpu_usable()` already says no and the test is skipped; this makes
+    every machine answer the same. Set `EMBED_DEVICE=auto` to run with the
+    card on purpose, as above. Opt-in (by `usefixtures`), not autouse.
+    """
+    if os.environ.get("EMBED_DEVICE", "cpu").strip().lower() not in ("", "cpu"):
+        return
+    from app.index import device_test
+
+    monkeypatch.setattr(device_test, "gpu_usable",
+                        lambda: (False, "the test suite runs on the processor"))
+
+
 @pytest.fixture(autouse=True)
 def _no_florence_model_load(request, monkeypatch):
     """No test may download or load the Florence-2 captioning model.
@@ -417,9 +465,14 @@ def _no_florence_model_load(request, monkeypatch):
     (2026-09-20): the extraction worker sat in `florence_tagger._load` while
     `Pipeline._consume` polled its queue every 0.25 s - a live worker, not a lost
     sentinel. A test that wants a tagger patches `_load` itself, which overrides this;
-    the two real-model proofs are marked `slow`, and that marker opts them out.
+    the two real-model proofs are marked `real_florence`, and that marker opts them out.
+
+    **Not `slow` (order 1u section 4b, 2026-10-13).** The opt-out used to be the `slow`
+    mark. Marking every test over a second `slow` would then have let hundreds of them
+    load the real model - the hang this fixture exists to prevent - so the opt-out is a
+    marker that says what it means, and `slow` says only how long a test takes.
     """
-    if request.node.get_closest_marker("slow") is not None:
+    if request.node.get_closest_marker("real_florence") is not None:
         return
     try:
         from app.extract import florence_tagger

@@ -46,6 +46,7 @@ def test_a_backup_is_a_vcard_file_and_the_contact_tables(world, tmp_path):
         con.close()
 
 
+@pytest.mark.slow
 def test_only_the_newest_copies_are_kept(world, tmp_path):
     folder = tmp_path / "b"
     for n in range(5):

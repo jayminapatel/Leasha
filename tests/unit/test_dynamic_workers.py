@@ -30,6 +30,8 @@ import queue
 import time
 from pathlib import Path
 
+import pytest
+
 import app.index.pipeline as pipeline_module
 from app.index.embedder import Embedder
 from app.index.pipeline import Pipeline, PipelineConfig
@@ -203,6 +205,7 @@ def test_growth_proceeds_on_a_graphics_card_even_mid_batch(tmp_path):
     store.close()
 
 
+@pytest.mark.slow
 def test_a_full_work_queue_holds_off_growth_rather_than_losing_a_stop_marker(
     tmp_path,
 ):
@@ -242,6 +245,7 @@ def test_workers_grown_is_recorded_only_when_it_happened(tmp_path):
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.slow
 def test_a_real_extraction_bound_run_grows_and_still_indexes_correctly(
     tmp_path, monkeypatch,
 ):
