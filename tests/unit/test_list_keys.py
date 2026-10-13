@@ -64,6 +64,10 @@ def clipboard(monkeypatch):
 def _press(widget, key, mods=Qt.KeyboardModifier.NoModifier) -> None:
     for kind in (QEvent.Type.ShortcutOverride, QEvent.Type.KeyPress):
         QApplication.sendEvent(widget, QKeyEvent(kind, key, mods))
+    # And let go (order 1u section 4f, 2026-10-13): a press with Ctrl left Qt believing
+    # Ctrl was still held, for whichever test ran next.
+    if mods & Qt.KeyboardModifier.ControlModifier:
+        QTest.keyRelease(widget, Qt.Key.Key_Control)
 
 
 def _double_click(view, index) -> None:
@@ -73,6 +77,9 @@ def _double_click(view, index) -> None:
     where = view.visualRect(index).center()
     for send in (QTest.mouseClick, QTest.mouseDClick):
         send(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, where)
+    # `mouseDClick` leaves Qt believing the button is still down (order 1u section 4f).
+    QTest.mouseRelease(view.viewport(), Qt.MouseButton.LeftButton,
+                       Qt.KeyboardModifier.NoModifier, where)
 
 
 def _right_click(view, index) -> None:
