@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.127 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -16,6 +16,22 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 > than sitting beside it. Heading text is untouched.
 
 ## [Unreleased]
+
+### One app, phase B: Contacts (2026-10-13)
+
+- **Picking a contact shows it to read**, not a page of boxes: the photo, the name and job, each detail as plain
+  text you can select and copy with its label (work, home, mobile), then notes, where it is kept, its groups and
+  tags, and what your index holds about the person. **Edit** (or Enter, F2 or a double-click on the list) opens the
+  editor; Save and Cancel bring you back. A contact with something to decide (deleted from an account, changed in
+  two places) still opens in the editor, where those buttons are.
+- **The bar above the list has words**: each button is its icon and its name, as on the other pages. In a narrow
+  window the views and the tools go to their icon first, then the rest; New contact keeps its name.
+- **The right-click menu is built like every other**: Edit first and bold, the copy lines together, Move to the bin
+  last with a warning-coloured icon, each line showing its key. The words are unchanged.
+- **The list answers the keys every list does**: Enter and a double-click edit, F2 edits, Delete moves the picked
+  contacts to the bin, Ctrl+C copies their email addresses ("; " between them, ready for a To box).
+- Not yet seen in the real window: the read view's spacing, the labelled bar at the owner's window size and where
+  it gives up words, the menu's bold line and key column.
 
 ### One app, phase B: a steady Search page (2026-10-13)
 

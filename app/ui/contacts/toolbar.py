@@ -1,10 +1,14 @@
-"""The row of icons above the list: new, the two views, the tools, history, bin, favourite.
+"""The bar above the list: new, the two views, the tools, history, bin, favourite.
 
 Layer: L5
 
-Order 1k 6m.3, 6k. Icon-only buttons, each with its tooltip and accessible name (the glyph is in
-the theme's colour and follows a theme change); the filter box is `/`. The buttons decide
-nothing: they emit, and the page acts.
+Order 1k 6m.3, 6k; labelled in UI phase B (2026-10-13). Each button is an icon and its words, with
+its tooltip and accessible name - the same as the bars on the other pages - and the glyph is in
+the theme's colour and follows a theme change. The words are the ones each button always had as
+its accessible name. When the window is too narrow for every word, the bar gives up words in a
+fixed order (`FIT_LEVELS`): first the two views and the tools, then the rest; New contact keeps
+its words. The tooltips and names stay, so nothing is lost but width. The filter box is `/`. The
+buttons decide nothing: they emit, and the page acts.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from app.ui.presenter.contact_commands import CONTACT_COMMANDS, contact_matching
 from app.ui.widgets.command_popup import attach_to
 from app.ui.widgets.icons import icon
 
-__all__ = ["ContactToolbar", "TOOLS", "MORE_TOOLS", "enrich_words"]
+__all__ = ["ContactToolbar", "TOOLS", "MORE_TOOLS", "enrich_words", "labelled"]
 
 #: (openers name, glyph, words, tooltip)
 TOOLS = (
@@ -44,6 +48,15 @@ MORE_TOOLS = (
     ("select_all", "list-checks", "Select all contacts", "Pick every contact in the list (Ctrl+A), to act on them "
      "together"),
 )
+
+
+def labelled(button: QToolButton, on: bool = True) -> QToolButton:
+    """Show a bar button's words beside its icon (`on`), or its icon alone. The words are its name."""
+    if not button.text():
+        button.setText(button.accessibleName())
+    button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon if on
+                              else Qt.ToolButtonStyle.ToolButtonIconOnly)
+    return button
 
 
 def enrich_words(picked: int) -> str:
@@ -98,6 +111,7 @@ class ContactToolbar(QWidget):
         self.more_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonIconOnly)
         self.more_button.setPopupMode(QToolButton.ToolButtonPopupMode.InstantPopup)
         self.more_button.setAccessibleName("More tools")
+        self.more_button.setText("More tools")
         self.more_button.setToolTip("More tools: clean up, enrich and find duplicates")
         self.more_button.setFocusPolicy(Qt.FocusPolicy.TabFocus)
         self.more_button.setProperty("glyph", "ellipsis")
@@ -123,6 +137,11 @@ class ContactToolbar(QWidget):
         self.favourite_button.clicked.connect(self.favourite_requested.emit)
         for b in (self.history_button, self.bin_button, self.favourite_button):
             row.addWidget(b)
+        for b in self.findChildren(QToolButton):
+            if b.accessibleName():
+                labelled(b)
+        self.fit_level = 0
+        self._fitting = False
         row.addStretch(1)
         self.count = QLabel("")
         self.count.setObjectName("resultsSummary")
@@ -138,6 +157,36 @@ class ContactToolbar(QWidget):
                                 resolve=lambda n: next((c for c in CONTACT_COMMANDS if c.name == n.strip().lower().rstrip(":")), None))
         row.addWidget(self.count)
         row.addWidget(self.filter)
+
+    def fit_levels(self) -> tuple[tuple[QToolButton, ...], ...]:
+        """Which buttons show their icon alone at each level: none, then the views and the tools,
+        then all but New contact."""
+        first = (self.list_button, self.cards_button, *self.tools.values())
+        rest = (self.more_button, self.history_button, self.bin_button, self.favourite_button)
+        return ((), first, first + rest)
+
+    def fit(self, width: int) -> int:
+        """Words where they fit in `width`: the first level whose bar is no wider. Returns it."""
+        if self._fitting:
+            return self.fit_level
+        self._fitting = True
+        try:
+            levels = self.fit_levels()
+            chosen = len(levels) - 1
+            for level, icons_only in enumerate(levels):
+                for b in levels[-1]:
+                    labelled(b, b not in icons_only)
+                if self.layout().sizeHint().width() <= width:
+                    chosen = level
+                    break
+            self.fit_level = chosen
+            return chosen
+        finally:
+            self._fitting = False
+
+    def resizeEvent(self, event: object) -> None:                 # noqa: N802 - Qt's naming
+        super().resizeEvent(event)
+        self.fit(self.width())
 
     @staticmethod
     def _bar() -> QFrame:

@@ -1,4 +1,4 @@
-"""The Contacts page proper: the toolbar, the sidebar, the two views, the editor and the history.
+"""The Contacts page proper: the toolbar, the sidebar, the two views, the read view, the editor and the history.
 
 Layer: L5
 
@@ -6,9 +6,15 @@ Order 1k section 6. `app/ui/contacts_view.py` builds this lazily the first time 
 shown. Every read and write of the hub is a worker (rule 5, `loader.run_task`); what comes back
 is a signal on the UI thread. The data flows one way: `reload` reads a `Snapshot` (rows for the
 current filter, the sidebar's numbers) and the model, sidebar and editor are filled from it;
-selecting one contact reads its `Detail` for the editor; every edit is an action here that runs
-on a worker and ends in a reload. The tool dialogs are not here - the page opens them through
-`openers`.
+selecting one contact reads its `Detail` for the read view and the editor; every edit is an action
+here that runs on a worker and ends in a reload. The tool dialogs are not here - the page opens them
+through `openers`.
+
+**Reading is not editing** (UI phase B, 2026-10-13). A pick shows the read view (`reader.py`);
+Edit, Enter, a double-click or F2 switches to the editor, and Save or Cancel come back. A contact
+with a decision waiting (deleted elsewhere, changed in two places) opens in the editor, where the
+buttons for it are. Both lists answer the one list behaviour (`widgets/list_keys.py`): Enter and a
+double-click edit, F2 edits, Delete moves the pick to the bin, Ctrl+C copies the email addresses.
 """
 
 from __future__ import annotations
@@ -33,10 +39,13 @@ from app.ui.contacts.logic import (COLUMNS, STATE_SORT, STATE_VIEW, TAG_COLOURS,
 from app.ui.contacts.model import ContactModel
 from app.ui.contacts.photos import PhotoCache
 from app.ui.contacts.parts import retint_tools
+from app.ui.contacts.reader import ContactReader
 from app.ui.contacts.sidebar import ContactSidebar
 from app.ui.contacts.smart import SmartDialog
 from app.ui.contacts.toolbar import ContactToolbar
 from app.ui.theme import theme_colours
+from app.ui.widgets import list_keys
+from app.ui.widgets.menus import global_point
 
 __all__ = ["ContactsPage"]
 
@@ -87,7 +96,11 @@ class ContactsPage(QWidget):
             self.views.addWidget(w)
         self.cards.setSelectionModel(self.table.selectionModel())
 
-        self.editor = ContactEditor()
+        self.editor = ContactEditor(own_panels=False)
+        self.reader = ContactReader()
+        # The mail, files and photos about this person, and enrichment, are read with the contact:
+        # under the read view. The editor still fills and clears them.
+        self.reader.add_panels(self.editor.enrich_panel, self.editor.index_panel)
         self.editor.index_panel.configure(hub)
         self.editor.enrich_panel.configure(hub)
         self.editor.enrich_panel.enrich_requested.connect(self.enrich_one)
@@ -97,7 +110,7 @@ class ContactsPage(QWidget):
         self.placeholder.setObjectName("resultsSummary")
         self.placeholder.setAccessibleName("No contact picked")
         self.right = QStackedWidget()
-        for w in (self.placeholder, self.editor, self.history):
+        for w in (self.placeholder, self.reader, self.editor, self.history):
             self.right.addWidget(w)
 
         centre = QWidget()
@@ -196,10 +209,13 @@ class ContactsPage(QWidget):
     def _wire(self) -> None:
         sm = self.table.selectionModel()
         sm.selectionChanged.connect(self._selection_changed)
-        # `activated` alone: on Windows Qt sends it for Enter and for a double-click, so wiring
-        # `doubleClicked` as well opened the contact twice for one double-click (2026-10-12).
-        self.table.activated.connect(self._activated)
-        self.cards.activated.connect(self._activated)
+        # `activated` alone, through the one list behaviour: Qt sends it for a double-click and
+        # `list_keys` sends it for Enter, so wiring `doubleClicked` as well opened the contact twice
+        # for one double-click (2026-10-12).
+        for view in (self.table, self.cards):
+            list_keys.install(view, default=self._activated, delete=self.delete_selected,
+                              rename=self.edit_current, copy=self.copy_picked)
+        self.reader.edit_requested.connect(self.edit_current)
         self.table.horizontalHeader().sortIndicatorChanged.connect(self._sort_changed)
         self.photos.loaded.connect(lambda _c: (self.table.viewport().update(), self.cards.viewport().update()))
         tb = self.toolbar
@@ -246,8 +262,6 @@ class ContactsPage(QWidget):
             key("Ctrl+Z", self.undo_last),
             key("Ctrl+S", self.editor.save_if_dirty),
             key("Ctrl+A", self.select_all, self.table, Qt.ShortcutContext.WidgetShortcut),
-            key("Delete", self.delete_selected, self.table, Qt.ShortcutContext.WidgetShortcut),
-            key("Delete", self.delete_selected, self.cards, Qt.ShortcutContext.WidgetShortcut),
         ]
 
     # ------------------------------------------------------------------ state
@@ -288,6 +302,7 @@ class ContactsPage(QWidget):
             d.retint(colours)
         self.sidebar.retint(colours)
         self.editor.retint(colours)
+        self.reader.retint(colours)
         retint_tools(self, colours)
         self.toolbar.retint(colours)
         # The theme's sheet names QTableWidget and not QTableView, so the table gets its
@@ -444,6 +459,7 @@ class ContactsPage(QWidget):
         else:
             if not self._creating and not self.editor.is_dirty():
                 self.editor.clear()
+                self.reader.clear()
                 self.history.clear()
                 self.placeholder.setText("Pick a contact to see it here.\nPress Ctrl+N for a new one.")
                 self.right.setCurrentWidget(self.history if self.toolbar.history_button.isChecked()
@@ -467,10 +483,33 @@ class ContactsPage(QWidget):
         return box.clickedButton() is discard
 
     def _activated(self, _index: QModelIndex) -> None:
-        if self.editor.isEnabled():
+        """Enter or a double-click on a contact: edit it."""
+        self.edit_current()
+
+    def edit_current(self) -> None:
+        """Edit, F2, Enter: the contact on show goes from the read view to the editor."""
+        if self.editor.isEnabled() and self._entry.kind != "bin":
             self.right.setCurrentWidget(self.editor)
             self.toolbar.history_button.setChecked(False)
             self.editor.focus_first()
+
+    def is_editing(self) -> bool:
+        return self.right.currentWidget() is self.editor
+
+    def _show_contact_pane(self) -> None:
+        """The read view, unless a new contact or unsaved edits are in the editor, or it needs a decision."""
+        if self._creating or self.editor.is_dirty() or self.editor.needs_attention():
+            self.right.setCurrentWidget(self.editor)
+        elif self.reader.cid is not None:
+            self.right.setCurrentWidget(self.reader)
+        else:
+            self.right.setCurrentWidget(self.placeholder)
+
+    def copy_picked(self) -> None:
+        """Ctrl+C on the list: the picked contacts' email addresses."""
+        from app.ui.contacts import quick
+
+        quick.copy_picked(self)
 
     def _picked(self, entry: Entry) -> None:
         if self.editor.is_dirty() and not self._confirm_discard():
@@ -491,14 +530,21 @@ class ContactsPage(QWidget):
                 return
             if d is None:
                 self.editor.clear()
+                self.reader.clear()
                 return
             self.editor.show_detail(d)
-            if self._entry.kind == "bin":
+            in_bin = self._entry.kind == "bin"
+            if in_bin:
                 self.editor.setEnabled(False)
+            names = self._names()
+            self.reader.show_contact(d.id, d.card, kept_in=[names[a] for a in d.kept_in if names.get(a)],
+                                     tags=d.tags, editable=not in_bin)
             if self.toolbar.history_button.isChecked():
                 self._load_history(cid, d.row.display_name if d.row else "")
+            elif in_bin:
+                self.right.setCurrentWidget(self.reader)
             else:
-                self.right.setCurrentWidget(self.editor)
+                self._show_contact_pane()
 
         loader.run_task(self, lambda: loader.load_detail(hub, cid), done)
 
@@ -614,6 +660,8 @@ class ContactsPage(QWidget):
 
         def done(out: dict) -> None:
             self.editor.set_kept(out["now"])
+            names = self._names()
+            self.reader.set_kept([names[a] for a in out["now"] if names.get(a)])
             self.reload(then=None)
 
         loader.run_task(self, work, done)
@@ -655,8 +703,10 @@ class ContactsPage(QWidget):
                 self.history.clear("Pick one contact to see its history." if not ids else
                                    "History shows one contact at a time.")
                 self.right.setCurrentWidget(self.history)
+        elif self.editor.isEnabled():
+            self._show_contact_pane()
         else:
-            self.right.setCurrentWidget(self.editor if self.editor.isEnabled() else self.placeholder)
+            self.right.setCurrentWidget(self.placeholder)
 
     def _load_history(self, cid: int, name: str) -> None:
         hub = self.hub
@@ -914,7 +964,7 @@ class ContactsPage(QWidget):
             self.select_ids([row.id])
         from app.ui.contacts import quick
 
-        quick.show_menu(self, view.viewport().mapToGlobal(pos))
+        quick.show_menu(self, global_point(view, pos))
 
     # ----------------------------------------------------------------- tools
     def context(self, only: Optional[list[int]] = None) -> openers.Ctx:

@@ -504,6 +504,7 @@
     <Compile Include="app\ui\contacts\person_photo.py" />
     <Compile Include="app\ui\contacts\photos.py" />
     <Compile Include="app\ui\contacts\quick.py" />
+    <Compile Include="app\ui\contacts\reader.py" />
     <Compile Include="app\ui\contacts\review.py" />
     <Compile Include="app\ui\contacts\sidebar.py" />
     <Compile Include="app\ui\contacts\smart.py" />
@@ -1441,6 +1442,7 @@
     <Compile Include="tests\unit\test_ui_aesthetics.py" />
     <Compile Include="tests\unit\test_ui_b_chat.py" />
     <Compile Include="tests\unit\test_ui_b_chat_window.py" />
+    <Compile Include="tests\unit\test_ui_c_contacts.py" />
     <Compile Include="tests\unit\test_ui_consistency.py" />
     <Compile Include="tests\unit\test_ui_handoff.py" />
     <Compile Include="tests\unit\test_ui_never_blocks.py" />
