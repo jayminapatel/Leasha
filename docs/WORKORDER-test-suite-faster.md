@@ -32,7 +32,9 @@ process to check something a lighter fixture could prove (UNCONFIRMED per file -
 
 ## 1. Before starting
 
-- [ ] **1a** Each thread records its four files' times on `main` alone (the "before"), with the machine idle.
+- [x] **1a** Each thread records its four files' times on `main` alone (the "before"), with the machine idle.
+
+  *Done 2026-10-13.* Each §2 item carries its file's before time, measured on `main` alone by its thread.
 
 ## 2. The files, in five groups
 
@@ -359,11 +361,32 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
 
 ## 3. Done when
 
-- [ ] **3a** Every file in §2 has its before and after times written under its item, and every changed test was
+- [x] **3a** Every file in §2 has its before and after times written under its item, and every changed test was
   shown to go red when its behaviour breaks.
-- [ ] **3b** The full suite passes once on the combined result (`scripts/run_suite.py`), and its total time is
+
+  *Done 2026-10-13.* Every §2 item has its before and after times and the breaks that turned its
+  changed tests red, written under it by its thread (#92).
+- [x] **3b** The full suite passes once on the combined result (`scripts/run_suite.py`), and its total time is
   written here against the 5,043 s baseline. Target: the 20 files at **half their time or less** (1,260 s from
   2,520 s); a file that cannot get there says why.
-- [ ] **3c** `logs/suite/durations.json` is refreshed by that run, so the runner balances its parts on the new
+
+  *Done 2026-10-13, on `main` 08aadaa (#92) with `scripts/run_suite.py`, four parts, on the laptop.*
+  17,344 passed, 164 skipped, 1 xfailed, 3 failed, 0 crashed; wall 947 s. The three failures were fixed in #93 and
+  pass (144 tests in their files): the verbatim-labels guard could not read the error box's title, which
+  had moved into `widgets/error_box.py` unchanged; `test_converter_warm` counted `test_lo_session`'s
+  sleeping children in another part as its own; `test_walker` counted another thread's `os.scandir`.
+  **Test time: 2,901 s against the 5,043 s baseline (-42%)**, with 684 timed files against 564.
+  **The 20 files: 535 s against 2,520 s (-79%; target 1,260 s, met).** Per file, before and after:
+  2a 436 -> 1.1, 2b 214 -> 3.7, 2c 114 -> 6.5, 2d 69 -> 12.8, 2e 229 -> 51.7, 2f 94 -> 56.6,
+  2g 83 -> 13.4, 2h 79 -> 21.1, 2i 144 -> 14.0, 2j 137 -> 73.9, 2k 84 -> 42.3, 2l 72 -> 20.6,
+  2m 120 -> 19.1, 2n 119 -> 0.1, 2o 111 -> 75.5, 2p 58 -> 20.5, 2q 108 -> 38.3, 2r 97 -> 23.9,
+  2s 91 -> 13.3, 2t 63 -> 26.5 s. Measured with four parts at once, so a single file's number carries
+  the load of the other three.
+- [x] **3c** `logs/suite/durations.json` is refreshed by that run, so the runner balances its parts on the new
   times.
+
+  *Done 2026-10-13.* That run rewrote `logs/suite/durations.json` (684 files). Read against the source,
+  229 cases (223 test functions in 96 files) took 1 s or more without a `slow` mark now that §2's
+  exemptions end; all are marked (#93), and `test_ui_redesign_scenarios` lets go of its keys, so
+  `KNOWN_INPUT_LEAKERS` is empty (4b, 4f).
 - [ ] **3d** The records: `CHANGELOG.md`, `HANDOFF.md`, and this order's row in `docs/ORDER_REGISTER.md`.
