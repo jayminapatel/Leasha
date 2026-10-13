@@ -1786,6 +1786,7 @@
     <Content Include="docs\WORKORDER-space-report-files-only-inheritance-pst-duplicates.md" />
     <Content Include="docs\WORKORDER-suite-speed.md" />
     <Content Include="docs\WORKORDER-terabyte-scale.md" />
+    <Content Include="docs\WORKORDER-test-suite-faster.md" />
     <Content Include="docs\WORKORDER-tidy-page.md" />
     <Content Include="docs\WORKORDER-zip-archives.md" />
     <Content Include="docs\adding-a-file-type.md" />
