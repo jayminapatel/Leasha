@@ -19,9 +19,10 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QVBoxLayout, QWidget
+from PySide6.QtWidgets import QWidget
 
 from app.ui.later import later
+from app.ui.widgets.page_frame import PageFrame
 
 __all__ = ["ContactsView"]
 
@@ -37,8 +38,7 @@ class ContactsView(QWidget):
         self._service = service
         self._host = host
         self.page: Any = None
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout = PageFrame(self)                 # the one page frame (UI phase B)
         self._layout = layout
 
     # ---------------------------------------------------------------- building
