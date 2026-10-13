@@ -1247,6 +1247,9 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
     #: The width of the viewport at the last look, so a window resize can be
     #: told apart from a drag without asking Qt about the mouse.
     viewport: list = [-1]
+    #: Looks left in which the last column filling the room is Qt's late stretch,
+    #: not a drag: set by `resync`, spent by `look` (see "the stretch landing late").
+    fresh: list = [0]
 
     def widths_now() -> dict:
         """Visible column widths by index, read from the header."""
@@ -1267,6 +1270,7 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
             baseline.update(widths_now())
             settling.clear()
             viewport[0] = _available_width(live())
+            fresh[0] = 2
         except RuntimeError:
             return
 
@@ -1312,6 +1316,20 @@ def remember_widths(table: Any, button: Any, columns: Sequence[tuple[str, str]])
                     and live().horizontalHeader().stretchLastSection()):
                 last = max(current)
                 if last in settled:
+                    settled.remove(last)
+                    baseline[last] = current[last]
+            # **The stretch landing late (2026-10-13).** `resync` can take the
+            # widths before Qt has stretched the last column; the stretch then
+            # fills the room on its own, the viewport unchanged, and it was the
+            # one column that moved - so it settled, alone, and was saved as a
+            # drag (Folder 440 on Files, about one run in two). So for the two
+            # looks after `resync` only, the last column coming to fill the room
+            # exactly is the stretch's; later, a person's drag of it still saves.
+            late, fresh[0] = fresh[0] > 0, max(0, fresh[0] - 1)
+            if late and (settled == [max(current)] if current else False) \
+                    and live().horizontalHeader().stretchLastSection():
+                last = settled[0]
+                if abs(current[last] - (room - (sum(current.values()) - current[last]))) <= 1:
                     settled.remove(last)
                     baseline[last] = current[last]
 
