@@ -359,7 +359,7 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
     `app/accounts/`, the same 63-file selection (every `tests/unit` file that imports it) before and 66 after:
     **78.8% -> 86.2%** (1,776 -> 1,944 of 2,254 -> 2,256 branches); `carddav.py` 68.0% -> 88.9%,
     `graph_contacts.py` 68.3% -> 94.3%, `google_people.py` 74.6% -> 94.1%; nothing lower.
-- [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
+- [x] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
   - *2026-10-13, group B (2e-2h):* **one decision moved.** Whether an opened group stays open on a
@@ -370,6 +370,10 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   - *2026-10-13, Group D:* none of `test_staging.py`, `test_resolve_gpu_regression.py`,
     `test_clip_lane_wiring.py` or `test_ui_never_blocks.py` builds a Qt widget; their time was a device test, a
     model download, repeated staging and repeated parsing. Nothing to move.
+
+  *Done 2026-10-13, groups A, C and E checked by the master thread:* of their twelve files only
+  `test_index_tuning_acceptance.py` builds a Qt widget, and none of its tests takes a second now (1.1 s for the
+  file); the other eleven build none. **Counted: one decision moved** (group B, `presenter.expansions_kept`).
 - [x] **4f** **No more order-dependent failures.** Two found on 2026-10-13: a Ctrl key left held by
   `QTest.keyClick` (#80), and a held mouse button from `mouseDClick`. An autouse fixture in
   `tests/unit/conftest.py` asserts that no key or mouse button is still held after a Qt test. A guard that the
