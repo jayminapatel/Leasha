@@ -120,10 +120,8 @@ class CategoryNav(QWidget):
 
     def retint(self, colours: dict) -> None:
         """Re-render the category icons for a palette (called by the window)."""
-        from PySide6.QtCore import QSize
-
-        from app.ui.widgets.icons import icon
-        self.sidebar.setIconSize(QSize(16, 16))
+        from app.ui.widgets.icons import icon, icon_size
+        self.sidebar.setIconSize(icon_size("list"))
         for row in range(self.sidebar.count()):
             item = self.sidebar.item(row)
             name = self.ICONS.get(item.text())

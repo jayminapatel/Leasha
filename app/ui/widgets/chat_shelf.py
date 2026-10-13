@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from typing import Any, Mapping, Optional
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QSize, Qt, Signal
+from PySide6.QtCore import QEvent, QObject, QPoint, Qt, Signal
 from PySide6.QtGui import QFontMetrics
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QSizePolicy, QToolButton, QVBoxLayout, QWidget,
@@ -36,6 +36,7 @@ from app.core.row_facts import is_message_key
 from app.ui.presenter.chat import SHELF_EMPTY, SHELF_LIST_TIP, Shelf, shelf_count_label
 from app.ui.theme import PALETTES, Theme
 from app.ui.widgets.icons import icon
+from app.ui.widgets.icons import icon_size
 
 __all__ = ["ShelfBar", "NAME_WIDTH"]
 
@@ -94,7 +95,7 @@ class _Chip(QFrame):
         name.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         name.setIcon(icon("mail" if is_message_key(item.path) else "file-text",
                           colours.get("text_dim", "#888888")))
-        name.setIconSize(QSize(16, 16))
+        name.setIconSize(icon_size("list"))
         name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         name.setToolTip(f"Open {item.name}.\n{item.path}")
         name.setAccessibleName(f"Open {item.name}")
@@ -144,7 +145,7 @@ class ShelfBar(QWidget):
         self.button = QToolButton()
         self.button.setObjectName("chatShelfButton")
         self.button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
-        self.button.setIconSize(QSize(16, 16))
+        self.button.setIconSize(icon_size("button"))
         self.button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.button.setToolTip(SHELF_LIST_TIP)
         self.button.setAccessibleName("Documents in scope")

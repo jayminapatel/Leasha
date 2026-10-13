@@ -42,6 +42,7 @@ from app.core.logging import logger
 from app.ui.presenter import GitScope
 from app.ui.view_options import weak_slot
 from app.ui.workers import CallableWorker, _emit, run
+from app.ui.theme import SPACE_XS
 
 __all__ = ["GitTree", "attach_git_tree", "scope_rows", "GIT_VIEW_HINT",
            "ROLE_SCOPE", "paint_repo_state", "draw_git_progress",
@@ -396,7 +397,7 @@ def attach_git_tree(results: Any):
     left = QWidget()
     column = QVBoxLayout(left)
     column.setContentsMargins(0, 0, 0, 0)
-    column.setSpacing(4)
+    column.setSpacing(SPACE_XS)
     column.addWidget(note)
     column.addWidget(tree, 1)
 

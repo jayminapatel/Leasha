@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
 
 from app.ui.first_contact import SUGGESTIONS, greeting
 from app.ui.widgets.flow_layout import FlowLayout
+from app.ui.theme import SPACE_XS, SPACE_S
 
 __all__ = ["SearchHome", "HEADLINE", "BOX_WIDTH"]
 
@@ -94,7 +95,7 @@ class SearchHome(QWidget):
         self.recent.setObjectName("recentList")
         self.recent.setMaximumWidth(BOX_WIDTH)
         self._recent_layout = QVBoxLayout(self.recent)
-        self._recent_layout.setContentsMargins(0, 8, 0, 0)
+        self._recent_layout.setContentsMargins(0, SPACE_S, 0, 0)
         self._recent_layout.setSpacing(6)
         outer.addWidget(self.recent, 0, Qt.AlignmentFlag.AlignHCenter)
         outer.addStretch(4)
@@ -141,7 +142,7 @@ class SearchHome(QWidget):
             self._recent_layout.addWidget(label)
             grid = QGridLayout()
             grid.setHorizontalSpacing(18)
-            grid.setVerticalSpacing(4)
+            grid.setVerticalSpacing(SPACE_XS)
             for n, (shown, insert) in enumerate(tuple(rows)[:6]):
                 row = QToolButton()
                 row.setObjectName("recentRow")

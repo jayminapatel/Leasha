@@ -55,7 +55,10 @@ from app.ui.presenter import (
     kind_expansion, scope_key, slash_context, value_page, value_rows,
     value_suggestions,
 )
-from app.ui.widgets.command_icon import icon_for, text_colour
+from app.ui.widgets.command_icon import (
+    OFFER_PICTURE, VALUE_PICTURE, command_icon, picture_for, text_colour,
+)
+from app.ui.widgets.icons import icon_size
 
 __all__ = [
     "CommandPopup", "attach_to", "CODE_COMMANDS", "FILES_COMMANDS",
@@ -86,6 +89,11 @@ VALUE_ICON = "▹"
 #: ran before, or one they saved. Different from the value glyph on purpose:
 #: these are *theirs*, and the list is not answering a question they asked.
 OFFER_ICON = "↺"
+
+#: The Lucide picture drawn for each of the popup's own glyphs (UI phase B):
+#: the glyph is what `rows` carry and what a test reads; the picture is what is
+#: shown. The breadcrumb's arrow back to the kinds is `undo-2`.
+_GLYPH_PICTURES = {VALUE_ICON: VALUE_PICTURE, OFFER_ICON: OFFER_PICTURE, "←": "undo-2"}
 
 #: How long a fetched value list is trusted. Long enough that arrowing through
 #: a menu costs one query rather than one per keystroke; short enough that an
@@ -200,7 +208,7 @@ class CommandPopup(QCompleter):
             if self._only is None or command.name in self._only
         ]
         self._fill([
-            (command.icon,
+            (picture_for(command), command.icon,
              _ROW.format(example=f"/{command.name}",
                          hint=_hint(command),
                          summary=command.summary))
@@ -284,14 +292,17 @@ class CommandPopup(QCompleter):
         self.setMaxVisibleItems(max(1, min(len(self._values), 12)))
         self._fill([(VALUE_ICON, row) for row in self._rows])
 
-    def _fill(self, rows: Sequence[tuple[str, str]]) -> None:
-        """Replace the model's rows with `(glyph, text)` pairs; each glyph is
-        painted in the popup's own ink.
+    def _fill(self, rows: Sequence[tuple]) -> None:
+        """Replace the model's rows with `(glyph, text)` pairs - or
+        `(picture, glyph, text)` for a switch, whose Lucide picture is its own.
+        Each is drawn in the popup's own ink, at the menu size in `ICON_SIZES`.
         """
         ink = text_colour(self.popup())
+        self.popup().setIconSize(icon_size("menu"))
         self._model.clear()
-        for glyph, text in rows:
-            item = QStandardItem(icon_for(glyph, ink), text)
+        for row in rows:
+            picture, glyph, text = row if len(row) == 3 else (_GLYPH_PICTURES.get(row[0], ""), *row)
+            item = QStandardItem(command_icon(picture, glyph, ink), text)
             item.setEditable(False)
             self._model.appendRow(item)
 

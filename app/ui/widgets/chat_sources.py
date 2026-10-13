@@ -46,6 +46,7 @@ from app.ui.presenter.chat import (
 from app.ui.result_delegate import ROLE_PAYLOAD
 from app.ui.results_view import ResultsView
 from app.ui.widgets.preview import PreviewPane
+from app.ui.theme import SPACE_XS, SPACE_S
 
 __all__ = ["SourcesPane"]
 
@@ -121,8 +122,8 @@ class SourcesPane(QWidget):
         column.addWidget(self.results, stretch=1)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 4, 8)     # off the splitter's hairline
-        layout.setSpacing(8)
+        layout.setContentsMargins(SPACE_S, SPACE_S, SPACE_XS, SPACE_S)     # off the splitter's hairline
+        layout.setSpacing(SPACE_S)
         layout.addWidget(self.list_page, stretch=1)
         layout.addWidget(self.preview, stretch=1)
         layout.addWidget(self.passage)
