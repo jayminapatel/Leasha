@@ -13,7 +13,6 @@ already in carries on.
 from __future__ import annotations
 
 import contextlib
-
 from types import SimpleNamespace
 
 import pytest
