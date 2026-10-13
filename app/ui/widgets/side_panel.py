@@ -75,6 +75,11 @@ def attach(view: Any, side: SideList, *, target: QWidget, row: Any, before: Any,
     outer.setSizes([220, 900])
     view.side_split = outer
     view.side_list = side
+    from app.ui.widgets.page_frame import frame_of
+
+    frame = frame_of(view)
+    if frame is not None:                       # the page frame's optional side list (UI phase B)
+        frame.side = side
 
     def show(on: bool, *, remember: bool = True) -> None:
         page_view = ref()

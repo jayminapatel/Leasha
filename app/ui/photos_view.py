@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpl
 from app.ui.presenter.photos import PHOTOS_COMMANDS, summary, toggle_in_box
 from app.ui.widgets.chips import list_chips, show_page
 from app.ui.widgets.command_popup import attach_to
+from app.ui.widgets.page_frame import PageFrame
 from app.ui.widgets.photo_browser import PhotoBrowser
 from app.ui.widgets.photo_info import PhotoInfo
 # 2026-10-10: the two reads (`library`, `read_box`) and the steps that start them on a
@@ -120,7 +121,7 @@ class PhotosView(QWidget):
         top.addWidget(self.write_button)
         top.addWidget(tree_toggle(self))           # sets `self.tree_button`
         top.addWidget(self.view_button)
-        layout = QVBoxLayout(self)
+        layout = PageFrame(self)                   # UI phase B: one frame for every page
         self.chips = list_chips(self, layout, top, self._run)
         layout.addWidget(self.summary)
         layout.addWidget(self.split, 1)

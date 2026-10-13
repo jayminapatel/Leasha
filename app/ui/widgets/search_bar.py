@@ -349,10 +349,11 @@ def build_toolbar(view: Any, *, controls: Any, status: Any, body: Any) -> Any:
                       sections=getattr(getattr(view, "saved", None), "sections", lambda: ()))
     view.home = home
 
-    layout = QVBoxLayout(view)
-    layout.setContentsMargins(16, 12, 16, 12)
-    layout.setSpacing(8)
-    layout.addLayout(box_row)
+    # UI phase B: the one page frame - Search's margins and rhythm were the model for it.
+    from app.ui.widgets.page_frame import PageFrame
+
+    layout = PageFrame(view)
+    layout.addLayout(box_row)                 # its own spacing: the box's width is the goldens'
     layout.addWidget(bar)
     layout.addWidget(home, 1)
     # Order 1k 6f: a query that names a contact shows their card here, above the results.

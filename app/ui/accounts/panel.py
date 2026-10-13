@@ -26,6 +26,7 @@ from app.ui.accounts import logic, parts
 from app.ui.accounts.backend import Backend
 from app.ui.accounts.parts import ScheduleRow, btn, hint, notice, set_quiet
 from app.ui.widgets.activity_table import ActivityTable
+from app.ui.widgets.dialog_frame import frame
 from app.ui.widgets.select_all import SelectBar
 
 __all__ = ["AccountPanel", "ask_remove", "choose_from"]
@@ -88,8 +89,7 @@ def _drop_mail(factory: Any, account_id: int) -> bool:
 class _RemoveDialog(QDialog):
     def __init__(self, account: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle(f"Remove {account.name}")
-        lay = QVBoxLayout(self)
+        lay = frame(self, f"Remove {account.name}")         # UI phase B: one dialog frame
         lay.addWidget(QLabel(
             f"Removing {account.name} signs Leasha out of it and deletes the password or sign-in "
             "kept for it in Windows Credential Manager. Nothing is changed on the account itself.\n\n"
@@ -137,8 +137,7 @@ def choose_from(parent: Optional[QWidget], title: str, names: list[str], chosen:
                 ) -> Optional[list[str]]:
     """A tree of checkable names; returns the ticked ones, or None when cancelled. Tests replace it."""
     dlg = QDialog(parent)
-    dlg.setWindowTitle(title)
-    lay = QVBoxLayout(dlg)
+    lay = frame(dlg, title)                                  # UI phase B: one dialog frame
     tree = QTreeWidget()
     tree.setHeaderHidden(True)
     tree.setAccessibleName(title)

@@ -49,6 +49,7 @@ from app.index.archives import ARCHIVE, LIVE, normalise
 from app.ui.presenter import nothing_indexed_yet, suggested_roots
 from app.ui.widgets.buttons import icon_button, put_on_row, style_button
 from app.ui.widgets.fitted_tree import FittedColumns
+from app.ui.widgets.page_states import EmptyState
 from app.ui.widgets.result_table import align_headers
 from app.ui.widgets import list_keys, menus
 
@@ -194,8 +195,7 @@ class RootsBox(QGroupBox):
         # to somebody's index without them clicking it - see the privacy
         # defaults order. Hidden the moment there is a root, so an existing
         # install never sees this at all.
-        self.empty = QLabel(nothing_indexed_yet([]))
-        self.empty.setWordWrap(True)
+        self.empty = EmptyState(nothing_indexed_yet([]), glyph="folder", align=Qt.AlignmentFlag.AlignLeft)
 
         self.suggestions = QHBoxLayout()
         self.suggest_all = QPushButton("Add all four")

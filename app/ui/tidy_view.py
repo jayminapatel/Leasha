@@ -16,14 +16,14 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import QThreadPool, Signal
-from PySide6.QtWidgets import (
-    QHBoxLayout, QLabel, QPushButton, QSplitter, QStackedWidget, QTextBrowser,
-    QVBoxLayout, QWidget,
-)
+from PySide6.QtWidgets import (QHBoxLayout, QLabel, QPushButton, QSplitter, QStackedWidget, QTextBrowser,
+                               QVBoxLayout, QWidget)
 
 from app.ui.presenter import tidy as words
 from app.ui.presenter.tidy_marks import TidyMarks
 from app.ui.reports_view import ReportsView
+from app.ui.widgets.page_frame import SPACING, PageFrame
+from app.ui.widgets.page_states import BusyLine
 from app.ui.widgets.side_list import SideList
 from app.ui.widgets.tidy_parts import HistoryPane, read_file_sets, read_quality, read_snapshot
 from app.ui.widgets.tidy_set_pane import TidySetPane
@@ -69,12 +69,10 @@ class TidyView(QWidget):
         self.review.setToolTip("See every marked file, then move them to the Recycle Bin. "
                                "Each is checked again first, and one copy of anything always stays.")
         self.review.clicked.connect(self._review)
-        self.progress = QLabel("")
-        self.progress.setObjectName("resultsSummary")
+        self.progress = BusyLine()                         # UI phase B: the one busy line
         bar = QHBoxLayout()
-        bar.addWidget(self.progress, 1)
-        bar.addWidget(self.queue)
-        bar.addWidget(self.review)
+        for part, stretch in ((self.progress, 1), (self.queue, 0), (self.review, 0)):
+            bar.addWidget(part, stretch)
 
         self.overview = QTextBrowser()
         self.overview.setAccessibleName("What is indexed")
@@ -106,6 +104,7 @@ class TidyView(QWidget):
 
         right = QWidget()
         right_layout = QVBoxLayout(right)
+        right_layout.setContentsMargins(SPACING, 0, 0, 0)  # the frame's rhythm, off the divider
         right_layout.addLayout(bar)
         right_layout.addWidget(self.stack, 1)
         self.split = QSplitter()
@@ -113,7 +112,7 @@ class TidyView(QWidget):
         self.split.addWidget(right)
         self.split.setStretchFactor(0, 1)
         self.split.setStretchFactor(1, 4)
-        QVBoxLayout(self).addWidget(self.split, 1)
+        PageFrame(self).addWidget(self.split, 1)           # UI phase B: one frame for every page
         self.list.select("overview")
         self._update_queue()
 
@@ -131,7 +130,7 @@ class TidyView(QWidget):
         last = () if force or self._snapshot is None else self._snapshot.stamp
         worker = CallableWorker(read_snapshot, self._store, last, component="ui.tidy",
                                 report_progress=True)
-        worker.signals.progress.connect(lambda text: self.progress.setText(str(text)))
+        worker.signals.progress.connect(lambda text: self.progress.start(str(text)))
         worker.signals.finished.connect(self._loaded)
         worker.signals.failed.connect(self.error.emit)
         worker.signals.done.connect(self._done)
@@ -266,9 +265,10 @@ class TidyView(QWidget):
             return
         worker = CallableWorker(carry_out, self._store, plan, yes=True, second_yes=second,
                                 component="ui.tidy.remove", report_progress=True)
-        worker.signals.progress.connect(lambda text: self.progress.setText(str(text)))
+        worker.signals.progress.connect(lambda text: self.progress.start(str(text)))
         worker.signals.finished.connect(self._removed)
         worker.signals.failed.connect(self.error.emit)
+        worker.signals.failed.connect(lambda _e: self.progress.stop(self._said))
         run(QThreadPool.globalInstance(), worker)
 
     def _removed(self, outcome: Any) -> None:

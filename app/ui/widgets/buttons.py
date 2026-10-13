@@ -19,8 +19,8 @@ The rules, in plain English
    left of the space it was given.)
 2. **Buttons that belong together sit in one row** (`button_row`), the
    standard `ROW_SPACING` apart, starting at the left. A dialog's own
-   OK / Cancel row is the one exception: it stays where the operating
-   system's convention puts it (the right), because that is where people look.
+   OK / Cancel row is the one exception: it sits on the right, because that
+   is where people look, with the primary last (`dialog_frame.py`).
 3. **One height and one padding for all of them.** Set in `theme.py`
    (`BUTTON`), not here, so the look lives with the rest of the look. The
    height follows the system font, so "Make text bigger" still grows every

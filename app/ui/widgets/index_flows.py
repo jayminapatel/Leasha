@@ -51,6 +51,7 @@ from PySide6.QtWidgets import (
 )
 from app.ui.theme import theme_colours
 from app.ui.widgets.buttons import style_all
+from app.ui.widgets.dialog_frame import buttons as dialog_buttons, frame
 from app.ui.widgets.model_download import DownloadRow
 from app.ui.widgets.number_field import fit_all as fit_number_fields
 from app.ui.workers import CallableWorker, run
@@ -243,17 +244,13 @@ class IndexLocationDialog(QDialog):
         # The theme's danger, read at build (the dialog is modal): #c62828 was 2.9:1 on a dark card.
         self.problem.setStyleSheet(f"color: {theme_colours()['danger']};")
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = dialog_buttons(self)          # UI phase B: one dialog frame
 
         row = QVBoxLayout()
         row.addWidget(self.destination)
         row.addWidget(browse)
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addWidget(QLabel(f"The index is currently in {current}."))
         layout.addLayout(row)
         layout.addWidget(self.move)
@@ -499,19 +496,14 @@ class RebuildVectorsDialog(QDialog):
         )
         explanation.setWordWrap(True)
 
-        self.buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        self.buttons.button(QDialogButtonBox.StandardButton.Ok).setText("Re-embed everything")
-        self.buttons.accepted.connect(self.accept)
-        self.buttons.rejected.connect(self.reject)
+        self.buttons = dialog_buttons(self, "Re-embed everything")          # UI phase B: one dialog frame
 
         self.download = DownloadRow("embed", model_cache=model_cache)
         self.download.setVisible(bool(model_cache))
         self.model.currentIndexChanged.connect(
             lambda _i: self.download.set_target(self.chosen_model()))
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)
         layout.addWidget(explanation)
         layout.addWidget(self.model)
         layout.addWidget(self.download)

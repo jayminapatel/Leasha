@@ -23,9 +23,10 @@ from typing import Any, Optional, Sequence
 from PySide6.QtCore import Qt, QThreadPool, QTimer
 from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
                              QLabel, QLineEdit, QProgressBar, QPushButton, QRadioButton,
-                             QVBoxLayout, QWidget)
+                             QWidget)
 
 from app.index.photo_metadata import INSIDE, SIDECAR, run_write
+from app.ui.widgets.dialog_frame import frame
 
 __all__ = ["WriteNamesDialog", "run_write"]
 
@@ -113,7 +114,7 @@ class WriteNamesDialog(QDialog):
         self.go.clicked.connect(self.start)
         self.cancel.clicked.connect(self._cancel)
 
-        layout = QVBoxLayout(self)
+        layout = frame(self)                                 # UI phase B: one dialog frame
         layout.addWidget(intro)
         layout.addWidget(QLabel("<b>Which photos</b>"))
         for button in (self.scope_all, self.scope_selected, self.scope_shown):

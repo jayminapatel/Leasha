@@ -176,7 +176,8 @@ def list_chips(view: Any, layout: Any, top: Any, rerun: Any) -> "ChipRow":
     view gains the row without a line of its own.
     """
     chips = ChipRow(view)
-    layout.addLayout(top)
+    # The page's frame (`page_frame.PageFrame`) takes the box's row as its toolbar row.
+    getattr(layout, "add_toolbar", layout.addLayout)(top)
     layout.addWidget(chips)
     view.input.textChanged.connect(chips.show_for)
     chips.text_edited.connect(view.input.setText)

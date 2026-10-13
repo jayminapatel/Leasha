@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (QFormLayout, QFrame, QHBoxLayout, QLabel, QPushBu
                              QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
 from app.ui.presenter.photos import date_text, people_text, size_text
+from app.ui.widgets.page_states import EmptyState
 
 __all__ = ["PhotoInfo", "gather", "CAMERA_TAGS"]
 
@@ -165,9 +166,7 @@ class PhotoInfo(QWidget):
         inner.addLayout(self.camera)
         inner.addWidget(self.name_button, 0, Qt.AlignmentFlag.AlignLeft)
         inner.addStretch(1)
-        self.empty = QLabel("Select a photo to see everything Leasha knows about it.")
-        self.empty.setWordWrap(True)
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty = EmptyState("Select a photo to see everything Leasha knows about it.", glyph="image")
         inner.addWidget(self.empty)
 
         scroll = QScrollArea()
