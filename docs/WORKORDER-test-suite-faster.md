@@ -1,6 +1,6 @@
 # Work order (Parallel threads): the test suite runs faster - the slowest 20 files made lighter, every check kept
 
-**Doc version:** 1.2 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 1.3 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 **Thread:** Seven parallel threads - one per group in §2, one for §4a/4b/4f, one for §4c/4d (`tests/unit/`, `tests/integration/`, test fixtures and
 `tests/unit/conftest.py` only where a group needs it; app code only for a fault a test finds)
 **Status:** RELEASED by the owner 2026-10-13 ("yes do it, use parallel agents"), after asking "we have lots of
@@ -257,7 +257,7 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
   commit the summary as `docs/TEST_COVERAGE.md`, and list:
   - every module under `app/` below 60% branch coverage;
   - every module that no test imports at all.
-- [ ] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
+- [x] **4d** **The gaps that matter, filled.** From 4c, the business-critical paths get tests where they are thin,
   each test first shown to fail when its behaviour breaks:
   - indexing (`app/index/`);
   - search (`app/search/`);
@@ -268,6 +268,70 @@ Measured 2026-10-13, each file alone with `--durations=0`, before (`origin/main`
 
   Target: **80% branch coverage** on these, and everything else **at least where it is today**, never lower.
   Trivial code (getters, `__repr__`, pure re-exports) and generated or vendored files are left out and listed.
+
+  *2026-10-13, the gaps from the static scan (never-imported modules and unpinned promises), in risk order.*
+  Eight new files, 147 tests (counting parametrized cases); every test function was shown red by at least one
+  hand-made break to the app code, run, then undone (79 breaks, listed per file). **Not done here:** indexing and search (`app/index/`, `app/search/`) were not in this
+  thread's list, and the 80% target is not claimed - the coverage numbers come from 4c's separate run.
+  - `test_cov_contacts_merge_safe.py` (`book_actions.plan_safe_merges`, `merge_safe`, on a real hub): two
+    cards with one email are planned and folded into the fuller one; every group of one action is one batch
+    and one `undo_batch` gives every card back exactly; a caller's batch id is used, nothing to merge offers
+    no undo; a group marked safe with a name-only, mixed or empty reason list, a group not flagged safe, and a
+    group with one live card are refused; two people sharing only a name are suggested but never bulk-merged;
+    the survivor holds every value, phone, company and group of what it absorbed; the folded contact keeps
+    its card, sources and a `merged` journal entry naming the survivor; an account link moves to the survivor,
+    a surplus one is queued `pending_remove`, and undo hands the links back. Red: the reason re-check removed;
+    a batch per group; `pick_survivor` taking the first; the merged card not written; a one-card group
+    planned; both safe layers removed (`dupes.safe_groups` and the re-check - either alone is covered by the
+    other); the scan cache served stale (`book_version` ignored and `forget_scan` emptied, likewise).
+  - `test_cov_storage_migration_steps.py` (`_apply_step`, `_roll_back`): a failure in the second of two steps
+    keeps the first and leaves the version after it, `ERR_MIGRATION_FAILED` naming the step; an `AppError`
+    raised by a step is rolled back and passes through as itself; another connection sees the old version
+    while a step runs; a second run applies nothing; a caller's open transaction is committed first, not
+    rolled back with the step; an own-transaction step moves the version once, and a failing one leaves it
+    unchanged; a newer index and a gap in the steps are refused; `_roll_back` never raises, and a failure
+    whose rollback also fails reports the first error. Red: no rollback; the version committed before the
+    step; no second look under the lock; the `AppError` branch removed; the own-transaction first look
+    removed; `_roll_back` unguarded; the caller's transaction not committed; a failure committed; a newer
+    index accepted; a missing step skipped.
+  - `test_cov_accounts_delete_brake.py` (`_too_many`, `_push`, `_apply_master_deletes`, with the `World` of
+    `test_contact_sync_engine.py`): "more than" the count and the share, exactly at each and one past; one
+    delete is never a mass delete; deletes exactly at the limit go through; one past, they wait while a new
+    contact is still written, stay held on the next sync, and Allow carries them out; the master deleting
+    exactly the limit is carried out to the Bin; past it, the contacts are only flagged, what was pulled is
+    kept, the run is recorded `held` with its count, a flag counts again until Allow, and Allow deletes them.
+    Red: `>=` for the count; `>=` for the share; the single-delete exception removed; the push holding all
+    work; the push brake off; the master brake skipped; Allow ignored at the master; the earlier flags not
+    counted again.
+  - `test_cov_core_errors_guard.py` (`guard`, `to_app_error`): an unexpected exception becomes
+    `ERR_UNEXPECTED` with its component, its context and its traceback, the cause chained; a chosen code
+    fills its message from the context; an `AppErrorException` passes through as the same object whatever
+    code is asked; an interrupt is not converted; caller details are kept beside the traceback. Red: the
+    fix below reverted; `guard` wrapping app errors; no pass-through in `to_app_error`; `BaseException`
+    caught; `from None`; the traceback dropped; the context dropped; a caller's suggestion dropped.
+  - `test_cov_contacts_enrich_quoted.py`, `..._sigplaces.py`, `..._suggest.py`,
+    `test_cov_accounts_providers_common.py` (`_common` and `_mailcommon`): the Sent line in seven shapes; a
+    quoted block credited only to its own From address, none for a From with no address; quote marks off;
+    `mail_quoting` to-and-not-from, newest first, window and limit, through the trigram index and the scan;
+    countries whole and longest first, cities as written, domain endings, the region's order of evidence;
+    automatic senders and people who are not; suggestions skip the book (Bin included), the owner and robots,
+    keep the minimum, the limit and the order, and accepting is one sourced batch that never runs twice; each
+    HTTP status and body to its registered error, short error text, times, tokens, refused DOCTYPEs and
+    entities, base64url, a transport close that never fails. Red: 12 breaks in `quoted`, 8 in `sigplaces`
+    (the fix below reverted among them), 9 in `suggest`, 17 in the two provider modules. Three breaks stayed
+    green and are not claimed: the fraction-cutting in `parse_time` and in `epoch_from_iso` cannot be
+    falsified on Python 3.12, whose `fromisoformat` reads seven digits itself, and `b64url_decode`'s padding
+    arithmetic cannot either, because `base64` ignores surplus padding (no padding at all does go red).
+  - **Two faults found and fixed.** `to_app_error(exc, c, details=...)` - and so `guard(c, details=...)` -
+    passed `details` to `make_error` twice and raised a `TypeError` in place of the error it was reporting
+    (`app/core/errors.py`; caller details are now kept above the traceback). `sigplaces.city_in` never gave
+    a city of two or more words back as written ("ABU DHABI" came back "Abu Dhabi"): `re.escape` escapes the
+    space, so replacing the space afterwards left a pattern that matched nothing (`app/contacts/enrich/sigplaces.py`;
+    its only caller, `sigparse`, uses the answer as a yes or no, so no address changes).
+  - **One question for the owner, not changed:** a merge does not carry the folded contact's sources
+    (`contact_sources`) to the survivor - they stay on the folded contact in the Bin, so a value it brought
+    shows no source on the survivor until the merge is undone. Whether the survivor should inherit them is
+    a product decision.
 - [ ] **4e** **Logic out of Qt where a test is slow because of Qt.** Where a slow Qt test checks a decision rather
   than a widget, the decision moves to its presenter (the existing 250-line view rule, `test_presenter.py`) and
   is tested without Qt. The Qt test keeps only the wiring. Done file by file inside §2, and counted here.
