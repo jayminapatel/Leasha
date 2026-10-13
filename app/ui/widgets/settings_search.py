@@ -31,6 +31,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtWidgets import QListWidget, QListWidgetItem, QWidget
 
 from app.core import settings_registry as reg
+from app.ui.later import later
 
 __all__ = ["FOUND_PROPERTY", "FOUND_MS", "attach", "fill_found", "found_settings", "go_to_first",
            "go_to_item", "go_to_setting", "KeysToList"]
@@ -128,7 +129,7 @@ def go_to_setting(view: Any, key: str) -> bool:
     widget.setFocus(Qt.FocusReason.OtherFocusReason)
     _scroll_to(view, widget)
     # Once more after the layout has settled: a page just shown has no geometry yet.
-    QTimer.singleShot(0, lambda: _scroll_to(view, widget))
+    later(widget, 0, lambda: _scroll_to(view, widget))   # not if the page has gone
     return True
 
 
@@ -141,7 +142,7 @@ def go_to_item(view: Any, item: Optional[QListWidgetItem]) -> None:
     if item is None:
         return
     key = str(item.data(Qt.ItemDataRole.UserRole))
-    QTimer.singleShot(0, lambda: go_to_setting(view, key))
+    later(view, 0, lambda: go_to_setting(view, key))      # not if Settings has closed
 
 
 def go_to_first(view: Any) -> bool:
