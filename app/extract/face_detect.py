@@ -305,12 +305,18 @@ def detect_faces(path: Path, *, data: Optional[bytes] = None) -> list[FaceDetect
                   path.name, type(exc).__name__, exc)
         return []
 
+    from app.core.face_size import big_enough
+
     out: list[FaceDetection] = []
     for face in faces:
         embedding = getattr(face, "normed_embedding", None)
         if embedding is None:
             continue                                # detected, not embeddable - skip it
         x1, y1, x2, y2 = (float(v) for v in face.bbox)
+        # 2026-10-14: a face in the background of a group photo, too small to
+        # match or to recognise (`app.core.face_size` has the measurement).
+        if not big_enough(x2 - x1, y2 - y1):
+            continue
         out.append(FaceDetection(
             bbox=(x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)),
             embedding=embedding.astype("float32").tobytes(),

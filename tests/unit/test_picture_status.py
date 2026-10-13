@@ -36,8 +36,9 @@ def test_the_counts_follow_a_photo_library(store):
     for file_id in ids[1:3]:                     # read, no text, waiting for tags
         store.mark_skipped(file_id, make_error("ERR_NO_TEXT_LAYER", "extract.ocr"))
     store.note_photo_untaggable(ids[2])          # ... one with nothing to say
-    face = store.add_face(ids[0], (0, 0, 1, 1), fc.to_bytes([1.0, 0.0]))
-    store.add_face(ids[0], (0, 0, 1, 1), fc.to_bytes([0.0, 1.0]))
+    # Real-sized faces: one under `SMALLEST_FACE_PX` is not counted as to sort.
+    face = store.add_face(ids[0], (0, 0, 80, 80), fc.to_bytes([1.0, 0.0]))
+    store.add_face(ids[0], (0, 0, 80, 80), fc.to_bytes([0.0, 1.0]))
     store.mark_face_scanned(ids[0])
     store.split_pile([face])
 
