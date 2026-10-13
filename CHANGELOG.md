@@ -1,6 +1,6 @@
 # Changelog
 
-**Doc version:** 4.128 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
+**Doc version:** 4.129 · **Updated:** 2026-10-13 · **Applies to:** app v1.0.3
 
 All notable changes to this project are recorded here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
@@ -17,6 +17,17 @@ versioning follows the scheme in `docs/VERSIONING.md`.
 
 ## [Unreleased]
 
+### Microsoft mail sync, faster (2026-10-13)
+
+- **Measured before:** about 59 messages a minute on the owner's Microsoft account. A page of 50 spent ~25 s
+  downloading one message at a time, each on a new TLS connection (~240 ms against ~50 ms kept), ~6 s reading them
+  and ~19 s embedding (~250 passages at ~13 a second on the CPU), each step waiting for the last.
+- **Now:** Graph mail uses the kept-connection transport the contact sync has (order 1t); each page's messages are
+  downloaded four at a time (Graph's limit for one mailbox), in Graph's order; and the next page is read while this
+  one is parsed, written and embedded (`mail_sync._ReadAhead`). A page read ahead and not applied is read again by
+  the next sync; tokens are saved as before. The network part of a page measured 12.6 s before, 0.9 s after
+  (48 requests to graph.microsoft.com). Whole-sync rate after: UNVERIFIED until the owner's account syncs with
+  this build; embedding is now the slowest step.
 ### One app, phase B: tooltips, icons, spacing and the style guide (2026-10-13)
 
 - **The `/` menus show a picture for every switch** - in Search, Code, Mail, Files, Contacts and the Chat box -
